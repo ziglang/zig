@@ -152,6 +152,11 @@ The relevant tests for this feature are:
    same, and that the program exits cleanly. This kind of test coverage is preferred, when
    possible, because it makes sure that the resulting Zig code is actually viable.
 
+ * `test/stage1/behavior/translate_c_macros.zig` - each test case consists of a Zig test 
+   which checks that the relevant macros in `test/stage1/behavior/translate_c_macros.h`.
+   have the correct values. Macros have to be tested separately since they are expanded by
+   Clang in `run_translated_c` tests.
+
  * `test/translate_c.zig` - each test case is C code, with a list of expected strings which
    must be found in the resulting Zig code. This kind of test is more precise in what it
    measures, but does not provide test coverage of whether the resulting Zig code is valid.

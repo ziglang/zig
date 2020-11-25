@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // JSON parser conforming to RFC8259.
 //
 // https://tools.ietf.org/html/rfc8259
@@ -239,7 +244,7 @@ pub const StreamingParser = struct {
         NullLiteral3,
 
         // Only call this function to generate array/object final state.
-        pub fn fromInt(x: var) State {
+        pub fn fromInt(x: anytype) State {
             debug.assert(x == 0 or x == 1);
             const T = @TagType(State);
             return @intToEnum(State, @intCast(T, x));
@@ -370,7 +375,7 @@ pub const StreamingParser = struct {
                 '}' => {
                     // unlikely
                     if (p.stack & 1 != object_bit) {
-                        return error.UnexpectedClosingBracket;
+                        return error.UnexpectedClosingBrace;
                     }
                     if (p.stack_used == 0) {
                         return error.TooManyClosingItems;
@@ -396,7 +401,7 @@ pub const StreamingParser = struct {
                 },
                 ']' => {
                     if (p.stack & 1 != array_bit) {
-                        return error.UnexpectedClosingBrace;
+                        return error.UnexpectedClosingBracket;
                     }
                     if (p.stack_used == 0) {
                         return error.TooManyClosingItems;
@@ -566,8 +571,11 @@ pub const StreamingParser = struct {
                     p.state = .ValueBeginNoClosing;
                 },
                 ']' => {
+                    if (p.stack & 1 != array_bit) {
+                        return error.UnexpectedClosingBracket;
+                    }
                     if (p.stack_used == 0) {
-                        return error.UnbalancedBrackets;
+                        return error.TooManyClosingItems;
                     }
 
                     p.state = .ValueEnd;
@@ -584,8 +592,12 @@ pub const StreamingParser = struct {
                     token.* = Token.ArrayEnd;
                 },
                 '}' => {
+                    // unlikely
+                    if (p.stack & 1 != object_bit) {
+                        return error.UnexpectedClosingBrace;
+                    }
                     if (p.stack_used == 0) {
-                        return error.UnbalancedBraces;
+                        return error.TooManyClosingItems;
                     }
 
                     p.state = .ValueEnd;
@@ -1184,6 +1196,15 @@ test "json.token" {
     testing.expect((try p.next()) == null);
 }
 
+test "json.token mismatched close" {
+    var p = TokenStream.init("[102, 111, 111 }");
+    checkNext(&p, .ArrayBegin);
+    checkNext(&p, .Number);
+    checkNext(&p, .Number);
+    checkNext(&p, .Number);
+    testing.expectError(error.UnexpectedClosingBrace, p.next());
+}
+
 /// Validate a JSON string. This does not limit number precision so a decoder may not necessarily
 /// be able to decode the string even if this returns true.
 pub fn validate(s: []const u8) bool {
@@ -1202,7 +1223,12 @@ pub fn validate(s: []const u8) bool {
 }
 
 test "json.validate" {
-    testing.expect(validate("{}"));
+    testing.expectEqual(true, validate("{}"));
+    testing.expectEqual(true, validate("[]"));
+    testing.expectEqual(true, validate("[{[[[[{}]]]]}]"));
+    testing.expectEqual(false, validate("{]"));
+    testing.expectEqual(false, validate("[}"));
+    testing.expectEqual(false, validate("{{{{[]}}}]"));
 }
 
 const Allocator = std.mem.Allocator;
@@ -1236,7 +1262,7 @@ pub const Value = union(enum) {
     pub fn jsonStringify(
         value: @This(),
         options: StringifyOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) @TypeOf(out_stream).Error!void {
         switch (value) {
             .Null => try stringify(null, options, out_stream),
@@ -1244,7 +1270,7 @@ pub const Value = union(enum) {
             .Integer => |inner| try stringify(inner, options, out_stream),
             .Float => |inner| try stringify(inner, options, out_stream),
             .String => |inner| try stringify(inner, options, out_stream),
-            .Array => |inner| try stringify(inner.span(), options, out_stream),
+            .Array => |inner| try stringify(inner.items, options, out_stream),
             .Object => |inner| {
                 try out_stream.writeByte('{');
                 var field_output = false;
@@ -1288,7 +1314,7 @@ pub const Value = union(enum) {
         var held = std.debug.getStderrMutex().acquire();
         defer held.release();
 
-        const stderr = std.debug.getStderrStream();
+        const stderr = std.io.getStdErr().writer();
         std.json.stringify(self, std.json.StringifyOptions{ .whitespace = null }, stderr) catch return;
     }
 };
@@ -1418,7 +1444,10 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             if (unionInfo.tag_type) |_| {
                 // try each of the union fields until we find one that matches
                 inline for (unionInfo.fields) |u_field| {
-                    if (parseInternal(u_field.field_type, token, tokens, options)) |value| {
+                    // take a copy of tokens so we can withhold mutations until success
+                    var tokens_copy = tokens.*;
+                    if (parseInternal(u_field.field_type, token, &tokens_copy, options)) |value| {
+                        tokens.* = tokens_copy;
                         return @unionInit(T, u_field.name, value);
                     } else |err| {
                         // Bubble up error.OutOfMemory
@@ -1535,7 +1564,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             const allocator = options.allocator orelse return error.AllocatorRequired;
             switch (ptrInfo.size) {
                 .One => {
-                    const r: T = allocator.create(ptrInfo.child);
+                    const r: T = try allocator.create(ptrInfo.child);
                     r.* = try parseInternal(ptrInfo.child, token, tokens, options);
                     return r;
                 },
@@ -1567,7 +1596,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                             switch (stringToken.escapes) {
-                                .None => return mem.dupe(allocator, u8, source_slice),
+                                .None => return allocator.dupe(u8, source_slice),
                                 .Some => |some_escapes| {
                                     const output = try allocator.alloc(u8, stringToken.decodedLength());
                                     errdefer allocator.free(output);
@@ -1605,7 +1634,7 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         .Union => |unionInfo| {
             if (unionInfo.tag_type) |UnionTagType| {
                 inline for (unionInfo.fields) |u_field| {
-                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                    if (value == @field(UnionTagType, u_field.name)) {
                         parseFree(u_field.field_type, @field(value, u_field.name), options);
                         break;
                     }
@@ -1629,7 +1658,7 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
             switch (ptrInfo.size) {
                 .One => {
                     parseFree(ptrInfo.child, value.*, options);
-                    allocator.destroy(v);
+                    allocator.destroy(value);
                 },
                 .Slice => {
                     for (value) |v| {
@@ -1732,6 +1761,14 @@ test "parse into tagged union" {
             y: u8,
         };
         testing.expectEqual(T{ .x = 42 }, try parse(T, &TokenStream.init("42"), ParseOptions{}));
+    }
+
+    { // needs to back out when first union member doesn't match
+        const T = union(enum) {
+            A: struct { x: u32 },
+            B: struct { y: u32 },
+        };
+        testing.expectEqual(T{ .B = .{ .y = 42 } }, try parse(T, &TokenStream.init("{\"y\":42}"), ParseOptions{}));
     }
 }
 
@@ -2020,7 +2057,7 @@ pub const Parser = struct {
     }
 
     fn pushToParent(p: *Parser, value: *const Value) !void {
-        switch (p.stack.span()[p.stack.items.len - 1]) {
+        switch (p.stack.items[p.stack.items.len - 1]) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
                 _ = p.stack.pop();
@@ -2043,7 +2080,7 @@ pub const Parser = struct {
     fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayloadType(Token, Token.String), input: []const u8, i: usize) !Value {
         const slice = s.slice(input, i);
         switch (s.escapes) {
-            .None => return Value{ .String = if (p.copy_strings) try mem.dupe(allocator, u8, slice) else slice },
+            .None => return Value{ .String = if (p.copy_strings) try allocator.dupe(u8, slice) else slice },
             .Some => |some_escapes| {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);
@@ -2109,7 +2146,11 @@ fn unescapeString(output: []u8, input: []const u8) !void {
 
                 const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex + 8 .. inIndex + 12], 16) catch unreachable;
 
-                if (std.unicode.utf16leToUtf8(output[outIndex..], &[2]u16{ firstCodeUnit, secondCodeUnit })) |byteCount| {
+                const utf16le_seq = [2]u16{
+                    mem.nativeToLittle(u16, firstCodeUnit),
+                    mem.nativeToLittle(u16, secondCodeUnit),
+                };
+                if (std.unicode.utf16leToUtf8(output[outIndex..], &utf16le_seq)) |byteCount| {
                     outIndex += byteCount;
                     inIndex += 12;
                 } else |_| {
@@ -2149,27 +2190,27 @@ test "json.parser.dynamic" {
 
     var root = tree.root;
 
-    var image = root.Object.get("Image").?.value;
+    var image = root.Object.get("Image").?;
 
-    const width = image.Object.get("Width").?.value;
+    const width = image.Object.get("Width").?;
     testing.expect(width.Integer == 800);
 
-    const height = image.Object.get("Height").?.value;
+    const height = image.Object.get("Height").?;
     testing.expect(height.Integer == 600);
 
-    const title = image.Object.get("Title").?.value;
+    const title = image.Object.get("Title").?;
     testing.expect(mem.eql(u8, title.String, "View from 15th Floor"));
 
-    const animated = image.Object.get("Animated").?.value;
+    const animated = image.Object.get("Animated").?;
     testing.expect(animated.Bool == false);
 
-    const array_of_object = image.Object.get("ArrayOfObject").?.value;
+    const array_of_object = image.Object.get("ArrayOfObject").?;
     testing.expect(array_of_object.Array.items.len == 1);
 
-    const obj0 = array_of_object.Array.items[0].Object.get("n").?.value;
+    const obj0 = array_of_object.Array.items[0].Object.get("n").?;
     testing.expect(mem.eql(u8, obj0.String, "m"));
 
-    const double = image.Object.get("double").?.value;
+    const double = image.Object.get("double").?;
     testing.expect(double.Float == 1.3412);
 }
 
@@ -2217,12 +2258,12 @@ test "write json then parse it" {
     var tree = try parser.parse(fixed_buffer_stream.getWritten());
     defer tree.deinit();
 
-    testing.expect(tree.root.Object.get("f").?.value.Bool == false);
-    testing.expect(tree.root.Object.get("t").?.value.Bool == true);
-    testing.expect(tree.root.Object.get("int").?.value.Integer == 1234);
-    testing.expect(tree.root.Object.get("array").?.value.Array.items[0].Null == {});
-    testing.expect(tree.root.Object.get("array").?.value.Array.items[1].Float == 12.34);
-    testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
+    testing.expect(tree.root.Object.get("f").?.Bool == false);
+    testing.expect(tree.root.Object.get("t").?.Bool == true);
+    testing.expect(tree.root.Object.get("int").?.Integer == 1234);
+    testing.expect(tree.root.Object.get("array").?.Array.items[0].Null == {});
+    testing.expect(tree.root.Object.get("array").?.Array.items[1].Float == 12.34);
+    testing.expect(mem.eql(u8, tree.root.Object.get("str").?.String, "hello"));
 }
 
 fn test_parse(arena_allocator: *std.mem.Allocator, json_str: []const u8) !Value {
@@ -2245,13 +2286,10 @@ test "integer after float has proper type" {
         \\  "ints": [1, 2, 3]
         \\}
     );
-    std.testing.expect(json.Object.getValue("ints").?.Array.items[0] == .Integer);
+    std.testing.expect(json.Object.get("ints").?.Array.items[0] == .Integer);
 }
 
 test "escaped characters" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const input =
@@ -2271,22 +2309,19 @@ test "escaped characters" {
 
     const obj = (try test_parse(&arena_allocator.allocator, input)).Object;
 
-    testing.expectEqualSlices(u8, obj.get("backslash").?.value.String, "\\");
-    testing.expectEqualSlices(u8, obj.get("forwardslash").?.value.String, "/");
-    testing.expectEqualSlices(u8, obj.get("newline").?.value.String, "\n");
-    testing.expectEqualSlices(u8, obj.get("carriagereturn").?.value.String, "\r");
-    testing.expectEqualSlices(u8, obj.get("tab").?.value.String, "\t");
-    testing.expectEqualSlices(u8, obj.get("formfeed").?.value.String, "\x0C");
-    testing.expectEqualSlices(u8, obj.get("backspace").?.value.String, "\x08");
-    testing.expectEqualSlices(u8, obj.get("doublequote").?.value.String, "\"");
-    testing.expectEqualSlices(u8, obj.get("unicode").?.value.String, "ą");
-    testing.expectEqualSlices(u8, obj.get("surrogatepair").?.value.String, "😂");
+    testing.expectEqualSlices(u8, obj.get("backslash").?.String, "\\");
+    testing.expectEqualSlices(u8, obj.get("forwardslash").?.String, "/");
+    testing.expectEqualSlices(u8, obj.get("newline").?.String, "\n");
+    testing.expectEqualSlices(u8, obj.get("carriagereturn").?.String, "\r");
+    testing.expectEqualSlices(u8, obj.get("tab").?.String, "\t");
+    testing.expectEqualSlices(u8, obj.get("formfeed").?.String, "\x0C");
+    testing.expectEqualSlices(u8, obj.get("backspace").?.String, "\x08");
+    testing.expectEqualSlices(u8, obj.get("doublequote").?.String, "\"");
+    testing.expectEqualSlices(u8, obj.get("unicode").?.String, "ą");
+    testing.expectEqualSlices(u8, obj.get("surrogatepair").?.String, "😂");
 }
 
 test "string copy option" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     const input =
         \\{
         \\  "noescape": "aą😂",
@@ -2306,11 +2341,11 @@ test "string copy option" {
     const obj_copy = tree_copy.root.Object;
 
     for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
-        testing.expectEqualSlices(u8, obj_nocopy.getValue(field_name).?.String, obj_copy.getValue(field_name).?.String);
+        testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.String, obj_copy.get(field_name).?.String);
     }
 
-    const nocopy_addr = &obj_nocopy.getValue("noescape").?.String[0];
-    const copy_addr = &obj_copy.getValue("noescape").?.String[0];
+    const nocopy_addr = &obj_nocopy.get("noescape").?.String[0];
+    const copy_addr = &obj_copy.get("noescape").?.String[0];
 
     var found_nocopy = false;
     for (input) |_, index| {
@@ -2338,7 +2373,7 @@ pub const StringifyOptions = struct {
 
         pub fn outputIndent(
             whitespace: @This(),
-            out_stream: var,
+            out_stream: anytype,
         ) @TypeOf(out_stream).Error!void {
             var char: u8 = undefined;
             var n_chars: usize = undefined;
@@ -2380,7 +2415,7 @@ pub const StringifyOptions = struct {
 
 fn outputUnicodeEscape(
     codepoint: u21,
-    out_stream: var,
+    out_stream: anytype,
 ) !void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
@@ -2402,9 +2437,9 @@ fn outputUnicodeEscape(
 }
 
 pub fn stringify(
-    value: var,
+    value: anytype,
     options: StringifyOptions,
-    out_stream: var,
+    out_stream: anytype,
 ) @TypeOf(out_stream).Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
@@ -2442,7 +2477,7 @@ pub fn stringify(
             const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
                 inline for (info.fields) |u_field| {
-                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                    if (value == @field(UnionTagType, u_field.name)) {
                         return try stringify(@field(value, u_field.name), options, out_stream);
                     }
                 }
@@ -2575,12 +2610,16 @@ pub fn stringify(
             else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
         },
         .Array => return stringify(&value, options, out_stream),
+        .Vector => |info| {
+            const array: [info.len]info.child = value;
+            return stringify(&array, options, out_stream);
+        },
         else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
     }
     unreachable;
 }
 
-fn teststringify(expected: []const u8, value: var, options: StringifyOptions) !void {
+fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
     const ValidationOutStream = struct {
         const Self = @This();
         pub const OutStream = std.io.OutStream(*Self, Error, write);
@@ -2701,9 +2740,9 @@ test "stringify struct with indentation" {
         \\}
     ,
         struct {
-                foo: u32,
-                bar: [3]u32,
-            }{
+            foo: u32,
+            bar: [3]u32,
+        }{
             .foo = 42,
             .bar = .{ 1, 2, 3 },
         },
@@ -2714,9 +2753,9 @@ test "stringify struct with indentation" {
     try teststringify(
         "{\n\t\"foo\":42,\n\t\"bar\":[\n\t\t1,\n\t\t2,\n\t\t3\n\t]\n}",
         struct {
-                foo: u32,
-                bar: [3]u32,
-            }{
+            foo: u32,
+            bar: [3]u32,
+        }{
             .foo = 42,
             .bar = .{ 1, 2, 3 },
         },
@@ -2754,11 +2793,15 @@ test "stringify struct with custom stringifier" {
         pub fn jsonStringify(
             value: Self,
             options: StringifyOptions,
-            out_stream: var,
+            out_stream: anytype,
         ) !void {
             try out_stream.writeAll("[\"something special\",");
             try stringify(42, options, out_stream);
             try out_stream.writeByte(']');
         }
     }{ .foo = 42 }, StringifyOptions{});
+}
+
+test "stringify vector" {
+    try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
 }

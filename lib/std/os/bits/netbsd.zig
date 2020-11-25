@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../../std.zig");
 const builtin = std.builtin;
 const maxInt = std.math.maxInt;
@@ -148,13 +153,7 @@ pub const msghdr_const = extern struct {
     msg_flags: i32,
 };
 
-/// Renamed to Stat to not conflict with the stat function.
-/// atime, mtime, and ctime have functions to return `timespec`,
-/// because although this is a POSIX API, the layout and names of
-/// the structs are inconsistent across operating systems, and
-/// in C, macros are used to hide the differences. Here we use
-/// methods to accomplish this.
-pub const Stat = extern struct {
+pub const libc_stat = extern struct {
     dev: dev_t,
     mode: mode_t,
     ino: ino_t,
@@ -173,15 +172,15 @@ pub const Stat = extern struct {
     gen: u32,
     __spare: [2]u32,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
 };
@@ -1164,3 +1163,36 @@ pub const IPPROTO_PFSYNC = 240;
 
 /// raw IP packet
 pub const IPPROTO_RAW = 255;
+
+pub const rlimit_resource = extern enum(c_int) {
+    CPU = 0,
+    FSIZE = 1,
+    DATA = 2,
+    STACK = 3,
+    CORE = 4,
+    RSS = 5,
+    MEMLOCK = 6,
+    NPROC = 7,
+    NOFILE = 8,
+    SBSIZE = 9,
+    AS = 10,
+    VMEM = 10,
+    NTHR = 11,
+
+    _,
+};
+
+pub const rlim_t = u64;
+
+/// No limit
+pub const RLIM_INFINITY: rlim_t = (1 << 63) - 1;
+
+pub const RLIM_SAVED_MAX = RLIM_INFINITY;
+pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+
+pub const rlimit = extern struct {
+    /// Soft limit
+    cur: rlim_t,
+    /// Hard limit
+    max: rlim_t,
+};

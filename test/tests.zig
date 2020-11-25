@@ -234,7 +234,7 @@ const test_targets = blk: {
         TestTarget{
             .target = .{
                 .cpu_arch = .x86_64,
-                .os_tag = .macosx,
+                .os_tag = .macos,
                 .abi = .gnu,
             },
             // https://github.com/ziglang/zig/issues/3295
@@ -537,6 +537,7 @@ pub fn addPkgTests(
         these_tests.enable_qemu = is_qemu_enabled;
         these_tests.enable_wasmtime = is_wasmtime_enabled;
         these_tests.glibc_multi_install_dir = glibc_dir;
+        these_tests.addIncludeDir("test");
 
         step.dependOn(&these_tests.step);
     }
@@ -609,7 +610,7 @@ pub const StackTracesContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunAndCompareStep) catch unreachable;
             ptr.* = RunAndCompareStep{
-                .step = build.Step.init("StackTraceCompareOutputStep", allocator, make),
+                .step = build.Step.init(.Custom, "StackTraceCompareOutputStep", allocator, make),
                 .context = context,
                 .exe = exe,
                 .name = name,
@@ -633,7 +634,7 @@ pub const StackTracesContext = struct {
 
             warn("Test {}/{} {}...", .{ self.test_index + 1, self.context.test_index, self.name });
 
-            const child = std.ChildProcess.init(args.span(), b.allocator) catch unreachable;
+            const child = std.ChildProcess.init(args.items, b.allocator) catch unreachable;
             defer child.deinit();
 
             child.stdin_behavior = .Ignore;
@@ -642,14 +643,15 @@ pub const StackTracesContext = struct {
             child.env_map = b.env_map;
 
             if (b.verbose) {
-                printInvocation(args.span());
+                printInvocation(args.items);
             }
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
 
             const stdout = child.stdout.?.inStream().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
             defer b.allocator.free(stdout);
-            var stderr = child.stderr.?.inStream().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
-            defer b.allocator.free(stderr);
+            const stderrFull = child.stderr.?.inStream().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
+            defer b.allocator.free(stderrFull);
+            var stderr = stderrFull;
 
             const term = child.wait() catch |err| {
                 debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
@@ -664,23 +666,23 @@ pub const StackTracesContext = struct {
                             code,
                             expect_code,
                         });
-                        printInvocation(args.span());
+                        printInvocation(args.items);
                         return error.TestFailed;
                     }
                 },
                 .Signal => |signum| {
                     warn("Process {} terminated on signal {}\n", .{ full_exe_path, signum });
-                    printInvocation(args.span());
+                    printInvocation(args.items);
                     return error.TestFailed;
                 },
                 .Stopped => |signum| {
                     warn("Process {} stopped on signal {}\n", .{ full_exe_path, signum });
-                    printInvocation(args.span());
+                    printInvocation(args.items);
                     return error.TestFailed;
                 },
                 .Unknown => |code| {
                     warn("Process {} terminated unexpectedly with error code {}\n", .{ full_exe_path, code });
-                    printInvocation(args.span());
+                    printInvocation(args.items);
                     return error.TestFailed;
                 },
             }
@@ -808,7 +810,7 @@ pub const CompileErrorContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(CompileCmpOutputStep) catch unreachable;
             ptr.* = CompileCmpOutputStep{
-                .step = build.Step.init("CompileCmpOutput", allocator, make),
+                .step = build.Step.init(.Custom, "CompileCmpOutput", allocator, make),
                 .context = context,
                 .name = name,
                 .test_index = context.test_index,
@@ -835,34 +837,27 @@ pub const CompileErrorContext = struct {
             } else {
                 try zig_args.append("build-obj");
             }
-            const root_src_basename = self.case.sources.span()[0].filename;
+            const root_src_basename = self.case.sources.items[0].filename;
             try zig_args.append(self.write_src.getOutputPath(root_src_basename));
 
             zig_args.append("--name") catch unreachable;
             zig_args.append("test") catch unreachable;
-
-            zig_args.append("--output-dir") catch unreachable;
-            zig_args.append(b.pathFromRoot(b.cache_root)) catch unreachable;
 
             if (!self.case.target.isNative()) {
                 try zig_args.append("-target");
                 try zig_args.append(try self.case.target.zigTriple(b.allocator));
             }
 
-            switch (self.build_mode) {
-                Mode.Debug => {},
-                Mode.ReleaseSafe => zig_args.append("--release-safe") catch unreachable,
-                Mode.ReleaseFast => zig_args.append("--release-fast") catch unreachable,
-                Mode.ReleaseSmall => zig_args.append("--release-small") catch unreachable,
-            }
+            zig_args.append("-O") catch unreachable;
+            zig_args.append(@tagName(self.build_mode)) catch unreachable;
 
             warn("Test {}/{} {}...", .{ self.test_index + 1, self.context.test_index, self.name });
 
             if (b.verbose) {
-                printInvocation(zig_args.span());
+                printInvocation(zig_args.items);
             }
 
-            const child = std.ChildProcess.init(zig_args.span(), b.allocator) catch unreachable;
+            const child = std.ChildProcess.init(zig_args.items, b.allocator) catch unreachable;
             defer child.deinit();
 
             child.env_map = b.env_map;
@@ -884,19 +879,19 @@ pub const CompileErrorContext = struct {
             switch (term) {
                 .Exited => |code| {
                     if (code == 0) {
-                        printInvocation(zig_args.span());
+                        printInvocation(zig_args.items);
                         return error.CompilationIncorrectlySucceeded;
                     }
                 },
                 else => {
                     warn("Process {} terminated unexpectedly\n", .{b.zig_exe});
-                    printInvocation(zig_args.span());
+                    printInvocation(zig_args.items);
                     return error.TestFailed;
                 },
             }
 
-            const stdout = stdout_buf.span();
-            const stderr = stderr_buf.span();
+            const stdout = stdout_buf.items;
+            const stderr = stderr_buf.items;
 
             if (stdout.len != 0) {
                 warn(
@@ -925,12 +920,12 @@ pub const CompileErrorContext = struct {
 
                 if (!ok) {
                     warn("\n======== Expected these compile errors: ========\n", .{});
-                    for (self.case.expected_errors.span()) |expected| {
+                    for (self.case.expected_errors.items) |expected| {
                         warn("{}\n", .{expected});
                     }
                 }
             } else {
-                for (self.case.expected_errors.span()) |expected| {
+                for (self.case.expected_errors.items) |expected| {
                     if (mem.indexOf(u8, stderr, expected) == null) {
                         warn(
                             \\
@@ -1030,7 +1025,7 @@ pub const CompileErrorContext = struct {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
         const write_src = b.addWriteFiles();
-        for (case.sources.span()) |src_file| {
+        for (case.sources.items) |src_file| {
             write_src.add(src_file.filename, src_file.source);
         }
 
@@ -1077,7 +1072,7 @@ pub const StandaloneContext = struct {
             zig_args.append("--verbose") catch unreachable;
         }
 
-        const run_cmd = b.addSystemCommand(zig_args.span());
+        const run_cmd = b.addSystemCommand(zig_args.items);
 
         const log_step = b.addLog("PASS {}\n", .{annotated_case_name});
         log_step.step.dependOn(&run_cmd.step);
@@ -1156,7 +1151,7 @@ pub const GenHContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(GenHCmpOutputStep) catch unreachable;
             ptr.* = GenHCmpOutputStep{
-                .step = build.Step.init("ParseCCmpOutput", allocator, make),
+                .step = build.Step.init(.Custom, "ParseCCmpOutput", allocator, make),
                 .context = context,
                 .obj = obj,
                 .name = name,
@@ -1177,7 +1172,7 @@ pub const GenHContext = struct {
             const full_h_path = self.obj.getOutputHPath();
             const actual_h = try io.readFileAlloc(b.allocator, full_h_path);
 
-            for (self.case.expected_lines.span()) |expected_line| {
+            for (self.case.expected_lines.items) |expected_line| {
                 if (mem.indexOf(u8, actual_h, expected_line) == null) {
                     warn(
                         \\
@@ -1238,7 +1233,7 @@ pub const GenHContext = struct {
         }
 
         const write_src = b.addWriteFiles();
-        for (case.sources.span()) |src_file| {
+        for (case.sources.items) |src_file| {
             write_src.add(src_file.filename, src_file.source);
         }
 

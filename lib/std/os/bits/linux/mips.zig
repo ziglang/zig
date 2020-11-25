@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../../../std.zig");
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
@@ -378,8 +383,53 @@ pub const SYS = extern enum(usize) {
     statx = Linux + 366,
     rseq = Linux + 367,
     io_pgetevents = Linux + 368,
+    semget = Linux + 393,
+    semctl = Linux + 394,
+    shmget = Linux + 395,
+    shmctl = Linux + 396,
+    shmat = Linux + 397,
+    shmdt = Linux + 398,
+    msgget = Linux + 399,
+    msgsnd = Linux + 400,
+    msgrcv = Linux + 401,
+    msgctl = Linux + 402,
+    clock_gettime64 = Linux + 403,
+    clock_settime64 = Linux + 404,
+    clock_adjtime64 = Linux + 405,
+    clock_getres_time64 = Linux + 406,
+    clock_nanosleep_time64 = Linux + 407,
+    timer_gettime64 = Linux + 408,
+    timer_settime64 = Linux + 409,
+    timerfd_gettime64 = Linux + 410,
+    timerfd_settime64 = Linux + 411,
+    utimensat_time64 = Linux + 412,
+    pselect6_time64 = Linux + 413,
+    ppoll_time64 = Linux + 414,
+    io_pgetevents_time64 = Linux + 416,
+    recvmmsg_time64 = Linux + 417,
+    mq_timedsend_time64 = Linux + 418,
+    mq_timedreceive_time64 = Linux + 419,
+    semtimedop_time64 = Linux + 420,
+    rt_sigtimedwait_time64 = Linux + 421,
+    futex_time64 = Linux + 422,
+    sched_rr_get_interval_time64 = Linux + 423,
+    pidfd_send_signal = Linux + 424,
+    io_uring_setup = Linux + 425,
+    io_uring_enter = Linux + 426,
+    io_uring_register = Linux + 427,
+    open_tree = Linux + 428,
+    move_mount = Linux + 429,
+    fsopen = Linux + 430,
+    fsconfig = Linux + 431,
+    fsmount = Linux + 432,
+    fspick = Linux + 433,
+    pidfd_open = Linux + 434,
+    clone3 = Linux + 435,
+    close_range = Linux + 436,
     openat2 = Linux + 437,
     pidfd_getfd = Linux + 438,
+    faccessat2 = Linux + 439,
+    process_madvise = Linux + 440,
 
     _,
 };
@@ -486,41 +536,74 @@ pub const Flock = extern struct {
 
 pub const blksize_t = i32;
 pub const nlink_t = u32;
-pub const time_t = isize;
+pub const time_t = i32;
 pub const mode_t = u32;
 pub const off_t = i64;
 pub const ino_t = u64;
-pub const dev_t = usize;
+pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-pub const Stat = extern struct {
+// The `stat` definition used by the Linux kernel.
+pub const kernel_stat = extern struct {
     dev: u32,
-    __pad0: [3]u32,
+    __pad0: [3]u32, // Reserved for st_dev expansion
     ino: ino_t,
     mode: mode_t,
     nlink: nlink_t,
     uid: uid_t,
     gid: gid_t,
-    rdev: dev_t,
+    rdev: u32,
     __pad1: [3]u32,
     size: off_t,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
     blksize: blksize_t,
-    __pad3: [1]u32,
+    __pad3: u32,
     blocks: blkcnt_t,
     __pad4: [14]usize,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
+        return self.ctim;
+    }
+};
+
+pub const libc_stat = extern struct {
+    dev: dev_t,
+    __pad0: [2]u32,
+    ino: ino_t,
+    mode: mode_t,
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
+    __pad1: [2]u32,
+    size: off_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    blksize: blksize_t,
+    __pad3: u32,
+    blocks: blkcnt_t,
+    __pad4: [14]u32,
+
+    pub fn atime(self: @This()) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: @This()) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
 };

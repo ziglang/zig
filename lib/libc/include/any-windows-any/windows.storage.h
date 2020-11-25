@@ -42,6 +42,11 @@ typedef interface IApplicationDataContainer IApplicationDataContainer;
 typedef interface IApplicationData IApplicationData;
 #endif
 
+#ifndef __IApplicationData2_FWD_DEFINED__
+#define __IApplicationData2_FWD_DEFINED__
+typedef interface IApplicationData2 IApplicationData2;
+#endif
+
 #ifndef __IApplicationDataStatics_FWD_DEFINED__
 #define __IApplicationDataStatics_FWD_DEFINED__
 typedef interface IApplicationDataStatics IApplicationDataStatics;
@@ -105,6 +110,11 @@ typedef interface IStorageFolder IStorageFolder;
 #ifndef __IApplicationData_FWD_DEFINED__
 #define __IApplicationData_FWD_DEFINED__
 typedef interface IApplicationData IApplicationData;
+#endif
+
+#ifndef __IApplicationData2_FWD_DEFINED__
+#define __IApplicationData2_FWD_DEFINED__
+typedef interface IApplicationData2 IApplicationData2;
 #endif
 
 #ifndef __IApplicationDataStatics_FWD_DEFINED__
@@ -1561,6 +1571,110 @@ void __RPC_STUB IApplicationData_RoamingStorageQuota_Stub(
     DWORD* pdwStubPhase);
 
 #endif  /* __IApplicationData_INTERFACE_DEFINED__ */
+
+/*****************************************************************************
+ * IApplicationData2 interface
+ */
+#ifndef __IApplicationData2_INTERFACE_DEFINED__
+#define __IApplicationData2_INTERFACE_DEFINED__
+
+DEFINE_GUID(IID_IApplicationData2, 0x9e65cd69, 0x0ba3, 0x4e32, 0xbe,0x29, 0xb0,0x2d,0xe6,0x60,0x76,0x38);
+#if defined(__cplusplus) && !defined(CINTERFACE)
+MIDL_INTERFACE("9e65cd69-0ba3-4e32-be29-b02de6607638")
+IApplicationData2 : public IInspectable
+{
+    virtual HRESULT STDMETHODCALLTYPE get_LocalCacheFolder(
+        IStorageFolder **value) = 0;
+
+};
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IApplicationData2, 0x9e65cd69, 0x0ba3, 0x4e32, 0xbe,0x29, 0xb0,0x2d,0xe6,0x60,0x76,0x38)
+#endif
+#else
+typedef struct IApplicationData2Vtbl {
+    BEGIN_INTERFACE
+
+    /*** IUnknown methods ***/
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(
+        IApplicationData2 *This,
+        REFIID riid,
+        void **ppvObject);
+
+    ULONG (STDMETHODCALLTYPE *AddRef)(
+        IApplicationData2 *This);
+
+    ULONG (STDMETHODCALLTYPE *Release)(
+        IApplicationData2 *This);
+
+    /*** IInspectable methods ***/
+    HRESULT (STDMETHODCALLTYPE *GetIids)(
+        IApplicationData2 *This,
+        ULONG *iidCount,
+        IID **iids);
+
+    HRESULT (STDMETHODCALLTYPE *GetRuntimeClassName)(
+        IApplicationData2 *This,
+        HSTRING *className);
+
+    HRESULT (STDMETHODCALLTYPE *GetTrustLevel)(
+        IApplicationData2 *This,
+        TrustLevel *trustLevel);
+
+    /*** IApplicationData2 methods ***/
+    HRESULT (STDMETHODCALLTYPE *get_LocalCacheFolder)(
+        IApplicationData2 *This,
+        IStorageFolder **value);
+
+    END_INTERFACE
+} IApplicationData2Vtbl;
+
+interface IApplicationData2 {
+    CONST_VTBL IApplicationData2Vtbl* lpVtbl;
+};
+
+#ifdef COBJMACROS
+#ifndef WIDL_C_INLINE_WRAPPERS
+/*** IUnknown methods ***/
+#define IApplicationData2_QueryInterface(This,riid,ppvObject) (This)->lpVtbl->QueryInterface(This,riid,ppvObject)
+#define IApplicationData2_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define IApplicationData2_Release(This) (This)->lpVtbl->Release(This)
+/*** IInspectable methods ***/
+#define IApplicationData2_GetIids(This,iidCount,iids) (This)->lpVtbl->GetIids(This,iidCount,iids)
+#define IApplicationData2_GetRuntimeClassName(This,className) (This)->lpVtbl->GetRuntimeClassName(This,className)
+#define IApplicationData2_GetTrustLevel(This,trustLevel) (This)->lpVtbl->GetTrustLevel(This,trustLevel)
+/*** IApplicationData2 methods ***/
+#define IApplicationData2_get_LocalCacheFolder(This,value) (This)->lpVtbl->get_LocalCacheFolder(This,value)
+#else
+/*** IUnknown methods ***/
+static FORCEINLINE HRESULT IApplicationData2_QueryInterface(IApplicationData2* This,REFIID riid,void **ppvObject) {
+    return This->lpVtbl->QueryInterface(This,riid,ppvObject);
+}
+static FORCEINLINE ULONG IApplicationData2_AddRef(IApplicationData2* This) {
+    return This->lpVtbl->AddRef(This);
+}
+static FORCEINLINE ULONG IApplicationData2_Release(IApplicationData2* This) {
+    return This->lpVtbl->Release(This);
+}
+/*** IInspectable methods ***/
+static FORCEINLINE HRESULT IApplicationData2_GetIids(IApplicationData2* This,ULONG *iidCount,IID **iids) {
+    return This->lpVtbl->GetIids(This,iidCount,iids);
+}
+static FORCEINLINE HRESULT IApplicationData2_GetRuntimeClassName(IApplicationData2* This,HSTRING *className) {
+    return This->lpVtbl->GetRuntimeClassName(This,className);
+}
+static FORCEINLINE HRESULT IApplicationData2_GetTrustLevel(IApplicationData2* This,TrustLevel *trustLevel) {
+    return This->lpVtbl->GetTrustLevel(This,trustLevel);
+}
+/*** IApplicationData2 methods ***/
+static FORCEINLINE HRESULT IApplicationData2_get_LocalCacheFolder(IApplicationData2* This,IStorageFolder **value) {
+    return This->lpVtbl->get_LocalCacheFolder(This,value);
+}
+#endif
+#endif
+
+#endif
+
+#endif  /* __IApplicationData2_INTERFACE_DEFINED__ */
 
 /*****************************************************************************
  * IApplicationDataStatics interface

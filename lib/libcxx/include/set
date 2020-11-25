@@ -216,7 +216,8 @@ swap(set<Key, Compare, Allocator>& x, set<Key, Compare, Allocator>& y)
     noexcept(noexcept(x.swap(y)));
 
 template <class Key, class Compare, class Allocator, class Predicate>
-  void erase_if(set<Key, Compare, Allocator>& c, Predicate pred);  // C++20
+typename set<Key, Compare, Allocator>::size_type
+erase_if(set<Key, Compare, Allocator>& c, Predicate pred);  // C++20
 
 template <class Key, class Compare = less<Key>,
           class Allocator = allocator<Key>>
@@ -417,7 +418,8 @@ swap(multiset<Key, Compare, Allocator>& x, multiset<Key, Compare, Allocator>& y)
     noexcept(noexcept(x.swap(y)));
 
 template <class Key, class Compare, class Allocator, class Predicate>
-  void erase_if(multiset<Key, Compare, Allocator>& c, Predicate pred);  // C++20
+typename multiset<Key, Compare, Allocator>::size_type
+erase_if(multiset<Key, Compare, Allocator>& c, Predicate pred);  // C++20
 
 }  // std
 
@@ -960,8 +962,10 @@ swap(set<_Key, _Compare, _Allocator>& __x,
 #if _LIBCPP_STD_VER > 17
 template <class _Key, class _Compare, class _Allocator, class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(set<_Key, _Compare, _Allocator>& __c, _Predicate __pred)
-{ __libcpp_erase_if_container(__c, __pred); }
+    typename set<_Key, _Compare, _Allocator>::size_type
+    erase_if(set<_Key, _Compare, _Allocator>& __c, _Predicate __pred) {
+  return __libcpp_erase_if_container(__c, __pred);
+}
 #endif
 
 template <class _Key, class _Compare = less<_Key>,
@@ -1484,8 +1488,10 @@ swap(multiset<_Key, _Compare, _Allocator>& __x,
 #if _LIBCPP_STD_VER > 17
 template <class _Key, class _Compare, class _Allocator, class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(multiset<_Key, _Compare, _Allocator>& __c, _Predicate __pred)
-{ __libcpp_erase_if_container(__c, __pred); }
+    typename multiset<_Key, _Compare, _Allocator>::size_type
+    erase_if(multiset<_Key, _Compare, _Allocator>& __c, _Predicate __pred) {
+  return __libcpp_erase_if_container(__c, __pred);
+}
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

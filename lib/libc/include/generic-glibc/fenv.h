@@ -140,10 +140,6 @@ extern int fegetmode (femode_t *__modep) __THROW;
 extern int fesetmode (const femode_t *__modep) __THROW;
 #endif
 
-/* Include optimization.  */
-#ifdef __OPTIMIZE__
-# include <bits/fenvinline.h>
-#endif
 
 /* NaN support.  */
 

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -17,7 +22,7 @@ const maxInt = std.math.maxInt;
 ///  - sinh(+-0)   = +-0
 ///  - sinh(+-inf) = +-1
 ///  - sinh(nan)   = nan
-pub fn tanh(x: var) @TypeOf(x) {
+pub fn tanh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => tanh32(x),
@@ -62,7 +67,7 @@ fn tanh32(x: f32) f32 {
     }
     // |x| is subnormal
     else {
-        math.forceEval(x * x);
+        math.doNotOptimizeAway(x * x);
         t = x;
     }
 
@@ -107,7 +112,7 @@ fn tanh64(x: f64) f64 {
     }
     // |x| is subnormal
     else {
-        math.forceEval(@floatCast(f32, x));
+        math.doNotOptimizeAway(@floatCast(f32, x));
         t = x;
     }
 
@@ -126,21 +131,21 @@ test "math.tanh" {
 test "math.tanh32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, tanh32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, tanh32(0.2), 0.197375, epsilon));
-    expect(math.approxEq(f32, tanh32(0.8923), 0.712528, epsilon));
-    expect(math.approxEq(f32, tanh32(1.5), 0.905148, epsilon));
-    expect(math.approxEq(f32, tanh32(37.45), 1.0, epsilon));
+    expect(math.approxEqAbs(f32, tanh32(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, tanh32(0.2), 0.197375, epsilon));
+    expect(math.approxEqAbs(f32, tanh32(0.8923), 0.712528, epsilon));
+    expect(math.approxEqAbs(f32, tanh32(1.5), 0.905148, epsilon));
+    expect(math.approxEqAbs(f32, tanh32(37.45), 1.0, epsilon));
 }
 
 test "math.tanh64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, tanh64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, tanh64(0.2), 0.197375, epsilon));
-    expect(math.approxEq(f64, tanh64(0.8923), 0.712528, epsilon));
-    expect(math.approxEq(f64, tanh64(1.5), 0.905148, epsilon));
-    expect(math.approxEq(f64, tanh64(37.45), 1.0, epsilon));
+    expect(math.approxEqAbs(f64, tanh64(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, tanh64(0.2), 0.197375, epsilon));
+    expect(math.approxEqAbs(f64, tanh64(0.8923), 0.712528, epsilon));
+    expect(math.approxEqAbs(f64, tanh64(1.5), 0.905148, epsilon));
+    expect(math.approxEqAbs(f64, tanh64(37.45), 1.0, epsilon));
 }
 
 test "math.tanh32.special" {

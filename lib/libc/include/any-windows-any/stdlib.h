@@ -10,7 +10,7 @@
 #include <corecrt_wstdlib.h>
 #include <limits.h>
 
-#if __USE_MINGW_ANSI_STDIO && !defined (__USE_MINGW_STRTOX)
+#if __USE_MINGW_ANSI_STDIO && !defined (__USE_MINGW_STRTOX) && !defined(_CRTBLD)
 #define __USE_MINGW_STRTOX 1
 #endif
 
@@ -498,7 +498,7 @@ float __cdecl __MINGW_NOTHROW strtof(const char * __restrict__ _Str,char ** __re
   /* libmingwex.a provides a c99-compliant strtod() exported as __strtod() */
   extern double __cdecl __MINGW_NOTHROW
   __strtod (const char * __restrict__ , char ** __restrict__);
-// The UCRT version of strtod is C99 compliant, so we don't need to redirect it to the mingw version.
+/* The UCRT version of strtod is C99 compliant, so we don't need to redirect it to the mingw version. */
 #if !defined(__USE_MINGW_STRTOX) && !defined(_UCRT)
 #define strtod __strtod
 #endif /* !defined(__USE_MINGW_STRTOX) */

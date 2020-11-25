@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -12,7 +17,7 @@ const Complex = cmath.Complex;
 
 /// Returns the square root of z. The real and imaginary parts of the result have the same sign
 /// as the imaginary part of z.
-pub fn sqrt(z: var) @TypeOf(z) {
+pub fn sqrt(z: anytype) @TypeOf(z) {
     const T = @TypeOf(z.re);
 
     return switch (T) {
@@ -133,14 +138,14 @@ test "complex.csqrt32" {
     const a = Complex(f32).new(5, 3);
     const c = sqrt(a);
 
-    testing.expect(math.approxEq(f32, c.re, 2.327117, epsilon));
-    testing.expect(math.approxEq(f32, c.im, 0.644574, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.re, 2.327117, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.im, 0.644574, epsilon));
 }
 
 test "complex.csqrt64" {
     const a = Complex(f64).new(5, 3);
     const c = sqrt(a);
 
-    testing.expect(math.approxEq(f64, c.re, 2.3271175190399496, epsilon));
-    testing.expect(math.approxEq(f64, c.im, 0.6445742373246469, epsilon));
+    testing.expect(math.approxEqAbs(f64, c.re, 2.3271175190399496, epsilon));
+    testing.expect(math.approxEqAbs(f64, c.im, 0.6445742373246469, epsilon));
 }

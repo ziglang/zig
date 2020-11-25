@@ -1,55 +1,66 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const crypto = std.crypto;
 const debug = std.debug;
 const mem = std.mem;
 
-pub const HmacMd5 = Hmac(crypto.Md5);
-pub const HmacSha1 = Hmac(crypto.Sha1);
-pub const HmacSha256 = Hmac(crypto.Sha256);
-pub const HmacBlake2s256 = Hmac(crypto.Blake2s256);
+pub const HmacMd5 = Hmac(crypto.hash.Md5);
+pub const HmacSha1 = Hmac(crypto.hash.Sha1);
+
+pub const sha2 = struct {
+    pub const HmacSha224 = Hmac(crypto.hash.sha2.Sha224);
+    pub const HmacSha256 = Hmac(crypto.hash.sha2.Sha256);
+    pub const HmacSha384 = Hmac(crypto.hash.sha2.Sha384);
+    pub const HmacSha512 = Hmac(crypto.hash.sha2.Sha512);
+};
 
 pub fn Hmac(comptime Hash: type) type {
     return struct {
         const Self = @This();
         pub const mac_length = Hash.digest_length;
-        pub const minimum_key_length = 0;
+        pub const key_length_min = 0;
+        pub const key_length = 32; // recommended key length
 
         o_key_pad: [Hash.block_length]u8,
-        i_key_pad: [Hash.block_length]u8,
-        scratch: [Hash.block_length]u8,
         hash: Hash,
 
-        // HMAC(k, m) = H(o_key_pad | H(i_key_pad | msg)) where | is concatenation
-        pub fn create(out: []u8, msg: []const u8, key: []const u8) void {
+        // HMAC(k, m) = H(o_key_pad || H(i_key_pad || msg)) where || is concatenation
+        pub fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
             var ctx = Self.init(key);
             ctx.update(msg);
-            ctx.final(out[0..]);
+            ctx.final(out);
         }
 
         pub fn init(key: []const u8) Self {
             var ctx: Self = undefined;
+            var scratch: [Hash.block_length]u8 = undefined;
+            var i_key_pad: [Hash.block_length]u8 = undefined;
 
             // Normalize key length to block size of hash
             if (key.len > Hash.block_length) {
-                Hash.hash(key, ctx.scratch[0..mac_length]);
-                mem.set(u8, ctx.scratch[mac_length..Hash.block_length], 0);
+                Hash.hash(key, scratch[0..mac_length], .{});
+                mem.set(u8, scratch[mac_length..Hash.block_length], 0);
             } else if (key.len < Hash.block_length) {
-                mem.copy(u8, ctx.scratch[0..key.len], key);
-                mem.set(u8, ctx.scratch[key.len..Hash.block_length], 0);
+                mem.copy(u8, scratch[0..key.len], key);
+                mem.set(u8, scratch[key.len..Hash.block_length], 0);
             } else {
-                mem.copy(u8, ctx.scratch[0..], key);
+                mem.copy(u8, scratch[0..], key);
             }
 
             for (ctx.o_key_pad) |*b, i| {
-                b.* = ctx.scratch[i] ^ 0x5c;
+                b.* = scratch[i] ^ 0x5c;
             }
 
-            for (ctx.i_key_pad) |*b, i| {
-                b.* = ctx.scratch[i] ^ 0x36;
+            for (i_key_pad) |*b, i| {
+                b.* = scratch[i] ^ 0x36;
             }
 
-            ctx.hash = Hash.init();
-            ctx.hash.update(ctx.i_key_pad[0..]);
+            ctx.hash = Hash.init(.{});
+            ctx.hash.update(&i_key_pad);
             return ctx;
         }
 
@@ -57,14 +68,13 @@ pub fn Hmac(comptime Hash: type) type {
             ctx.hash.update(msg);
         }
 
-        pub fn final(ctx: *Self, out: []u8) void {
-            debug.assert(Hash.block_length >= out.len and out.len >= mac_length);
-
-            ctx.hash.final(ctx.scratch[0..mac_length]);
-            ctx.hash.reset();
-            ctx.hash.update(ctx.o_key_pad[0..]);
-            ctx.hash.update(ctx.scratch[0..mac_length]);
-            ctx.hash.final(out[0..mac_length]);
+        pub fn final(ctx: *Self, out: *[mac_length]u8) void {
+            var scratch: [mac_length]u8 = undefined;
+            ctx.hash.final(&scratch);
+            var ohash = Hash.init(.{});
+            ohash.update(&ctx.o_key_pad);
+            ohash.update(&scratch);
+            ohash.final(out);
         }
     };
 }
@@ -90,10 +100,10 @@ test "hmac sha1" {
 }
 
 test "hmac sha256" {
-    var out: [HmacSha256.mac_length]u8 = undefined;
-    HmacSha256.create(out[0..], "", "");
+    var out: [sha2.HmacSha256.mac_length]u8 = undefined;
+    sha2.HmacSha256.create(out[0..], "", "");
     htest.assertEqual("b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad", out[0..]);
 
-    HmacSha256.create(out[0..], "The quick brown fox jumps over the lazy dog", "key");
+    sha2.HmacSha256.create(out[0..], "The quick brown fox jumps over the lazy dog", "key");
     htest.assertEqual("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", out[0..]);
 }

@@ -28,8 +28,6 @@ void zig_ptr(void *);
 
 void zig_bool(bool);
 
-void zig_array(uint8_t[10]);
-
 struct BigStruct {
     uint64_t a;
     uint64_t b;
@@ -63,6 +61,20 @@ void zig_split_struct_ints(struct SplitStructInts);
 
 struct BigStruct zig_big_struct_both(struct BigStruct);
 
+typedef struct Vector3 {
+    float x;
+    float y;
+    float z;
+} Vector3;
+
+typedef struct Vector5 {
+    float x;
+    float y;
+    float z;
+    float w;
+    float q;
+} Vector5;
+
 void run_c_tests(void) {
     zig_u8(0xff);
     zig_u16(0xfffe);
@@ -82,9 +94,6 @@ void run_c_tests(void) {
     zig_ptr((void*)0xdeadbeefL);
 
     zig_bool(true);
-
-    uint8_t array[10] = {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
-    zig_array(array);
 
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
@@ -176,19 +185,6 @@ void c_five_floats(float a, float b, float c, float d, float e) {
     assert_or_panic(e == 5.0);
 }
 
-void c_array(uint8_t x[10]) {
-    assert_or_panic(x[0] == '1');
-    assert_or_panic(x[1] == '2');
-    assert_or_panic(x[2] == '3');
-    assert_or_panic(x[3] == '4');
-    assert_or_panic(x[4] == '5');
-    assert_or_panic(x[5] == '6');
-    assert_or_panic(x[6] == '7');
-    assert_or_panic(x[7] == '8');
-    assert_or_panic(x[8] == '9');
-    assert_or_panic(x[9] == '0');
-}
-
 void c_big_struct(struct BigStruct x) {
     assert_or_panic(x.a == 1);
     assert_or_panic(x.b == 2);
@@ -225,4 +221,18 @@ struct BigStruct c_big_struct_both(struct BigStruct x) {
     assert_or_panic(x.e == 5);
     struct BigStruct y = {10, 11, 12, 13, 14};
     return y;
+}
+
+void c_small_struct_floats(Vector3 vec) {
+    assert_or_panic(vec.x == 3.0);
+    assert_or_panic(vec.y == 6.0);
+    assert_or_panic(vec.z == 12.0);
+}
+
+void c_big_struct_floats(Vector5 vec) {
+    assert_or_panic(vec.x == 76.0);
+    assert_or_panic(vec.y == -1.0);
+    assert_or_panic(vec.z == -12.0);
+    assert_or_panic(vec.w == 69);
+    assert_or_panic(vec.q == 55);
 }

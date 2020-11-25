@@ -271,10 +271,6 @@ struct timezone {
   extern int __cdecl mingw_gettimeofday (struct timeval *p, struct timezone *z);
 #endif /* _TIMEZONE_DEFINED */
 
-#ifdef __cplusplus
-}
-#endif
-
 #pragma pack(pop)
 
 #if defined(_POSIX_C_SOURCE) && !defined(_POSIX_THREAD_SAFE_FUNCTIONS)
@@ -293,6 +289,10 @@ __forceinline char *__CRTDECL ctime_r(const time_t *_Time, char *_Str) {
 }
 __forceinline char *__CRTDECL asctime_r(const struct tm *_Tm, char * _Str) {
   return asctime_s(_Str, 0x7fffffff, _Tm) ? NULL : _Str;
+}
+#endif
+
+#ifdef __cplusplus
 }
 #endif
 

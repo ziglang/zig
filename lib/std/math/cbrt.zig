@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -14,7 +19,7 @@ const expect = std.testing.expect;
 ///  - cbrt(+-0)   = +-0
 ///  - cbrt(+-inf) = +-inf
 ///  - cbrt(nan)   = nan
-pub fn cbrt(x: var) @TypeOf(x) {
+pub fn cbrt(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => cbrt32(x),
@@ -128,22 +133,22 @@ test "math.cbrt32" {
     const epsilon = 0.000001;
 
     expect(cbrt32(0.0) == 0.0);
-    expect(math.approxEq(f32, cbrt32(0.2), 0.584804, epsilon));
-    expect(math.approxEq(f32, cbrt32(0.8923), 0.962728, epsilon));
-    expect(math.approxEq(f32, cbrt32(1.5), 1.144714, epsilon));
-    expect(math.approxEq(f32, cbrt32(37.45), 3.345676, epsilon));
-    expect(math.approxEq(f32, cbrt32(123123.234375), 49.748501, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(0.2), 0.584804, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(0.8923), 0.962728, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(1.5), 1.144714, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(37.45), 3.345676, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(123123.234375), 49.748501, epsilon));
 }
 
 test "math.cbrt64" {
     const epsilon = 0.000001;
 
     expect(cbrt64(0.0) == 0.0);
-    expect(math.approxEq(f64, cbrt64(0.2), 0.584804, epsilon));
-    expect(math.approxEq(f64, cbrt64(0.8923), 0.962728, epsilon));
-    expect(math.approxEq(f64, cbrt64(1.5), 1.144714, epsilon));
-    expect(math.approxEq(f64, cbrt64(37.45), 3.345676, epsilon));
-    expect(math.approxEq(f64, cbrt64(123123.234375), 49.748501, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(0.2), 0.584804, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(0.8923), 0.962728, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(1.5), 1.144714, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(37.45), 3.345676, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(123123.234375), 49.748501, epsilon));
 }
 
 test "math.cbrt.special" {

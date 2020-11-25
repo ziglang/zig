@@ -21,6 +21,7 @@
 #define __D3DCOMPILER_H__
 
 #include "d3d11shader.h"
+#include "d3d12shader.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,10 @@ static const WCHAR D3DCOMPILER_DLL_W[] = {'d','3','d','c','o','m','p','i','l','e
 
 #define D3DCOMPILER_DLL_A  "d3dcompiler_47.dll"
 #define D3DCOMPILER_DLL    __MINGW_NAME_AW(D3DCOMPILER_DLL_)
+
+#ifndef D3D_COMPILER_VERSION
+#define D3D_COMPILER_VERSION 47
+#endif
 
 #define D3DCOMPILE_DEBUG                                0x00000001
 #define D3DCOMPILE_SKIP_VALIDATION                      0x00000002
@@ -77,6 +82,8 @@ static const WCHAR D3DCOMPILER_DLL_W[] = {'d','3','d','c','o','m','p','i','l','e
 #define D3D_DISASM_ENABLE_INSTRUCTION_OFFSET            0x00000020
 #define D3D_DISASM_INSTRUCTION_ONLY                     0x00000040
 #define D3D_DISASM_PRINT_HEX_LITERALS                   0x00000080
+
+#define D3D_COMPILE_STANDARD_FILE_INCLUDE ((ID3DInclude *)(UINT_PTR)1)
 
 HRESULT WINAPI D3DCompile(const void *data, SIZE_T data_size, const char *filename,
         const D3D_SHADER_MACRO *defines, ID3DInclude *include, const char *entrypoint,

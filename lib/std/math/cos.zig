@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from go, which is licensed under a BSD-3 license.
 // https://golang.org/LICENSE
 //
@@ -13,7 +18,7 @@ const expect = std.testing.expect;
 /// Special Cases:
 ///  - cos(+-inf) = nan
 ///  - cos(nan)   = nan
-pub fn cos(x: var) @TypeOf(x) {
+pub fn cos(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => cos_(f32, x),
@@ -44,7 +49,7 @@ const pi4c = 2.69515142907905952645E-15;
 const m4pi = 1.273239544735162542821171882678754627704620361328125;
 
 fn cos_(comptime T: type, x_: T) T {
-    const I = std.meta.Int(true, T.bit_count);
+    const I = std.meta.Int(.signed, @typeInfo(T).Float.bits);
 
     var x = x_;
     if (math.isNan(x) or math.isInf(x)) {
@@ -90,25 +95,25 @@ test "math.cos" {
 test "math.cos32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, cos_(f32, 0.0), 1.0, epsilon));
-    expect(math.approxEq(f32, cos_(f32, 0.2), 0.980067, epsilon));
-    expect(math.approxEq(f32, cos_(f32, 0.8923), 0.627623, epsilon));
-    expect(math.approxEq(f32, cos_(f32, 1.5), 0.070737, epsilon));
-    expect(math.approxEq(f32, cos_(f32, -1.5), 0.070737, epsilon));
-    expect(math.approxEq(f32, cos_(f32, 37.45), 0.969132, epsilon));
-    expect(math.approxEq(f32, cos_(f32, 89.123), 0.400798, epsilon));
+    expect(math.approxEqAbs(f32, cos_(f32, 0.0), 1.0, epsilon));
+    expect(math.approxEqAbs(f32, cos_(f32, 0.2), 0.980067, epsilon));
+    expect(math.approxEqAbs(f32, cos_(f32, 0.8923), 0.627623, epsilon));
+    expect(math.approxEqAbs(f32, cos_(f32, 1.5), 0.070737, epsilon));
+    expect(math.approxEqAbs(f32, cos_(f32, -1.5), 0.070737, epsilon));
+    expect(math.approxEqAbs(f32, cos_(f32, 37.45), 0.969132, epsilon));
+    expect(math.approxEqAbs(f32, cos_(f32, 89.123), 0.400798, epsilon));
 }
 
 test "math.cos64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, cos_(f64, 0.0), 1.0, epsilon));
-    expect(math.approxEq(f64, cos_(f64, 0.2), 0.980067, epsilon));
-    expect(math.approxEq(f64, cos_(f64, 0.8923), 0.627623, epsilon));
-    expect(math.approxEq(f64, cos_(f64, 1.5), 0.070737, epsilon));
-    expect(math.approxEq(f64, cos_(f64, -1.5), 0.070737, epsilon));
-    expect(math.approxEq(f64, cos_(f64, 37.45), 0.969132, epsilon));
-    expect(math.approxEq(f64, cos_(f64, 89.123), 0.40080, epsilon));
+    expect(math.approxEqAbs(f64, cos_(f64, 0.0), 1.0, epsilon));
+    expect(math.approxEqAbs(f64, cos_(f64, 0.2), 0.980067, epsilon));
+    expect(math.approxEqAbs(f64, cos_(f64, 0.8923), 0.627623, epsilon));
+    expect(math.approxEqAbs(f64, cos_(f64, 1.5), 0.070737, epsilon));
+    expect(math.approxEqAbs(f64, cos_(f64, -1.5), 0.070737, epsilon));
+    expect(math.approxEqAbs(f64, cos_(f64, 37.45), 0.969132, epsilon));
+    expect(math.approxEqAbs(f64, cos_(f64, 89.123), 0.40080, epsilon));
 }
 
 test "math.cos32.special" {

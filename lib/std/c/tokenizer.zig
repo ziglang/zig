@@ -1,19 +1,15 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const mem = std.mem;
-
-pub const Source = struct {
-    buffer: []const u8,
-    file_name: []const u8,
-    tokens: TokenList,
-
-    pub const TokenList = std.SegmentedList(Token, 64);
-};
 
 pub const Token = struct {
     id: Id,
     start: usize,
     end: usize,
-    source: *Source,
 
     pub const Id = union(enum) {
         Invalid,
@@ -251,134 +247,105 @@ pub const Token = struct {
         }
     };
 
-    pub fn eql(a: Token, b: Token) bool {
-        // do we really need this cast here
-        if (@as(@TagType(Id), a.id) != b.id) return false;
-        return mem.eql(u8, a.slice(), b.slice());
-    }
-
-    pub fn slice(tok: Token) []const u8 {
-        return tok.source.buffer[tok.start..tok.end];
-    }
-
-    pub const Keyword = struct {
-        bytes: []const u8,
-        id: Id,
-        hash: u32,
-
-        fn init(bytes: []const u8, id: Id) Keyword {
-            @setEvalBranchQuota(2000);
-            return .{
-                .bytes = bytes,
-                .id = id,
-                .hash = std.hash_map.hashString(bytes),
-            };
-        }
-    };
-
     // TODO extensions
-    pub const keywords = [_]Keyword{
-        Keyword.init("auto", .Keyword_auto),
-        Keyword.init("break", .Keyword_break),
-        Keyword.init("case", .Keyword_case),
-        Keyword.init("char", .Keyword_char),
-        Keyword.init("const", .Keyword_const),
-        Keyword.init("continue", .Keyword_continue),
-        Keyword.init("default", .Keyword_default),
-        Keyword.init("do", .Keyword_do),
-        Keyword.init("double", .Keyword_double),
-        Keyword.init("else", .Keyword_else),
-        Keyword.init("enum", .Keyword_enum),
-        Keyword.init("extern", .Keyword_extern),
-        Keyword.init("float", .Keyword_float),
-        Keyword.init("for", .Keyword_for),
-        Keyword.init("goto", .Keyword_goto),
-        Keyword.init("if", .Keyword_if),
-        Keyword.init("int", .Keyword_int),
-        Keyword.init("long", .Keyword_long),
-        Keyword.init("register", .Keyword_register),
-        Keyword.init("return", .Keyword_return),
-        Keyword.init("short", .Keyword_short),
-        Keyword.init("signed", .Keyword_signed),
-        Keyword.init("sizeof", .Keyword_sizeof),
-        Keyword.init("static", .Keyword_static),
-        Keyword.init("struct", .Keyword_struct),
-        Keyword.init("switch", .Keyword_switch),
-        Keyword.init("typedef", .Keyword_typedef),
-        Keyword.init("union", .Keyword_union),
-        Keyword.init("unsigned", .Keyword_unsigned),
-        Keyword.init("void", .Keyword_void),
-        Keyword.init("volatile", .Keyword_volatile),
-        Keyword.init("while", .Keyword_while),
+    pub const keywords = std.ComptimeStringMap(Id, .{
+        .{ "auto", .Keyword_auto },
+        .{ "break", .Keyword_break },
+        .{ "case", .Keyword_case },
+        .{ "char", .Keyword_char },
+        .{ "const", .Keyword_const },
+        .{ "continue", .Keyword_continue },
+        .{ "default", .Keyword_default },
+        .{ "do", .Keyword_do },
+        .{ "double", .Keyword_double },
+        .{ "else", .Keyword_else },
+        .{ "enum", .Keyword_enum },
+        .{ "extern", .Keyword_extern },
+        .{ "float", .Keyword_float },
+        .{ "for", .Keyword_for },
+        .{ "goto", .Keyword_goto },
+        .{ "if", .Keyword_if },
+        .{ "int", .Keyword_int },
+        .{ "long", .Keyword_long },
+        .{ "register", .Keyword_register },
+        .{ "return", .Keyword_return },
+        .{ "short", .Keyword_short },
+        .{ "signed", .Keyword_signed },
+        .{ "sizeof", .Keyword_sizeof },
+        .{ "static", .Keyword_static },
+        .{ "struct", .Keyword_struct },
+        .{ "switch", .Keyword_switch },
+        .{ "typedef", .Keyword_typedef },
+        .{ "union", .Keyword_union },
+        .{ "unsigned", .Keyword_unsigned },
+        .{ "void", .Keyword_void },
+        .{ "volatile", .Keyword_volatile },
+        .{ "while", .Keyword_while },
 
         // ISO C99
-        Keyword.init("_Bool", .Keyword_bool),
-        Keyword.init("_Complex", .Keyword_complex),
-        Keyword.init("_Imaginary", .Keyword_imaginary),
-        Keyword.init("inline", .Keyword_inline),
-        Keyword.init("restrict", .Keyword_restrict),
+        .{ "_Bool", .Keyword_bool },
+        .{ "_Complex", .Keyword_complex },
+        .{ "_Imaginary", .Keyword_imaginary },
+        .{ "inline", .Keyword_inline },
+        .{ "restrict", .Keyword_restrict },
 
         // ISO C11
-        Keyword.init("_Alignas", .Keyword_alignas),
-        Keyword.init("_Alignof", .Keyword_alignof),
-        Keyword.init("_Atomic", .Keyword_atomic),
-        Keyword.init("_Generic", .Keyword_generic),
-        Keyword.init("_Noreturn", .Keyword_noreturn),
-        Keyword.init("_Static_assert", .Keyword_static_assert),
-        Keyword.init("_Thread_local", .Keyword_thread_local),
+        .{ "_Alignas", .Keyword_alignas },
+        .{ "_Alignof", .Keyword_alignof },
+        .{ "_Atomic", .Keyword_atomic },
+        .{ "_Generic", .Keyword_generic },
+        .{ "_Noreturn", .Keyword_noreturn },
+        .{ "_Static_assert", .Keyword_static_assert },
+        .{ "_Thread_local", .Keyword_thread_local },
 
         // Preprocessor directives
-        Keyword.init("include", .Keyword_include),
-        Keyword.init("define", .Keyword_define),
-        Keyword.init("ifdef", .Keyword_ifdef),
-        Keyword.init("ifndef", .Keyword_ifndef),
-        Keyword.init("error", .Keyword_error),
-        Keyword.init("pragma", .Keyword_pragma),
-    };
+        .{ "include", .Keyword_include },
+        .{ "define", .Keyword_define },
+        .{ "ifdef", .Keyword_ifdef },
+        .{ "ifndef", .Keyword_ifndef },
+        .{ "error", .Keyword_error },
+        .{ "pragma", .Keyword_pragma },
+    });
 
-    // TODO perfect hash at comptime
     // TODO do this in the preprocessor
     pub fn getKeyword(bytes: []const u8, pp_directive: bool) ?Id {
-        var hash = std.hash_map.hashString(bytes);
-        for (keywords) |kw| {
-            if (kw.hash == hash and mem.eql(u8, kw.bytes, bytes)) {
-                switch (kw.id) {
-                    .Keyword_include,
-                    .Keyword_define,
-                    .Keyword_ifdef,
-                    .Keyword_ifndef,
-                    .Keyword_error,
-                    .Keyword_pragma,
-                    => if (!pp_directive) return null,
-                    else => {},
-                }
-                return kw.id;
+        if (keywords.get(bytes)) |id| {
+            switch (id) {
+                .Keyword_include,
+                .Keyword_define,
+                .Keyword_ifdef,
+                .Keyword_ifndef,
+                .Keyword_error,
+                .Keyword_pragma,
+                => if (!pp_directive) return null,
+                else => {},
             }
+            return id;
         }
         return null;
     }
 
     pub const NumSuffix = enum {
-        None,
-        F,
-        L,
-        U,
-        LU,
-        LL,
-        LLU,
+        none,
+        f,
+        l,
+        u,
+        lu,
+        ll,
+        llu,
     };
 
     pub const StrKind = enum {
-        None,
-        Wide,
-        Utf8,
-        Utf16,
-        Utf32,
+        none,
+        wide,
+        utf_8,
+        utf_16,
+        utf_32,
     };
 };
 
 pub const Tokenizer = struct {
-    source: *Source,
+    buffer: []const u8,
     index: usize = 0,
     prev_tok_id: @TagType(Token.Id) = .Invalid,
     pp_directive: bool = false,
@@ -389,7 +356,6 @@ pub const Tokenizer = struct {
             .id = .Eof,
             .start = self.index,
             .end = undefined,
-            .source = self.source,
         };
         var state: enum {
             Start,
@@ -450,8 +416,8 @@ pub const Tokenizer = struct {
         } = .Start;
         var string = false;
         var counter: u32 = 0;
-        while (self.index < self.source.buffer.len) : (self.index += 1) {
-            const c = self.source.buffer[self.index];
+        while (self.index < self.buffer.len) : (self.index += 1) {
+            const c = self.buffer[self.index];
             switch (state) {
                 .Start => switch (c) {
                     '\n' => {
@@ -464,11 +430,11 @@ pub const Tokenizer = struct {
                         state = .Cr;
                     },
                     '"' => {
-                        result.id = .{ .StringLiteral = .None };
+                        result.id = .{ .StringLiteral = .none };
                         state = .StringLiteral;
                     },
                     '\'' => {
-                        result.id = .{ .CharLiteral = .None };
+                        result.id = .{ .CharLiteral = .none };
                         state = .CharLiteralStart;
                     },
                     'u' => {
@@ -645,11 +611,11 @@ pub const Tokenizer = struct {
                         state = .u8;
                     },
                     '\'' => {
-                        result.id = .{ .CharLiteral = .Utf16 };
+                        result.id = .{ .CharLiteral = .utf_16 };
                         state = .CharLiteralStart;
                     },
                     '\"' => {
-                        result.id = .{ .StringLiteral = .Utf16 };
+                        result.id = .{ .StringLiteral = .utf_16 };
                         state = .StringLiteral;
                     },
                     else => {
@@ -659,7 +625,7 @@ pub const Tokenizer = struct {
                 },
                 .u8 => switch (c) {
                     '\"' => {
-                        result.id = .{ .StringLiteral = .Utf8 };
+                        result.id = .{ .StringLiteral = .utf_8 };
                         state = .StringLiteral;
                     },
                     else => {
@@ -669,11 +635,11 @@ pub const Tokenizer = struct {
                 },
                 .U => switch (c) {
                     '\'' => {
-                        result.id = .{ .CharLiteral = .Utf32 };
+                        result.id = .{ .CharLiteral = .utf_32 };
                         state = .CharLiteralStart;
                     },
                     '\"' => {
-                        result.id = .{ .StringLiteral = .Utf32 };
+                        result.id = .{ .StringLiteral = .utf_32 };
                         state = .StringLiteral;
                     },
                     else => {
@@ -683,11 +649,11 @@ pub const Tokenizer = struct {
                 },
                 .L => switch (c) {
                     '\'' => {
-                        result.id = .{ .CharLiteral = .Wide };
+                        result.id = .{ .CharLiteral = .wide };
                         state = .CharLiteralStart;
                     },
                     '\"' => {
-                        result.id = .{ .StringLiteral = .Wide };
+                        result.id = .{ .StringLiteral = .wide };
                         state = .StringLiteral;
                     },
                     else => {
@@ -812,7 +778,7 @@ pub const Tokenizer = struct {
                 .Identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
-                        result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
+                        result.id = Token.getKeyword(self.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
                         if (self.prev_tok_id == .Hash)
                             self.pp_directive = true;
                         break;
@@ -1141,7 +1107,7 @@ pub const Tokenizer = struct {
                         state = .IntegerSuffixL;
                     },
                     else => {
-                        result.id = .{ .IntegerLiteral = .None };
+                        result.id = .{ .IntegerLiteral = .none };
                         break;
                     },
                 },
@@ -1150,7 +1116,7 @@ pub const Tokenizer = struct {
                         state = .IntegerSuffixUL;
                     },
                     else => {
-                        result.id = .{ .IntegerLiteral = .U };
+                        result.id = .{ .IntegerLiteral = .u };
                         break;
                     },
                 },
@@ -1159,34 +1125,34 @@ pub const Tokenizer = struct {
                         state = .IntegerSuffixLL;
                     },
                     'u', 'U' => {
-                        result.id = .{ .IntegerLiteral = .LU };
+                        result.id = .{ .IntegerLiteral = .lu };
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .{ .IntegerLiteral = .L };
+                        result.id = .{ .IntegerLiteral = .l };
                         break;
                     },
                 },
                 .IntegerSuffixLL => switch (c) {
                     'u', 'U' => {
-                        result.id = .{ .IntegerLiteral = .LLU };
+                        result.id = .{ .IntegerLiteral = .llu };
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .{ .IntegerLiteral = .LL };
+                        result.id = .{ .IntegerLiteral = .ll };
                         break;
                     },
                 },
                 .IntegerSuffixUL => switch (c) {
                     'l', 'L' => {
-                        result.id = .{ .IntegerLiteral = .LLU };
+                        result.id = .{ .IntegerLiteral = .llu };
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .{ .IntegerLiteral = .LU };
+                        result.id = .{ .IntegerLiteral = .lu };
                         break;
                     },
                 },
@@ -1234,26 +1200,26 @@ pub const Tokenizer = struct {
                 },
                 .FloatSuffix => switch (c) {
                     'l', 'L' => {
-                        result.id = .{ .FloatLiteral = .L };
+                        result.id = .{ .FloatLiteral = .l };
                         self.index += 1;
                         break;
                     },
                     'f', 'F' => {
-                        result.id = .{ .FloatLiteral = .F };
+                        result.id = .{ .FloatLiteral = .f };
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .{ .FloatLiteral = .None };
+                        result.id = .{ .FloatLiteral = .none };
                         break;
                     },
                 },
             }
-        } else if (self.index == self.source.buffer.len) {
+        } else if (self.index == self.buffer.len) {
             switch (state) {
                 .Start => {},
                 .u, .u8, .U, .L, .Identifier => {
-                    result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
+                    result.id = Token.getKeyword(self.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
                 },
 
                 .Cr,
@@ -1274,11 +1240,11 @@ pub const Tokenizer = struct {
                 .MacroString,
                 => result.id = .Invalid,
 
-                .FloatExponentDigits => result.id = if (counter == 0) .Invalid else .{ .FloatLiteral = .None },
+                .FloatExponentDigits => result.id = if (counter == 0) .Invalid else .{ .FloatLiteral = .none },
 
                 .FloatFraction,
                 .FloatFractionHex,
-                => result.id = .{ .FloatLiteral = .None },
+                => result.id = .{ .FloatLiteral = .none },
 
                 .IntegerLiteralOct,
                 .IntegerLiteralBinary,
@@ -1286,13 +1252,13 @@ pub const Tokenizer = struct {
                 .IntegerLiteral,
                 .IntegerSuffix,
                 .Zero,
-                => result.id = .{ .IntegerLiteral = .None },
-                .IntegerSuffixU => result.id = .{ .IntegerLiteral = .U },
-                .IntegerSuffixL => result.id = .{ .IntegerLiteral = .L },
-                .IntegerSuffixLL => result.id = .{ .IntegerLiteral = .LL },
-                .IntegerSuffixUL => result.id = .{ .IntegerLiteral = .LU },
+                => result.id = .{ .IntegerLiteral = .none },
+                .IntegerSuffixU => result.id = .{ .IntegerLiteral = .u },
+                .IntegerSuffixL => result.id = .{ .IntegerLiteral = .l },
+                .IntegerSuffixLL => result.id = .{ .IntegerLiteral = .ll },
+                .IntegerSuffixUL => result.id = .{ .IntegerLiteral = .lu },
 
-                .FloatSuffix => result.id = .{ .FloatLiteral = .None },
+                .FloatSuffix => result.id = .{ .FloatLiteral = .none },
                 .Equal => result.id = .Equal,
                 .Bang => result.id = .Bang,
                 .Minus => result.id = .Minus,
@@ -1470,7 +1436,7 @@ test "preprocessor keywords" {
         .Hash,
         .Identifier,
         .AngleBracketLeft,
-        .{ .IntegerLiteral = .None },
+        .{ .IntegerLiteral = .none },
         .Nl,
         .Hash,
         .Keyword_ifdef,
@@ -1503,18 +1469,18 @@ test "line continuation" {
         .Identifier,
         .Identifier,
         .Nl,
-        .{ .StringLiteral = .None },
+        .{ .StringLiteral = .none },
         .Nl,
         .Hash,
         .Keyword_define,
-        .{ .StringLiteral = .None },
+        .{ .StringLiteral = .none },
         .Nl,
-        .{ .StringLiteral = .None },
+        .{ .StringLiteral = .none },
         .Nl,
         .Hash,
         .Keyword_define,
-        .{ .StringLiteral = .None },
-        .{ .StringLiteral = .None },
+        .{ .StringLiteral = .none },
+        .{ .StringLiteral = .none },
     });
 }
 
@@ -1531,23 +1497,23 @@ test "string prefix" {
         \\L'foo'
         \\
     , &[_]Token.Id{
-        .{ .StringLiteral = .None },
+        .{ .StringLiteral = .none },
         .Nl,
-        .{ .StringLiteral = .Utf16 },
+        .{ .StringLiteral = .utf_16 },
         .Nl,
-        .{ .StringLiteral = .Utf8 },
+        .{ .StringLiteral = .utf_8 },
         .Nl,
-        .{ .StringLiteral = .Utf32 },
+        .{ .StringLiteral = .utf_32 },
         .Nl,
-        .{ .StringLiteral = .Wide },
+        .{ .StringLiteral = .wide },
         .Nl,
-        .{ .CharLiteral = .None },
+        .{ .CharLiteral = .none },
         .Nl,
-        .{ .CharLiteral = .Utf16 },
+        .{ .CharLiteral = .utf_16 },
         .Nl,
-        .{ .CharLiteral = .Utf32 },
+        .{ .CharLiteral = .utf_32 },
         .Nl,
-        .{ .CharLiteral = .Wide },
+        .{ .CharLiteral = .wide },
         .Nl,
     });
 }
@@ -1559,33 +1525,29 @@ test "num suffixes" {
         \\ 1u 1ul 1ull 1
         \\
     , &[_]Token.Id{
-        .{ .FloatLiteral = .F },
-        .{ .FloatLiteral = .L },
-        .{ .FloatLiteral = .None },
-        .{ .FloatLiteral = .None },
-        .{ .FloatLiteral = .None },
+        .{ .FloatLiteral = .f },
+        .{ .FloatLiteral = .l },
+        .{ .FloatLiteral = .none },
+        .{ .FloatLiteral = .none },
+        .{ .FloatLiteral = .none },
         .Nl,
-        .{ .IntegerLiteral = .L },
-        .{ .IntegerLiteral = .LU },
-        .{ .IntegerLiteral = .LL },
-        .{ .IntegerLiteral = .LLU },
-        .{ .IntegerLiteral = .None },
+        .{ .IntegerLiteral = .l },
+        .{ .IntegerLiteral = .lu },
+        .{ .IntegerLiteral = .ll },
+        .{ .IntegerLiteral = .llu },
+        .{ .IntegerLiteral = .none },
         .Nl,
-        .{ .IntegerLiteral = .U },
-        .{ .IntegerLiteral = .LU },
-        .{ .IntegerLiteral = .LLU },
-        .{ .IntegerLiteral = .None },
+        .{ .IntegerLiteral = .u },
+        .{ .IntegerLiteral = .lu },
+        .{ .IntegerLiteral = .llu },
+        .{ .IntegerLiteral = .none },
         .Nl,
     });
 }
 
 fn expectTokens(source: []const u8, expected_tokens: []const Token.Id) void {
     var tokenizer = Tokenizer{
-        .source = &Source{
-            .buffer = source,
-            .file_name = undefined,
-            .tokens = undefined,
-        },
+        .buffer = source,
     };
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();

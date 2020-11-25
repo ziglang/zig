@@ -1,10 +1,19 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
+// See: https://opensource.apple.com/source/xnu/xnu-6153.141.1/bsd/sys/_types.h.auto.html
+// TODO: audit mode_t/pid_t, should likely be u16/i32
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 pub const mode_t = c_uint;
+pub const uid_t = u32;
+pub const gid_t = u32;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
@@ -63,19 +72,13 @@ pub const Flock = extern struct {
     l_whence: i16,
 };
 
-/// Renamed to Stat to not conflict with the stat function.
-/// atime, mtime, and ctime have functions to return `timespec`,
-/// because although this is a POSIX API, the layout and names of
-/// the structs are inconsistent across operating systems, and
-/// in C, macros are used to hide the differences. Here we use
-/// methods to accomplish this.
-pub const Stat = extern struct {
+pub const libc_stat = extern struct {
     dev: i32,
     mode: u16,
     nlink: u16,
     ino: ino_t,
-    uid: u32,
-    gid: u32,
+    uid: uid_t,
+    gid: gid_t,
     rdev: i32,
     atimesec: isize,
     atimensec: isize,
@@ -93,21 +96,21 @@ pub const Stat = extern struct {
     lspare: i32,
     qspare: [2]i64,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return timespec{
             .tv_sec = self.atimesec,
             .tv_nsec = self.atimensec,
         };
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return timespec{
             .tv_sec = self.mtimesec,
             .tv_nsec = self.mtimensec,
         };
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
         return timespec{
             .tv_sec = self.ctimesec,
             .tv_nsec = self.ctimensec,
@@ -1465,3 +1468,58 @@ pub const CLOCK_UPTIME_RAW = 8;
 pub const CLOCK_UPTIME_RAW_APPROX = 9;
 pub const CLOCK_PROCESS_CPUTIME_ID = 12;
 pub const CLOCK_THREAD_CPUTIME_ID = 16;
+
+/// Max open files per process
+/// https://opensource.apple.com/source/xnu/xnu-4903.221.2/bsd/sys/syslimits.h.auto.html
+pub const OPEN_MAX = 10240;
+pub const RUSAGE_SELF = 0;
+pub const RUSAGE_CHILDREN = -1;
+
+pub const rusage = extern struct {
+    utime: timeval,
+    stime: timeval,
+    maxrss: isize,
+    ixrss: isize,
+    idrss: isize,
+    isrss: isize,
+    minflt: isize,
+    majflt: isize,
+    nswap: isize,
+    inblock: isize,
+    oublock: isize,
+    msgsnd: isize,
+    msgrcv: isize,
+    nsignals: isize,
+    nvcsw: isize,
+    nivcsw: isize,
+};
+
+pub const rlimit_resource = extern enum(c_int) {
+    CPU = 0,
+    FSIZE = 1,
+    DATA = 2,
+    STACK = 3,
+    CORE = 4,
+    AS = 5,
+    RSS = 5,
+    MEMLOCK = 6,
+    NPROC = 7,
+    NOFILE = 8,
+
+    _,
+};
+
+pub const rlim_t = u64;
+
+/// No limit
+pub const RLIM_INFINITY: rlim_t = (1 << 63) - 1;
+
+pub const RLIM_SAVED_MAX = RLIM_INFINITY;
+pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+
+pub const rlimit = extern struct {
+    /// Soft limit
+    cur: rlim_t,
+    /// Hard limit
+    max: rlim_t,
+};

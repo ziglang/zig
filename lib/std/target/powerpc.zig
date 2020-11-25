@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
@@ -25,11 +30,15 @@ pub const Feature = enum {
     frsqrte,
     frsqrtes,
     fsqrt,
+    fuse_addi_load,
+    fuse_addis_load,
+    fusion,
     hard_float,
     htm,
     icbt,
     invariant_function_descriptors,
     isa_v30_instructions,
+    isa_v31_instructions,
     isel,
     ldbrx,
     lfiwax,
@@ -37,7 +46,9 @@ pub const Feature = enum {
     mfocrf,
     msync,
     partword_atomics,
+    pcrelative_memops,
     popcntd,
+    power10_vector,
     power8_altivec,
     power8_vector,
     power9_altivec,
@@ -46,6 +57,8 @@ pub const Feature = enum {
     ppc_prera_sched,
     ppc4xx,
     ppc6xx,
+    predictable_select_expensive,
+    prefix_instrs,
     qpx,
     recipprec,
     secure_plt,
@@ -201,6 +214,25 @@ pub const all_features = blk: {
             .fpu,
         }),
     };
+    result[@enumToInt(Feature.fuse_addi_load)] = .{
+        .llvm_name = "fuse-addi-load",
+        .description = "Power8 Addi-Load fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_addis_load)] = .{
+        .llvm_name = "fuse-addis-load",
+        .description = "Power8 Addis-Load fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fusion)] = .{
+        .llvm_name = "fusion",
+        .description = "Target supports instruction fusion",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.hard_float)] = .{
         .llvm_name = "hard-float",
         .description = "Enable floating-point instructions",
@@ -223,8 +255,15 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.isa_v30_instructions)] = .{
         .llvm_name = "isa-v30-instructions",
-        .description = "Enable instructions added in ISA 3.0.",
+        .description = "Enable instructions in ISA 3.0.",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.isa_v31_instructions)] = .{
+        .llvm_name = "isa-v31-instructions",
+        .description = "Enable instructions in ISA 3.1.",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v30_instructions,
+        }),
     };
     result[@enumToInt(Feature.isel)] = .{
         .llvm_name = "isel",
@@ -265,10 +304,25 @@ pub const all_features = blk: {
         .description = "Enable l[bh]arx and st[bh]cx.",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.pcrelative_memops)] = .{
+        .llvm_name = "pcrelative-memops",
+        .description = "Enable PC relative Memory Ops",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v30_instructions,
+        }),
+    };
     result[@enumToInt(Feature.popcntd)] = .{
         .llvm_name = "popcntd",
         .description = "Enable the popcnt[dw] instructions",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.power10_vector)] = .{
+        .llvm_name = "power10-vector",
+        .description = "Enable POWER10 vector instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v31_instructions,
+            .power9_vector,
+        }),
     };
     result[@enumToInt(Feature.power8_altivec)] = .{
         .llvm_name = "power8-altivec",
@@ -321,6 +375,20 @@ pub const all_features = blk: {
         .llvm_name = "ppc6xx",
         .description = "Enable PPC 6xx instructions",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.predictable_select_expensive)] = .{
+        .llvm_name = "predictable-select-expensive",
+        .description = "Prefer likely predicted branches over selects",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.prefix_instrs)] = .{
+        .llvm_name = "prefix-instrs",
+        .description = "Enable prefixed instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v30_instructions,
+            .power8_vector,
+            .power9_altivec,
+        }),
     };
     result[@enumToInt(Feature.qpx)] = .{
         .llvm_name = "qpx",
@@ -384,8 +452,8 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const @"440" = CpuModel{
-        .name = "440",
+    pub const @"ppc440" = CpuModel{
+        .name = "ppc440",
         .llvm_name = "440",
         .features = featureSet(&[_]Feature{
             .booke,
@@ -396,8 +464,8 @@ pub const cpu = struct {
             .msync,
         }),
     };
-    pub const @"450" = CpuModel{
-        .name = "450",
+    pub const @"ppc450" = CpuModel{
+        .name = "ppc450",
         .llvm_name = "450",
         .features = featureSet(&[_]Feature{
             .booke,
@@ -408,70 +476,70 @@ pub const cpu = struct {
             .msync,
         }),
     };
-    pub const @"601" = CpuModel{
-        .name = "601",
+    pub const @"ppc601" = CpuModel{
+        .name = "ppc601",
         .llvm_name = "601",
         .features = featureSet(&[_]Feature{
             .fpu,
         }),
     };
-    pub const @"602" = CpuModel{
-        .name = "602",
+    pub const @"ppc602" = CpuModel{
+        .name = "ppc602",
         .llvm_name = "602",
         .features = featureSet(&[_]Feature{
             .fpu,
         }),
     };
-    pub const @"603" = CpuModel{
-        .name = "603",
+    pub const @"ppc603" = CpuModel{
+        .name = "ppc603",
         .llvm_name = "603",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"603e" = CpuModel{
-        .name = "603e",
+    pub const @"ppc603e" = CpuModel{
+        .name = "ppc603e",
         .llvm_name = "603e",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"603ev" = CpuModel{
-        .name = "603ev",
+    pub const @"ppc603ev" = CpuModel{
+        .name = "ppc603ev",
         .llvm_name = "603ev",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"604" = CpuModel{
-        .name = "604",
+    pub const @"ppc604" = CpuModel{
+        .name = "ppc604",
         .llvm_name = "604",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"604e" = CpuModel{
-        .name = "604e",
+    pub const @"ppc604e" = CpuModel{
+        .name = "ppc604e",
         .llvm_name = "604e",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"620" = CpuModel{
-        .name = "620",
+    pub const @"ppc620" = CpuModel{
+        .name = "ppc620",
         .llvm_name = "620",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"7400" = CpuModel{
-        .name = "7400",
+    pub const @"ppc7400" = CpuModel{
+        .name = "ppc7400",
         .llvm_name = "7400",
         .features = featureSet(&[_]Feature{
             .altivec,
@@ -479,8 +547,8 @@ pub const cpu = struct {
             .frsqrte,
         }),
     };
-    pub const @"7450" = CpuModel{
-        .name = "7450",
+    pub const @"ppc7450" = CpuModel{
+        .name = "ppc7450",
         .llvm_name = "7450",
         .features = featureSet(&[_]Feature{
             .altivec,
@@ -488,16 +556,16 @@ pub const cpu = struct {
             .frsqrte,
         }),
     };
-    pub const @"750" = CpuModel{
-        .name = "750",
+    pub const @"ppc750" = CpuModel{
+        .name = "ppc750",
         .llvm_name = "750",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"970" = CpuModel{
-        .name = "970",
+    pub const @"ppc970" = CpuModel{
+        .name = "ppc970",
         .llvm_name = "970",
         .features = featureSet(&[_]Feature{
             .@"64bit",
@@ -567,6 +635,7 @@ pub const cpu = struct {
             .booke,
             .icbt,
             .isel,
+            .msync,
             .spe,
         }),
     };
@@ -615,16 +684,21 @@ pub const cpu = struct {
             .htm,
             .icbt,
             .isa_v30_instructions,
+            .isa_v31_instructions,
             .isel,
             .ldbrx,
             .lfiwax,
             .mfocrf,
             .partword_atomics,
+            .pcrelative_memops,
             .popcntd,
+            .power10_vector,
             .power8_altivec,
             .power8_vector,
             .power9_altivec,
             .power9_vector,
+            .predictable_select_expensive,
+            .prefix_instrs,
             .recipprec,
             .stfiwx,
             .two_const_nr,
@@ -724,6 +798,8 @@ pub const cpu = struct {
             .frsqrte,
             .frsqrtes,
             .fsqrt,
+            .fuse_addi_load,
+            .fuse_addis_load,
             .htm,
             .icbt,
             .isel,
@@ -734,6 +810,51 @@ pub const cpu = struct {
             .popcntd,
             .power8_altivec,
             .power8_vector,
+            .predictable_select_expensive,
+            .recipprec,
+            .stfiwx,
+            .two_const_nr,
+            .vsx,
+        }),
+    };
+    pub const pwr10 = CpuModel{
+        .name = "pwr10",
+        .llvm_name = "pwr10",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .allow_unaligned_fp_access,
+            .altivec,
+            .bpermd,
+            .cmpb,
+            .crypto,
+            .direct_move,
+            .extdiv,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .htm,
+            .icbt,
+            .isa_v30_instructions,
+            .isa_v31_instructions,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .partword_atomics,
+            .pcrelative_memops,
+            .popcntd,
+            .power10_vector,
+            .power8_altivec,
+            .power8_vector,
+            .power9_altivec,
+            .power9_vector,
+            .predictable_select_expensive,
+            .prefix_instrs,
             .recipprec,
             .stfiwx,
             .two_const_nr,
@@ -885,6 +1006,8 @@ pub const cpu = struct {
             .frsqrte,
             .frsqrtes,
             .fsqrt,
+            .fuse_addi_load,
+            .fuse_addis_load,
             .htm,
             .icbt,
             .isel,
@@ -895,6 +1018,7 @@ pub const cpu = struct {
             .popcntd,
             .power8_altivec,
             .power8_vector,
+            .predictable_select_expensive,
             .recipprec,
             .stfiwx,
             .two_const_nr,
@@ -936,6 +1060,7 @@ pub const cpu = struct {
             .power9_vector,
             .ppc_postra_sched,
             .ppc_prera_sched,
+            .predictable_select_expensive,
             .recipprec,
             .stfiwx,
             .two_const_nr,
@@ -943,48 +1068,4 @@ pub const cpu = struct {
             .vsx,
         }),
     };
-};
-
-/// All powerpc CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.@"440",
-    &cpu.@"450",
-    &cpu.@"601",
-    &cpu.@"602",
-    &cpu.@"603",
-    &cpu.@"603e",
-    &cpu.@"603ev",
-    &cpu.@"604",
-    &cpu.@"604e",
-    &cpu.@"620",
-    &cpu.@"7400",
-    &cpu.@"7450",
-    &cpu.@"750",
-    &cpu.@"970",
-    &cpu.a2,
-    &cpu.a2q,
-    &cpu.e500,
-    &cpu.e500mc,
-    &cpu.e5500,
-    &cpu.future,
-    &cpu.g3,
-    &cpu.g4,
-    &cpu.@"g4+",
-    &cpu.g5,
-    &cpu.generic,
-    &cpu.ppc,
-    &cpu.ppc32,
-    &cpu.ppc64,
-    &cpu.ppc64le,
-    &cpu.pwr3,
-    &cpu.pwr4,
-    &cpu.pwr5,
-    &cpu.pwr5x,
-    &cpu.pwr6,
-    &cpu.pwr6x,
-    &cpu.pwr7,
-    &cpu.pwr8,
-    &cpu.pwr9,
 };

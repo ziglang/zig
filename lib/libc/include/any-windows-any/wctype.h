@@ -75,7 +75,7 @@ extern "C" {
 #ifndef _CRT_WCTYPEDATA_DEFINED
 #define _CRT_WCTYPEDATA_DEFINED
 #ifndef _CTYPE_DISABLE_MACROS
-#ifndef _wctype
+#if !defined(_wctype) && defined(_CRT_USE_WINAPI_FAMILY_DESKTOP_APP)
 #ifdef _MSVCRT_
   extern unsigned short *_wctype;
 #else

@@ -9,6 +9,14 @@
 
 int msgctl(int q, int cmd, struct msqid_ds *buf)
 {
+#if IPC_TIME64
+	struct msqid_ds out, *orig;
+	if (cmd&IPC_TIME64) {
+		out = (struct msqid_ds){0};
+		orig = buf;
+		buf = &out;
+	}
+#endif
 #ifdef SYSCALL_IPC_BROKEN_MODE
 	struct msqid_ds tmp;
 	if (cmd == IPC_SET) {
@@ -32,6 +40,8 @@ int msgctl(int q, int cmd, struct msqid_ds *buf)
 #endif
 #if IPC_TIME64
 	if (r >= 0 && (cmd&IPC_TIME64)) {
+		buf = orig;
+		*buf = out;
 		IPC_HILO(buf, msg_stime);
 		IPC_HILO(buf, msg_rtime);
 		IPC_HILO(buf, msg_ctime);

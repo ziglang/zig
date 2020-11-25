@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../../std.zig");
 const builtin = @import("builtin");
 const linux = std.os.linux;
@@ -5,6 +10,25 @@ const mem = std.mem;
 const elf = std.elf;
 const expect = std.testing.expect;
 const fs = std.fs;
+
+test "fallocate" {
+    const path = "test_fallocate";
+    const file = try fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    defer file.close();
+    defer fs.cwd().deleteFile(path) catch {};
+
+    expect((try file.stat()).size == 0);
+
+    const len: u64 = 65536;
+    switch (linux.getErrno(linux.fallocate(file.handle, 0, 0, len))) {
+        0 => {},
+        linux.ENOSYS => return error.SkipZigTest,
+        linux.EOPNOTSUPP => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{ errno }),
+    }
+
+    expect((try file.stat()).size == len);
+}
 
 test "getpid" {
     expect(linux.getpid() != 0);
@@ -62,7 +86,7 @@ test "statx" {
         else => unreachable,
     }
 
-    var stat_buf: linux.Stat = undefined;
+    var stat_buf: linux.kernel_stat = undefined;
     switch (linux.getErrno(linux.fstatat(file.handle, "", &stat_buf, linux.AT_EMPTY_PATH))) {
         0 => {},
         else => unreachable,

@@ -75,11 +75,11 @@ extern void *pvalloc (size_t __size) __THROW __attribute_malloc__ __wur;
 
 /* Underlying allocation function; successive calls should return
    contiguous pieces of memory.  */
-extern void *(*__morecore) (ptrdiff_t __size);
+extern void *(*__morecore) (ptrdiff_t __size) __MALLOC_DEPRECATED;
 
 /* Default value of `__morecore'.  */
 extern void *__default_morecore (ptrdiff_t __size)
-__THROW __attribute_malloc__;
+__THROW __attribute_malloc__  __MALLOC_DEPRECATED;
 
 /* SVID2/XPG mallinfo structure */
 
@@ -156,7 +156,8 @@ extern void *(*__MALLOC_HOOK_VOLATILE __memalign_hook)(size_t __alignment,
                                                        size_t __size,
                                                        const void *)
 __MALLOC_DEPRECATED;
-extern void (*__MALLOC_HOOK_VOLATILE __after_morecore_hook) (void);
+extern void (*__MALLOC_HOOK_VOLATILE __after_morecore_hook) (void)
+  __MALLOC_DEPRECATED;
 
 
 __END_DECLS

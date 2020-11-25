@@ -1,45 +1,93 @@
-/**
- * This file is part of the mingw-w64 runtime package.
- * No warranty is given; refer to the file DISCLAIMER within this package.
+
+/* $Id: $
+ *
+ * COPYRIGHT:            This file is in the public domain.
+ * PROJECT:              ReactOS kernel
+ * FILE:
+ * PURPOSE:              Directx headers
+ * PROGRAMMER:           Magnus Olsen (greatlrd)
+ *
  */
 
 #ifndef __DMEMMGR_INCLUDED__
 #define __DMEMMGR_INCLUDED__
 
-#include <winapifamily.h>
-
-#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
-
-#define VMEMHEAP_LINEAR __MSABI_LONG(0x1)
-#define VMEMHEAP_RECTANGULAR __MSABI_LONG(0x2)
-#define VMEMHEAP_ALIGNMENT __MSABI_LONG(0x4)
-
-#define SURFACEALIGN_DISCARDABLE __MSABI_LONG(0x1)
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-  typedef ULONG_PTR FLATPTR;
+#ifndef __NTDDKCOMP__
 
-  typedef struct _SURFACEALIGNMENT {
-    __C89_NAMELESS union {
-      struct {
-	DWORD dwStartAlignment;
-	DWORD dwPitchAlignment;
-	DWORD dwFlags;
-	DWORD dwReserved2;
-      } Linear;
-      struct {
-	DWORD dwXAlignment;
-	DWORD dwYAlignment;
-	DWORD dwFlags;
-	DWORD dwReserved2;
-      } Rectangular;
-    };
-  } SURFACEALIGNMENT;
+#ifndef FLATPTR_DEFINED
+typedef ULONG_PTR FLATPTR;
+#define FLATPTR_DEFINED
+#endif
 
-  typedef struct _HEAPALIGNMENT {
+typedef struct _VIDMEM *LPVIDMEM;
+
+#else /* __NTDDKCOMP__ */
+
+#ifndef FLATPTR_DEFINED
+typedef ULONG_PTR FLATPTR;
+#define FLATPTR_DEFINED
+#endif
+
+typedef struct _VIDEOMEMORY *LPVIDMEM;
+#endif /* __NTDDKCOMP__ */
+
+#define SURFACEALIGN_DISCARDABLE 0x00000001
+#define VMEMHEAP_LINEAR 0x00000001
+#define VMEMHEAP_RECTANGULAR 0x00000002
+#define VMEMHEAP_ALIGNMENT 0x00000004
+
+typedef struct _VMEML
+{
+  struct _VMEML *next;
+  FLATPTR ptr;
+  DWORD size;
+  WINBOOL bDiscardable;
+} VMEML, *LPVMEML, *LPLPVMEML;
+
+typedef struct _VMEMR
+{
+  struct _VMEMR *next;
+  struct _VMEMR *prev;
+
+  struct _VMEMR *pUp;
+  struct _VMEMR *pDown;
+  struct _VMEMR *pLeft;
+  struct _VMEMR *pRight;
+  FLATPTR  ptr;
+  DWORD size;
+  DWORD x;
+  DWORD y;
+  DWORD cx;
+  DWORD cy;
+  DWORD flags;
+  FLATPTR pBits;
+  WINBOOL bDiscardable;
+} VMEMR,  *LPVMEMR,  *LPLPVMEMR;
+
+typedef struct _SURFACEALIGNMENT
+{
+  __GNU_EXTENSION union {
+    struct {
+      DWORD dwStartAlignment;
+      DWORD dwPitchAlignment;
+      DWORD dwFlags;
+      DWORD dwReserved2;
+    } Linear;
+    struct {
+      DWORD dwXAlignment;
+      DWORD dwYAlignment;
+      DWORD dwFlags;
+      DWORD dwReserved2;
+    } Rectangular;
+  };
+} SURFACEALIGNMENT, *LPSURFACEALIGNMENT;
+
+typedef struct _HEAPALIGNMENT
+{
     DWORD dwSize;
     DDSCAPS ddsCaps;
     DWORD dwReserved;
@@ -50,42 +98,10 @@ extern "C" {
     SURFACEALIGNMENT AlphaBuffer;
     SURFACEALIGNMENT Offscreen;
     SURFACEALIGNMENT FlipTarget;
-  } HEAPALIGNMENT;
+} HEAPALIGNMENT, *LPHEAPALIGNMENT;
 
-  typedef struct _DD_GETHEAPALIGNMENTDATA {
-    ULONG_PTR dwInstance;
-    DWORD dwHeap;
-    HRESULT ddRVal;
-    VOID *GetHeapAlignment;
-    HEAPALIGNMENT Alignment;
-  } DD_GETHEAPALIGNMENTDATA;
-
-  typedef struct _VMEML {
-    struct _VMEML *next;
-    FLATPTR ptr;
-    DWORD size;
-    WINBOOL bDiscardable;
-  } VMEML,*LPVMEML,**LPLPVMEML;
-
-  typedef struct _VMEMR {
-    struct _VMEMR *next;
-    struct _VMEMR *prev;
-    struct _VMEMR *pUp;
-    struct _VMEMR *pDown;
-    struct _VMEMR *pLeft;
-    struct _VMEMR *pRight;
-    FLATPTR ptr;
-    DWORD size;
-    DWORD x;
-    DWORD y;
-    DWORD cx;
-    DWORD cy;
-    DWORD flags;
-    FLATPTR pBits;
-    WINBOOL bDiscardable;
-  } VMEMR,*LPVMEMR,**LPLPVMEMR;
-
-  typedef struct _VMEMHEAP {
+typedef struct _VMEMHEAP
+{
     DWORD dwFlags;
     DWORD stride;
     LPVOID freeList;
@@ -103,32 +119,38 @@ extern "C" {
 #endif
     HANDLE hdevAGP;
     LPVOID pvPhysRsrv;
-#if NTDDI_VERSION >= 0x05010000
-    BYTE *pAgpCommitMask;
+    BYTE* pAgpCommitMask;
     DWORD dwAgpCommitMaskSize;
-#endif
-  } VMEMHEAP;
+} VMEMHEAP, *LPVMEMHEAP;
 
-#ifndef __NTDDKCOMP__
-  typedef struct _VIDMEM *LPVIDMEM;
-#else
-  typedef struct _VIDEOMEMORY *LPVIDMEM;
+typedef struct _DD_GETHEAPALIGNMENTDATA
+{
+    ULONG_PTR dwInstance;
+    DWORD dwHeap;
+    HRESULT ddRVal;
+    VOID* GetHeapAlignment;
+    HEAPALIGNMENT Alignment;
+} DD_GETHEAPALIGNMENTDATA;
+
+#ifndef DD_GETHEAPALIGNMENTDATA_DECLARED
+typedef DD_GETHEAPALIGNMENTDATA *PDD_GETHEAPALIGNMENTDATA;
+#define DD_GETHEAPALIGNMENTDATA_DECLARED
 #endif
 
-  typedef struct _SURFACEALIGNMENT *LPSURFACEALIGNMENT;
-  typedef struct _HEAPALIGNMENT *LPHEAPALIGNMENT;
-  typedef struct _DD_GETHEAPALIGNMENTDATA *PDD_GETHEAPALIGNMENTDATA;
-  typedef VMEMHEAP *LPVMEMHEAP;
+extern void WINAPI VidMemFree (LPVMEMHEAP pvmh, FLATPTR ptr);
+extern FLATPTR WINAPI VidMemAlloc (LPVMEMHEAP pvmh, DWORD width, DWORD height);
 
-#ifndef __NTDDKCOMP__
-  extern FLATPTR WINAPI VidMemAlloc (LPVMEMHEAP pvmh, DWORD width, DWORD height);
-#endif
-  extern FLATPTR WINAPI HeapVidMemAllocAligned (LPVIDMEM lpVidMem, DWORD dwWidth, DWORD dwHeight, LPSURFACEALIGNMENT lpAlignment, LPLONG lpNewPitch);
-  extern void WINAPI VidMemFree (LPVMEMHEAP pvmh, FLATPTR ptr);
+extern FLATPTR WINAPI
+       HeapVidMemAllocAligned(
+                               LPVIDMEM lpVidMem,
+                               DWORD dwWidth,
+                               DWORD dwHeight,
+                               LPSURFACEALIGNMENT lpAlignment,
+                               LPLONG lpNewPitch );
 
 #ifdef __cplusplus
-};
+}
 #endif
 
-#endif
-#endif
+#endif /* __DMEMMGR_INCLUDED__ */
+

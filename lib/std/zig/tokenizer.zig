@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const mem = std.mem;
 
@@ -10,89 +15,70 @@ pub const Token = struct {
         end: usize,
     };
 
-    pub const Keyword = struct {
-        bytes: []const u8,
-        id: Id,
-        hash: u32,
+    pub const keywords = std.ComptimeStringMap(Id, .{
+        .{ "align", .Keyword_align },
+        .{ "allowzero", .Keyword_allowzero },
+        .{ "and", .Keyword_and },
+        .{ "anyframe", .Keyword_anyframe },
+        .{ "anytype", .Keyword_anytype },
+        .{ "asm", .Keyword_asm },
+        .{ "async", .Keyword_async },
+        .{ "await", .Keyword_await },
+        .{ "break", .Keyword_break },
+        .{ "callconv", .Keyword_callconv },
+        .{ "catch", .Keyword_catch },
+        .{ "comptime", .Keyword_comptime },
+        .{ "const", .Keyword_const },
+        .{ "continue", .Keyword_continue },
+        .{ "defer", .Keyword_defer },
+        .{ "else", .Keyword_else },
+        .{ "enum", .Keyword_enum },
+        .{ "errdefer", .Keyword_errdefer },
+        .{ "error", .Keyword_error },
+        .{ "export", .Keyword_export },
+        .{ "extern", .Keyword_extern },
+        .{ "false", .Keyword_false },
+        .{ "fn", .Keyword_fn },
+        .{ "for", .Keyword_for },
+        .{ "if", .Keyword_if },
+        .{ "inline", .Keyword_inline },
+        .{ "noalias", .Keyword_noalias },
+        .{ "noasync", .Keyword_nosuspend }, // TODO: remove this
+        .{ "noinline", .Keyword_noinline },
+        .{ "nosuspend", .Keyword_nosuspend },
+        .{ "null", .Keyword_null },
+        .{ "opaque", .Keyword_opaque },
+        .{ "or", .Keyword_or },
+        .{ "orelse", .Keyword_orelse },
+        .{ "packed", .Keyword_packed },
+        .{ "pub", .Keyword_pub },
+        .{ "resume", .Keyword_resume },
+        .{ "return", .Keyword_return },
+        .{ "linksection", .Keyword_linksection },
+        .{ "struct", .Keyword_struct },
+        .{ "suspend", .Keyword_suspend },
+        .{ "switch", .Keyword_switch },
+        .{ "test", .Keyword_test },
+        .{ "threadlocal", .Keyword_threadlocal },
+        .{ "true", .Keyword_true },
+        .{ "try", .Keyword_try },
+        .{ "undefined", .Keyword_undefined },
+        .{ "union", .Keyword_union },
+        .{ "unreachable", .Keyword_unreachable },
+        .{ "usingnamespace", .Keyword_usingnamespace },
+        .{ "var", .Keyword_var },
+        .{ "volatile", .Keyword_volatile },
+        .{ "while", .Keyword_while },
+    });
 
-        fn init(bytes: []const u8, id: Id) Keyword {
-            @setEvalBranchQuota(2000);
-            return .{
-                .bytes = bytes,
-                .id = id,
-                .hash = std.hash_map.hashString(bytes),
-            };
-        }
-    };
-
-    pub const keywords = [_]Keyword{
-        Keyword.init("align", .Keyword_align),
-        Keyword.init("allowzero", .Keyword_allowzero),
-        Keyword.init("and", .Keyword_and),
-        Keyword.init("anyframe", .Keyword_anyframe),
-        Keyword.init("asm", .Keyword_asm),
-        Keyword.init("async", .Keyword_async),
-        Keyword.init("await", .Keyword_await),
-        Keyword.init("break", .Keyword_break),
-        Keyword.init("callconv", .Keyword_callconv),
-        Keyword.init("catch", .Keyword_catch),
-        Keyword.init("comptime", .Keyword_comptime),
-        Keyword.init("const", .Keyword_const),
-        Keyword.init("continue", .Keyword_continue),
-        Keyword.init("defer", .Keyword_defer),
-        Keyword.init("else", .Keyword_else),
-        Keyword.init("enum", .Keyword_enum),
-        Keyword.init("errdefer", .Keyword_errdefer),
-        Keyword.init("error", .Keyword_error),
-        Keyword.init("export", .Keyword_export),
-        Keyword.init("extern", .Keyword_extern),
-        Keyword.init("false", .Keyword_false),
-        Keyword.init("fn", .Keyword_fn),
-        Keyword.init("for", .Keyword_for),
-        Keyword.init("if", .Keyword_if),
-        Keyword.init("inline", .Keyword_inline),
-        Keyword.init("noalias", .Keyword_noalias),
-        Keyword.init("noasync", .Keyword_nosuspend), // TODO: remove this
-        Keyword.init("noinline", .Keyword_noinline),
-        Keyword.init("nosuspend", .Keyword_nosuspend),
-        Keyword.init("null", .Keyword_null),
-        Keyword.init("or", .Keyword_or),
-        Keyword.init("orelse", .Keyword_orelse),
-        Keyword.init("packed", .Keyword_packed),
-        Keyword.init("pub", .Keyword_pub),
-        Keyword.init("resume", .Keyword_resume),
-        Keyword.init("return", .Keyword_return),
-        Keyword.init("linksection", .Keyword_linksection),
-        Keyword.init("struct", .Keyword_struct),
-        Keyword.init("suspend", .Keyword_suspend),
-        Keyword.init("switch", .Keyword_switch),
-        Keyword.init("test", .Keyword_test),
-        Keyword.init("threadlocal", .Keyword_threadlocal),
-        Keyword.init("true", .Keyword_true),
-        Keyword.init("try", .Keyword_try),
-        Keyword.init("undefined", .Keyword_undefined),
-        Keyword.init("union", .Keyword_union),
-        Keyword.init("unreachable", .Keyword_unreachable),
-        Keyword.init("usingnamespace", .Keyword_usingnamespace),
-        Keyword.init("var", .Keyword_var),
-        Keyword.init("volatile", .Keyword_volatile),
-        Keyword.init("while", .Keyword_while),
-    };
-
-    // TODO perfect hash at comptime
     pub fn getKeyword(bytes: []const u8) ?Id {
-        var hash = std.hash_map.hashString(bytes);
-        for (keywords) |kw| {
-            if (kw.hash == hash and mem.eql(u8, kw.bytes, bytes)) {
-                return kw.id;
-            }
-        }
-        return null;
+        return keywords.get(bytes);
     }
 
     pub const Id = enum {
         Invalid,
         Invalid_ampersands,
+        Invalid_periodasterisks,
         Identifier,
         StringLiteral,
         MultilineStringLiteralLine,
@@ -162,6 +148,8 @@ pub const Token = struct {
         Keyword_align,
         Keyword_allowzero,
         Keyword_and,
+        Keyword_anyframe,
+        Keyword_anytype,
         Keyword_asm,
         Keyword_async,
         Keyword_await,
@@ -187,10 +175,10 @@ pub const Token = struct {
         Keyword_noinline,
         Keyword_nosuspend,
         Keyword_null,
+        Keyword_opaque,
         Keyword_or,
         Keyword_orelse,
         Keyword_packed,
-        Keyword_anyframe,
         Keyword_pub,
         Keyword_resume,
         Keyword_return,
@@ -214,6 +202,7 @@ pub const Token = struct {
             return switch (id) {
                 .Invalid => "Invalid",
                 .Invalid_ampersands => "&&",
+                .Invalid_periodasterisks => ".**",
                 .Identifier => "Identifier",
                 .StringLiteral => "StringLiteral",
                 .MultilineStringLiteralLine => "MultilineStringLiteralLine",
@@ -285,6 +274,7 @@ pub const Token = struct {
                 .Keyword_allowzero => "allowzero",
                 .Keyword_and => "and",
                 .Keyword_anyframe => "anyframe",
+                .Keyword_anytype => "anytype",
                 .Keyword_asm => "asm",
                 .Keyword_async => "async",
                 .Keyword_await => "await",
@@ -310,6 +300,7 @@ pub const Token = struct {
                 .Keyword_noinline => "noinline",
                 .Keyword_nosuspend => "nosuspend",
                 .Keyword_null => "null",
+                .Keyword_opaque => "opaque",
                 .Keyword_or => "or",
                 .Keyword_orelse => "orelse",
                 .Keyword_packed => "packed",
@@ -414,6 +405,7 @@ pub const Tokenizer = struct {
         angle_bracket_angle_bracket_right,
         period,
         period_2,
+        period_asterisk,
         saw_at_sign,
     };
 
@@ -990,9 +982,7 @@ pub const Tokenizer = struct {
                         state = .period_2;
                     },
                     '*' => {
-                        result.id = .PeriodAsterisk;
-                        self.index += 1;
-                        break;
+                        state = .period_asterisk;
                     },
                     else => {
                         result.id = .Period;
@@ -1008,6 +998,17 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = .Ellipsis2;
+                        break;
+                    },
+                },
+
+                .period_asterisk => switch (c) {
+                    '*' => {
+                        result.id = .Invalid_periodasterisks;
+                        break;
+                    },
+                    else => {
+                        result.id = .PeriodAsterisk;
                         break;
                     },
                 },
@@ -1036,6 +1037,7 @@ pub const Tokenizer = struct {
                         state = .container_doc_comment;
                     },
                     '\n' => break,
+                    '\t', '\r' => state = .line_comment,
                     else => {
                         state = .line_comment;
                         self.checkLiteralCharacter();
@@ -1049,6 +1051,10 @@ pub const Tokenizer = struct {
                         result.id = .DocComment;
                         break;
                     },
+                    '\t', '\r' => {
+                        state = .doc_comment;
+                        result.id = .DocComment;
+                    },
                     else => {
                         state = .doc_comment;
                         result.id = .DocComment;
@@ -1057,6 +1063,7 @@ pub const Tokenizer = struct {
                 },
                 .line_comment, .doc_comment, .container_doc_comment => switch (c) {
                     '\n' => break,
+                    '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .zero => switch (c) {
@@ -1183,6 +1190,7 @@ pub const Tokenizer = struct {
                 },
                 .num_dot_dec => switch (c) {
                     '.' => {
+                        result.id = .IntegerLiteral;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1191,7 +1199,6 @@ pub const Tokenizer = struct {
                         state = .float_exponent_unsigned;
                     },
                     '0'...'9' => {
-                        result.id = .FloatLiteral;
                         state = .float_fraction_dec;
                     },
                     else => {
@@ -1203,6 +1210,7 @@ pub const Tokenizer = struct {
                 },
                 .num_dot_hex => switch (c) {
                     '.' => {
+                        result.id = .IntegerLiteral;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1379,6 +1387,9 @@ pub const Tokenizer = struct {
                 },
                 .period_2 => {
                     result.id = .Ellipsis2;
+                },
+                .period_asterisk => {
+                    result.id = .PeriodAsterisk;
                 },
                 .pipe => {
                     result.id = .Pipe;
@@ -1699,6 +1710,24 @@ test "tokenizer - multiline string literal with literal tab" {
     });
 }
 
+test "tokenizer - comments with literal tab" {
+    testTokenize(
+        \\//foo	bar
+        \\//!foo	bar
+        \\///foo	bar
+        \\//	foo
+        \\///	foo
+        \\///	/foo
+    , &[_]Token.Id{
+        .LineComment,
+        .ContainerDocComment,
+        .DocComment,
+        .LineComment,
+        .DocComment,
+        .DocComment,
+    });
+}
+
 test "tokenizer - pipe and then invalid" {
     testTokenize("||=", &[_]Token.Id{
         .PipePipe,
@@ -1748,6 +1777,39 @@ test "correctly parse pointer assignment" {
     });
 }
 
+test "correctly parse pointer dereference followed by asterisk" {
+    testTokenize("\"b\".* ** 10", &[_]Token.Id{
+        .StringLiteral,
+        .PeriodAsterisk,
+        .AsteriskAsterisk,
+        .IntegerLiteral,
+    });
+
+    testTokenize("(\"b\".*)** 10", &[_]Token.Id{
+        .LParen,
+        .StringLiteral,
+        .PeriodAsterisk,
+        .RParen,
+        .AsteriskAsterisk,
+        .IntegerLiteral,
+    });
+
+    testTokenize("\"b\".*** 10", &[_]Token.Id{
+        .StringLiteral,
+        .Invalid_periodasterisks,
+        .AsteriskAsterisk,
+        .IntegerLiteral,
+    });
+}
+
+test "tokenizer - range literals" {
+    testTokenize("0...9", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("'0'...'9'", &[_]Token.Id{ .CharLiteral, .Ellipsis3, .CharLiteral });
+    testTokenize("0x00...0x09", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0b00...0b11", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0o00...0o11", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+}
+
 test "tokenizer - number literals decimal" {
     testTokenize("0", &[_]Token.Id{.IntegerLiteral});
     testTokenize("1", &[_]Token.Id{.IntegerLiteral});
@@ -1759,6 +1821,7 @@ test "tokenizer - number literals decimal" {
     testTokenize("7", &[_]Token.Id{.IntegerLiteral});
     testTokenize("8", &[_]Token.Id{.IntegerLiteral});
     testTokenize("9", &[_]Token.Id{.IntegerLiteral});
+    testTokenize("1..", &[_]Token.Id{ .IntegerLiteral, .Ellipsis2 });
     testTokenize("0a", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("9b", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("1z", &[_]Token.Id{ .Invalid, .Identifier });

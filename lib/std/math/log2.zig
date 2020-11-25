@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -16,7 +21,7 @@ const maxInt = std.math.maxInt;
 ///  - log2(0)     = -inf
 ///  - log2(x)     = nan if x < 0
 ///  - log2(nan)   = nan
-pub fn log2(x: var) @TypeOf(x) {
+pub fn log2(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
         .ComptimeFloat => {
@@ -180,21 +185,21 @@ test "math.log2" {
 test "math.log2_32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, log2_32(0.2), -2.321928, epsilon));
-    expect(math.approxEq(f32, log2_32(0.8923), -0.164399, epsilon));
-    expect(math.approxEq(f32, log2_32(1.5), 0.584962, epsilon));
-    expect(math.approxEq(f32, log2_32(37.45), 5.226894, epsilon));
-    expect(math.approxEq(f32, log2_32(123123.234375), 16.909744, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(0.2), -2.321928, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(0.8923), -0.164399, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(1.5), 0.584962, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(37.45), 5.226894, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(123123.234375), 16.909744, epsilon));
 }
 
 test "math.log2_64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, log2_64(0.2), -2.321928, epsilon));
-    expect(math.approxEq(f64, log2_64(0.8923), -0.164399, epsilon));
-    expect(math.approxEq(f64, log2_64(1.5), 0.584962, epsilon));
-    expect(math.approxEq(f64, log2_64(37.45), 5.226894, epsilon));
-    expect(math.approxEq(f64, log2_64(123123.234375), 16.909744, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(0.2), -2.321928, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(0.8923), -0.164399, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(1.5), 0.584962, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(37.45), 5.226894, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(123123.234375), 16.909744, epsilon));
 }
 
 test "math.log2_32.special" {

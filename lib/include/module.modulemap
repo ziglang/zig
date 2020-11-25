@@ -27,6 +27,12 @@ module _Builtin_intrinsics [system] [extern_c] {
       header "arm_fp16.h"
       export *
     }
+
+    explicit module sve {
+      requires sve
+      header "arm_sve.h"
+      export *
+    }
   }
 
   explicit module intel {

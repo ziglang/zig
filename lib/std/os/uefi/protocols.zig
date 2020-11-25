@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 pub const LoadedImageProtocol = @import("protocols/loaded_image_protocol.zig").LoadedImageProtocol;
 pub const loaded_image_device_path_protocol_guid = @import("protocols/loaded_image_protocol.zig").loaded_image_device_path_protocol_guid;
 

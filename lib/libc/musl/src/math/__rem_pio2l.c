@@ -44,6 +44,7 @@ pio2_1 =  1.57079632679597125389e+00, /* 0x3FF921FB, 0x54444000 */
 pio2_2 = -1.07463465549783099519e-12, /* -0x12e7b967674000.0p-92 */
 pio2_3 =  6.36831716351370313614e-25; /*  0x18a2e037074000.0p-133 */
 static const long double
+pio4    =  0x1.921fb54442d1846ap-1L,
 invpio2 =  6.36619772367581343076e-01L, /*  0xa2f9836e4e44152a.0p-64 */
 pio2_1t = -1.07463465549719416346e-12L, /* -0x973dcb3b399d747f.0p-103 */
 pio2_2t =  6.36831716351095013979e-25L, /*  0xc51701b839a25205.0p-144 */
@@ -57,6 +58,7 @@ pio2_3t = -2.75299651904407171810e-37L; /* -0xbb5bf6c7ddd660ce.0p-185 */
 #define NX 5
 #define NY 3
 static const long double
+pio4    =  0x1.921fb54442d18469898cc51701b8p-1L,
 invpio2 =  6.3661977236758134307553505349005747e-01L,	/*  0x145f306dc9c882a53f84eafa3ea6a.0p-113 */
 pio2_1  =  1.5707963267948966192292994253909555e+00L,	/*  0x1921fb54442d18469800000000000.0p-112 */
 pio2_1t =  2.0222662487959507323996846200947577e-21L,	/*  0x13198a2e03707344a4093822299f3.0p-181 */
@@ -76,11 +78,23 @@ int __rem_pio2l(long double x, long double *y)
 	u.f = x;
 	ex = u.i.se & 0x7fff;
 	if (SMALL(u)) {
-		/* rint(x/(pi/2)), Assume round-to-nearest. */
+		/* rint(x/(pi/2)) */
 		fn = x*invpio2 + toint - toint;
 		n = QUOBITS(fn);
 		r = x-fn*pio2_1;
 		w = fn*pio2_1t;  /* 1st round good to 102/180 bits (ld80/ld128) */
+		/* Matters with directed rounding. */
+		if (predict_false(r - w < -pio4)) {
+			n--;
+			fn--;
+			r = x - fn*pio2_1;
+			w = fn*pio2_1t;
+		} else if (predict_false(r - w > pio4)) {
+			n++;
+			fn++;
+			r = x - fn*pio2_1;
+			w = fn*pio2_1t;
+		}
 		y[0] = r-w;
 		u.f = y[0];
 		ey = u.i.se & 0x7fff;

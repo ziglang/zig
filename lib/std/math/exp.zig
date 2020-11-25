@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -6,15 +11,14 @@
 
 const std = @import("../std.zig");
 const math = std.math;
-const assert = std.debug.assert;
-const builtin = @import("builtin");
+const expect = std.testing.expect;
 
 /// Returns e raised to the power of x (e^x).
 ///
 /// Special Cases:
 ///  - exp(+inf) = +inf
 ///  - exp(nan)  = nan
-pub fn exp(x: var) @TypeOf(x) {
+pub fn exp(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => exp32(x),
@@ -51,7 +55,7 @@ fn exp32(x_: f32) f32 {
             return x * 0x1.0p127;
         }
         if (sign != 0) {
-            math.forceEval(-0x1.0p-149 / x); // overflow
+            math.doNotOptimizeAway(-0x1.0p-149 / x); // overflow
             // x <= -103.972084
             if (hx >= 0x42CFF1B5) {
                 return 0;
@@ -83,7 +87,7 @@ fn exp32(x_: f32) f32 {
         hi = x;
         lo = 0;
     } else {
-        math.forceEval(0x1.0p127 + x); // inexact
+        math.doNotOptimizeAway(0x1.0p127 + x); // inexact
         return 1 + x;
     }
 
@@ -134,7 +138,7 @@ fn exp64(x_: f64) f64 {
         }
         if (x < -708.39641853226410622) {
             // underflow if x != -inf
-            // math.forceEval(@as(f32, -0x1.0p-149 / x));
+            // math.doNotOptimizeAway(@as(f32, -0x1.0p-149 / x));
             if (x < -745.13321910194110842) {
                 return 0;
             }
@@ -167,7 +171,7 @@ fn exp64(x_: f64) f64 {
         lo = 0;
     } else {
         // inexact if x != 0
-        // math.forceEval(0x1.0p1023 + x);
+        // math.doNotOptimizeAway(0x1.0p1023 + x);
         return 1 + x;
     }
 
@@ -183,36 +187,36 @@ fn exp64(x_: f64) f64 {
 }
 
 test "math.exp" {
-    assert(exp(@as(f32, 0.0)) == exp32(0.0));
-    assert(exp(@as(f64, 0.0)) == exp64(0.0));
+    expect(exp(@as(f32, 0.0)) == exp32(0.0));
+    expect(exp(@as(f64, 0.0)) == exp64(0.0));
 }
 
 test "math.exp32" {
     const epsilon = 0.000001;
 
-    assert(exp32(0.0) == 1.0);
-    assert(math.approxEq(f32, exp32(0.0), 1.0, epsilon));
-    assert(math.approxEq(f32, exp32(0.2), 1.221403, epsilon));
-    assert(math.approxEq(f32, exp32(0.8923), 2.440737, epsilon));
-    assert(math.approxEq(f32, exp32(1.5), 4.481689, epsilon));
+    expect(exp32(0.0) == 1.0);
+    expect(math.approxEqAbs(f32, exp32(0.0), 1.0, epsilon));
+    expect(math.approxEqAbs(f32, exp32(0.2), 1.221403, epsilon));
+    expect(math.approxEqAbs(f32, exp32(0.8923), 2.440737, epsilon));
+    expect(math.approxEqAbs(f32, exp32(1.5), 4.481689, epsilon));
 }
 
 test "math.exp64" {
     const epsilon = 0.000001;
 
-    assert(exp64(0.0) == 1.0);
-    assert(math.approxEq(f64, exp64(0.0), 1.0, epsilon));
-    assert(math.approxEq(f64, exp64(0.2), 1.221403, epsilon));
-    assert(math.approxEq(f64, exp64(0.8923), 2.440737, epsilon));
-    assert(math.approxEq(f64, exp64(1.5), 4.481689, epsilon));
+    expect(exp64(0.0) == 1.0);
+    expect(math.approxEqAbs(f64, exp64(0.0), 1.0, epsilon));
+    expect(math.approxEqAbs(f64, exp64(0.2), 1.221403, epsilon));
+    expect(math.approxEqAbs(f64, exp64(0.8923), 2.440737, epsilon));
+    expect(math.approxEqAbs(f64, exp64(1.5), 4.481689, epsilon));
 }
 
 test "math.exp32.special" {
-    assert(math.isPositiveInf(exp32(math.inf(f32))));
-    assert(math.isNan(exp32(math.nan(f32))));
+    expect(math.isPositiveInf(exp32(math.inf(f32))));
+    expect(math.isNan(exp32(math.nan(f32))));
 }
 
 test "math.exp64.special" {
-    assert(math.isPositiveInf(exp64(math.inf(f64))));
-    assert(math.isNan(exp64(math.nan(f64))));
+    expect(math.isPositiveInf(exp64(math.inf(f64))));
+    expect(math.isNan(exp64(math.nan(f64))));
 }

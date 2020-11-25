@@ -999,7 +999,7 @@ basic_ostream<_CharT, _Traits>::seekp(off_type __off, ios_base::seekdir __dir)
 }
 
 template <class _CharT, class _Traits>
-inline _LIBCPP_INLINE_VISIBILITY
+inline
 basic_ostream<_CharT, _Traits>&
 endl(basic_ostream<_CharT, _Traits>& __os)
 {
@@ -1009,7 +1009,7 @@ endl(basic_ostream<_CharT, _Traits>& __os)
 }
 
 template <class _CharT, class _Traits>
-inline _LIBCPP_INLINE_VISIBILITY
+inline
 basic_ostream<_CharT, _Traits>&
 ends(basic_ostream<_CharT, _Traits>& __os)
 {
@@ -1018,7 +1018,7 @@ ends(basic_ostream<_CharT, _Traits>& __os)
 }
 
 template <class _CharT, class _Traits>
-inline _LIBCPP_INLINE_VISIBILITY
+inline
 basic_ostream<_CharT, _Traits>&
 flush(basic_ostream<_CharT, _Traits>& __os)
 {

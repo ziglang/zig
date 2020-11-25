@@ -36,13 +36,9 @@
 #define _LIBCPP_USE_COPYFILE
 #endif
 
-#if !defined(__APPLE__)
-#define _LIBCPP_USE_CLOCK_GETTIME
-#endif
-
-#if !defined(CLOCK_REALTIME) || !defined(_LIBCPP_USE_CLOCK_GETTIME)
+#if !defined(CLOCK_REALTIME)
 #include <sys/time.h> // for gettimeofday and timeval
-#endif                // !defined(CLOCK_REALTIME)
+#endif // !defined(CLOCK_REALTIME)
 
 #if defined(__ELF__) && defined(_LIBCPP_LINK_RT_LIB)
 #pragma comment(lib, "rt")
@@ -490,7 +486,7 @@ const bool _FilesystemClock::is_steady;
 
 _FilesystemClock::time_point _FilesystemClock::now() noexcept {
   typedef chrono::duration<rep> __secs;
-#if defined(_LIBCPP_USE_CLOCK_GETTIME) && defined(CLOCK_REALTIME)
+#if defined(CLOCK_REALTIME)
   typedef chrono::duration<rep, nano> __nsecs;
   struct timespec tp;
   if (0 != clock_gettime(CLOCK_REALTIME, &tp))
@@ -502,7 +498,7 @@ _FilesystemClock::time_point _FilesystemClock::now() noexcept {
   timeval tv;
   gettimeofday(&tv, 0);
   return time_point(__secs(tv.tv_sec) + __microsecs(tv.tv_usec));
-#endif // _LIBCPP_USE_CLOCK_GETTIME && CLOCK_REALTIME
+#endif // CLOCK_REALTIME
 }
 
 filesystem_error::~filesystem_error() {}

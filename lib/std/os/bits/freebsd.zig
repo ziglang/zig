@@ -1,8 +1,17 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
+// See https://svnweb.freebsd.org/base/head/sys/sys/_types.h?view=co
+// TODO: audit pid_t/mode_t. They should likely be i32 and u16, respectively
 pub const fd_t = c_int;
 pub const pid_t = c_int;
+pub const uid_t = u32;
+pub const gid_t = u32;
 pub const mode_t = c_uint;
 
 pub const socklen_t = u32;
@@ -110,21 +119,15 @@ pub const msghdr_const = extern struct {
 pub const off_t = i64;
 pub const ino_t = u64;
 
-/// Renamed to Stat to not conflict with the stat function.
-/// atime, mtime, and ctime have functions to return `timespec`,
-/// because although this is a POSIX API, the layout and names of
-/// the structs are inconsistent across operating systems, and
-/// in C, macros are used to hide the differences. Here we use
-/// methods to accomplish this.
-pub const Stat = extern struct {
+pub const libc_stat = extern struct {
     dev: u64,
     ino: ino_t,
     nlink: usize,
 
     mode: u16,
     __pad0: u16,
-    uid: u32,
-    gid: u32,
+    uid: uid_t,
+    gid: gid_t,
     __pad1: u32,
     rdev: u64,
 
@@ -140,15 +143,15 @@ pub const Stat = extern struct {
     gen: u64,
     __spare: [10]u64,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
 };
@@ -1349,3 +1352,39 @@ pub const IPPROTO_RESERVED_253 = 253;
 
 /// Reserved
 pub const IPPROTO_RESERVED_254 = 254;
+
+pub const rlimit_resource = extern enum(c_int) {
+    CPU = 0,
+    FSIZE = 1,
+    DATA = 2,
+    STACK = 3,
+    CORE = 4,
+    RSS = 5,
+    MEMLOCK = 6,
+    NPROC = 7,
+    NOFILE = 8,
+    SBSIZE = 9,
+    VMEM = 10,
+    AS = 10,
+    NPTS = 11,
+    SWAP = 12,
+    KQUEUES = 13,
+    UMTXP = 14,
+
+    _,
+};
+
+pub const rlim_t = i64;
+
+/// No limit
+pub const RLIM_INFINITY: rlim_t = (1 << 63) - 1;
+
+pub const RLIM_SAVED_MAX = RLIM_INFINITY;
+pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+
+pub const rlimit = extern struct {
+    /// Soft limit
+    cur: rlim_t,
+    /// Hard limit
+    max: rlim_t,
+};

@@ -35,8 +35,7 @@ static unsigned long long wcstox(const wchar_t *s, wchar_t **p, int base, unsign
 	unsigned char buf[64];
 	FILE f = {0};
 	f.flags = 0;
-	f.rpos = f.rend = 0;
-	f.buf = buf + 4;
+	f.rpos = f.rend = f.buf = buf + 4;
 	f.buf_size = sizeof buf - 4;
 	f.lock = -1;
 	f.read = do_read;

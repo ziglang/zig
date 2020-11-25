@@ -93,10 +93,12 @@ __CRT_INLINE int ftruncate(int __fd, _off_t __length)
   void __cdecl swab(char *_Buf1,char *_Buf2,int _SizeInBytes) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
 #endif
 
+#if defined(_CRT_USE_WINAPI_FAMILY_DESKTOP_APP) || defined(WINSTORECOMPAT)
 #ifndef _CRT_GETPID_DEFINED
-#define _CRT_GETPID_DEFINED /* Also in process.h */
+#define _CRT_GETPID_DEFINED  /* Also in process.h */
   int __cdecl getpid(void) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
 #endif
+#endif /* _CRT_USE_WINAPI_FAMILY_DESKTOP_APP || WINSTORECOMPAT */
 
 #ifdef __cplusplus
 }

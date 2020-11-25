@@ -1,9 +1,15 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const build = std.build;
 const Step = build.Step;
 const Builder = build.Builder;
 const LibExeObjStep = build.LibExeObjStep;
+const WriteFileStep = build.WriteFileStep;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
@@ -42,6 +48,10 @@ pub const RunStep = struct {
 
     pub const Arg = union(enum) {
         Artifact: *LibExeObjStep,
+        WriteFile: struct {
+            step: *WriteFileStep,
+            file_name: []const u8,
+        },
         Bytes: []u8,
     };
 
@@ -49,7 +59,7 @@ pub const RunStep = struct {
         const self = builder.allocator.create(RunStep) catch unreachable;
         self.* = RunStep{
             .builder = builder,
-            .step = Step.init(name, builder.allocator, make),
+            .step = Step.init(.Run, name, builder.allocator, make),
             .argv = ArrayList(Arg).init(builder.allocator),
             .cwd = null,
             .env_map = null,
@@ -60,6 +70,16 @@ pub const RunStep = struct {
     pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
         self.argv.append(Arg{ .Artifact = artifact }) catch unreachable;
         self.step.dependOn(&artifact.step);
+    }
+
+    pub fn addWriteFileArg(self: *RunStep, write_file: *WriteFileStep, file_name: []const u8) void {
+        self.argv.append(Arg{
+            .WriteFile = .{
+                .step = write_file,
+                .file_name = file_name,
+            },
+        }) catch unreachable;
+        self.step.dependOn(&write_file.step);
     }
 
     pub fn addArg(self: *RunStep, arg: []const u8) void {
@@ -139,9 +159,12 @@ pub const RunStep = struct {
         const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
 
         var argv_list = ArrayList([]const u8).init(self.builder.allocator);
-        for (self.argv.span()) |arg| {
+        for (self.argv.items) |arg| {
             switch (arg) {
                 Arg.Bytes => |bytes| try argv_list.append(bytes),
+                Arg.WriteFile => |file| {
+                    try argv_list.append(file.step.getOutputPath(file.file_name));
+                },
                 Arg.Artifact => |artifact| {
                     if (artifact.target.isWindows()) {
                         // On Windows we don't have rpaths so we have to add .dll search paths to PATH
@@ -153,7 +176,7 @@ pub const RunStep = struct {
             }
         }
 
-        const argv = argv_list.span();
+        const argv = argv_list.items;
 
         const child = std.ChildProcess.init(argv, self.builder.allocator) catch unreachable;
         defer child.deinit();
@@ -289,7 +312,7 @@ pub const RunStep = struct {
     }
 
     fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
-        for (artifact.link_objects.span()) |link_object| {
+        for (artifact.link_objects.items) |link_object| {
             switch (link_object) {
                 .OtherStep => |other| {
                     if (other.target.isWindows() and other.isDynamicLibrary()) {

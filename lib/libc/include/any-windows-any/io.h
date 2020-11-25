@@ -205,7 +205,9 @@ _CRTIMP char* __cdecl _getcwd (char*, int);
   _off64_t lseek64(int fd,_off64_t offset, int whence);
   _CRTIMP char *__cdecl _mktemp(char *_TemplateName) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _SECIMP errno_t __cdecl _mktemp_s (char *_TemplateName,size_t _Size);
+#ifdef _CRT_USE_WINAPI_FAMILY_DESKTOP_APP
   _CRTIMP int __cdecl _pipe(int *_PtHandles,unsigned int _PipeSize,int _TextMode);
+#endif /* _CRT_USE_WINAPI_FAMILY_DESKTOP_APP */
   _CRTIMP int __cdecl _read(int _FileHandle,void *_DstBuf,unsigned int _MaxCharCount);
 
 #ifndef _CRT_DIRECTORY_DEFINED
@@ -256,8 +258,8 @@ _CRTIMP char* __cdecl _getcwd (char*, int);
   __CRT_INLINE int __cdecl _findnext64i32(intptr_t _FindHandle,struct _finddata64i32_t *_FindData)
   {
     struct __finddata64_t fd;
-    int ret = _findnext64(_FindHandle,&fd);
-    if (ret == -1) {
+    int __ret = _findnext64(_FindHandle,&fd);
+    if (__ret == -1) {
       memset(_FindData,0,sizeof(struct _finddata64i32_t));
       return -1;
     }
@@ -267,7 +269,7 @@ _CRTIMP char* __cdecl _getcwd (char*, int);
     _FindData->time_write=fd.time_write;
     _FindData->size=(_fsize_t) fd.size;
     strncpy(_FindData->name,fd.name,260);
-    return ret;
+    return __ret;
   }
 #endif /* __CRT__NO_INLINE */
   __MINGW_EXTENSION __int64 __cdecl _lseeki64(int _FileHandle,__int64 _Offset,int _Origin);

@@ -2,23 +2,15 @@ const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 const reflection = @This();
 
-test "reflection: array, pointer, optional, error union type child" {
-    comptime {
-        expect(([10]u8).Child == u8);
-        expect((*u8).Child == u8);
-        expect((anyerror!u8).Payload == u8);
-        expect((?u8).Child == u8);
-    }
-}
-
 test "reflection: function return type, var args, and param types" {
     comptime {
-        expect(@TypeOf(dummy).ReturnType == i32);
-        expect(!@TypeOf(dummy).is_var_args);
-        expect(@TypeOf(dummy).arg_count == 3);
-        expect(@typeInfo(@TypeOf(dummy)).Fn.args[0].arg_type.? == bool);
-        expect(@typeInfo(@TypeOf(dummy)).Fn.args[1].arg_type.? == i32);
-        expect(@typeInfo(@TypeOf(dummy)).Fn.args[2].arg_type.? == f32);
+        const info = @typeInfo(@TypeOf(dummy)).Fn;
+        expect(info.return_type.? == i32);
+        expect(!info.is_var_args);
+        expect(info.args.len == 3);
+        expect(info.args[0].arg_type.? == bool);
+        expect(info.args[1].arg_type.? == i32);
+        expect(info.args[2].arg_type.? == f32);
     }
 }
 

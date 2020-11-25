@@ -241,12 +241,19 @@ public:
 #endif
     ~thread();
 
-#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    thread(thread&& __t) _NOEXCEPT : __t_(__t.__t_) {__t.__t_ = _LIBCPP_NULL_THREAD;}
+    thread(thread&& __t) _NOEXCEPT : __t_(__t.__t_) {
+        __t.__t_ = _LIBCPP_NULL_THREAD;
+    }
+
     _LIBCPP_INLINE_VISIBILITY
-    thread& operator=(thread&& __t) _NOEXCEPT;
-#endif  // _LIBCPP_CXX03_LANG
+    thread& operator=(thread&& __t) _NOEXCEPT {
+        if (!__libcpp_thread_isnull(&__t_))
+            terminate();
+        __t_ = __t.__t_;
+        __t.__t_ = _LIBCPP_NULL_THREAD;
+        return *this;
+    }
 
     _LIBCPP_INLINE_VISIBILITY
     void swap(thread& __t) _NOEXCEPT {_VSTD::swap(__t_, __t.__t_);}
@@ -304,17 +311,6 @@ thread::thread(_Fp&& __f, _Args&&... __args)
         __throw_system_error(__ec, "thread constructor failed");
 }
 
-inline
-thread&
-thread::operator=(thread&& __t) _NOEXCEPT
-{
-    if (!__libcpp_thread_isnull(&__t_))
-        terminate();
-    __t_ = __t.__t_;
-    __t.__t_ = _LIBCPP_NULL_THREAD;
-    return *this;
-}
-
 #else  // _LIBCPP_CXX03_LANG
 
 template <class _Fp>
@@ -369,9 +365,9 @@ sleep_for(const chrono::duration<_Rep, _Period>& __d)
     {
 #if defined(_LIBCPP_COMPILER_GCC) && (__powerpc__ || __POWERPC__)
     //  GCC's long double const folding is incomplete for IBM128 long doubles.
-        _LIBCPP_CONSTEXPR duration<long double> _Max = nanoseconds::max();
-#else
         _LIBCPP_CONSTEXPR duration<long double> _Max = duration<long double>(ULLONG_MAX/1000000000ULL) ;
+#else
+        _LIBCPP_CONSTEXPR duration<long double> _Max = nanoseconds::max();
 #endif
         nanoseconds __ns;
         if (__d < _Max)

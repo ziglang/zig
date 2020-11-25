@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
@@ -9,6 +14,7 @@ pub const Feature = enum {
     multivalue,
     mutable_globals,
     nontrapping_fptoint,
+    reference_types,
     sign_ext,
     simd128,
     tail_call,
@@ -51,6 +57,11 @@ pub const all_features = blk: {
         .description = "Enable non-trapping float-to-int conversion operators",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.reference_types)] = .{
+        .llvm_name = "reference-types",
+        .description = "Enable reference types",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.sign_ext)] = .{
         .llvm_name = "sign-ext",
         .description = "Enable sign extension operators",
@@ -87,10 +98,12 @@ pub const cpu = struct {
         .llvm_name = "bleeding-edge",
         .features = featureSet(&[_]Feature{
             .atomics,
+            .bulk_memory,
             .mutable_globals,
             .nontrapping_fptoint,
             .sign_ext,
             .simd128,
+            .tail_call,
         }),
     };
     pub const generic = CpuModel{
@@ -103,13 +116,4 @@ pub const cpu = struct {
         .llvm_name = "mvp",
         .features = featureSet(&[_]Feature{}),
     };
-};
-
-/// All wasm CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.bleeding_edge,
-    &cpu.generic,
-    &cpu.mvp,
 };

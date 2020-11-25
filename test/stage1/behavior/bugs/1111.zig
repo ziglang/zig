@@ -7,6 +7,5 @@ test "issue 1111 fixed" {
 
     switch (v) {
         Foo.Bar => return,
-        else => return,
     }
 }

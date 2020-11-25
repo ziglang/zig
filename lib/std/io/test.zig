@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = std.builtin;
 const io = std.io;
@@ -35,11 +40,7 @@ test "write a file, read it, then delete it" {
 
     {
         // Make sure the exclusive flag is honored.
-        if (tmp.dir.createFile(tmp_file_name, .{ .exclusive = true })) |file| {
-            unreachable;
-        } else |err| {
-            std.debug.assert(err == File.OpenError.PathAlreadyExists);
-        }
+        expectError(File.OpenError.PathAlreadyExists, tmp.dir.createFile(tmp_file_name, .{ .exclusive = true }));
     }
 
     {
@@ -50,8 +51,8 @@ test "write a file, read it, then delete it" {
         const expected_file_size: u64 = "begin".len + data.len + "end".len;
         expectEqual(expected_file_size, file_size);
 
-        var buf_stream = io.bufferedInStream(file.inStream());
-        const st = buf_stream.inStream();
+        var buf_stream = io.bufferedReader(file.reader());
+        const st = buf_stream.reader();
         const contents = try st.readAllAlloc(std.testing.allocator, 2 * 1024);
         defer std.testing.allocator.free(contents);
 
@@ -85,7 +86,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitInStream(builtin.endian, file.inStream());
+        var bit_stream = io.bitReader(builtin.endian, file.reader());
 
         var out_bits: usize = undefined;
 
@@ -135,9 +136,6 @@ test "File seek ops" {
 }
 
 test "setEndPos" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 

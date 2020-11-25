@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 
@@ -24,6 +29,9 @@ pub extern "c" fn __gettimeofday50(noalias tv: ?*timeval, noalias tz: ?*timezone
 pub extern "c" fn __getrusage50(who: c_int, usage: *rusage) c_int;
 // libc aliases this as sched_yield
 pub extern "c" fn __libc_thr_yield() c_int;
+
+pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
+pub extern "c" fn malloc_usable_size(?*const c_void) usize;
 
 pub const pthread_mutex_t = extern struct {
     ptm_magic: u32 = 0x33330003,

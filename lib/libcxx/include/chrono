@@ -2454,7 +2454,7 @@ chrono::day year_month_day_last::day() const noexcept
         chrono::day(31), chrono::day(31), chrono::day(30),
         chrono::day(31), chrono::day(30), chrono::day(31)
     };
-    return month() != February || !__y.is_leap() ?
+    return (month() != February || !__y.is_leap()) && month().ok() ?
         __d[static_cast<unsigned>(month()) - 1] : chrono::day{29};
 }
 

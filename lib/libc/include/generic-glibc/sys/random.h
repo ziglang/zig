@@ -25,6 +25,7 @@
 /* Flags for use with getrandom.  */
 #define GRND_NONBLOCK 0x01
 #define GRND_RANDOM 0x02
+#define GRND_INSECURE 0x04
 
 __BEGIN_DECLS
 

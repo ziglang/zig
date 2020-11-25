@@ -75,7 +75,7 @@ __NTH (memset (void *__dest, int __ch, size_t __len))
 # include <bits/strings_fortified.h>
 
 void __explicit_bzero_chk (void *__dest, size_t __len, size_t __destlen)
-  __THROW __nonnull ((1));
+  __THROW __nonnull ((1)) __attr_access ((__write_only__, 1, 2));
 
 __fortify_function void
 __NTH (explicit_bzero (void *__dest, size_t __len))
@@ -108,7 +108,8 @@ __NTH (strncpy (char *__restrict __dest, const char *__restrict __src,
 
 /* XXX We have no corresponding builtin yet.  */
 extern char *__stpncpy_chk (char *__dest, const char *__src, size_t __n,
-			    size_t __destlen) __THROW;
+			    size_t __destlen) __THROW
+  __attr_access ((__write_only__, 1, 3)) __attr_access ((__read_only__, 2));
 extern char *__REDIRECT_NTH (__stpncpy_alias, (char *__dest, const char *__src,
 					       size_t __n), stpncpy);
 

@@ -171,7 +171,7 @@ test "nested bitcast" {
 
 test "bitcast passed as tuple element" {
     const S = struct {
-        fn foo(args: var) void {
+        fn foo(args: anytype) void {
             comptime expect(@TypeOf(args[0]) == f32);
             expect(args[0] == 12.34);
         }
@@ -181,7 +181,7 @@ test "bitcast passed as tuple element" {
 
 test "triple level result location with bitcast sandwich passed as tuple element" {
     const S = struct {
-        fn foo(args: var) void {
+        fn foo(args: anytype) void {
             comptime expect(@TypeOf(args[0]) == f64);
             expect(args[0] > 12.33 and args[0] < 12.35);
         }

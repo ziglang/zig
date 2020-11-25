@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
@@ -130,7 +135,7 @@ pub const Murmur2_64 = struct {
         return @call(.{ .modifier = .always_inline }, Self.hashUint32WithSeed, .{ v, default_seed });
     }
 
-    pub fn hashUint32WithSeed(v: u32, seed: u32) u64 {
+    pub fn hashUint32WithSeed(v: u32, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
         const len: u64 = 4;
         var h1: u64 = seed ^ (len *% m);
@@ -147,7 +152,7 @@ pub const Murmur2_64 = struct {
         return @call(.{ .modifier = .always_inline }, Self.hashUint64WithSeed, .{ v, default_seed });
     }
 
-    pub fn hashUint64WithSeed(v: u64, seed: u32) u64 {
+    pub fn hashUint64WithSeed(v: u64, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
         const len: u64 = 8;
         var h1: u64 = seed ^ (len *% m);
@@ -279,7 +284,7 @@ pub const Murmur3_32 = struct {
     }
 };
 
-fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
+fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
     const hashbytes = hashbits / 8;
     var key: [256]u8 = undefined;
     var hashes: [hashbytes * 256]u8 = undefined;

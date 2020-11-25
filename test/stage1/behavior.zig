@@ -44,11 +44,21 @@ comptime {
     _ = @import("behavior/bugs/3384.zig");
     _ = @import("behavior/bugs/3586.zig");
     _ = @import("behavior/bugs/3742.zig");
+    _ = @import("behavior/bugs/4328.zig");
     _ = @import("behavior/bugs/4560.zig");
     _ = @import("behavior/bugs/4769_a.zig");
     _ = @import("behavior/bugs/4769_b.zig");
     _ = @import("behavior/bugs/4769_c.zig");
     _ = @import("behavior/bugs/4954.zig");
+    _ = @import("behavior/bugs/5413.zig");
+    _ = @import("behavior/bugs/5474.zig");
+    _ = @import("behavior/bugs/5487.zig");
+    _ = @import("behavior/bugs/6456.zig");
+    _ = @import("behavior/bugs/6781.zig");
+    _ = @import("behavior/bugs/6850.zig");
+    _ = @import("behavior/bugs/7027.zig");
+    _ = @import("behavior/bugs/7047.zig");
+    _ = @import("behavior/bugs/7003.zig");
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
     _ = @import("behavior/bugs/529.zig");
@@ -123,6 +133,11 @@ comptime {
     _ = @import("behavior/var_args.zig");
     _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");
+    if (builtin.arch == .wasm32) {
+        _ = @import("behavior/wasm.zig");
+    }
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
+    _ = @import("behavior/src.zig");
+    _ = @import("behavior/translate_c_macros.zig");
 }

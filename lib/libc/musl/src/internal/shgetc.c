@@ -32,6 +32,6 @@ int __shgetc(FILE *f)
 	else
 		f->shend = f->rend;
 	f->shcnt = f->buf - f->rpos + cnt;
-	if (f->rpos[-1] != c) f->rpos[-1] = c;
+	if (f->rpos <= f->buf) f->rpos[-1] = c;
 	return c;
 }

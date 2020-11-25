@@ -60,8 +60,6 @@ struct ipv6_mreq {
 
 extern const struct in6_addr in6addr_any, in6addr_loopback;
 
-#undef INET_ADDRSTRLEN
-#undef INET6_ADDRSTRLEN
 #define INET_ADDRSTRLEN  16
 #define INET6_ADDRSTRLEN 46
 

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -21,7 +26,7 @@ pub const HashStrategy = enum {
 };
 
 /// Helper function to hash a pointer and mutate the strategy if needed.
-pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
+pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     const info = @typeInfo(@TypeOf(key));
 
     switch (info.Pointer.size) {
@@ -53,12 +58,9 @@ pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
 }
 
 /// Helper function to hash a set of contiguous objects, from an array or slice.
-pub fn hashArray(hasher: var, key: var, comptime strat: HashStrategy) void {
+pub fn hashArray(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     switch (strat) {
         .Shallow => {
-            // TODO detect via a trait when Key has no padding bits to
-            // hash it as an array of bytes.
-            // Otherwise, hash every element.
             for (key) |element| {
                 hash(hasher, element, .Shallow);
             }
@@ -73,32 +75,36 @@ pub fn hashArray(hasher: var, key: var, comptime strat: HashStrategy) void {
 
 /// Provides generic hashing for any eligible type.
 /// Strategy is provided to determine if pointers should be followed or not.
-pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
+pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     const Key = @TypeOf(key);
+
+    if (strat == .Shallow and comptime meta.trait.hasUniqueRepresentation(Key)) {
+        @call(.{ .modifier = .always_inline }, hasher.update, .{mem.asBytes(&key)});
+        return;
+    }
+
     switch (@typeInfo(Key)) {
         .NoReturn,
         .Opaque,
         .Undefined,
         .Void,
         .Null,
-        .BoundFn,
         .ComptimeFloat,
         .ComptimeInt,
         .Type,
         .EnumLiteral,
         .Frame,
+        .Float,
         => @compileError("cannot hash this type"),
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
         .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
 
-        .Float => |info| hash(hasher, @bitCast(std.meta.Int(false, info.bits), key), strat),
-
         .Bool => hash(hasher, @boolToInt(key), strat),
         .Enum => hash(hasher, @enumToInt(key), strat),
         .ErrorSet => hash(hasher, @errorToInt(key), strat),
-        .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
+        .AnyFrame, .BoundFn, .Fn => hash(hasher, @ptrToInt(key), strat),
 
         .Pointer => @call(.{ .modifier = .always_inline }, hashPointer, .{ hasher, key, strat }),
 
@@ -107,7 +113,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
         .Array => hashArray(hasher, key, strat),
 
         .Vector => |info| {
-            if (info.child.bit_count % 8 == 0) {
+            if (std.meta.bitCount(info.child) % 8 == 0) {
                 // If there's no unused bits in the child type, we can just hash
                 // this as an array of bytes.
                 hasher.update(mem.asBytes(&key));
@@ -121,9 +127,6 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
         },
 
         .Struct => |info| {
-            // TODO detect via a trait when Key has no padding bits to
-            // hash it as an array of bytes.
-            // Otherwise, hash every field.
             inline for (info.fields) |field| {
                 // We reuse the hash of the previous field as the seed for the
                 // next one so that they're dependant.
@@ -131,14 +134,13 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
             }
         },
 
-        .Union => |info| blk: {
+        .Union => |info| {
             if (info.tag_type) |tag_type| {
                 const tag = meta.activeTag(key);
                 const s = hash(hasher, tag, strat);
                 inline for (info.fields) |field| {
-                    const enum_field = field.enum_field.?;
-                    if (enum_field.value == @enumToInt(tag)) {
-                        hash(hasher, @field(key, enum_field.name), strat);
+                    if (@field(tag_type, field.name) == tag) {
+                        hash(hasher, @field(key, field.name), strat);
                         // TODO use a labelled break when it does not crash the compiler. cf #2908
                         // break :blk;
                         return;
@@ -161,7 +163,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Provides generic hashing for any eligible type.
 /// Only hashes `key` itself, pointers are not followed.
 /// Slices are rejected to avoid ambiguity on the user's intention.
-pub fn autoHash(hasher: var, key: var) void {
+pub fn autoHash(hasher: anytype, key: anytype) void {
     const Key = @TypeOf(key);
     if (comptime meta.trait.isSlice(Key)) {
         comptime assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
@@ -181,28 +183,28 @@ pub fn autoHash(hasher: var, key: var) void {
 const testing = std.testing;
 const Wyhash = std.hash.Wyhash;
 
-fn testHash(key: var) u64 {
+fn testHash(key: anytype) u64 {
     // Any hash could be used here, for testing autoHash.
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .Shallow);
     return hasher.final();
 }
 
-fn testHashShallow(key: var) u64 {
+fn testHashShallow(key: anytype) u64 {
     // Any hash could be used here, for testing autoHash.
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .Shallow);
     return hasher.final();
 }
 
-fn testHashDeep(key: var) u64 {
+fn testHashDeep(key: anytype) u64 {
     // Any hash could be used here, for testing autoHash.
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .Deep);
     return hasher.final();
 }
 
-fn testHashDeepRecursive(key: var) u64 {
+fn testHashDeepRecursive(key: anytype) u64 {
     // Any hash could be used here, for testing autoHash.
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .DeepRecursive);
@@ -266,12 +268,12 @@ test "hash slice deep" {
 test "hash struct deep" {
     const Foo = struct {
         a: u32,
-        b: f64,
+        b: u16,
         c: *bool,
 
         const Self = @This();
 
-        pub fn init(allocator: *mem.Allocator, a_: u32, b_: f64, c_: bool) !Self {
+        pub fn init(allocator: *mem.Allocator, a_: u32, b_: u16, c_: bool) !Self {
             const ptr = try allocator.create(bool);
             ptr.* = c_;
             return Self{ .a = a_, .b = b_, .c = ptr };
@@ -279,9 +281,9 @@ test "hash struct deep" {
     };
 
     const allocator = std.testing.allocator;
-    const foo = try Foo.init(allocator, 123, 1.0, true);
-    const bar = try Foo.init(allocator, 123, 1.0, true);
-    const baz = try Foo.init(allocator, 123, 1.0, false);
+    const foo = try Foo.init(allocator, 123, 10, true);
+    const bar = try Foo.init(allocator, 123, 10, true);
+    const baz = try Foo.init(allocator, 123, 10, false);
     defer allocator.destroy(foo.c);
     defer allocator.destroy(bar.c);
     defer allocator.destroy(baz.c);
@@ -338,12 +340,12 @@ test "testHash struct" {
 test "testHash union" {
     const Foo = union(enum) {
         A: u32,
-        B: f32,
+        B: bool,
         C: u32,
     };
 
     const a = Foo{ .A = 18 };
-    var b = Foo{ .B = 12.34 };
+    var b = Foo{ .B = true };
     const c = Foo{ .C = 18 };
     testing.expect(testHash(a) == testHash(a));
     testing.expect(testHash(a) != testHash(b));

@@ -84,8 +84,8 @@ fn testErrorUnionType() void {
     const x: anyerror!i32 = 1234;
     if (x) |value| expect(value == 1234) else |_| unreachable;
     expect(@typeInfo(@TypeOf(x)) == .ErrorUnion);
-    expect(@typeInfo(@TypeOf(x).ErrorSet) == .ErrorSet);
-    expect(@TypeOf(x).ErrorSet == anyerror);
+    expect(@typeInfo(@typeInfo(@TypeOf(x)).ErrorUnion.error_set) == .ErrorSet);
+    expect(@typeInfo(@TypeOf(x)).ErrorUnion.error_set == anyerror);
 }
 
 test "error set type" {
@@ -227,7 +227,7 @@ test "error: Infer error set from literals" {
     _ = comptime intLiteral("n") catch |err| handleErrors(err);
 }
 
-fn handleErrors(err: var) noreturn {
+fn handleErrors(err: anytype) noreturn {
     switch (err) {
         error.T => {},
     }

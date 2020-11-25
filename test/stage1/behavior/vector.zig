@@ -4,6 +4,7 @@ const mem = std.mem;
 const math = std.math;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectWithinEpsilon = std.testing.expectWithinEpsilon;
 const Vector = std.meta.Vector;
 
 test "implicit cast vector to array - bool" {
@@ -148,15 +149,33 @@ test "vector casts of sizes not divisable by 8" {
 
 test "vector @splat" {
     const S = struct {
+        fn testForT(comptime N: comptime_int, v: anytype) void {
+            const T = @TypeOf(v);
+            var vec = @splat(N, v);
+            expectEqual(Vector(N, T), @TypeOf(vec));
+            var as_array = @as([N]T, vec);
+            for (as_array) |elem| expectEqual(v, elem);
+        }
         fn doTheTest() void {
-            var v: u32 = 5;
-            var x = @splat(4, v);
-            expect(@TypeOf(x) == Vector(4, u32));
-            var array_x: [4]u32 = x;
-            expect(array_x[0] == 5);
-            expect(array_x[1] == 5);
-            expect(array_x[2] == 5);
-            expect(array_x[3] == 5);
+            // Splats with multiple-of-8 bit types that fill a 128bit vector.
+            testForT(16, @as(u8, 0xEE));
+            testForT(8, @as(u16, 0xBEEF));
+            testForT(4, @as(u32, 0xDEADBEEF));
+            testForT(2, @as(u64, 0xCAFEF00DDEADBEEF));
+
+            testForT(8, @as(f16, 3.1415));
+            testForT(4, @as(f32, 3.1415));
+            testForT(2, @as(f64, 3.1415));
+
+            // Same but fill more than 128 bits.
+            testForT(16 * 2, @as(u8, 0xEE));
+            testForT(8 * 2, @as(u16, 0xBEEF));
+            testForT(4 * 2, @as(u32, 0xDEADBEEF));
+            testForT(2 * 2, @as(u64, 0xCAFEF00DDEADBEEF));
+
+            testForT(8 * 2, @as(f16, 3.1415));
+            testForT(4 * 2, @as(f32, 3.1415));
+            testForT(2 * 2, @as(f64, 3.1415));
         }
     };
     S.doTheTest();
@@ -171,7 +190,7 @@ test "load vector elements via comptime index" {
             expect(v[1] == 2);
             expect(loadv(&v[2]) == 3);
         }
-        fn loadv(ptr: var) i32 {
+        fn loadv(ptr: anytype) i32 {
             return ptr.*;
         }
     };
@@ -194,7 +213,7 @@ test "store vector elements via comptime index" {
             storev(&v[0], 100);
             expect(v[0] == 100);
         }
-        fn storev(ptr: var, x: i32) void {
+        fn storev(ptr: anytype, x: i32) void {
             ptr.* = x;
         }
     };
@@ -273,6 +292,14 @@ test "vector comparison operators" {
                 expectEqual(@splat(4, false), v1 == v3);
                 expectEqual(@splat(4, true), v1 != v3);
                 expectEqual(@splat(4, false), v1 != v2);
+            }
+            {
+                // Comptime-known LHS/RHS
+                var v1: @Vector(4, u32) = [_]u32{ 2, 1, 2, 1 };
+                const v2 = @splat(4, @as(u32, 2));
+                const v3: @Vector(4, bool) = [_]bool{ true, false, true, false };
+                expectEqual(v3, v1 == v2);
+                expectEqual(v3, v2 == v1);
             }
         }
     };
@@ -392,7 +419,7 @@ test "vector shift operators" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const S = struct {
-        fn doTheTestShift(x: var, y: var) void {
+        fn doTheTestShift(x: anytype, y: anytype) void {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
             const TY = @typeInfo(@TypeOf(y)).Array.child;
@@ -409,7 +436,7 @@ test "vector shift operators" {
                 expectEqual(x[i] << y[i], v);
             }
         }
-        fn doTheTestShiftExact(x: var, y: var, dir: enum { Left, Right }) void {
+        fn doTheTestShiftExact(x: anytype, y: anytype, dir: enum { Left, Right }) void {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
             const TY = @typeInfo(@TypeOf(y)).Array.child;
@@ -472,6 +499,137 @@ test "vector shift operators" {
         },
         else => {},
     }
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vector reduce operation" {
+    const S = struct {
+        fn doTheTestReduce(comptime op: builtin.ReduceOp, x: anytype, expected: anytype) void {
+            const N = @typeInfo(@TypeOf(x)).Array.len;
+            const TX = @typeInfo(@TypeOf(x)).Array.child;
+
+            var r = @reduce(op, @as(Vector(N, TX), x));
+            switch (@typeInfo(TX)) {
+                .Int, .Bool => expectEqual(expected, r),
+                .Float => {
+                    if (math.isNan(expected) != math.isNan(r)) {
+                        std.debug.panic("unexpected NaN value!\n", .{});
+                    } else {
+                        expectWithinEpsilon(expected, r, 0.001);
+                    }
+                },
+                else => unreachable,
+            }
+        }
+        fn doTheTest() void {
+            doTheTestReduce(.Add, [4]i16{ -9, -99, -999, -9999 }, @as(i32, -11106));
+            doTheTestReduce(.Add, [4]u16{ 9, 99, 999, 9999 }, @as(u32, 11106));
+            doTheTestReduce(.Add, [4]i32{ -9, -99, -999, -9999 }, @as(i32, -11106));
+            doTheTestReduce(.Add, [4]u32{ 9, 99, 999, 9999 }, @as(u32, 11106));
+            doTheTestReduce(.Add, [4]i64{ -9, -99, -999, -9999 }, @as(i64, -11106));
+            doTheTestReduce(.Add, [4]u64{ 9, 99, 999, 9999 }, @as(u64, 11106));
+            doTheTestReduce(.Add, [4]i128{ -9, -99, -999, -9999 }, @as(i128, -11106));
+            doTheTestReduce(.Add, [4]u128{ 9, 99, 999, 9999 }, @as(u128, 11106));
+            doTheTestReduce(.Add, [4]f16{ -1.9, 5.1, -60.3, 100.0 }, @as(f16, 42.9));
+            doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, -60.3, 100.0 }, @as(f32, 42.9));
+            doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, -60.3, 100.0 }, @as(f64, 42.9));
+
+            doTheTestReduce(.And, [4]bool{ true, false, true, true }, @as(bool, false));
+            doTheTestReduce(.And, [4]u1{ 1, 0, 1, 1 }, @as(u1, 0));
+            doTheTestReduce(.And, [4]u16{ 0xffff, 0xff55, 0xaaff, 0x1010 }, @as(u16, 0x10));
+            doTheTestReduce(.And, [4]u32{ 0xffffffff, 0xffff5555, 0xaaaaffff, 0x10101010 }, @as(u32, 0x1010));
+            doTheTestReduce(.And, [4]u64{ 0xffffffff, 0xffff5555, 0xaaaaffff, 0x10101010 }, @as(u64, 0x1010));
+
+            doTheTestReduce(.Min, [4]i16{ -1, 2, 3, 4 }, @as(i16, -1));
+            doTheTestReduce(.Min, [4]u16{ 1, 2, 3, 4 }, @as(u16, 1));
+            doTheTestReduce(.Min, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, -386));
+            doTheTestReduce(.Min, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 9));
+
+            // LLVM 11 ERROR: Cannot select type
+            // https://github.com/ziglang/zig/issues/7138
+            if (std.builtin.arch != .aarch64) {
+               doTheTestReduce(.Min, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, -386));
+               doTheTestReduce(.Min, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 9));
+            }
+
+            doTheTestReduce(.Min, [4]i128{ 1234567, -386, 0, 3 }, @as(i128, -386));
+            doTheTestReduce(.Min, [4]u128{ 99, 9999, 9, 99999 }, @as(u128, 9));
+            doTheTestReduce(.Min, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, -100.0));
+            doTheTestReduce(.Min, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, -100.0));
+            doTheTestReduce(.Min, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, -100.0));
+
+            doTheTestReduce(.Max, [4]i16{ -1, 2, 3, 4 }, @as(i16, 4));
+            doTheTestReduce(.Max, [4]u16{ 1, 2, 3, 4 }, @as(u16, 4));
+            doTheTestReduce(.Max, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, 1234567));
+            doTheTestReduce(.Max, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 99999));
+
+            // LLVM 11 ERROR: Cannot select type
+            // https://github.com/ziglang/zig/issues/7138
+            if (std.builtin.arch != .aarch64) {
+               doTheTestReduce(.Max, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, 1234567));
+               doTheTestReduce(.Max, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 99999));
+            }
+
+            doTheTestReduce(.Max, [4]i128{ 1234567, -386, 0, 3 }, @as(i128, 1234567));
+            doTheTestReduce(.Max, [4]u128{ 99, 9999, 9, 99999 }, @as(u128, 99999));
+            doTheTestReduce(.Max, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, 10.0e9));
+            doTheTestReduce(.Max, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, 10.0e9));
+            doTheTestReduce(.Max, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, 10.0e9));
+
+            doTheTestReduce(.Mul, [4]i16{ -1, 2, 3, 4 }, @as(i16, -24));
+            doTheTestReduce(.Mul, [4]u16{ 1, 2, 3, 4 }, @as(u16, 24));
+            doTheTestReduce(.Mul, [4]i32{ -9, -99, -999, 999 }, @as(i32, -889218891));
+            doTheTestReduce(.Mul, [4]u32{ 1, 2, 3, 4 }, @as(u32, 24));
+            doTheTestReduce(.Mul, [4]i64{ 9, 99, 999, 9999 }, @as(i64, 8900199891));
+            doTheTestReduce(.Mul, [4]u64{ 9, 99, 999, 9999 }, @as(u64, 8900199891));
+            doTheTestReduce(.Mul, [4]i128{ -9, -99, -999, 9999 }, @as(i128, -8900199891));
+            doTheTestReduce(.Mul, [4]u128{ 9, 99, 999, 9999 }, @as(u128, 8900199891));
+            doTheTestReduce(.Mul, [4]f16{ -1.9, 5.1, -60.3, 100.0 }, @as(f16, 58430.7));
+            doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, -60.3, 100.0 }, @as(f32, 58430.7));
+            doTheTestReduce(.Mul, [4]f64{ -1.9, 5.1, -60.3, 100.0 }, @as(f64, 58430.7));
+
+            doTheTestReduce(.Or, [4]bool{ false, true, false, false }, @as(bool, true));
+            doTheTestReduce(.Or, [4]u1{ 0, 1, 0, 0 }, @as(u1, 1));
+            doTheTestReduce(.Or, [4]u16{ 0xff00, 0xff00, 0xf0, 0xf }, ~@as(u16, 0));
+            doTheTestReduce(.Or, [4]u32{ 0xffff0000, 0xff00, 0xf0, 0xf }, ~@as(u32, 0));
+            doTheTestReduce(.Or, [4]u64{ 0xffff0000, 0xff00, 0xf0, 0xf }, @as(u64, 0xffffffff));
+            doTheTestReduce(.Or, [4]u128{ 0xffff0000, 0xff00, 0xf0, 0xf }, @as(u128, 0xffffffff));
+
+            doTheTestReduce(.Xor, [4]bool{ true, true, true, false }, @as(bool, true));
+            doTheTestReduce(.Xor, [4]u1{ 1, 1, 1, 0 }, @as(u1, 1));
+            doTheTestReduce(.Xor, [4]u16{ 0x0000, 0x3333, 0x8888, 0x4444 }, ~@as(u16, 0));
+            doTheTestReduce(.Xor, [4]u32{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, ~@as(u32, 0));
+            doTheTestReduce(.Xor, [4]u64{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, @as(u64, 0xffffffff));
+            doTheTestReduce(.Xor, [4]u128{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, @as(u128, 0xffffffff));
+
+            // Test the reduction on vectors containing NaNs.
+            const f16_nan = math.nan(f16);
+            const f32_nan = math.nan(f32);
+            const f64_nan = math.nan(f64);
+
+            doTheTestReduce(.Add, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+            doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+            doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+
+            // LLVM 11 ERROR: Cannot select type
+            // https://github.com/ziglang/zig/issues/7138
+            if (false) {
+                doTheTestReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+                doTheTestReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+                doTheTestReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+
+                doTheTestReduce(.Max, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+                doTheTestReduce(.Max, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+                doTheTestReduce(.Max, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            }
+
+            doTheTestReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+            doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+            doTheTestReduce(.Mul, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+        }
+    };
 
     S.doTheTest();
     comptime S.doTheTest();

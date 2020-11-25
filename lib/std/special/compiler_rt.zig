@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = std.builtin;
 const is_test = builtin.is_test;
@@ -92,9 +97,11 @@ comptime {
     @export(@import("compiler_rt/floatunsidf.zig").__floatunsidf, .{ .name = "__floatunsidf", .linkage = linkage });
     @export(@import("compiler_rt/floatundidf.zig").__floatundidf, .{ .name = "__floatundidf", .linkage = linkage });
 
+    @export(@import("compiler_rt/floatditf.zig").__floatditf, .{ .name = "__floatditf", .linkage = linkage });
     @export(@import("compiler_rt/floattitf.zig").__floattitf, .{ .name = "__floattitf", .linkage = linkage });
     @export(@import("compiler_rt/floattidf.zig").__floattidf, .{ .name = "__floattidf", .linkage = linkage });
-    @export(@import("compiler_rt/floattisf.zig").__floattisf, .{ .name = "__floattisf", .linkage = linkage });
+    @export(@import("compiler_rt/floatXisf.zig").__floattisf, .{ .name = "__floattisf", .linkage = linkage });
+    @export(@import("compiler_rt/floatXisf.zig").__floatdisf, .{ .name = "__floatdisf", .linkage = linkage });
 
     @export(@import("compiler_rt/floatunditf.zig").__floatunditf, .{ .name = "__floatunditf", .linkage = linkage });
     @export(@import("compiler_rt/floatunsitf.zig").__floatunsitf, .{ .name = "__floatunsitf", .linkage = linkage });
@@ -198,6 +205,7 @@ comptime {
         @export(@import("compiler_rt/extendXfYf2.zig").__aeabi_f2d, .{ .name = "__aeabi_f2d", .linkage = linkage });
         @export(@import("compiler_rt/floatsiXf.zig").__aeabi_i2d, .{ .name = "__aeabi_i2d", .linkage = linkage });
         @export(@import("compiler_rt/floatdidf.zig").__aeabi_l2d, .{ .name = "__aeabi_l2d", .linkage = linkage });
+        @export(@import("compiler_rt/floatXisf.zig").__aeabi_l2f, .{ .name = "__aeabi_l2f", .linkage = linkage });
         @export(@import("compiler_rt/floatunsidf.zig").__aeabi_ui2d, .{ .name = "__aeabi_ui2d", .linkage = linkage });
         @export(@import("compiler_rt/floatundidf.zig").__aeabi_ul2d, .{ .name = "__aeabi_ul2d", .linkage = linkage });
         @export(@import("compiler_rt/floatunsisf.zig").__aeabi_ui2f, .{ .name = "__aeabi_ui2f", .linkage = linkage });
@@ -276,11 +284,6 @@ comptime {
             @export(@import("compiler_rt/stack_probe.zig").__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
         }
 
-        if (is_mingw) {
-            @export(__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = strong_linkage });
-            @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = strong_linkage });
-        }
-
         switch (builtin.arch) {
             .i386 => {
                 @export(@import("compiler_rt/divti3.zig").__divti3, .{ .name = "__divti3", .linkage = linkage });
@@ -303,9 +306,6 @@ comptime {
             else => {},
         }
     } else {
-        if (std.Target.current.isGnuLibC() and builtin.link_libc) {
-            @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = linkage });
-        }
         @export(@import("compiler_rt/divti3.zig").__divti3, .{ .name = "__divti3", .linkage = linkage });
         @export(@import("compiler_rt/modti3.zig").__modti3, .{ .name = "__modti3", .linkage = linkage });
         @export(@import("compiler_rt/multi3.zig").__multi3, .{ .name = "__multi3", .linkage = linkage });
@@ -329,14 +329,3 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
         unreachable;
     }
 }
-
-fn __stack_chk_fail() callconv(.C) noreturn {
-    @panic("stack smashing detected");
-}
-
-extern var __stack_chk_guard: usize = blk: {
-    var buf = [1]u8{0} ** @sizeOf(usize);
-    buf[@sizeOf(usize) - 1] = 255;
-    buf[@sizeOf(usize) - 2] = '\n';
-    break :blk @bitCast(usize, buf);
-};

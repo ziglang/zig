@@ -211,10 +211,15 @@ mark_section_writable (LPVOID addr)
   if (b.Protect != PAGE_EXECUTE_READWRITE && b.Protect != PAGE_READWRITE
       && b.Protect != PAGE_EXECUTE_WRITECOPY && b.Protect != PAGE_WRITECOPY)
     {
+      ULONG new_protect;
+      if (b.Protect == PAGE_READONLY)
+        new_protect = PAGE_READWRITE;
+      else
+        new_protect = PAGE_EXECUTE_READWRITE;
       the_secs[i].base_address = b.BaseAddress;
       the_secs[i].region_size = b.RegionSize;
       if (!VirtualProtect (b.BaseAddress, b.RegionSize,
-			   PAGE_EXECUTE_READWRITE,
+			   new_protect,
 			   &the_secs[i].old_protect))
 	__report_error ("  VirtualProtect failed with code 0x%x",
 	  (int) GetLastError ());

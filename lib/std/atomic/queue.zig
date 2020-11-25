@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -22,7 +27,7 @@ pub fn Queue(comptime T: type) type {
             return Self{
                 .head = null,
                 .tail = null,
-                .mutex = std.Mutex.init(),
+                .mutex = std.Mutex{},
             };
         }
 
@@ -123,10 +128,10 @@ pub fn Queue(comptime T: type) type {
         /// Dumps the contents of the queue to `stream`.
         /// Up to 4 elements from the head are dumped and the tail of the queue is
         /// dumped as well.
-        pub fn dumpToStream(self: *Self, stream: var) !void {
+        pub fn dumpToStream(self: *Self, stream: anytype) !void {
             const S = struct {
                 fn dumpRecursive(
-                    s: var,
+                    s: anytype,
                     optional_node: ?*Node,
                     indent: usize,
                     comptime depth: comptime_int,

@@ -23,7 +23,7 @@ packages:
   - jq
   - xz
 secrets:
-  - 6c60aaee-92e7-4e7d-812c-114817689b4d
+  - 51bfddf5-86a6-4e01-8576-358c72a4a0a4
 sources:
   - https://github.com/ziglang/zig
 tasks:
@@ -36,4 +36,4 @@ jq <$YML_FILE -sR '{
   -H Authorization:"token $OAUTH_TOKEN" \
   -H Content-Type:application/json \
   -X POST \
-  -d @- "https://builds.sr.ht/api/jobs"
+  -d @- "https://builds.hut.lavatech.top/api/jobs"

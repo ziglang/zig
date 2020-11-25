@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const uefi = @import("std").os.uefi;
 const BootServices = uefi.tables.BootServices;
 const ConfigurationTable = uefi.tables.ConfigurationTable;
@@ -30,7 +35,7 @@ pub const SystemTable = extern struct {
     runtime_services: *RuntimeServices,
     boot_services: ?*BootServices,
     number_of_table_entries: usize,
-    configuration_table: *ConfigurationTable,
+    configuration_table: [*]ConfigurationTable,
 
     pub const signature: u64 = 0x5453595320494249;
     pub const revision_1_02: u32 = (1 << 16) | 2;

@@ -213,15 +213,32 @@ typedef struct _PSAPI_WORKING_SET_INFORMATION {
 
 typedef union _PSAPI_WORKING_SET_EX_BLOCK {
   ULONG_PTR Flags;
-  __C89_NAMELESS struct {
-    ULONG_PTR Valid  :1;
-    ULONG_PTR ShareCount  :3;
-    ULONG_PTR Win32Protection  :11;
-    ULONG_PTR Shared  :1;
-    ULONG_PTR Node  :6;
-    ULONG_PTR Locked  :1;
-    ULONG_PTR LargePage  :1;
-  } DUMMYSTRUCTNAME;
+  __C89_NAMELESS union {
+    __C89_NAMELESS struct {
+      ULONG_PTR Valid : 1;
+      ULONG_PTR ShareCount : 3;
+      ULONG_PTR Win32Protection : 11;
+      ULONG_PTR Shared : 1;
+      ULONG_PTR Node : 6;
+      ULONG_PTR Locked : 1;
+      ULONG_PTR LargePage : 1;
+      ULONG_PTR Reserved : 7;
+      ULONG_PTR Bad : 1;
+#ifdef _WIN64
+      ULONG_PTR ReservedUlong : 32;
+#endif
+    };
+    struct {
+      ULONG_PTR Valid : 1;
+      ULONG_PTR Reserved0 : 14;
+      ULONG_PTR Shared : 1;
+      ULONG_PTR Reserved1 : 15;
+      ULONG_PTR Bad : 1;
+#ifdef _WIN64
+      ULONG_PTR ReservedUlong : 32;
+#endif
+    } Invalid;
+  };
 } PSAPI_WORKING_SET_EX_BLOCK, *PPSAPI_WORKING_SET_EX_BLOCK;
 
 typedef struct _PSAPI_WORKING_SET_EX_INFORMATION {

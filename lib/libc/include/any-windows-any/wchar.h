@@ -7,9 +7,10 @@
 #define _INC_WCHAR
 
 #include <corecrt.h>
+#include <corecrt_stdio_config.h>
 #include <corecrt_wstdlib.h>
 
-#if __USE_MINGW_ANSI_STDIO && !defined (__USE_MINGW_STRTOX)
+#if __USE_MINGW_ANSI_STDIO && !defined (__USE_MINGW_STRTOX) && !defined(_CRTBLD)
 #define __USE_MINGW_STRTOX 1
 #endif
 
@@ -194,7 +195,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #ifndef _CRT_WCTYPEDATA_DEFINED
 #define _CRT_WCTYPEDATA_DEFINED
 #ifndef _CTYPE_DISABLE_MACROS
-#ifndef _wctype
+#if !defined(_wctype) && defined(_CRT_USE_WINAPI_FAMILY_DESKTOP_APP)
 #ifdef _MSVCRT_
   extern unsigned short *_wctype;
 #else
@@ -234,29 +235,6 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #define _LEADBYTE 0x8000
 #define _ALPHA (0x0100|_UPPER|_LOWER)
 
-#if !defined(_UCRTBASE_STDIO_DEFINED) && defined(_UCRT)
-#define _UCRTBASE_STDIO_DEFINED
-
-#define UCRTBASE_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION (0x0001)
-#define UCRTBASE_PRINTF_STANDARD_SNPRINTF_BEHAVIOUR      (0x0002)
-#define UCRTBASE_PRINTF_LEGACY_WIDE_SPECIFIERS           (0x0004)
-#define UCRTBASE_PRINTF_LEGACY_MSVCRT_COMPATIBILITY      (0x0008)
-#define UCRTBASE_PRINTF_LEGACY_THREE_DIGIT_EXPONENTS     (0x0010)
-
-#define UCRTBASE_SCANF_SECURECRT                         (0x0001)
-#define UCRTBASE_SCANF_LEGACY_WIDE_SPECIFIERS            (0x0002)
-#define UCRTBASE_SCANF_LEGACY_MSVCRT_COMPATIBILITY       (0x0004)
-
-// Default wide printfs and scanfs to the legacy wide mode. Only code built
-// with -D__USE_MINGW_ANSI_STDIO=1 will expect the standard behaviour.
-#ifndef UCRTBASE_PRINTF_DEFAULT_WIDE
-#define UCRTBASE_PRINTF_DEFAULT_WIDE UCRTBASE_PRINTF_LEGACY_WIDE_SPECIFIERS
-#endif
-#ifndef UCRTBASE_SCANF_DEFAULT_WIDE
-#define UCRTBASE_SCANF_DEFAULT_WIDE UCRTBASE_SCANF_LEGACY_WIDE_SPECIFIERS
-#endif
-#endif
-
 #ifndef _WCTYPE_DEFINED
 #define _WCTYPE_DEFINED
 
@@ -283,8 +261,10 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
   int __cdecl iswcntrl(wint_t _C);
   _CRTIMP int __cdecl _iswcntrl_l(wint_t _C,_locale_t _Locale);
   int __cdecl iswascii(wint_t _C);
+#ifdef _CRT_USE_WINAPI_FAMILY_DESKTOP_APP
   int __cdecl isleadbyte(int _C);
   _CRTIMP int __cdecl _isleadbyte_l(int _C,_locale_t _Locale);
+#endif /* _CRT_USE_WINAPI_FAMILY_DESKTOP_APP */
   wint_t __cdecl towupper(wint_t _C);
   _CRTIMP wint_t __cdecl _towupper_l(wint_t _C,_locale_t _Locale);
   wint_t __cdecl towlower(wint_t _C);
@@ -295,7 +275,9 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
   _CRTIMP int __cdecl _iswcsymf_l(wint_t _C,_locale_t _Locale);
   _CRTIMP int __cdecl __iswcsym(wint_t _C);
   _CRTIMP int __cdecl _iswcsym_l(wint_t _C,_locale_t _Locale);
+#ifdef _CRT_USE_WINAPI_FAMILY_DESKTOP_APP
   int __cdecl is_wctype(wint_t _C,wctype_t _Type);
+#endif /* _CRT_USE_WINAPI_FAMILY_DESKTOP_APP */
 
 #if (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || !defined (NO_OLDNAMES)
   int __cdecl iswblank(wint_t _C);
@@ -341,6 +323,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
   _CRTIMP wchar_t *__cdecl _wsetlocale(int _Category,const wchar_t *_Locale);
 #endif
 
+#ifdef _CRT_USE_WINAPI_FAMILY_DESKTOP_APP
 #ifndef _WEXEC_DEFINED
 #define _WEXEC_DEFINED
   _CRTIMP intptr_t __cdecl _wexecl(const wchar_t *_Filename,const wchar_t *_ArgList,...);
@@ -369,6 +352,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #define _CRT_WSYSTEM_DEFINED
   _CRTIMP int __cdecl _wsystem(const wchar_t *_Command);
 #endif
+#endif /* _CRT_USE_WINAPI_FAMILY_DESKTOP_APP */
 
 #ifndef _WCTYPE_INLINE_DEFINED
 #undef _CRT_WCTYPE_NOINLINE
@@ -397,7 +381,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #define _iswprint_l(_c,_p) (_iswctype_l(_c,_BLANK|_PUNCT|_ALPHA|_DIGIT,_p))
 #define _iswgraph_l(_c,_p) (_iswctype_l(_c,_PUNCT|_ALPHA|_DIGIT,_p))
 #define _iswcntrl_l(_c,_p) (_iswctype_l(_c,_CONTROL,_p))
-#ifndef _CTYPE_DISABLE_MACROS
+#if !defined(_CTYPE_DISABLE_MACROS) && defined(_CRT_USE_WINAPI_FAMILY_DESKTOP_APP)
 #define isleadbyte(_c) (__PCTYPE_FUNC[(unsigned char)(_c)] & _LEADBYTE)
 #endif
 #endif
@@ -464,6 +448,11 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
   wint_t __cdecl _ungetwch_nolock(wint_t _WCh);
 #endif
 
+#ifdef _UCRT
+  int __cdecl __stdio_common_vswprintf_p(unsigned __int64 _Options, wchar_t *_Str, size_t _Len, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
+  int __cdecl __stdio_common_vfwprintf_p(unsigned __int64 _Options, FILE *_File, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
+#endif
+
 #ifndef _WSTDIO_DEFINED
 #define _WSTDIO_DEFINED
 
@@ -497,6 +486,26 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
   int __cdecl __mingw_swprintf(wchar_t * __restrict__ , const wchar_t * __restrict__ , ...);
 /* __attribute__((__format__ (gnu_wprintf, 2, 0))) */ __MINGW_ATTRIB_NONNULL(2)
   int __cdecl __mingw_vswprintf(wchar_t * __restrict__ , const wchar_t * __restrict__ ,va_list);
+
+/* __attribute__((__format__ (ms_wscanf, 2, 3))) */ __MINGW_ATTRIB_NONNULL(2)
+  int __cdecl __ms_swscanf(const wchar_t * __restrict__ _Src,const wchar_t * __restrict__ _Format,...);
+/* __attribute__((__format__ (ms_wscanf, 1, 2))) */ __MINGW_ATTRIB_NONNULL(1)
+  int __cdecl __ms_wscanf(const wchar_t * __restrict__ _Format,...);
+/* __attribute__((__format__ (ms_wscanf, 2, 3))) */ __MINGW_ATTRIB_NONNULL(2)
+  int __cdecl __ms_fwscanf(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,...);
+
+/* __attribute__((__format__ (ms_wprintf, 2, 3))) */ __MINGW_ATTRIB_NONNULL(2)
+  int __cdecl __ms_fwprintf(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,...);
+/* __attribute__((__format__ (ms_wprintf, 1, 2))) */ __MINGW_ATTRIB_NONNULL(1)
+  int __cdecl __ms_wprintf(const wchar_t * __restrict__ _Format,...);
+/* __attribute__((__format__ (ms_wprintf, 2, 0))) */__MINGW_ATTRIB_NONNULL(2)
+  int __cdecl __ms_vfwprintf(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,va_list _ArgList);
+/*__attribute__((__format__ (ms_wprintf, 1, 0))) */ __MINGW_ATTRIB_NONNULL(1)
+  int __cdecl __ms_vwprintf(const wchar_t * __restrict__ _Format,va_list _ArgList);
+/* __attribute__((__format__ (ms_wprintf, 2, 3))) */ __MINGW_ATTRIB_NONNULL(2)
+  int __cdecl __ms_swprintf(wchar_t * __restrict__ , const wchar_t * __restrict__ , ...);
+/* __attribute__((__format__ (ms_wprintf, 2, 0))) */ __MINGW_ATTRIB_NONNULL(2)
+  int __cdecl __ms_vswprintf(wchar_t * __restrict__ , const wchar_t * __restrict__ ,va_list);
 
 #ifdef _UCRT
   int __cdecl __stdio_common_vswprintf(unsigned __int64 options, wchar_t *str, size_t len, const wchar_t *format, _locale_t locale, va_list valist);
@@ -642,82 +651,82 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   __mingw_ovr
   int __cdecl fwscanf(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
   {
-    __builtin_va_list ap;
-    int ret;
-    __builtin_va_start(ap, _Format);
-    ret = __stdio_common_vfwscanf(UCRTBASE_SCANF_DEFAULT_WIDE, _File, _Format, NULL, ap);
-    __builtin_va_end(ap);
-    return ret;
+    __builtin_va_list __ap;
+    int __ret;
+    __builtin_va_start(__ap, _Format);
+    __ret = __stdio_common_vfwscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, _File, _Format, NULL, __ap);
+    __builtin_va_end(__ap);
+    return __ret;
   }
   __mingw_ovr
   int __cdecl swscanf(const wchar_t * __restrict__ _Src,const wchar_t * __restrict__ _Format,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
   {
-    __builtin_va_list ap;
-    int ret;
-    __builtin_va_start(ap, _Format);
-    ret = __stdio_common_vswscanf(UCRTBASE_SCANF_DEFAULT_WIDE, _Src, (size_t)-1, _Format, NULL, ap);
-    __builtin_va_end(ap);
-    return ret;
+    __builtin_va_list __ap;
+    int __ret;
+    __builtin_va_start(__ap, _Format);
+    __ret = __stdio_common_vswscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, _Src, (size_t)-1, _Format, NULL, __ap);
+    __builtin_va_end(__ap);
+    return __ret;
   }
   __mingw_ovr
   int __cdecl wscanf(const wchar_t * __restrict__ _Format,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
   {
-    __builtin_va_list ap;
-    int ret;
-    __builtin_va_start(ap, _Format);
-    ret = __stdio_common_vfwscanf(UCRTBASE_SCANF_DEFAULT_WIDE, stdin, _Format, NULL, ap);
-    __builtin_va_end(ap);
-    return ret;
+    __builtin_va_list __ap;
+    int __ret;
+    __builtin_va_start(__ap, _Format);
+    __ret = __stdio_common_vfwscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, stdin, _Format, NULL, __ap);
+    __builtin_va_end(__ap);
+    return __ret;
   }
   __mingw_ovr
   __MINGW_ATTRIB_NONNULL(2)
   int vfwscanf (FILE *__stream,  const wchar_t *__format, va_list __local_argv)
   {
-    return __stdio_common_vfwscanf(UCRTBASE_SCANF_DEFAULT_WIDE, __stream, __format, NULL, __local_argv);
+    return __stdio_common_vfwscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, __stream, __format, NULL, __local_argv);
   }
 
   __mingw_ovr
   __MINGW_ATTRIB_NONNULL(2)
   int vswscanf (const wchar_t * __restrict__ __source, const wchar_t * __restrict__ __format, va_list __local_argv)
   {
-    return __stdio_common_vswscanf(UCRTBASE_SCANF_DEFAULT_WIDE, __source, (size_t)-1, __format, NULL, __local_argv);
+    return __stdio_common_vswscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, __source, (size_t)-1, __format, NULL, __local_argv);
   }
   __mingw_ovr
   __MINGW_ATTRIB_NONNULL(1)
   int vwscanf(const wchar_t *__format, va_list __local_argv)
   {
-    return __stdio_common_vfwscanf(UCRTBASE_SCANF_DEFAULT_WIDE, stdin, __format, NULL, __local_argv);
+    return __stdio_common_vfwscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, stdin, __format, NULL, __local_argv);
   }
 
   __mingw_static_ovr
   int __cdecl fwprintf(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,...)
   {
-    __builtin_va_list ap;
-    int ret;
-    __builtin_va_start(ap, _Format);
-    ret = __stdio_common_vfwprintf(UCRTBASE_PRINTF_DEFAULT_WIDE, _File, _Format, NULL, ap);
-    __builtin_va_end(ap);
-    return ret;
+    __builtin_va_list __ap;
+    int __ret;
+    __builtin_va_start(__ap, _Format);
+    __ret = __stdio_common_vfwprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, _File, _Format, NULL, __ap);
+    __builtin_va_end(__ap);
+    return __ret;
   }
   __mingw_ovr
   int __cdecl wprintf(const wchar_t * __restrict__ _Format,...)
   {
-    __builtin_va_list ap;
-    int ret;
-    __builtin_va_start(ap, _Format);
-    ret = __stdio_common_vfwprintf(UCRTBASE_PRINTF_DEFAULT_WIDE, stdout, _Format, NULL, ap);
-    __builtin_va_end(ap);
-    return ret;
+    __builtin_va_list __ap;
+    int __ret;
+    __builtin_va_start(__ap, _Format);
+    __ret = __stdio_common_vfwprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, stdout, _Format, NULL, __ap);
+    __builtin_va_end(__ap);
+    return __ret;
   }
   __mingw_ovr
   int __cdecl vfwprintf(FILE * __restrict__ _File,const wchar_t * __restrict__ _Format,va_list _ArgList)
   {
-    return __stdio_common_vfwprintf(UCRTBASE_PRINTF_DEFAULT_WIDE, _File, _Format, NULL, _ArgList);
+    return __stdio_common_vfwprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, _File, _Format, NULL, _ArgList);
   }
   __mingw_ovr
   int __cdecl vwprintf(const wchar_t * __restrict__ _Format,va_list _ArgList)
   {
-    return __stdio_common_vfwprintf(UCRTBASE_PRINTF_DEFAULT_WIDE, stdout, _Format, NULL, _ArgList);
+    return __stdio_common_vfwprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, stdout, _Format, NULL, _ArgList);
   }
 #else
 
@@ -787,44 +796,45 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   __mingw_ovr
   int __cdecl _scwprintf(const wchar_t * __restrict__ _Format,...)
   {
-    __builtin_va_list ap;
-    int ret;
-    __builtin_va_start(ap, _Format);
-    ret = __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_STANDARD_SNPRINTF_BEHAVIOUR, NULL, 0, _Format, NULL, ap);
-    __builtin_va_end(ap);
-    return ret;
+    __builtin_va_list __ap;
+    int __ret;
+    __builtin_va_start(__ap, _Format);
+    __ret = __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_STANDARD_SNPRINTF_BEHAVIOR, NULL, 0, _Format, NULL, __ap);
+    __builtin_va_end(__ap);
+    return __ret;
   }
   __mingw_static_ovr
   int __cdecl _snwprintf(wchar_t * __restrict__ _Dest,size_t _Count,const wchar_t * __restrict__ _Format,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
   {
-    __builtin_va_list ap;
-    int ret;
-    __builtin_va_start(ap, _Format);
-    ret = __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION, _Dest, _Count, _Format, NULL, ap);
-    __builtin_va_end(ap);
-    return ret;
+    __builtin_va_list __ap;
+    int __ret;
+    __builtin_va_start(__ap, _Format);
+    __ret = __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION, _Dest, _Count, _Format, NULL, __ap);
+    __builtin_va_end(__ap);
+    return __ret;
   }
   __mingw_ovr
   int __cdecl _vsnwprintf(wchar_t * __restrict__ _Dest,size_t _Count,const wchar_t * __restrict__ _Format,va_list _Args) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
   {
-    return __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION, _Dest, _Count, _Format, NULL, _Args);
+    return __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION, _Dest, _Count, _Format, NULL, _Args);
   }
 
 #if __USE_MINGW_ANSI_STDIO == 0
   __mingw_ovr
   int snwprintf (wchar_t * __restrict__ s, size_t n, const wchar_t * __restrict__ format, ...)
   {
-    __builtin_va_list ap;
-    int ret;
-    __builtin_va_start(ap, format);
-    ret = __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_STANDARD_SNPRINTF_BEHAVIOUR, s, n, format, NULL, ap);
-    __builtin_va_end(ap);
-    return ret;
+    __builtin_va_list __ap;
+    int __ret;
+    __builtin_va_start(__ap, format);
+    __ret = __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_STANDARD_SNPRINTF_BEHAVIOR, s, n, format, NULL, __ap);
+    __builtin_va_end(__ap);
+    return __ret;
   }
   __mingw_ovr
   int __cdecl vsnwprintf (wchar_t * __restrict__ s, size_t n, const wchar_t * __restrict__ format, va_list arg)
   {
-    return __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_STANDARD_SNPRINTF_BEHAVIOUR, s, n, format, NULL, arg);
+    int __ret = __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, s, n, format, NULL, arg);
+    return __ret < 0 ? -1 : __ret;
   }
 #endif
 
@@ -870,12 +880,9 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
 
 #ifdef _UCRT
-  int __cdecl __stdio_common_vswprintf_p(unsigned __int64 _Options, wchar_t *_Str, size_t _Len, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
-  int __cdecl __stdio_common_vfwprintf_p(unsigned __int64 _Options, FILE *_File, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList);
-
   __mingw_ovr int __cdecl _vfwscanf_l(FILE *_File, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vfwscanf(UCRTBASE_SCANF_DEFAULT_WIDE, _File, _Format, _Locale, _ArgList);
+    return __stdio_common_vfwscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, _File, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _fwscanf_l(FILE *_File, const wchar_t *_Format, _locale_t _Locale, ...)
   {
@@ -898,7 +905,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vsnwscanf_l(const wchar_t *_Src, size_t _MaxCount, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vswscanf(UCRTBASE_SCANF_DEFAULT_WIDE, _Src, _MaxCount, _Format, _Locale, _ArgList);
+    return __stdio_common_vswscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, _Src, _MaxCount, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _snwscanf_l(const wchar_t *_Src, size_t _MaxCount, const wchar_t *_Format, _locale_t _Locale, ...)
   {
@@ -921,7 +928,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vswscanf_l(const wchar_t *_Src, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vswscanf(UCRTBASE_SCANF_DEFAULT_WIDE, _Src, (size_t)-1, _Format, _Locale, _ArgList);
+    return __stdio_common_vswscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, _Src, (size_t)-1, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _swscanf_l(const wchar_t *_Src, const wchar_t *_Format, _locale_t _Locale, ...)
   {
@@ -935,7 +942,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vfwprintf_p_l(FILE *_File, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vfwprintf_p(UCRTBASE_PRINTF_DEFAULT_WIDE, _File, _Format, _Locale, _ArgList);
+    return __stdio_common_vfwprintf_p(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, _File, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _vwprintf_p_l(const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
@@ -988,7 +995,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vfwprintf_l(FILE *_File, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vfwprintf(UCRTBASE_PRINTF_DEFAULT_WIDE, _File, _Format, _Locale, _ArgList);
+    return __stdio_common_vfwprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, _File, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _vwprintf_l(const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
@@ -1015,7 +1022,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vswprintf_p_l(wchar_t *_DstBuf, size_t _MaxCount, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vswprintf_p(UCRTBASE_PRINTF_DEFAULT_WIDE, _DstBuf, _MaxCount, _Format, _Locale, _ArgList);
+    return __stdio_common_vswprintf_p(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, _DstBuf, _MaxCount, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _vswprintf_p(wchar_t *_DstBuf, size_t _MaxCount, const wchar_t *_Format, va_list _ArgList)
   {
@@ -1042,7 +1049,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vsnwprintf_l(wchar_t *_DstBuf, size_t _MaxCount, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION, _DstBuf, _MaxCount, _Format, _Locale, _ArgList);
+    return __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION, _DstBuf, _MaxCount, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _snwprintf_l(wchar_t *_DstBuf, size_t _MaxCount, const wchar_t *_Format, _locale_t _Locale, ...)
   {
@@ -1056,7 +1063,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vscwprintf_p_l(const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vswprintf_p(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_STANDARD_SNPRINTF_BEHAVIOUR, NULL, 0, _Format, _Locale, _ArgList);
+    return __stdio_common_vswprintf_p(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_STANDARD_SNPRINTF_BEHAVIOR, NULL, 0, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _vscwprintf_p(const wchar_t *_Format, va_list _ArgList)
   {
@@ -1083,7 +1090,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vscwprintf_l(const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE | UCRTBASE_PRINTF_STANDARD_SNPRINTF_BEHAVIOUR, NULL, 0, _Format, _Locale, _ArgList);
+    return __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_STANDARD_SNPRINTF_BEHAVIOR, NULL, 0, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl _vscwprintf(const wchar_t *_Format, va_list _ArgList)
   {
@@ -1101,7 +1108,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 
   __mingw_ovr int __cdecl _vswprintf_c_l(wchar_t *_DstBuf, size_t _MaxCount, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
-    return __stdio_common_vswprintf(UCRTBASE_PRINTF_DEFAULT_WIDE, _DstBuf, _MaxCount, _Format, _Locale, _ArgList);
+    return __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, _DstBuf, _MaxCount, _Format, _Locale, _ArgList);
   }
   __mingw_ovr int __cdecl __vswprintf_l(wchar_t *_DstBuf, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
@@ -1242,7 +1249,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   float __cdecl __mingw_wcstof(const wchar_t * __restrict__ nptr, wchar_t ** __restrict__ endptr);
   long double __cdecl __mingw_wcstold(const wchar_t * __restrict__, wchar_t ** __restrict__);
 
-#if __USE_MINGW_ANSI_STDIO
+#if __USE_MINGW_STRTOX
   __mingw_ovr
   double __cdecl wcstod(const wchar_t * __restrict__ _Str,wchar_t ** __restrict__ _EndPtr){
     return __mingw_wcstod(_Str,_EndPtr);

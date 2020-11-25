@@ -1,11 +1,11 @@
 /* Generated at libc build time from syscall list.  */
-/* The system call list corresponds to kernel 5.4.  */
+/* The system call list corresponds to kernel 5.7.  */
 
 #ifndef _SYSCALL_H
 # error "Never use <bits/syscall.h> directly; include <sys/syscall.h> instead."
 #endif
 
-#define __GLIBC_LINUX_VERSION_CODE 328704
+#define __GLIBC_LINUX_VERSION_CODE 329472
 
 #ifdef __NR_FAST_atomic_update
 # define SYS_FAST_atomic_update __NR_FAST_atomic_update
@@ -73,6 +73,18 @@
 
 #ifdef __NR_alloc_hugepages
 # define SYS_alloc_hugepages __NR_alloc_hugepages
+#endif
+
+#ifdef __NR_arc_gettls
+# define SYS_arc_gettls __NR_arc_gettls
+#endif
+
+#ifdef __NR_arc_settls
+# define SYS_arc_settls __NR_arc_settls
+#endif
+
+#ifdef __NR_arc_usr_cmpxchg
+# define SYS_arc_usr_cmpxchg __NR_arc_usr_cmpxchg
 #endif
 
 #ifdef __NR_arch_prctl
@@ -1079,6 +1091,10 @@
 # define SYS_openat __NR_openat
 #endif
 
+#ifdef __NR_openat2
+# define SYS_openat2 __NR_openat2
+#endif
+
 #ifdef __NR_osf_adjtime
 # define SYS_osf_adjtime __NR_osf_adjtime
 #endif
@@ -1549,6 +1565,10 @@
 
 #ifdef __NR_personality
 # define SYS_personality __NR_personality
+#endif
+
+#ifdef __NR_pidfd_getfd
+# define SYS_pidfd_getfd __NR_pidfd_getfd
 #endif
 
 #ifdef __NR_pidfd_open

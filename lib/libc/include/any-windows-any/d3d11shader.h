@@ -131,6 +131,9 @@ typedef struct _D3D11_SIGNATURE_PARAMETER_DESC
     BYTE Mask;
     BYTE ReadWriteMask;
     UINT Stream;
+#if D3D_COMPILER_VERSION >= 46
+    D3D_MIN_PRECISION MinPrecision;
+#endif
 } D3D11_SIGNATURE_PARAMETER_DESC;
 
 DEFINE_GUID(IID_ID3D11ShaderReflectionType, 0x6e6ffa6a, 0x9bae, 0x4613, 0xa5, 0x1e, 0x91, 0x65, 0x2d, 0x50, 0x8c, 0x21);

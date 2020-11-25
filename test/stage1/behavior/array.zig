@@ -136,16 +136,6 @@ test "array literal with specified size" {
     expect(array[1] == 2);
 }
 
-test "array child property" {
-    var x: [5]i32 = undefined;
-    expect(@TypeOf(x).Child == i32);
-}
-
-test "array len property" {
-    var x: [5]i32 = undefined;
-    expect(@TypeOf(x).len == 5);
-}
-
 test "array len field" {
     var arr = [4]u8{ 0, 0, 0, 0 };
     var ptr = &arr;
@@ -422,4 +412,22 @@ test "sentinel element count towards the ABI size calculation" {
 
     S.doTheTest();
     comptime S.doTheTest();
+}
+
+test "zero-sized array with recursive type definition" {
+    const U = struct {
+        fn foo(comptime T: type, comptime n: usize) type {
+            return struct {
+                s: [n]T,
+                x: usize = n,
+            };
+        }
+    };
+
+    const S = struct {
+        list: U.foo(@This(), 0),
+    };
+
+    var t: S = .{ .list = .{ .s = undefined } };
+    expectEqual(@as(usize, 0), t.list.x);
 }

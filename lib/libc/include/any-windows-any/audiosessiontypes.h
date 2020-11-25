@@ -38,7 +38,11 @@ typedef enum _AUDIO_STREAM_CATEGORY {
   AudioCategory_Alerts,
   AudioCategory_SoundEffects,
   AudioCategory_GameEffects,
-  AudioCategory_GameMedia
+  AudioCategory_GameMedia,
+  AudioCategory_GameChat,
+  AudioCategory_Speech,
+  AudioCategory_Movie,
+  AudioCategory_Media
 } AUDIO_STREAM_CATEGORY;
 
 #define AUDCLNT_STREAMFLAGS_CROSSPROCESS 0x00010000

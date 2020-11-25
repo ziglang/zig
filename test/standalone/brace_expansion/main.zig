@@ -131,7 +131,7 @@ fn expandString(input: []const u8, output: *ArrayListSentineled(u8, 0)) !void {
     try expandNode(root, &result_list);
 
     try output.resize(0);
-    for (result_list.span()) |buf, i| {
+    for (result_list.items) |buf, i| {
         if (i != 0) {
             try output.append(' ');
         }
@@ -157,8 +157,8 @@ fn expandNode(node: Node, output: *ArrayList(ArrayListSentineled(u8, 0))) Expand
             var child_list_b = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
             try expandNode(b_node, &child_list_b);
 
-            for (child_list_a.span()) |buf_a| {
-                for (child_list_b.span()) |buf_b| {
+            for (child_list_a.items) |buf_a| {
+                for (child_list_b.items) |buf_b| {
                     var combined_buf = try ArrayListSentineled(u8, 0).initFromBuffer(buf_a);
                     try combined_buf.appendSlice(buf_b.span());
                     try output.append(combined_buf);
@@ -166,11 +166,11 @@ fn expandNode(node: Node, output: *ArrayList(ArrayListSentineled(u8, 0))) Expand
             }
         },
         Node.List => |list| {
-            for (list.span()) |child_node| {
+            for (list.items) |child_node| {
                 var child_list = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
                 try expandNode(child_node, &child_list);
 
-                for (child_list.span()) |buf| {
+                for (child_list.items) |buf| {
                     try output.append(buf);
                 }
             }

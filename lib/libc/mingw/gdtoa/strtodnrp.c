@@ -85,3 +85,12 @@ double __cdecl
 __mingw_strtod (const char * __restrict__ src, char ** __restrict__ endptr)
   __attribute__((alias("__strtod")));
 
+#if !(defined(_AMD64_) || defined(__x86_64__) || \
+  defined(_X86_) || defined(__i386__))
+/* For systems other than x86, where long double == double, provide the
+ * long double functions as aliases to __strtod. */
+
+long double __cdecl
+__mingw_strtold (const char * __restrict__ src, char ** __restrict__ endptr)
+  __attribute__((alias("__strtod")));
+#endif

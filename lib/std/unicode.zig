@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("./std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -18,11 +23,12 @@ pub fn utf8CodepointSequenceLength(c: u21) !u3 {
 /// returns a number 1-4 indicating the total length of the codepoint in bytes.
 /// If this byte does not match the form of a UTF-8 start byte, returns Utf8InvalidStartByte.
 pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
-    return switch (@clz(u8, ~first_byte)) {
-        0 => 1,
-        2 => 2,
-        3 => 3,
-        4 => 4,
+    // The switch is optimized much better than a "smart" approach using @clz
+    return switch (first_byte) {
+        0b0000_0000 ... 0b0111_1111 => 1,
+        0b1100_0000 ... 0b1101_1111 => 2,
+        0b1110_0000 ... 0b1110_1111 => 3,
+        0b1111_0000 ... 0b1111_0111 => 4,
         else => error.Utf8InvalidStartByte,
     };
 }
@@ -148,6 +154,50 @@ pub fn utf8Decode4(bytes: []const u8) Utf8Decode4Error!u21 {
     return value;
 }
 
+/// Returns true if the given unicode codepoint can be encoded in UTF-8.
+pub fn utf8ValidCodepoint(value: u21) bool {
+    return switch (value) {
+        0xD800 ... 0xDFFF => false, // Surrogates range
+        0x110000 ... 0x1FFFFF => false, // Above the maximum codepoint value
+        else => true,
+    };
+}
+
+/// Returns the length of a supplied UTF-8 string literal in terms of unicode
+/// codepoints.
+/// Asserts that the data is valid UTF-8.
+pub fn utf8CountCodepoints(s: []const u8) !usize {
+    var len: usize = 0;
+
+    const N = @sizeOf(usize);
+    const MASK = 0x80 * (std.math.maxInt(usize) / 0xff);
+
+    var i: usize = 0;
+    while (i < s.len) {
+        // Fast path for ASCII sequences
+        while (i + N <= s.len) : (i += N) {
+            const v = mem.readIntNative(usize, s[i..][0..N]);
+            if (v & MASK != 0) break;
+            len += N;
+        }
+
+        if (i < s.len) {
+            const n = try utf8ByteSequenceLength(s[i]);
+            if (i + n > s.len) return error.TruncatedInput;
+
+            switch (n) {
+                1 => {}, // ASCII, no validation needed
+                else => _ = try utf8Decode(s[i .. i + n]),
+            }
+
+            i += n;
+            len += 1;
+        }
+    }
+
+    return len;
+}
+
 pub fn utf8ValidateSlice(s: []const u8) bool {
     var i: usize = 0;
     while (i < s.len) {
@@ -234,6 +284,22 @@ pub const Utf8Iterator = struct {
             4 => return utf8Decode4(slice) catch unreachable,
             else => unreachable,
         }
+    }
+
+    /// Look ahead at the next n codepoints without advancing the iterator.
+    /// If fewer than n codepoints are available, then return the remainder of the string.
+    pub fn peek(it: *Utf8Iterator, n: usize) []const u8 {
+        const original_i = it.i;
+        defer it.i = original_i;
+
+        var end_ix = original_i;
+        var found: usize = 0;
+        while (found < n) : (found += 1) {
+            const next_codepoint = it.nextCodepointSlice() orelse return it.bytes[original_i..];
+            end_ix += next_codepoint.len;
+        }
+
+        return it.bytes[original_i..end_ix];
     }
 };
 
@@ -451,6 +517,31 @@ fn testMiscInvalidUtf8() void {
     testValid("\xee\x80\x80", 0xe000);
 }
 
+test "utf8 iterator peeking" {
+    comptime testUtf8Peeking();
+    testUtf8Peeking();
+}
+
+fn testUtf8Peeking() void {
+    const s = Utf8View.initComptime("noël");
+    var it = s.iterator();
+
+    testing.expect(std.mem.eql(u8, "n", it.nextCodepointSlice().?));
+
+    testing.expect(std.mem.eql(u8, "o", it.peek(1)));
+    testing.expect(std.mem.eql(u8, "oë", it.peek(2)));
+    testing.expect(std.mem.eql(u8, "oël", it.peek(3)));
+    testing.expect(std.mem.eql(u8, "oël", it.peek(4)));
+    testing.expect(std.mem.eql(u8, "oël", it.peek(10)));
+
+    testing.expect(std.mem.eql(u8, "o", it.nextCodepointSlice().?));
+    testing.expect(std.mem.eql(u8, "ë", it.nextCodepointSlice().?));
+    testing.expect(std.mem.eql(u8, "l", it.nextCodepointSlice().?));
+    testing.expect(it.nextCodepointSlice() == null);
+
+    testing.expect(std.mem.eql(u8, &[_]u8{}, it.peek(1)));
+}
+
 fn testError(bytes: []const u8, expected_err: anyerror) void {
     testing.expectError(expected_err, testDecode(bytes));
 }
@@ -641,7 +732,6 @@ pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16Le
     }
 }
 
-/// Returns length of a supplied UTF-8 string literal. Asserts that the data is valid UTF-8.
 fn calcUtf16LeLen(utf8: []const u8) usize {
     var src_i: usize = 0;
     var dest_len: usize = 0;
@@ -660,43 +750,82 @@ fn calcUtf16LeLen(utf8: []const u8) usize {
 }
 
 test "utf8ToUtf16LeStringLiteral" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     {
-        const bytes = [_:0]u16{0x41};
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0x41),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("A");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{ 0xD801, 0xDC37 };
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0xD801),
+            mem.nativeToLittle(u16, 0xDC37),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("𐐷");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[2] == 0);
     }
     {
-        const bytes = [_:0]u16{0x02FF};
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0x02FF),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{02FF}");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{0x7FF};
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0x7FF),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{7FF}");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{0x801};
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0x801),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{801}");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{ 0xDBFF, 0xDFFF };
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0xDBFF),
+            mem.nativeToLittle(u16, 0xDFFF),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{10FFFF}");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[2] == 0);
     }
+}
+
+fn testUtf8CountCodepoints() !void {
+    testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("abcdefghij"));
+    testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("äåéëþüúíóö"));
+    testing.expectEqual(@as(usize, 5), try utf8CountCodepoints("こんにちは"));
+    // testing.expectError(error.Utf8EncodesSurrogateHalf, utf8CountCodepoints("\xED\xA0\x80"));
+}
+
+test "utf8 count codepoints" {
+    try testUtf8CountCodepoints();
+    comptime testUtf8CountCodepoints() catch unreachable;
+}
+
+fn testUtf8ValidCodepoint() !void {
+    testing.expect(utf8ValidCodepoint('e'));
+    testing.expect(utf8ValidCodepoint('ë'));
+    testing.expect(utf8ValidCodepoint('は'));
+    testing.expect(utf8ValidCodepoint(0xe000));
+    testing.expect(utf8ValidCodepoint(0x10ffff));
+    testing.expect(!utf8ValidCodepoint(0xd800));
+    testing.expect(!utf8ValidCodepoint(0xdfff));
+    testing.expect(!utf8ValidCodepoint(0x110000));
+}
+
+test "utf8 valid codepoint" {
+    try testUtf8ValidCodepoint();
+    comptime testUtf8ValidCodepoint() catch unreachable;
 }

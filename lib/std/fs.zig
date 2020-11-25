@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const std = @import("std.zig");
 const os = std.os;
@@ -16,13 +21,6 @@ pub const wasi = @import("fs/wasi.zig");
 
 // TODO audit these APIs with respect to Dir and absolute paths
 
-pub const symLink = os.symlink;
-pub const symLinkZ = os.symlinkZ;
-pub const symLinkC = @compileError("deprecated: renamed to symlinkZ");
-pub const rename = os.rename;
-pub const renameZ = os.renameZ;
-pub const renameC = @compileError("deprecated: renamed to renameZ");
-pub const renameW = os.renameW;
 pub const realpath = os.realpath;
 pub const realpathZ = os.realpathZ;
 pub const realpathC = @compileError("deprecated: renamed to realpathZ");
@@ -33,12 +31,15 @@ pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirE
 
 pub const Watch = @import("fs/watch.zig").Watch;
 
-/// This represents the maximum size of a UTF-8 encoded file path.
-/// All file system operations which return a path are guaranteed to
+/// This represents the maximum size of a UTF-8 encoded file path that the
+/// operating system will accept. Paths, including those returned from file
+/// system operations, may be longer than this length, but such paths cannot
+/// be successfully passed back in other file system operations. However,
+/// all path components returned by file system operations are assumed to
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -49,11 +50,13 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
     else => @compileError("Unsupported OS"),
 };
 
-/// Base64, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
-pub const base64_encoder = base64.Base64Encoder.init(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
-    base64.standard_pad_char,
-);
+pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/// Base64 encoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
+pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, base64.standard_pad_char);
+
+/// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
+pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, base64.standard_pad_char);
 
 /// Whether or not async file system syscalls need a dedicated thread because the operating
 /// system does not support non-blocking I/O on the file system.
@@ -64,7 +67,7 @@ pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
 
 /// TODO remove the allocator requirement from this API
 pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    if (symLink(existing_path, new_path)) {
+    if (cwd().symLink(existing_path, new_path, .{})) {
         return;
     } else |err| switch (err) {
         error.PathAlreadyExists => {},
@@ -82,8 +85,8 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         try crypto.randomBytes(rand_buf[0..]);
         base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
-        if (symLink(existing_path, tmp_path)) {
-            return rename(tmp_path, new_path);
+        if (cwd().symLink(existing_path, tmp_path, .{})) {
+            return cwd().rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
             else => return err, // TODO zig should know this set does not include PathAlreadyExists
@@ -223,8 +226,7 @@ pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
 /// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    const handle = try os.windows.CreateDirectoryW(null, absolute_path_w, null);
-    os.windows.CloseHandle(handle);
+    return os.mkdirW(absolute_path_w, default_new_dir_mode);
 }
 
 pub const deleteDir = @compileError("deprecated; use dir.deleteDir or deleteDirAbsolute");
@@ -249,6 +251,45 @@ pub fn deleteDirAbsoluteW(dir_path: [*:0]const u16) !void {
     return os.rmdirW(dir_path);
 }
 
+pub const renameC = @compileError("deprecated: use renameZ, dir.renameZ, or renameAbsoluteZ");
+
+/// Same as `Dir.rename` except the paths are absolute.
+pub fn renameAbsolute(old_path: []const u8, new_path: []const u8) !void {
+    assert(path.isAbsolute(old_path));
+    assert(path.isAbsolute(new_path));
+    return os.rename(old_path, new_path);
+}
+
+/// Same as `renameAbsolute` except the path parameters are null-terminated.
+pub fn renameAbsoluteZ(old_path: [*:0]const u8, new_path: [*:0]const u8) !void {
+    assert(path.isAbsoluteZ(old_path));
+    assert(path.isAbsoluteZ(new_path));
+    return os.renameZ(old_path, new_path);
+}
+
+/// Same as `renameAbsolute` except the path parameters are WTF-16 and target OS is assumed Windows.
+pub fn renameAbsoluteW(old_path: [*:0]const u16, new_path: [*:0]const u16) !void {
+    assert(path.isAbsoluteWindowsW(old_path));
+    assert(path.isAbsoluteWindowsW(new_path));
+    return os.renameW(old_path, new_path);
+}
+
+/// Same as `Dir.rename`, except `new_sub_path` is relative to `new_dir`
+pub fn rename(old_dir: Dir, old_sub_path: []const u8, new_dir: Dir, new_sub_path: []const u8) !void {
+    return os.renameat(old_dir.fd, old_sub_path, new_dir.fd, new_sub_path);
+}
+
+/// Same as `rename` except the parameters are null-terminated.
+pub fn renameZ(old_dir: Dir, old_sub_path_z: [*:0]const u8, new_dir: Dir, new_sub_path_z: [*:0]const u8) !void {
+    return os.renameatZ(old_dir.fd, old_sub_path_z, new_dir.fd, new_sub_path_z);
+}
+
+/// Same as `rename` except the parameters are UTF16LE, NT prefixed.
+/// This function is Windows-only.
+pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_path_w: []const u16) !void {
+    return os.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w);
+}
+
 pub const Dir = struct {
     fd: os.fd_t,
 
@@ -256,23 +297,13 @@ pub const Dir = struct {
         name: []const u8,
         kind: Kind,
 
-        pub const Kind = enum {
-            BlockDevice,
-            CharacterDevice,
-            Directory,
-            NamedPipe,
-            SymLink,
-            File,
-            UnixDomainSocket,
-            Whiteout,
-            Unknown,
-        };
+        pub const Kind = File.Kind;
     };
 
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macosx, .ios, .freebsd, .netbsd, .dragonfly => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
@@ -287,8 +318,8 @@ pub const Dir = struct {
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
                 switch (builtin.os.tag) {
-                    .macosx, .ios => return self.nextDarwin(),
-                    .freebsd, .netbsd, .dragonfly => return self.nextBsd(),
+                    .macos, .ios => return self.nextDarwin(),
+                    .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -321,7 +352,7 @@ pub const Dir = struct {
 
                     const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
 
-                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (darwin_entry.d_ino == 0)) {
                         continue :start_over;
                     }
 
@@ -362,17 +393,24 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = @intCast(usize, rc);
                     }
-                    const freebsd_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
-                    const next_index = self.index + freebsd_entry.reclen();
+                    const bsd_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const next_index = self.index + bsd_entry.reclen();
                     self.index = next_index;
 
-                    const name = @ptrCast([*]u8, &freebsd_entry.d_name)[0..freebsd_entry.d_namlen];
+                    const name = @ptrCast([*]u8, &bsd_entry.d_name)[0..bsd_entry.d_namlen];
 
-                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                    const skip_zero_fileno = switch (builtin.os.tag) {
+                        // d_fileno=0 is used to mark invalid entries or deleted files.
+                        .openbsd, .netbsd => true,
+                        else => false,
+                    };
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or
+                            (skip_zero_fileno and bsd_entry.d_fileno == 0))
+                    {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (freebsd_entry.d_type) {
+                    const entry_kind = switch (bsd_entry.d_type) {
                         os.DT_BLK => Entry.Kind.BlockDevice,
                         os.DT_CHR => Entry.Kind.CharacterDevice,
                         os.DT_DIR => Entry.Kind.Directory,
@@ -458,6 +496,8 @@ pub const Dir = struct {
 
             pub const Error = IteratorError;
 
+            /// Memory such as file names referenced in this returned entry becomes invalid
+            /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
                 start_over: while (true) {
                     const w = os.windows;
@@ -540,14 +580,15 @@ pub const Dir = struct {
                             w.EFAULT => unreachable,
                             w.ENOTDIR => unreachable,
                             w.EINVAL => unreachable,
+                            w.ENOTCAPABLE => return error.AccessDenied,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (bufused == 0) return null;
                         self.index = 0;
                         self.end_index = bufused;
                     }
-                    const entry = @ptrCast(*align(1) os.wasi.dirent_t, &self.buf[self.index]);
-                    const entry_size = @sizeOf(os.wasi.dirent_t);
+                    const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
+                    const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
                     const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
 
@@ -561,12 +602,12 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (entry.d_type) {
-                        wasi.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
-                        wasi.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
-                        wasi.FILETYPE_DIRECTORY => Entry.Kind.Directory,
-                        wasi.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
-                        wasi.FILETYPE_REGULAR_FILE => Entry.Kind.File,
-                        wasi.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
+                        w.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
+                        w.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
+                        w.FILETYPE_DIRECTORY => Entry.Kind.Directory,
+                        w.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
+                        w.FILETYPE_REGULAR_FILE => Entry.Kind.File,
+                        w.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{
@@ -581,7 +622,7 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macosx, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
+            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,
@@ -674,7 +715,7 @@ pub const Dir = struct {
                 w.RIGHT_FD_FILESTAT_SET_TIMES |
                 w.RIGHT_FD_FILESTAT_SET_SIZE;
         }
-        const fd = try os.openatWasi(self.fd, sub_path, 0x0, fdflags, base, 0x0);
+        const fd = try os.openatWasi(self.fd, sub_path, 0x0, 0x0, fdflags, base, 0x0);
         return File{ .handle = fd };
     }
 
@@ -687,21 +728,28 @@ pub const Dir = struct {
             return self.openFileW(path_w.span(), flags);
         }
 
+        var os_flags: u32 = os.O_CLOEXEC;
         // Use the O_ locking flags if the os supports them
         // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
         const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
-        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking)
-            os.O_NONBLOCK | os.O_SYNC
-        else
-            @as(u32, 0);
-        const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
-            .None => @as(u32, 0),
-            .Shared => os.O_SHLOCK | nonblocking_lock_flag,
-            .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
-        } else 0;
-
-        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = lock_flag | O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
+        if (has_flock_open_flags) {
+            const nonblocking_lock_flag = if (flags.lock_nonblocking)
+                os.O_NONBLOCK | os.O_SYNC
+            else
+                @as(u32, 0);
+            os_flags |= switch (flags.lock) {
+                .None => @as(u32, 0),
+                .Shared => os.O_SHLOCK | nonblocking_lock_flag,
+                .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
+            };
+        }
+        if (@hasDecl(os, "O_LARGEFILE")) {
+            os_flags |= os.O_LARGEFILE;
+        }
+        if (!flags.allow_ctty) {
+            os_flags |= os.O_NOCTTY;
+        }
+        os_flags |= if (flags.write and flags.read)
             @as(u32, os.O_RDWR)
         else if (flags.write)
             @as(u32, os.O_WRONLY)
@@ -711,6 +759,7 @@ pub const Dir = struct {
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
             try os.openatZ(self.fd, sub_path, os_flags, 0);
+        errdefer os.close(fd);
 
         if (!has_flock_open_flags and flags.lock != .None) {
             // TODO: integrate async I/O
@@ -794,7 +843,7 @@ pub const Dir = struct {
         if (flags.exclusive) {
             oflags |= w.O_EXCL;
         }
-        const fd = try os.openatWasi(self.fd, sub_path, oflags, 0x0, base, 0x0);
+        const fd = try os.openatWasi(self.fd, sub_path, 0x0, oflags, 0x0, base, 0x0);
         return File{ .handle = fd };
     }
 
@@ -886,8 +935,7 @@ pub const Dir = struct {
     }
 
     pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
-        const handle = try os.windows.CreateDirectoryW(self.fd, sub_path, null);
-        os.windows.CloseHandle(handle);
+        try os.mkdiratW(self.fd, sub_path, default_new_dir_mode);
     }
 
     /// Calls makeDir recursively to make an entire path. Returns success if the path
@@ -933,6 +981,123 @@ pub const Dir = struct {
         return self.openDir(sub_path, open_dir_options);
     }
 
+    ///  This function returns the canonicalized absolute pathname of
+    /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
+    /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
+    /// argument.
+    /// This function is not universally supported by all platforms.
+    /// Currently supported hosts are: Linux, macOS, and Windows.
+    /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
+    pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .wasi) {
+            @compileError("realpath is unsupported in WASI");
+        }
+        if (builtin.os.tag == .windows) {
+            const pathname_w = try os.windows.sliceToPrefixedFileW(pathname);
+            return self.realpathW(pathname_w.span(), out_buffer);
+        }
+        const pathname_c = try os.toPosixPath(pathname);
+        return self.realpathZ(&pathname_c, out_buffer);
+    }
+
+    /// Same as `Dir.realpath` except `pathname` is null-terminated.
+    /// See also `Dir.realpath`, `realpathZ`.
+    pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .windows) {
+            const pathname_w = try os.windows.cStrToPrefixedFileW(pathname);
+            return self.realpathW(pathname_w.span(), out_buffer);
+        }
+
+        const flags = if (builtin.os.tag == .linux) os.O_PATH | os.O_NONBLOCK | os.O_CLOEXEC else os.O_NONBLOCK | os.O_CLOEXEC;
+        const fd = os.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
+            error.FileLocksNotSupported => unreachable,
+            else => |e| return e,
+        };
+        defer os.close(fd);
+
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buffer: [MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try os.getFdPath(fd, &buffer);
+
+        if (out_path.len > out_buffer.len) {
+            return error.NameTooLong;
+        }
+
+        mem.copy(u8, out_buffer, out_path);
+
+        return out_buffer[0..out_path.len];
+    }
+
+    /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 encoded.
+    /// See also `Dir.realpath`, `realpathW`.
+    pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) ![]u8 {
+        const w = os.windows;
+
+        const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
+        const share_access = w.FILE_SHARE_READ;
+        const creation = w.FILE_OPEN;
+        const h_file = blk: {
+            const res = w.OpenFile(pathname, .{
+                .dir = self.fd,
+                .access_mask = access_mask,
+                .share_access = share_access,
+                .creation = creation,
+                .io_mode = .blocking,
+            }) catch |err| switch (err) {
+                error.IsDir => break :blk w.OpenFile(pathname, .{
+                    .dir = self.fd,
+                    .access_mask = access_mask,
+                    .share_access = share_access,
+                    .creation = creation,
+                    .io_mode = .blocking,
+                    .open_dir = true,
+                }) catch |er| switch (er) {
+                    error.WouldBlock => unreachable,
+                    else => |e2| return e2,
+                },
+                error.WouldBlock => unreachable,
+                else => |e| return e,
+            };
+            break :blk res;
+        };
+        defer w.CloseHandle(h_file);
+
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buffer: [MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try os.getFdPath(h_file, &buffer);
+
+        if (out_path.len > out_buffer.len) {
+            return error.NameTooLong;
+        }
+
+        mem.copy(u8, out_buffer, out_path);
+
+        return out_buffer[0..out_path.len];
+    }
+
+    /// Same as `Dir.realpath` except caller must free the returned memory.
+    /// See also `Dir.realpath`.
+    pub fn realpathAlloc(self: Dir, allocator: *Allocator, pathname: []const u8) ![]u8 {
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        return allocator.dupe(u8, try self.realpath(pathname, buf[0..]));
+    }
+
     /// Changes the current working directory to the open directory handle.
     /// This modifies global state and can have surprising effects in multi-
     /// threaded applications. Most applications and especially libraries should
@@ -956,6 +1121,9 @@ pub const Dir = struct {
         /// `true` means the opened directory can be scanned for the files and sub-directories
         /// of the result. It means the `iterate` function can be called.
         iterate: bool = false,
+
+        /// `true` means it won't dereference the symlinks.
+        no_follow: bool = false,
     };
 
     /// Opens a directory at the given path. The directory is a system resource that remains
@@ -999,10 +1167,11 @@ pub const Dir = struct {
                 w.RIGHT_PATH_REMOVE_DIRECTORY |
                 w.RIGHT_PATH_UNLINK_FILE;
         }
+        const symlink_flags: w.lookupflags_t = if (args.no_follow) 0x0 else w.LOOKUP_SYMLINK_FOLLOW;
         // TODO do we really need all the rights here?
         const inheriting: w.rights_t = w.RIGHT_ALL ^ w.RIGHT_SOCK_SHUTDOWN;
 
-        const result = os.openatWasi(self.fd, sub_path, w.O_DIRECTORY, 0x0, base, inheriting);
+        const result = os.openatWasi(self.fd, sub_path, symlink_flags, w.O_DIRECTORY, 0x0, base, inheriting);
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
@@ -1019,11 +1188,13 @@ pub const Dir = struct {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.openDirW(sub_path_w.span().ptr, args);
-        } else if (!args.iterate) {
+        }
+        const symlink_flags: u32 = if (args.no_follow) os.O_NOFOLLOW else 0x0;
+        if (!args.iterate) {
             const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH);
+            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH | symlink_flags);
         } else {
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC);
+            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | symlink_flags);
         }
     }
 
@@ -1035,7 +1206,7 @@ pub const Dir = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        return self.openDirAccessMaskW(sub_path_w, flags);
+        return self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
     }
 
     /// `flags` must contain `os.O_DIRECTORY`.
@@ -1055,7 +1226,7 @@ pub const Dir = struct {
         return Dir{ .fd = fd };
     }
 
-    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32) OpenError!Dir {
+    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, no_follow: bool) OpenError!Dir {
         const w = os.windows;
 
         var result = Dir{
@@ -1085,6 +1256,7 @@ pub const Dir = struct {
             // implement this: https://git.midipix.org/ntapi/tree/src/fs/ntapi_tt_open_physical_parent_directory.c
             @panic("TODO opening '..' with a relative directory handle is not yet implemented on Windows");
         }
+        const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
@@ -1095,7 +1267,7 @@ pub const Dir = struct {
             0,
             w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
             w.FILE_OPEN,
-            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT,
+            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
             null,
             0,
         );
@@ -1104,6 +1276,7 @@ pub const Dir = struct {
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NOT_A_DIRECTORY => return error.NotDir,
             .INVALID_PARAMETER => unreachable,
             else => return w.unexpectedStatus(rc),
         }
@@ -1114,10 +1287,18 @@ pub const Dir = struct {
     /// Delete a file name and possibly the file it refers to, based on an open directory handle.
     /// Asserts that the path parameter has no null bytes.
     pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
-        os.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
-            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
-            else => |e| return e,
-        };
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.deleteFileW(sub_path_w.span());
+        } else if (builtin.os.tag == .wasi) {
+            os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
+                error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+                else => |e| return e,
+            };
+        } else {
+            const sub_path_c = try os.toPosixPath(sub_path);
+            return self.deleteFileZ(&sub_path_c);
+        }
     }
 
     pub const deleteFileC = @compileError("deprecated: renamed to deleteFileZ");
@@ -1126,12 +1307,23 @@ pub const Dir = struct {
     pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
         os.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            error.AccessDenied => |e| switch (builtin.os.tag) {
+                // non-Linux POSIX systems return EPERM when trying to delete a directory, so
+                // we need to handle that case specifically and translate the error
+                .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => {
+                    // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
+                    const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
+                    const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
+                    return if (is_dir) error.IsDir else e;
+                },
+                else => return e,
+            },
             else => |e| return e,
         };
     }
 
     /// Same as `deleteFile` except the parameter is WTF-16 encoded.
-    pub fn deleteFileW(self: Dir, sub_path_w: [*:0]const u16) DeleteFileError!void {
+    pub fn deleteFileW(self: Dir, sub_path_w: []const u16) DeleteFileError!void {
         os.unlinkatW(self.fd, sub_path_w, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
             else => |e| return e,
@@ -1160,7 +1352,7 @@ pub const Dir = struct {
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.deleteDirW(sub_path_w.span().ptr);
+            return self.deleteDirW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi) {
             os.unlinkat(self.fd, sub_path, os.AT_REMOVEDIR) catch |err| switch (err) {
                 error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
@@ -1182,56 +1374,172 @@ pub const Dir = struct {
 
     /// Same as `deleteDir` except the parameter is UTF16LE, NT prefixed.
     /// This function is Windows-only.
-    pub fn deleteDirW(self: Dir, sub_path_w: [*:0]const u16) DeleteDirError!void {
+    pub fn deleteDirW(self: Dir, sub_path_w: []const u16) DeleteDirError!void {
         os.unlinkatW(self.fd, sub_path_w, os.AT_REMOVEDIR) catch |err| switch (err) {
             error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
             else => |e| return e,
         };
     }
 
+    pub const RenameError = os.RenameError;
+
+    /// Change the name or location of a file or directory.
+    /// If new_sub_path already exists, it will be replaced.
+    /// Renaming a file over an existing directory or a directory
+    /// over an existing file will fail with `error.IsDir` or `error.NotDir`
+    pub fn rename(self: Dir, old_sub_path: []const u8, new_sub_path: []const u8) RenameError!void {
+        return os.renameat(self.fd, old_sub_path, self.fd, new_sub_path);
+    }
+
+    /// Same as `rename` except the parameters are null-terminated.
+    pub fn renameZ(self: Dir, old_sub_path_z: [*:0]const u8, new_sub_path_z: [*:0]const u8) RenameError!void {
+        return os.renameatZ(self.fd, old_sub_path_z, self.fd, new_sub_path_z);
+    }
+
+    /// Same as `rename` except the parameters are UTF16LE, NT prefixed.
+    /// This function is Windows-only.
+    pub fn renameW(self: Dir, old_sub_path_w: []const u16, new_sub_path_w: []const u16) RenameError!void {
+        return os.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w);
+    }
+
+    /// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
+    /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
+    /// one; the latter case is known as a dangling link.
+    /// If `sym_link_path` exists, it will not be overwritten.
+    pub fn symLink(
+        self: Dir,
+        target_path: []const u8,
+        sym_link_path: []const u8,
+        flags: SymLinkFlags,
+    ) !void {
+        if (builtin.os.tag == .wasi) {
+            return self.symLinkWasi(target_path, sym_link_path, flags);
+        }
+        if (builtin.os.tag == .windows) {
+            const target_path_w = try os.windows.sliceToPrefixedFileW(target_path);
+            const sym_link_path_w = try os.windows.sliceToPrefixedFileW(sym_link_path);
+            return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
+        }
+        const target_path_c = try os.toPosixPath(target_path);
+        const sym_link_path_c = try os.toPosixPath(sym_link_path);
+        return self.symLinkZ(&target_path_c, &sym_link_path_c, flags);
+    }
+
+    /// WASI-only. Same as `symLink` except targeting WASI.
+    pub fn symLinkWasi(
+        self: Dir,
+        target_path: []const u8,
+        sym_link_path: []const u8,
+        flags: SymLinkFlags,
+    ) !void {
+        return os.symlinkatWasi(target_path, self.fd, sym_link_path);
+    }
+
+    /// Same as `symLink`, except the pathname parameters are null-terminated.
+    pub fn symLinkZ(
+        self: Dir,
+        target_path_c: [*:0]const u8,
+        sym_link_path_c: [*:0]const u8,
+        flags: SymLinkFlags,
+    ) !void {
+        if (builtin.os.tag == .windows) {
+            const target_path_w = try os.windows.cStrToPrefixedFileW(target_path_c);
+            const sym_link_path_w = try os.windows.cStrToPrefixedFileW(sym_link_path_c);
+            return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
+        }
+        return os.symlinkatZ(target_path_c, self.fd, sym_link_path_c);
+    }
+
+    /// Windows-only. Same as `symLink` except the pathname parameters
+    /// are null-terminated, WTF16 encoded.
+    pub fn symLinkW(
+        self: Dir,
+        target_path_w: []const u16,
+        sym_link_path_w: []const u16,
+        flags: SymLinkFlags,
+    ) !void {
+        return os.windows.CreateSymbolicLink(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
+    }
+
     /// Read value of a symbolic link.
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
-    pub fn readLink(self: Dir, sub_path: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .wasi) {
+            return self.readLinkWasi(sub_path, buffer);
+        }
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.readLinkW(sub_path_w.span(), buffer);
+        }
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkZ(&sub_path_c, buffer);
     }
 
     pub const readLinkC = @compileError("deprecated: renamed to readLinkZ");
 
+    /// WASI-only. Same as `readLink` except targeting WASI.
+    pub fn readLinkWasi(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+        return os.readlinkatWasi(self.fd, sub_path, buffer);
+    }
+
     /// Same as `readLink`, except the `pathname` parameter is null-terminated.
-    pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.readLinkW(sub_path_w.span(), buffer);
+        }
         return os.readlinkatZ(self.fd, sub_path_c, buffer);
+    }
+
+    /// Windows-only. Same as `readLink` except the pathname parameter
+    /// is null-terminated, WTF16 encoded.
+    pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
+        return os.windows.ReadLink(self.fd, sub_path_w, buffer);
+    }
+
+    /// Read all of file contents using a preallocated buffer.
+    /// The returned slice has the same pointer as `buffer`. If the length matches `buffer.len`
+    /// the situation is ambiguous. It could either mean that the entire file was read, and
+    /// it exactly fits the buffer, or it could mean the buffer was not big enough for the
+    /// entire file.
+    pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
+        var file = try self.openFile(file_path, .{});
+        defer file.close();
+
+        const end_index = try file.readAll(buffer);
+        return buffer[0..end_index];
     }
 
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
     pub fn readFileAlloc(self: Dir, allocator: *mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-        return self.readFileAllocOptions(allocator, file_path, max_bytes, @alignOf(u8), null);
+        return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
     }
 
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+    /// If `size_hint` is specified the initial buffer size is calculated using
+    /// that value, otherwise the effective file size is used instead.
     /// Allows specifying alignment and a sentinel value.
     pub fn readFileAllocOptions(
         self: Dir,
         allocator: *mem.Allocator,
         file_path: []const u8,
         max_bytes: usize,
+        size_hint: ?usize,
         comptime alignment: u29,
         comptime optional_sentinel: ?u8,
     ) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
         var file = try self.openFile(file_path, .{});
         defer file.close();
 
-        const size = math.cast(usize, try file.getEndPos()) catch math.maxInt(usize);
-        if (size > max_bytes) return error.FileTooBig;
+        // If the file size doesn't fit a usize it'll be certainly greater than
+        // `max_bytes`
+        const stat_size = size_hint orelse math.cast(usize, try file.getEndPos()) catch
+            return error.FileTooBig;
 
-        const buf = try allocator.allocWithOptions(u8, size, alignment, optional_sentinel);
-        errdefer allocator.free(buf);
-
-        try file.inStream().readNoEof(buf);
-        return buf;
+        return file.readToEndAllocOptions(allocator, max_bytes, stat_size, alignment, optional_sentinel);
     }
 
     pub const DeleteTreeError = error{
@@ -1267,6 +1575,7 @@ pub const Dir = struct {
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
         start_over: while (true) {
             var got_access_denied = false;
+
             // First, try deleting the item as a file. This way we don't follow sym links.
             if (self.deleteFile(sub_path)) {
                 return;
@@ -1287,7 +1596,7 @@ pub const Dir = struct {
                 error.Unexpected,
                 => |e| return e,
             }
-            var dir = self.openDir(sub_path, .{ .iterate = true }) catch |err| switch (err) {
+            var dir = self.openDir(sub_path, .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
                 error.NotDir => {
                     if (got_access_denied) {
                         return error.AccessDenied;
@@ -1318,6 +1627,9 @@ pub const Dir = struct {
             var cleanup_dir = true;
             defer if (cleanup_dir) dir.close();
 
+            // Valid use of MAX_PATH_BYTES because dir_name_buf will only
+            // ever store a single path component that was returned from the
+            // filesystem.
             var dir_name_buf: [MAX_PATH_BYTES]u8 = undefined;
             var dir_name: []const u8 = sub_path;
 
@@ -1351,7 +1663,7 @@ pub const Dir = struct {
                         => |e| return e,
                     }
 
-                    const new_dir = dir.openDir(entry.name, .{ .iterate = true }) catch |err| switch (err) {
+                    const new_dir = dir.openDir(entry.name, .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
                         error.NotDir => {
                             if (got_access_denied) {
                                 return error.AccessDenied;
@@ -1524,15 +1836,15 @@ pub const Dir = struct {
 
         var size: ?u64 = null;
         const mode = options.override_mode orelse blk: {
-            const stat = try in_file.stat();
-            size = stat.size;
-            break :blk stat.mode;
+            const st = try in_file.stat();
+            size = st.size;
+            break :blk st.mode;
         };
 
         var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
         defer atomic_file.deinit();
 
-        try atomic_file.file.writeFileAll(in_file, .{ .in_len = size });
+        try copy_file(in_file.handle, atomic_file.file.handle);
         return atomic_file.finish();
     }
 
@@ -1552,9 +1864,20 @@ pub const Dir = struct {
             return AtomicFile.init(dest_path, options.mode, self, false);
         }
     }
+
+    pub const Stat = File.Stat;
+    pub const StatError = File.StatError;
+
+    pub fn stat(self: Dir) StatError!Stat {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        return file.stat();
+    }
 };
 
-/// Returns an handle to the current working directory. It is not opened with iteration capability.
+/// Returns a handle to the current working directory. It is not opened with iteration capability.
 /// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
 /// On POSIX targets, this function is comptime-callable.
 pub fn cwd() Dir {
@@ -1567,11 +1890,41 @@ pub fn cwd() Dir {
     }
 }
 
+/// Opens a directory at the given path. The directory is a system resource that remains
+/// open until `close` is called on the result.
+/// See `openDirAbsoluteZ` for a function that accepts a null-terminated path.
+///
+/// Asserts that the path parameter has no null bytes.
+pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+    if (builtin.os.tag == .wasi) {
+        @compileError("WASI doesn't have the concept of an absolute directory; use openDir instead for WASI.");
+    }
+    assert(path.isAbsolute(absolute_path));
+    return cwd().openDir(absolute_path, flags);
+}
+
+/// Same as `openDirAbsolute` but the path parameter is null-terminated.
+pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+    if (builtin.os.tag == .wasi) {
+        @compileError("WASI doesn't have the concept of an absolute directory; use openDir instead for WASI.");
+    }
+    assert(path.isAbsoluteZ(absolute_path_c));
+    return cwd().openDirZ(absolute_path_c, flags);
+}
+/// Same as `openDirAbsolute` but the path parameter is null-terminated.
+pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+    if (builtin.os.tag == .wasi) {
+        @compileError("WASI doesn't have the concept of an absolute directory; use openDir instead for WASI.");
+    }
+    assert(path.isAbsoluteWindowsW(absolute_path_c));
+    return cwd().openDirW(absolute_path_c, flags);
+}
+
 /// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.
 /// Call `File.close` to release the resource.
 /// Asserts that the path is absolute. See `Dir.openFile` for a function that
 /// operates on both absolute and relative paths.
-/// Asserts that the path parameter has no null bytes. See `openFileAbsoluteC` for a function
+/// Asserts that the path parameter has no null bytes. See `openFileAbsoluteZ` for a function
 /// that accepts a null-terminated path.
 pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     assert(path.isAbsolute(absolute_path));
@@ -1590,6 +1943,36 @@ pub fn openFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) 
 pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsWTF16(absolute_path_w));
     return cwd().openFileW(absolute_path_w, flags);
+}
+
+/// Test accessing `path`.
+/// `path` is UTF8-encoded.
+/// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
+/// For example, instead of testing if a file exists and then opening it, just
+/// open it and handle the error for file not found.
+/// See `accessAbsoluteZ` for a function that accepts a null-terminated path.
+pub fn accessAbsolute(absolute_path: []const u8, flags: File.OpenFlags) Dir.AccessError!void {
+    if (builtin.os.tag == .wasi) {
+        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
+    }
+    assert(path.isAbsolute(absolute_path));
+    try cwd().access(absolute_path, flags);
+}
+/// Same as `accessAbsolute` but the path parameter is null-terminated.
+pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.AccessError!void {
+    if (builtin.os.tag == .wasi) {
+        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
+    }
+    assert(path.isAbsoluteZ(absolute_path));
+    try cwd().accessZ(absolute_path, flags);
+}
+/// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
+pub fn accessAbsoluteW(absolute_path: [*:0]const 16, flags: File.OpenFlags) Dir.AccessError!void {
+    if (builtin.os.tag == .wasi) {
+        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
+    }
+    assert(path.isAbsoluteWindowsW(absolute_path));
+    try cwd().accessW(absolute_path, flags);
 }
 
 /// Creates, opens, or overwrites a file with write access, based on an absolute path.
@@ -1665,14 +2048,74 @@ pub fn readLinkAbsolute(pathname: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8
     return os.readlink(pathname, buffer);
 }
 
+/// Windows-only. Same as `readlinkW`, except the path parameter is null-terminated, WTF16
+/// encoded.
+pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    assert(path.isAbsoluteWindowsW(pathname_w));
+    return os.readlinkW(pathname_w, buffer);
+}
+
 /// Same as `readLink`, except the path parameter is null-terminated.
-pub fn readLinkAbsoluteZ(pathname_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+pub fn readLinkAbsoluteZ(pathname_c: [*:0]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     assert(path.isAbsoluteZ(pathname_c));
     return os.readlinkZ(pathname_c, buffer);
 }
 
 pub const readLink = @compileError("deprecated; use Dir.readLink or readLinkAbsolute");
 pub const readLinkC = @compileError("deprecated; use Dir.readLinkZ or readLinkAbsoluteZ");
+
+/// Use with `Dir.symLink` and `symLinkAbsolute` to specify whether the symlink
+/// will point to a file or a directory. This value is ignored on all hosts
+/// except Windows where creating symlinks to different resource types, requires
+/// different flags. By default, `symLinkAbsolute` is assumed to point to a file.
+pub const SymLinkFlags = struct {
+    is_directory: bool = false,
+};
+
+/// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
+/// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
+/// one; the latter case is known as a dangling link.
+/// If `sym_link_path` exists, it will not be overwritten.
+/// See also `symLinkAbsoluteZ` and `symLinkAbsoluteW`.
+pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags: SymLinkFlags) !void {
+    if (builtin.os.tag == .wasi) {
+        @compileError("symLinkAbsolute is not supported in WASI; use Dir.symLinkWasi instead");
+    }
+    assert(path.isAbsolute(target_path));
+    assert(path.isAbsolute(sym_link_path));
+    if (builtin.os.tag == .windows) {
+        const target_path_w = try os.windows.sliceToPrefixedFileW(target_path);
+        const sym_link_path_w = try os.windows.sliceToPrefixedFileW(sym_link_path);
+        return os.windows.CreateSymbolicLink(null, sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
+    }
+    return os.symlink(target_path, sym_link_path);
+}
+
+/// Windows-only. Same as `symLinkAbsolute` except the parameters are null-terminated, WTF16 encoded.
+/// Note that this function will by default try creating a symbolic link to a file. If you would
+/// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
+/// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
+pub fn symLinkAbsoluteW(target_path_w: []const u16, sym_link_path_w: []const u16, flags: SymLinkFlags) !void {
+    assert(path.isAbsoluteWindowsWTF16(target_path_w));
+    assert(path.isAbsoluteWindowsWTF16(sym_link_path_w));
+    return os.windows.CreateSymbolicLink(null, sym_link_path_w, target_path_w, flags.is_directory);
+}
+
+/// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
+/// See also `symLinkAbsolute`.
+pub fn symLinkAbsoluteZ(target_path_c: [*:0]const u8, sym_link_path_c: [*:0]const u8, flags: SymLinkFlags) !void {
+    assert(path.isAbsoluteZ(target_path_c));
+    assert(path.isAbsoluteZ(sym_link_path_c));
+    if (builtin.os.tag == .windows) {
+        const target_path_w = try os.windows.cStrToWin32PrefixedFileW(target_path_c);
+        const sym_link_path_w = try os.windows.cStrToWin32PrefixedFileW(sym_link_path_c);
+        return os.windows.CreateSymbolicLink(sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
+    }
+    return os.symlinkZ(target_path_c, sym_link_path_c);
+}
+
+pub const symLink = @compileError("deprecated: use Dir.symLink or symLinkAbsolute");
+pub const symLinkC = @compileError("deprecated: use Dir.symLinkZ or symLinkAbsoluteZ");
 
 pub const Walker = struct {
     stack: std.ArrayList(StackItem),
@@ -1702,7 +2145,7 @@ pub const Walker = struct {
         while (true) {
             if (self.stack.items.len == 0) return null;
             // `top` becomes invalid after appending to `self.stack`.
-            const top = &self.stack.span()[self.stack.items.len - 1];
+            const top = &self.stack.items[self.stack.items.len - 1];
             const dirname_len = top.dirname_len;
             if (try top.dir_it.next()) |base| {
                 self.name_buffer.shrink(dirname_len);
@@ -1723,8 +2166,8 @@ pub const Walker = struct {
                 }
                 return Entry{
                     .dir = top.dir_it.dir,
-                    .basename = self.name_buffer.span()[dirname_len + 1 ..],
-                    .path = self.name_buffer.span(),
+                    .basename = self.name_buffer.items[dirname_len + 1 ..],
+                    .path = self.name_buffer.items,
                     .kind = base.kind,
                 };
             } else {
@@ -1768,30 +2211,52 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     return walker;
 }
 
-pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FlockError;
+pub const OpenSelfExeError = error{
+    SharingViolation,
+    PathAlreadyExists,
+    FileNotFound,
+    AccessDenied,
+    PipeBusy,
+    NameTooLong,
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+    Unexpected,
+} || os.OpenError || SelfExePathError || os.FlockError;
 
-pub fn openSelfExe() OpenSelfExeError!File {
+pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     if (builtin.os.tag == .linux) {
-        return openFileAbsoluteZ("/proc/self/exe", .{});
+        return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (builtin.os.tag == .windows) {
         const wide_slice = selfExePathW();
         const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
-        return cwd().openFileW(prefixed_path_w.span(), .{});
+        return cwd().openFileW(prefixed_path_w.span(), flags);
     }
+    // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
+    // opened with no modification.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
-    return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, .{});
+    return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, flags);
 }
 
-pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
+pub const SelfExePathError = os.ReadLinkError || os.SysCtlError || os.RealPathError;
 
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
+    // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
+    // system, readlink will completely fail to return a result larger than
+    // PATH_MAX even if given a sufficiently large buffer. This makes it
+    // fundamentally impossible to get the selfExePath of a program running in
+    // a very deeply nested directory chain in this way.
+    // TODO(#4812): Investigate other systems and whether it is possible to get
+    // this path by trying larger and larger buffers until one succeeds.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try selfExePath(&buf));
+    return allocator.dupe(u8, try selfExePath(&buf));
 }
 
 /// Get the path to the current executable.
@@ -1804,28 +2269,73 @@ pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
 /// On Linux, depends on procfs being mounted. If the currently executing binary has
 /// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
 /// TODO make the return type of this a null terminated pointer
-pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
+pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     if (is_darwin) {
-        var u32_len: u32 = out_buffer.len;
-        const rc = std.c._NSGetExecutablePath(out_buffer, &u32_len);
+        // Note that _NSGetExecutablePath() will return "a path" to
+        // the executable not a "real path" to the executable.
+        var symlink_path_buf: [MAX_PATH_BYTES:0]u8 = undefined;
+        var u32_len: u32 = MAX_PATH_BYTES + 1; // include the sentinel
+        const rc = std.c._NSGetExecutablePath(&symlink_path_buf, &u32_len);
         if (rc != 0) return error.NameTooLong;
-        return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+
+        var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+        const real_path = try std.os.realpathZ(&symlink_path_buf, &real_path_buf);
+        if (real_path.len > out_buffer.len) return error.NameTooLong;
+        std.mem.copy(u8, out_buffer, real_path);
+        return out_buffer[0..real_path.len];
     }
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
         .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC, os.KERN_PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
-            try os.sysctl(&mib, out_buffer, &out_len, null, 0);
+            try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
         },
         .netbsd => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC_ARGS, -1, os.KERN_PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
-            try os.sysctl(&mib, out_buffer, &out_len, null, 0);
+            try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+        },
+        .openbsd => {
+            // OpenBSD doesn't support getting the path of a running process, so try to guess it
+            if (os.argv.len == 0)
+                return error.FileNotFound;
+
+            const argv0 = mem.span(os.argv[0]);
+            if (mem.indexOf(u8, argv0, "/") != null) {
+                // argv[0] is a path (relative or absolute): use realpath(3) directly
+                var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                const real_path = try os.realpathZ(os.argv[0], &real_path_buf);
+                if (real_path.len > out_buffer.len)
+                    return error.NameTooLong;
+                mem.copy(u8, out_buffer, real_path);
+                return out_buffer[0..real_path.len];
+            } else if (argv0.len != 0) {
+                // argv[0] is not empty (and not a path): search it inside PATH
+                const PATH = std.os.getenvZ("PATH") orelse return error.FileNotFound;
+                var path_it = mem.tokenize(PATH, &[_]u8{path.delimiter});
+                while (path_it.next()) |a_path| {
+                    var resolved_path_buf: [MAX_PATH_BYTES - 1:0]u8 = undefined;
+                    const resolved_path = std.fmt.bufPrintZ(&resolved_path_buf, "{s}/{s}", .{
+                        a_path,
+                        os.argv[0],
+                    }) catch continue;
+
+                    var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                    if (os.realpathZ(&resolved_path_buf, &real_path_buf)) |real_path| {
+                        // found a file, and hope it is the right file
+                        if (real_path.len > out_buffer.len)
+                            return error.NameTooLong;
+                        mem.copy(u8, out_buffer, real_path);
+                        return out_buffer[0..real_path.len];
+                    } else |_| continue;
+                }
+            }
+            return error.FileNotFound;
         },
         .windows => {
             const utf16le_slice = selfExePathW();
@@ -1846,13 +2356,20 @@ pub fn selfExePathW() [:0]const u16 {
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
+    // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
+    // system, readlink will completely fail to return a result larger than
+    // PATH_MAX even if given a sufficiently large buffer. This makes it
+    // fundamentally impossible to get the selfExeDirPath of a program running
+    // in a very deeply nested directory chain in this way.
+    // TODO(#4812): Investigate other systems and whether it is possible to get
+    // this path by trying larger and larger buffers until one succeeds.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
+    return allocator.dupe(u8, try selfExeDirPath(&buf));
 }
 
 /// Get the directory path that contains the current executable.
 /// Returned value is a slice of out_buffer.
-pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const u8 {
+pub fn selfExeDirPath(out_buffer: []u8) SelfExePathError![]const u8 {
     const self_exe_path = try selfExePath(out_buffer);
     // Assume that the OS APIs return absolute paths, and therefore dirname
     // will not return null.
@@ -1860,10 +2377,63 @@ pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const 
 }
 
 /// `realpath`, except caller must free the returned memory.
-/// TODO integrate with `Dir`
+/// See also `Dir.realpath`.
 pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
+    // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+    // have a variant that takes an arbitrary-size buffer.
+    // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+    // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+    // paths. musl supports passing NULL but restricts the output to PATH_MAX
+    // anyway.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try os.realpath(pathname, &buf));
+    return allocator.dupe(u8, try os.realpath(pathname, &buf));
+}
+
+const CopyFileError = error{SystemResources} || os.CopyFileRangeError || os.SendFileError;
+
+// Transfer all the data between two file descriptors in the most efficient way.
+// The copy starts at offset 0, the initial offsets are preserved.
+// No metadata is transferred over.
+fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileError!void {
+    if (comptime std.Target.current.isDarwin()) {
+        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
+        switch (os.errno(rc)) {
+            0 => return,
+            os.EINVAL => unreachable,
+            os.ENOMEM => return error.SystemResources,
+            // The source file is not a directory, symbolic link, or regular file.
+            // Try with the fallback path before giving up.
+            os.ENOTSUP => {},
+            else => |err| return os.unexpectedErrno(err),
+        }
+    }
+
+    if (std.Target.current.os.tag == .linux) {
+        // Try copy_file_range first as that works at the FS level and is the
+        // most efficient method (if available).
+        var offset: u64 = 0;
+        cfr_loop: while (true) {
+            // The kernel checks the u64 value `offset+count` for overflow, use
+            // a 32 bit value so that the syscall won't return EINVAL except for
+            // impossibly large files (> 2^64-1 - 2^32-1).
+            const amt = try os.copy_file_range(fd_in, offset, fd_out, offset, math.maxInt(u32), 0);
+            // Terminate when no data was copied
+            if (amt == 0) break :cfr_loop;
+            offset += amt;
+        }
+        return;
+    }
+
+    // Sendfile is a zero-copy mechanism iff the OS supports it, otherwise the
+    // fallback code will copy the contents chunk by chunk.
+    const empty_iovec = [0]os.iovec_const{};
+    var offset: u64 = 0;
+    sendfile_loop: while (true) {
+        const amt = try os.sendfile(fd_out, fd_in, offset, 0, &empty_iovec, &empty_iovec, 0);
+        // Terminate when no data was copied
+        if (amt == 0) break :sendfile_loop;
+        offset += amt;
+    }
 }
 
 test "" {

@@ -39,6 +39,7 @@
 #include <llvm/Object/COFFModuleDefinition.h>
 #include <llvm/PassRegistry.h>
 #include <llvm/Support/CommandLine.h>
+#include <llvm/Support/Host.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetParser.h>
 #include <llvm/Support/Timer.h>
@@ -220,6 +221,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     PMBuilder->DisableUnrollLoops = is_debug;
     PMBuilder->SLPVectorize = !is_debug;
     PMBuilder->LoopVectorize = !is_debug;
+    PMBuilder->LoopsInterleaved = !PMBuilder->DisableUnrollLoops;
     PMBuilder->RerollLoops = !is_debug;
     // Leaving NewGVN as default (off) because when on it caused issue #673
     //PMBuilder->NewGVN = !is_debug;
@@ -308,7 +310,9 @@ ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref) {
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, ZigLLVM_CallingConv CC, ZigLLVM_CallAttr attr, const char *Name)
 {
-    CallInst *call_inst = CallInst::Create(unwrap(Fn), makeArrayRef(unwrap(Args), NumArgs), Name);
+    Value *V = unwrap(Fn);
+    FunctionType *FnT = cast<FunctionType>(cast<PointerType>(V->getType())->getElementType());
+    CallInst *call_inst = CallInst::Create(FnT, V, makeArrayRef(unwrap(Args), NumArgs), Name);
     call_inst->setCallingConv(static_cast<CallingConv::ID>(CC));
     switch (attr) {
         case ZigLLVM_CallAttrAuto:
@@ -817,7 +821,9 @@ const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor) {
 }
 
 const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os) {
-    return (const char*)Triple::getOSTypeName((Triple::OSType)os).bytes_begin();
+    const char* name = (const char*)Triple::getOSTypeName((Triple::OSType)os).bytes_begin();
+    if (strcmp(name, "macosx") == 0) return "macos";
+    return name;
 }
 
 const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType env_type) {
@@ -847,6 +853,14 @@ void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
 
 void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module) {
     unwrap(module)->addModuleFlag(Module::Warning, "CodeView", 1);
+}
+
+void ZigLLVMSetModulePICLevel(LLVMModuleRef module) {
+    unwrap(module)->setPICLevel(PICLevel::Level::BigPIC);
+}
+
+void ZigLLVMSetModulePIELevel(LLVMModuleRef module) {
+    unwrap(module)->setPIELevel(PIELevel::Level::Large);
 }
 
 static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
@@ -927,7 +941,7 @@ class MyOStream: public raw_ostream {
 };
 
 bool ZigLLVMWriteImportLibrary(const char *def_path, const ZigLLVM_ArchType arch,
-                               const char *output_lib_path, const bool kill_at)
+                               const char *output_lib_path, bool kill_at)
 {
     COFF::MachineTypes machine = COFF::IMAGE_FILE_MACHINE_UNKNOWN;
 
@@ -1056,6 +1070,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
         case ZigLLVM_UnknownObjectFormat:
         case ZigLLVM_XCOFF:
             assert(false); // unreachable
+            break;
 
         case ZigLLVM_COFF:
             return lld::coff::link(array_ref_args, false, diag_stdout, diag_stderr);
@@ -1068,6 +1083,9 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
 
         case ZigLLVM_Wasm:
             return lld::wasm::link(array_ref_args, false, diag_stdout, diag_stderr);
+
+        default:
+            break;
     }
     assert(false); // unreachable
     abort();
@@ -1121,6 +1139,50 @@ LLVMValueRef ZigLLVMBuildAtomicRMW(LLVMBuilderRef B, enum ZigLLVM_AtomicRMWBinOp
     return wrap(unwrap(B)->CreateAtomicRMW(intop, unwrap(PTR),
         unwrap(Val), toLLVMOrdering(ordering), 
         singleThread ? SyncScope::SingleThread : SyncScope::System));
+}
+
+LLVMValueRef ZigLLVMBuildAndReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateAndReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildOrReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateOrReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildXorReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateXorReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildIntMaxReduce(LLVMBuilderRef B, LLVMValueRef Val, bool is_signed) {
+    return wrap(unwrap(B)->CreateIntMaxReduce(unwrap(Val), is_signed));
+}
+
+LLVMValueRef ZigLLVMBuildIntMinReduce(LLVMBuilderRef B, LLVMValueRef Val, bool is_signed) {
+    return wrap(unwrap(B)->CreateIntMinReduce(unwrap(Val), is_signed));
+}
+
+LLVMValueRef ZigLLVMBuildFPMaxReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateFPMaxReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildFPMinReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateFPMinReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildAddReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateAddReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildMulReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateMulReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildFPAddReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateFAddReduce(unwrap(Acc), unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildFPMulReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateFMulReduce(unwrap(Acc), unwrap(Val)));
 }
 
 static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");

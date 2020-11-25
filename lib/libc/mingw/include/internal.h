@@ -18,12 +18,6 @@ extern "C" {
 
 #pragma pack(push,_CRT_PACKING)
 
-#if defined (SPECIAL_CRTEXE) && (defined (_DLL) || defined (__GNUC__))
-  extern int _commode;
-#else
-  __declspec(dllimport) extern int _commode;
-#endif
-
 #define __IOINFO_TM_ANSI 0
 #define __IOINFO_TM_UTF8 1
 #define __IOINFO_TM_UTF16LE 2

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 /// A protocol is an interface identified by a GUID.
 pub const protocols = @import("uefi/protocols.zig");
 
@@ -12,7 +17,7 @@ pub var handle: Handle = undefined;
 pub var system_table: *tables.SystemTable = undefined;
 
 /// A handle to an event structure.
-pub const Event = *@Type(.Opaque);
+pub const Event = *opaque {};
 
 /// GUIDs must be align(8)
 pub const Guid = extern struct {
@@ -28,7 +33,7 @@ pub const Guid = extern struct {
         self: @This(),
         comptime f: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) Errors!void {
         if (f.len == 0) {
             return std.fmt.format(out_stream, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
@@ -46,7 +51,7 @@ pub const Guid = extern struct {
 };
 
 /// An EFI Handle represents a collection of related interfaces.
-pub const Handle = *@Type(.Opaque);
+pub const Handle = *opaque {};
 
 /// This structure represents time information.
 pub const Time = extern struct {
@@ -103,4 +108,4 @@ pub const TimeCapabilities = extern struct {
 };
 
 /// File Handle as specified in the EFI Shell Spec
-pub const FileHandle = *@Type(.Opaque);
+pub const FileHandle = *opaque {};

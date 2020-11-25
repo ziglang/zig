@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const mem = std.mem;
 const fs = std.fs;
@@ -34,7 +39,7 @@ pub const BufferedAtomicFile = struct {
         errdefer self.atomic_file.deinit();
 
         self.file_stream = self.atomic_file.file.outStream();
-        self.buffered_stream = .{ .unbuffered_out_stream = self.file_stream };
+        self.buffered_stream = .{ .unbuffered_writer = self.file_stream };
         return self;
     }
 

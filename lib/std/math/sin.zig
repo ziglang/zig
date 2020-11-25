@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from go, which is licensed under a BSD-3 license.
 // https://golang.org/LICENSE
 //
@@ -14,7 +19,7 @@ const expect = std.testing.expect;
 ///  - sin(+-0)   = +-0
 ///  - sin(+-inf) = nan
 ///  - sin(nan)   = nan
-pub fn sin(x: var) @TypeOf(x) {
+pub fn sin(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => sin_(T, x),
@@ -45,7 +50,7 @@ const pi4c = 2.69515142907905952645E-15;
 const m4pi = 1.273239544735162542821171882678754627704620361328125;
 
 fn sin_(comptime T: type, x_: T) T {
-    const I = std.meta.Int(true, T.bit_count);
+    const I = std.meta.Int(.signed, @typeInfo(T).Float.bits);
 
     var x = x_;
     if (x == 0 or math.isNan(x)) {
@@ -92,25 +97,25 @@ test "math.sin" {
 test "math.sin32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, sin_(f32, 0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, sin_(f32, 0.2), 0.198669, epsilon));
-    expect(math.approxEq(f32, sin_(f32, 0.8923), 0.778517, epsilon));
-    expect(math.approxEq(f32, sin_(f32, 1.5), 0.997495, epsilon));
-    expect(math.approxEq(f32, sin_(f32, -1.5), -0.997495, epsilon));
-    expect(math.approxEq(f32, sin_(f32, 37.45), -0.246544, epsilon));
-    expect(math.approxEq(f32, sin_(f32, 89.123), 0.916166, epsilon));
+    expect(math.approxEqAbs(f32, sin_(f32, 0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, sin_(f32, 0.2), 0.198669, epsilon));
+    expect(math.approxEqAbs(f32, sin_(f32, 0.8923), 0.778517, epsilon));
+    expect(math.approxEqAbs(f32, sin_(f32, 1.5), 0.997495, epsilon));
+    expect(math.approxEqAbs(f32, sin_(f32, -1.5), -0.997495, epsilon));
+    expect(math.approxEqAbs(f32, sin_(f32, 37.45), -0.246544, epsilon));
+    expect(math.approxEqAbs(f32, sin_(f32, 89.123), 0.916166, epsilon));
 }
 
 test "math.sin64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, sin_(f64, 0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, sin_(f64, 0.2), 0.198669, epsilon));
-    expect(math.approxEq(f64, sin_(f64, 0.8923), 0.778517, epsilon));
-    expect(math.approxEq(f64, sin_(f64, 1.5), 0.997495, epsilon));
-    expect(math.approxEq(f64, sin_(f64, -1.5), -0.997495, epsilon));
-    expect(math.approxEq(f64, sin_(f64, 37.45), -0.246543, epsilon));
-    expect(math.approxEq(f64, sin_(f64, 89.123), 0.916166, epsilon));
+    expect(math.approxEqAbs(f64, sin_(f64, 0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, sin_(f64, 0.2), 0.198669, epsilon));
+    expect(math.approxEqAbs(f64, sin_(f64, 0.8923), 0.778517, epsilon));
+    expect(math.approxEqAbs(f64, sin_(f64, 1.5), 0.997495, epsilon));
+    expect(math.approxEqAbs(f64, sin_(f64, -1.5), -0.997495, epsilon));
+    expect(math.approxEqAbs(f64, sin_(f64, 37.45), -0.246543, epsilon));
+    expect(math.approxEqAbs(f64, sin_(f64, 89.123), 0.916166, epsilon));
 }
 
 test "math.sin32.special" {

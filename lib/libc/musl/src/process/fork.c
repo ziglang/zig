@@ -30,6 +30,7 @@ pid_t fork(void)
 		self->next = self->prev = self;
 		__thread_list_lock = 0;
 		libc.threads_minus_1 = 0;
+		if (libc.need_locks) libc.need_locks = -1;
 	}
 	__restore_sigs(&set);
 	__fork_handler(!ret);

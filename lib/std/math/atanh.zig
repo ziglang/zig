@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -15,7 +20,7 @@ const maxInt = std.math.maxInt;
 ///  - atanh(+-1) = +-inf with signal
 ///  - atanh(x)   = nan if |x| > 1 with signal
 ///  - atanh(nan) = nan
-pub fn atanh(x: var) @TypeOf(x) {
+pub fn atanh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => atanh_32(x),
@@ -40,7 +45,7 @@ fn atanh_32(x: f32) f32 {
         if (u < 0x3F800000 - (32 << 23)) {
             // underflow
             if (u < (1 << 23)) {
-                math.forceEval(y * y);
+                math.doNotOptimizeAway(y * y);
             }
         }
         // |x| < 0.5
@@ -69,7 +74,7 @@ fn atanh_64(x: f64) f64 {
         if (e < 0x3FF - 32) {
             // underflow
             if (e == 0) {
-                math.forceEval(@floatCast(f32, y));
+                math.doNotOptimizeAway(@floatCast(f32, y));
             }
         }
         // |x| < 0.5
@@ -91,17 +96,17 @@ test "math.atanh" {
 test "math.atanh_32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, atanh_32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, atanh_32(0.2), 0.202733, epsilon));
-    expect(math.approxEq(f32, atanh_32(0.8923), 1.433099, epsilon));
+    expect(math.approxEqAbs(f32, atanh_32(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, atanh_32(0.2), 0.202733, epsilon));
+    expect(math.approxEqAbs(f32, atanh_32(0.8923), 1.433099, epsilon));
 }
 
 test "math.atanh_64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, atanh_64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, atanh_64(0.2), 0.202733, epsilon));
-    expect(math.approxEq(f64, atanh_64(0.8923), 1.433099, epsilon));
+    expect(math.approxEqAbs(f64, atanh_64(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, atanh_64(0.2), 0.202733, epsilon));
+    expect(math.approxEqAbs(f64, atanh_64(0.8923), 1.433099, epsilon));
 }
 
 test "math.atanh32.special" {

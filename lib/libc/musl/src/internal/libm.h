@@ -236,13 +236,13 @@ hidden int    __rem_pio2(double,double*);
 hidden double __sin(double,double,int);
 hidden double __cos(double,double);
 hidden double __tan(double,double,int);
-hidden double __expo2(double);
+hidden double __expo2(double,double);
 
 hidden int    __rem_pio2f(float,double*);
 hidden float  __sindf(double);
 hidden float  __cosdf(double);
 hidden float  __tandf(double,int);
-hidden float  __expo2f(float);
+hidden float  __expo2f(float,float);
 
 hidden int __rem_pio2l(long double, long double *);
 hidden long double __sinl(long double, long double, int);

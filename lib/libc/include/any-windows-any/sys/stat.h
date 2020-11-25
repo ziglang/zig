@@ -75,8 +75,8 @@ extern "C" {
   __CRT_INLINE int __cdecl _fstat64i32(int _FileDes,struct _stat64i32 *_Stat)
   {
     struct _stat64 st;
-    int ret=_fstat64(_FileDes,&st);
-    if (ret == -1) {
+    int __ret=_fstat64(_FileDes,&st);
+    if (__ret == -1) {
       memset(_Stat,0,sizeof(struct _stat64i32));
       return -1;
     }
@@ -91,7 +91,7 @@ extern "C" {
     _Stat->st_atime=st.st_atime;
     _Stat->st_mtime=st.st_mtime;
     _Stat->st_ctime=st.st_ctime;
-    return ret;
+    return __ret;
   }
 #endif /* __CRT__NO_INLINE */
   _CRTIMP int __cdecl _stat64(const char *_Name,struct _stat64 *_Stat);
@@ -101,8 +101,8 @@ extern "C" {
   __CRT_INLINE int __cdecl _stat64i32(const char *_Name,struct _stat64i32 *_Stat)
   {
     struct _stat64 st;
-    int ret=_stat64(_Name,&st);
-    if (ret == -1) {
+    int __ret=_stat64(_Name,&st);
+    if (__ret == -1) {
       memset(_Stat,0,sizeof(struct _stat64i32));
       return -1;
     }
@@ -117,7 +117,7 @@ extern "C" {
     _Stat->st_atime=st.st_atime;
     _Stat->st_mtime=st.st_mtime;
     _Stat->st_ctime=st.st_ctime;
-    return ret;
+    return __ret;
   }
 #endif /* __CRT__NO_INLINE */
 
@@ -191,38 +191,38 @@ int __cdecl wstat(const wchar_t *_Filename,struct stat *_Stat);
 __CRT_INLINE int __cdecl
  fstat(int _Desc,struct stat *_Stat) {
   struct _stat32 st;
-  int ret=_fstat32(_Desc,&st);
-  if (ret == -1) {
+  int __ret=_fstat32(_Desc,&st);
+  if (__ret == -1) {
     memset(_Stat,0,sizeof(struct stat));
     return -1;
   }
   /* struct stat and struct _stat32
      are the same for this case. */
   memcpy(_Stat, &st, sizeof(struct _stat32));
-  return ret;
+  return __ret;
 }
 /* Disable it for making sure trailing slash issue is fixed.  */
 #if 0
 __CRT_INLINE int __cdecl
  stat(const char *_Filename,struct stat *_Stat) {
   struct _stat32 st;
-  int ret=_stat32(_Filename,&st);
-  if (ret == -1) {
+  int __ret=_stat32(_Filename,&st);
+  if (__ret == -1) {
     memset(_Stat,0,sizeof(struct stat));
     return -1;
   }
   /* struct stat and struct _stat32
      are the same for this case. */
   memcpy(_Stat, &st, sizeof(struct _stat32));
-  return ret;
+  return __ret;
 }
 #endif
 #else
 __CRT_INLINE int __cdecl
  fstat(int _Desc,struct stat *_Stat) {
   struct _stat64 st;
-  int ret=_fstat64(_Desc,&st);
-  if (ret == -1) {
+  int __ret=_fstat64(_Desc,&st);
+  if (__ret == -1) {
     memset(_Stat,0,sizeof(struct stat));
     return -1;
   }
@@ -239,15 +239,15 @@ __CRT_INLINE int __cdecl
   _Stat->st_atime=st.st_atime;
   _Stat->st_mtime=st.st_mtime;
   _Stat->st_ctime=st.st_ctime;
-  return ret;
+  return __ret;
 }
 /* Disable it for making sure trailing slash issue is fixed.  */
 #if 0
 __CRT_INLINE int __cdecl
  stat(const char *_Filename,struct stat *_Stat) {
   struct _stat64 st;
-  int ret=_stat64(_Filename,&st);
-  if (ret == -1) {
+  int __ret=_stat64(_Filename,&st);
+  if (__ret == -1) {
     memset(_Stat,0,sizeof(struct stat));
     return -1;
   }
@@ -264,7 +264,7 @@ __CRT_INLINE int __cdecl
   _Stat->st_atime=st.st_atime;
   _Stat->st_mtime=st.st_mtime;
   _Stat->st_ctime=st.st_ctime;
-  return ret;
+  return __ret;
 }
 #endif
 #endif /* _USE_32BIT_TIME_T */

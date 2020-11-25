@@ -1122,6 +1122,21 @@ public:
     __bit_iterator(const __type_for_copy_to_const& __it) _NOEXCEPT
         : __seg_(__it.__seg_), __ctz_(__it.__ctz_) {}
 
+    // The non-const __bit_iterator has historically had a non-trivial
+    // copy constructor (as a quirk of its construction). We need to maintain
+    // this for ABI purposes.
+    using __type_for_abi_non_trivial_copy_ctor =
+      _If<!_IsConst, __bit_iterator, struct __private_nat>;
+
+    _LIBCPP_INLINE_VISIBILITY
+    __bit_iterator(__type_for_abi_non_trivial_copy_ctor const& __it) _NOEXCEPT
+      : __seg_(__it.__seg_), __ctz_(__it.__ctz_) {}
+
+    // Always declare the copy assignment operator since the implicit declaration
+    // is deprecated.
+    _LIBCPP_INLINE_VISIBILITY
+    __bit_iterator& operator=(__bit_iterator const&) = default;
+
     _LIBCPP_INLINE_VISIBILITY reference operator*() const _NOEXCEPT
         {return reference(__seg_, __storage_type(1) << __ctz_);}
 

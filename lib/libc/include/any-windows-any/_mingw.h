@@ -86,8 +86,7 @@ limitations in handling dllimport attribute.  */
 #elif defined(_MSC_VER)
 # define __CRT_INLINE __inline
 #else
-# if ( __MINGW_GNUC_PREREQ(4, 3)  &&  __STDC_VERSION__ >= 199901L) \
-     || (defined (__clang__))
+# if ((__MINGW_GNUC_PREREQ(4, 3) || defined(__clang__)) && __STDC_VERSION__ >= 199901L)
 #  define __CRT_INLINE extern inline __attribute__((__gnu_inline__))
 # else
 #  define __CRT_INLINE extern __inline__
@@ -418,15 +417,16 @@ typedef int __int128 __attribute__ ((__mode__ (TI)));
 #endif
 
 /* We are activating __USE_MINGW_ANSI_STDIO for various define indicators.
-   Note that we enable it also for _GNU_SOURCE in C++, but not for C case. */
+ * printf ll modifier (unsupported by msvcrt.dll) is required by C99 and C++11 standards. */
 #if (defined (_POSIX) || defined (_POSIX_SOURCE) || defined (_POSIX_C_SOURCE) \
      || defined (_ISOC99_SOURCE) \
+     || (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L && __MSVCRT_VERSION__ < 0xE00) \
+     || (defined (__cplusplus) && __cplusplus >= 201103L && __MSVCRT_VERSION__ < 0xE00) \
      || defined (_XOPEN_SOURCE) || defined (_XOPEN_SOURCE_EXTENDED) \
-     || (defined (_GNU_SOURCE) && defined (__cplusplus)) \
+     || defined (_GNU_SOURCE) \
      || defined (_SVID_SOURCE)) \
     && !defined(__USE_MINGW_ANSI_STDIO)
-/* Enable __USE_MINGW_ANSI_STDIO if _POSIX defined
- * and If user did _not_ specify it explicitly... */
+/* Enable __USE_MINGW_ANSI_STDIO if user did _not_ specify it explicitly... */
 #  define __USE_MINGW_ANSI_STDIO			1
 #endif
 
@@ -606,7 +606,6 @@ const char *__mingw_get_crt_info (void);
 #define __GOT_SECURE_LIB__ __STDC_SECURE_LIB__
 
 #ifndef __WIDL__
-#include "sdks/_mingw_directx.h"
 #include "sdks/_mingw_ddk.h"
 #endif
 

@@ -31,7 +31,11 @@ static const char map[] = {
 	[SIGPIPE]   = 13,
 	[SIGALRM]   = 14,
 	[SIGTERM]   = 15,
+#if defined(SIGSTKFLT)
 	[SIGSTKFLT] = 16,
+#elif defined(SIGEMT)
+	[SIGEMT]    = 16,
+#endif
 	[SIGCHLD]   = 17,
 	[SIGCONT]   = 18,
 	[SIGSTOP]   = 19,
@@ -70,7 +74,13 @@ static const char strings[] =
 	"Broken pipe\0"
 	"Alarm clock\0"
 	"Terminated\0"
+#if defined(SIGSTKFLT)
 	"Stack fault\0"
+#elif defined(SIGEMT)
+	"Emulator trap\0"
+#else
+	"Unknown signal\0"
+#endif
 	"Child process status\0"
 	"Continued\0"
 	"Stopped (signal)\0"

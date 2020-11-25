@@ -90,8 +90,8 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
     // If there is a personality routine, ask it if it will want to stop at
     // this frame.
     if (frameInfo.handler != 0) {
-      __personality_routine p =
-          (__personality_routine)(uintptr_t)(frameInfo.handler);
+      _Unwind_Personality_Fn p =
+          (_Unwind_Personality_Fn)(uintptr_t)(frameInfo.handler);
       _LIBUNWIND_TRACE_UNWINDING(
           "unwind_phase1(ex_ojb=%p): calling personality function %p",
           (void *)exception_object, (void *)(uintptr_t)p);
@@ -188,8 +188,8 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
 
     // If there is a personality routine, tell it we are unwinding.
     if (frameInfo.handler != 0) {
-      __personality_routine p =
-          (__personality_routine)(uintptr_t)(frameInfo.handler);
+      _Unwind_Personality_Fn p =
+          (_Unwind_Personality_Fn)(uintptr_t)(frameInfo.handler);
       _Unwind_Action action = _UA_CLEANUP_PHASE;
       if (sp == exception_object->private_2) {
         // Tell personality this was the frame it marked in phase 1.
@@ -294,8 +294,8 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
 
     // If there is a personality routine, tell it we are unwinding.
     if (frameInfo.handler != 0) {
-      __personality_routine p =
-          (__personality_routine)(intptr_t)(frameInfo.handler);
+      _Unwind_Personality_Fn p =
+          (_Unwind_Personality_Fn)(intptr_t)(frameInfo.handler);
       _LIBUNWIND_TRACE_UNWINDING(
           "unwind_phase2_forced(ex_ojb=%p): calling personality function %p",
           (void *)exception_object, (void *)(uintptr_t)p);

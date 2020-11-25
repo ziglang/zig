@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Translated from BLAKE3 reference implementation.
 // Source: https://github.com/BLAKE3-team/BLAKE3
 
@@ -6,6 +11,7 @@ const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
+const Vector = std.meta.Vector;
 
 const ChunkIterator = struct {
     slice: []u8,
@@ -56,93 +62,175 @@ const KEYED_HASH: u8 = 1 << 4;
 const DERIVE_KEY_CONTEXT: u8 = 1 << 5;
 const DERIVE_KEY_MATERIAL: u8 = 1 << 6;
 
-// The mixing function, G, which mixes either a column or a diagonal.
-fn g(state: *[16]u32, a: usize, b: usize, c: usize, d: usize, mx: u32, my: u32) void {
-    _ = @addWithOverflow(u32, state[a], state[b], &state[a]);
-    _ = @addWithOverflow(u32, state[a], mx, &state[a]);
-    state[d] = math.rotr(u32, state[d] ^ state[a], 16);
-    _ = @addWithOverflow(u32, state[c], state[d], &state[c]);
-    state[b] = math.rotr(u32, state[b] ^ state[c], 12);
-    _ = @addWithOverflow(u32, state[a], state[b], &state[a]);
-    _ = @addWithOverflow(u32, state[a], my, &state[a]);
-    state[d] = math.rotr(u32, state[d] ^ state[a], 8);
-    _ = @addWithOverflow(u32, state[c], state[d], &state[c]);
-    state[b] = math.rotr(u32, state[b] ^ state[c], 7);
-}
+const CompressVectorized = struct {
+    const Lane = Vector(4, u32);
+    const Rows = [4]Lane;
 
-fn round(state: *[16]u32, msg: [16]u32, schedule: [16]u8) void {
-    // Mix the columns.
-    g(state, 0, 4, 8, 12, msg[schedule[0]], msg[schedule[1]]);
-    g(state, 1, 5, 9, 13, msg[schedule[2]], msg[schedule[3]]);
-    g(state, 2, 6, 10, 14, msg[schedule[4]], msg[schedule[5]]);
-    g(state, 3, 7, 11, 15, msg[schedule[6]], msg[schedule[7]]);
-
-    // Mix the diagonals.
-    g(state, 0, 5, 10, 15, msg[schedule[8]], msg[schedule[9]]);
-    g(state, 1, 6, 11, 12, msg[schedule[10]], msg[schedule[11]]);
-    g(state, 2, 7, 8, 13, msg[schedule[12]], msg[schedule[13]]);
-    g(state, 3, 4, 9, 14, msg[schedule[14]], msg[schedule[15]]);
-}
-
-fn compress(
-    chaining_value: [8]u32,
-    block_words: [16]u32,
-    block_len: u32,
-    counter: u64,
-    flags: u8,
-) [16]u32 {
-    var state = [16]u32{
-        chaining_value[0],
-        chaining_value[1],
-        chaining_value[2],
-        chaining_value[3],
-        chaining_value[4],
-        chaining_value[5],
-        chaining_value[6],
-        chaining_value[7],
-        IV[0],
-        IV[1],
-        IV[2],
-        IV[3],
-        @truncate(u32, counter),
-        @truncate(u32, counter >> 32),
-        block_len,
-        flags,
-    };
-    for (MSG_SCHEDULE) |schedule| {
-        round(&state, block_words, schedule);
+    inline fn g(comptime even: bool, rows: *Rows, m: Lane) void {
+        rows[0] +%= rows[1] +% m;
+        rows[3] ^= rows[0];
+        rows[3] = math.rotr(Lane, rows[3], if (even) 8 else 16);
+        rows[2] +%= rows[3];
+        rows[1] ^= rows[2];
+        rows[1] = math.rotr(Lane, rows[1], if (even) 7 else 12);
     }
-    for (chaining_value) |_, i| {
-        state[i] ^= state[i + 8];
-        state[i + 8] ^= chaining_value[i];
-    }
-    return state;
-}
 
-fn first_8_words(words: [16]u32) [8]u32 {
+    inline fn diagonalize(rows: *Rows) void {
+        rows[0] = @shuffle(u32, rows[0], undefined, [_]i32{ 3, 0, 1, 2 });
+        rows[3] = @shuffle(u32, rows[3], undefined, [_]i32{ 2, 3, 0, 1 });
+        rows[2] = @shuffle(u32, rows[2], undefined, [_]i32{ 1, 2, 3, 0 });
+    }
+
+    inline fn undiagonalize(rows: *Rows) void {
+        rows[0] = @shuffle(u32, rows[0], undefined, [_]i32{ 1, 2, 3, 0 });
+        rows[3] = @shuffle(u32, rows[3], undefined, [_]i32{ 2, 3, 0, 1 });
+        rows[2] = @shuffle(u32, rows[2], undefined, [_]i32{ 3, 0, 1, 2 });
+    }
+
+    fn compress(
+        chaining_value: [8]u32,
+        block_words: [16]u32,
+        block_len: u32,
+        counter: u64,
+        flags: u8,
+    ) [16]u32 {
+        const md = Lane{ @truncate(u32, counter), @truncate(u32, counter >> 32), block_len, @as(u32, flags) };
+        var rows = Rows{ chaining_value[0..4].*, chaining_value[4..8].*, IV[0..4].*, md };
+
+        var m = Rows{ block_words[0..4].*, block_words[4..8].*, block_words[8..12].*, block_words[12..16].* };
+        var t0 = @shuffle(u32, m[0], m[1], [_]i32{ 0, 2, (-1 - 0), (-1 - 2) });
+        g(false, &rows, t0);
+        var t1 = @shuffle(u32, m[0], m[1], [_]i32{ 1, 3, (-1 - 1), (-1 - 3) });
+        g(true, &rows, t1);
+        diagonalize(&rows);
+        var t2 = @shuffle(u32, m[2], m[3], [_]i32{ 0, 2, (-1 - 0), (-1 - 2) });
+        t2 = @shuffle(u32, t2, undefined, [_]i32{ 3, 0, 1, 2 });
+        g(false, &rows, t2);
+        var t3 = @shuffle(u32, m[2], m[3], [_]i32{ 1, 3, (-1 - 1), (-1 - 3) });
+        t3 = @shuffle(u32, t3, undefined, [_]i32{ 3, 0, 1, 2 });
+        g(true, &rows, t3);
+        undiagonalize(&rows);
+        m = Rows{ t0, t1, t2, t3 };
+
+        var i: usize = 0;
+        while (i < 6) : (i += 1) {
+            t0 = @shuffle(u32, m[0], m[1], [_]i32{ 2, 1, (-1 - 1), (-1 - 3) });
+            t0 = @shuffle(u32, t0, undefined, [_]i32{ 1, 2, 3, 0 });
+            g(false, &rows, t0);
+            t1 = @shuffle(u32, m[2], m[3], [_]i32{ 2, 2, (-1 - 3), (-1 - 3) });
+            var tt = @shuffle(u32, m[0], undefined, [_]i32{ 3, 3, 0, 0 });
+            t1 = @shuffle(u32, tt, t1, [_]i32{ 0, (-1 - 1), 2, (-1 - 3) });
+            g(true, &rows, t1);
+            diagonalize(&rows);
+            t2 = @shuffle(u32, m[3], m[1], [_]i32{ 0, 1, (-1 - 0), (-1 - 1) });
+            tt = @shuffle(u32, t2, m[2], [_]i32{ 0, 1, 2, (-1 - 3) });
+            t2 = @shuffle(u32, tt, undefined, [_]i32{ 0, 2, 3, 1 });
+            g(false, &rows, t2);
+            t3 = @shuffle(u32, m[1], m[3], [_]i32{ 2, (-1 - 2), 3, (-1 - 3) });
+            tt = @shuffle(u32, m[2], t3, [_]i32{ 0, (-1 - 0), 1, (-1 - 1) });
+            t3 = @shuffle(u32, tt, undefined, [_]i32{ 2, 3, 1, 0 });
+            g(true, &rows, t3);
+            undiagonalize(&rows);
+            m = Rows{ t0, t1, t2, t3 };
+        }
+
+        rows[0] ^= rows[2];
+        rows[1] ^= rows[3];
+        rows[2] ^= Vector(4, u32){ chaining_value[0], chaining_value[1], chaining_value[2], chaining_value[3] };
+        rows[3] ^= Vector(4, u32){ chaining_value[4], chaining_value[5], chaining_value[6], chaining_value[7] };
+
+        return @bitCast([16]u32, rows);
+    }
+};
+
+const CompressGeneric = struct {
+    fn g(state: *[16]u32, comptime a: usize, comptime b: usize, comptime c: usize, comptime d: usize, mx: u32, my: u32) void {
+        state[a] +%= state[b] +% mx;
+        state[d] = math.rotr(u32, state[d] ^ state[a], 16);
+        state[c] +%= state[d];
+        state[b] = math.rotr(u32, state[b] ^ state[c], 12);
+        state[a] +%= state[b] +% my;
+        state[d] = math.rotr(u32, state[d] ^ state[a], 8);
+        state[c] +%= state[d];
+        state[b] = math.rotr(u32, state[b] ^ state[c], 7);
+    }
+
+    fn round(state: *[16]u32, msg: [16]u32, schedule: [16]u8) void {
+        // Mix the columns.
+        g(state, 0, 4, 8, 12, msg[schedule[0]], msg[schedule[1]]);
+        g(state, 1, 5, 9, 13, msg[schedule[2]], msg[schedule[3]]);
+        g(state, 2, 6, 10, 14, msg[schedule[4]], msg[schedule[5]]);
+        g(state, 3, 7, 11, 15, msg[schedule[6]], msg[schedule[7]]);
+
+        // Mix the diagonals.
+        g(state, 0, 5, 10, 15, msg[schedule[8]], msg[schedule[9]]);
+        g(state, 1, 6, 11, 12, msg[schedule[10]], msg[schedule[11]]);
+        g(state, 2, 7, 8, 13, msg[schedule[12]], msg[schedule[13]]);
+        g(state, 3, 4, 9, 14, msg[schedule[14]], msg[schedule[15]]);
+    }
+
+    fn compress(
+        chaining_value: [8]u32,
+        block_words: [16]u32,
+        block_len: u32,
+        counter: u64,
+        flags: u8,
+    ) [16]u32 {
+        var state = [16]u32{
+            chaining_value[0],
+            chaining_value[1],
+            chaining_value[2],
+            chaining_value[3],
+            chaining_value[4],
+            chaining_value[5],
+            chaining_value[6],
+            chaining_value[7],
+            IV[0],
+            IV[1],
+            IV[2],
+            IV[3],
+            @truncate(u32, counter),
+            @truncate(u32, counter >> 32),
+            block_len,
+            flags,
+        };
+        for (MSG_SCHEDULE) |schedule| {
+            round(&state, block_words, schedule);
+        }
+        for (chaining_value) |_, i| {
+            state[i] ^= state[i + 8];
+            state[i + 8] ^= chaining_value[i];
+        }
+        return state;
+    }
+};
+
+const compress = if (std.Target.current.cpu.arch == .x86_64) CompressVectorized.compress else CompressGeneric.compress;
+
+fn first8Words(words: [16]u32) [8]u32 {
     return @ptrCast(*const [8]u32, &words).*;
 }
 
-fn words_from_little_endian_bytes(words: []u32, bytes: []const u8) void {
-    var byte_slice = bytes;
-    for (words) |*word| {
-        word.* = mem.readIntSliceLittle(u32, byte_slice);
-        byte_slice = byte_slice[4..];
+fn wordsFromLittleEndianBytes(comptime count: usize, bytes: [count * 4]u8) [count]u32 {
+    var words: [count]u32 = undefined;
+    for (words) |*word, i| {
+        word.* = mem.readIntSliceLittle(u32, bytes[4 * i ..]);
     }
+    return words;
 }
 
 // Each chunk or parent node can produce either an 8-word chaining value or, by
 // setting the ROOT flag, any number of final output bytes. The Output struct
 // captures the state just prior to choosing between those two possibilities.
 const Output = struct {
-    input_chaining_value: [8]u32,
-    block_words: [16]u32,
+    input_chaining_value: [8]u32 align(16),
+    block_words: [16]u32 align(16),
     block_len: u32,
     counter: u64,
     flags: u8,
 
-    fn chaining_value(self: *const Output) [8]u32 {
-        return first_8_words(compress(
+    fn chainingValue(self: *const Output) [8]u32 {
+        return first8Words(compress(
             self.input_chaining_value,
             self.block_words,
             self.block_len,
@@ -151,7 +239,7 @@ const Output = struct {
         ));
     }
 
-    fn root_output_bytes(self: *const Output, output: []u8) void {
+    fn rootOutputBytes(self: *const Output, output: []u8) void {
         var out_block_it = ChunkIterator.init(output, 2 * OUT_LEN);
         var output_block_counter: usize = 0;
         while (out_block_it.next()) |out_block| {
@@ -176,9 +264,9 @@ const Output = struct {
 };
 
 const ChunkState = struct {
-    chaining_value: [8]u32,
+    chaining_value: [8]u32 align(16),
     chunk_counter: u64,
-    block: [BLOCK_LEN]u8 = [_]u8{0} ** BLOCK_LEN,
+    block: [BLOCK_LEN]u8 align(16) = [_]u8{0} ** BLOCK_LEN,
     block_len: u8 = 0,
     blocks_compressed: u8 = 0,
     flags: u8,
@@ -195,7 +283,7 @@ const ChunkState = struct {
         return BLOCK_LEN * @as(usize, self.blocks_compressed) + @as(usize, self.block_len);
     }
 
-    fn fill_block_buf(self: *ChunkState, input: []const u8) []const u8 {
+    fn fillBlockBuf(self: *ChunkState, input: []const u8) []const u8 {
         const want = BLOCK_LEN - self.block_len;
         const take = math.min(want, input.len);
         mem.copy(u8, self.block[self.block_len..][0..take], input[0..take]);
@@ -203,7 +291,7 @@ const ChunkState = struct {
         return input[take..];
     }
 
-    fn start_flag(self: *const ChunkState) u8 {
+    fn startFlag(self: *const ChunkState) u8 {
         return if (self.blocks_compressed == 0) CHUNK_START else 0;
     }
 
@@ -213,14 +301,13 @@ const ChunkState = struct {
             // If the block buffer is full, compress it and clear it. More
             // input is coming, so this compression is not CHUNK_END.
             if (self.block_len == BLOCK_LEN) {
-                var block_words: [16]u32 = undefined;
-                words_from_little_endian_bytes(block_words[0..], self.block[0..]);
-                self.chaining_value = first_8_words(compress(
+                const block_words = wordsFromLittleEndianBytes(16, self.block);
+                self.chaining_value = first8Words(compress(
                     self.chaining_value,
                     block_words,
                     BLOCK_LEN,
                     self.chunk_counter,
-                    self.flags | self.start_flag(),
+                    self.flags | self.startFlag(),
                 ));
                 self.blocks_compressed += 1;
                 self.block = [_]u8{0} ** BLOCK_LEN;
@@ -228,30 +315,29 @@ const ChunkState = struct {
             }
 
             // Copy input bytes into the block buffer.
-            input = self.fill_block_buf(input);
+            input = self.fillBlockBuf(input);
         }
     }
 
     fn output(self: *const ChunkState) Output {
-        var block_words: [16]u32 = undefined;
-        words_from_little_endian_bytes(block_words[0..], self.block[0..]);
+        const block_words = wordsFromLittleEndianBytes(16, self.block);
         return Output{
             .input_chaining_value = self.chaining_value,
             .block_words = block_words,
             .block_len = self.block_len,
             .counter = self.chunk_counter,
-            .flags = self.flags | self.start_flag() | CHUNK_END,
+            .flags = self.flags | self.startFlag() | CHUNK_END,
         };
     }
 };
 
-fn parent_output(
+fn parentOutput(
     left_child_cv: [8]u32,
     right_child_cv: [8]u32,
     key: [8]u32,
     flags: u8,
 ) Output {
-    var block_words: [16]u32 = undefined;
+    var block_words: [16]u32 align(16) = undefined;
     mem.copy(u32, block_words[0..8], left_child_cv[0..]);
     mem.copy(u32, block_words[8..], right_child_cv[0..]);
     return Output{
@@ -263,25 +349,29 @@ fn parent_output(
     };
 }
 
-fn parent_cv(
+fn parentCv(
     left_child_cv: [8]u32,
     right_child_cv: [8]u32,
     key: [8]u32,
     flags: u8,
 ) [8]u32 {
-    return parent_output(left_child_cv, right_child_cv, key, flags).chaining_value();
+    return parentOutput(left_child_cv, right_child_cv, key, flags).chainingValue();
 }
 
 /// An incremental hasher that can accept any number of writes.
 pub const Blake3 = struct {
+    pub const Options = struct { key: ?[digest_length]u8 = null };
+    pub const KdfOptions = struct {};
+
     chunk_state: ChunkState,
     key: [8]u32,
     cv_stack: [54][8]u32 = undefined, // Space for 54 subtree chaining values:
     cv_stack_len: u8 = 0, // 2^54 * CHUNK_LEN = 2^64
     flags: u8,
 
-    pub const digest_length = OUT_LEN;
     pub const block_length = BLOCK_LEN;
+    pub const digest_length = OUT_LEN;
+    pub const key_length = KEY_LEN;
 
     fn init_internal(key: [8]u32, flags: u8) Blake3 {
         return Blake3{
@@ -291,54 +381,45 @@ pub const Blake3 = struct {
         };
     }
 
-    /// Construct a new `Blake3` for the regular hash function.
-    pub fn init() Blake3 {
-        return Blake3.init_internal(IV, 0);
-    }
-
-    /// Construct a new `Blake3` for the keyed hash function.
-    pub fn init_keyed(key: [KEY_LEN]u8) Blake3 {
-        var key_words: [8]u32 = undefined;
-        words_from_little_endian_bytes(key_words[0..], key[0..]);
-        return Blake3.init_internal(key_words, KEYED_HASH);
+    /// Construct a new `Blake3` for the hash function, with an optional key
+    pub fn init(options: Options) Blake3 {
+        if (options.key) |key| {
+            const key_words = wordsFromLittleEndianBytes(8, key);
+            return Blake3.init_internal(key_words, KEYED_HASH);
+        } else {
+            return Blake3.init_internal(IV, 0);
+        }
     }
 
     /// Construct a new `Blake3` for the key derivation function. The context
     /// string should be hardcoded, globally unique, and application-specific.
-    pub fn init_derive_key(context: []const u8) Blake3 {
+    pub fn initKdf(context: []const u8, options: KdfOptions) Blake3 {
         var context_hasher = Blake3.init_internal(IV, DERIVE_KEY_CONTEXT);
         context_hasher.update(context);
         var context_key: [KEY_LEN]u8 = undefined;
         context_hasher.final(context_key[0..]);
-        var context_key_words: [8]u32 = undefined;
-        words_from_little_endian_bytes(context_key_words[0..], context_key[0..]);
+        const context_key_words = wordsFromLittleEndianBytes(8, context_key);
         return Blake3.init_internal(context_key_words, DERIVE_KEY_MATERIAL);
     }
 
-    pub fn hash(in: []const u8, out: []u8) void {
-        var hasher = Blake3.init();
+    pub fn hash(in: []const u8, out: []u8, options: Options) void {
+        var hasher = Blake3.init(options);
         hasher.update(in);
         hasher.final(out);
     }
 
-    /// Reset the `Blake3` to its initial state.
-    pub fn reset(self: *Blake3) void {
-        self.chunk_state = ChunkState.init(self.key, 0, self.flags);
-        self.cv_stack_len = 0;
-    }
-
-    fn push_cv(self: *Blake3, cv: [8]u32) void {
+    fn pushCv(self: *Blake3, cv: [8]u32) void {
         self.cv_stack[self.cv_stack_len] = cv;
         self.cv_stack_len += 1;
     }
 
-    fn pop_cv(self: *Blake3) [8]u32 {
+    fn popCv(self: *Blake3) [8]u32 {
         self.cv_stack_len -= 1;
         return self.cv_stack[self.cv_stack_len];
     }
 
     // Section 5.1.2 of the BLAKE3 spec explains this algorithm in more detail.
-    fn add_chunk_chaining_value(self: *Blake3, first_cv: [8]u32, total_chunks: u64) void {
+    fn addChunkChainingValue(self: *Blake3, first_cv: [8]u32, total_chunks: u64) void {
         // This chunk might complete some subtrees. For each completed subtree,
         // its left child will be the current top entry in the CV stack, and
         // its right child will be the current value of `new_cv`. Pop each left
@@ -349,10 +430,10 @@ pub const Blake3 = struct {
         var new_cv = first_cv;
         var chunk_counter = total_chunks;
         while (chunk_counter & 1 == 0) {
-            new_cv = parent_cv(self.pop_cv(), new_cv, self.key, self.flags);
+            new_cv = parentCv(self.popCv(), new_cv, self.key, self.flags);
             chunk_counter >>= 1;
         }
-        self.push_cv(new_cv);
+        self.pushCv(new_cv);
     }
 
     /// Add input to the hash state. This can be called any number of times.
@@ -362,9 +443,9 @@ pub const Blake3 = struct {
             // If the current chunk is complete, finalize it and reset the
             // chunk state. More input is coming, so this chunk is not ROOT.
             if (self.chunk_state.len() == CHUNK_LEN) {
-                const chunk_cv = self.chunk_state.output().chaining_value();
+                const chunk_cv = self.chunk_state.output().chainingValue();
                 const total_chunks = self.chunk_state.chunk_counter + 1;
-                self.add_chunk_chaining_value(chunk_cv, total_chunks);
+                self.addChunkChainingValue(chunk_cv, total_chunks);
                 self.chunk_state = ChunkState.init(self.key, total_chunks, self.flags);
             }
 
@@ -385,14 +466,14 @@ pub const Blake3 = struct {
         var parent_nodes_remaining: usize = self.cv_stack_len;
         while (parent_nodes_remaining > 0) {
             parent_nodes_remaining -= 1;
-            output = parent_output(
+            output = parentOutput(
                 self.cv_stack[parent_nodes_remaining],
-                output.chaining_value(),
+                output.chainingValue(),
                 self.key,
                 self.flags,
             );
         }
-        output.root_output_bytes(out_slice);
+        output.rootOutputBytes(out_slice);
     }
 };
 
@@ -560,7 +641,10 @@ const reference_test = ReferenceTest{
     },
 };
 
-fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
+fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
+    // Save initial state
+    const initial_state = hasher.*;
+
     // Setup input pattern
     var input_pattern: [251]u8 = undefined;
     for (input_pattern) |*e, i| e.* = @truncate(u8, i);
@@ -576,22 +660,24 @@ fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
     // Read final hash value
     var actual_bytes: [expected_hex.len / 2]u8 = undefined;
     hasher.final(actual_bytes[0..]);
-    hasher.reset();
 
     // Compare to expected value
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
     fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
     testing.expectEqual(actual_bytes, expected_bytes);
+
+    // Restore initial state
+    hasher.* = initial_state;
 }
 
 test "BLAKE3 reference test cases" {
-    var hash = &Blake3.init();
-    var keyed_hash = &Blake3.init_keyed(reference_test.key.*);
-    var derive_key = &Blake3.init_derive_key(reference_test.context_string);
+    var hash = &Blake3.init(.{});
+    var keyed_hash = &Blake3.init(.{ .key = reference_test.key.* });
+    var derive_key = &Blake3.initKdf(reference_test.context_string, .{});
 
     for (reference_test.cases) |t| {
-        test_blake3(hash, t.input_len, t.hash.*);
-        test_blake3(keyed_hash, t.input_len, t.keyed_hash.*);
-        test_blake3(derive_key, t.input_len, t.derive_key.*);
+        testBlake3(hash, t.input_len, t.hash.*);
+        testBlake3(keyed_hash, t.input_len, t.keyed_hash.*);
+        testBlake3(derive_key, t.input_len, t.derive_key.*);
     }
 }

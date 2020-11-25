@@ -149,7 +149,7 @@ _Unwind_Backtrace(_Unwind_Trace_Fn callback, void *ref) {
 
     struct _Unwind_Context *context = (struct _Unwind_Context *)&cursor;
     // Get and call the personality function to unwind the frame.
-    __personality_routine handler = (__personality_routine) frameInfo.handler;
+    _Unwind_Personality_Fn handler = (_Unwind_Personality_Fn)frameInfo.handler;
     if (handler == NULL) {
       return _URC_END_OF_STACK;
     }

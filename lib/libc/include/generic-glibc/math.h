@@ -279,8 +279,17 @@ enum
 #define __MATHDECLX(type, function,suffix, args, attrib) \
   __MATHDECL_1(type, function,suffix, args) __attribute__ (attrib); \
   __MATHDECL_1(type, __CONCAT(__,function),suffix, args) __attribute__ (attrib)
-#define __MATHDECL_1(type, function,suffix, args) \
+#define __MATHDECL_1_IMPL(type, function, suffix, args) \
   extern type __MATH_PRECNAME(function,suffix) args __THROW
+#define __MATHDECL_1(type, function, suffix, args) \
+  __MATHDECL_1_IMPL(type, function, suffix, args)
+/* Ignore the alias by default.  The alias is only useful with
+   redirections.  */
+#define __MATHDECL_ALIAS(type, function, suffix, args, alias) \
+  __MATHDECL_1(type, function, suffix, args)
+
+#define __MATHREDIR(type, function, suffix, args, to) \
+  extern type __REDIRECT_NTH (__MATH_PRECNAME (function, suffix), args, to)
 
 #define _Mdouble_		double
 #define __MATH_PRECNAME(name,r)	__CONCAT(name,r)
@@ -331,11 +340,37 @@ extern long double __REDIRECT_NTH (nexttowardl,
 #   endif
 
 #   undef __MATHDECL_1
-#   define __MATHDECL_2(type, function,suffix, args, alias) \
-  extern type __REDIRECT_NTH(__MATH_PRECNAME(function,suffix), \
-			     args, alias)
 #   define __MATHDECL_1(type, function,suffix, args) \
-  __MATHDECL_2(type, function,suffix, args, __CONCAT(function,suffix))
+  __MATHREDIR(type, function, suffix, args, __CONCAT(function,suffix))
+
+#  elif __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+#   ifdef __REDIRECT_NTH
+#    ifdef __USE_ISOC99
+extern float __REDIRECT_NTH (nexttowardf, (float __x, long double __y),
+			    __nexttowardf_to_ieee128)
+  __attribute__ ((__const__));
+extern double __REDIRECT_NTH (nexttoward, (double __x, long double __y),
+			     __nexttoward_to_ieee128)
+  __attribute__ ((__const__));
+
+#define __dremieee128 __remainderieee128
+#define __gammaieee128 __lgammaieee128
+
+#    endif
+#   endif
+
+#   undef __MATHDECL_1
+#   undef __MATHDECL_ALIAS
+
+#   define __REDIRTO(function, suffix) \
+  __ ## function ## ieee128 ## suffix
+#   define __REDIRTO_ALT(function, suffix) \
+  __ ## function ## f128 ## suffix
+
+#   define __MATHDECL_1(type, function, suffix, args) \
+  __MATHREDIR (type, function, suffix, args, __REDIRTO (function, suffix))
+#   define __MATHDECL_ALIAS(type, function, suffix, args, alias) \
+  __MATHREDIR (type, function, suffix, args, __REDIRTO_ALT (alias, suffix))
 #  endif
 
 /* Include the file of declarations again, this time using `long double'
@@ -348,11 +383,23 @@ extern long double __REDIRECT_NTH (nexttowardl,
 #  define __MATH_DECLARE_LDOUBLE   1
 #  include <bits/mathcalls-helper-functions.h>
 #  include <bits/mathcalls.h>
+
 #  undef _Mdouble_
 #  undef __MATH_PRECNAME
 #  undef __MATH_DECLARING_DOUBLE
 #  undef __MATH_DECLARING_FLOATN
 
+#  if defined __LDBL_COMPAT \
+      || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+#   undef __REDIRTO
+#   undef __REDIRTO_ALT
+#   undef __MATHDECL_1
+#   undef __MATHDECL_ALIAS
+#   define __MATHDECL_1(type, function, suffix, args) \
+  __MATHDECL_1_IMPL(type, function, suffix, args)
+#   define __MATHDECL_ALIAS(type, function, suffix, args, alias) \
+  __MATHDECL_1(type, function, suffix, args)
+#  endif
 # endif /* !(__NO_LONG_DOUBLE_MATH && _LIBC) || __LDBL_COMPAT */
 
 #endif	/* Use ISO C99.  */
@@ -479,7 +526,9 @@ extern long double __REDIRECT_NTH (nexttowardl,
 # undef __MATH_DECLARING_FLOATN
 #endif /* __HAVE_DISTINCT_FLOAT128X || (__HAVE_FLOAT128X && !_LIBC).  */
 
+#undef	__MATHDECL_1_IMPL
 #undef	__MATHDECL_1
+#undef	__MATHDECL_ALIAS
 #undef	__MATHDECL
 #undef	__MATHCALL
 
@@ -513,12 +562,18 @@ extern long double __REDIRECT_NTH (nexttowardl,
 #  undef __MATHCALL_NARROW
 #  define __MATHCALL_NARROW(func, redir, nargs) \
   __MATHCALL_NARROW_REDIR (func, redir, nargs)
+# elif __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+#  define __MATHCALL_REDIR_NAME(name) __ ## f32 ## name ## ieee128
+#  undef __MATHCALL_NARROW
+#  define __MATHCALL_NARROW(func, redir, nargs) \
+  __MATHCALL_NARROW_REDIR (func, redir, nargs)
 # endif
 # include <bits/mathcalls-narrow.h>
 # undef _Mret_
 # undef _Marg_
 # undef __MATHCALL_NAME
-# ifdef __LDBL_COMPAT
+# if defined __LDBL_COMPAT \
+     || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
 #  undef __MATHCALL_REDIR_NAME
 #  undef __MATHCALL_NARROW
 #  define __MATHCALL_NARROW(func, redir, nargs) \
@@ -533,12 +588,18 @@ extern long double __REDIRECT_NTH (nexttowardl,
 #  undef __MATHCALL_NARROW
 #  define __MATHCALL_NARROW(func, redir, nargs) \
   __MATHCALL_NARROW_REDIR (func, redir, nargs)
+# elif __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+#  define __MATHCALL_REDIR_NAME(name) __ ## f64 ## name ## ieee128
+#  undef __MATHCALL_NARROW
+#  define __MATHCALL_NARROW(func, redir, nargs) \
+  __MATHCALL_NARROW_REDIR (func, redir, nargs)
 # endif
 # include <bits/mathcalls-narrow.h>
 # undef _Mret_
 # undef _Marg_
 # undef __MATHCALL_NAME
-# ifdef __LDBL_COMPAT
+# if defined __LDBL_COMPAT \
+     || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
 #  undef __MATHCALL_REDIR_NAME
 #  undef __MATHCALL_NARROW
 #  define __MATHCALL_NARROW(func, redir, nargs) \
@@ -1196,13 +1257,6 @@ iszero (__T __val)
 # error "M_* values needed for _Float128x"
 #endif
 
-/* When compiling in strict ISO C compatible mode we must not use the
-   inline functions since they, among other things, do not set the
-   `errno' variable correctly.  */
-#if defined __STRICT_ANSI__ && !defined __NO_MATH_INLINES
-# define __NO_MATH_INLINES	1
-#endif
-
 #ifdef __USE_ISOC99
 # if __GNUC_PREREQ (3, 1)
 /* ISO C99 defines some macros to compare number while taking care for
@@ -1239,12 +1293,6 @@ iszero (__T __val)
 		    __u != __v && (__u != __u || __v != __v); }))
 # endif
 #endif
-
-/* Get machine-dependent inline versions (if there are any).  */
-#ifdef __USE_EXTERN_INLINES
-# include <bits/mathinline.h>
-#endif
-
 
 #if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
 /* An expression whose type has the widest of the evaluation formats

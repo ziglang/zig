@@ -85,6 +85,43 @@ test "empty non-exhaustive enum" {
     comptime S.doTheTest(42);
 }
 
+test "single field non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) {
+            a,
+            _,
+        };
+        fn doTheTest(y: u8) void {
+            var e: E = .a;
+            expect(switch (e) {
+                .a => true,
+                _ => false,
+            });
+            e = @intToEnum(E, 12);
+            expect(switch (e) {
+                .a => false,
+                _ => true,
+            });
+
+            expect(switch (e) {
+                .a => false,
+                else => true,
+            });
+            e = .a;
+            expect(switch (e) {
+                .a => true,
+                else => false,
+            });
+
+            expect(@enumToInt(@intToEnum(E, y)) == y);
+            expect(@typeInfo(E).Enum.fields.len == 1);
+            expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    S.doTheTest(23);
+    comptime S.doTheTest(23);
+}
+
 test "enum type" {
     const foo1 = Foo{ .One = 13 };
     const foo2 = Foo{
@@ -208,7 +245,7 @@ test "@tagName non-exhaustive enum" {
     comptime expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
 }
 
-fn testEnumTagNameBare(n: var) []const u8 {
+fn testEnumTagNameBare(n: anytype) []const u8 {
     return @tagName(n);
 }
 
@@ -1139,4 +1176,28 @@ test "enum with one member default to u0 tag type" {
 test "tagName on enum literals" {
     expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
     comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+}
+
+test "method call on an enum" {
+    const S = struct {
+        const E = enum {
+            one,
+            two,
+
+            fn method(self: *E) bool {
+                return self.* == .two;
+            }
+
+            fn generic_method(self: *E, foo: anytype) bool {
+                return self.* == .two and foo == bool;
+            }
+        };
+        fn doTheTest() void {
+            var e = E.two;
+            expect(e.method());
+            expect(e.generic_method(bool));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

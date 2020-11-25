@@ -31,6 +31,7 @@ extern "C" {
   _CRTIMP int __cdecl _chdir(const char *_Path);
   _CRTIMP int __cdecl _mkdir(const char *_Path);
   _CRTIMP int __cdecl _rmdir(const char *_Path);
+#ifdef _CRT_USE_WINAPI_FAMILY_DESKTOP_APP
   _CRTIMP int __cdecl _chdrive(int _Drive);
   _CRTIMP int __cdecl _getdrive(void);
   _CRTIMP unsigned long __cdecl _getdrives(void);
@@ -39,6 +40,7 @@ extern "C" {
 #define _GETDISKFREE_DEFINED
   _CRTIMP unsigned __cdecl _getdiskfree(unsigned _Drive,struct _diskfree_t *_DiskFree);
 #endif
+#endif /* _CRT_USE_WINAPI_FAMILY_DESKTOP_APP */
 
 #ifndef _WDIRECT_DEFINED
 #define _WDIRECT_DEFINED

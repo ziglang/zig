@@ -1369,6 +1369,7 @@ inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) { return (ENUMTYPE &)(((i
 #define STATUS_FLOAT_MULTIPLE_FAULTS ((DWORD)0xC00002B4)
 #define STATUS_FLOAT_MULTIPLE_TRAPS ((DWORD)0xC00002B5)
 #define STATUS_REG_NAT_CONSUMPTION ((DWORD)0xC00002C9)
+#define STATUS_HEAP_CORRUPTION ((DWORD)0xC0000374)
 #define STATUS_STACK_BUFFER_OVERRUN ((DWORD)0xC0000409)
 #define STATUS_INVALID_CRUNTIME_PARAMETER ((DWORD)0xC0000417)
 #define STATUS_ASSERTION_FAILURE ((DWORD)0xC0000420)
@@ -4826,6 +4827,15 @@ __buildmemorybarrier()
       DWORD __alignment2;
     } MEMORY_BASIC_INFORMATION64,*PMEMORY_BASIC_INFORMATION64;
 
+#define CFG_CALL_TARGET_VALID 0x01
+#define CFG_CALL_TARGET_PROCESSED 0x02
+#define CFG_CALL_TARGET_CONVERT_EXPORT_SUPPRESSED_TO_VALID 0x04
+
+  typedef struct _CFG_CALL_TARGET_INFO {
+    ULONG_PTR Offset;
+    ULONG_PTR Flags;
+  } CFG_CALL_TARGET_INFO, *PCFG_CALL_TARGET_INFO;
+
 #define SECTION_QUERY 0x0001
 #define SECTION_MAP_WRITE 0x0002
 #define SECTION_MAP_READ 0x0004
@@ -4851,6 +4861,20 @@ __buildmemorybarrier()
 #define PAGE_GUARD 0x100
 #define PAGE_NOCACHE 0x200
 #define PAGE_WRITECOMBINE 0x400
+#define PAGE_GRAPHICS_NOACCESS 0x0800
+#define PAGE_GRAPHICS_READONLY 0x1000
+#define PAGE_GRAPHICS_READWRITE 0x2000
+#define PAGE_GRAPHICS_EXECUTE 0x4000
+#define PAGE_GRAPHICS_EXECUTE_READ 0x8000
+#define PAGE_GRAPHICS_EXECUTE_READWRITE 0x10000
+#define PAGE_GRAPHICS_COHERENT 0x20000
+#define PAGE_ENCLAVE_THREAD_CONTROL 0x80000000
+#define PAGE_REVERT_TO_FILE_MAP 0x80000000
+#define PAGE_TARGETS_NO_UPDATE 0x40000000
+#define PAGE_TARGETS_INVALID 0x40000000
+#define PAGE_ENCLAVE_UNVALIDATED 0x20000000
+#define PAGE_ENCLAVE_DECOMMIT 0x10000000
+
 #define MEM_COMMIT 0x1000
 #define MEM_RESERVE 0x2000
 #define MEM_DECOMMIT 0x4000
@@ -4863,8 +4887,52 @@ __buildmemorybarrier()
 #define MEM_WRITE_WATCH 0x200000
 #define MEM_PHYSICAL 0x400000
 #define MEM_ROTATE 0x800000
+#define MEM_DIFFERENT_IMAGE_BASE_OK 0x800000
+#define MEM_RESET_UNDO 0x1000000
 #define MEM_LARGE_PAGES 0x20000000
 #define MEM_4MB_PAGES 0x80000000
+#define MEM_64K_PAGES (MEM_LARGE_PAGES | MEM_PHYSICAL)
+
+  typedef struct _MEM_ADDRESS_REQUIREMENTS {
+    PVOID LowestStartingAddress;
+    PVOID HighestEndingAddress;
+    SIZE_T Alignment;
+  } MEM_ADDRESS_REQUIREMENTS, *PMEM_ADDRESS_REQUIREMENTS;
+
+#define MEM_EXTENDED_PARAMETER_GRAPHICS 0x01
+#define MEM_EXTENDED_PARAMETER_NONPAGED 0x02
+#define MEM_EXTENDED_PARAMETER_ZERO_PAGES_OPTIONAL 0x04
+#define MEM_EXTENDED_PARAMETER_NONPAGED_LARGE 0x08
+#define MEM_EXTENDED_PARAMETER_NONPAGED_HUGE 0x10
+
+  typedef enum MEM_EXTENDED_PARAMETER_TYPE {
+    MemExtendedParameterInvalidType = 0,
+    MemExtendedParameterAddressRequirements,
+    MemExtendedParameterNumaNode,
+    MemExtendedParameterPartitionHandle,
+    MemExtendedParameterUserPhysicalHandle,
+    MemExtendedParameterAttributeFlags,
+    MemExtendedParameterMax
+  } MEM_EXTENDED_PARAMETER_TYPE, *PMEM_EXTENDED_PARAMETER_TYPE;
+
+#define MEM_EXTENDED_PARAMETER_TYPE_BITS 8
+
+  typedef struct DECLSPEC_ALIGN(8) MEM_EXTENDED_PARAMETER {
+    __C89_NAMELESS struct {
+        DWORD64 Type : MEM_EXTENDED_PARAMETER_TYPE_BITS;
+        DWORD64 Reserved : 64 - MEM_EXTENDED_PARAMETER_TYPE_BITS;
+    };
+    __C89_NAMELESS union {
+        DWORD64 ULong64;
+        PVOID Pointer;
+        SIZE_T Size;
+        HANDLE Handle;
+        DWORD ULong;
+    };
+  } MEM_EXTENDED_PARAMETER, *PMEM_EXTENDED_PARAMETER;
+
+#define SEC_PARTITION_OWNER_HANDLE 0x40000
+#define SEC_64K_PAGES 0x80000
 #define SEC_FILE 0x800000
 #define SEC_IMAGE 0x1000000
 #define SEC_PROTECTED_IMAGE 0x2000000
@@ -4873,8 +4941,15 @@ __buildmemorybarrier()
 #define SEC_NOCACHE 0x10000000
 #define SEC_WRITECOMBINE 0x40000000
 #define SEC_LARGE_PAGES 0x80000000
-
 #define SEC_IMAGE_NO_EXECUTE (SEC_IMAGE | SEC_NOCACHE)
+
+  typedef enum MEM_SECTION_EXTENDED_PARAMETER_TYPE {
+    MemSectionExtendedParameterInvalidType = 0,
+    MemSectionExtendedParameterUserPhysicalFlags,
+    MemSectionExtendedParameterNumaNode,
+    MemSectionExtendedParameterMax
+  } MEM_SECTION_EXTENDED_PARAMETER_TYPE, *PMEM_SECTION_EXTENDED_PARAMETER_TYPE;
+
 #define MEM_IMAGE SEC_IMAGE
 #define WRITE_WATCH_FLAG_RESET 0x01
 #define MEM_UNMAP_WITH_TRANSIENT_BOOST 0x01
@@ -7571,8 +7646,10 @@ __buildmemorybarrier()
     } IMAGE_COR20_HEADER,*PIMAGE_COR20_HEADER;
 #endif
 
-#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
     NTSYSAPI WORD NTAPI RtlCaptureStackBackTrace (DWORD FramesToSkip, DWORD FramesToCapture, PVOID *BackTrace, PDWORD BackTraceHash);
+#endif
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
     NTSYSAPI VOID NTAPI RtlCaptureContext (PCONTEXT ContextRecord);
     NTSYSAPI SIZE_T NTAPI RtlCompareMemory (const VOID *Source1, const VOID *Source2, SIZE_T Length);
 #if defined (__x86_64__)
@@ -7585,7 +7662,6 @@ __buildmemorybarrier()
     NTSYSAPI BOOLEAN __cdecl RtlDeleteFunctionTable (PRUNTIME_FUNCTION FunctionTable);
     NTSYSAPI BOOLEAN __cdecl RtlInstallFunctionTableCallback (DWORD64 TableIdentifier, DWORD64 BaseAddress, DWORD Length, PGET_RUNTIME_FUNCTION_CALLBACK Callback, PVOID Context, PCWSTR OutOfProcessCallbackDll);
     NTSYSAPI VOID __cdecl RtlRestoreContext (PCONTEXT ContextRecord, struct _EXCEPTION_RECORD *ExceptionRecord);
-    NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, DWORD64 ImageBase, DWORD64 ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PDWORD64 EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #if defined (__arm__)
 #if _WIN32_WINNT >= 0x0602
@@ -7597,7 +7673,6 @@ __buildmemorybarrier()
     NTSYSAPI BOOLEAN __cdecl RtlDeleteFunctionTable (PRUNTIME_FUNCTION FunctionTable);
     NTSYSAPI BOOLEAN __cdecl RtlInstallFunctionTableCallback (DWORD TableIdentifier, DWORD BaseAddress, DWORD Length, PGET_RUNTIME_FUNCTION_CALLBACK Callback, PVOID Context, PCWSTR OutOfProcessCallbackDll);
     NTSYSAPI VOID __cdecl RtlRestoreContext (PCONTEXT ContextRecord, struct _EXCEPTION_RECORD *ExceptionRecord);
-    NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, DWORD ImageBase, DWORD ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PDWORD EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #if defined (__aarch64__)
     NTSYSAPI DWORD NTAPI RtlAddGrowableFunctionTable (PVOID *DynamicTable, PRUNTIME_FUNCTION FunctionTable, DWORD EntryCount, DWORD MaximumEntryCount, ULONG_PTR RangeBase, ULONG_PTR RangeEnd);
@@ -7607,14 +7682,12 @@ __buildmemorybarrier()
     NTSYSAPI BOOLEAN __cdecl RtlDeleteFunctionTable (PRUNTIME_FUNCTION FunctionTable);
     NTSYSAPI BOOLEAN __cdecl RtlInstallFunctionTableCallback (ULONG_PTR TableIdentifier, ULONG_PTR BaseAddress, DWORD Length, PGET_RUNTIME_FUNCTION_CALLBACK Callback, PVOID Context, PCWSTR OutOfProcessCallbackDll);
     NTSYSAPI VOID __cdecl RtlRestoreContext (PCONTEXT ContextRecord, struct _EXCEPTION_RECORD *ExceptionRecord);
-    NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, ULONG_PTR ImageBase, ULONG_PTR ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PULONG_PTR EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #if defined (__ia64__)
     NTSYSAPI BOOLEAN NTAPI RtlAddFunctionTable (PRUNTIME_FUNCTION FunctionTable, DWORD EntryCount, ULONGLONG BaseAddress, ULONGLONG TargetGp);
     NTSYSAPI BOOLEAN NTAPI RtlDeleteFunctionTable (PRUNTIME_FUNCTION FunctionTable);
     NTSYSAPI BOOLEAN NTAPI RtlInstallFunctionTableCallback (DWORD64 TableIdentifier, DWORD64 BaseAddress, DWORD Length, DWORD64 TargetGp, PGET_RUNTIME_FUNCTION_CALLBACK Callback, PVOID Context, PCWSTR OutOfProcessCallbackDll);
     NTSYSAPI VOID NTAPI RtlRestoreContext (PCONTEXT ContextRecord, struct _EXCEPTION_RECORD *ExceptionRecord);
-    NTSYSAPI ULONGLONG NTAPI RtlVirtualUnwind (ULONGLONG ImageBase, ULONGLONG ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PBOOLEAN InFunction, PFRAME_POINTERS EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 
 #endif
@@ -7625,18 +7698,22 @@ __buildmemorybarrier()
 #if defined (__x86_64__)
     NTSYSAPI PRUNTIME_FUNCTION NTAPI RtlLookupFunctionEntry (DWORD64 ControlPc, PDWORD64 ImageBase, PUNWIND_HISTORY_TABLE HistoryTable);
     NTSYSAPI VOID NTAPI RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
+    NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, DWORD64 ImageBase, DWORD64 ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PDWORD64 EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #if defined (__arm__)
     NTSYSAPI PRUNTIME_FUNCTION NTAPI RtlLookupFunctionEntry (ULONG_PTR ControlPc, PDWORD ImageBase, PUNWIND_HISTORY_TABLE HistoryTable);
     NTSYSAPI VOID NTAPI RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
+    NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, DWORD ImageBase, DWORD ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PDWORD EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #if defined (__aarch64__)
     NTSYSAPI PRUNTIME_FUNCTION NTAPI RtlLookupFunctionEntry (ULONG_PTR ControlPc, PULONG_PTR ImageBase, PUNWIND_HISTORY_TABLE HistoryTable);
     NTSYSAPI VOID NTAPI RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
+    NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, ULONG_PTR ImageBase, ULONG_PTR ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PULONG_PTR EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #if defined (__ia64__)
     NTSYSAPI PRUNTIME_FUNCTION NTAPI RtlLookupFunctionEntry (ULONGLONG ControlPc, PULONGLONG ImageBase, PULONGLONG TargetGp);
     NTSYSAPI VOID NTAPI RtlUnwindEx (FRAME_POINTERS TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
+    NTSYSAPI ULONGLONG NTAPI RtlVirtualUnwind (ULONGLONG ImageBase, ULONGLONG ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PBOOLEAN InFunction, PFRAME_POINTERS EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #endif
 

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -15,7 +20,7 @@ const maxInt = std.math.maxInt;
 ///  - asinh(+-0)   = +-0
 ///  - asinh(+-inf) = +-inf
 ///  - asinh(nan)   = nan
-pub fn asinh(x: var) @TypeOf(x) {
+pub fn asinh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => asinh32(x),
@@ -51,7 +56,7 @@ fn asinh32(x: f32) f32 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -82,7 +87,7 @@ fn asinh64(x: f64) f64 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -96,25 +101,25 @@ test "math.asinh" {
 test "math.asinh32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, asinh32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, asinh32(0.2), 0.198690, epsilon));
-    expect(math.approxEq(f32, asinh32(0.8923), 0.803133, epsilon));
-    expect(math.approxEq(f32, asinh32(1.5), 1.194763, epsilon));
-    expect(math.approxEq(f32, asinh32(37.45), 4.316332, epsilon));
-    expect(math.approxEq(f32, asinh32(89.123), 5.183196, epsilon));
-    expect(math.approxEq(f32, asinh32(123123.234375), 12.414088, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(0.2), 0.198690, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(0.8923), 0.803133, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(1.5), 1.194763, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(37.45), 4.316332, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(89.123), 5.183196, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(123123.234375), 12.414088, epsilon));
 }
 
 test "math.asinh64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, asinh64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, asinh64(0.2), 0.198690, epsilon));
-    expect(math.approxEq(f64, asinh64(0.8923), 0.803133, epsilon));
-    expect(math.approxEq(f64, asinh64(1.5), 1.194763, epsilon));
-    expect(math.approxEq(f64, asinh64(37.45), 4.316332, epsilon));
-    expect(math.approxEq(f64, asinh64(89.123), 5.183196, epsilon));
-    expect(math.approxEq(f64, asinh64(123123.234375), 12.414088, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(0.2), 0.198690, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(0.8923), 0.803133, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(1.5), 1.194763, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(37.45), 4.316332, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(89.123), 5.183196, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(123123.234375), 12.414088, epsilon));
 }
 
 test "math.asinh32.special" {

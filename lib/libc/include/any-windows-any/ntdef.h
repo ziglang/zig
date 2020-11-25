@@ -48,6 +48,7 @@
 #include <basetsd.h>
 #include <excpt.h>
 #include <sdkddkver.h>
+#include <specstrings.h>
 
 /* FIXME: Shouldn't be included! */
 #include <stdarg.h>
@@ -489,6 +490,31 @@ typedef const UNICODE_STRING* PCUNICODE_STRING;
 
 #define UNICODE_NULL ((WCHAR)0)
 
+#define UNICODE_STRING_MAX_BYTES ((USHORT) 65534)
+#define UNICODE_STRING_MAX_CHARS (32767)
+
+#ifdef _MSC_VER
+#define DECLARE_UNICODE_STRING_SIZE(_var, _size) \
+  WCHAR _var ## _buffer[_size]; \
+  __pragma(warning(push)) __pragma(warning(disable:4221)) __pragma(warning(disable:4204)) \
+  UNICODE_STRING _var = { 0, (_size) * sizeof(WCHAR) , _var ## _buffer } \
+  __pragma(warning(pop))
+
+#define DECLARE_CONST_UNICODE_STRING(_var, _string) \
+  const WCHAR _var##_buffer[] = _string; \
+  __pragma(warning(push)) __pragma(warning(disable:4221)) __pragma(warning(disable:4204)) \
+  const UNICODE_STRING _var = { sizeof(_string) - sizeof(WCHAR), sizeof(_string), (PWCH)_var##_buffer } \
+  __pragma(warning(pop))
+#else
+#define DECLARE_UNICODE_STRING_SIZE(_var, _size) \
+  WCHAR _var ## _buffer[_size]; \
+  UNICODE_STRING _var = { 0, (_size) * sizeof(WCHAR) , _var ## _buffer }
+
+#define DECLARE_CONST_UNICODE_STRING(_var, _string) \
+  const WCHAR _var##_buffer[] = _string; \
+  const UNICODE_STRING _var = { sizeof(_string) - sizeof(WCHAR), sizeof(_string), (PWCH)_var##_buffer }
+#endif
+
 typedef struct _CSTRING {
   USHORT Length;
   USHORT MaximumLength;
@@ -512,6 +538,8 @@ typedef PSTRING POEM_STRING;
 typedef CONST STRING* PCOEM_STRING;
 typedef STRING CANSI_STRING;
 typedef PSTRING PCANSI_STRING;
+typedef STRING UTF8_STRING;
+typedef PSTRING PUTF8_STRING;
 
 typedef struct _STRING32 {
   USHORT Length;
@@ -560,6 +588,26 @@ typedef struct _OBJECT_ATTRIBUTES {
 #endif
 typedef CONST OBJECT_ATTRIBUTES *PCOBJECT_ATTRIBUTES;
 
+typedef struct _OBJECT_ATTRIBUTES64 {
+  ULONG Length;
+  ULONG64 RootDirectory;
+  ULONG64 ObjectName;
+  ULONG Attributes;
+  ULONG64 SecurityDescriptor;
+  ULONG64 SecurityQualityOfService;
+} OBJECT_ATTRIBUTES64, *POBJECT_ATTRIBUTES64;
+typedef CONST OBJECT_ATTRIBUTES64 *PCOBJECT_ATTRIBUTES64;
+
+typedef struct _OBJECT_ATTRIBUTES32 {
+  ULONG Length;
+  ULONG RootDirectory;
+  ULONG ObjectName;
+  ULONG Attributes;
+  ULONG SecurityDescriptor;
+  ULONG SecurityQualityOfService;
+} OBJECT_ATTRIBUTES32, *POBJECT_ATTRIBUTES32;
+typedef CONST OBJECT_ATTRIBUTES32 *PCOBJECT_ATTRIBUTES32;
+
 /* Values for the Attributes member */
 #define OBJ_INHERIT             0x00000002
 #define OBJ_PERMANENT           0x00000010
@@ -569,7 +617,9 @@ typedef CONST OBJECT_ATTRIBUTES *PCOBJECT_ATTRIBUTES;
 #define OBJ_OPENLINK            0x00000100
 #define OBJ_KERNEL_HANDLE       0x00000200
 #define OBJ_FORCE_ACCESS_CHECK  0x00000400
-#define OBJ_VALID_ATTRIBUTES    0x000007F2
+#define OBJ_IGNORE_IMPERSONATED_DEVICEMAP 0x00000800
+#define OBJ_DONT_REPARSE        0x00001000
+#define OBJ_VALID_ATTRIBUTES    0x00001FF2
 
 /* Helper Macro */
 #define InitializeObjectAttributes(p,n,a,r,s) { \
@@ -580,6 +630,9 @@ typedef CONST OBJECT_ATTRIBUTES *PCOBJECT_ATTRIBUTES;
   (p)->SecurityDescriptor = (s); \
   (p)->SecurityQualityOfService = NULL; \
 }
+
+#define RTL_CONSTANT_OBJECT_ATTRIBUTES(n, a) { sizeof(OBJECT_ATTRIBUTES), NULL, RTL_CONST_CAST(PUNICODE_STRING)(n), a, NULL, NULL }
+#define RTL_INIT_OBJECT_ATTRIBUTES(n, a) RTL_CONSTANT_OBJECT_ATTRIBUTES(n, a)
 
 /* Product Types */
 typedef enum _NT_PRODUCT_TYPE {
@@ -623,11 +676,37 @@ typedef struct LIST_ENTRY64 {
 } LIST_ENTRY64, *PLIST_ENTRY64;
 
 /* Singly Linked Lists */
+typedef struct _SINGLE_LIST_ENTRY32 {
+  ULONG Next;
+} SINGLE_LIST_ENTRY32, *PSINGLE_LIST_ENTRY32;
+
 typedef struct _SINGLE_LIST_ENTRY {
   struct _SINGLE_LIST_ENTRY *Next;
 } SINGLE_LIST_ENTRY, *PSINGLE_LIST_ENTRY;
 
 #endif /* _LIST_ENTRY_DEFINED */
+
+typedef struct _RTL_BALANCED_NODE {
+  __C89_NAMELESS union {
+    struct _RTL_BALANCED_NODE *Children[2];
+    __C89_NAMELESS struct {
+      struct _RTL_BALANCED_NODE *Left;
+      struct _RTL_BALANCED_NODE *Right;
+    };
+  };
+
+#define RTL_BALANCED_NODE_RESERVED_PARENT_MASK 3
+
+  __C89_NAMELESS union {
+    UCHAR Red : 1;
+    UCHAR Balance : 2;
+    ULONG_PTR ParentValue;
+  };
+} RTL_BALANCED_NODE, *PRTL_BALANCED_NODE;
+
+#define RTL_BALANCED_NODE_GET_PARENT_POINTER(Node) ((PRTL_BALANCED_NODE)((Node)->ParentValue & ~RTL_BALANCED_NODE_RESERVED_PARENT_MASK))
+
+#define ALL_PROCESSOR_GROUPS 0xffff
 
 #ifndef ___PROCESSOR_NUMBER_DEFINED
 #define ___PROCESSOR_NUMBER_DEFINED
@@ -660,6 +739,14 @@ typedef struct _GROUP_AFFINITY {
 } GROUP_AFFINITY, *PGROUP_AFFINITY;
 #endif /* !___GROUP_AFFINITY_DEFINED */
 
+#ifndef _DEFINED__WNF_STATE_NAME
+#define _DEFINED__WNF_STATE_NAME
+typedef struct _WNF_STATE_NAME {
+  ULONG Data[2];
+} WNF_STATE_NAME, *PWNF_STATE_NAME;
+typedef const WNF_STATE_NAME *PCWNF_STATE_NAME;
+#endif
+
 /* Helper Macros */
 #define RTL_FIELD_TYPE(type, field)    (((type*)0)->field)
 #define RTL_BITS_OF(sizeOfArg)         (sizeof(sizeOfArg) * 8)
@@ -683,6 +770,9 @@ typedef struct _GROUP_AFFINITY {
 #define RTL_NUMBER_OF(A) RTL_NUMBER_OF_V1(A)
 #endif
 #define ARRAYSIZE(A)    RTL_NUMBER_OF_V2(A)
+#define _ARRAYSIZE(A)   RTL_NUMBER_OF_V1(A)
+
+#define RTL_NUMBER_OF_FIELD(type, field) (RTL_NUMBER_OF(RTL_FIELD_TYPE(type, field)))
 
 /* Type Limits */
 #define MINCHAR   0x80
@@ -724,6 +814,7 @@ typedef struct _GROUP_AFFINITY {
 #define VER_SUITE_STORAGE_SERVER            0x00002000
 #define VER_SUITE_COMPUTE_SERVER            0x00004000
 #define VER_SUITE_WH_SERVER                 0x00008000
+#define VER_SUITE_MULTIUSERTS               0x00020000
 
 /*  Primary language IDs. */
 #define LANG_NEUTRAL                              0x00

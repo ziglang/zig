@@ -116,4 +116,14 @@ struct __pthread_cond_s
   unsigned int __g_signals[2];
 };
 
+typedef unsigned int __tss_t;
+typedef unsigned long int __thrd_t;
+
+typedef struct
+{
+  int __data __ONCE_ALIGNMENT;
+} __once_flag;
+
+#define __ONCE_FLAG_INIT { 0 }
+
 #endif /* _THREAD_SHARED_TYPES_H  */

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
@@ -30,11 +35,11 @@ pub fn __aeabi_f2d(arg: f32) callconv(.AAPCS) f64 {
 
 const CHAR_BIT = 8;
 
-fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: std.meta.Int(false, @typeInfo(src_t).Float.bits)) dst_t {
+fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits)) dst_t {
     @setRuntimeSafety(builtin.is_test);
 
-    const src_rep_t = std.meta.Int(false, @typeInfo(src_t).Float.bits);
-    const dst_rep_t = std.meta.Int(false, @typeInfo(dst_t).Float.bits);
+    const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits);
+    const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);
     const dstSigBits = std.math.floatMantissaBits(dst_t);
     const SrcShift = std.math.Log2Int(src_rep_t);

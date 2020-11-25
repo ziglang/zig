@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const root = @import("root");
@@ -101,15 +106,27 @@ pub fn getStdIn() File {
     };
 }
 
-pub const InStream = @import("io/in_stream.zig").InStream;
-pub const OutStream = @import("io/out_stream.zig").OutStream;
+pub const Reader = @import("io/reader.zig").Reader;
+/// Deprecated: use `Reader`
+pub const InStream = Reader;
+pub const Writer = @import("io/writer.zig").Writer;
+/// Deprecated: use `Writer`
+pub const OutStream = Writer;
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
-pub const BufferedOutStream = @import("io/buffered_out_stream.zig").BufferedOutStream;
-pub const bufferedOutStream = @import("io/buffered_out_stream.zig").bufferedOutStream;
+pub const BufferedWriter = @import("io/buffered_writer.zig").BufferedWriter;
+pub const bufferedWriter = @import("io/buffered_writer.zig").bufferedWriter;
+/// Deprecated: use `BufferedWriter`
+pub const BufferedOutStream = BufferedWriter;
+/// Deprecated: use `bufferedWriter`
+pub const bufferedOutStream = bufferedWriter;
 
-pub const BufferedInStream = @import("io/buffered_in_stream.zig").BufferedInStream;
-pub const bufferedInStream = @import("io/buffered_in_stream.zig").bufferedInStream;
+pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
+pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
+/// Deprecated: use `BufferedReader`
+pub const BufferedInStream = BufferedReader;
+/// Deprecated: use `bufferedReader`
+pub const bufferedInStream = bufferedReader;
 
 pub const PeekStream = @import("io/peek_stream.zig").PeekStream;
 pub const peekStream = @import("io/peek_stream.zig").peekStream;
@@ -117,20 +134,49 @@ pub const peekStream = @import("io/peek_stream.zig").peekStream;
 pub const FixedBufferStream = @import("io/fixed_buffer_stream.zig").FixedBufferStream;
 pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferStream;
 
-pub const COutStream = @import("io/c_out_stream.zig").COutStream;
-pub const cOutStream = @import("io/c_out_stream.zig").cOutStream;
+pub const CWriter = @import("io/c_writer.zig").CWriter;
+pub const cWriter = @import("io/c_writer.zig").cWriter;
+/// Deprecated: use `CWriter`
+pub const COutStream = CWriter;
+/// Deprecated: use `cWriter`
+pub const cOutStream = cWriter;
 
-pub const CountingOutStream = @import("io/counting_out_stream.zig").CountingOutStream;
-pub const countingOutStream = @import("io/counting_out_stream.zig").countingOutStream;
+pub const CountingWriter = @import("io/counting_writer.zig").CountingWriter;
+pub const countingWriter = @import("io/counting_writer.zig").countingWriter;
+/// Deprecated: use `CountingWriter`
+pub const CountingOutStream = CountingWriter;
+/// Deprecated: use `countingWriter`
+pub const countingOutStream = countingWriter;
 
-pub const MultiOutStream = @import("io/multi_out_stream.zig").MultiOutStream;
-pub const multiOutStream = @import("io/multi_out_stream.zig").multiOutStream;
+pub const MultiWriter = @import("io/multi_writer.zig").MultiWriter;
+pub const multiWriter = @import("io/multi_writer.zig").multiWriter;
+/// Deprecated: use `MultiWriter`
+pub const MultiOutStream = MultiWriter;
+/// Deprecated: use `multiWriter`
+pub const multiOutStream = multiWriter;
 
-pub const BitInStream = @import("io/bit_in_stream.zig").BitInStream;
-pub const bitInStream = @import("io/bit_in_stream.zig").bitInStream;
+pub const BitReader = @import("io/bit_reader.zig").BitReader;
+pub const bitReader = @import("io/bit_reader.zig").bitReader;
+/// Deprecated: use `BitReader`
+pub const BitInStream = BitReader;
+/// Deprecated: use `bitReader`
+pub const bitInStream = bitReader;
 
-pub const BitOutStream = @import("io/bit_out_stream.zig").BitOutStream;
-pub const bitOutStream = @import("io/bit_out_stream.zig").bitOutStream;
+pub const BitWriter = @import("io/bit_writer.zig").BitWriter;
+pub const bitWriter = @import("io/bit_writer.zig").bitWriter;
+/// Deprecated: use `BitWriter`
+pub const BitOutStream = BitWriter;
+/// Deprecated: use `bitWriter`
+pub const bitOutStream = bitWriter;
+
+pub const AutoIndentingStream = @import("io/auto_indenting_stream.zig").AutoIndentingStream;
+pub const autoIndentingStream = @import("io/auto_indenting_stream.zig").autoIndentingStream;
+
+pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
+pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
+
+pub const FindByteOutStream = @import("io/find_byte_out_stream.zig").FindByteOutStream;
+pub const findByteOutStream = @import("io/find_byte_out_stream.zig").findByteOutStream;
 
 pub const Packing = @import("io/serialization.zig").Packing;
 
@@ -144,29 +190,34 @@ pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAt
 
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
-/// An OutStream that doesn't write to anything.
-pub const null_out_stream = @as(NullOutStream, .{ .context = {} });
+/// A Writer that doesn't write to anything.
+pub const null_writer = @as(NullWriter, .{ .context = {} });
 
-const NullOutStream = OutStream(void, error{}, dummyWrite);
+/// Deprecated: use `null_writer`
+pub const null_out_stream = null_writer;
+
+const NullWriter = Writer(void, error{}, dummyWrite);
+/// Deprecated: use NullWriter
+const NullOutStream = NullWriter;
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     return data.len;
 }
 
-test "null_out_stream" {
-    null_out_stream.writeAll("yay" ** 10) catch |err| switch (err) {};
+test "null_writer" {
+    null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
 }
 
 test "" {
-    _ = @import("io/bit_in_stream.zig");
-    _ = @import("io/bit_out_stream.zig");
+    _ = @import("io/bit_reader.zig");
+    _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
-    _ = @import("io/buffered_in_stream.zig");
-    _ = @import("io/buffered_out_stream.zig");
-    _ = @import("io/c_out_stream.zig");
-    _ = @import("io/counting_out_stream.zig");
+    _ = @import("io/buffered_reader.zig");
+    _ = @import("io/buffered_writer.zig");
+    _ = @import("io/c_writer.zig");
+    _ = @import("io/counting_writer.zig");
     _ = @import("io/fixed_buffer_stream.zig");
-    _ = @import("io/in_stream.zig");
-    _ = @import("io/out_stream.zig");
+    _ = @import("io/reader.zig");
+    _ = @import("io/writer.zig");
     _ = @import("io/peek_stream.zig");
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/serialization.zig");

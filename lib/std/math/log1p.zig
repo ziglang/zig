@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -17,7 +22,7 @@ const expect = std.testing.expect;
 ///  - log1p(-1)    = -inf
 ///  - log1p(x)     = nan if x < -1
 ///  - log1p(nan)   = nan
-pub fn log1p(x: var) @TypeOf(x) {
+pub fn log1p(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => log1p_32(x),
@@ -57,7 +62,7 @@ fn log1p_32(x: f32) f32 {
         if ((ix << 1) < (0x33800000 << 1)) {
             // underflow if subnormal
             if (ix & 0x7F800000 == 0) {
-                math.forceEval(x * x);
+                math.doNotOptimizeAway(x * x);
             }
             return x;
         }
@@ -190,25 +195,25 @@ test "math.log1p" {
 test "math.log1p_32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, log1p_32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, log1p_32(0.2), 0.182322, epsilon));
-    expect(math.approxEq(f32, log1p_32(0.8923), 0.637793, epsilon));
-    expect(math.approxEq(f32, log1p_32(1.5), 0.916291, epsilon));
-    expect(math.approxEq(f32, log1p_32(37.45), 3.649359, epsilon));
-    expect(math.approxEq(f32, log1p_32(89.123), 4.501175, epsilon));
-    expect(math.approxEq(f32, log1p_32(123123.234375), 11.720949, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(0.2), 0.182322, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(0.8923), 0.637793, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(1.5), 0.916291, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(37.45), 3.649359, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(89.123), 4.501175, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(123123.234375), 11.720949, epsilon));
 }
 
 test "math.log1p_64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, log1p_64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, log1p_64(0.2), 0.182322, epsilon));
-    expect(math.approxEq(f64, log1p_64(0.8923), 0.637793, epsilon));
-    expect(math.approxEq(f64, log1p_64(1.5), 0.916291, epsilon));
-    expect(math.approxEq(f64, log1p_64(37.45), 3.649359, epsilon));
-    expect(math.approxEq(f64, log1p_64(89.123), 4.501175, epsilon));
-    expect(math.approxEq(f64, log1p_64(123123.234375), 11.720949, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(0.2), 0.182322, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(0.8923), 0.637793, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(1.5), 0.916291, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(37.45), 3.649359, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(89.123), 4.501175, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(123123.234375), 11.720949, epsilon));
 }
 
 test "math.log1p_32.special" {

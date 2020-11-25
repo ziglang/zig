@@ -1,10 +1,15 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 /// Returns whether x is an infinity, ignoring sign.
-pub fn isInf(x: var) bool {
+pub fn isInf(x: anytype) bool {
     const T = @TypeOf(x);
     switch (T) {
         f16 => {
@@ -30,7 +35,7 @@ pub fn isInf(x: var) bool {
 }
 
 /// Returns whether x is an infinity with a positive sign.
-pub fn isPositiveInf(x: var) bool {
+pub fn isPositiveInf(x: anytype) bool {
     const T = @TypeOf(x);
     switch (T) {
         f16 => {
@@ -52,7 +57,7 @@ pub fn isPositiveInf(x: var) bool {
 }
 
 /// Returns whether x is an infinity with a negative sign.
-pub fn isNegativeInf(x: var) bool {
+pub fn isNegativeInf(x: anytype) bool {
     const T = @TypeOf(x);
     switch (T) {
         f16 => {

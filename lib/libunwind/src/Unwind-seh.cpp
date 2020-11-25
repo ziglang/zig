@@ -69,7 +69,7 @@ static void __unw_seh_set_disp_ctx(unw_cursor_t *cursor,
 ///  b) Initiate a collided unwind to halt unwinding.
 _LIBUNWIND_EXPORT EXCEPTION_DISPOSITION
 _GCC_specific_handler(PEXCEPTION_RECORD ms_exc, PVOID frame, PCONTEXT ms_ctx,
-                      DISPATCHER_CONTEXT *disp, __personality_routine pers) {
+                      DISPATCHER_CONTEXT *disp, _Unwind_Personality_Fn pers) {
   unw_cursor_t cursor;
   _Unwind_Exception *exc;
   _Unwind_Action action;
@@ -290,8 +290,8 @@ unwind_phase2_forced(unw_context_t *uc,
 
     // If there is a personality routine, tell it we are unwinding.
     if (frameInfo.handler != 0) {
-      __personality_routine p =
-          (__personality_routine)(intptr_t)(frameInfo.handler);
+      _Unwind_Personality_Fn p =
+          (_Unwind_Personality_Fn)(intptr_t)(frameInfo.handler);
       _LIBUNWIND_TRACE_UNWINDING(
           "unwind_phase2_forced(ex_ojb=%p): calling personality function %p",
           (void *)exception_object, (void *)(uintptr_t)p);

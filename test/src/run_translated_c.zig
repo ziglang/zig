@@ -82,13 +82,13 @@ pub const RunTranslatedCContext = struct {
         }
 
         const write_src = b.addWriteFiles();
-        for (case.sources.span()) |src_file| {
+        for (case.sources.items) |src_file| {
             write_src.add(src_file.filename, src_file.source);
         }
         const translate_c = b.addTranslateC(.{
             .write_file = .{
                 .step = write_src,
-                .basename = case.sources.span()[0].filename,
+                .basename = case.sources.items[0].filename,
             },
         });
         translate_c.step.name = b.fmt("{} translate-c", .{annotated_case_name});

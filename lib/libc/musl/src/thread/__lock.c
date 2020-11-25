@@ -18,9 +18,11 @@
 
 void __lock(volatile int *l)
 {
-	if (!libc.threads_minus_1) return;
+	int need_locks = libc.need_locks;
+	if (!need_locks) return;
 	/* fast path: INT_MIN for the lock, +1 for the congestion */
 	int current = a_cas(l, 0, INT_MIN + 1);
+	if (need_locks < 0) libc.need_locks = 0;
 	if (!current) return;
 	/* A first spin loop, for medium congestion. */
 	for (unsigned i = 0; i < 10; ++i) {

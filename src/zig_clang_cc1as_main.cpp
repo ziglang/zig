@@ -207,7 +207,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
 
   // Target Options
   Opts.Triple = llvm::Triple::normalize(Args.getLastArgValue(OPT_triple));
-  Opts.CPU = Args.getLastArgValue(OPT_target_cpu);
+  Opts.CPU = std::string(Args.getLastArgValue(OPT_target_cpu));
   Opts.Features = Args.getAllArgValues(OPT_target_feature);
 
   // Use the default target triple if unspecified.
@@ -238,13 +238,19 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
 
   Opts.RelaxELFRelocations = Args.hasArg(OPT_mrelax_relocations);
   Opts.DwarfVersion = getLastArgIntValue(Args, OPT_dwarf_version_EQ, 2, Diags);
-  Opts.DwarfDebugFlags = Args.getLastArgValue(OPT_dwarf_debug_flags);
-  Opts.DwarfDebugProducer = Args.getLastArgValue(OPT_dwarf_debug_producer);
-  Opts.DebugCompilationDir = Args.getLastArgValue(OPT_fdebug_compilation_dir);
-  Opts.MainFileName = Args.getLastArgValue(OPT_main_file_name);
+  Opts.DwarfDebugFlags =
+      std::string(Args.getLastArgValue(OPT_dwarf_debug_flags));
+  Opts.DwarfDebugProducer =
+      std::string(Args.getLastArgValue(OPT_dwarf_debug_producer));
+  Opts.DebugCompilationDir =
+      std::string(Args.getLastArgValue(OPT_fdebug_compilation_dir));
+  Opts.MainFileName = std::string(Args.getLastArgValue(OPT_main_file_name));
 
-  for (const auto &Arg : Args.getAllArgValues(OPT_fdebug_prefix_map_EQ))
-    Opts.DebugPrefixMap.insert(StringRef(Arg).split('='));
+  for (const auto &Arg : Args.getAllArgValues(OPT_fdebug_prefix_map_EQ)) {
+    auto Split = StringRef(Arg).split('=');
+    Opts.DebugPrefixMap.insert(
+        {std::string(Split.first), std::string(Split.second)});
+  }
 
   // Frontend Options
   if (Args.hasArg(OPT_INPUT)) {
@@ -260,8 +266,9 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
     }
   }
   Opts.LLVMArgs = Args.getAllArgValues(OPT_mllvm);
-  Opts.OutputPath = Args.getLastArgValue(OPT_o);
-  Opts.SplitDwarfOutput = Args.getLastArgValue(OPT_split_dwarf_output);
+  Opts.OutputPath = std::string(Args.getLastArgValue(OPT_o));
+  Opts.SplitDwarfOutput =
+      std::string(Args.getLastArgValue(OPT_split_dwarf_output));
   if (Arg *A = Args.getLastArg(OPT_filetype)) {
     StringRef Name = A->getValue();
     unsigned OutputType = StringSwitch<unsigned>(Name)
@@ -289,8 +296,9 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   Opts.NoExecStack = Args.hasArg(OPT_mno_exec_stack);
   Opts.FatalWarnings = Args.hasArg(OPT_massembler_fatal_warnings);
   Opts.NoWarn = Args.hasArg(OPT_massembler_no_warn);
-  Opts.RelocationModel = Args.getLastArgValue(OPT_mrelocation_model, "pic");
-  Opts.TargetABI = Args.getLastArgValue(OPT_target_abi);
+  Opts.RelocationModel =
+      std::string(Args.getLastArgValue(OPT_mrelocation_model, "pic"));
+  Opts.TargetABI = std::string(Args.getLastArgValue(OPT_target_abi));
   Opts.IncrementalLinkerCompatible =
       Args.hasArg(OPT_mincremental_linker_compatible);
   Opts.SymbolDefs = Args.getAllArgValues(OPT_defsym);
@@ -421,12 +429,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
                             SrcMgr.getMemoryBuffer(BufferIndex)->getBuffer());
 
   // Build up the feature string from the target feature list.
-  std::string FS;
-  if (!Opts.Features.empty()) {
-    FS = Opts.Features[0];
-    for (unsigned i = 1, e = Opts.Features.size(); i != e; ++i)
-      FS += "," + Opts.Features[i];
-  }
+  std::string FS = llvm::join(Opts.Features, ",");
 
   std::unique_ptr<MCStreamer> Str;
 
@@ -490,7 +493,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     MCSection *AsmLabel = Ctx.getMachOSection(
         "__LLVM", "__asm", MachO::S_REGULAR, 4, SectionKind::getReadOnly());
     Str.get()->SwitchSection(AsmLabel);
-    Str.get()->EmitZeros(1);
+    Str.get()->emitZeros(1);
   }
 
   // Assembly to object compilation should leverage assembly info.

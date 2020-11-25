@@ -24,12 +24,6 @@ test "call disabled extern fn" {
     disabledExternFn();
 }
 
-test "floating point primitive bit counts" {
-    expect(f16.bit_count == 16);
-    expect(f32.bit_count == 32);
-    expect(f64.bit_count == 64);
-}
-
 test "short circuit" {
     testShortCircuit(false, true);
     comptime testShortCircuit(false, true);
@@ -169,6 +163,48 @@ test "multiline string" {
         \\three
     ;
     const s2 = "one\ntwo)\nthree";
+    expect(mem.eql(u8, s1, s2));
+}
+
+test "multiline string comments at start" {
+    const s1 =
+        //\\one
+        \\two)
+        \\three
+    ;
+    const s2 = "two)\nthree";
+    expect(mem.eql(u8, s1, s2));
+}
+
+test "multiline string comments at end" {
+    const s1 =
+        \\one
+        \\two)
+        //\\three
+    ;
+    const s2 = "one\ntwo)";
+    expect(mem.eql(u8, s1, s2));
+}
+
+test "multiline string comments in middle" {
+    const s1 =
+        \\one
+        //\\two)
+        \\three
+    ;
+    const s2 = "one\nthree";
+    expect(mem.eql(u8, s1, s2));
+}
+
+test "multiline string comments at multiple places" {
+    const s1 =
+        \\one
+        //\\two
+        \\three
+        //\\four
+        \\five
+    ;
+    const s2 = "one\nthree\nfive";
     expect(mem.eql(u8, s1, s2));
 }
 
@@ -444,8 +480,8 @@ export fn writeToVRam() void {
     vram[0] = 'X';
 }
 
-const OpaqueA = @Type(.Opaque);
-const OpaqueB = @Type(.Opaque);
+const OpaqueA = opaque {};
+const OpaqueB = opaque {};
 test "opaque types" {
     expect(*OpaqueA != *OpaqueB);
     expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
@@ -575,10 +611,6 @@ test "slice string literal has correct type" {
     comptime expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
     const array = [_]i32{ 1, 2, 3, 4 };
     comptime expect(@TypeOf(array[runtime_zero..]) == []const i32);
-}
-
-test "pointer child field" {
-    expect((*u32).Child == u32);
 }
 
 test "struct inside function" {
@@ -712,4 +744,11 @@ test "auto created variables have correct alignment" {
     };
     expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
     comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+}
+
+extern var opaque_extern_var: opaque {};
+var var_to_export: u32 = 42;
+test "extern variable with non-pointer opaque type" {
+    @export(var_to_export, .{ .name = "opaque_extern_var" });
+    expect(@ptrCast(*align(1) u32, &opaque_extern_var).* == 42);
 }

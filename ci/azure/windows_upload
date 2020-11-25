@@ -17,8 +17,8 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv dist "$DIRNAME"
   7z a "$TARBALL" "$DIRNAME"
 
-  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-  s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
+  # mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
+  s3cmd -c "$DOWNLOADSECUREFILE_SECUREFILEPATH" put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
 
   SHASUM=$(sha256sum $TARBALL | cut '-d ' -f1)
   BYTESIZE=$(wc -c < $TARBALL)
@@ -29,8 +29,8 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   echo "\"shasum\": \"$SHASUM\"," >>$JSONFILE
   echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
 
-  s3cmd put -P --add-header="Cache-Control: max-age=0, must-revalidate" "$JSONFILE" "s3://ziglang.org/builds/$JSONFILE"
-  s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/x86_64-windows-$VERSION.json"
+  s3cmd -c "$DOWNLOADSECUREFILE_SECUREFILEPATH" put -P --add-header="Cache-Control: max-age=0, must-revalidate" "$JSONFILE" "s3://ziglang.org/builds/$JSONFILE"
+  s3cmd -c "$DOWNLOADSECUREFILE_SECUREFILEPATH" put -P "$JSONFILE" "s3://ziglang.org/builds/x86_64-windows-$VERSION.json"
 
   # `set -x` causes these variables to be mangled.
   # See https://developercommunity.visualstudio.com/content/problem/375679/pipeline-variable-incorrectly-inserts-single-quote.html

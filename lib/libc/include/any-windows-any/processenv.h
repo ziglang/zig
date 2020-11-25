@@ -14,6 +14,15 @@
 extern "C" {
 #endif
 
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+  WINBASEAPI LPSTR WINAPI GetCommandLineA (VOID);
+  WINBASEAPI LPWSTR WINAPI GetCommandLineW (VOID);
+  WINBASEAPI WINBOOL WINAPI SetCurrentDirectoryA (LPCSTR lpPathName);
+  WINBASEAPI WINBOOL WINAPI SetCurrentDirectoryW (LPCWSTR lpPathName);
+  WINBASEAPI DWORD WINAPI GetCurrentDirectoryA (DWORD nBufferLength, LPSTR lpBuffer);
+  WINBASEAPI DWORD WINAPI GetCurrentDirectoryW (DWORD nBufferLength, LPWSTR lpBuffer);
+#endif
+
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
   WINBASEAPI WINBOOL WINAPI SetEnvironmentStringsW (LPWCH NewEnvironment);
 
@@ -21,12 +30,6 @@ extern "C" {
 #define SetEnvironmentStrings SetEnvironmentStringsW
 #endif
 
-  WINBASEAPI LPSTR WINAPI GetCommandLineA (VOID);
-  WINBASEAPI LPWSTR WINAPI GetCommandLineW (VOID);
-  WINBASEAPI WINBOOL WINAPI SetCurrentDirectoryA (LPCSTR lpPathName);
-  WINBASEAPI WINBOOL WINAPI SetCurrentDirectoryW (LPCWSTR lpPathName);
-  WINBASEAPI DWORD WINAPI GetCurrentDirectoryA (DWORD nBufferLength, LPSTR lpBuffer);
-  WINBASEAPI DWORD WINAPI GetCurrentDirectoryW (DWORD nBufferLength, LPWSTR lpBuffer);
   WINBASEAPI DWORD WINAPI SearchPathW (LPCWSTR lpPath, LPCWSTR lpFileName, LPCWSTR lpExtension, DWORD nBufferLength, LPWSTR lpBuffer, LPWSTR *lpFilePart);
   WINBASEAPI DWORD APIENTRY SearchPathA (LPCSTR lpPath, LPCSTR lpFileName, LPCSTR lpExtension, DWORD nBufferLength, LPSTR lpBuffer, LPSTR *lpFilePart);
   WINBASEAPI WINBOOL WINAPI NeedCurrentDirectoryForExePathA (LPCSTR ExeName);

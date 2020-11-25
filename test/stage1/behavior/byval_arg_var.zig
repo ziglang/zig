@@ -13,11 +13,11 @@ fn start() void {
     foo("string literal");
 }
 
-fn foo(x: var) void {
+fn foo(x: anytype) void {
     bar(x);
 }
 
-fn bar(x: var) void {
+fn bar(x: anytype) void {
     result = x;
 }
 

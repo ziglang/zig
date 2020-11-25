@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -122,7 +127,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.* = undefined;
         }
 
-        pub fn at(self: var, i: usize) AtType(@TypeOf(self)) {
+        pub fn at(self: anytype, i: usize) AtType(@TypeOf(self)) {
             assert(i < self.len);
             return self.uncheckedAt(i);
         }
@@ -213,7 +218,35 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.len = new_len;
         }
 
-        pub fn uncheckedAt(self: var, index: usize) AtType(@TypeOf(self)) {
+        pub fn writeToSlice(self: *Self, dest: []T, start: usize) void {
+            const end = start + dest.len;
+            assert(end <= self.len);
+
+            var i = start;
+            if (end <= prealloc_item_count) {
+                std.mem.copy(T, dest[i - start ..], self.prealloc_segment[i..end]);
+                return;
+            } else if (i < prealloc_item_count) {
+                std.mem.copy(T, dest[i - start ..], self.prealloc_segment[i..]);
+                i = prealloc_item_count;
+            }
+
+            while (i < end) {
+                const shelf_index = shelfIndex(i);
+                const copy_start = boxIndex(i, shelf_index);
+                const copy_end = std.math.min(shelfSize(shelf_index), copy_start + end - i);
+
+                std.mem.copy(
+                    T,
+                    dest[i - start ..],
+                    self.dynamic_segments[shelf_index][copy_start..copy_end],
+                );
+
+                i += (copy_end - copy_start);
+            }
+        }
+
+        pub fn uncheckedAt(self: anytype, index: usize) AtType(@TypeOf(self)) {
             if (index < prealloc_item_count) {
                 return &self.prealloc_segment[index];
             }
@@ -395,10 +428,31 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     try list.pushMany(&[_]i32{});
     testing.expect(list.len == 99);
 
-    var i: i32 = 99;
-    while (list.pop()) |item| : (i -= 1) {
-        testing.expect(item == i);
-        list.shrinkCapacity(list.len);
+    {
+        var i: i32 = 99;
+        while (list.pop()) |item| : (i -= 1) {
+            testing.expect(item == i);
+            list.shrinkCapacity(list.len);
+        }
+    }
+
+    {
+        var control: [100]i32 = undefined;
+        var dest: [100]i32 = undefined;
+
+        var i: i32 = 0;
+        while (i < 100) : (i += 1) {
+            try list.push(i + 1);
+            control[@intCast(usize, i)] = i + 1;
+        }
+
+        std.mem.set(i32, dest[0..], 0);
+        list.writeToSlice(dest[0..], 0);
+        testing.expect(std.mem.eql(i32, control[0..], dest[0..]));
+
+        std.mem.set(i32, dest[0..], 0);
+        list.writeToSlice(dest[50..], 50);
+        testing.expect(std.mem.eql(i32, control[50..], dest[50..]));
     }
 
     try list.setCapacity(0);

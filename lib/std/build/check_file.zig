@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const build = std.build;
 const Step = build.Step;
@@ -21,7 +26,7 @@ pub const CheckFileStep = struct {
         const self = builder.allocator.create(CheckFileStep) catch unreachable;
         self.* = CheckFileStep{
             .builder = builder,
-            .step = Step.init("CheckFile", builder.allocator, make),
+            .step = Step.init(.CheckFile, "CheckFile", builder.allocator, make),
             .source = source,
             .expected_matches = expected_matches,
         };

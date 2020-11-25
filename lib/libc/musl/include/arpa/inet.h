@@ -24,11 +24,6 @@ struct in_addr inet_makeaddr(in_addr_t, in_addr_t);
 in_addr_t inet_lnaof(struct in_addr);
 in_addr_t inet_netof(struct in_addr);
 
-#undef INET_ADDRSTRLEN
-#undef INET6_ADDRSTRLEN
-#define INET_ADDRSTRLEN  16
-#define INET6_ADDRSTRLEN 46
-
 #ifdef __cplusplus
 }
 #endif

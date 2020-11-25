@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const arch = std.builtin.cpu.arch;
 const os = std.builtin.os.tag;
@@ -39,7 +44,7 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
         else => false,
     };
     const apple = switch (os) {
-        .ios, .macosx, .watchos, .tvos => true,
+        .ios, .macos, .watchos, .tvos => true,
         else => false,
     };
     if (x86) {

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -14,7 +19,7 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns the hyperbolic sine of z.
-pub fn sinh(z: var) @TypeOf(z) {
+pub fn sinh(z: anytype) @TypeOf(z) {
     const T = @TypeOf(z.re);
     return switch (T) {
         f32 => sinh32(z),
@@ -159,14 +164,14 @@ test "complex.csinh32" {
     const a = Complex(f32).new(5, 3);
     const c = sinh(a);
 
-    testing.expect(math.approxEq(f32, c.re, -73.460617, epsilon));
-    testing.expect(math.approxEq(f32, c.im, 10.472508, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.re, -73.460617, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.im, 10.472508, epsilon));
 }
 
 test "complex.csinh64" {
     const a = Complex(f64).new(5, 3);
     const c = sinh(a);
 
-    testing.expect(math.approxEq(f64, c.re, -73.460617, epsilon));
-    testing.expect(math.approxEq(f64, c.im, 10.472508, epsilon));
+    testing.expect(math.approxEqAbs(f64, c.re, -73.460617, epsilon));
+    testing.expect(math.approxEqAbs(f64, c.im, 10.472508, epsilon));
 }

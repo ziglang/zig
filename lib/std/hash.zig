@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const adler = @import("hash/adler.zig");
 pub const Adler32 = adler.Adler32;
 
@@ -15,7 +20,7 @@ pub const Fnv1a_32 = fnv.Fnv1a_32;
 pub const Fnv1a_64 = fnv.Fnv1a_64;
 pub const Fnv1a_128 = fnv.Fnv1a_128;
 
-const siphash = @import("hash/siphash.zig");
+const siphash = @import("crypto/siphash.zig");
 pub const SipHash64 = siphash.SipHash64;
 pub const SipHash128 = siphash.SipHash128;
 
@@ -37,7 +42,6 @@ test "hash" {
     _ = @import("hash/auto_hash.zig");
     _ = @import("hash/crc.zig");
     _ = @import("hash/fnv.zig");
-    _ = @import("hash/siphash.zig");
     _ = @import("hash/murmur.zig");
     _ = @import("hash/cityhash.zig");
     _ = @import("hash/wyhash.zig");

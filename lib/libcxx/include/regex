@@ -21,7 +21,7 @@ namespace std
 namespace regex_constants
 {
 
-emum syntax_option_type
+enum syntax_option_type
 {
     icase      = unspecified,
     nosubs     = unspecified,
@@ -631,7 +631,7 @@ template <class OutputIterator, class BidirectionalIterator,
                   const basic_regex<charT, traits>& e, const charT* fmt,
                   regex_constants::match_flag_type flags = regex_constants::match_default);
 
-template <class traits, class charT, class ST, class SA, class FST, class FSA>>
+template <class traits, class charT, class ST, class SA, class FST, class FSA>
     basic_string<charT, ST, SA>
     regex_replace(const basic_string<charT, ST, SA>& s,
                   const basic_regex<charT, traits>& e,
@@ -675,9 +675,9 @@ public:
     regex_iterator(BidirectionalIterator a, BidirectionalIterator b,
                    const regex_type& re,
                    regex_constants::match_flag_type m = regex_constants::match_default);
-    regex_iterator(_BidirectionalIterator __a, _BidirectionalIterator __b,
-                   const regex_type&& __re,
-                   regex_constants::match_flag_type __m
+    regex_iterator(BidirectionalIterator a, BidirectionalIterator b,
+                   const regex_type&& re,
+                   regex_constants::match_flag_type m
                                      = regex_constants::match_default) = delete; // C++14
     regex_iterator(const regex_iterator&);
     regex_iterator& operator=(const regex_iterator&);
@@ -698,7 +698,7 @@ typedef regex_iterator<string::const_iterator>  sregex_iterator;
 typedef regex_iterator<wstring::const_iterator> wsregex_iterator;
 
 template <class BidirectionalIterator,
-          class charT = typename iterator_traits< BidirectionalIterator>::value_type,
+          class charT = typename iterator_traits<BidirectionalIterator>::value_type,
           class traits = regex_traits<charT>>
 class regex_token_iterator
 {
@@ -735,8 +735,8 @@ public:
                              regex_constants::match_flag_type m = regex_constants::match_default);
     template <size_t N>
         regex_token_iterator(BidirectionalIterator a, BidirectionalIterator b,
-                             const regex_type& re, const int (&submatches)[N],
-                             regex_constants::match_flag_type m = regex_constants::match_default) = delete // C++14;
+                             const regex_type&& re, const int (&submatches)[N],
+                             regex_constants::match_flag_type m = regex_constants::match_default) = delete; // C++14
     regex_token_iterator(const regex_token_iterator&);
     regex_token_iterator& operator=(const regex_token_iterator&);
 
@@ -977,7 +977,8 @@ class _LIBCPP_EXCEPTION_ABI regex_error
     regex_constants::error_type __code_;
 public:
     explicit regex_error(regex_constants::error_type __ecode);
-    virtual ~regex_error() throw();
+    regex_error(const regex_error&) _NOEXCEPT = default;
+    virtual ~regex_error() _NOEXCEPT;
      _LIBCPP_INLINE_VISIBILITY
     regex_constants::error_type code() const {return __code_;}
 };
@@ -1000,7 +1001,19 @@ public:
     typedef _CharT                  char_type;
     typedef basic_string<char_type> string_type;
     typedef locale                  locale_type;
+#ifdef __BIONIC__
+    // Originally bionic's ctype_base used its own ctype masks because the
+    // builtin ctype implementation wasn't in libc++ yet. Bionic's ctype mask
+    // was only 8 bits wide and already saturated, so it used a wider type here
+    // to make room for __regex_word (then a part of this class rather than
+    // ctype_base). Bionic has since moved to the builtin ctype_base
+    // implementation, but this was not updated to match. Since then Android has
+    // needed to maintain a stable libc++ ABI, and this can't be changed without
+    // an ABI break.
+    typedef uint16_t char_class_type;
+#else
     typedef ctype_base::mask        char_class_type;
+#endif
 
     static const char_class_type __regex_word = ctype_base::__regex_word;
 private:
@@ -2837,6 +2850,8 @@ private:
         __parse_awk_escape(_ForwardIterator __first, _ForwardIterator __last,
                           basic_string<_CharT>* __str = nullptr);
 
+    bool __test_back_ref(_CharT c);
+
     _LIBCPP_INLINE_VISIBILITY
     void __push_l_anchor();
     void __push_r_anchor();
@@ -3408,18 +3423,8 @@ basic_regex<_CharT, _Traits>::__parse_BACKREF(_ForwardIterator __first,
     if (__first != __last)
     {
         _ForwardIterator __temp = _VSTD::next(__first);
-        if (__temp != __last)
-        {
-            if (*__first == '\\')
-            {
-                int __val = __traits_.value(*__temp, 10);
-                if (__val >= 1 && __val <= 9)
-                {
-                    __push_back_ref(__val);
-                    __first = ++__temp;
-                }
-            }
-        }
+        if (__temp != __last && *__first == '\\' && __test_back_ref(*__temp))
+            __first = ++__temp;
     }
     return __first;
 }
@@ -3547,6 +3552,8 @@ basic_regex<_CharT, _Traits>::__parse_QUOTED_CHAR_ERE(_ForwardIterator __first,
                 default:
                     if (__get_grammar(__flags_) == awk)
                         __first = __parse_awk_escape(++__first, __last);
+                    else if(__test_back_ref(*__temp))
+                        __first = ++__temp;
                     break;
                 }
             }
@@ -4658,6 +4665,22 @@ basic_regex<_CharT, _Traits>::__parse_egrep(_ForwardIterator __first,
             ++__first;
     }
     return __first;
+}
+
+template <class _CharT, class _Traits>
+bool
+basic_regex<_CharT, _Traits>::__test_back_ref(_CharT c)
+{
+    unsigned __val = __traits_.value(c, 10);
+    if (__val >= 1 && __val <= 9)
+    {
+        if (__val > mark_count())
+            __throw_regex_error<regex_constants::error_backref>();
+        __push_back_ref(__val);
+        return true;
+    }
+
+    return false;
 }
 
 template <class _CharT, class _Traits>
@@ -5917,6 +5940,9 @@ basic_regex<_CharT, _Traits>::__search(
         match_results<const _CharT*, _Allocator>& __m,
         regex_constants::match_flag_type __flags) const
 {
+    if (__flags & regex_constants::match_prev_avail)
+        __flags &= ~(regex_constants::match_not_bol | regex_constants::match_not_bow);
+
     __m.__init(1 + mark_count(), __first, __last,
                                     __flags & regex_constants::__no_update_pos);
     if (__match_at_start(__first, __last, __m, __flags,

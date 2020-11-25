@@ -386,10 +386,12 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
               noexcept(noexcept(x.swap(y)));
 
 template <class K, class T, class H, class P, class A, class Predicate>
-    void erase_if(unordered_set<K, T, H, P, A>& c, Predicate pred);       // C++20
+    typename unordered_map<K, T, H, P, A>::size_type
+    erase_if(unordered_map<K, T, H, P, A>& c, Predicate pred);       // C++20
 
 template <class K, class T, class H, class P, class A, class Predicate>
-    void erase_if(unordered_multiset<K, T, H, P, A>& c, Predicate pred);  // C++20
+    typename unordered_multimap<K, T, H, P, A>::size_type
+    erase_if(unordered_multimap<K, T, H, P, A>& c, Predicate pred);  // C++20
 
 template <class Key, class T, class Hash, class Pred, class Alloc>
     bool
@@ -1704,10 +1706,14 @@ swap(unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>& __x,
 }
 
 #if _LIBCPP_STD_VER > 17
-template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc, class _Predicate>
+template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc,
+          class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>& __c, _Predicate __pred)
-{ __libcpp_erase_if_container(__c, __pred); }
+    typename unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>::size_type
+    erase_if(unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>& __c,
+             _Predicate __pred) {
+  return __libcpp_erase_if_container(__c, __pred);
+}
 #endif
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -2402,10 +2408,14 @@ swap(unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>& __x,
 }
 
 #if _LIBCPP_STD_VER > 17
-template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc, class _Predicate>
+template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc,
+          class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>& __c, _Predicate __pred)
-{ __libcpp_erase_if_container(__c, __pred); }
+    typename unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::size_type
+    erase_if(unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>& __c,
+             _Predicate __pred) {
+  return __libcpp_erase_if_container(__c, __pred);
+}
 #endif
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>

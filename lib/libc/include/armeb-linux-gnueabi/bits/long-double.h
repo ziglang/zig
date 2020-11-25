@@ -37,4 +37,17 @@
 #ifndef __NO_LONG_DOUBLE_MATH
 # define __NO_LONG_DOUBLE_MATH	1
 #endif
-#define __LONG_DOUBLE_USES_FLOAT128 0
+
+/* The macro __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI is used to determine the
+   choice of the underlying ABI of long double.  It will always assume
+   a constant value for each translation unit.
+
+   If the value is non-zero, any API which is parameterized by the long
+   double type (i.e the scanf/printf family of functions or the explicitly
+   parameterized math.h functions) will be redirected to a compatible
+   implementation using _Float128 ABI via symbols suffixed with ieee128.
+
+   The mechanism this macro uses to acquire may be a function
+   of architecture, or target specific options used to invoke the
+   compiler.  */
+#define __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI 0

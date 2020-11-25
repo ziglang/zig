@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -56,9 +61,9 @@ test "math.log integer" {
 test "math.log float" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, log(f32, 6, 0.23947), -0.797723, epsilon));
-    expect(math.approxEq(f32, log(f32, 89, 0.23947), -0.318432, epsilon));
-    expect(math.approxEq(f64, log(f64, 123897, 12389216414), 1.981724596, epsilon));
+    expect(math.approxEqAbs(f32, log(f32, 6, 0.23947), -0.797723, epsilon));
+    expect(math.approxEqAbs(f32, log(f32, 89, 0.23947), -0.318432, epsilon));
+    expect(math.approxEqAbs(f64, log(f64, 123897, 12389216414), 1.981724596, epsilon));
 }
 
 test "math.log float_special" {

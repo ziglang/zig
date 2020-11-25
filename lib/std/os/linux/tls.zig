@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = std.builtin;
 const os = std.os;
@@ -48,8 +53,8 @@ const TLSVariant = enum {
 };
 
 const tls_variant = switch (builtin.arch) {
-    .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel => TLSVariant.VariantI,
-    .x86_64, .i386 => TLSVariant.VariantII,
+    .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
+    .x86_64, .i386, .sparcv9 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
 
@@ -72,12 +77,12 @@ const tls_tp_points_past_tcb = switch (builtin.arch) {
 // make the generated code more efficient
 
 const tls_tp_offset = switch (builtin.arch) {
-    .mips, .mipsel => 0x7000,
+    .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => 0x7000,
     else => 0,
 };
 
 const tls_dtv_offset = switch (builtin.arch) {
-    .mips, .mipsel => 0x8000,
+    .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => 0x8000,
     .riscv32, .riscv64 => 0x800,
     else => 0,
 };
@@ -160,6 +165,20 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },
+        .powerpc, .powerpc64, .powerpc64le => {
+            asm volatile (
+                \\ mr 13, %[addr]
+                :
+                : [addr] "r" (addr)
+            );
+        },
+        .sparcv9 => {
+            asm volatile (
+                \\ mov %[addr], %%g7
+                :
+                : [addr] "r" (addr)
+            );
+        },
         else => @compileError("Unsupported architecture"),
     }
 }
@@ -199,12 +218,16 @@ fn initTLS() void {
         }
     }
 
-    // If the cpu is ARM-based, check if it supports the TLS register
-    if (comptime builtin.arch.isARM() and at_hwcap & std.os.linux.HWCAP_TLS == 0) {
-        // If the CPU does not support TLS via a coprocessor register,
-        // a kernel helper function can be used instead on certain linux kernels.
-        // See linux/arch/arm/include/asm/tls.h and musl/src/thread/arm/__set_thread_area.c.
-        @panic("TODO: Implement ARM fallback TLS functionality");
+    // ARMv6 targets (and earlier) have no support for TLS in hardware
+    // FIXME: Elide the check for targets >= ARMv7 when the target feature API
+    // becomes less verbose (and more usable).
+    if (comptime builtin.arch.isARM()) {
+        if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
+            // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
+            // For the time being use a simple abort instead of a @panic call to
+            // keep the binary bloat under control.
+            std.os.abort();
+        }
     }
 
     var tls_align_factor: usize = undefined;

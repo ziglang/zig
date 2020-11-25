@@ -35,6 +35,7 @@
  */
 static const double
 toint   = 1.5/EPS,
+pio4    = 0x1.921fb6p-1,
 invpio2 = 6.36619772367581382433e-01, /* 0x3FE45F30, 0x6DC9C883 */
 pio2_1  = 1.57079631090164184570e+00, /* 0x3FF921FB, 0x50000000 */
 pio2_1t = 1.58932547735281966916e-08; /* 0x3E5110b4, 0x611A6263 */
@@ -50,10 +51,20 @@ int __rem_pio2f(float x, double *y)
 	ix = u.i & 0x7fffffff;
 	/* 25+53 bit pi is good enough for medium size */
 	if (ix < 0x4dc90fdb) {  /* |x| ~< 2^28*(pi/2), medium size */
-		/* Use a specialized rint() to get fn.  Assume round-to-nearest. */
+		/* Use a specialized rint() to get fn. */
 		fn = (double_t)x*invpio2 + toint - toint;
 		n  = (int32_t)fn;
 		*y = x - fn*pio2_1 - fn*pio2_1t;
+		/* Matters with directed rounding. */
+		if (predict_false(*y < -pio4)) {
+			n--;
+			fn--;
+			*y = x - fn*pio2_1 - fn*pio2_1t;
+		} else if (predict_false(*y > pio4)) {
+			n++;
+			fn++;
+			*y = x - fn*pio2_1 - fn*pio2_1t;
+		}
 		return n;
 	}
 	if(ix>=0x7f800000) {  /* x is inf or NaN */

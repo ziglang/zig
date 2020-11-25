@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // The reference for these types and values is Microsoft Windows's ucrt (Universal C RunTime).
 
 usingnamespace @import("../windows/bits.zig");
@@ -167,7 +172,7 @@ pub const AT_REMOVEDIR = 0x200;
 
 pub const in_port_t = u16;
 pub const sa_family_t = ws2_32.ADDRESS_FAMILY;
-pub const socklen_t = u32;
+pub const socklen_t = ws2_32.socklen_t;
 
 pub const sockaddr = ws2_32.sockaddr;
 pub const sockaddr_in = ws2_32.sockaddr_in;
@@ -176,6 +181,8 @@ pub const sockaddr_un = ws2_32.sockaddr_un;
 
 pub const in6_addr = [16]u8;
 pub const in_addr = u32;
+
+pub const addrinfo = ws2_32.addrinfo;
 
 pub const AF_UNSPEC = ws2_32.AF_UNSPEC;
 pub const AF_UNIX = ws2_32.AF_UNIX;
@@ -219,6 +226,15 @@ pub const SOCK_RAW = ws2_32.SOCK_RAW;
 pub const SOCK_RDM = ws2_32.SOCK_RDM;
 pub const SOCK_SEQPACKET = ws2_32.SOCK_SEQPACKET;
 
+/// WARNING: this flag is not supported by windows socket functions directly,
+///          it is only supported by std.os.socket. Be sure that this value does
+///          not share any bits with any of the SOCK_* values.
+pub const SOCK_CLOEXEC = 0x10000;
+/// WARNING: this flag is not supported by windows socket functions directly,
+///          it is only supported by std.os.socket. Be sure that this value does
+///          not share any bits with any of the SOCK_* values.
+pub const SOCK_NONBLOCK = 0x20000;
+
 pub const IPPROTO_ICMP = ws2_32.IPPROTO_ICMP;
 pub const IPPROTO_IGMP = ws2_32.IPPROTO_IGMP;
 pub const BTHPROTO_RFCOMM = ws2_32.BTHPROTO_RFCOMM;
@@ -226,3 +242,76 @@ pub const IPPROTO_TCP = ws2_32.IPPROTO_TCP;
 pub const IPPROTO_UDP = ws2_32.IPPROTO_UDP;
 pub const IPPROTO_ICMPV6 = ws2_32.IPPROTO_ICMPV6;
 pub const IPPROTO_RM = ws2_32.IPPROTO_RM;
+
+pub const pollfd = ws2_32.pollfd;
+
+pub const POLLRDNORM = ws2_32.POLLRDNORM;
+pub const POLLRDBAND = ws2_32.POLLRDBAND;
+pub const POLLIN = ws2_32.POLLIN;
+pub const POLLPRI = ws2_32.POLLPRI;
+pub const POLLWRNORM = ws2_32.POLLWRNORM;
+pub const POLLOUT = ws2_32.POLLOUT;
+pub const POLLWRBAND = ws2_32.POLLWRBAND;
+pub const POLLERR = ws2_32.POLLERR;
+pub const POLLHUP = ws2_32.POLLHUP;
+pub const POLLNVAL = ws2_32.POLLNVAL;
+
+pub const SOL_SOCKET = ws2_32.SOL_SOCKET;
+
+pub const SO_DEBUG = ws2_32.SO_DEBUG;
+pub const SO_ACCEPTCONN = ws2_32.SO_ACCEPTCONN;
+pub const SO_REUSEADDR = ws2_32.SO_REUSEADDR;
+pub const SO_KEEPALIVE = ws2_32.SO_KEEPALIVE;
+pub const SO_DONTROUTE = ws2_32.SO_DONTROUTE;
+pub const SO_BROADCAST = ws2_32.SO_BROADCAST;
+pub const SO_USELOOPBACK = ws2_32.SO_USELOOPBACK;
+pub const SO_LINGER = ws2_32.SO_LINGER;
+pub const SO_OOBINLINE = ws2_32.SO_OOBINLINE;
+
+pub const SO_DONTLINGER = ws2_32.SO_DONTLINGER;
+pub const SO_EXCLUSIVEADDRUSE = ws2_32.SO_EXCLUSIVEADDRUSE;
+
+pub const SO_SNDBUF = ws2_32.SO_SNDBUF;
+pub const SO_RCVBUF = ws2_32.SO_RCVBUF;
+pub const SO_SNDLOWAT = ws2_32.SO_SNDLOWAT;
+pub const SO_RCVLOWAT = ws2_32.SO_RCVLOWAT;
+pub const SO_SNDTIMEO = ws2_32.SO_SNDTIMEO;
+pub const SO_RCVTIMEO = ws2_32.SO_RCVTIMEO;
+pub const SO_ERROR = ws2_32.SO_ERROR;
+pub const SO_TYPE = ws2_32.SO_TYPE;
+
+pub const SO_GROUP_ID = ws2_32.SO_GROUP_ID;
+pub const SO_GROUP_PRIORITY = ws2_32.SO_GROUP_PRIORITY;
+pub const SO_MAX_MSG_SIZE = ws2_32.SO_MAX_MSG_SIZE;
+pub const SO_PROTOCOL_INFOA = ws2_32.SO_PROTOCOL_INFOA;
+pub const SO_PROTOCOL_INFOW = ws2_32.SO_PROTOCOL_INFOW;
+
+pub const PVD_CONFIG = ws2_32.PVD_CONFIG;
+pub const SO_CONDITIONAL_ACCEPT = ws2_32.SO_CONDITIONAL_ACCEPT;
+
+pub const TCP_NODELAY = ws2_32.TCP_NODELAY;
+
+pub const O_RDONLY = 0o0;
+pub const O_WRONLY = 0o1;
+pub const O_RDWR = 0o2;
+
+pub const O_CREAT = 0o100;
+pub const O_EXCL = 0o200;
+pub const O_NOCTTY = 0o400;
+pub const O_TRUNC = 0o1000;
+pub const O_APPEND = 0o2000;
+pub const O_NONBLOCK = 0o4000;
+pub const O_DSYNC = 0o10000;
+pub const O_SYNC = 0o4010000;
+pub const O_RSYNC = 0o4010000;
+pub const O_DIRECTORY = 0o200000;
+pub const O_NOFOLLOW = 0o400000;
+pub const O_CLOEXEC = 0o2000000;
+
+pub const O_ASYNC = 0o20000;
+pub const O_DIRECT = 0o40000;
+pub const O_LARGEFILE = 0;
+pub const O_NOATIME = 0o1000000;
+pub const O_PATH = 0o10000000;
+pub const O_TMPFILE = 0o20200000;
+pub const O_NDELAY = O_NONBLOCK;

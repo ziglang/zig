@@ -148,7 +148,9 @@ WINBOOL WINAPI _CRT_INIT (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 static WINBOOL __DllMainCRTStartup (HANDLE, DWORD, LPVOID);
 
 WINBOOL WINAPI DllMainCRTStartup (HANDLE, DWORD, LPVOID);
+#if defined(__x86_64__) && !defined(__SEH__)
 int __mingw_init_ehandler (void);
+#endif
 
 WINBOOL WINAPI
 DllMainCRTStartup (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
@@ -156,8 +158,7 @@ DllMainCRTStartup (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
   mingw_app_type = 0;
   if (dwReason == DLL_PROCESS_ATTACH)
     {
-      __security_init_cookie ();
-#ifdef __x86_64__
+#if defined(__x86_64__) && !defined(__SEH__)
       __mingw_init_ehandler ();
 #endif
     }

@@ -24,6 +24,10 @@
 #define signature_CYRIX_ebx 0x69727943
 #define signature_CYRIX_edx 0x736e4978
 #define signature_CYRIX_ecx 0x64616574
+/* HYGON:   "HygonGenuine" */
+#define signature_HYGON_ebx 0x6f677948
+#define signature_HYGON_edx 0x6e65476e
+#define signature_HYGON_ecx 0x656e6975
 /* INTEL:   "GenuineIntel" */
 #define signature_INTEL_ebx 0x756e6547
 #define signature_INTEL_edx 0x49656e69
@@ -182,8 +186,13 @@
 /* Features in %edx for leaf 7 sub-leaf 0 */
 #define bit_AVX5124VNNIW  0x00000004
 #define bit_AVX5124FMAPS  0x00000008
+#define bit_SERIALIZE     0x00004000
+#define bit_TSXLDTRK      0x00010000
 #define bit_PCONFIG       0x00040000
 #define bit_IBT           0x00100000
+#define bit_AMXBF16       0x00400000
+#define bit_AMXTILE       0x01000000
+#define bit_AMXINT8       0x02000000
 
 /* Features in %eax for leaf 7 sub-leaf 1 */
 #define bit_AVX512BF16    0x00000020

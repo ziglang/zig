@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const std = @import("std.zig");
 const io = std.io;
@@ -469,7 +474,7 @@ pub const Pdb = struct {
 
     msf: Msf,
 
-    pub fn openFile(self: *Pdb, coff_ptr: *coff.Coff, file_name: []u8) !void {
+    pub fn openFile(self: *Pdb, coff_ptr: *coff.Coff, file_name: []const u8) !void {
         self.in_file = try fs.cwd().openFile(file_name, .{ .intended_io_mode = .blocking });
         self.allocator = coff_ptr.allocator;
         self.coff = coff_ptr;
@@ -495,7 +500,7 @@ const Msf = struct {
     streams: []MsfStream,
 
     fn openFile(self: *Msf, allocator: *mem.Allocator, file: File) !void {
-        const in = file.inStream();
+        const in = file.reader();
 
         const superblock = try in.readStruct(SuperBlock);
 
@@ -528,7 +533,7 @@ const Msf = struct {
         );
 
         const begin = self.directory.pos;
-        const stream_count = try self.directory.inStream().readIntLittle(u32);
+        const stream_count = try self.directory.reader().readIntLittle(u32);
         const stream_sizes = try allocator.alloc(u32, stream_count);
         defer allocator.free(stream_sizes);
 
@@ -537,7 +542,7 @@ const Msf = struct {
         // and must be taken into account when resolving stream indices.
         const Nil = 0xFFFFFFFF;
         for (stream_sizes) |*s, i| {
-            const size = try self.directory.inStream().readIntLittle(u32);
+            const size = try self.directory.reader().readIntLittle(u32);
             s.* = if (size == Nil) 0 else blockCountFromSize(size, superblock.BlockSize);
         }
 
@@ -552,7 +557,7 @@ const Msf = struct {
                 var blocks = try allocator.alloc(u32, size);
                 var j: u32 = 0;
                 while (j < size) : (j += 1) {
-                    const block_id = try self.directory.inStream().readIntLittle(u32);
+                    const block_id = try self.directory.reader().readIntLittle(u32);
                     const n = (block_id % superblock.BlockSize);
                     // 0 is for SuperBlock, 1 and 2 for FPMs.
                     if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.BlockSize > try file.getEndPos())
@@ -631,7 +636,7 @@ const MsfStream = struct {
     blocks: []u32 = undefined,
     block_size: u32 = undefined,
 
-    pub const Error = @TypeOf(read).ReturnType.ErrorSet;
+    pub const Error = @typeInfo(@typeInfo(@TypeOf(read)).Fn.return_type.?).ErrorUnion.error_set;
 
     fn init(block_size: u32, file: File, blocks: []u32) MsfStream {
         const stream = MsfStream{
@@ -647,9 +652,9 @@ const MsfStream = struct {
     pub fn readNullTermString(self: *MsfStream, allocator: *mem.Allocator) ![]u8 {
         var list = ArrayList(u8).init(allocator);
         while (true) {
-            const byte = try self.inStream().readByte();
+            const byte = try self.reader().readByte();
             if (byte == 0) {
-                return list.span();
+                return list.items;
             }
             try list.append(byte);
         }
@@ -661,7 +666,7 @@ const MsfStream = struct {
         var offset = self.pos % self.block_size;
 
         try self.in_file.seekTo(block * self.block_size + offset);
-        const in = self.in_file.inStream();
+        const in = self.in_file.reader();
 
         var size: usize = 0;
         var rem_buffer = buffer;
@@ -708,6 +713,10 @@ const MsfStream = struct {
         return block * self.block_size + offset;
     }
 
+    pub fn reader(self: *MsfStream) std.io.Reader(*MsfStream, Error, read) {
+        return .{ .context = self };
+    }
+    /// Deprecated: use `reader`
     pub fn inStream(self: *MsfStream) std.io.InStream(*MsfStream, Error, read) {
         return .{ .context = self };
     }

@@ -7,7 +7,7 @@ sudo pkg update -fq
 sudo pkg install -y cmake py27-s3cmd wget curl jq
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="llvm+clang+lld-10.0.0-x86_64-freebsd-release"
+CACHE_BASENAME="llvm+clang+lld-11.0.0-x86_64-freebsd-release"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j$(sysctl -n hw.ncpu)"
 
@@ -21,31 +21,18 @@ cd $ZIGDIR
 # This will affect the cmake command below.
 git config core.abbrev 9
 
+# SourceHut reports that it is a terminal that supports escape codes, but it
+# is a filthy liar. Here we tell Zig to not try to send any terminal escape
+# codes to show progress.
+export TERM=dumb
+
 mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX "-DCMAKE_INSTALL_PREFIX=$(pwd)/release" -DZIG_STATIC=ON
 make $JOBS install
 
-release/bin/zig build test-fmt
-release/bin/zig build test-behavior
-
-# This test is disabled because it triggers "out of memory" on the sr.ht CI service.
-# See https://github.com/ziglang/zig/issues/3210
-# release/bin/zig build test-std
-
-release/bin/zig build test-compiler-rt
-release/bin/zig build test-compare-output
-release/bin/zig build test-standalone
-release/bin/zig build test-stack-traces
-release/bin/zig build test-cli
-release/bin/zig build test-asm-link
-release/bin/zig build test-runtime-safety
-release/bin/zig build test-translate-c
-release/bin/zig build test-run-translated-c
-# TODO disabled until we are shipping self-hosted
-#release/bin/zig build test-gen-h
-release/bin/zig build test-compile-errors
-release/bin/zig build docs
+# Here we skip some tests to save time.
+release/bin/zig build test -Dskip-compile-errors -Dskip-non-native
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/

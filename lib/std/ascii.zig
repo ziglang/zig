@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Does NOT look at the locale the way C89's toupper(3), isspace() et cetera does.
 // I could have taken only a u7 to make this clear, but it would be slower
 // It is my opinion that encodings other than UTF-8 should not be supported.
@@ -223,6 +228,20 @@ pub fn isPunct(c: u8) bool {
 
 pub fn isSpace(c: u8) bool {
     return inTable(c, tIndex.Space);
+}
+
+/// All the values for which isSpace() returns true. This may be used with
+/// e.g. std.mem.trim() to trim whiteSpace.
+pub const spaces = [_]u8{ ' ', '\t', '\n', '\r', control_code.VT, control_code.FF };
+
+test "spaces" {
+    const testing = std.testing;
+    for (spaces) |space| testing.expect(isSpace(space));
+
+    var i: u8 = 0;
+    while (isASCII(i)) : (i += 1) {
+        if (isSpace(i)) testing.expect(std.mem.indexOfScalar(u8, &spaces, i) != null);
+    }
 }
 
 pub fn isUpper(c: u8) bool {

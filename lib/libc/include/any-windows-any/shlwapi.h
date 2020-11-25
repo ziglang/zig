@@ -11,16 +11,8 @@
 
 #ifndef NOSHLWAPI
 
-#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
-
 #include <objbase.h>
 #include <shtypes.h>
-
-#ifndef _WINRESRC_
-#ifndef _WIN32_IE
-#define _WIN32_IE 0x0601
-#endif
-#endif
 
 #ifndef WINSHLWAPI
 #if !defined(_SHLWAPI_)
@@ -33,6 +25,14 @@
 #define LWSTDAPI_(type) STDAPI_(type)
 #define LWSTDAPIV STDAPIV
 #define LWSTDAPIV_(type) STDAPIV_(type)
+#endif
+#endif
+
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
+
+#ifndef _WINRESRC_
+#ifndef _WIN32_IE
+#define _WIN32_IE 0x0601
 #endif
 #endif
 
@@ -708,6 +708,7 @@ extern "C" {
   LWSTDAPI_(WINBOOL) SHRegGetBoolUSValueW(LPCWSTR pszSubKey,LPCWSTR pszValue,WINBOOL fIgnoreHKCU,WINBOOL fDefault);
 
   enum {
+    ASSOCF_NONE = 0x00000000,
     ASSOCF_INIT_NOREMAPCLSID = 0x00000001,
     ASSOCF_INIT_BYEXENAME = 0x00000002,
     ASSOCF_OPEN_BYEXENAME = 0x00000002,
@@ -719,7 +720,10 @@ extern "C" {
     ASSOCF_REMAPRUNDLL = 0x00000080,
     ASSOCF_NOFIXUPS = 0x00000100,
     ASSOCF_IGNOREBASECLASS = 0x00000200,
-    ASSOCF_INIT_IGNOREUNKNOWN = 0x00000400
+    ASSOCF_INIT_IGNOREUNKNOWN = 0x00000400,
+    ASSOCF_INIT_FIXED_PROGID = 0x00000800,
+    ASSOCF_IS_PROTOCOL = 0x00001000,
+    ASSOCF_INIT_FOR_FILE = 0x00002000
   };
 
   typedef DWORD ASSOCF;
@@ -824,16 +828,6 @@ extern "C" {
 #endif
 #endif
 
-#ifndef NO_SHLWAPI_HTTP
-#if (_WIN32_IE >= 0x0603)
-
-#define GetAcceptLanguages __MINGW_NAME_AW(GetAcceptLanguages)
-
-  LWSTDAPI GetAcceptLanguagesA(LPSTR psz,DWORD *pcch);
-  LWSTDAPI GetAcceptLanguagesW(LPWSTR psz,DWORD *pcch);
-#endif
-#endif
-
 #if (_WIN32_IE >= 0x0601)
 #define SHGVSPB_PERUSER 0x00000001
 #define SHGVSPB_ALLUSERS 0x00000002
@@ -931,7 +925,7 @@ typedef const QITAB *LPCQITAB;
 #define CTF_WAIT_ALLOWCOM 0x00000040
 
   LWSTDAPI_(WINBOOL) SHCreateThread(LPTHREAD_START_ROUTINE pfnThreadProc,void *pData,DWORD dwFlags,LPTHREAD_START_ROUTINE pfnCallback);
-  LWSTDAPI SHReleaseThreadRef();
+  LWSTDAPI SHReleaseThreadRef(void);
 
 #ifndef NO_SHLWAPI_GDI
   LWSTDAPI_(HPALETTE) SHCreateShellPalette(HDC hdc);
@@ -970,7 +964,7 @@ typedef const QITAB *LPCQITAB;
   STDAPI DllInstall(WINBOOL bInstall,LPCWSTR pszCmdLine);
 
 #if (_WIN32_IE >= 0x0602)
-  LWSTDAPI_(WINBOOL) IsInternetESCEnabled();
+  LWSTDAPI_(WINBOOL) IsInternetESCEnabled(void);
 #endif
 
 LWSTDAPI_(IStream *) SHCreateMemStream(const BYTE *pInit, _In_ UINT cbInit);
@@ -981,5 +975,19 @@ LWSTDAPI_(IStream *) SHCreateMemStream(const BYTE *pInit, _In_ UINT cbInit);
 
 #include <poppack.h>
 #endif
+
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+#ifndef NO_SHLWAPI_HTTP
+#if (_WIN32_IE >= 0x0603)
+
+#define GetAcceptLanguages __MINGW_NAME_AW(GetAcceptLanguages)
+
+  LWSTDAPI GetAcceptLanguagesA(LPSTR psz,DWORD *pcch);
+  LWSTDAPI GetAcceptLanguagesW(LPWSTR psz,DWORD *pcch);
 #endif
 #endif
+
+#endif /* WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP) */
+
+#endif /* !NOSHLWAPI */
+#endif /* _INC_SHLWAPI */

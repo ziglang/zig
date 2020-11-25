@@ -243,6 +243,7 @@ template<class T, class charT, class traits>
 #include <type_traits>
 #include <stdexcept>
 #include <cmath>
+#include <iosfwd>
 #include <sstream>
 #include <version>
 
@@ -1406,10 +1407,10 @@ operator>>(basic_istream<_CharT, _Traits>& __is, complex<_Tp>& __x)
                             __x = complex<_Tp>(__r, __i);
                         }
                         else
-                            __is.setstate(ios_base::failbit);
+                            __is.setstate(__is.failbit);
                     }
                     else
-                        __is.setstate(ios_base::failbit);
+                        __is.setstate(__is.failbit);
                 }
                 else if (__c == _CharT(')'))
                 {
@@ -1417,10 +1418,10 @@ operator>>(basic_istream<_CharT, _Traits>& __is, complex<_Tp>& __x)
                     __x = complex<_Tp>(__r, _Tp(0));
                 }
                 else
-                    __is.setstate(ios_base::failbit);
+                    __is.setstate(__is.failbit);
             }
             else
-                __is.setstate(ios_base::failbit);
+                __is.setstate(__is.failbit);
         }
         else
         {
@@ -1429,11 +1430,11 @@ operator>>(basic_istream<_CharT, _Traits>& __is, complex<_Tp>& __x)
             if (!__is.fail())
                 __x = complex<_Tp>(__r, _Tp(0));
             else
-                __is.setstate(ios_base::failbit);
+                __is.setstate(__is.failbit);
         }
     }
     else
-        __is.setstate(ios_base::failbit);
+        __is.setstate(__is.failbit);
     return __is;
 }
 

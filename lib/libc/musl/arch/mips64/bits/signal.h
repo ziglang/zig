@@ -112,7 +112,7 @@ typedef struct __ucontext {
 #define SIGTRAP   5
 #define SIGABRT   6
 #define SIGIOT    SIGABRT
-#define SIGSTKFLT 7
+#define SIGEMT    7
 #define SIGFPE    8
 #define SIGKILL   9
 #define SIGBUS    10

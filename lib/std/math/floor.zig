@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -15,12 +20,13 @@ const math = std.math;
 ///  - floor(+-0)   = +-0
 ///  - floor(+-inf) = +-inf
 ///  - floor(nan)   = nan
-pub fn floor(x: var) @TypeOf(x) {
+pub fn floor(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f16 => floor16(x),
         f32 => floor32(x),
         f64 => floor64(x),
+        f128 => floor128(x),
         else => @compileError("floor not implemented for " ++ @typeName(T)),
     };
 }
@@ -44,13 +50,13 @@ fn floor16(x: f16) f16 {
         if (u & m == 0) {
             return x;
         }
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 15 != 0) {
             u += m;
         }
         return @bitCast(f16, u & ~m);
     } else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 15 == 0) {
             return 0.0;
         } else {
@@ -78,13 +84,13 @@ fn floor32(x: f32) f32 {
         if (u & m == 0) {
             return x;
         }
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 != 0) {
             u += m;
         }
         return @bitCast(f32, u & ~m);
     } else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 == 0) {
             return 0.0;
         } else {
@@ -109,8 +115,35 @@ fn floor64(x: f64) f64 {
     }
 
     if (e <= 0x3FF - 1) {
-        math.forceEval(y);
+        math.doNotOptimizeAway(y);
         if (u >> 63 != 0) {
+            return -1.0;
+        } else {
+            return 0.0;
+        }
+    } else if (y > 0) {
+        return x + y - 1;
+    } else {
+        return x + y;
+    }
+}
+
+fn floor128(x: f128) f128 {
+    const u = @bitCast(u128, x);
+    const e = (u >> 112) & 0x7FFF;
+    var y: f128 = undefined;
+
+    if (e >= 0x3FFF + 112 or x == 0) return x;
+
+    if (u >> 127 != 0) {
+        y = x - math.f128_toint + math.f128_toint - x;
+    } else {
+        y = x + math.f128_toint - math.f128_toint - x;
+    }
+
+    if (e <= 0x3FFF - 1) {
+        math.doNotOptimizeAway(y);
+        if (u >> 127 != 0) {
             return -1.0;
         } else {
             return 0.0;
@@ -126,6 +159,7 @@ test "math.floor" {
     expect(floor(@as(f16, 1.3)) == floor16(1.3));
     expect(floor(@as(f32, 1.3)) == floor32(1.3));
     expect(floor(@as(f64, 1.3)) == floor64(1.3));
+    expect(floor(@as(f128, 1.3)) == floor128(1.3));
 }
 
 test "math.floor16" {
@@ -144,6 +178,12 @@ test "math.floor64" {
     expect(floor64(1.3) == 1.0);
     expect(floor64(-1.3) == -2.0);
     expect(floor64(0.2) == 0.0);
+}
+
+test "math.floor128" {
+    expect(floor128(1.3) == 1.0);
+    expect(floor128(-1.3) == -2.0);
+    expect(floor128(0.2) == 0.0);
 }
 
 test "math.floor16.special" {
@@ -168,4 +208,12 @@ test "math.floor64.special" {
     expect(math.isPositiveInf(floor64(math.inf(f64))));
     expect(math.isNegativeInf(floor64(-math.inf(f64))));
     expect(math.isNan(floor64(math.nan(f64))));
+}
+
+test "math.floor128.special" {
+    expect(floor128(0.0) == 0.0);
+    expect(floor128(-0.0) == -0.0);
+    expect(math.isPositiveInf(floor128(math.inf(f128))));
+    expect(math.isNegativeInf(floor128(-math.inf(f128))));
+    expect(math.isNan(floor128(math.nan(f128))));
 }

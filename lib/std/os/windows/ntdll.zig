@@ -1,33 +1,38 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 usingnamespace @import("bits.zig");
 
 pub extern "NtDll" fn RtlGetVersion(
     lpVersionInformation: PRTL_OSVERSIONINFOW,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn RtlCaptureStackBackTrace(
     FramesToSkip: DWORD,
     FramesToCapture: DWORD,
     BackTrace: **c_void,
     BackTraceHash: ?*DWORD,
-) callconv(.Stdcall) WORD;
+) callconv(WINAPI) WORD;
 pub extern "NtDll" fn NtQueryInformationFile(
     FileHandle: HANDLE,
     IoStatusBlock: *IO_STATUS_BLOCK,
     FileInformation: *c_void,
     Length: ULONG,
     FileInformationClass: FILE_INFORMATION_CLASS,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn NtSetInformationFile(
     FileHandle: HANDLE,
     IoStatusBlock: *IO_STATUS_BLOCK,
     FileInformation: PVOID,
     Length: ULONG,
     FileInformationClass: FILE_INFORMATION_CLASS,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
 
 pub extern "NtDll" fn NtQueryAttributesFile(
     ObjectAttributes: *OBJECT_ATTRIBUTES,
     FileAttributes: *FILE_BASIC_INFORMATION,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
 
 pub extern "NtDll" fn NtCreateFile(
     FileHandle: *HANDLE,
@@ -41,7 +46,7 @@ pub extern "NtDll" fn NtCreateFile(
     CreateOptions: ULONG,
     EaBuffer: ?*c_void,
     EaLength: ULONG,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn NtDeviceIoControlFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
@@ -53,15 +58,27 @@ pub extern "NtDll" fn NtDeviceIoControlFile(
     InputBufferLength: ULONG,
     OutputBuffer: ?PVOID,
     OutputBufferLength: ULONG,
-) callconv(.Stdcall) NTSTATUS;
-pub extern "NtDll" fn NtClose(Handle: HANDLE) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
+pub extern "NtDll" fn NtFsControlFile(
+    FileHandle: HANDLE,
+    Event: ?HANDLE,
+    ApcRoutine: ?IO_APC_ROUTINE,
+    ApcContext: ?*c_void,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    FsControlCode: ULONG,
+    InputBuffer: ?*const c_void,
+    InputBufferLength: ULONG,
+    OutputBuffer: ?PVOID,
+    OutputBufferLength: ULONG,
+) callconv(WINAPI) NTSTATUS;
+pub extern "NtDll" fn NtClose(Handle: HANDLE) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn RtlDosPathNameToNtPathName_U(
     DosPathName: [*:0]const u16,
     NtPathName: *UNICODE_STRING,
     NtFileNamePart: ?*?[*:0]const u16,
     DirectoryInfo: ?*CURDIR,
-) callconv(.Stdcall) BOOL;
-pub extern "NtDll" fn RtlFreeUnicodeString(UnicodeString: *UNICODE_STRING) callconv(.Stdcall) void;
+) callconv(WINAPI) BOOL;
+pub extern "NtDll" fn RtlFreeUnicodeString(UnicodeString: *UNICODE_STRING) callconv(WINAPI) void;
 
 pub extern "NtDll" fn NtQueryDirectoryFile(
     FileHandle: HANDLE,
@@ -75,22 +92,26 @@ pub extern "NtDll" fn NtQueryDirectoryFile(
     ReturnSingleEntry: BOOLEAN,
     FileName: ?*UNICODE_STRING,
     RestartScan: BOOLEAN,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn NtCreateKeyedEvent(
     KeyedEventHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
     ObjectAttributes: ?PVOID,
     Flags: ULONG,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn NtReleaseKeyedEvent(
     EventHandle: HANDLE,
     Key: *const c_void,
     Alertable: BOOLEAN,
     Timeout: ?*LARGE_INTEGER,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn NtWaitForKeyedEvent(
     EventHandle: HANDLE,
     Key: *const c_void,
     Alertable: BOOLEAN,
     Timeout: ?*LARGE_INTEGER,
-) callconv(.Stdcall) NTSTATUS;
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "NtDll" fn RtlSetCurrentDirectory_U(
+    PathName: *UNICODE_STRING
+) callconv(WINAPI) NTSTATUS;

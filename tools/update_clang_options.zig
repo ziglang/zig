@@ -55,6 +55,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_pic",
     },
     .{
+        .name = "fPIE",
+        .ident = "pie",
+    },
+    .{
+        .name = "fno-PIE",
+        .ident = "no_pie",
+    },
+    .{
         .name = "nolibc",
         .ident = "nostdlib",
     },
@@ -116,19 +124,23 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "E",
-        .ident = "pp_or_asm",
+        .ident = "preprocess_only",
     },
     .{
         .name = "preprocess",
-        .ident = "pp_or_asm",
+        .ident = "preprocess_only",
     },
     .{
         .name = "S",
-        .ident = "pp_or_asm",
+        .ident = "asm_only",
     },
     .{
         .name = "assemble",
-        .ident = "pp_or_asm",
+        .ident = "asm_only",
+    },
+    .{
+        .name = "O0",
+        .ident = "optimize",
     },
     .{
         .name = "O1",
@@ -138,10 +150,20 @@ const known_options = [_]KnownOpt{
         .name = "O2",
         .ident = "optimize",
     },
+    // O3 is only detected from the joined "-O" option
+    .{
+        .name = "O4",
+        .ident = "optimize",
+    },
     .{
         .name = "Og",
         .ident = "optimize",
     },
+    .{
+        .name = "Os",
+        .ident = "optimize",
+    },
+    // Oz is only detected from the joined "-O" option
     .{
         .name = "O",
         .ident = "optimize",
@@ -153,6 +175,14 @@ const known_options = [_]KnownOpt{
     .{
         .name = "optimize",
         .ident = "optimize",
+    },
+    .{
+        .name = "g1",
+        .ident = "debug",
+    },
+    .{
+        .name = "gline-tables-only",
+        .ident = "debug",
     },
     .{
         .name = "g",
@@ -192,7 +222,11 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "###",
-        .ident = "verbose_cmds",
+        .ident = "dry_run",
+    },
+    .{
+        .name = "v",
+        .ident = "verbose",
     },
     .{
         .name = "L",
@@ -346,13 +380,13 @@ pub fn main() anyerror!void {
             for (blacklisted_options) |blacklisted_key| {
                 if (std.mem.eql(u8, blacklisted_key, kv.key)) continue :it_map;
             }
-            if (kv.value.Object.get("Name").?.value.String.len == 0) continue;
+            if (kv.value.Object.get("Name").?.String.len == 0) continue;
             try all_objects.append(&kv.value.Object);
         }
     }
     // Some options have multiple matches. As an example, "-Wl,foo" matches both
     // "W" and "Wl,". So we sort this list in order of descending priority.
-    std.sort.sort(*json.ObjectMap, all_objects.span(), objectLessThan);
+    std.sort.sort(*json.ObjectMap, all_objects.items, {}, objectLessThan);
 
     var stdout_bos = std.io.bufferedOutStream(std.io.getStdOut().outStream());
     const stdout = stdout_bos.outStream();
@@ -364,12 +398,12 @@ pub fn main() anyerror!void {
         \\
     );
 
-    for (all_objects.span()) |obj| {
-        const name = obj.get("Name").?.value.String;
+    for (all_objects.items) |obj| {
+        const name = obj.get("Name").?.String;
         var pd1 = false;
         var pd2 = false;
         var pslash = false;
-        for (obj.get("Prefixes").?.value.Array.span()) |prefix_json| {
+        for (obj.get("Prefixes").?.Array.items) |prefix_json| {
             const prefix = prefix_json.String;
             if (std.mem.eql(u8, prefix, "-")) {
                 pd1 = true;
@@ -390,6 +424,10 @@ pub fn main() anyerror!void {
             // the only way.
             try stdout.print("flagpsl(\"{}\"),\n", .{name});
         } else if (knownOption(name)) |ident| {
+
+            // Workaround the fact that in 'Options.td'  -Ofast is listed as 'joined'
+            const final_syntax = if (std.mem.eql(u8, name, "Ofast")) .flag else syntax;
+
             try stdout.print(
                 \\.{{
                 \\    .name = "{}",
@@ -400,7 +438,7 @@ pub fn main() anyerror!void {
                 \\    .psl = {},
                 \\}},
                 \\
-            , .{ name, syntax, ident, pd1, pd2, pslash });
+            , .{ name, final_syntax, ident, pd1, pd2, pslash });
         } else if (pd1 and !pd2 and !pslash and syntax == .flag) {
             try stdout.print("flagpd1(\"{}\"),\n", .{name});
         } else if (!pd1 and !pd2 and pslash and syntax == .flag) {
@@ -465,7 +503,7 @@ const Syntax = union(enum) {
         self: Syntax,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         switch (self) {
             .multi_arg => |n| return out_stream.print(".{{.{}={}}}", .{ @tagName(self), n }),
@@ -475,8 +513,8 @@ const Syntax = union(enum) {
 };
 
 fn objSyntax(obj: *json.ObjectMap) Syntax {
-    const num_args = @intCast(u8, obj.get("NumArgs").?.value.Integer);
-    for (obj.get("!superclasses").?.value.Array.span()) |superclass_json| {
+    const num_args = @intCast(u8, obj.get("NumArgs").?.Integer);
+    for (obj.get("!superclasses").?.Array.items) |superclass_json| {
         const superclass = superclass_json.String;
         if (std.mem.eql(u8, superclass, "Joined")) {
             return .joined;
@@ -510,19 +548,19 @@ fn objSyntax(obj: *json.ObjectMap) Syntax {
             return .{ .multi_arg = num_args };
         }
     }
-    const name = obj.get("Name").?.value.String;
+    const name = obj.get("Name").?.String;
     if (std.mem.eql(u8, name, "<input>")) {
         return .flag;
     } else if (std.mem.eql(u8, name, "<unknown>")) {
         return .flag;
     }
-    const kind_def = obj.get("Kind").?.value.Object.get("def").?.value.String;
+    const kind_def = obj.get("Kind").?.Object.get("def").?.String;
     if (std.mem.eql(u8, kind_def, "KIND_FLAG")) {
         return .flag;
     }
-    const key = obj.get("!name").?.value.String;
+    const key = obj.get("!name").?.String;
     std.debug.warn("{} (key {}) has unrecognized superclasses:\n", .{ name, key });
-    for (obj.get("!superclasses").?.value.Array.span()) |superclass_json| {
+    for (obj.get("!superclasses").?.Array.items) |superclass_json| {
         std.debug.warn(" {}\n", .{superclass_json.String});
     }
     std.process.exit(1);
@@ -544,7 +582,7 @@ fn syntaxMatchesWithEql(syntax: Syntax) bool {
     };
 }
 
-fn objectLessThan(a: *json.ObjectMap, b: *json.ObjectMap) bool {
+fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
     // Priority is determined by exact matches first, followed by prefix matches in descending
     // length, with key as a final tiebreaker.
     const a_syntax = objSyntax(a);
@@ -560,23 +598,24 @@ fn objectLessThan(a: *json.ObjectMap, b: *json.ObjectMap) bool {
     }
 
     if (!a_match_with_eql and !b_match_with_eql) {
-        const a_name = a.get("Name").?.value.String;
-        const b_name = b.get("Name").?.value.String;
+        const a_name = a.get("Name").?.String;
+        const b_name = b.get("Name").?.String;
         if (a_name.len != b_name.len) {
             return a_name.len > b_name.len;
         }
     }
 
-    const a_key = a.get("!name").?.value.String;
-    const b_key = b.get("!name").?.value.String;
+    const a_key = a.get("!name").?.String;
+    const b_key = b.get("!name").?.String;
     return std.mem.lessThan(u8, a_key, b_key);
 }
 
 fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     file.outStream().print(
         \\Usage: {} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
+        \\Alternative Usage: zig run /path/to/git/zig/tools/update_clang_options.zig -- /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\
-        \\Prints to stdout Zig code which you can use to replace the file src-self-hosted/clang_options_data.zig.
+        \\Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.
         \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);

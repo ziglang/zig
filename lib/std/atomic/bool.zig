@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
+const std = @import("std");
+const builtin = std.builtin;
+const testing = std.testing;
+
+/// Thread-safe, lock-free boolean
+pub const Bool = extern struct {
+    unprotected_value: bool,
+
+    pub const Self = @This();
+
+    pub fn init(init_val: bool) Self {
+        return Self{ .unprotected_value = init_val };
+    }
+
+    // xchg is only valid rmw operation for a bool
+    /// Atomically modifies memory and then returns the previous value.
+    pub fn xchg(self: *Self, operand: bool, comptime ordering: std.builtin.AtomicOrder) bool {
+        return @atomicRmw(bool, &self.unprotected_value, .Xchg, operand, ordering);
+    }
+
+    pub fn load(self: *Self, comptime ordering: std.builtin.AtomicOrder) bool {
+        return @atomicLoad(bool, &self.unprotected_value, ordering);
+    }
+
+    pub fn store(self: *Self, value: bool, comptime ordering: std.builtin.AtomicOrder) void {
+        @atomicStore(bool, &self.unprotected_value, value, ordering);
+    }
+};
+
+test "std.atomic.Bool" {
+    var a = Bool.init(false);
+    testing.expectEqual(false, a.xchg(false, .SeqCst));
+    testing.expectEqual(false, a.load(.SeqCst));
+    a.store(true, .SeqCst);
+    testing.expectEqual(true, a.xchg(false, .SeqCst));
+    testing.expectEqual(false, a.load(.SeqCst));
+}

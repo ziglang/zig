@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
@@ -32,6 +37,7 @@ pub const Feature = enum {
     population_count,
     processor_assist,
     reset_reference_bits_multiple,
+    soft_float,
     transactional_execution,
     vector,
     vector_enhancements_1,
@@ -189,6 +195,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.reset_reference_bits_multiple)] = .{
         .llvm_name = "reset-reference-bits-multiple",
         .description = "Assume that the reset-reference-bits-multiple facility is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.soft_float)] = .{
+        .llvm_name = "soft-float",
+        .description = "Use software emulation for floating point",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.transactional_execution)] = .{
@@ -531,23 +542,4 @@ pub const cpu = struct {
             .transactional_execution,
         }),
     };
-};
-
-/// All systemz CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.arch10,
-    &cpu.arch11,
-    &cpu.arch12,
-    &cpu.arch13,
-    &cpu.arch8,
-    &cpu.arch9,
-    &cpu.generic,
-    &cpu.z10,
-    &cpu.z13,
-    &cpu.z14,
-    &cpu.z15,
-    &cpu.z196,
-    &cpu.zEC12,
 };

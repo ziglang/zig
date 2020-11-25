@@ -1,4 +1,5 @@
-/* Copyright (C) 2002-2020 Free Software Foundation, Inc.
+/* Generic POSIX semaphore type layout
+   Copyright (C) 1995-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -12,14 +13,16 @@
    Lesser General Public License for more details.
 
    You should have received a copy of the GNU Lesser General Public
-   License along with the GNU C Library.  If not, see
+   License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SEMAPHORE_H
 # error "Never use <bits/semaphore.h> directly; include <semaphore.h> instead."
 #endif
 
-#if _MIPS_SIM == _ABI64
+#include <bits/wordsize.h>
+
+#if __WORDSIZE == 64
 # define __SIZEOF_SEM_T	32
 #else
 # define __SIZEOF_SEM_T	16

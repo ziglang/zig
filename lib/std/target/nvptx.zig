@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
@@ -13,6 +18,8 @@ pub const Feature = enum {
     ptx61,
     ptx63,
     ptx64,
+    ptx65,
+    ptx70,
     sm_20,
     sm_21,
     sm_30,
@@ -28,6 +35,7 @@ pub const Feature = enum {
     sm_70,
     sm_72,
     sm_75,
+    sm_80,
 };
 
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
@@ -84,6 +92,16 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ptx64)] = .{
         .llvm_name = "ptx64",
         .description = "Use PTX version 6.4",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx65)] = .{
+        .llvm_name = "ptx65",
+        .description = "Use PTX version 6.5",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx70)] = .{
+        .llvm_name = "ptx70",
+        .description = "Use PTX version 7.0",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_20)] = .{
@@ -159,6 +177,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.sm_75)] = .{
         .llvm_name = "sm_75",
         .description = "Target SM 7.5",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.sm_80)] = .{
+        .llvm_name = "sm_80",
+        .description = "Target SM 8.0",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -286,25 +309,12 @@ pub const cpu = struct {
             .sm_75,
         }),
     };
-};
-
-/// All nvptx CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.sm_20,
-    &cpu.sm_21,
-    &cpu.sm_30,
-    &cpu.sm_32,
-    &cpu.sm_35,
-    &cpu.sm_37,
-    &cpu.sm_50,
-    &cpu.sm_52,
-    &cpu.sm_53,
-    &cpu.sm_60,
-    &cpu.sm_61,
-    &cpu.sm_62,
-    &cpu.sm_70,
-    &cpu.sm_72,
-    &cpu.sm_75,
+    pub const sm_80 = CpuModel{
+        .name = "sm_80",
+        .llvm_name = "sm_80",
+        .features = featureSet(&[_]Feature{
+            .ptx70,
+            .sm_80,
+        }),
+    };
 };

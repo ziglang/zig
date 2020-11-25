@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const debug = std.debug;
@@ -5,11 +10,11 @@ const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
 const math = std.math;
-const leb = @import("debug/leb128.zig");
+const leb = @import("leb128.zig");
 
 const ArrayList = std.ArrayList;
 
-usingnamespace @import("dwarf_bits.zig");
+pub usingnamespace @import("dwarf_bits.zig");
 
 const PcRange = struct {
     start: u64,
@@ -82,7 +87,7 @@ const Die = struct {
     };
 
     fn getAttr(self: *const Die, id: u64) ?*const FormValue {
-        for (self.attrs.span()) |*attr| {
+        for (self.attrs.items) |*attr| {
             if (attr.id == id) return &attr.value;
         }
         return null;
@@ -236,7 +241,7 @@ const LineNumberProgram = struct {
     }
 };
 
-fn readUnitLength(in_stream: var, endian: builtin.Endian, is_64: *bool) !u64 {
+fn readUnitLength(in_stream: anytype, endian: builtin.Endian, is_64: *bool) !u64 {
     const first_32_bits = try in_stream.readInt(u32, endian);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {
@@ -249,7 +254,7 @@ fn readUnitLength(in_stream: var, endian: builtin.Endian, is_64: *bool) !u64 {
 }
 
 // TODO the nosuspends here are workarounds
-fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 {
+fn readAllocBytes(allocator: *mem.Allocator, in_stream: anytype, size: usize) ![]u8 {
     const buf = try allocator.alloc(u8, size);
     errdefer allocator.free(buf);
     if ((try nosuspend in_stream.read(buf)) < size) return error.EndOfFile;
@@ -257,25 +262,25 @@ fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 
 }
 
 // TODO the nosuspends here are workarounds
-fn readAddress(in_stream: var, endian: builtin.Endian, is_64: bool) !u64 {
+fn readAddress(in_stream: anytype, endian: builtin.Endian, is_64: bool) !u64 {
     return nosuspend if (is_64)
         try in_stream.readInt(u64, endian)
     else
         @as(u64, try in_stream.readInt(u32, endian));
 }
 
-fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
+fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: anytype, size: usize) !FormValue {
     const buf = try readAllocBytes(allocator, in_stream, size);
     return FormValue{ .Block = buf };
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: usize) !FormValue {
+fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: anytype, endian: builtin.Endian, size: usize) !FormValue {
     const block_len = try nosuspend in_stream.readVarInt(usize, endian, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, endian: builtin.Endian, comptime size: i32) !FormValue {
+fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed: bool, endian: builtin.Endian, comptime size: i32) !FormValue {
     // TODO: Please forgive me, I've worked around zig not properly spilling some intermediate values here.
     // `nosuspend` should be removed from all the function calls once it is fixed.
     return FormValue{
@@ -302,7 +307,7 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: i32) !FormValue {
+fn parseFormValueRef(allocator: *mem.Allocator, in_stream: anytype, endian: builtin.Endian, size: i32) !FormValue {
     return FormValue{
         .Ref = switch (size) {
             1 => try nosuspend in_stream.readInt(u8, endian),
@@ -316,13 +321,13 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, endian: builtin.
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endian: builtin.Endian, is_64: bool) anyerror!FormValue {
+fn parseFormValue(allocator: *mem.Allocator, in_stream: anytype, form_id: u64, endian: builtin.Endian, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
         FORM_addr => FormValue{ .Address = try readAddress(in_stream, endian, @sizeOf(usize) == 8) },
         FORM_block1 => parseFormValueBlock(allocator, in_stream, endian, 1),
         FORM_block2 => parseFormValueBlock(allocator, in_stream, endian, 2),
         FORM_block4 => parseFormValueBlock(allocator, in_stream, endian, 4),
-        FORM_block => x: {
+        FORM_block => {
             const block_len = try nosuspend leb.readULEB128(usize, in_stream);
             return parseFormValueBlockLen(allocator, in_stream, block_len);
         },
@@ -359,14 +364,14 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endia
             const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, endian, is_64));
             var frame = try allocator.create(F);
             defer allocator.destroy(frame);
-            return await @asyncCall(frame, {}, parseFormValue, allocator, in_stream, child_form_id, endian, is_64);
+            return await @asyncCall(frame, {}, parseFormValue, .{ allocator, in_stream, child_form_id, endian, is_64 });
         },
         else => error.InvalidDebugInfo,
     };
 }
 
 fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*const AbbrevTableEntry {
-    for (abbrev_table.span()) |*table_entry| {
+    for (abbrev_table.items) |*table_entry| {
         if (table_entry.abbrev_code == abbrev_code) return table_entry;
     }
     return null;
@@ -390,7 +395,7 @@ pub const DwarfInfo = struct {
     }
 
     pub fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
-        for (di.func_list.span()) |*func| {
+        for (di.func_list.items) |*func| {
             if (func.pc_range) |range| {
                 if (address >= range.start and address < range.end) {
                     return func.name;
@@ -579,7 +584,7 @@ pub const DwarfInfo = struct {
     }
 
     pub fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
-        for (di.compile_unit_list.span()) |*compile_unit| {
+        for (di.compile_unit_list.items) |*compile_unit| {
             if (compile_unit.pc_range) |range| {
                 if (target_address >= range.start and target_address < range.end) return compile_unit;
             }
@@ -627,7 +632,7 @@ pub const DwarfInfo = struct {
     /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
     /// seeks in the stream and parses it.
     fn getAbbrevTable(di: *DwarfInfo, abbrev_offset: u64) !*const AbbrevTable {
-        for (di.abbrev_table_list.span()) |*header| {
+        for (di.abbrev_table_list.items) |*header| {
             if (header.offset == abbrev_offset) {
                 return &header.table;
             }
@@ -670,7 +675,7 @@ pub const DwarfInfo = struct {
         }
     }
 
-    fn parseDie(di: *DwarfInfo, in_stream: var, abbrev_table: *const AbbrevTable, is_64: bool) !?Die {
+    fn parseDie(di: *DwarfInfo, in_stream: anytype, abbrev_table: *const AbbrevTable, is_64: bool) !?Die {
         const abbrev_code = try leb.readULEB128(u64, in_stream);
         if (abbrev_code == 0) return null;
         const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
@@ -681,7 +686,7 @@ pub const DwarfInfo = struct {
             .attrs = ArrayList(Die.Attr).init(di.allocator()),
         };
         try result.attrs.resize(table_entry.attrs.items.len);
-        for (table_entry.attrs.span()) |attr, i| {
+        for (table_entry.attrs.items) |attr, i| {
             result.attrs.items[i] = Die.Attr{
                 .id = attr.attr_id,
                 .value = try parseFormValue(di.allocator(), in_stream, attr.form_id, di.endian, is_64),
@@ -748,7 +753,7 @@ pub const DwarfInfo = struct {
         }
 
         var file_entries = ArrayList(FileEntry).init(di.allocator());
-        var prog = LineNumberProgram.init(default_is_stmt, include_directories.span(), &file_entries, target_address);
+        var prog = LineNumberProgram.init(default_is_stmt, include_directories.items, &file_entries, target_address);
 
         while (true) {
             const file_name = try in.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));

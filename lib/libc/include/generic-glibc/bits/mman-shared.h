@@ -24,6 +24,7 @@
 /* Flags for mremap.  */
 # define MREMAP_MAYMOVE	1
 # define MREMAP_FIXED	2
+# define MREMAP_DONTUNMAP 4
 
 /* Flags for memfd_create.  */
 # ifndef MFD_CLOEXEC

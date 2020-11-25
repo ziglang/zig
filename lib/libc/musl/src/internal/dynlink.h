@@ -105,4 +105,9 @@ hidden void __dl_vseterr(const char *, va_list);
 
 hidden ptrdiff_t __tlsdesc_static(), __tlsdesc_dynamic();
 
+hidden extern int __malloc_replaced;
+hidden extern int __aligned_alloc_replaced;
+hidden void __malloc_donate(char *, char *);
+hidden int __malloc_allzerop(void *);
+
 #endif

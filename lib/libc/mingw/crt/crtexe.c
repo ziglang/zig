@@ -50,13 +50,11 @@ extern void _fpreset (void);
 #define SPACECHAR _T(' ')
 #define DQUOTECHAR _T('\"')
 
-extern int * __MINGW_IMP_SYMBOL(_fmode);
-extern int * __MINGW_IMP_SYMBOL(_commode);
+int *__cdecl __p__commode(void);
 
 #undef _fmode
 extern int _fmode;
-extern int * __MINGW_IMP_SYMBOL(_commode);
-#define _commode (* __MINGW_IMP_SYMBOL(_commode))
+extern int _commode;
 extern int _dowildcard;
 
 extern _CRTIMP void __cdecl _initterm(_PVFV *, _PVFV *);
@@ -144,7 +142,7 @@ pre_c_init (void)
     __set_app_type (_CONSOLE_APP);
 
   * __p__fmode() = _fmode;
-  * __MINGW_IMP_SYMBOL(_commode) = _commode;
+  * __p__commode() = _commode;
 
 #ifdef WPRFLAG
   _wsetargv();
@@ -182,27 +180,25 @@ int WinMainCRTStartup (void)
 {
   int ret = 255;
 #ifdef SEH_INLINE_ASM
-  asm ("\t.l_startw:\n"
+  asm ("\t.l_startw:\n");
+#endif
+  mingw_app_type = 1;
+  ret = __tmainCRTStartup ();
+#ifdef SEH_INLINE_ASM
+  asm ("\tnop\n"
+    "\t.l_endw: nop\n"
     "\t.seh_handler __C_specific_handler, @except\n"
     "\t.seh_handlerdata\n"
     "\t.long 1\n"
     "\t.rva .l_startw, .l_endw, _gnu_exception_handler ,.l_endw\n"
-    "\t.text"
-    );
-#endif
-  mingw_app_type = 1;
-  __security_init_cookie ();
-  ret = __tmainCRTStartup ();
-#ifdef SEH_INLINE_ASM
-  asm ("\tnop\n"
-    "\t.l_endw: nop\n");
+    "\t.text");
 #endif
   return ret;
 }
 
 int mainCRTStartup (void);
 
-#ifdef _WIN64
+#if defined(__x86_64__) && !defined(__SEH__)
 int __mingw_init_ehandler (void);
 #endif
 
@@ -210,20 +206,18 @@ int mainCRTStartup (void)
 {
   int ret = 255;
 #ifdef SEH_INLINE_ASM
-  asm ("\t.l_start:\n"
+  asm ("\t.l_start:\n");
+#endif
+  mingw_app_type = 0;
+  ret = __tmainCRTStartup ();
+#ifdef SEH_INLINE_ASM
+  asm ("\tnop\n"
+    "\t.l_end: nop\n"
     "\t.seh_handler __C_specific_handler, @except\n"
     "\t.seh_handlerdata\n"
     "\t.long 1\n"
     "\t.rva .l_start, .l_end, _gnu_exception_handler ,.l_end\n"
-    "\t.text"
-    );
-#endif
-  mingw_app_type = 0;
-  __security_init_cookie ();
-  ret = __tmainCRTStartup ();
-#ifdef SEH_INLINE_ASM
-  asm ("\tnop\n"
-    "\t.l_end: nop\n");
+    "\t.text");
 #endif
   return ret;
 }
@@ -284,7 +278,7 @@ __tmainCRTStartup (void)
     
     _pei386_runtime_relocator ();
     __mingw_oldexcpt_handler = SetUnhandledExceptionFilter (_gnu_exception_handler);
-#ifdef __x86_64__
+#if defined(__x86_64__) && !defined(__SEH__)
     __mingw_init_ehandler ();
 #endif
     _set_invalid_parameter_handler (__mingw_invalidParameterHandler);

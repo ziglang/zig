@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Adapted from https://github.com/grzegorz-kraszewski/stringtofloat.
 
 // MIT License
@@ -32,7 +37,9 @@
 const std = @import("../std.zig");
 const ascii = std.ascii;
 
-const max_digits = 25;
+// The mantissa field in FloatRepr is 64bit wide and holds only 19 digits
+// without overflowing
+const max_digits = 19;
 
 const f64_plus_zero: u64 = 0x0000000000000000;
 const f64_minus_zero: u64 = 0x8000000000000000;
@@ -363,11 +370,11 @@ test "fmt.parseFloat" {
     const testing = std.testing;
     const expect = testing.expect;
     const expectEqual = testing.expectEqual;
-    const approxEq = std.math.approxEq;
+    const approxEqAbs = std.math.approxEqAbs;
     const epsilon = 1e-7;
 
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const Z = std.meta.Int(false, T.bit_count);
+        const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
         testing.expectError(error.InvalidCharacter, parseFloat(T, ""));
         testing.expectError(error.InvalidCharacter, parseFloat(T, "   1"));
@@ -385,8 +392,8 @@ test "fmt.parseFloat" {
         expectEqual(try parseFloat(T, "-1e0"), -1.0);
         expectEqual(try parseFloat(T, "1.234e3"), 1234);
 
-        expect(approxEq(T, try parseFloat(T, "3.141"), 3.141, epsilon));
-        expect(approxEq(T, try parseFloat(T, "-3.141"), -3.141, epsilon));
+        expect(approxEqAbs(T, try parseFloat(T, "3.141"), 3.141, epsilon));
+        expect(approxEqAbs(T, try parseFloat(T, "-3.141"), -3.141, epsilon));
 
         expectEqual(try parseFloat(T, "1e-700"), 0);
         expectEqual(try parseFloat(T, "1e+700"), std.math.inf(T));
@@ -398,12 +405,13 @@ test "fmt.parseFloat" {
         expectEqual(try parseFloat(T, "0.4e0066999999999999999999999999999999999999999999999999999"), std.math.inf(T));
 
         if (T != f16) {
-            expect(approxEq(T, try parseFloat(T, "1e-2"), 0.01, epsilon));
-            expect(approxEq(T, try parseFloat(T, "1234e-2"), 12.34, epsilon));
+            expect(approxEqAbs(T, try parseFloat(T, "1e-2"), 0.01, epsilon));
+            expect(approxEqAbs(T, try parseFloat(T, "1234e-2"), 12.34, epsilon));
 
-            expect(approxEq(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
-            expect(approxEq(T, try parseFloat(T, "-123142.1124"), @as(T, -123142.1124), epsilon));
-            expect(approxEq(T, try parseFloat(T, "0.7062146892655368"), @as(T, 0.7062146892655368), epsilon));
+            expect(approxEqAbs(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
+            expect(approxEqAbs(T, try parseFloat(T, "-123142.1124"), @as(T, -123142.1124), epsilon));
+            expect(approxEqAbs(T, try parseFloat(T, "0.7062146892655368"), @as(T, 0.7062146892655368), epsilon));
+            expect(approxEqAbs(T, try parseFloat(T, "2.71828182845904523536"), @as(T, 2.718281828459045), epsilon));
         }
     }
 }

@@ -1,9 +1,12 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const builtin = std.builtin;
 const mem = std.mem;
-const builtin = @import("builtin");
+
 const TypeInfo = builtin.TypeInfo;
 const TypeId = builtin.TypeId;
+
+const expect = std.testing.expect;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "type info: tag type, void info" {
     testBasic();
@@ -25,7 +28,7 @@ test "type info: integer, floating point type info" {
 fn testIntFloat() void {
     const u8_info = @typeInfo(u8);
     expect(u8_info == .Int);
-    expect(!u8_info.Int.is_signed);
+    expect(u8_info.Int.signedness == .unsigned);
     expect(u8_info.Int.bits == 8);
 
     const f64_info = @typeInfo(f64);
@@ -153,7 +156,6 @@ fn testErrorSet() void {
     expect(error_set_info == .ErrorSet);
     expect(error_set_info.ErrorSet.?.len == 3);
     expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "First"));
-    expect(error_set_info.ErrorSet.?[2].value == @errorToInt(TestErrorSet.Third));
 
     const error_union_info = @typeInfo(TestErrorSet!usize);
     expect(error_union_info == .ErrorUnion);
@@ -199,10 +201,8 @@ fn testUnion() void {
     expect(typeinfo_info.Union.layout == .Auto);
     expect(typeinfo_info.Union.tag_type.? == TypeId);
     expect(typeinfo_info.Union.fields.len == 25);
-    expect(typeinfo_info.Union.fields[4].enum_field != null);
-    expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
-    expect(typeinfo_info.Union.decls.len == 20);
+    expect(typeinfo_info.Union.decls.len == 22);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -214,8 +214,9 @@ fn testUnion() void {
     expect(notag_union_info.Union.tag_type == null);
     expect(notag_union_info.Union.layout == .Auto);
     expect(notag_union_info.Union.fields.len == 2);
-    expect(notag_union_info.Union.fields[0].enum_field == null);
+    expect(notag_union_info.Union.fields[0].alignment == @alignOf(void));
     expect(notag_union_info.Union.fields[1].field_type == u32);
+    expect(notag_union_info.Union.fields[1].alignment == @alignOf(u32));
 
     const TestExternUnion = extern union {
         foo: *c_void,
@@ -224,7 +225,6 @@ fn testUnion() void {
     const extern_union_info = @typeInfo(TestExternUnion);
     expect(extern_union_info.Union.layout == .Extern);
     expect(extern_union_info.Union.tag_type == null);
-    expect(extern_union_info.Union.fields[0].enum_field == null);
     expect(extern_union_info.Union.fields[0].field_type == *c_void);
 }
 
@@ -234,14 +234,22 @@ test "type info: struct info" {
 }
 
 fn testStruct() void {
+    const unpacked_struct_info = @typeInfo(TestUnpackedStruct);
+    expect(unpacked_struct_info.Struct.is_tuple == false);
+    expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
+    expect(unpacked_struct_info.Struct.fields[0].default_value.? == 4);
+    expectEqualStrings("foobar", unpacked_struct_info.Struct.fields[1].default_value.?);
+
     const struct_info = @typeInfo(TestStruct);
     expect(struct_info == .Struct);
+    expect(struct_info.Struct.is_tuple == false);
     expect(struct_info.Struct.layout == .Packed);
     expect(struct_info.Struct.fields.len == 4);
-    expect(struct_info.Struct.fields[1].offset == null);
+    expect(struct_info.Struct.fields[0].alignment == 2 * @alignOf(usize));
     expect(struct_info.Struct.fields[2].field_type == *TestStruct);
     expect(struct_info.Struct.fields[2].default_value == null);
     expect(struct_info.Struct.fields[3].default_value.? == 4);
+    expect(struct_info.Struct.fields[3].alignment == 1);
     expect(struct_info.Struct.decls.len == 2);
     expect(struct_info.Struct.decls[0].is_pub);
     expect(!struct_info.Struct.decls[0].data.Fn.is_extern);
@@ -250,18 +258,39 @@ fn testStruct() void {
     expect(struct_info.Struct.decls[0].data.Fn.fn_type == fn (*const TestStruct) void);
 }
 
-const TestStruct = packed struct {
-    const Self = @This();
+const TestUnpackedStruct = struct {
+    fieldA: u32 = 4,
+    fieldB: *const [6:0]u8 = "foobar",
+};
 
-    fieldA: usize,
+const TestStruct = packed struct {
+    fieldA: usize align(2 * @alignOf(usize)),
     fieldB: void,
     fieldC: *Self,
     fieldD: u32 = 4,
 
     pub fn foo(self: *const Self) void {}
+    const Self = @This();
 };
 
+test "type info: opaque info" {
+    testOpaque();
+    comptime testOpaque();
+}
+
+fn testOpaque() void {
+    const Foo = opaque {
+        const A = 1;
+        fn b() void {}
+    };
+
+    const foo_info = @typeInfo(Foo);
+    expect(foo_info.Opaque.decls.len == 2);
+}
+
 test "type info: function type info" {
+    // wasm doesn't support align attributes on functions
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
     testFunction();
     comptime testFunction();
 }
@@ -269,11 +298,14 @@ test "type info: function type info" {
 fn testFunction() void {
     const fn_info = @typeInfo(@TypeOf(foo));
     expect(fn_info == .Fn);
+    expect(fn_info.Fn.alignment == 0);
     expect(fn_info.Fn.calling_convention == .C);
     expect(!fn_info.Fn.is_generic);
     expect(fn_info.Fn.args.len == 2);
     expect(fn_info.Fn.is_var_args);
     expect(fn_info.Fn.return_type.? == usize);
+    const fn_aligned_info = @typeInfo(@TypeOf(fooAligned));
+    expect(fn_aligned_info.Fn.alignment == 4);
 
     const test_instance: TestStruct = undefined;
     const bound_fn_info = @typeInfo(@TypeOf(test_instance.foo));
@@ -281,7 +313,8 @@ fn testFunction() void {
     expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
 }
 
-extern fn foo(a: usize, b: bool, args: ...) usize;
+extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
+extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
 test "typeInfo with comptime parameter in struct fn def" {
     const S = struct {
@@ -321,16 +354,6 @@ fn testAnyFrame() void {
     }
 }
 
-test "type info: optional field unwrapping" {
-    const Struct = struct {
-        cdOffset: u32,
-    };
-
-    const field = @typeInfo(Struct).Struct.fields[0];
-
-    _ = field.offset orelse 0;
-}
-
 test "type info: pass to function" {
     _ = passTypeInfo(@typeInfo(void));
     _ = comptime passTypeInfo(@typeInfo(void));
@@ -356,7 +379,7 @@ test "type info: extern fns with and without lib names" {
             if (std.mem.eql(u8, decl.name, "bar1")) {
                 expect(decl.data.Fn.lib_name == null);
             } else {
-                std.testing.expectEqual(@as([]const u8, "cool"), decl.data.Fn.lib_name.?);
+                expectEqualStrings("cool", decl.data.Fn.lib_name.?);
             }
         }
     }
@@ -386,6 +409,68 @@ test "@typeInfo does not force declarations into existence" {
 }
 
 test "defaut value for a var-typed field" {
-    const S = struct { x: var };
+    const S = struct { x: anytype };
     expect(@typeInfo(S).Struct.fields[0].default_value == null);
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+test "type info for async frames" {
+    switch (@typeInfo(@Frame(add))) {
+        .Frame => |frame| {
+            expect(frame.function == add);
+        },
+        else => unreachable,
+    }
+}
+
+test "type info: value is correctly copied" {
+    comptime {
+        var ptrInfo = @typeInfo([]u32);
+        ptrInfo.Pointer.size = .One;
+        expect(@typeInfo([]u32).Pointer.size == .Slice);
+    }
+}
+
+test "Declarations are returned in declaration order" {
+    const S = struct {
+        const a = 1;
+        const b = 2;
+        const c = 3;
+        const d = 4;
+        const e = 5;
+    };
+    const d = @typeInfo(S).Struct.decls;
+    expect(std.mem.eql(u8, d[0].name, "a"));
+    expect(std.mem.eql(u8, d[1].name, "b"));
+    expect(std.mem.eql(u8, d[2].name, "c"));
+    expect(std.mem.eql(u8, d[3].name, "d"));
+    expect(std.mem.eql(u8, d[4].name, "e"));
+}
+
+test "Struct.is_tuple" {
+    expect(@typeInfo(@TypeOf(.{0})).Struct.is_tuple);
+    expect(!@typeInfo(@TypeOf(.{ .a = 0 })).Struct.is_tuple);
+}
+
+test "StructField.is_comptime" {
+    const info = @typeInfo(struct { x: u8 = 3, comptime y: u32 = 5 }).Struct;
+    expect(!info.fields[0].is_comptime);
+    expect(info.fields[1].is_comptime);
+}
+
+test "typeInfo resolves usingnamespace declarations" {
+    const A = struct {
+        pub const f1 = 42;
+    };
+
+    const B = struct {
+        const f0 = 42;
+        usingnamespace A;
+    };
+
+    expect(@typeInfo(B).Struct.decls.len == 2);
+    //a
 }

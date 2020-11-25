@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
@@ -28,6 +33,7 @@ pub const Feature = enum {
     mips32r6,
     mips3_32,
     mips3_32r2,
+    mips3d,
     mips4,
     mips4_32,
     mips4_32r2,
@@ -220,6 +226,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.mips3_32r2)] = .{
         .llvm_name = "mips3_32r2",
         .description = "Subset of MIPS-III that is also in MIPS32r2 [highly experimental]",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.mips3d)] = .{
+        .llvm_name = "mips3d",
+        .description = "Mips 3D ASE",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips4)] = .{
@@ -523,29 +534,4 @@ pub const cpu = struct {
             .p5600,
         }),
     };
-};
-
-/// All mips CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.generic,
-    &cpu.mips1,
-    &cpu.mips2,
-    &cpu.mips3,
-    &cpu.mips32,
-    &cpu.mips32r2,
-    &cpu.mips32r3,
-    &cpu.mips32r5,
-    &cpu.mips32r6,
-    &cpu.mips4,
-    &cpu.mips5,
-    &cpu.mips64,
-    &cpu.mips64r2,
-    &cpu.mips64r3,
-    &cpu.mips64r5,
-    &cpu.mips64r6,
-    &cpu.octeon,
-    &cpu.@"octeon+",
-    &cpu.p5600,
 };

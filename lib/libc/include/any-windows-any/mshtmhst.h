@@ -164,7 +164,7 @@ STDAPI ShowModelessHTMLDialog (HWND hwndParent, IMoniker *pMk, VARIANT *pvarArgI
 STDAPI RunHTMLApplication (HINSTANCE hinst, HINSTANCE hPrevInst, LPSTR szCmdLine, int nCmdShow);
 #endif
 STDAPI CreateHTMLPropertyPage (IMoniker *pmk, IPropertyPage **ppPP);
-STDAPI EarlyStartDisplaySystem ();
+STDAPI EarlyStartDisplaySystem (void);
 STDAPI IERegisterXMLNS (LPCWSTR lpszURI, GUID clsid, BOOL fMachine);
 STDAPI IEIsXMLNSRegistered (LPCWSTR lpszURI, GUID *pCLSID);
 STDAPI GetColorValueFromString (LPCWSTR lpszColor, BOOL fStrictCSS1, BOOL fIsStandardsCSS, COLORREF *pColor);

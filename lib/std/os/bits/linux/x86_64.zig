@@ -1,7 +1,13 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // x86-64-specific declarations that are intended to be imported into the POSIX namespace.
 const std = @import("../../../std.zig");
 const pid_t = linux.pid_t;
 const uid_t = linux.uid_t;
+const gid_t = linux.gid_t;
 const clock_t = linux.clock_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
@@ -13,6 +19,7 @@ const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 
 pub const mode_t = usize;
+pub const time_t = isize;
 
 pub const SYS = extern enum(usize) {
     read = 0,
@@ -505,23 +512,19 @@ pub const msghdr_const = extern struct {
 
 pub const off_t = i64;
 pub const ino_t = u64;
+pub const dev_t = u64;
 
-/// Renamed to Stat to not conflict with the stat function.
-/// atime, mtime, and ctime have functions to return `timespec`,
-/// because although this is a POSIX API, the layout and names of
-/// the structs are inconsistent across operating systems, and
-/// in C, macros are used to hide the differences. Here we use
-/// methods to accomplish this.
-pub const Stat = extern struct {
-    dev: u64,
+// The `stat` definition used by the Linux kernel.
+pub const kernel_stat = extern struct {
+    dev: dev_t,
     ino: ino_t,
     nlink: usize,
 
     mode: u32,
-    uid: u32,
-    gid: u32,
+    uid: uid_t,
+    gid: gid_t,
     __pad0: u32,
-    rdev: u64,
+    rdev: dev_t,
     size: off_t,
     blksize: isize,
     blocks: i64,
@@ -531,18 +534,21 @@ pub const Stat = extern struct {
     ctim: timespec,
     __unused: [3]isize,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
 };
+
+// The `stat64` definition used by the libc.
+pub const libc_stat = kernel_stat;
 
 pub const timespec = extern struct {
     tv_sec: isize,

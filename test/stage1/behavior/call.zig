@@ -57,7 +57,7 @@ test "tuple parameters" {
 
 test "comptime call with bound function as parameter" {
     const S = struct {
-        fn ReturnType(func: var) type {
+        fn ReturnType(func: anytype) type {
             return switch (@typeInfo(@TypeOf(func))) {
                 .BoundFn => |info| info,
                 else => unreachable,
