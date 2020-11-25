@@ -316,21 +316,86 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
     }
-
+    {
+        var case = ctx.exe("switch and coerce error sets", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const T = error{ A, B, C, D };
+            \\    const e = T.B;
+            \\
+            \\    switch (e) {
+            \\        error.B => condPrint(),
+            \\        else => unreachable,
+            \\    }
+            \\    exit();
+            \\}
+            \\
+            \\fn condPrint() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Reached\n")),
+            \\          [arg3] "{rdx}" (21)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , "Reached\n");
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const T = error{ A, B, C, D };
+            \\    const e: T = T.B;
+            \\
+            \\    switch (e) {
+            \\        error.Z => {},
+            \\    }
+            \\    unreachable; // because it will give error above
+            \\}
+        , &[_][]const u8{":8:12: error: 'error.Z' not a member of destination error set"});
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const T = error{ A, B, C, D };
+            \\    const e: T = T.B;
+            \\
+            \\    switch (e) {
+            \\        error.B => {},
+            \\    }
+            \\    unreachable; // because it will give error above
+            \\}
+        , &[_][]const u8{":7:6: error: switch must handle all possibilities"});
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const T = error{ A, B, C, D };
+            \\    const e: anyerror = T.B;
+            \\
+            \\    switch (e) {
+            \\        error.B => {},
+            \\    }
+            \\    unreachable; // because it will give error above
+            \\}
+        , &[_][]const u8{":7:6: error: else prong required when switching on type 'anyerror'"});
+    }
     {
         var case = ctx.exe("merge error sets", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    const b = error{ A, B, D } || error { A, B, C } == error { A, B, C, D };
-            \\
             \\    if (b) {
             \\        condPrint();
             \\    }
-            \\
-            \\
             \\    exit();
             \\}
-            \\
             \\fn condPrint() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -342,7 +407,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
             \\fn exit() noreturn {
             \\    asm volatile ("syscall"
             \\        :
@@ -359,8 +423,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\export fn _start() noreturn {
             \\    const T: type = error{ A, B, D } || error { A, B, C };
             \\    const x: T = error.D;
+            \\    assert(T == error { A, B, C, D });
             \\
             \\    exit();
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
             \\}
             \\
             \\fn condPrint() void {

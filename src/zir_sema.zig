@@ -1474,7 +1474,7 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                     return mod.fail(scope, item.src, "expected type '{}', found '{}'", .{ gotten_err_set.err_single, gotten_err_set.err_single });
                 } else if (gotten_err_set == .multiple) { // we know it is an actual error set
                     if (gotten_err_set.multiple.get(err_name)) |_| {} else {
-                        return mod.fail(scope, item.src, "'{}' not a member of destination error set {}", .{ err_name, gotten_err_set });
+                        return mod.fail(scope, item.src, "'{}' not a member of destination error set", .{err_name});
                     }
                 }
             }
