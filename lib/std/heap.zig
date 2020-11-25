@@ -198,6 +198,17 @@ fn rawCResize(
     return error.OutOfMemory;
 }
 
+test "the raw C allocator can be used to back GPA" {
+    if (!std.builtin.link_libc) return error.SkipZigTest;
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){
+        .backing_allocator = raw_c_allocator,
+    };
+    defer if (gpa.deinit()) unreachable; // leaked memory!
+    const test_mem = try gpa.allocator.alloc(u8, 100);
+    defer gpa.allocator.free(test_mem);
+}
+
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
 pub const page_allocator = if (std.Target.current.isWasm())
