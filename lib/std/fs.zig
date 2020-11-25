@@ -2291,14 +2291,14 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+            return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0));
         },
         .netbsd => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC_ARGS, -1, os.KERN_PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+            return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0));
         },
         .openbsd => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
@@ -2350,7 +2350,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
 /// The result is UTF16LE-encoded.
 pub fn selfExePathW() [:0]const u16 {
     const image_path_name = &os.windows.peb().ProcessParameters.ImagePathName;
-    return mem.spanZ(@ptrCast([*:0]const u16, image_path_name.Buffer));
+    return mem.spanZ(std.meta.assumeSentinel(image_path_name.Buffer, 0));
 }
 
 /// `selfExeDirPath` except allocates the result on the heap.

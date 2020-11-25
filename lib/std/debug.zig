@@ -743,7 +743,7 @@ fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInf
             for (present) |_| {
                 const name_offset = try pdb_stream.inStream().readIntLittle(u32);
                 const name_index = try pdb_stream.inStream().readIntLittle(u32);
-                const name = mem.spanZ(@ptrCast([*:0]u8, name_bytes.ptr + name_offset));
+                const name = mem.spanZ(std.meta.assumeSentinel(name_bytes.ptr + name_offset, 0));
                 if (mem.eql(u8, name, "/names")) {
                     break :str_tab_index name_index;
                 }
@@ -891,7 +891,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
         for (shdrs) |*shdr| {
             if (shdr.sh_type == elf.SHT_NULL) continue;
 
-            const name = std.mem.span(@ptrCast([*:0]const u8, header_strings[shdr.sh_name..].ptr));
+            const name = std.mem.span(std.meta.assumeSentinel(header_strings[shdr.sh_name..].ptr, 0));
             if (mem.eql(u8, name, ".debug_info")) {
                 opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_abbrev")) {

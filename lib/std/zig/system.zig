@@ -780,7 +780,7 @@ pub const NativeTargetInfo = struct {
                         );
                         const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
                         // TODO this pointer cast should not be necessary
-                        const sh_name = mem.spanZ(@ptrCast([*:0]u8, shstrtab[sh_name_off..].ptr));
+                        const sh_name = mem.spanZ(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0));
                         if (mem.eql(u8, sh_name, ".dynstr")) {
                             break :find_dyn_str .{
                                 .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
@@ -798,7 +798,7 @@ pub const NativeTargetInfo = struct {
                     const rpoff_usize = std.math.cast(usize, rpoff) catch |err| switch (err) {
                         error.Overflow => return error.InvalidElfFile,
                     };
-                    const rpath_list = mem.spanZ(@ptrCast([*:0]u8, strtab[rpoff_usize..].ptr));
+                    const rpath_list = mem.spanZ(std.meta.assumeSentinel(strtab[rpoff_usize..].ptr, 0));
                     var it = mem.tokenize(rpath_list, ":");
                     while (it.next()) |rpath| {
                         var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
