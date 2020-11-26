@@ -2653,15 +2653,15 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const arch = Target.current.cpu.arch;
         \\/// Deprecated
         \\pub const endian = Target.current.cpu.arch.endian();
-        \\pub const output_mode = OutputMode.{s};
-        \\pub const link_mode = LinkMode.{s};
+        \\pub const output_mode = OutputMode.{z};
+        \\pub const link_mode = LinkMode.{z};
         \\pub const is_test = {};
         \\pub const single_threaded = {};
-        \\pub const abi = Abi.{s};
+        \\pub const abi = Abi.{z};
         \\pub const cpu: Cpu = Cpu{{
-        \\    .arch = .{s},
-        \\    .model = &Target.{s}.cpu.{s},
-        \\    .features = Target.{s}.featureSet(&[_]Target.{s}.Feature{{
+        \\    .arch = .{z},
+        \\    .model = &Target.{z}.cpu.{z},
+        \\    .features = Target.{z}.featureSet(&[_]Target.{z}.Feature{{
         \\
     , .{
         @tagName(comp.bin_file.options.output_mode),
@@ -2692,7 +2692,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\    }}),
         \\}};
         \\pub const os = Os{{
-        \\    .tag = .{s},
+        \\    .tag = .{z},
         \\    .version_range = .{{
     ,
         .{@tagName(target.os.tag)},
@@ -2778,8 +2778,8 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         (comp.bin_file.options.skip_linker_dependencies and comp.bin_file.options.parent_compilation_link_libc);
 
     try buffer.writer().print(
-        \\pub const object_format = ObjectFormat.{s};
-        \\pub const mode = Mode.{s};
+        \\pub const object_format = ObjectFormat.{z};
+        \\pub const mode = Mode.{z};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -2787,7 +2787,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
-        \\pub const code_model = CodeModel.{s};
+        \\pub const code_model = CodeModel.{z};
         \\
     , .{
         @tagName(comp.bin_file.options.object_format),
