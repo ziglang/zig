@@ -1472,11 +1472,13 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                     continue;
                 } else if (is_single and !mem.eql(u8, gotten_err_set.err_single, err_name)) {
                     return mod.fail(scope, item.src, "expected type '{}', found '{}'", .{ gotten_err_set.err_single, gotten_err_set.err_single });
-                } else if (gotten_err_set == .multiple) { // we know it is an actual error set
-                    if (gotten_err_set.multiple.get(err_name)) |_| {} else {
-                        return mod.fail(scope, item.src, "'{}' not a member of destination error set", .{err_name});
-                    }
                 }
+                // TODO print this error, but it will never happen because coerce will handle it above
+                // else if (gotten_err_set == .multiple) { // we know it is an actual error set
+                //     if (gotten_err_set.multiple.get(err_name) == null) {
+                //         return mod.fail(scope, item.src, "'{}' not a member of destination error set", .{err_name});
+                //     }
+                // }
             }
             if (!is_single and !is_anyerror and gotten_err_set.multiple.size > inst.positionals.items.len and !(inst.kw_args.special_prong == .@"else"))
                 return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});

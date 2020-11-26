@@ -2917,11 +2917,10 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
             .anyerror => {
                 switch (gotten_err_set) {
                     .multiple => |fields| {
-                        fields.deinit(self.gpa); // deinit the hashmap
                         inst.ty = Type.initTag(.anyerror);
                         return inst;
                     },
-                    .err_single => |_| { // dont have to deinit anything because it is a slice
+                    .err_single => |_| {
                         inst.ty = Type.initTag(.anyerror);
                         return inst;
                     },

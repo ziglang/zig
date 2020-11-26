@@ -336,7 +336,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : [number] "{rax}" (1),
             \\          [arg1] "{rdi}" (1),
             \\          [arg2] "{rsi}" (@ptrToInt("Reached\n")),
-            \\          [arg3] "{rdx}" (21)
+            \\          [arg3] "{rdx}" (8)
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    return;
@@ -362,7 +362,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\    unreachable; // because it will give error above
             \\}
-        , &[_][]const u8{":8:12: error: 'error.Z' not a member of destination error set"});
+        , &[_][]const u8{":6:14: error: expected _start__anon_13, found error{Z}"});
         case.addError(
             \\export fn _start() noreturn {
             \\    const T = error{ A, B, C, D };
@@ -373,7 +373,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\    unreachable; // because it will give error above
             \\}
-        , &[_][]const u8{":7:6: error: switch must handle all possibilities"});
+        , &[_][]const u8{":5:5: error: switch must handle all possibilities"});
         case.addError(
             \\export fn _start() noreturn {
             \\    const T = error{ A, B, C, D };
@@ -384,7 +384,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\    unreachable; // because it will give error above
             \\}
-        , &[_][]const u8{":7:6: error: else prong required when switching on type 'anyerror'"});
+        , &[_][]const u8{":5:5: error: else prong required when switching on type 'anyerror'"});
     }
     {
         var case = ctx.exe("merge error sets", linux_x64);
@@ -495,6 +495,42 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         ,
             "The Types Were Equal\n",
+        );
+    }
+    {
+        var case = ctx.exe("comptime error equality", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    if (error.V == error.T) {
+            \\        condPrint();
+            \\    }
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn condPrint() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("The errs were equal\n")),
+            \\          [arg3] "{rdx}" (20)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "The errs were equal\n",
         );
     }
     {
