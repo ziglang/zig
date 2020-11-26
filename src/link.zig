@@ -254,17 +254,8 @@ pub const File = struct {
                     // into a new inode, remove the original file, and rename the copy to match
                     // the original file. This is super messy, but there doesn't seem any other
                     // way to please the XNU.
-                    const random_bytes_len = 12;
-                    comptime const random_sub_path_len = std.base64.Base64Encoder.calcSize(random_bytes_len);
                     const emit = base.options.emit orelse return;
-                    var random_bytes: [random_bytes_len]u8 = undefined;
-                    try std.crypto.randomBytes(&random_bytes);
-                    var random_sub_path: [random_sub_path_len]u8 = undefined;
-                    fs.base64_encoder.encode(&random_sub_path, &random_bytes);
-                    const tmp_file_name = try mem.join(base.allocator, "_", &[_][]const u8{ emit.sub_path, random_sub_path[0..] });
-                    defer base.allocator.free(tmp_file_name);
-                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_file_name, .{});
-                    try emit.directory.handle.rename(tmp_file_name, emit.sub_path);
+                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
                 }
                 f.close();
                 base.file = null;
