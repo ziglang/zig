@@ -1552,7 +1552,7 @@ fn expectTokens(source: []const u8, expected_tokens: []const Token.Id) void {
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
         if (!std.meta.eql(token.id, expected_token_id)) {
-            std.debug.panic("expected {}, found {}\n", .{ @tagName(expected_token_id), @tagName(token.id) });
+            std.debug.panic("expected {s}, found {s}\n", .{ @tagName(expected_token_id), @tagName(token.id) });
         }
     }
     const last_token = tokenizer.next();

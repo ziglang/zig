@@ -334,7 +334,7 @@ pub const Tokenizer = struct {
 
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
-        std.debug.warn("{} \"{}\"\n", .{ @tagName(token.id), self.buffer[token.start..token.end] });
+        std.debug.warn("{s} \"{s}\"\n", .{ @tagName(token.id), self.buffer[token.start..token.end] });
     }
 
     pub fn init(buffer: []const u8) Tokenizer {
@@ -2046,7 +2046,7 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
         if (token.id != expected_token_id) {
-            std.debug.panic("expected {}, found {}\n", .{ @tagName(expected_token_id), @tagName(token.id) });
+            std.debug.panic("expected {s}, found {s}\n", .{ @tagName(expected_token_id), @tagName(token.id) });
         }
     }
     const last_token = tokenizer.next();

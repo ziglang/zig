@@ -41,7 +41,7 @@ fn renderRoot(
     for (tree.token_ids) |token_id, i| {
         if (token_id != .LineComment) break;
         const token_loc = tree.token_locs[i];
-        try ais.writer().print("{}\n", .{mem.trimRight(u8, tree.tokenSliceLoc(token_loc), " ")});
+        try ais.writer().print("{s}\n", .{mem.trimRight(u8, tree.tokenSliceLoc(token_loc), " ")});
         const next_token = tree.token_locs[i + 1];
         const loc = tree.tokenLocationLoc(token_loc.end, next_token);
         if (loc.line >= 2) {

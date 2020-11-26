@@ -147,7 +147,7 @@ test "FixedBufferStream output" {
     var fbs = fixedBufferStream(&buf);
     const stream = fbs.writer();
 
-    try stream.print("{}{}!", .{ "Hello", "World" });
+    try stream.print("{s}{s}!", .{ "Hello", "World" });
     testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
 }
 

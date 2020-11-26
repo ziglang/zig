@@ -67,12 +67,12 @@ pub const StackTrace = struct {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            return writer.print("\nUnable to print stack trace: Unable to open debug info: {}\n", .{@errorName(err)});
+            return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
         const tty_config = std.debug.detectTTYConfig();
         try writer.writeAll("\n");
         std.debug.writeStackTrace(self, writer, &arena.allocator, debug_info, tty_config) catch |err| {
-            try writer.print("Unable to print stack trace: {}\n", .{@errorName(err)});
+            try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
         try writer.writeAll("\n");
     }
@@ -529,12 +529,12 @@ pub const Version = struct {
         if (fmt.len == 0) {
             if (self.patch == 0) {
                 if (self.minor == 0) {
-                    return std.fmt.format(out_stream, "{}", .{self.major});
+                    return std.fmt.format(out_stream, "{d}", .{self.major});
                 } else {
-                    return std.fmt.format(out_stream, "{}.{}", .{ self.major, self.minor });
+                    return std.fmt.format(out_stream, "{d}.{d}", .{ self.major, self.minor });
                 }
             } else {
-                return std.fmt.format(out_stream, "{}.{}.{}", .{ self.major, self.minor, self.patch });
+                return std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
             }
         } else {
             @compileError("Unknown format string: '" ++ fmt ++ "'");
@@ -683,7 +683,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
             }
         },
         .wasi => {
-            std.debug.warn("{}", .{msg});
+            std.debug.warn("{s}", .{msg});
             std.os.abort();
         },
         .uefi => {
@@ -692,7 +692,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         },
         else => {
             const first_trace_addr = @returnAddress();
-            std.debug.panicExtra(error_return_trace, first_trace_addr, "{}", .{msg});
+            std.debug.panicExtra(error_return_trace, first_trace_addr, "{s}", .{msg});
         },
     }
 }
