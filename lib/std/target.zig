@@ -136,14 +136,14 @@ pub const Target = struct {
             ) !void {
                 if (fmt.len > 0 and fmt[0] == 's') {
                     if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
-                        try std.fmt.format(out_stream, ".{}", .{@tagName(self)});
+                        try std.fmt.format(out_stream, ".{s}", .{@tagName(self)});
                     } else {
                         // TODO this code path breaks zig triples, but it is used in `builtin`
                         try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, 0x{X:0>8})", .{@enumToInt(self)});
                     }
                 } else {
                     if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
-                        try std.fmt.format(out_stream, "WindowsVersion.{}", .{@tagName(self)});
+                        try std.fmt.format(out_stream, "WindowsVersion.{s}", .{@tagName(self)});
                     } else {
                         try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@enumToInt(self)});
                     }
@@ -1177,7 +1177,7 @@ pub const Target = struct {
     }
 
     pub fn linuxTripleSimple(allocator: *mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
+        return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
     }
 
     pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
@@ -1381,7 +1381,7 @@ pub const Target = struct {
 
         if (self.abi == .android) {
             const suffix = if (self.cpu.arch.ptrBitWidth() == 64) "64" else "";
-            return print(&result, "/system/bin/linker{}", .{suffix});
+            return print(&result, "/system/bin/linker{s}", .{suffix});
         }
 
         if (self.abi.isMusl()) {
@@ -1395,7 +1395,7 @@ pub const Target = struct {
                 else => |arch| @tagName(arch),
             };
             const arch_suffix = if (is_arm and self.abi.floatAbi() == .hard) "hf" else "";
-            return print(&result, "/lib/ld-musl-{}{}.so.1", .{ arch_part, arch_suffix });
+            return print(&result, "/lib/ld-musl-{s}{s}.so.1", .{ arch_part, arch_suffix });
         }
 
         switch (self.os.tag) {
@@ -1434,7 +1434,7 @@ pub const Target = struct {
                     };
                     const is_nan_2008 = mips.featureSetHas(self.cpu.features, .nan2008);
                     const loader = if (is_nan_2008) "ld-linux-mipsn8.so.1" else "ld.so.1";
-                    return print(&result, "/lib{}/{}", .{ lib_suffix, loader });
+                    return print(&result, "/lib{s}/{s}", .{ lib_suffix, loader });
                 },
 
                 .powerpc => return copy(&result, "/lib/ld.so.1"),

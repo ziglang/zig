@@ -281,41 +281,41 @@ pub const Error = union(enum) {
         }
     }
 
-    pub const InvalidToken = SingleTokenError("Invalid token '{}'");
-    pub const ExpectedContainerMembers = SingleTokenError("Expected test, comptime, var decl, or container field, found '{}'");
-    pub const ExpectedStringLiteral = SingleTokenError("Expected string literal, found '{}'");
-    pub const ExpectedIntegerLiteral = SingleTokenError("Expected integer literal, found '{}'");
-    pub const ExpectedIdentifier = SingleTokenError("Expected identifier, found '{}'");
-    pub const ExpectedStatement = SingleTokenError("Expected statement, found '{}'");
-    pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found '{}'");
-    pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{}'");
-    pub const ExpectedFn = SingleTokenError("Expected function, found '{}'");
-    pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found '{}'");
-    pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Id.Keyword_struct.symbol() ++ "', '" ++ Token.Id.Keyword_union.symbol() ++ "', '" ++ Token.Id.Keyword_enum.symbol() ++ "', or '" ++ Token.Id.Keyword_opaque.symbol() ++ "', found '{}'");
-    pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{}'");
-    pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found '{}'");
-    pub const ExpectedSemiOrElse = SingleTokenError("Expected ';' or 'else', found '{}'");
-    pub const ExpectedLBrace = SingleTokenError("Expected '{{', found '{}'");
-    pub const ExpectedLabelOrLBrace = SingleTokenError("Expected label or '{{', found '{}'");
-    pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found '{}'");
-    pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found '{}'");
-    pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found '{}'");
-    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or '" ++ Token.Id.Identifier.symbol() ++ "', found '{}'");
-    pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found '{}'");
-    pub const ExpectedTypeExpr = SingleTokenError("Expected type expression, found '{}'");
-    pub const ExpectedPrimaryTypeExpr = SingleTokenError("Expected primary type expression, found '{}'");
-    pub const ExpectedExpr = SingleTokenError("Expected expression, found '{}'");
-    pub const ExpectedPrimaryExpr = SingleTokenError("Expected primary expression, found '{}'");
-    pub const ExpectedParamList = SingleTokenError("Expected parameter list, found '{}'");
-    pub const ExpectedPayload = SingleTokenError("Expected loop payload, found '{}'");
-    pub const ExpectedBlockOrAssignment = SingleTokenError("Expected block or assignment, found '{}'");
-    pub const ExpectedBlockOrExpression = SingleTokenError("Expected block or expression, found '{}'");
-    pub const ExpectedExprOrAssignment = SingleTokenError("Expected expression or assignment, found '{}'");
-    pub const ExpectedPrefixExpr = SingleTokenError("Expected prefix expression, found '{}'");
-    pub const ExpectedLoopExpr = SingleTokenError("Expected loop expression, found '{}'");
-    pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found '{}'");
-    pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found '{}'");
-    pub const ExpectedBlockOrField = SingleTokenError("Expected block or field, found '{}'");
+    pub const InvalidToken = SingleTokenError("Invalid token '{s}'");
+    pub const ExpectedContainerMembers = SingleTokenError("Expected test, comptime, var decl, or container field, found '{s}'");
+    pub const ExpectedStringLiteral = SingleTokenError("Expected string literal, found '{s}'");
+    pub const ExpectedIntegerLiteral = SingleTokenError("Expected integer literal, found '{s}'");
+    pub const ExpectedIdentifier = SingleTokenError("Expected identifier, found '{s}'");
+    pub const ExpectedStatement = SingleTokenError("Expected statement, found '{s}'");
+    pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found '{s}'");
+    pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{s}'");
+    pub const ExpectedFn = SingleTokenError("Expected function, found '{s}'");
+    pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found '{s}'");
+    pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Id.Keyword_struct.symbol() ++ "', '" ++ Token.Id.Keyword_union.symbol() ++ "', '" ++ Token.Id.Keyword_enum.symbol() ++ "', or '" ++ Token.Id.Keyword_opaque.symbol() ++ "', found '{s}'");
+    pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{s}'");
+    pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found '{s}'");
+    pub const ExpectedSemiOrElse = SingleTokenError("Expected ';' or 'else', found '{s}'");
+    pub const ExpectedLBrace = SingleTokenError("Expected '{{', found '{s}'");
+    pub const ExpectedLabelOrLBrace = SingleTokenError("Expected label or '{{', found '{s}'");
+    pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found '{s}'");
+    pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found '{s}'");
+    pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found '{s}'");
+    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or '" ++ Token.Id.Identifier.symbol() ++ "', found '{s}'");
+    pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found '{s}'");
+    pub const ExpectedTypeExpr = SingleTokenError("Expected type expression, found '{s}'");
+    pub const ExpectedPrimaryTypeExpr = SingleTokenError("Expected primary type expression, found '{s}'");
+    pub const ExpectedExpr = SingleTokenError("Expected expression, found '{s}'");
+    pub const ExpectedPrimaryExpr = SingleTokenError("Expected primary expression, found '{s}'");
+    pub const ExpectedParamList = SingleTokenError("Expected parameter list, found '{s}'");
+    pub const ExpectedPayload = SingleTokenError("Expected loop payload, found '{s}'");
+    pub const ExpectedBlockOrAssignment = SingleTokenError("Expected block or assignment, found '{s}'");
+    pub const ExpectedBlockOrExpression = SingleTokenError("Expected block or expression, found '{s}'");
+    pub const ExpectedExprOrAssignment = SingleTokenError("Expected expression or assignment, found '{s}'");
+    pub const ExpectedPrefixExpr = SingleTokenError("Expected prefix expression, found '{s}'");
+    pub const ExpectedLoopExpr = SingleTokenError("Expected loop expression, found '{s}'");
+    pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found '{s}'");
+    pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found '{s}'");
+    pub const ExpectedBlockOrField = SingleTokenError("Expected block or field, found '{s}'");
 
     pub const ExpectedParamType = SimpleError("Expected parameter type");
     pub const ExpectedPubItem = SimpleError("Expected function or variable declaration after pub");
@@ -332,7 +332,7 @@ pub const Error = union(enum) {
         node: *Node,
 
         pub fn render(self: *const ExpectedCall, tokens: []const Token.Id, stream: anytype) !void {
-            return stream.print("expected " ++ @tagName(Node.Tag.Call) ++ ", found {}", .{
+            return stream.print("expected " ++ @tagName(Node.Tag.Call) ++ ", found {s}", .{
                 @tagName(self.node.tag),
             });
         }
@@ -343,7 +343,7 @@ pub const Error = union(enum) {
 
         pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token.Id, stream: anytype) !void {
             return stream.print("expected " ++ @tagName(Node.Tag.Call) ++ " or " ++
-                @tagName(Node.Tag.FnProto) ++ ", found {}", .{@tagName(self.node.tag)});
+                @tagName(Node.Tag.FnProto) ++ ", found {s}", .{@tagName(self.node.tag)});
         }
     };
 
@@ -355,11 +355,11 @@ pub const Error = union(enum) {
             const found_token = tokens[self.token];
             switch (found_token) {
                 .Invalid => {
-                    return stream.print("expected '{}', found invalid bytes", .{self.expected_id.symbol()});
+                    return stream.print("expected '{s}', found invalid bytes", .{self.expected_id.symbol()});
                 },
                 else => {
                     const token_name = found_token.symbol();
-                    return stream.print("expected '{}', found '{}'", .{ self.expected_id.symbol(), token_name });
+                    return stream.print("expected '{s}', found '{s}'", .{ self.expected_id.symbol(), token_name });
                 },
             }
         }
@@ -371,7 +371,7 @@ pub const Error = union(enum) {
 
         pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token.Id, stream: anytype) !void {
             const actual_token = tokens[self.token];
-            return stream.print("expected ',' or '{}', found '{}'", .{
+            return stream.print("expected ',' or '{s}', found '{s}'", .{
                 self.end_id.symbol(),
                 actual_token.symbol(),
             });
@@ -843,7 +843,7 @@ pub const Node = struct {
                 std.debug.warn(" ", .{});
             }
         }
-        std.debug.warn("{}\n", .{@tagName(self.tag)});
+        std.debug.warn("{s}\n", .{@tagName(self.tag)});
 
         var child_i: usize = 0;
         while (self.iterate(child_i)) |child| : (child_i += 1) {
@@ -1418,7 +1418,7 @@ pub const Node = struct {
                 @alignOf(ParamDecl),
                 @ptrCast([*]const u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
             );
-            std.debug.print("{*} flags: {b} name_token: {} {*} params_len: {}\n", .{
+            std.debug.print("{*} flags: {b} name_token: {s} {*} params_len: {d}\n", .{
                 self,
                 self.trailer_flags.bits,
                 self.getNameToken(),

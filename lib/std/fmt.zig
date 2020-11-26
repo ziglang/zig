@@ -506,12 +506,12 @@ pub fn formatType(
                     if (info.child == u8) {
                         return formatText(value, fmt, options, writer);
                     }
-                    return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) });
+                    return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) });
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, fmt, options, writer, max_depth);
                 },
-                else => return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) }),
+                else => return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) }),
             },
             .Many, .C => {
                 if (ptr_info.sentinel) |sentinel| {
@@ -522,7 +522,7 @@ pub fn formatType(
                         return formatText(mem.span(value), fmt, options, writer);
                     }
                 }
-                return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) });
+                return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) });
             },
             .Slice => {
                 if (max_depth == 0) {
@@ -573,7 +573,7 @@ pub fn formatType(
             try writer.writeAll(" }");
         },
         .Fn => {
-            return format(writer, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
+            return format(writer, "{s}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
         .Type => return formatBuf(@typeName(value), options, writer),
         .EnumLiteral => {
@@ -695,7 +695,7 @@ pub fn formatText(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    if (comptime std.mem.eql(u8, fmt, "s") or (fmt.len == 0)) {
+    if (comptime std.mem.eql(u8, fmt, "s")) {
         return formatBuf(bytes, options, writer);
     } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
         for (bytes) |c| {
@@ -1559,8 +1559,8 @@ test "buffer" {
 test "array" {
     {
         const value: [3]u8 = "abc".*;
-        try testFmt("array: abc\n", "array: {}\n", .{value});
-        try testFmt("array: abc\n", "array: {}\n", .{&value});
+        try testFmt("array: abc\n", "array: {s}\n", .{value});
+        try testFmt("array: abc\n", "array: {s}\n", .{&value});
         try testFmt("array: { 97, 98, 99 }\n", "array: {d}\n", .{value});
 
         var buf: [100]u8 = undefined;
@@ -1575,7 +1575,7 @@ test "array" {
 test "slice" {
     {
         const value: []const u8 = "abc";
-        try testFmt("slice: abc\n", "slice: {}\n", .{value});
+        try testFmt("slice: abc\n", "slice: {s}\n", .{value});
     }
     {
         var runtime_zero: usize = 0;
@@ -1902,9 +1902,9 @@ fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !
     if (mem.eql(u8, result, expected)) return;
 
     std.debug.warn("\n====== expected this output: =========\n", .{});
-    std.debug.warn("{}", .{expected});
+    std.debug.warn("{s}", .{expected});
     std.debug.warn("\n======== instead found this: =========\n", .{});
-    std.debug.warn("{}", .{result});
+    std.debug.warn("{s}", .{result});
     std.debug.warn("\n======================================\n", .{});
     return error.TestFailed;
 }
@@ -2061,24 +2061,24 @@ test "vector" {
 }
 
 test "enum-literal" {
-    try testFmt(".hello_world", "{}", .{.hello_world});
+    try testFmt(".hello_world", "{s}", .{.hello_world});
 }
 
 test "padding" {
-    try testFmt("Simple", "{}", .{"Simple"});
+    try testFmt("Simple", "{s}", .{"Simple"});
     try testFmt("      true", "{:10}", .{true});
     try testFmt("      true", "{:>10}", .{true});
     try testFmt("======true", "{:=>10}", .{true});
     try testFmt("true======", "{:=<10}", .{true});
     try testFmt("   true   ", "{:^10}", .{true});
     try testFmt("===true===", "{:=^10}", .{true});
-    try testFmt("           Minimum width", "{:18} width", .{"Minimum"});
-    try testFmt("==================Filled", "{:=>24}", .{"Filled"});
-    try testFmt("        Centered        ", "{:^24}", .{"Centered"});
-    try testFmt("-", "{:-^1}", .{""});
-    try testFmt("==crêpe===", "{:=^10}", .{"crêpe"});
-    try testFmt("=====crêpe", "{:=>10}", .{"crêpe"});
-    try testFmt("crêpe=====", "{:=<10}", .{"crêpe"});
+    try testFmt("           Minimum width", "{s:18} width", .{"Minimum"});
+    try testFmt("==================Filled", "{s:=>24}", .{"Filled"});
+    try testFmt("        Centered        ", "{s:^24}", .{"Centered"});
+    try testFmt("-", "{s:-^1}", .{""});
+    try testFmt("==crêpe===", "{s:=^10}", .{"crêpe"});
+    try testFmt("=====crêpe", "{s:=>10}", .{"crêpe"});
+    try testFmt("crêpe=====", "{s:=<10}", .{"crêpe"});
 }
 
 test "decimal float padding" {
@@ -2107,15 +2107,15 @@ test "type" {
 }
 
 test "named arguments" {
-    try testFmt("hello world!", "{} world{c}", .{ "hello", '!' });
-    try testFmt("hello world!", "{[greeting]} world{[punctuation]c}", .{ .punctuation = '!', .greeting = "hello" });
-    try testFmt("hello world!", "{[1]} world{[0]c}", .{ '!', "hello" });
+    try testFmt("hello world!", "{s} world{c}", .{ "hello", '!' });
+    try testFmt("hello world!", "{[greeting]s} world{[punctuation]c}", .{ .punctuation = '!', .greeting = "hello" });
+    try testFmt("hello world!", "{[1]s} world{[0]c}", .{ '!', "hello" });
 }
 
 test "runtime width specifier" {
     var width: usize = 9;
-    try testFmt("~~hello~~", "{:~^[1]}", .{ "hello", width });
-    try testFmt("~~hello~~", "{:~^[width]}", .{ .string = "hello", .width = width });
+    try testFmt("~~hello~~", "{s:~^[1]}", .{ "hello", width });
+    try testFmt("~~hello~~", "{s:~^[width]}", .{ .string = "hello", .width = width });
 }
 
 test "runtime precision specifier" {

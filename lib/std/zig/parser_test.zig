@@ -3744,7 +3744,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
         const loc = tree.tokenLocation(0, parse_error.loc());
         try stderr.print("(memory buffer):{}:{}: error: ", .{ loc.line + 1, loc.column + 1 });
         try tree.renderError(parse_error, stderr);
-        try stderr.print("\n{}\n", .{source[loc.line_start..loc.line_end]});
+        try stderr.print("\n{s}\n", .{source[loc.line_start..loc.line_end]});
         {
             var i: usize = 0;
             while (i < loc.column) : (i += 1) {
