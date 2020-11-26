@@ -908,3 +908,9 @@ test "cast from ?[*]T to ??[*]T" {
     const a: ??[*]u8 = @as(?[*]u8, null);
     expect(a != null and a.? == null);
 }
+
+test "cast between *[N]void and []void" {
+    var a: [4]void = undefined;
+    var b: []void = &a;
+    expect(b.len == 4);
+}

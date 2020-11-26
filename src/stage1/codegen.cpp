@@ -3343,7 +3343,7 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutableGen 
         LLVMValueRef expr_val = ir_llvm_value(g, instruction->operand);
         LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
         gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
-    } else if (ir_want_runtime_safety(g, &instruction->base)) {
+    } else if (ir_want_runtime_safety(g, &instruction->base) && ptr_index != SIZE_MAX) {
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
         gen_undef_init(g, slice_ptr_type, slice_ptr_type, ptr_field_ptr);
     }
