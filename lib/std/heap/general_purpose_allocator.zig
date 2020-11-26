@@ -148,6 +148,11 @@ pub const Config = struct {
     /// Whether the allocator may be used simultaneously from multiple threads.
     thread_safe: bool = !std.builtin.single_threaded,
 
+    /// Which mutex you'd like to use, for thread safety.
+    /// * Defaults to `std.Mutex` when thread_safe is enabled.
+    /// * Defaults to `std.mutex.Dummy` otherwise.
+    mutex_init: anytype = null,
+
     /// This is a temporary debugging trick you can use to turn segfaults into more helpful
     /// logged error messages with stack trace details. The downside is that every allocation
     /// will be leaked!
@@ -174,7 +179,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};
 
-        const mutex_init = if (config.thread_safe) std.Mutex{} else std.mutex.Dummy{};
+        const mutex_init = if (config.mutex_init) |init| init else if (config.thread_safe) std.Mutex{} else std.mutex.Dummy{};
 
         const stack_n = config.stack_trace_frames;
         const one_trace_size = @sizeOf(usize) * stack_n;
