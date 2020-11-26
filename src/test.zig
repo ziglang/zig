@@ -660,7 +660,7 @@ pub const TestContext = struct {
                         }
                     }
                     if (comp.bin_file.cast(link.File.C)) |c_file| {
-                        std.debug.print("Generated C: \n===============\n{}\n\n===========\n\n", .{
+                        std.debug.print("Generated C: \n===============\n{s}\n\n===========\n\n", .{
                             c_file.main.items,
                         });
                     }
