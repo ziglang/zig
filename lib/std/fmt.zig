@@ -504,7 +504,9 @@ pub fn formatType(
             .One => switch (@typeInfo(ptr_info.child)) {
                 .Array => |info| {
                     if (info.child == u8) {
-                        return formatText(value, fmt, options, writer);
+                        if (fmt.len > 0 and comptime mem.indexOfScalar(u8, "sxXeEzZ", fmt[0]) != null) {
+                            return formatText(value, fmt, options, writer);
+                        }
                     }
                     return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) });
                 },
@@ -529,7 +531,7 @@ pub fn formatType(
                     return writer.writeAll("{ ... }");
                 }
                 if (ptr_info.child == u8) {
-                    if (fmt.len == 0 or comptime mem.indexOfScalar(u8, "sxXeEzZ", fmt[0]) != null) {
+                    if (fmt.len > 0 and comptime mem.indexOfScalar(u8, "sxXeEzZ", fmt[0]) != null) {
                         return formatText(value, fmt, options, writer);
                     }
                 }
