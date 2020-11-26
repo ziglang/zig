@@ -97,7 +97,7 @@ pub const CompareOutputContext = struct {
 
         switch (case.special) {
             Special.Asm => {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "assemble-and-link {}", .{
+                const annotated_case_name = fmt.allocPrint(self.b.allocator, "assemble-and-link {s}", .{
                     case.name,
                 }) catch unreachable;
                 if (self.test_filter) |filter| {
@@ -116,7 +116,7 @@ pub const CompareOutputContext = struct {
             },
             Special.None => {
                 for (self.modes) |mode| {
-                    const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", .{
+                    const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
                         "compare-output",
                         case.name,
                         @tagName(mode),
@@ -141,7 +141,7 @@ pub const CompareOutputContext = struct {
                 }
             },
             Special.RuntimeSafety => {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "safety {}", .{case.name}) catch unreachable;
+                const annotated_case_name = fmt.allocPrint(self.b.allocator, "safety {s}", .{case.name}) catch unreachable;
                 if (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
                 }
