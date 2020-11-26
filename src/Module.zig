@@ -953,7 +953,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
                 self.failed_decls.putAssumeCapacityNoClobber(decl, try Compilation.ErrorMsg.create(
                     self.gpa,
                     decl.src(),
-                    "unable to analyze: {}",
+                    "unable to analyze: {s}",
                     .{@errorName(err)},
                 ));
                 decl.analysis = .sema_failure_retryable;
@@ -1475,7 +1475,7 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
             if (zir_module.error_msg) |src_err_msg| {
                 self.failed_files.putAssumeCapacityNoClobber(
                     &root_scope.base,
-                    try Compilation.ErrorMsg.create(self.gpa, src_err_msg.byte_offset, "{}", .{src_err_msg.msg}),
+                    try Compilation.ErrorMsg.create(self.gpa, src_err_msg.byte_offset, "{s}", .{src_err_msg.msg}),
                 );
                 root_scope.status = .unloaded_parse_failure;
                 return error.AnalysisFail;
@@ -1581,7 +1581,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                 decl.src_index = decl_i;
                 if (deleted_decls.remove(decl) == null) {
                     decl.analysis = .sema_failure;
-                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, tree.token_locs[name_tok].start, "redefinition of '{}'", .{decl.name});
+                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, tree.token_locs[name_tok].start, "redefinition of '{s}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
                     try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
                 } else {
@@ -1623,7 +1623,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                 decl.src_index = decl_i;
                 if (deleted_decls.remove(decl) == null) {
                     decl.analysis = .sema_failure;
-                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{}'", .{decl.name});
+                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{s}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
                     try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
                 } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
@@ -1991,7 +1991,7 @@ pub fn analyzeExport(
         self.failed_exports.putAssumeCapacityNoClobber(new_export, try Compilation.ErrorMsg.create(
             self.gpa,
             src,
-            "exported symbol collision: {}",
+            "exported symbol collision: {s}",
             .{symbol_name},
         ));
         // TODO: add a note
@@ -2007,7 +2007,7 @@ pub fn analyzeExport(
             self.failed_exports.putAssumeCapacityNoClobber(new_export, try Compilation.ErrorMsg.create(
                 self.gpa,
                 src,
-                "unable to export: {}",
+                "unable to export: {s}",
                 .{@errorName(err)},
             ));
             new_export.status = .failed_retryable;
@@ -2277,7 +2277,7 @@ pub fn createAnonymousDecl(
 ) !*Decl {
     const name_index = self.getNextAnonNameIndex();
     const scope_decl = scope.decl().?;
-    const name = try std.fmt.allocPrint(self.gpa, "{}__anon_{}", .{ scope_decl.name, name_index });
+    const name = try std.fmt.allocPrint(self.gpa, "{s}__anon_{}", .{ scope_decl.name, name_index });
     defer self.gpa.free(name);
     const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
@@ -2384,7 +2384,7 @@ pub fn analyzeDeref(self: *Module, scope: *Scope, src: usize, ptr: *Inst, ptr_sr
 
 pub fn analyzeDeclRefByName(self: *Module, scope: *Scope, src: usize, decl_name: []const u8) InnerError!*Inst {
     const decl = self.lookupDeclName(scope, decl_name) orelse
-        return self.fail(scope, src, "decl '{}' not found", .{decl_name});
+        return self.fail(scope, src, "decl '{s}' not found", .{decl_name});
     return self.analyzeDeclRef(scope, src, decl);
 }
 

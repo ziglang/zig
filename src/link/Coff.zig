@@ -686,7 +686,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         if (need_realloc) {
             const curr_vaddr = self.getDeclVAddr(decl);
             const vaddr = try self.growTextBlock(&decl.link.coff, code.len, required_alignment);
-            log.debug("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, curr_vaddr, vaddr });
+            log.debug("growing {s} from 0x{x} to 0x{x}\n", .{ decl.name, curr_vaddr, vaddr });
             if (vaddr != curr_vaddr) {
                 log.debug("  (writing new offset table entry)\n", .{});
                 self.offset_table.items[decl.link.coff.offset_table_index] = vaddr;
@@ -697,7 +697,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         }
     } else {
         const vaddr = try self.allocateTextBlock(&decl.link.coff, code.len, required_alignment);
-        log.debug("allocated text block for {} at 0x{x} (size: {Bi})\n", .{ mem.spanZ(decl.name), vaddr, code.len });
+        log.debug("allocated text block for {s} at 0x{x} (size: {Bi})\n", .{ mem.spanZ(decl.name), vaddr, code.len });
         errdefer self.freeTextBlock(&decl.link.coff);
         self.offset_table.items[decl.link.coff.offset_table_index] = vaddr;
         try self.writeOffsetTableEntry(decl.link.coff.offset_table_index);
@@ -880,7 +880,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("COFF LLD new_digest={} error: {}", .{ digest, @errorName(err) });
+            log.debug("COFF LLD new_digest={} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -1236,11 +1236,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.

@@ -1150,7 +1150,7 @@ pub const Module = struct {
 
         for (self.decls) |decl, i| {
             write.next_instr_index = 0;
-            try stream.print("@{} ", .{decl.name});
+            try stream.print("@{s} ", .{decl.name});
             try write.writeInstToStream(stream, decl.inst);
             try stream.writeByte('\n');
         }
@@ -1206,13 +1206,13 @@ const Writer = struct {
             if (@typeInfo(arg_field.field_type) == .Optional) {
                 if (@field(inst.kw_args, arg_field.name)) |non_optional| {
                     if (need_comma) try stream.writeAll(", ");
-                    try stream.print("{}=", .{arg_field.name});
+                    try stream.print("{s}=", .{arg_field.name});
                     try self.writeParamToStream(stream, &non_optional);
                     need_comma = true;
                 }
             } else {
                 if (need_comma) try stream.writeAll(", ");
-                try stream.print("{}=", .{arg_field.name});
+                try stream.print("{s}=", .{arg_field.name});
                 try self.writeParamToStream(stream, &@field(inst.kw_args, arg_field.name));
                 need_comma = true;
             }
@@ -1334,16 +1334,16 @@ const Writer = struct {
             if (info.index) |i| {
                 try stream.print("%{}", .{info.index});
             } else {
-                try stream.print("@{}", .{info.name});
+                try stream.print("@{s}", .{info.name});
             }
         } else if (inst.cast(Inst.DeclVal)) |decl_val| {
-            try stream.print("@{}", .{decl_val.positionals.name});
+            try stream.print("@{s}", .{decl_val.positionals.name});
         } else if (inst.cast(Inst.DeclValInModule)) |decl_val| {
-            try stream.print("@{}", .{decl_val.positionals.decl.name});
+            try stream.print("@{s}", .{decl_val.positionals.decl.name});
         } else {
             // This should be unreachable in theory, but since ZIR is used for debugging the compiler
             // we output some debug text instead.
-            try stream.print("?{}?", .{@tagName(inst.tag)});
+            try stream.print("?{s}?", .{@tagName(inst.tag)});
         }
     }
 };
@@ -1424,7 +1424,7 @@ const Parser = struct {
                 const decl = try parseInstruction(self, &body_context, ident);
                 const ident_index = body_context.instructions.items.len;
                 if (try body_context.name_map.fetchPut(ident, decl.inst)) |_| {
-                    return self.fail("redefinition of identifier '{}'", .{ident});
+                    return self.fail("redefinition of identifier '{s}'", .{ident});
                 }
                 try body_context.instructions.append(decl.inst);
                 continue;
@@ -1510,7 +1510,7 @@ const Parser = struct {
                     const decl = try parseInstruction(self, null, ident);
                     const ident_index = self.decls.items.len;
                     if (try self.global_name_map.fetchPut(ident, decl.inst)) |_| {
-                        return self.fail("redefinition of identifier '{}'", .{ident});
+                        return self.fail("redefinition of identifier '{s}'", .{ident});
                     }
                     try self.decls.append(self.allocator, decl);
                 },
@@ -1538,7 +1538,7 @@ const Parser = struct {
         for (bytes) |byte| {
             if (self.source[self.i] != byte) {
                 self.i = start;
-                return self.fail("expected '{}'", .{bytes});
+                return self.fail("expected '{s}'", .{bytes});
             }
             self.i += 1;
         }
@@ -1585,7 +1585,7 @@ const Parser = struct {
                 return parseInstructionGeneric(self, field.name, tag.Type(), tag, body_ctx, name, contents_start);
             }
         }
-        return self.fail("unknown instruction '{}'", .{fn_name});
+        return self.fail("unknown instruction '{s}'", .{fn_name});
     }
 
     fn parseInstructionGeneric(
@@ -1621,7 +1621,7 @@ const Parser = struct {
                 self.i += 1;
                 skipSpace(self);
             } else if (self.source[self.i] == ')') {
-                return self.fail("expected positional parameter '{}'", .{arg_field.name});
+                return self.fail("expected positional parameter '{s}'", .{arg_field.name});
             }
             @field(inst_specific.positionals, arg_field.name) = try parseParameterGeneric(
                 self,
@@ -1648,7 +1648,7 @@ const Parser = struct {
                     break;
                 }
             } else {
-                return self.fail("unrecognized keyword parameter: '{}'", .{name});
+                return self.fail("unrecognized keyword parameter: '{s}'", .{name});
             }
             skipSpace(self);
         }
@@ -1672,7 +1672,7 @@ const Parser = struct {
                 ' ', '\n', ',', ')' => {
                     const enum_name = self.source[start..self.i];
                     return std.meta.stringToEnum(T, enum_name) orelse {
-                        return self.fail("tag '{}' not a member of enum '{}'", .{ enum_name, @typeName(T) });
+                        return self.fail("tag '{s}' not a member of enum '{s}'", .{ enum_name, @typeName(T) });
                     };
                 },
                 0 => return self.failByte(0),
@@ -1710,7 +1710,7 @@ const Parser = struct {
             BigIntConst => return self.parseIntegerLiteral(),
             usize => {
                 const big_int = try self.parseIntegerLiteral();
-                return big_int.to(usize) catch |err| return self.fail("integer literal: {}", .{@errorName(err)});
+                return big_int.to(usize) catch |err| return self.fail("integer literal: {s}", .{@errorName(err)});
             },
             TypedValue => return self.fail("'const' is a special instruction; not legal in ZIR text", .{}),
             *IrModule.Decl => return self.fail("'declval_in_module' is a special instruction; not legal in ZIR text", .{}),
@@ -1759,7 +1759,7 @@ const Parser = struct {
             },
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
-        return self.fail("TODO parse parameter {}", .{@typeName(T)});
+        return self.fail("TODO parse parameter {s}", .{@typeName(T)});
     }
 
     fn parseParameterInst(self: *Parser, body_ctx: ?*Body) !*Inst {
@@ -1788,7 +1788,7 @@ const Parser = struct {
             const src = name_start - 1;
             if (local_ref) {
                 self.i = src;
-                return self.fail("unrecognized identifier: {}", .{bad_name});
+                return self.fail("unrecognized identifier: {s}", .{bad_name});
             } else {
                 const declval = try self.arena.allocator.create(Inst.DeclVal);
                 declval.* = .{
@@ -1873,7 +1873,7 @@ pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
 
     const fn_ty = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
     _ = ctx.emitFn(module_fn, 0, fn_ty) catch |err| {
-        std.debug.print("unable to dump function: {}\n", .{err});
+        std.debug.print("unable to dump function: {s}\n", .{@errorName(err)});
         return;
     };
     var module = Module{
@@ -2203,7 +2203,7 @@ const EmitZIR = struct {
                         };
                         return self.emitStringLiteral(src, bytes);
                     },
-                    else => |t| std.debug.panic("TODO implement emitTypedValue for pointer to {}", .{@tagName(t)}),
+                    else => |t| std.debug.panic("TODO implement emitTypedValue for pointer to {s}", .{@tagName(t)}),
                 }
             },
             .ComptimeInt => return self.emitComptimeIntVal(src, typed_value.val),
@@ -2274,7 +2274,7 @@ const EmitZIR = struct {
                 };
                 return self.emitUnnamedDecl(&inst.base);
             },
-            else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
+            else => |t| std.debug.panic("TODO implement emitTypedValue for {s}", .{@tagName(t)}),
         }
     }
 
@@ -2947,7 +2947,7 @@ pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8
     try write.inst_table.ensureCapacity(@intCast(u32, instructions.len));
 
     const stderr = std.io.getStdErr().outStream();
-    try stderr.print("{} {s} {{ // unanalyzed\n", .{ kind, decl_name });
+    try stderr.print("{s} {s} {{ // unanalyzed\n", .{ kind, decl_name });
 
     for (instructions) |inst| {
         const my_i = write.next_instr_index;
@@ -2967,5 +2967,5 @@ pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8
         try stderr.writeByte('\n');
     }
 
-    try stderr.print("}} // {} {s}\n\n", .{ kind, decl_name });
+    try stderr.print("}} // {s} {s}\n\n", .{ kind, decl_name });
 }

@@ -37,14 +37,14 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
     defer arena_instance.deinit();
     const arena = &arena_instance.allocator;
 
-    const args = arena.alloc([]const u8, @intCast(usize, argc)) catch fatal("{}", .{"OutOfMemory"});
+    const args = arena.alloc([]const u8, @intCast(usize, argc)) catch fatal("{s}", .{"OutOfMemory"});
     for (args) |*arg, i| {
         arg.* = mem.spanZ(argv[i]);
     }
     if (std.builtin.mode == .Debug) {
         stage2.mainArgs(gpa, arena, args) catch unreachable;
     } else {
-        stage2.mainArgs(gpa, arena, args) catch |err| fatal("{}", .{@errorName(err)});
+        stage2.mainArgs(gpa, arena, args) catch |err| fatal("{s}", .{@errorName(err)});
     }
     return 0;
 }

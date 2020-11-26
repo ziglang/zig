@@ -464,7 +464,7 @@ pub const Value = extern union {
             .ty => return val.castTag(.ty).?.data.format("", options, out_stream),
             .int_type => {
                 const int_type = val.castTag(.int_type).?.data;
-                return out_stream.print("{}{}", .{
+                return out_stream.print("{s}{d}", .{
                     if (int_type.signed) "s" else "u",
                     int_type.bits,
                 });
@@ -507,7 +507,7 @@ pub const Value = extern union {
                 }
                 return out_stream.writeAll("}");
             },
-            .@"error" => return out_stream.print("error.{}", .{val.castTag(.@"error").?.data.name}),
+            .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
         };
     }

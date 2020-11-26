@@ -549,7 +549,7 @@ pub const Manifest = struct {
             .target, .target_must_resolve, .prereq => {},
             else => |err| {
                 try err.printError(error_buf.writer());
-                std.log.err("failed parsing {}: {}", .{ dep_file_basename, error_buf.items });
+                std.log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
                 return error.InvalidDepFile;
             },
         }
@@ -561,7 +561,7 @@ pub const Manifest = struct {
                 .prereq => |bytes| try self.addFilePost(bytes),
                 else => |err| {
                     try err.printError(error_buf.writer());
-                    std.log.err("failed parsing {}: {}", .{ dep_file_basename, error_buf.items });
+                    std.log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
                     return error.InvalidDepFile;
                 },
             }
