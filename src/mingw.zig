@@ -381,7 +381,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     const term = child.wait() catch |err| {
         // TODO surface a proper error here
-        log.err("unable to spawn {}: {}", .{ args[0], @errorName(err) });
+        log.err("unable to spawn {s}: {s}", .{ args[0], @errorName(err) });
         return error.ClangPreprocessorFailed;
     };
 
@@ -395,7 +395,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         },
         else => {
             // TODO surface a proper error here
-            log.err("clang terminated unexpectedly with stderr: {}", .{stderr});
+            log.err("clang terminated unexpectedly with stderr: {s}", .{stderr});
             return error.ClangPreprocessorFailed;
         },
     }

@@ -520,7 +520,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("MachO LLD new_digest={} error: {}", .{ digest, @errorName(err) });
+            log.debug("MachO LLD new_digest={} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -706,7 +706,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
             // case we want to avoid prepending "-l".
             const ext = Compilation.classifyFileExt(link_lib);
-            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
+            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
             argv.appendAssumeCapacity(arg);
         }
 
@@ -759,15 +759,15 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 self.base.allocator.free(result.stderr);
             }
             if (result.stdout.len != 0) {
-                log.warn("unexpected LD stdout: {}", .{result.stdout});
+                log.warn("unexpected LD stdout: {s}", .{result.stdout});
             }
             if (result.stderr.len != 0) {
-                log.warn("unexpected LD stderr: {}", .{result.stderr});
+                log.warn("unexpected LD stderr: {s}", .{result.stderr});
             }
             if (result.term != .Exited or result.term.Exited != 0) {
                 // TODO parse this output and surface with the Compilation API rather than
                 // directly outputting to stderr here.
-                log.err("{}", .{result.stderr});
+                log.err("{s}", .{result.stderr});
                 return error.LDReportedFailure;
             }
         } else {
@@ -980,11 +980,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
@@ -1088,10 +1088,10 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     if (self.local_symbol_free_list.popOrNull()) |i| {
-        log.debug("reusing symbol index {} for {}", .{ i, decl.name });
+        log.debug("reusing symbol index {d} for {s}", .{ i, decl.name });
         decl.link.macho.local_sym_index = i;
     } else {
-        log.debug("allocating symbol index {} for {}", .{ self.local_symbols.items.len, decl.name });
+        log.debug("allocating symbol index {d} for {s}", .{ self.local_symbols.items.len, decl.name });
         decl.link.macho.local_sym_index = @intCast(u32, self.local_symbols.items.len);
         _ = self.local_symbols.addOneAssumeCapacity();
     }
@@ -1165,7 +1165,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growTextBlock(&decl.link.macho, code.len, required_alignment);
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
+            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
             if (vaddr != symbol.n_value) {
                 symbol.n_value = vaddr;
                 log.debug(" (writing new offset table entry)", .{});
@@ -1188,7 +1188,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const decl_name = mem.spanZ(decl.name);
         const name_str_index = try self.makeString(decl_name);
         const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
-        log.debug("allocated text block for {} at 0x{x}", .{ decl_name, addr });
+        log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, addr });
         errdefer self.freeTextBlock(&decl.link.macho);
 
         symbol.* = .{

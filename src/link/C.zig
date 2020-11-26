@@ -111,8 +111,11 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     if (self.header.buf.items.len > 0) {
         try writer.writeByte('\n');
     }
+    if (self.header.items.len > 0) {
+        try writer.print("{s}\n", .{self.header.items});
+    }
     if (self.constants.items.len > 0) {
-        try writer.print("{}\n", .{self.constants.items});
+        try writer.print("{s}\n", .{self.constants.items});
     }
     if (self.main.items.len > 1) {
         const last_two = self.main.items[self.main.items.len - 2 ..];

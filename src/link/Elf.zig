@@ -1362,7 +1362,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("ELF LLD new_digest={} error: {}", .{ digest, @errorName(err) });
+            log.debug("ELF LLD new_digest={} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -1396,7 +1396,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     if (self.base.options.output_mode == .Exe) {
         try argv.append("-z");
-        try argv.append(try std.fmt.allocPrint(arena, "stack-size={}", .{stack_size}));
+        try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
     }
 
     if (self.base.options.image_base_override) |image_base| {
@@ -1438,7 +1438,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     if (getLDMOption(target)) |ldm| {
         // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
         const arg = if (target.os.tag == .freebsd)
-            try std.fmt.allocPrint(arena, "{}_fbsd", .{ldm})
+            try std.fmt.allocPrint(arena, "{s}_fbsd", .{ldm})
         else
             ldm;
         try argv.append("-m");
@@ -1599,7 +1599,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             // (the check for that needs to be earlier), but they could be full paths to .so files, in which
             // case we want to avoid prepending "-l".
             const ext = Compilation.classifyFileExt(link_lib);
-            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
+            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
             argv.appendAssumeCapacity(arg);
         }
 
@@ -1733,11 +1733,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
@@ -2082,10 +2082,10 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     if (self.local_symbol_free_list.popOrNull()) |i| {
-        log.debug("reusing symbol index {} for {}\n", .{ i, decl.name });
+        log.debug("reusing symbol index {} for {s}\n", .{ i, decl.name });
         decl.link.elf.local_sym_index = i;
     } else {
-        log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
+        log.debug("allocating symbol index {} for {s}\n", .{ self.local_symbols.items.len, decl.name });
         decl.link.elf.local_sym_index = @intCast(u32, self.local_symbols.items.len);
         _ = self.local_symbols.addOneAssumeCapacity();
     }
@@ -2182,7 +2182,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         if (zir_dumps.len != 0) {
             for (zir_dumps) |fn_name| {
                 if (mem.eql(u8, mem.spanZ(decl.name), fn_name)) {
-                    std.debug.print("\n{}\n", .{decl.name});
+                    std.debug.print("\n{s}\n", .{decl.name});
                     typed_value.val.castTag(.function).?.data.dump(module.*);
                 }
             }

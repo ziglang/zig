@@ -235,7 +235,7 @@ fn renderFunctionSignature(
                 try writer.writeAll(", ");
             }
             try renderType(ctx, writer, tv.ty.fnParamType(index));
-            try writer.print(" arg{}", .{index});
+            try writer.print(" arg{d}", .{index});
         }
     }
     try writer.writeByte(')');
@@ -481,8 +481,9 @@ fn genBinOp(ctx: *Context, file: *C, inst: *Inst.BinOp, operator: []const u8) !?
     const rhs = try ctx.resolveInst(inst.rhs);
     const writer = file.main.writer();
     const name = try ctx.name();
-    try renderTypeAndName(ctx, writer, inst.base.ty, name, .Const);
-    try writer.print(" = {s} {s} {s};\n", .{ lhs, operator, rhs });
+    try writer.writeAll(indentation ++ "const ");
+    try renderType(ctx, writer, inst.base.ty);
+    try writer.print(" {s} = {s} " ++ operator ++ " {s};\n", .{ name, lhs, rhs });
     return name;
 }
 
@@ -587,7 +588,7 @@ fn genAsm(ctx: *Context, file: *C, as: *Inst.Assembly) !?[]u8 {
             const arg = as.args[index];
             try writer.writeAll("register ");
             try renderType(ctx, writer, arg.ty);
-            try writer.print(" {}_constant __asm__(\"{}\") = ", .{ reg, reg });
+            try writer.print(" {s}_constant __asm__(\"{s}\") = ", .{ reg, reg });
             // TODO merge constant handling into inst_map as well
             if (arg.castTag(.constant)) |c| {
                 try renderValue(ctx, writer, arg.ty, c.val);
@@ -597,13 +598,13 @@ fn genAsm(ctx: *Context, file: *C, as: *Inst.Assembly) !?[]u8 {
                 if (!gop.found_existing) {
                     return ctx.fail(ctx.decl.src(), "Internal error in C backend: asm argument not found in inst_map", .{});
                 }
-                try writer.print("{};\n    ", .{gop.entry.value});
+                try writer.print("{s};\n    ", .{gop.entry.value});
             }
         } else {
             return ctx.fail(ctx.decl.src(), "TODO non-explicit inline asm regs", .{});
         }
     }
-    try writer.print("__asm {} (\"{}\"", .{ if (as.is_volatile) @as([]const u8, "volatile") else "", as.asm_source });
+    try writer.print("__asm {s} (\"{s}\"", .{ if (as.is_volatile) @as([]const u8, "volatile") else "", as.asm_source });
     if (as.output) |o| {
         return ctx.fail(ctx.decl.src(), "TODO inline asm output", .{});
     }
@@ -619,7 +620,7 @@ fn genAsm(ctx: *Context, file: *C, as: *Inst.Assembly) !?[]u8 {
                 if (index > 0) {
                     try writer.writeAll(", ");
                 }
-                try writer.print("\"\"({}_constant)", .{reg});
+                try writer.print("\"\"({s}_constant)", .{reg});
             } else {
                 // This is blocked by the earlier test
                 unreachable;

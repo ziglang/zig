@@ -72,7 +72,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
     errdefer version_table.deinit(gpa);
 
     var glibc_dir = zig_lib_dir.openDir("libc" ++ path.sep_str ++ "glibc", .{}) catch |err| {
-        std.log.err("unable to open glibc dir: {}", .{@errorName(err)});
+        std.log.err("unable to open glibc dir: {s}", .{@errorName(err)});
         return error.ZigInstallationCorrupt;
     };
     defer glibc_dir.close();
@@ -81,7 +81,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
     const vers_txt_contents = glibc_dir.readFileAlloc(gpa, "vers.txt", max_txt_size) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
-            std.log.err("unable to read vers.txt: {}", .{@errorName(err)});
+            std.log.err("unable to read vers.txt: {s}", .{@errorName(err)});
             return error.ZigInstallationCorrupt;
         },
     };
@@ -91,7 +91,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
     const fns_txt_contents = glibc_dir.readFileAlloc(arena, "fns.txt", max_txt_size) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
-            std.log.err("unable to read fns.txt: {}", .{@errorName(err)});
+            std.log.err("unable to read fns.txt: {s}", .{@errorName(err)});
             return error.ZigInstallationCorrupt;
         },
     };
@@ -99,7 +99,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
     const abi_txt_contents = glibc_dir.readFileAlloc(gpa, "abi.txt", max_txt_size) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
-            std.log.err("unable to read abi.txt: {}", .{@errorName(err)});
+            std.log.err("unable to read abi.txt: {s}", .{@errorName(err)});
             return error.ZigInstallationCorrupt;
         },
     };
@@ -116,7 +116,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
             }
             const adjusted_line = line[prefix.len..];
             const ver = std.builtin.Version.parse(adjusted_line) catch |err| {
-                std.log.err("vers.txt:{}: unable to parse glibc version '{}': {}", .{ line_i, line, @errorName(err) });
+                std.log.err("vers.txt:{}: unable to parse glibc version '{s}': {s}", .{ line_i, line, @errorName(err) });
                 return error.ZigInstallationCorrupt;
             };
             try all_versions.append(arena, ver);
@@ -136,7 +136,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
                 return error.ZigInstallationCorrupt;
             };
             const lib = findLib(lib_name) orelse {
-                std.log.err("fns.txt:{}: unknown library name: {}", .{ line_i, lib_name });
+                std.log.err("fns.txt:{}: unknown library name: {s}", .{ line_i, lib_name });
                 return error.ZigInstallationCorrupt;
             };
             try all_functions.append(arena, .{
@@ -170,15 +170,15 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
                         return error.ZigInstallationCorrupt;
                     };
                     const arch_tag = std.meta.stringToEnum(std.Target.Cpu.Arch, arch_name) orelse {
-                        std.log.err("abi.txt:{}: unrecognized arch: '{}'", .{ line_i, arch_name });
+                        std.log.err("abi.txt:{}: unrecognized arch: '{s}'", .{ line_i, arch_name });
                         return error.ZigInstallationCorrupt;
                     };
                     if (!mem.eql(u8, os_name, "linux")) {
-                        std.log.err("abi.txt:{}: expected OS 'linux', found '{}'", .{ line_i, os_name });
+                        std.log.err("abi.txt:{}: expected OS 'linux', found '{s}'", .{ line_i, os_name });
                         return error.ZigInstallationCorrupt;
                     }
                     const abi_tag = std.meta.stringToEnum(std.Target.Abi, abi_name) orelse {
-                        std.log.err("abi.txt:{}: unrecognized ABI: '{}'", .{ line_i, abi_name });
+                        std.log.err("abi.txt:{}: unrecognized ABI: '{s}'", .{ line_i, abi_name });
                         return error.ZigInstallationCorrupt;
                     };
 
@@ -211,7 +211,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
                     }
                     const version_index = std.fmt.parseInt(u8, version_index_string, 10) catch |err| {
                         // If this happens with legit data, increase the size of the integer type in the struct.
-                        std.log.err("abi.txt:{}: unable to parse version: {}", .{ line_i, @errorName(err) });
+                        std.log.err("abi.txt:{}: unable to parse version: {s}", .{ line_i, @errorName(err) });
                         return error.ZigInstallationCorrupt;
                     };
 
@@ -531,7 +531,7 @@ fn add_include_dirs(comp: *Compilation, arena: *Allocator, args: *std.ArrayList(
     try args.append(try path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, lib_libc ++ "glibc" }));
 
     try args.append("-I");
-    try args.append(try std.fmt.allocPrint(arena, "{}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{}-{}-{}", .{
+    try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}", .{
         comp.zig_lib_directory.path.?, @tagName(arch), @tagName(target.os.tag), @tagName(target.abi),
     }));
 
@@ -539,7 +539,7 @@ fn add_include_dirs(comp: *Compilation, arena: *Allocator, args: *std.ArrayList(
     try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "generic-glibc"));
 
     try args.append("-I");
-    try args.append(try std.fmt.allocPrint(arena, "{}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{}-linux-any", .{
+    try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-linux-any", .{
         comp.zig_lib_directory.path.?, @tagName(arch),
     }));
 
@@ -881,7 +881,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
         if (o_directory.handle.createFile(ok_basename, .{})) |file| {
             file.close();
         } else |err| {
-            std.log.warn("glibc shared objects: failed to mark completion: {}", .{@errorName(err)});
+            std.log.warn("glibc shared objects: failed to mark completion: {s}", .{@errorName(err)});
         }
     }
 
