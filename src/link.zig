@@ -263,10 +263,7 @@ pub const File = struct {
                     fs.base64_encoder.encode(&random_sub_path, &random_bytes);
                     const tmp_file_name = try mem.join(base.allocator, "_", &[_][]const u8{ emit.sub_path, random_sub_path[0..] });
                     defer base.allocator.free(tmp_file_name);
-                    var tmp_file = try emit.directory.handle.createFile(tmp_file_name, .{ .mode = determineMode(base.options) });
-                    defer tmp_file.close();
-                    const stat = try f.stat();
-                    _ = try f.copyRangeAll(0, tmp_file, 0, stat.size);
+                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_file_name, .{});
                     try emit.directory.handle.rename(tmp_file_name, emit.sub_path);
                 }
                 f.close();
