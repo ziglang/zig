@@ -1727,6 +1727,9 @@ fn buildOutputType(
         error.SemanticAnalyzeFail => process.exit(1),
         else => |e| return e,
     };
+    if (output_mode == .Exe) {
+        try comp.makeBinFileExecutable();
+    }
 
     if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
         warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});

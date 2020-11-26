@@ -238,7 +238,41 @@ pub const File = struct {
 
     pub fn makeExecutable(base: *File) !void {
         switch (base.tag) {
-            .coff, .elf, .macho => if (base.file) |f| {
+            .macho => if (base.file) |f| {
+                if (base.intermediary_basename != null) {
+                    // The file we have open is not the final file that we want to
+                    // make executable, so we don't have to close it.
+                    return;
+                }
+                if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64) {
+                    if (base.options.target.cpu.arch != .aarch64) return; // If we're not targeting aarch64, nothing to do.
+                    // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
+                    // Any change to the binary will effectively invalidate the kernel's cache
+                    // resulting in a SIGKILL on each subsequent run. Since when doing incremental
+                    // linking we're modifying a binary in-place, this will end up with the kernel
+                    // killing it on every subsequent run. To circumvent it, we will copy the file
+                    // into a new inode, remove the original file, and rename the copy to match
+                    // the original file. This is super messy, but there doesn't seem any other
+                    // way to please the XNU.
+                    const random_bytes_len = 12;
+                    comptime const random_sub_path_len = std.base64.Base64Encoder.calcSize(random_bytes_len);
+                    const emit = base.options.emit orelse return;
+                    var random_bytes: [random_bytes_len]u8 = undefined;
+                    try std.crypto.randomBytes(&random_bytes);
+                    var random_sub_path: [random_sub_path_len]u8 = undefined;
+                    fs.base64_encoder.encode(&random_sub_path, &random_bytes);
+                    const tmp_file_name = try mem.join(base.allocator, "_", &[_][]const u8{ emit.sub_path, random_sub_path[0..] });
+                    defer base.allocator.free(tmp_file_name);
+                    var tmp_file = try emit.directory.handle.createFile(tmp_file_name, .{ .mode = determineMode(base.options) });
+                    defer tmp_file.close();
+                    const stat = try f.stat();
+                    _ = try f.copyRangeAll(0, tmp_file, 0, stat.size);
+                    try emit.directory.handle.rename(tmp_file_name, emit.sub_path);
+                }
+                f.close();
+                base.file = null;
+            },
+            .coff, .elf => if (base.file) |f| {
                 if (base.intermediary_basename != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
