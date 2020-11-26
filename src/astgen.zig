@@ -560,14 +560,14 @@ fn varDecl(
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
                 }
                 s = local_ptr.parent;
             },
@@ -578,7 +578,7 @@ fn varDecl(
 
     // Namespace vars shadowing detection
     if (mod.lookupDeclName(scope, ident_name)) |_| {
-        return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+        return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
     }
     const init_node = node.getInitNode() orelse
         return mod.fail(scope, name_src, "variables must be initialized", .{});
