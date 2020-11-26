@@ -29,8 +29,7 @@ pub var zig_exe_path: []const u8 = undefined;
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) void {
     if (actual_error_union) |actual_payload| {
-        // std.debug.panic("expected error.{s}, found {}", .{ @errorName(expected_error), actual_payload });
-        std.debug.panic("expected error.{s}, found", .{@errorName(expected_error)});
+        std.debug.panic("expected error.{s}, found {}", .{ @errorName(expected_error), actual_payload });
     } else |actual_error| {
         if (expected_error != actual_error) {
             std.debug.panic("expected error.{s}, found error.{s}", .{

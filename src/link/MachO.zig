@@ -620,7 +620,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try argv.append(cur_vers);
             }
 
-            const dylib_install_name = try std.fmt.allocPrint(arena, "@rpath/{}", .{self.base.options.emit.?.sub_path});
+            const dylib_install_name = try std.fmt.allocPrint(arena, "@rpath/{s}", .{self.base.options.emit.?.sub_path});
             try argv.append("-install_name");
             try argv.append(dylib_install_name);
         }
