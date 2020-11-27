@@ -54,6 +54,8 @@ decl_table: std.ArrayHashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_has
 /// Note that a Decl can succeed but the Fn it represents can fail. In this case,
 /// a Decl can have a failed_decls entry but have analysis status of success.
 failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *Compilation.ErrorMsg) = .{},
+/// A Decl can have multiple compileLogs, but only one error, so we map a Decl to a the src locs of all the compileLogs
+compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ArrayListUnmanaged(usize)) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Scope`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*Scope, *Compilation.ErrorMsg) = .{},
@@ -856,6 +858,12 @@ pub fn deinit(self: *Module) void {
         entry.value.destroy(gpa);
     }
     self.failed_exports.deinit(gpa);
+
+    for (self.compile_log_decls.items()) |entry| {
+        entry.value.deinit(gpa);
+        gpa.destroy(entry.value);
+    }
+    self.compile_log_decls.deinit(gpa);
 
     for (self.decl_exports.items()) |entry| {
         const export_list = entry.value;
@@ -2941,6 +2949,56 @@ pub fn failNode(
     return self.fail(scope, src, format, args);
 }
 
+fn addCompileLog(self: *Module, decl: *Decl, src: usize) error{OutOfMemory}!void {
+    var res = self.compile_log_decls.get(decl);
+    if (res) |value| {
+        try value.append(self.gpa, src);
+    } else {
+        // TODO does it have to be this complicated. why doesn't ArrayListUnmanaged have initCapacityAlloc that returns a heap allocated ArrayList?
+        var new_list = try self.gpa.create(ArrayListUnmanaged(usize));
+        const new_memory = try self.gpa.alloc(usize, 1);
+        new_list.items.ptr = new_memory.ptr;
+        new_list.items.len = 0;
+        new_list.capacity = new_memory.len;
+        new_list.appendAssumeCapacity(src);
+        try self.compile_log_decls.put(self.gpa, decl, new_list);
+    }
+}
+pub fn failCompileLog(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+) InnerError!void { // we do void because we dont actually want to fail because analysis should continue
+    switch (scope.tag) {
+        .decl => {
+            const decl = scope.cast(Scope.DeclAnalysis).?.decl;
+            try self.addCompileLog(decl, src);
+        },
+        .block => {
+            const block = scope.cast(Scope.Block).?;
+            try self.addCompileLog(block.decl, src);
+        },
+        .gen_zir => {
+            const gen_zir = scope.cast(Scope.GenZIR).?;
+            try self.addCompileLog(gen_zir.decl, src);
+        },
+        .local_val => {
+            const gen_zir = scope.cast(Scope.LocalVal).?.gen_zir;
+            try self.addCompileLog(gen_zir.decl, src);
+        },
+        .local_ptr => {
+            const gen_zir = scope.cast(Scope.LocalPtr).?.gen_zir;
+            try self.addCompileLog(gen_zir.decl, src);
+        },
+        .zir_module => {
+            // TODO is this actually unreachable?
+            unreachable;
+            // const zir_module = scope.cast(Scope.ZIRModule).?;
+        },
+        .file => unreachable,
+        .container => unreachable,
+    }
+}
 fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Compilation.ErrorMsg) InnerError {
     {
         errdefer err_msg.destroy(self.gpa);
