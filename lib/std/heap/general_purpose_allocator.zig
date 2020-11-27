@@ -148,10 +148,13 @@ pub const Config = struct {
     /// Whether the allocator may be used simultaneously from multiple threads.
     thread_safe: bool = !std.builtin.single_threaded,
 
-    /// Which mutex you'd like to use, for thread safety.
-    /// * Defaults to `std.Mutex` when thread_safe is enabled.
-    /// * Defaults to `std.mutex.Dummy` otherwise.
-    mutex_init: anytype = null,
+    /// What type of mutex you'd like to use, for thread safety.
+    /// when null (default):
+    /// * the mutex type defaults to `std.Mutex` when thread_safe is enabled.
+    /// * the mutex type defaults to `std.mutex.Dummy` otherwise.
+    /// if you specify this type, you MUST define the `mutex` field in your GPA when it is
+    /// initialized, and the type of your mutex must match this type.
+    MutexType: ?type = null,
 
     /// This is a temporary debugging trick you can use to turn segfaults into more helpful
     /// logged error messages with stack trace details. The downside is that every allocation
@@ -172,14 +175,15 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         total_requested_bytes: @TypeOf(total_requested_bytes_init) = total_requested_bytes_init,
         requested_memory_limit: @TypeOf(requested_memory_limit_init) = requested_memory_limit_init,
 
-        mutex: @TypeOf(mutex_init) = mutex_init,
+        mutex: MutexType = if (config.MutexType) |_| undefined else mutex_init,
 
         const Self = @This();
 
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};
 
-        const mutex_init = if (config.mutex_init) |init| init else if (config.thread_safe) std.Mutex{} else std.mutex.Dummy{};
+        const MutexType = if (config.MutexType) |T| T else @TypeOf(mutex_init);
+        const mutex_init = if (config.thread_safe) std.Mutex{} else std.mutex.Dummy{};
 
         const stack_n = config.stack_trace_frames;
         const one_trace_size = @sizeOf(usize) * stack_n;
@@ -852,6 +856,18 @@ test "realloc large object to small object" {
     slice = try allocator.realloc(slice, 19);
     std.testing.expect(slice[0] == 0x12);
     std.testing.expect(slice[16] == 0x34);
+}
+
+test "overrideable mutexes" {
+    var gpa = GeneralPurposeAllocator(.{.MutexType = std.Mutex}){
+        .backing_allocator = std.testing.allocator,
+        .mutex = std.Mutex{}
+    };
+    defer std.testing.expect(!gpa.deinit());
+    const allocator = &gpa.allocator;
+
+    const ptr = try allocator.create(i32);
+    defer allocator.destroy(ptr);
 }
 
 test "non-page-allocator backing allocator" {
