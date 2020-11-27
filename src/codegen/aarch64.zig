@@ -19,6 +19,8 @@ pub const Register = enum(u6) {
     w16, w17, w18, w19, w20, w21, w22, w23,
     w24, w25, w26, w27, w28, w29, w30, wzr,
 
+    pub const sp = .xzr;
+
     pub fn id(self: Register) u5 {
         return @truncate(u5, @enumToInt(self));
     }
@@ -195,6 +197,17 @@ test "FloatingPointRegister.toX" {
 
 /// Represents an instruction in the AArch64 instruction set
 pub const Instruction = union(enum) {
+    OrShiftedRegister: packed struct {
+        rd: u5,
+        rn: u5,
+        imm6: u6,
+        rm: u5,
+        n: u1,
+        shift: u2,
+        fixed: u5 = 0b01010,
+        opc: u2 = 0b01,
+        sf: u1,
+    },
     MoveWideImmediate: packed struct {
         rd: u5,
         imm16: u16,
@@ -251,6 +264,7 @@ pub const Instruction = union(enum) {
 
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
+            .OrShiftedRegister => |v| @bitCast(u32, v),
             .MoveWideImmediate => |v| @bitCast(u32, v),
             .PCRelativeAddress => |v| @bitCast(u32, v),
             .LoadStoreRegister => |v| @bitCast(u32, v),
@@ -379,7 +393,64 @@ pub const Instruction = union(enum) {
         }
     };
 
+    pub const RegisterShift = struct {
+        rn: u5,
+        imm6: u6,
+        shift: enum(u2) {
+            Lsl = 0,
+            Lsr = 1,
+            Asr = 2,
+            Ror = 3,
+        },
+
+        pub fn none() RegisterShift {
+            return .{
+                .rn = 0b11111,
+                .imm6 = 0,
+                .shift = .Lsl,
+            };
+        }
+    };
+
     // Helper functions for assembly syntax functions
+
+    fn orShiftedRegister(
+        rd: Register,
+        rm: Register,
+        shift: RegisterShift,
+        invert: bool,
+    ) Instruction {
+        const n: u1 = if (invert) 1 else 0;
+        switch (rd.size()) {
+            32 => {
+                return Instruction{
+                    .OrShiftedRegister = .{
+                        .rd = rd.id(),
+                        .rn = shift.rn,
+                        .imm6 = shift.imm6,
+                        .rm = rm.id(),
+                        .n = n,
+                        .shift = @enumToInt(shift.shift),
+                        .sf = 0,
+                    },
+                };
+            },
+            64 => {
+                return Instruction{
+                    .OrShiftedRegister = .{
+                        .rd = rd.id(),
+                        .rn = shift.rn,
+                        .imm6 = shift.imm6,
+                        .rm = rm.id(),
+                        .n = n,
+                        .shift = @enumToInt(shift.shift),
+                        .sf = 1,
+                    },
+                };
+            },
+            else => unreachable, // unexpected register size
+        }
+    }
 
     fn moveWideImmediate(
         opc: u2,
@@ -543,6 +614,16 @@ pub const Instruction = union(enum) {
         };
     }
 
+    // Bitwise (inclusive) OR of a register value
+
+    pub fn orr(rd: Register, rm: Register, shift: RegisterShift) Instruction {
+        return orShiftedRegister(rd, rm, shift, false);
+    }
+
+    pub fn orn(rd: Register, rm: Register, shift: RegisterShift) Instruction {
+        return orShiftedRegister(rd, rm, shift, true);
+    }
+
     // Move wide (immediate)
 
     pub fn movn(rd: Register, imm16: u16, shift: u6) Instruction {
@@ -653,6 +734,14 @@ test "serialize instructions" {
     };
 
     const testcases = [_]Testcase{
+        .{ // orr x0 x1
+            .inst = Instruction.orr(.x0, .x1, Instruction.RegisterShift.none()),
+            .expected = 0b1_01_01010_00_0_00001_000000_11111_00000,
+        },
+        .{ // orn x0 x1
+            .inst = Instruction.orn(.x0, .x1, Instruction.RegisterShift.none()),
+            .expected = 0b1_01_01010_00_1_00001_000000_11111_00000,
+        },
         .{ // movz x1 #4
             .inst = Instruction.movz(.x1, 4, 0),
             .expected = 0b1_10_100101_00_0000000000000100_00001,

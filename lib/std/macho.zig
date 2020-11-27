@@ -1384,10 +1384,10 @@ pub const CSTYPE_INDEX_REQUIREMENTS: u32 = 0x00000002;
 /// Compat with amfi
 pub const CSTYPE_INDEX_ENTITLEMENTS: u32 = 0x00000005;
 
-pub const CS_HASHTYPE_SHA1: u32 = 1;
-pub const CS_HASHTYPE_SHA256: u32 = 2;
-pub const CS_HASHTYPE_SHA256_TRUNCATED: u32 = 3;
-pub const CS_HASHTYPE_SHA384: u32 = 4;
+pub const CS_HASHTYPE_SHA1: u8 = 1;
+pub const CS_HASHTYPE_SHA256: u8 = 2;
+pub const CS_HASHTYPE_SHA256_TRUNCATED: u8 = 3;
+pub const CS_HASHTYPE_SHA384: u8 = 4;
 
 pub const CS_SHA1_LEN: u32 = 20;
 pub const CS_SHA256_LEN: u32 = 32;
@@ -1401,6 +1401,10 @@ pub const CS_HASH_MAX_SIZE: u32 = 48;
 pub const CS_SIGNER_TYPE_UNKNOWN: u32 = 0;
 pub const CS_SIGNER_TYPE_LEGACYVPN: u32 = 5;
 pub const CS_SIGNER_TYPE_MAC_APP_STORE: u32 = 6;
+
+pub const CS_ADHOC: u32 = 0x2;
+
+pub const CS_EXECSEG_MAIN_BINARY: u32 = 0x1;
 
 /// This CodeDirectory is tailored specfically at version 0x20400.
 pub const CodeDirectory = extern struct {
@@ -1446,6 +1450,18 @@ pub const CodeDirectory = extern struct {
     /// Unused (must be zero)
     spare2: u32,
 
+    ///
+    scatterOffset: u32,
+
+    ///
+    teamOffset: u32,
+
+    ///
+    spare3: u32,
+
+    ///
+    codeLimit64: u64,
+
     /// Offset of executable segment
     execSegBase: u64,
 
@@ -1453,9 +1469,7 @@ pub const CodeDirectory = extern struct {
     execSegLimit: u64,
 
     /// Executable segment flags
-    execSegFlags,
-
-    // end_withExecSeg: [*]u8,
+    execSegFlags: u64,
 };
 
 /// Structure of an embedded-signature SuperBlob
@@ -1478,8 +1492,6 @@ pub const SuperBlob = extern struct {
 
     /// Number of index BlobIndex entries following this struct
     count: u32,
-
-    // index: []const BlobIndex,
 };
 
 pub const GenericBlob = extern struct {
@@ -1488,6 +1500,4 @@ pub const GenericBlob = extern struct {
 
     /// Total length of blob
     length: u32,
-
-    // data: []const u8,
 };
