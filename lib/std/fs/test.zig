@@ -691,9 +691,6 @@ test "realpath" {
 test "open file with exclusive nonblocking lock twice" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
-
     const filename = "file_nonblocking_lock_test.txt";
 
     var tmp = tmpDir(.{});
@@ -709,9 +706,6 @@ test "open file with exclusive nonblocking lock twice" {
 test "open file with shared and exclusive nonblocking lock" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
-
     const filename = "file_nonblocking_lock_test.txt";
 
     var tmp = tmpDir(.{});
@@ -726,9 +720,6 @@ test "open file with shared and exclusive nonblocking lock" {
 
 test "open file with exclusive and shared nonblocking lock" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
 
     const filename = "file_nonblocking_lock_test.txt";
 
@@ -790,9 +781,6 @@ test "open file with exclusive lock twice, make sure it waits" {
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
 
     const allocator = testing.allocator;
 

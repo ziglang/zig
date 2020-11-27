@@ -1020,6 +1020,8 @@ pub const OpenError = error{
 
     BadPathName,
     InvalidUtf8,
+
+    WouldBlock,
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -1201,6 +1203,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             EEXIST => return error.PathAlreadyExists,
             EBUSY => return error.DeviceBusy,
             EOPNOTSUPP => return error.FileLocksNotSupported,
+            EWOULDBLOCK => return error.WouldBlock,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -4187,6 +4190,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         const flags = if (builtin.os.tag == .linux) O_PATH | O_NONBLOCK | O_CLOEXEC else O_NONBLOCK | O_CLOEXEC;
         const fd = openZ(pathname, flags, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
+            error.WouldBlock => unreachable,
             else => |e| return e,
         };
         defer close(fd);
