@@ -2584,7 +2584,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     .register => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
                     .memory => |addr| {
-                        if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                        if (self.bin_file.options.pie) {
                             // For MachO, the binary, with the exception of object files, has to be a PIE.
                             // Therefore we cannot load an absolute address.
                             // Instead, we need to make use of PC-relative addressing.
