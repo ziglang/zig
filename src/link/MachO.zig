@@ -1015,14 +1015,18 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     while (self.pie_fixups.popOrNull()) |fixup| {
         const target_addr = fixup.address;
         const this_addr = symbol.n_value + fixup.start;
-        if (self.base.options.target.cpu.arch == .x86_64) {
-            const displacement = @intCast(u32, target_addr - this_addr - fixup.len);
-            var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
-            mem.writeIntSliceLittle(u32, placeholder, displacement);
-        } else {
-            const displacement = @intCast(u27, target_addr - this_addr);
-            var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
-            mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.b(@intCast(i28, displacement)).toU32());
+        switch (self.base.options.target.cpu.arch) {
+            .x86_64 => {
+                const displacement = @intCast(u32, target_addr - this_addr - fixup.len);
+                var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
+                mem.writeIntSliceLittle(u32, placeholder, displacement);
+            },
+            .aarch64 => {
+                const displacement = @intCast(u27, target_addr - this_addr);
+                var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
+                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.b(@intCast(i28, displacement)).toU32());
+            },
+            else => unreachable, // unsupported target architecture
         }
     }
 
@@ -1651,23 +1655,27 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     const vmaddr = sect.addr + @sizeOf(u64) * index;
 
     var code: [8]u8 = undefined;
-    if (self.base.options.target.cpu.arch == .x86_64) {
-        const pos_symbol_off = @intCast(u31, vmaddr - self.offset_table.items[index] + 7);
-        const symbol_off = @bitCast(u32, @intCast(i32, pos_symbol_off) * -1);
-        // lea %rax, [rip - disp]
-        code[0] = 0x48;
-        code[1] = 0x8D;
-        code[2] = 0x5;
-        mem.writeIntLittle(u32, code[3..7], symbol_off);
-        // ret
-        code[7] = 0xC3;
-    } else {
-        const pos_symbol_off = @intCast(u20, vmaddr - self.offset_table.items[index]);
-        const symbol_off = @intCast(i21, pos_symbol_off) * -1;
-        // adr x0, #-disp
-        mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x0, symbol_off).toU32());
-        // ret x28
-        mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.ret(.x28).toU32());
+    switch (self.base.options.target.cpu.arch) {
+        .x86_64 => {
+            const pos_symbol_off = @intCast(u31, vmaddr - self.offset_table.items[index] + 7);
+            const symbol_off = @bitCast(u32, @intCast(i32, pos_symbol_off) * -1);
+            // lea %rax, [rip - disp]
+            code[0] = 0x48;
+            code[1] = 0x8D;
+            code[2] = 0x5;
+            mem.writeIntLittle(u32, code[3..7], symbol_off);
+            // ret
+            code[7] = 0xC3;
+        },
+        .aarch64 => {
+            const pos_symbol_off = @intCast(u20, vmaddr - self.offset_table.items[index]);
+            const symbol_off = @intCast(i21, pos_symbol_off) * -1;
+            // adr x0, #-disp
+            mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x0, symbol_off).toU32());
+            // ret x28
+            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.ret(.x28).toU32());
+        },
+        else => unreachable, // unsupported target architecture
     }
     log.debug("writing offset table entry 0x{x} at 0x{x}\n", .{ self.offset_table.items[index], off });
     try self.base.file.?.pwriteAll(&code, off);

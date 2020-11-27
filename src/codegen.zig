@@ -2601,11 +2601,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 }).toU32());
                                 // adr x28, #8
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .address = addr,
-                                    .start = self.code.items.len,
-                                    .len = 4,
-                                });
+                                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                    try macho_file.pie_fixups.append(self.bin_file.allocator, .{
+                                        .address = addr,
+                                        .start = self.code.items.len,
+                                        .len = 4,
+                                    });
+                                } else {
+                                    return self.fail(src, "TODO implement genSetReg for PIE on this platform", .{});
+                                }
                                 // b [label]
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.b(0).toU32());
                                 // mov r, x0
@@ -2626,11 +2630,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 }).toU32());
                                 // adr x28, #8
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .address = addr,
-                                    .start = self.code.items.len,
-                                    .len = 4,
-                                });
+                                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                    try macho_file.pie_fixups.append(self.bin_file.allocator, .{
+                                        .address = addr,
+                                        .start = self.code.items.len,
+                                        .len = 4,
+                                    });
+                                } else {
+                                    return self.fail(src, "TODO implement genSetReg for PIE on this platform", .{});
+                                }
                                 // b [label]
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.b(0).toU32());
                                 // mov r, x0
@@ -2828,7 +2836,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, R });
                     },
                     .memory => |x| {
-                        if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                        if (self.bin_file.options.pie) {
                             // For MachO, the binary, with the exception of object files, has to be a PIE.
                             // Therefore, we cannot load an absolute address.
                             assert(x > math.maxInt(u32)); // 32bit direct addressing is not supported by MachO.
@@ -2838,11 +2846,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // later in the linker.
                             if (reg.id() == 0) { // %rax is special-cased
                                 try self.code.ensureCapacity(self.code.items.len + 5);
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .address = x,
-                                    .start = self.code.items.len,
-                                    .len = 5,
-                                });
+                                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                    try macho_file.pie_fixups.append(self.bin_file.allocator, .{
+                                        .address = x,
+                                        .start = self.code.items.len,
+                                        .len = 5,
+                                    });
+                                } else {
+                                    return self.fail(src, "TODO implement genSetReg for PIE on this platform", .{});
+                                }
                                 // call [label]
                                 self.code.appendSliceAssumeCapacity(&[_]u8{
                                     0xE8,
@@ -2855,11 +2867,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 try self.code.ensureCapacity(self.code.items.len + 10);
                                 // push %rax
                                 self.code.appendSliceAssumeCapacity(&[_]u8{0x50});
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .address = x,
-                                    .start = self.code.items.len,
-                                    .len = 5,
-                                });
+                                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                    try macho_file.pie_fixups.append(self.bin_file.allocator, .{
+                                        .address = x,
+                                        .start = self.code.items.len,
+                                        .len = 5,
+                                    });
+                                } else {
+                                    return self.fail(src, "TODO implement genSetReg for PIE on this platform", .{});
+                                }
                                 // call [label]
                                 self.code.appendSliceAssumeCapacity(&[_]u8{
                                     0xE8,
