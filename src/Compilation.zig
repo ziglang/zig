@@ -1353,7 +1353,11 @@ pub fn totalErrorCount(self: *Compilation) usize {
         total += module.failed_decls.items().len +
             module.failed_exports.items().len +
             module.failed_files.items().len +
-            @boolToInt(module.failed_root_src_file != null);
+            @boolToInt(module.failed_root_src_file != null) +
+            module.failed_files.items().len;
+        for (module.compile_log_decls.items()) |entry| {
+            total += entry.value.items.len;
+        }
     }
 
     // The "no entry point found" error only counts if there are no other errors.
@@ -1403,6 +1407,15 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 file_path, @errorName(err),
             });
             try AllErrors.addPlain(&arena, &errors, msg);
+        }
+        for (module.compile_log_decls.items()) |entry| {
+            const decl = entry.key;
+            const path = decl.scope.subFilePath();
+            const source = try decl.scope.getSource(module);
+            for (entry.value.items) |src_loc| {
+                const err_msg = ErrorMsg{ .byte_offset = src_loc, .msg = "found compile log statement" };
+                try AllErrors.add(&arena, &errors, path, source, err_msg);
+            }
         }
     }
 

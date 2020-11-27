@@ -526,13 +526,13 @@ pub const Inst = struct {
                 .import,
                 .switch_range,
                 .typeof_peer,
+                .compilelog,
                 => false,
 
                 .@"break",
                 .breakvoid,
                 .condbr,
                 .compileerror,
-                .compilelog,
                 .@"return",
                 .returnvoid,
                 .unreach_nocheck,
@@ -727,7 +727,10 @@ pub const Inst = struct {
         positionals: struct {
             to_log: []*Inst,
         },
-        kw_args: struct {},
+        kw_args: struct {
+            /// If we have seen it already so don't make another error
+            seen: bool = false,
+        },
     };
 
     pub const Const = struct {
