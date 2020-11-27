@@ -21,6 +21,23 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
     );
 }
 
+pub fn syscall_fork() usize {
+    return asm volatile (
+        \\ t 0x6d
+        \\ bcc,pt %%xcc, 1f
+        \\ nop
+        \\ ba 2f
+        \\ neg %%o0
+        \\ 1:
+        \\ dec %%o1
+        \\ and %%o1, %%o0, %%o0
+        \\ 2:
+        : [ret] "={o0}" (-> usize)
+        : [number] "{g1}" (@enumToInt(SYS.fork))
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
+    );
+}
+
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
         \\ t 0x6d
