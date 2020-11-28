@@ -1196,3 +1196,7 @@ pub const rlimit = extern struct {
     /// Hard limit
     max: rlim_t,
 };
+
+pub const SHUT_RD = 0;
+pub const SHUT_WR = 1;
+pub const SHUT_RDWR = 2;

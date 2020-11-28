@@ -627,3 +627,22 @@ test "getrlimit and setrlimit" {
         try os.setrlimit(resource, limit);
     }
 }
+
+test "shutdown socket" {
+    if (builtin.os.tag == .wasi)
+        return error.SkipZigTest;
+    if (builtin.os.tag == .windows) {
+        _ = try std.os.windows.WSAStartup(2, 2);
+    }
+    defer {
+        if (builtin.os.tag == .windows) {
+            std.os.windows.WSACleanup() catch unreachable;
+        }
+    }
+    const sock = try os.socket(os.AF_INET, os.SOCK_STREAM, 0);
+    os.shutdown(sock, .both) catch |err| switch (err) {
+        error.SocketNotConnected => {},
+        else => |e| return e,
+    };
+    os.closeSocket(sock);
+}

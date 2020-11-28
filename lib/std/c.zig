@@ -145,6 +145,7 @@ pub extern "c" fn ioctl(fd: fd_t, request: c_int, ...) c_int;
 pub extern "c" fn uname(buf: *utsname) c_int;
 
 pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
+pub extern "c" fn shutdown(socket: fd_t, how: c_int) c_int;
 pub extern "c" fn bind(socket: fd_t, address: ?*const sockaddr, address_len: socklen_t) c_int;
 pub extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
 pub extern "c" fn listen(sockfd: fd_t, backlog: c_uint) c_int;

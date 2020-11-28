@@ -2706,6 +2706,62 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     }
 }
 
+pub const ShutdownError = error{
+    ConnectionAborted,
+
+    /// Connection was reset by peer, application should close socket as it is no longer usable.
+    ConnectionResetByPeer,
+
+    BlockingOperationInProgress,
+
+    /// The network subsystem has failed.
+    NetworkSubsystemFailed,
+
+    /// The socket is not connected (connection-oriented sockets only).
+    SocketNotConnected,
+
+    SystemResources
+} || UnexpectedError;
+
+pub const ShutdownHow = enum { recv, send, both };
+
+/// Shutdown socket send/receive operations
+pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
+    if (builtin.os.tag == .windows) {
+        const result = windows.ws2_32.shutdown(sock, switch (how) {
+            .recv => windows.SD_RECEIVE,
+            .send => windows.SD_SEND,
+            .both => windows.SD_BOTH,
+        });
+        if (0 != result) switch (windows.ws2_32.WSAGetLastError()) {
+            .WSAECONNABORTED => return error.ConnectionAborted,
+            .WSAECONNRESET => return error.ConnectionResetByPeer,
+            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
+            .WSAEINVAL => unreachable,
+            .WSAENETDOWN => return error.NetworkSubsystemFailed,
+            .WSAENOTCONN => return error.SocketNotConnected,
+            .WSAENOTSOCK => unreachable,
+            .WSANOTINITIALISED => unreachable,
+            else => |err| return windows.unexpectedWSAError(err),
+        };
+    } else {
+        const rc = system.shutdown(sock, switch (how) {
+            .recv => SHUT_RD,
+            .send => SHUT_WR,
+            .both => SHUT_RDWR,
+        });
+        switch (errno(rc)) {
+            0 => return,
+            EBADF => unreachable,
+            EINVAL => unreachable,
+            ENOTCONN => return error.SocketNotConnected,
+            ENOTSOCK => unreachable,
+            ENOBUFS => return error.SystemResources,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 pub fn closeSocket(sock: socket_t) void {
     if (builtin.os.tag == .windows) {
         windows.closesocket(sock) catch unreachable;
