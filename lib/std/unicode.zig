@@ -575,8 +575,8 @@ pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8
 }
 
 /// Caller must free returned memory.
-pub fn utf16leToUtf8WithNull(allocator: *mem.Allocator, utf16le: []const u16) ![:0]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+pub fn utf16leToUtf8AllocZ(allocator: *mem.Allocator, utf16le: []const u16) ![:0]u8 {
+    var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
     // optimistically guess that it will all be ascii.
     try result.ensureCapacity(utf16le.len);
     var out_index: usize = 0;

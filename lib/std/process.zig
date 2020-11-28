@@ -362,7 +362,11 @@ pub const ArgIteratorWindows = struct {
         var backslash_count: usize = 0;
         var in_quote = false;
         while (true) : (self.index += 1) {
-            const character = self.cmd_line[self.index];
+            // According to
+            // https://docs.microsoft.com/en-us/windows/win32/intl/using-byte-order-marks
+            // Microsoft uses UTF16-LE. So we just read assuming it's little
+            // endian.
+            const character = std.mem.littleToNative(u16, self.cmd_line[self.index]);
             switch (character) {
                 0 => {
                     return convertFromWindowsCmdLineToUTF8(allocator, buf.items);
@@ -375,7 +379,7 @@ pub const ArgIteratorWindows = struct {
                     if (quote_is_real) {
                         in_quote = !in_quote;
                     } else {
-                        try buf.append('"');
+                        try buf.append(std.mem.nativeToLittle(u16, '"'));
                     }
                 },
                 '\\' => {
@@ -385,7 +389,7 @@ pub const ArgIteratorWindows = struct {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
                     if (in_quote) {
-                        try buf.append(character);
+                        try buf.append(std.mem.nativeToLittle(u16, character));
                     } else {
                         return convertFromWindowsCmdLineToUTF8(allocator, buf.items);
                     }
@@ -393,14 +397,14 @@ pub const ArgIteratorWindows = struct {
                 else => {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
-                    try buf.append(character);
+                    try buf.append(std.mem.nativeToLittle(u16, character));
                 },
             }
         }
     }
 
     fn convertFromWindowsCmdLineToUTF8(allocator: *Allocator, buf: []u16) NextError![:0]u8 {
-        return std.unicode.utf16leToUtf8WithNull(allocator, buf) catch |err| switch (err) {
+        return std.unicode.utf16leToUtf8AllocZ(allocator, buf) catch |err| switch (err) {
             error.ExpectedSecondSurrogateHalf,
             error.DanglingSurrogateHalf,
             error.UnexpectedSecondSurrogateHalf,
@@ -412,7 +416,7 @@ pub const ArgIteratorWindows = struct {
     fn emitBackslashes(self: *ArgIteratorWindows, buf: *std.ArrayList(u16), emit_count: usize) !void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
-            try buf.append('\\');
+            try buf.append(std.mem.nativeToLittle(u16, '\\'));
         }
     }
 };
