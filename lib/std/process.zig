@@ -300,11 +300,15 @@ pub const ArgIteratorWindows = struct {
         };
     }
 
+    fn getPointAtIndex(self: *ArgIteratorWindows) u16 {
+        return std.mem.littleToNative(u16, self.cmd_line[self.index]);
+    }
+
     /// You must free the returned memory when done.
     pub fn next(self: *ArgIteratorWindows, allocator: *Allocator) ?(NextError![:0]u8) {
         // march forward over whitespace
         while (true) : (self.index += 1) {
-            const character = self.cmd_line[self.index];
+            const character = self.getPointAtIndex();
             switch (character) {
                 0 => return null,
                 ' ', '\t' => continue,
@@ -318,7 +322,7 @@ pub const ArgIteratorWindows = struct {
     pub fn skip(self: *ArgIteratorWindows) bool {
         // march forward over whitespace
         while (true) : (self.index += 1) {
-            const character = self.cmd_line[self.index];
+            const character = self.getPointAtIndex();
             switch (character) {
                 0 => return false,
                 ' ', '\t' => continue,
@@ -329,7 +333,7 @@ pub const ArgIteratorWindows = struct {
         var backslash_count: usize = 0;
         var in_quote = false;
         while (true) : (self.index += 1) {
-            const character = self.cmd_line[self.index];
+            const character = self.getPointAtIndex();
             switch (character) {
                 0 => return true,
                 '"' => {
