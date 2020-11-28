@@ -22,6 +22,11 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
 }
 
 pub fn syscall_fork() usize {
+    // Linux/sparc64 fork() returns two values in %o0 and %o1:
+    // - On the parent's side, %o0 is the child's PID and %o1 is 0.
+    // - On the child's side, %o0 is the parent's PID and %o1 is 1.
+    // We need to clear the child's %o0 so that the return values
+    // conform to the libc convention.
     return asm volatile (
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
@@ -29,6 +34,7 @@ pub fn syscall_fork() usize {
         \\ ba 2f
         \\ neg %%o0
         \\ 1:
+        \\ # Clear the child's %%o0
         \\ dec %%o1
         \\ and %%o1, %%o0, %%o0
         \\ 2:
