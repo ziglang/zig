@@ -812,28 +812,23 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try parser.parseFile(out_file);
             // Pad out space for code signature
             const text_cmd = parser.load_commands.items[parser.text_cmd_index.?].Segment.inner;
-            std.debug.print("end_pos={},text_fileoff={},text_filesize={}\n", .{
-                parser.end_pos,
-                text_cmd.fileoff,
-                text_cmd.filesize,
-            });
             const dataoff = @intCast(u32, mem.alignForward(parser.end_pos.?, @sizeOf(u64)));
+            const datasize = 0x1000;
             const code_sig = macho.linkedit_data_command{
                 .cmd = macho.LC_CODE_SIGNATURE,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
                 .dataoff = dataoff,
-                .datasize = 0x1000,
+                .datasize = datasize,
             };
-
             const linkedit_seg = parser.load_commands.items[parser.linkedit_cmd_index.?].Segment.inner;
             const linkedit = macho.segment_command_64{
                 .cmd = linkedit_seg.cmd,
                 .cmdsize = linkedit_seg.cmdsize,
                 .segname = linkedit_seg.segname,
                 .vmaddr = linkedit_seg.vmaddr,
-                .vmsize = mem.alignForwardGeneric(u64, linkedit_seg.vmsize + 0x1000, self.page_size),
+                .vmsize = mem.alignForwardGeneric(u64, linkedit_seg.vmsize + datasize, self.page_size),
                 .fileoff = linkedit_seg.fileoff,
-                .filesize = linkedit_seg.filesize + (dataoff - parser.end_pos.?) + 0x1000,
+                .filesize = linkedit_seg.filesize + (dataoff - parser.end_pos.?) + datasize,
                 .maxprot = linkedit_seg.maxprot,
                 .initprot = linkedit_seg.initprot,
                 .nsects = linkedit_seg.nsects,
@@ -854,6 +849,20 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.linkedit_data_command{code_sig}), parser.code_sig_cmd_offset.?);
             try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.segment_command_64{linkedit}), parser.linkedit_cmd_offset.?);
             try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.mach_header_64{header}), 0);
+            // Generate adhoc code signature
+            var signature = CodeSignature.init(self.base.allocator);
+            defer signature.deinit();
+            try signature.calcAdhocSignatureFile(
+                out_file,
+                self.base.options.emit.?.sub_path,
+                text_cmd,
+                code_sig,
+                self.base.options.output_mode,
+            );
+            var buffer = try self.base.allocator.alloc(u8, signature.size());
+            defer self.base.allocator.free(buffer);
+            signature.write(buffer);
+            try out_file.pwriteAll(buffer, code_sig.dataoff);
         }
     }
 
