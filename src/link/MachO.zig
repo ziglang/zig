@@ -23,6 +23,7 @@ const target_util = @import("../target.zig");
 
 const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
+const Parser = @import("MachO/Parser.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
@@ -801,6 +802,38 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             if (stderr_context.data.items.len != 0) {
                 std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
             }
+
+            // At this stage, LLD has done its job. It is time to patch the resultant
+            // binaries up!
+            var parser = Parser.init(self.base.allocator);
+            defer parser.deinit();
+            const out_file = try directory.handle.openFile(full_out_path, .{});
+            try parser.parseFile(out_file);
+            out_file.close();
+            var end_pos: ?usize = null;
+            var text_fileoff: ?usize = null;
+            var text_filesize: ?usize = null;
+            for (parser.load_commands.items) |cmd| {
+                switch (cmd.cmd()) {
+                    macho.LC_SYMTAB => switch (cmd) {
+                        .Symtab => |x| {
+                            end_pos = x.stroff + x.strsize;
+                        },
+                        else => unreachable,
+                    },
+                    macho.LC_SEGMENT_64 => switch (cmd) {
+                        .Segment => |x| {
+                            if (!mem.eql(u8, x.inner.segname[0..6], "__TEXT")) continue;
+                            text_fileoff = x.inner.fileoff;
+                            text_filesize = x.inner.filesize;
+                        },
+                        else => unreachable,
+                    },
+                    else => {},
+                }
+            }
+            // Pad out space for code signature
+            std.debug.print("end_pos={},text_fileoff={},text_filesize={}\n", .{ end_pos, text_fileoff, text_filesize });
         }
     }
 
