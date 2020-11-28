@@ -1602,3 +1602,7 @@ pub const MOUNTMGR_MOUNT_POINTS = extern struct {
     MountPoints: [1]MOUNTMGR_MOUNT_POINT,
 };
 pub const IOCTL_MOUNTMGR_QUERY_POINTS: ULONG = 0x6d0008;
+
+pub const SD_RECEIVE = 0;
+pub const SD_SEND = 1;
+pub const SD_BOTH = 2;

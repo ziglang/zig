@@ -877,3 +877,7 @@ pub extern "ws2_32" fn setsockopt(
     optval: ?*const c_void,
     optlen: socklen_t,
 ) callconv(WINAPI) c_int;
+pub extern "ws2_32" fn shutdown(
+    s: SOCKET,
+    how: c_int,
+) callconv(WINAPI) c_int;
