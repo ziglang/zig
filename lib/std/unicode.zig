@@ -25,10 +25,10 @@ pub fn utf8CodepointSequenceLength(c: u21) !u3 {
 pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
     // The switch is optimized much better than a "smart" approach using @clz
     return switch (first_byte) {
-        0b0000_0000 ... 0b0111_1111 => 1,
-        0b1100_0000 ... 0b1101_1111 => 2,
-        0b1110_0000 ... 0b1110_1111 => 3,
-        0b1111_0000 ... 0b1111_0111 => 4,
+        0b0000_0000...0b0111_1111 => 1,
+        0b1100_0000...0b1101_1111 => 2,
+        0b1110_0000...0b1110_1111 => 3,
+        0b1111_0000...0b1111_0111 => 4,
         else => error.Utf8InvalidStartByte,
     };
 }
@@ -157,8 +157,8 @@ pub fn utf8Decode4(bytes: []const u8) Utf8Decode4Error!u21 {
 /// Returns true if the given unicode codepoint can be encoded in UTF-8.
 pub fn utf8ValidCodepoint(value: u21) bool {
     return switch (value) {
-        0xD800 ... 0xDFFF => false, // Surrogates range
-        0x110000 ... 0x1FFFFF => false, // Above the maximum codepoint value
+        0xD800...0xDFFF => false, // Surrogates range
+        0x110000...0x1FFFFF => false, // Above the maximum codepoint value
         else => true,
     };
 }
@@ -572,6 +572,27 @@ pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8
     }
 
     return result.toOwnedSlice();
+}
+
+/// Caller must free returned memory.
+pub fn utf16leToUtf8WithNull(allocator: *mem.Allocator, utf16le: []const u16) ![:0]u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    // optimistically guess that it will all be ascii.
+    try result.ensureCapacity(utf16le.len);
+    var out_index: usize = 0;
+    var it = Utf16LeIterator.init(utf16le);
+    while (try it.nextCodepoint()) |codepoint| {
+        const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
+        try result.resize(result.items.len + utf8_len);
+        assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
+        out_index += utf8_len;
+    }
+
+    const len = result.items.len;
+
+    try result.append(0);
+
+    return result.toOwnedSlice()[0..len :0];
 }
 
 /// Asserts that the output buffer is big enough.
