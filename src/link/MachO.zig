@@ -852,9 +852,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             // Generate adhoc code signature
             var signature = CodeSignature.init(self.base.allocator);
             defer signature.deinit();
+            const emit = self.base.options.emit.?;
             try signature.calcAdhocSignatureFile(
                 out_file,
-                self.base.options.emit.?.sub_path,
+                emit.sub_path,
                 text_cmd,
                 code_sig,
                 self.base.options.output_mode,
@@ -863,6 +864,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             defer self.base.allocator.free(buffer);
             signature.write(buffer);
             try out_file.pwriteAll(buffer, code_sig.dataoff);
+            try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
         }
     }
 
