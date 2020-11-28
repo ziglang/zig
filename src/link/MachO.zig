@@ -807,33 +807,53 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             // binaries up!
             var parser = Parser.init(self.base.allocator);
             defer parser.deinit();
-            const out_file = try directory.handle.openFile(full_out_path, .{});
+            const out_file = try directory.handle.openFile(full_out_path, .{ .write = true });
+            defer out_file.close();
             try parser.parseFile(out_file);
-            out_file.close();
-            var end_pos: ?usize = null;
-            var text_fileoff: ?usize = null;
-            var text_filesize: ?usize = null;
-            for (parser.load_commands.items) |cmd| {
-                switch (cmd.cmd()) {
-                    macho.LC_SYMTAB => switch (cmd) {
-                        .Symtab => |x| {
-                            end_pos = x.stroff + x.strsize;
-                        },
-                        else => unreachable,
-                    },
-                    macho.LC_SEGMENT_64 => switch (cmd) {
-                        .Segment => |x| {
-                            if (!mem.eql(u8, x.inner.segname[0..6], "__TEXT")) continue;
-                            text_fileoff = x.inner.fileoff;
-                            text_filesize = x.inner.filesize;
-                        },
-                        else => unreachable,
-                    },
-                    else => {},
-                }
-            }
             // Pad out space for code signature
-            std.debug.print("end_pos={},text_fileoff={},text_filesize={}\n", .{ end_pos, text_fileoff, text_filesize });
+            const text_cmd = parser.load_commands.items[parser.text_cmd_index.?].Segment.inner;
+            std.debug.print("end_pos={},text_fileoff={},text_filesize={}\n", .{
+                parser.end_pos,
+                text_cmd.fileoff,
+                text_cmd.filesize,
+            });
+            const dataoff = @intCast(u32, mem.alignForward(parser.end_pos.?, @sizeOf(u64)));
+            const code_sig = macho.linkedit_data_command{
+                .cmd = macho.LC_CODE_SIGNATURE,
+                .cmdsize = @sizeOf(macho.linkedit_data_command),
+                .dataoff = dataoff,
+                .datasize = 0x1000,
+            };
+
+            const linkedit_seg = parser.load_commands.items[parser.linkedit_cmd_index.?].Segment.inner;
+            const linkedit = macho.segment_command_64{
+                .cmd = linkedit_seg.cmd,
+                .cmdsize = linkedit_seg.cmdsize,
+                .segname = linkedit_seg.segname,
+                .vmaddr = linkedit_seg.vmaddr,
+                .vmsize = mem.alignForwardGeneric(u64, linkedit_seg.vmsize + 0x1000, self.page_size),
+                .fileoff = linkedit_seg.fileoff,
+                .filesize = linkedit_seg.filesize + (dataoff - parser.end_pos.?) + 0x1000,
+                .maxprot = linkedit_seg.maxprot,
+                .initprot = linkedit_seg.initprot,
+                .nsects = linkedit_seg.nsects,
+                .flags = linkedit_seg.flags,
+            };
+            const header_cmd = parser.header.?;
+            const header = macho.mach_header_64{
+                .magic = header_cmd.magic,
+                .cputype = header_cmd.cputype,
+                .cpusubtype = header_cmd.cpusubtype,
+                .filetype = header_cmd.filetype,
+                .ncmds = header_cmd.ncmds + 1,
+                .sizeofcmds = header_cmd.sizeofcmds + @sizeOf(macho.linkedit_data_command),
+                .flags = header_cmd.flags,
+                .reserved = header_cmd.reserved,
+            };
+            try out_file.pwriteAll(&[_]u8{0}, code_sig.dataoff + code_sig.datasize);
+            try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.linkedit_data_command{code_sig}), parser.code_sig_cmd_offset.?);
+            try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.segment_command_64{linkedit}), parser.linkedit_cmd_offset.?);
+            try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.mach_header_64{header}), 0);
         }
     }
 
