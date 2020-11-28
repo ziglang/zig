@@ -301,6 +301,10 @@ pub const ArgIteratorWindows = struct {
     }
 
     fn getPointAtIndex(self: *ArgIteratorWindows) u16 {
+        // According to
+        // https://docs.microsoft.com/en-us/windows/win32/intl/using-byte-order-marks
+        // Microsoft uses UTF16-LE. So we just read assuming it's little
+        // endian.
         return std.mem.littleToNative(u16, self.cmd_line[self.index]);
     }
 
@@ -366,11 +370,7 @@ pub const ArgIteratorWindows = struct {
         var backslash_count: usize = 0;
         var in_quote = false;
         while (true) : (self.index += 1) {
-            // According to
-            // https://docs.microsoft.com/en-us/windows/win32/intl/using-byte-order-marks
-            // Microsoft uses UTF16-LE. So we just read assuming it's little
-            // endian.
-            const character = std.mem.littleToNative(u16, self.cmd_line[self.index]);
+            const character = self.getPointAtIndex();
             switch (character) {
                 0 => {
                     return convertFromWindowsCmdLineToUTF8(allocator, buf.items);
