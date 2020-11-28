@@ -306,6 +306,8 @@ const usage_build_generic =
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --version [ver]                Dynamic library semver
+    \\  -fsoname[=name]                (linux) Override the default SONAME value
+    \\  -fno-soname                    (linux) Disable emitting a SONAME
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
@@ -349,6 +351,12 @@ const repl_help =
     \\    exit   Quit this repl
     \\
 ;
+
+const SOName = union(enum) {
+    no,
+    yes_default_value,
+    yes: []const u8,
+};
 
 const Emit = union(enum) {
     no,
@@ -452,6 +460,7 @@ fn buildOutputType(
     var target_ofmt: ?[]const u8 = null;
     var output_mode: std.builtin.OutputMode = undefined;
     var emit_h: Emit = undefined;
+    var soname: SOName = undefined;
     var ensure_libc_on_non_freestanding = false;
     var ensure_libcpp_on_non_freestanding = false;
     var link_libc = false;
@@ -467,7 +476,6 @@ fn buildOutputType(
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
-    var soname: ?[]const u8 = null;
     var linker_gc_sections: ?bool = null;
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
@@ -564,6 +572,8 @@ fn buildOutputType(
             //    .translate_c, .zig_test, .run => emit_h = .no,
             //    else => unreachable,
             //}
+
+            soname = .yes_default_value;
             const args = all_args[2..];
             var i: usize = 0;
             args_loop: while (i < args.len) : (i += 1) {
@@ -828,6 +838,12 @@ fn buildOutputType(
                         use_clang = false;
                     } else if (mem.eql(u8, arg, "-rdynamic")) {
                         rdynamic = true;
+                    } else if (mem.eql(u8, arg, "-fsoname")) {
+                        soname = .yes_default_value;
+                    } else if (mem.startsWith(u8, arg, "-fsoname=")) {
+                        soname = .{ .yes = arg["-fsoname=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-soname")) {
+                        soname = .no;
                     } else if (mem.eql(u8, arg, "-femit-bin")) {
                         emit_bin = .yes_default_path;
                     } else if (mem.startsWith(u8, arg, "-femit-bin=")) {
@@ -955,6 +971,7 @@ fn buildOutputType(
         },
         .cc, .cpp => {
             emit_h = .no;
+            soname = .no;
             strip = true;
             ensure_libc_on_non_freestanding = true;
             ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
@@ -1109,7 +1126,7 @@ fn buildOutputType(
                         fatal("expected linker arg after '{}'", .{arg});
                     }
                     const name = linker_args.items[i];
-                    soname = name;
+                    soname = .{ .yes = name };
                     // Use it as --name.
                     // Example: libsoundio.so.2
                     var prefix: usize = 0;
@@ -1433,6 +1450,18 @@ fn buildOutputType(
     const have_enable_cache = enable_cache orelse false;
     const optional_version = if (have_version) version else null;
 
+    const resolved_soname: ?[]const u8 = switch (soname) {
+        .yes => |explicit| explicit,
+        .no => null,
+        .yes_default_value => switch (object_format) {
+            .elf => if (have_version)
+                try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ root_name, version.major })
+            else
+                try std.fmt.allocPrint(arena, "lib{s}.so", .{root_name}),
+            else => null,
+        },
+    };
+
     const emit_bin_loc: ?Compilation.EmitLoc = switch (emit_bin) {
         .no => null,
         .yes_default_path => Compilation.EmitLoc{
@@ -1660,7 +1689,7 @@ fn buildOutputType(
         .linker_script = linker_script,
         .version_script = version_script,
         .disable_c_depfile = disable_c_depfile,
-        .soname = soname,
+        .soname = resolved_soname,
         .linker_gc_sections = linker_gc_sections,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,

@@ -1313,10 +1313,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 man.hash.addOptionalBytes(self.base.options.dynamic_linker);
             }
         }
-        if (is_dyn_lib) {
-            man.hash.addOptionalBytes(self.base.options.soname);
-            man.hash.addOptional(self.base.options.version);
-        }
+        man.hash.addOptionalBytes(self.base.options.soname);
+        man.hash.addOptional(self.base.options.version);
         man.hash.addStringSet(self.base.options.system_libs);
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
