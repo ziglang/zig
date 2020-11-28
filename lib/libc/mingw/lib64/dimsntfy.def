@@ -1,0 +1,9 @@
+LIBRARY DIMSNTFY.DLL
+EXPORTS
+WlDimsUnlock
+WlDimsStartup
+WlDimsStartShell
+WlDimsShutdown
+WlDimsLogon
+WlDimsLogoff
+WlDimsLock

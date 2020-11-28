@@ -1,0 +1,13 @@
+LIBRARY OLEPRO32.DLL
+EXPORTS
+_OleTranslateColor@12
+_OleLoadPicture@20
+_OleIconToCursor@8
+_OleCreatePropertyFrameIndirect@4
+_OleCreatePropertyFrame@44
+_OleCreatePictureIndirect@16
+_OleCreateFontIndirect@12
+_DllUnregisterServer@0
+_DllRegisterServer@0
+_DllGetClassObject@12
+_DllCanUnloadNow@0

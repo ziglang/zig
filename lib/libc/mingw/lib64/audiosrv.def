@@ -1,0 +1,4 @@
+LIBRARY AUDIOSRV.DLL
+EXPORTS
+SvchostPushServiceGlobals
+ServiceMain

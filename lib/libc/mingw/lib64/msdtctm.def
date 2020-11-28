@@ -1,0 +1,17 @@
+LIBRARY MSDTCTM.DLL
+EXPORTS
+SetTipFunctionalityWorking
+GetTipFunctionalityWorking
+DtcMainExt
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+ASCWrapObject
+ASCWrapClassFactory
+ASCGetSafeReference
+ASCDeliverDeferred
+ASCDefer
+?CreateThreadPool@@YAJXZ
+?CreateInstance@CXaTmCore@@SAJPEAPEAV1@PEAUIUnknown@@@Z
+?CreateInstance@CTm@@SAJPEAPEAV1@PEAUIUnknown@@@Z
+?Create@CUISCore@@SAJPEAPEAV1@PEAUIUnknown@@@Z

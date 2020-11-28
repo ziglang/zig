@@ -1,0 +1,15 @@
+LIBRARY GPEDIT.DLL
+EXPORTS
+_ord_104@12
+_ord_103@12
+_ord_102
+_ord_101@4
+_ord_100@8
+_ImportRSoPData@8
+_ExportRSoPData@8
+_DllGetClassObject@12
+_DllCanUnloadNow
+_DeleteGPOLink@8
+_DeleteAllGPOLinks@4
+_CreateGPOLink@12
+_BrowseForGPO@8

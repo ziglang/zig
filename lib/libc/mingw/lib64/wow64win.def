@@ -1,0 +1,3 @@
+LIBRARY WOW64WIN.DLL
+EXPORTS
+Win32kCallbackTable

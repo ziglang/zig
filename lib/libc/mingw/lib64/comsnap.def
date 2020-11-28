@@ -1,0 +1,7 @@
+LIBRARY COMSNAP.DLL
+EXPORTS
+InstallDsExtension
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

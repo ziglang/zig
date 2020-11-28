@@ -1,0 +1,18 @@
+LIBRARY SLCEXT.DLL
+EXPORTS
+_SLUninstallPackage@20
+_SLSignTokenActivationChallenge@4
+_SLInstallPackage@24
+_SLGetTokenActivationGrants@4
+_SLGetTokenActivationCertificates@4
+_SLGetServerStatus@4
+_SLGetReferralInformation@20
+_SLGetPackageToken@16
+_SLGetPackageProperties@16
+_SLGetPackageProductKey@12
+_SLGenerateTokenActivationChallenge@4
+_SLFreeTokenActivationGrants@4
+_SLFreeTokenActivationCertificates@4
+_SLDepositTokenActivationResponse@4
+_SLActivateProduct@4
+_SLAcquireGenuineTicket@4

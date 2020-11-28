@@ -1,0 +1,13 @@
+LIBRARY MCIOLE32.DLL
+EXPORTS
+RemoveHook
+OleQueryObjPos
+InstallHook
+GetMessageHook
+DllLoadFromStream
+DllCreateLinkFromFile
+DllCreateLinkFromClip
+DllCreateFromTemplate
+DllCreateFromFile
+DllCreateFromClip
+DllCreate

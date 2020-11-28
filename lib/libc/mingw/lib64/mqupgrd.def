@@ -1,0 +1,4 @@
+LIBRARY MQUPGRD.DLL
+EXPORTS
+MqCreateMsmqObj
+CleanupOnCluster

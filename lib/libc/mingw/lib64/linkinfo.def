@@ -1,0 +1,17 @@
+LIBRARY LINKINFO.DLL
+EXPORTS
+ResolveLinkInfoW
+ResolveLinkInfoA
+ResolveLinkInfo
+IsValidLinkInfo
+GetLinkInfoData
+GetCanonicalPathInfoW
+GetCanonicalPathInfoA
+GetCanonicalPathInfo
+DisconnectLinkInfo
+DestroyLinkInfo
+CreateLinkInfoW
+CreateLinkInfoA
+CreateLinkInfo
+CompareLinkInfoVolumes
+CompareLinkInfoReferents

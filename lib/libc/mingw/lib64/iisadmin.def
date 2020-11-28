@@ -1,0 +1,4 @@
+LIBRARY IISADMIN.DLL
+EXPORTS
+ServiceEntry
+RetrieveTracingHandle

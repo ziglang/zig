@@ -1,0 +1,6 @@
+LIBRARY CAP.DLL
+EXPORTS
+__penter
+_StopCAP@0
+_StartCAP@0
+_DumpCAP@0

@@ -1,0 +1,16 @@
+LIBRARY NETPLWIZ.DLL
+EXPORTS
+UsersRunDll
+SHDisconnectNetDrives
+PublishRunDll
+PassportWizardRunDll
+NetPlacesWizardDoModal
+NetAccessWizard
+DllUnregisterServer
+DllRegisterServer
+DllMain
+DllInstall
+DllGetClassObject
+DllCanUnloadNow
+ClearAutoLogon
+AddNetPlaceRunDll

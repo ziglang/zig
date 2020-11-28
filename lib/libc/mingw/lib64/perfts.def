@@ -1,0 +1,5 @@
+LIBRARY PERFTS.DLL
+EXPORTS
+OpenTSObject
+CollectTSObjectData
+CloseTSObject

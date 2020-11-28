@@ -1,0 +1,16 @@
+LIBRARY MSFTEDIT.DLL
+EXPORTS
+SetCustomTextOutHandlerEx
+RichListBoxWndProc
+RichEditWndProc
+RichEditANSIWndProc
+RichEdit10ANSIWndProc
+RichComboBoxWndProc
+REExtendedRegisterClass
+IID_ITextServices
+IID_ITextHost2
+IID_ITextHost
+IID_IRichEditOleCallback
+IID_IRichEditOle
+DllGetVersion
+CreateTextServices

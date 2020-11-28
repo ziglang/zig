@@ -1,0 +1,25 @@
+LIBRARY NCXPNT.DLL
+EXPORTS
+TestRunDll
+SetDefaultDialupConnection
+RestartNetAdapter
+NetConnFree
+NetConnAlloc
+IsSharingInstalled
+IsProtocolInstalled
+IsMSClientInstalled
+IsClientInstalled
+IsAutodialEnabled
+IsAdapterDisconnected
+IsAccessControlUserLevel
+InstallTCPIP
+InstallSharing
+InstallMSClient
+HrWideCharToMultiByte
+HrFromLastWin32Error
+HrEnableDhcp
+GetDefaultDialupConnection
+EnumNetAdapters
+EnumMatchingNetBindings
+EnableAutodial
+DisableUserLevelAccessControl

@@ -1,0 +1,9 @@
+LIBRARY WDSCLIENT.DLL
+EXPORTS
+_Module_Init_WdsClient@16
+_GetServerParamsFromBootPacket@8
+_CallBack_WdsClient_ProcessCmdLine@8
+_CallBack_WdsClient_ImageSelectionDone@8
+_CallBack_WdsClient_GetImageList@8
+_CallBack_WdsClient_DetectWdsMode@8
+_CallBack_WdsClient_ConnectToImageStore@8

@@ -1,0 +1,6 @@
+LIBRARY HIDCLASS.DLL
+EXPORTS
+HidRegisterMinidriver
+HidNotifyPresence
+DllUnload
+DllInitialize

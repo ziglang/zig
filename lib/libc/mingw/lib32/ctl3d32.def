@@ -1,0 +1,27 @@
+LIBRARY CTL3D32.DLL
+EXPORTS
+_StaticWndProc3d@16
+_ListWndProc3d@16
+_EditWndProc3d@16
+_Ctl3dWinIniChange@0
+_Ctl3dUnsubclassCtl@4
+_Ctl3dUnregister@4
+_Ctl3dUnAutoSubclass@0
+_Ctl3dSubclassDlgEx@8
+_Ctl3dSubclassDlg@8
+_Ctl3dSubclassCtlEx@8
+_Ctl3dSubclassCtl@4
+_Ctl3dSetStyle@12
+_Ctl3dRegister@4
+_Ctl3dIsAutoSubclass@0
+_Ctl3dGetVer@0
+_Ctl3dEnabled@0
+_Ctl3dDlgProc@16
+_Ctl3dDlgFramePaint@16
+_Ctl3dCtlColorEx@12
+_Ctl3dCtlColor@8
+_Ctl3dColorChange@0
+_Ctl3dAutoSubclassEx@8
+_Ctl3dAutoSubclass@4
+_ComboWndProc3d@16
+_BtnWndProc3d@16

@@ -1,0 +1,5 @@
+LIBRARY D3D8.DLL
+EXPORTS
+_ValidateVertexShader@20
+_ValidatePixelShader@16
+_Direct3DCreate8@4

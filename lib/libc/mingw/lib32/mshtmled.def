@@ -1,0 +1,7 @@
+LIBRARY MSHTMLED.DLL
+EXPORTS
+_DllUnregisterServer@0
+_DllRegisterServer@0
+_DllGetClassObject@12
+_DllEnumClassObjects@12
+_DllCanUnloadNow@0

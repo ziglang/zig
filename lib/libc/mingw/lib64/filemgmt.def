@@ -1,0 +1,4 @@
+LIBRARY FILEMGMT.DLL
+EXPORTS
+CacheSettingsDlg2
+CacheSettingsDlg

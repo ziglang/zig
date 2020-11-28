@@ -1,0 +1,4 @@
+LIBRARY ACLUI.DLL
+EXPORTS
+_EditSecurity@8
+_CreateSecurityPage@4

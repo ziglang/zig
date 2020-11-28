@@ -1,0 +1,12 @@
+LIBRARY GPEDIT.DLL
+EXPORTS
+ImportRSoPData
+ExportRSoPData
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DeleteGPOLink
+DeleteAllGPOLinks
+CreateGPOLink
+BrowseForGPO

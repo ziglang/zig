@@ -1,0 +1,11 @@
+LIBRARY RICHED20.DLL
+EXPORTS
+RichEditANSIWndProc
+RichEdit10ANSIWndProc
+REExtendedRegisterClass
+IID_ITextServices
+IID_ITextHost2
+IID_ITextHost
+IID_IRichEditOleCallback
+IID_IRichEditOle
+CreateTextServices

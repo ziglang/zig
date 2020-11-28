@@ -1,0 +1,6 @@
+LIBRARY GPTEXT.DLL
+EXPORTS
+_ProcessPSCHEDPolicy@32
+_ProcessEQoSPolicy@32
+_DllUnregisterServer
+_DllRegisterServer

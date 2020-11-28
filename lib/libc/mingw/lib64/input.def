@@ -1,0 +1,25 @@
+LIBRARY INPUT.DLL
+EXPORTS
+ord_116
+ord_115
+ord_103
+ord_102
+SetDefaultLayoutOrTip
+SaveSystemAcctInputSettings
+SaveDefaultUserInputSettings
+QueryLayoutOrTipStringUserReg
+QueryLayoutOrTipString
+InstallLayoutOrTipUserReg
+InstallLayoutOrTipPrivate
+InstallLayoutOrTip
+InputDll_DownlevelUninitialize
+InputDll_DownlevelSetUILanguage
+InputDll_DownlevelInitialize
+InputDll_DownlevelEnumLayoutOrTipForSetup
+GetLayoutDescription
+GetDefaultLayout
+EnumLayoutOrTipForSetup
+EnumEnabledLayoutOrTipPrivate
+EnumEnabledLayoutOrTip
+CPlApplet
+ActivateInputProfile

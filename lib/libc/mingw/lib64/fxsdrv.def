@@ -1,0 +1,6 @@
+LIBRARY FXSDRV.DLL
+EXPORTS
+DrvQueryDriverInfo
+DrvEnableDriver
+DrvDisableDriver
+DllEntryPoint

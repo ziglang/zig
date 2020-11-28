@@ -1,0 +1,7 @@
+LIBRARY NDISNPP.DLL
+EXPORTS
+GetNPPBlobs
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

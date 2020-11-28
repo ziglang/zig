@@ -1,0 +1,25 @@
+LIBRARY DIGEST.DLL
+EXPORTS
+VerifySignature
+RevertSecurityContext
+QuerySecurityPackageInfoW
+QuerySecurityPackageInfoA
+QueryContextAttributesW
+QueryContextAttributesA
+MakeSignature
+InitializeSecurityContextW
+InitializeSecurityContextA
+InitSecurityInterfaceW
+InitSecurityInterfaceA
+ImpersonateSecurityContext
+FreeCredentialsHandle
+FreeContextBuffer
+EnumerateSecurityPackagesW
+EnumerateSecurityPackagesA
+DllInstall
+DeleteSecurityContext
+CompleteAuthToken
+ApplyControlToken
+AcquireCredentialsHandleW
+AcquireCredentialsHandleA
+AcceptSecurityContext

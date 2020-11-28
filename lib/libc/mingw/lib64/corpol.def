@@ -1,0 +1,10 @@
+LIBRARY CORPOL.DLL
+EXPORTS
+GetUnsignedPermissions
+GetPublisher
+DllUnregisterServer
+DllRegisterServer
+DllCanUnloadNow
+CORPolicyProvider
+CORPolicyEE
+CORLockDownProvider

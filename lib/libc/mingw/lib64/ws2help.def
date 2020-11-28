@@ -1,0 +1,26 @@
+LIBRARY WS2HELP.DLL
+EXPORTS
+WahWriteLSPEvent
+WahWaitForNotification
+WahRemoveHandleContext
+WahReferenceContextByHandle
+WahQueueUserApc
+WahOpenNotificationHandleHelper
+WahOpenHandleHelper
+WahOpenCurrentThread
+WahOpenApcHelper
+WahNotifyAllProcesses
+WahInsertHandleContext
+WahEnumerateHandleContexts
+WahEnableNonIFSHandleSupport
+WahDisableNonIFSHandleSupport
+WahDestroyHandleContextTable
+WahCreateSocketHandle
+WahCreateNotificationHandle
+WahCreateHandleContextTable
+WahCompleteRequest
+WahCloseThread
+WahCloseSocketHandle
+WahCloseNotificationHandleHelper
+WahCloseHandleHelper
+WahCloseApcHelper

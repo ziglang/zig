@@ -1,0 +1,7 @@
+LIBRARY MSIMG32.DLL
+EXPORTS
+vSetDdrawflag
+TransparentBlt
+GradientFill
+DllInitialize
+AlphaBlend

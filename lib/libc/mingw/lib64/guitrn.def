@@ -1,0 +1,6 @@
+LIBRARY GUITRN.DLL
+EXPORTS
+TransportModule
+ModuleTerminate
+ModuleInitialize
+DllMain

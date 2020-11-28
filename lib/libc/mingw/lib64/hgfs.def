@@ -1,0 +1,12 @@
+LIBRARY HGFS.DLL
+EXPORTS
+NPOpenEnum
+NPGetResourceParent
+NPGetResourceInformation
+NPGetConnection
+NPGetCaps
+NPEnumResource
+NPCloseEnum
+NPCancelConnection
+NPAddConnection3
+NPAddConnection

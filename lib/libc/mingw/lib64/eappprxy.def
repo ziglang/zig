@@ -1,0 +1,18 @@
+LIBRARY EAPPPRXY.DLL
+EXPORTS
+EapHostPeerUninitialize
+EapHostPeerSetUIContext
+EapHostPeerSetResponseAttributes
+EapHostPeerProcessReceivedPacket
+EapHostPeerInitialize
+EapHostPeerGetUIContext
+EapHostPeerGetSendPacket
+EapHostPeerGetResult
+EapHostPeerGetResponseAttributes
+EapHostPeerGetIdentity
+EapHostPeerGetAuthStatus
+EapHostPeerFreeRuntimeMemory
+EapHostPeerFreeEapError
+EapHostPeerEndSession
+EapHostPeerClearConnection
+EapHostPeerBeginSession

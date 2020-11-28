@@ -1,0 +1,20 @@
+LIBRARY MINGW32.DLL
+EXPORTS
+main
+__setargv
+__do_global_dtors
+wmain
+_setargv
+wmain
+_matherr
+_ValidateImageBase
+_wsetargv
+_fpreset
+fpreset
+__mingw_get_crt_info
+__wsetargv
+__mingw_raise_matherr
+_gnu_exception_handler
+__mingwthr_remove_key_dtor
+__cxa_atexit
+__cxa_thread_atexit

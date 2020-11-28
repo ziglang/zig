@@ -1,0 +1,21 @@
+LIBRARY DMIVCITF.DLL
+EXPORTS
+LoadPropertyPageData
+HrGetErrorData
+CreateServerRequestsX
+CreateDataCacheX
+?GetWaitCursor@CDMSnapin@@QEAAHXZ
+?GetVolumeCount@CDataCache@@QEAAKXZ
+?GetTopViewStyle@CDMSnapin@@QEAAHXZ
+?GetServerName@CDataCache@@QEAA?AVCString@@XZ
+?GetRegionScaling@CDMSnapin@@QEAAHXZ
+?GetRegionColorStructPtr@CTaskData@@QEAAXPEAPEAU_REGION_COLORS@@AEAH@Z
+?GetOcxFrameCWndPtr@CTaskData@@QEAAPEAVCWnd@@XZ
+?GetNumMembers@CDMNodeObj@@QEAAKXZ
+?GetListBehavior@CDMSnapin@@QEAAHXZ
+?GetLdmObjectId@CDMNodeObj@@QEAA_JXZ
+?GetFilterToggle@CDMSnapin@@QEAAHXZ
+?GetDiskScaling@CDMSnapin@@QEAAHXZ
+?GetDiskCount@CDataCache@@QEAAKXZ
+?GetBottomViewStyle@CDMSnapin@@QEAAHXZ
+?AddLDMObjMapEntry@CDataCache@@QEAAXPEAU_LDM_OBJ_MAP_ENTRY@@@Z

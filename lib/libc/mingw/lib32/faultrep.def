@@ -1,0 +1,5 @@
+LIBRARY FAULTREP.DLL
+EXPORTS
+_ReportFault@8
+_AddERExcludedApplicationW@4
+_AddERExcludedApplicationA@4

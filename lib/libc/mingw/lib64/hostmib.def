@@ -1,0 +1,5 @@
+LIBRARY HOSTMIB.DLL
+EXPORTS
+SnmpExtensionTrap
+SnmpExtensionQuery
+SnmpExtensionInit

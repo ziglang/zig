@@ -1,0 +1,7 @@
+LIBRARY DPVOICE.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DirectPlayVoiceCreate

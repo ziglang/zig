@@ -1,0 +1,4 @@
+LIBRARY DXERR8.DLL
+EXPORTS
+_DXGetErrorString8A@4
+_DXGetErrorString8W@4

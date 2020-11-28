@@ -1,0 +1,7 @@
+LIBRARY MFREADWRITE.DLL
+EXPORTS
+MFCreateSourceReaderFromURL
+MFCreateSourceReaderFromMediaSource
+MFCreateSourceReaderFromByteStream
+MFCreateSinkWriterFromURL
+MFCreateSinkWriterFromMediaSink

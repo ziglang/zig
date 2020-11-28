@@ -1,0 +1,6 @@
+LIBRARY SFC_OS.DLL
+EXPORTS
+SfcWLEventLogon
+SfcWLEventLogoff
+SfcIsFileProtected
+SfcGetNextProtectedFile

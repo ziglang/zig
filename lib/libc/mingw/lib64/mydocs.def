@@ -1,0 +1,8 @@
+LIBRARY MYDOCS.DLL
+EXPORTS
+PerUserInit
+DllUnregisterServer
+DllRegisterServer
+DllInstall
+DllGetClassObject
+DllCanUnloadNow

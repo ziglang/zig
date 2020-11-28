@@ -1,0 +1,14 @@
+LIBRARY SCLGNTFY.DLL
+EXPORTS
+WLEventUnlock
+WLEventStopScreenSaver
+WLEventStartup
+WLEventStartShell
+WLEventStartScreenSaver
+WLEventShutdown
+WLEventLogon
+WLEventLogoff
+WLEventLock
+GenerateDefaultEFSRecoveryPolicy
+DllUnregisterServer
+DllRegisterServer

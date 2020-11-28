@@ -1,0 +1,13 @@
+LIBRARY D3DCOMPILER_39.DLL
+EXPORTS
+DebugSetMute
+D3DReturnFailure1
+D3DReflectCode
+D3DPreprocessFromMemory
+D3DGetOutputSignatureBlob
+D3DGetInputSignatureBlob
+D3DGetInputAndOutputSignatureBlob
+D3DGetCodeDebugInfo
+D3DDisassembleEffect
+D3DDisassembleCode
+D3DCompileFromMemory

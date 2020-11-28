@@ -1,0 +1,10 @@
+LIBRARY KD1394.DLL
+EXPORTS
+KdSendPacket
+KdSave
+KdRestore
+KdReceivePacket
+KdDebuggerInitialize1
+KdDebuggerInitialize0
+KdD3Transition
+KdD0Transition

@@ -1,0 +1,14 @@
+LIBRARY BOOTVID.DLL
+EXPORTS
+VidSolidColorFill
+VidSetTextColor
+VidSetScrollRegion
+VidScreenToBufferBlt
+VidResetDisplay
+VidInitialize
+VidDisplayStringXY
+VidDisplayString
+VidCleanUp
+VidBufferToScreenBlt
+VidBitBltEx
+VidBitBlt

@@ -1,0 +1,14 @@
+LIBRARY NETMAN.DLL
+EXPORTS
+ServiceMain
+RasEventNotify
+ProcessQueue
+NetManDiagFromCommandArgs
+HrRasConnectionNameFromGuid
+HrQueryLanMediaState
+HrPnpInstanceIdFromGuid
+HrLanConnectionNameFromGuidOrPath
+HrGetPnpDeviceStatus
+GetClientAdvises
+DllUnregisterServer
+DllRegisterServer

@@ -1,0 +1,10 @@
+LIBRARY MFC42.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+AfxUnlockGlobals
+AfxLockGlobals
+AfxLoadLibrary
+AfxFreeLibrary

@@ -1,0 +1,9 @@
+LIBRARY ATRACE.DLL
+EXPORTS
+INTERNAL__TermAsyncTrace
+INTERNAL__SetAsyncTraceParams
+INTERNAL__InitAsyncTrace
+INTERNAL__FlushAsyncTrace
+INTERNAL__DebugAssert
+INTERNAL__AsyncStringTrace
+INTERNAL__AsyncBinaryTrace

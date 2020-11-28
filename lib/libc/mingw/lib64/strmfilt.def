@@ -1,0 +1,13 @@
+LIBRARY STRMFILT.DLL
+EXPORTS
+StreamFilterTerminate
+StreamFilterStop
+StreamFilterStart
+StreamFilterInitialize
+StreamFilterClientTerminate
+StreamFilterClientStop
+StreamFilterClientStart
+StreamFilterClientInitialize
+IsapiFilterTerminate
+IsapiFilterInitialize
+DllMain

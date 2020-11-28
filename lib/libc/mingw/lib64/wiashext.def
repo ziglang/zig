@@ -1,0 +1,11 @@
+LIBRARY WIASHEXT.DLL
+EXPORTS
+MakeFullPidlForDevice
+DoDeleteAllItems
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+AddDeviceWasChosenW
+AddDeviceWasChosenA
+AddDeviceWasChosen

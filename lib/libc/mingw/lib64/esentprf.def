@@ -1,0 +1,5 @@
+LIBRARY ESENTPRF.DLL
+EXPORTS
+OpenPerformanceData
+CollectPerformanceData
+ClosePerformanceData

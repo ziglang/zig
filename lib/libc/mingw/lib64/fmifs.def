@@ -1,0 +1,27 @@
+LIBRARY FMIFS.DLL
+EXPORTS
+SetLabel
+QuerySupportedMedia
+QueryLatestFileSystemVersion
+QueryIsDiskCheckScheduledForNextBoot
+QueryFileSystemName
+QueryDeviceInformationByHandle
+QueryDeviceInformation
+QueryCorruptionStateByHandle
+QueryCorruptionState
+QueryAvailableFileSystemFormat
+GetNextCorruptionInfo
+GetFirstCorruptionInfo
+GetDefaultFileSystem
+GetCorruptionInfoClose
+FreeCorruptionInfo
+FormatEx2
+FormatEx
+Format
+Extend
+EnableVolumeIntegrity
+EnableVolumeCompression
+DiskCopy
+ComputeFmMediaType
+ChkdskEx
+Chkdsk

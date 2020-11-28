@@ -1,0 +1,23 @@
+LIBRARY PSBASE.DLL
+EXPORTS
+SPWriteItem
+SPSetProvParam
+SPReleaseContext
+SPReadItem
+SPProviderInitialize
+SPOpenItem
+SPGetTypeInfo
+SPGetSubtypeInfo
+SPGetProvParam
+SPGetProvInfo
+SPEnumTypes
+SPEnumSubtypes
+SPEnumItems
+SPDeleteType
+SPDeleteSubtype
+SPDeleteItem
+SPCreateType
+SPCreateSubtype
+SPCloseItem
+SPAcquireContext
+FPasswordChangeNotify

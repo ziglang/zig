@@ -1,0 +1,4 @@
+LIBRARY IPXSAP.DLL
+EXPORTS
+ServiceMain
+RegisterProtocol

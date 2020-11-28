@@ -1,0 +1,14 @@
+LIBRARY DAVHLPR.DLL
+EXPORTS
+_WideStrToUtfUrlStr@16
+_UtfUrlStrToWideStr@16
+_DavRemoveDummyShareFromFileNameEx@8
+_DavRemoveDummyShareFromFileName@4
+_DavGetUNCFromHTTPPath@12
+_DavGetServerPortAndPhysicalName@20
+_DavGetHTTPFromUNCPath@12
+_DavGetExtendedError@16
+_DavFlushFile@4
+_DavDeleteConnection@4
+_DavCheckAndConvertHttpUrlToUncName@32
+_DavAddConnection@24

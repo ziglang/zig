@@ -1,0 +1,9 @@
+LIBRARY WDMAUD.DLL
+EXPORTS
+wodMessage
+widMessage
+mxdMessage
+modMessage
+midMessage
+auxMessage
+DriverProc

@@ -1,0 +1,6 @@
+LIBRARY MQCERTUI.DLL
+EXPORTS
+ShowPersonalCertificates
+ShowCertificate
+SelectPersonalCertificateForRemoval
+SelectPersonalCertificateForRegister

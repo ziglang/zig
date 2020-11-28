@@ -1,0 +1,11 @@
+LIBRARY MSOEACCT.DLL
+EXPORTS
+ValidEmailAddress
+HrCreateAccountManager
+GetDllMajorVersion
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+CreateAccountsFromFileEx
+CreateAccountsFromFile

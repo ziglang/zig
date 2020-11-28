@@ -1,0 +1,10 @@
+LIBRARY DSQUERY.DLL
+EXPORTS
+OpenSavedDsQueryW
+OpenSavedDsQuery
+OpenQueryWindow
+DllUnregisterServer
+DllRegisterServer
+DllInstall
+DllGetClassObject
+DllCanUnloadNow

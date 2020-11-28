@@ -1,0 +1,4 @@
+LIBRARY FXSCFGWZ.DLL
+EXPORTS
+FaxConfigWizard
+FaxCfgWzrdDllW

@@ -1,0 +1,7 @@
+LIBRARY MAG_HOOK.DLL
+EXPORTS
+SetZoomRect
+InstallEventHook
+GetPopupInfo
+GetCursorHack
+FakeCursorMove

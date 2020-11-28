@@ -1,0 +1,3 @@
+LIBRARY MMDEVAPI.DLL
+EXPORTS
+ActivateAudioInterfaceAsync

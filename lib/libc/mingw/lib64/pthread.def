@@ -1,0 +1,6 @@
+LIBRARY PTHREAD.DLL
+EXPORTS
+pthread_spin_init
+sched_get_priority_min
+clock_getres
+nanosleep

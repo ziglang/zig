@@ -1,0 +1,22 @@
+LIBRARY LOG.DLL
+EXPORTS
+SuppressAllLogPopups
+LogW
+LogTitleW
+LogTitleA
+LogSetVerboseLevel
+LogSetVerboseBitmap
+LogSetErrorDest
+LogReInitW
+LogReInitA
+LogLineW
+LogLineA
+LogIfW
+LogIfA
+LogEnd
+LogDirectW
+LogDirectA
+LogDeleteOnNextInit
+LogBegin
+LogA
+DllMain

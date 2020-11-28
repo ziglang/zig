@@ -1,0 +1,11 @@
+LIBRARY FXST30.DLL
+EXPORTS
+FaxExtInitializeConfig
+FaxDevStartJob
+FaxDevShutdown
+FaxDevSend
+FaxDevReportStatus
+FaxDevReceive
+FaxDevInitialize
+FaxDevEndJob
+FaxDevAbortOperation

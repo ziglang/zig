@@ -1,0 +1,5 @@
+LIBRARY SSINC.DLL
+EXPORTS
+TerminateExtension
+HttpExtensionProc
+GetExtensionVersion

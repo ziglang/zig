@@ -1,0 +1,8 @@
+LIBRARY OLEDB32.DLL
+EXPORTS
+OpenDSLFile
+DllUnregisterServer
+DllRegisterServer
+DllMain
+DllGetClassObject
+DllCanUnloadNow

@@ -1,0 +1,11 @@
+LIBRARY VGX.DLL
+EXPORTS
+MsoFSetFeature
+MsoFInitOffice
+MsoFFeature
+MsoAssertSzProcVar
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+$DllMain$_gdiplus

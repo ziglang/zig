@@ -1,0 +1,8 @@
+LIBRARY BASESRV.DLL
+EXPORTS
+ServerDllInitialization
+BaseSrvRegisterSxS
+BaseSrvNlsUpdateRegistryCache
+BaseSrvNlsLogon
+BaseSetProcessCreateNotify
+BaseGetProcessCrtlRoutine

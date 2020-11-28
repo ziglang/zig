@@ -1,0 +1,12 @@
+LIBRARY SHIMENG.DLL
+EXPORTS
+SE_ShimNTVDM
+SE_RemoveNTVDMTask
+SE_ProcessDying
+SE_IsShimDll
+SE_InstallBeforeInit
+SE_InstallAfterInit
+SE_DynamicUnshim
+SE_DynamicShim
+SE_DllUnloaded
+SE_DllLoaded

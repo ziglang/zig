@@ -1,0 +1,16 @@
+LIBRARY MODEMUI.DLL
+EXPORTS
+drvSetDefaultCommConfigW
+drvSetDefaultCommConfigA
+drvGetDefaultCommConfigW
+drvGetDefaultCommConfigA
+drvCommConfigDialogW
+drvCommConfigDialogA
+UnimodemGetExtendedCaps
+UnimodemGetDefaultCommConfig
+UnimodemDevConfigDialog
+QueryModemForCountrySettings
+ModemPropPagesProvider
+ModemCplDlgProc
+InvokeControlPanel
+CountryRunOnce

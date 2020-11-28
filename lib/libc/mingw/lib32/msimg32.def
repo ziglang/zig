@@ -1,0 +1,5 @@
+LIBRARY MSIMG32.DLL
+EXPORTS
+_TransparentBlt@44
+_GradientFill@24
+_AlphaBlend@44

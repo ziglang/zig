@@ -1,0 +1,22 @@
+LIBRARY CRYPTDLL.DLL
+EXPORTS
+aesCTSEncryptMsg
+aesCTSDecryptMsg
+PBKDF2
+MD5Update
+MD5Init
+MD5Final
+KRBFXCF2
+HMACwithSHA
+CDRegisterRng
+CDRegisterCheckSum
+CDRegisterCSystem
+CDLocateRng
+CDLocateCheckSum
+CDLocateCSystem
+CDGetIntegrityVect
+CDGenerateRandomBits
+CDFindCommonCSystemWithKey
+CDFindCommonCSystem
+CDBuildVect
+CDBuildIntegrityVect

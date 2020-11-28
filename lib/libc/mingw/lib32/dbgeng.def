@@ -1,0 +1,5 @@
+LIBRARY DBGENG.DLL
+EXPORTS
+_DebugCreate@8
+_DebugConnectWide@12
+_DebugConnect@12

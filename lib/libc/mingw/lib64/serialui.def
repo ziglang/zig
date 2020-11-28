@@ -1,0 +1,8 @@
+LIBRARY SERIALUI.DLL
+EXPORTS
+drvSetDefaultCommConfigW
+drvSetDefaultCommConfigA
+drvGetDefaultCommConfigW
+drvGetDefaultCommConfigA
+drvCommConfigDialogW
+drvCommConfigDialogA

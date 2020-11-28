@@ -1,0 +1,4 @@
+LIBRARY MF3216.DLL
+EXPORTS
+Mf3216DllInitialize
+ConvertEmfToWmf

@@ -1,0 +1,23 @@
+LIBRARY OLEACC.DLL
+EXPORTS
+_WindowFromAccessibleObject@8
+_PropMgrClient_LookupProp@28
+_ObjectFromLresult@16
+_LresultFromObject@12
+_GetStateTextW@12
+_GetStateTextA@12
+_GetRoleTextW@12
+_GetRoleTextA@12
+_GetProcessHandleFromHwnd@4
+_GetOleaccVersionInfo@8
+_DllUnregisterServer@0
+_DllRegisterServer@0
+_DllGetClassObject@12
+_DllCanUnloadNow@0
+_CreateStdAccessibleProxyW@20
+_CreateStdAccessibleProxyA@20
+_CreateStdAccessibleObject@16
+_AccessibleObjectFromWindow@16
+_AccessibleObjectFromPoint@16
+_AccessibleObjectFromEvent@20
+_AccessibleChildren@20

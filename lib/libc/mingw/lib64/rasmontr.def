@@ -1,0 +1,16 @@
+LIBRARY RASMONTR.DLL
+EXPORTS
+RutlStrDup
+RutlParse
+RutlIsHelpToken
+RutlGetTagToken
+RutlGetOsVersion
+RutlFree
+RutlDwordDup
+RutlCreateDumpFile
+RutlCloseDumpFile
+RutlAssignmentFromTokens
+RutlAssignmentFromTokenAndDword
+RutlAlloc
+InitHelperDll
+GetDiagnosticFunctions

@@ -1,0 +1,21 @@
+LIBRARY ADMPARSE.DLL
+EXPORTS
+ResetAdmDirtyFlag
+IsAdmDirty
+GetFontInfoW
+GetFontInfoA
+GetAdmCategoriesW
+GetAdmCategoriesA
+DllMain
+CreateAdmUiW
+CreateAdmUiA
+CheckDuplicateKeysW
+CheckDuplicateKeysA
+AdmSaveData
+AdmResetW
+AdmResetA
+AdmInitW
+AdmInitA
+AdmFinishedW
+AdmFinishedA
+AdmClose

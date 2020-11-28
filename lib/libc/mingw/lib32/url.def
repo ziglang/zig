@@ -1,0 +1,9 @@
+LIBRARY URL.DLL
+EXPORTS
+_URLAssociationDialogW@24
+_URLAssociationDialogA@24
+_TranslateURLW@12
+_TranslateURLA@12
+_MIMEAssociationDialogW@24
+_MIMEAssociationDialogA@24
+_InetIsOffline@4

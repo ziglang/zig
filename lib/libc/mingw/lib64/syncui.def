@@ -1,0 +1,8 @@
+LIBRARY SYNCUI.DLL
+EXPORTS
+DllGetClassObject
+DllCanUnloadNow
+Briefcase_Intro
+Briefcase_CreateW
+Briefcase_CreateA
+Briefcase_Create

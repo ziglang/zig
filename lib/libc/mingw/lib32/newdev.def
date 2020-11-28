@@ -1,0 +1,6 @@
+LIBRARY NEWDEV.DLL
+EXPORTS
+_UpdateDriverForPlugAndPlayDevicesW
+_UpdateDriverForPlugAndPlayDevicesA
+_UpdateDriverForPlugAndPlayDevicesA@20
+_UpdateDriverForPlugAndPlayDevicesW@20

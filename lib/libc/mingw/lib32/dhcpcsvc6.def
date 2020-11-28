@@ -1,0 +1,12 @@
+LIBRARY DHCPCSVC6.DLL
+EXPORTS
+_Dhcpv6RequestPrefix@16
+_Dhcpv6RequestParams@32
+_Dhcpv6RenewPrefix@20
+_Dhcpv6ReleasePrefix@12
+_Dhcpv6ReleaseParameters@4
+_Dhcpv6QueryLeaseInfo@8
+_Dhcpv6Main@4
+_Dhcpv6IsEnabled@8
+_Dhcpv6FreeLeaseInfo@4
+_Dhcpv6AcquireParameters@4

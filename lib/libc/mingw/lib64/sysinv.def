@@ -1,0 +1,4 @@
+LIBRARY SYSINV.DLL
+EXPORTS
+GetSystemInventoryW
+GetSystemInventoryA

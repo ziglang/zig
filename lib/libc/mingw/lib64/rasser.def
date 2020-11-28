@@ -1,0 +1,21 @@
+LIBRARY RASSER.DLL
+EXPORTS
+PortTestSignalState
+PortSetInfo
+PortSetINetCfg
+PortSetFraming
+PortSend
+PortReceiveComplete
+PortReceive
+PortOpen
+PortInit
+PortGetStatistics
+PortGetPortState
+PortGetInfo
+PortEnum
+PortDisconnect
+PortConnect
+PortCompressionSetInfo
+PortClose
+PortClearStatistics
+PortChangeCallback

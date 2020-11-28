@@ -1,0 +1,6 @@
+LIBRARY GPSCRIPT.DLL
+EXPORTS
+_ScrRegGPOListToWbem@8
+_ProcessScriptsGroupPolicyEx@40
+_ProcessScriptsGroupPolicy@32
+_GenerateScriptsGroupPolicy@20

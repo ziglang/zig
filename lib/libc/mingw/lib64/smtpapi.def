@@ -1,0 +1,20 @@
+LIBRARY SMTPAPI.DLL
+EXPORTS
+SmtpSetUserProps
+SmtpSetAdminInformation
+SmtpQueryStatistics
+SmtpGetVRootSize
+SmtpGetUserProps
+SmtpGetNameListFromList
+SmtpGetNameList
+SmtpGetConnectedUserList
+SmtpGetAdminInformation
+SmtpDisconnectUser
+SmtpDeleteUser
+SmtpDeleteDistListMember
+SmtpDeleteDistList
+SmtpCreateUser
+SmtpCreateDistListMember
+SmtpCreateDistList
+SmtpClearStatistics
+SmtpBackupRoutingTable

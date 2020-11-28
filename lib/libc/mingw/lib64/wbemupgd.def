@@ -1,0 +1,9 @@
+LIBRARY WBEMUPGD.DLL
+EXPORTS
+RepairWMISetup
+OcEntry
+MUI_InstallMFLFiles
+LoadMofFiles
+DllRegisterServer
+DllInstall
+CheckWMISetup

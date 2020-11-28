@@ -1,0 +1,13 @@
+LIBRARY MIGLIBNT.DLL
+EXPORTS
+MigDllShutdown
+MigDllOpenW
+MigDllInitializeDstW
+MigDllInit
+MigDllFreeList
+MigDllEnumNextW
+MigDllEnumFirstW
+MigDllCreateList
+MigDllCloseW
+MigDllApplySystemSettingsW
+MigDllAddDllToListW

@@ -1,0 +1,5 @@
+LIBRARY PAUTOENR.DLL
+EXPORTS
+ProvAutoEnrollment
+CertAutoRemove
+CertAutoEnrollment

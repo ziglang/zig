@@ -1,0 +1,25 @@
+LIBRARY WKSCLI.DLL
+EXPORTS
+_NetWkstaUserSetInfo@16
+_NetWkstaUserGetInfo@12
+_NetWkstaUserEnum@28
+_NetWkstaTransportEnum@28
+_NetWkstaTransportDel@12
+_NetWkstaTransportAdd@16
+_NetWkstaStatisticsGet@16
+_NetWkstaSetInfo@16
+_NetWkstaGetInfo@12
+_NetValidateName@20
+_NetUseGetInfo@16
+_NetUseEnum@28
+_NetUseDel@12
+_NetUseAdd@16
+_NetUnjoinDomain@16
+_NetSetPrimaryComputerName@20
+_NetRenameMachineInDomain@20
+_NetRemoveAlternateComputerName@20
+_NetJoinDomain@24
+_NetGetJoinableOUs@24
+_NetGetJoinInformation@12
+_NetEnumerateComputerNames@20
+_NetAddAlternateComputerName@20

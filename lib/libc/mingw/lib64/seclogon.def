@@ -1,0 +1,6 @@
+LIBRARY SECLOGON.DLL
+EXPORTS
+SvchostPushServiceGlobals
+SvcEntry_Seclogon
+DllUnregisterServer
+DllRegisterServer

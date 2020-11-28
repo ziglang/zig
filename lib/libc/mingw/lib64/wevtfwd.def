@@ -1,0 +1,7 @@
+LIBRARY WEVTFWD.DLL
+EXPORTS
+WSManProvUnsubscribe
+WSManProvSubscribe
+WSManProvStartup
+WSManProvShutdown
+WSManProvPullEvents

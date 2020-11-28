@@ -1,0 +1,9 @@
+LIBRARY HTTPEXT.DLL
+EXPORTS
+TerminateExtension
+HttpExtensionProc
+GetExtensionVersion
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

@@ -1,0 +1,5 @@
+LIBRARY INFOCTRS.DLL
+EXPORTS
+OpenINFOPerformanceData
+CollectINFOPerformanceData
+CloseINFOPerformanceData

@@ -1,0 +1,10 @@
+LIBRARY USBCAMD2.DLL
+EXPORTS
+_USBCAMD_SelectAlternateInterface@8
+_USBCAMD_InitializeNewInterface@16
+_USBCAMD_GetRegistryKeyValue@20
+_USBCAMD_DriverEntry@20
+_USBCAMD_Debug_LogEntry@16
+_USBCAMD_ControlVendorCommand@36
+_USBCAMD_AdapterReceivePacket@16
+_DllUnload@0

@@ -1,0 +1,9 @@
+LIBRARY PHOTOWIZ.DLL
+EXPORTS
+UsePPWForPrintTo
+DllUnregisterServer
+DllRegisterServer
+DllMain
+DllInstall
+DllGetClassObject
+DllCanUnloadNow

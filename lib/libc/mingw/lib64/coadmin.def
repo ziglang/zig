@@ -1,0 +1,7 @@
+LIBRARY COADMIN.DLL
+EXPORTS
+TerminateComAdmindata
+InitComAdmindata
+DllUnregisterServer
+DllRegisterServer
+DllCanUnloadNow

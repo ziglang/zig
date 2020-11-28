@@ -1,0 +1,4 @@
+LIBRARY WSCSVC.DLL
+EXPORTS
+SvchostPushServiceGlobals
+ServiceMain

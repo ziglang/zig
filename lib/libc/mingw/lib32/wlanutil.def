@@ -1,0 +1,5 @@
+LIBRARY WLANUTIL.DLL
+EXPORTS
+_WlanStringToSsid@8
+_WlanSsidToDisplayName@16
+_WlanIsActiveConsoleUser@0

@@ -1,0 +1,8 @@
+LIBRARY ASP.DLL
+EXPORTS
+TerminateExtension
+HttpExtensionProc
+GetExtensionVersion
+DllUnregisterServer
+DllRegisterServer
+AspStatusHtmlDump

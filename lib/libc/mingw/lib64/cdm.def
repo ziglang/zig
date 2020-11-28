@@ -1,0 +1,13 @@
+LIBRARY CDM.DLL
+EXPORTS
+QueryDetectionFiles
+OpenCDMContextEx
+OpenCDMContext
+LogDriverNotFound
+FindMatchingDriver
+DownloadUpdatedFiles
+DownloadIsInternetAvailable
+DownloadGetUpdatedFiles
+DetFilesDownloaded
+CloseCDMContext
+CancelCDMOperation

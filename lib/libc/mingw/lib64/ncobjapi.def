@@ -1,0 +1,12 @@
+LIBRARY NCOBJAPI.DLL
+EXPORTS
+WmiSetAndCommitObject
+WmiIsObjectActive
+WmiEventSourceDisconnect
+WmiEventSourceConnect
+WmiDestroyObject
+WmiCreateObjectWithProps
+WmiCreateObjectWithFormat
+WmiCreateObject
+WmiCommitObject
+WmiAddObjectProp

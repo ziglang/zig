@@ -1,0 +1,5 @@
+LIBRARY DINPUT.DLL
+EXPORTS
+_DirectInputCreateW@16
+_DirectInputCreateEx@20
+_DirectInputCreateA@16

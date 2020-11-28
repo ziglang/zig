@@ -1,0 +1,21 @@
+LIBRARY DEVMGR.DLL
+EXPORTS
+DeviceProperties_RunDLLW
+DeviceProperties_RunDLLA
+DevicePropertiesW
+DevicePropertiesExW
+DevicePropertiesExA
+DevicePropertiesA
+DeviceProblenWizard_RunDLLW
+DeviceProblenWizard_RunDLLA
+DeviceProblemWizardW
+DeviceProblemWizardA
+DeviceProblemTextW
+DeviceProblemTextA
+DeviceManager_ExecuteW
+DeviceManager_ExecuteA
+DeviceCreateHardwarePageEx
+DeviceCreateHardwarePageCustom
+DeviceCreateHardwarePage
+DeviceAdvancedPropertiesW
+DeviceAdvancedPropertiesA

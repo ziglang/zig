@@ -1,0 +1,24 @@
+LIBRARY MSGINA.DLL
+EXPORTS
+WlxWkstaLockedSAS
+WlxStartApplication
+WlxShutdown
+WlxScreenSaverNotify
+WlxRemoveStatusMessage
+WlxReconnectNotify
+WlxNetworkProviderLoad
+WlxNegotiate
+WlxLogoff
+WlxLoggedOutSAS
+WlxLoggedOnSAS
+WlxIsLogoffOk
+WlxIsLockOk
+WlxInitialize
+WlxGetStatusMessage
+WlxGetConsoleSwitchCredentials
+WlxDisplayStatusMessage
+WlxDisplaySASNotice
+WlxDisplayLockedNotice
+WlxDisconnectNotify
+WlxActivateUserShell
+ShellShutdownDialog

@@ -1,0 +1,12 @@
+LIBRARY SRRSTR.DLL
+EXPORTS
+SRGetCplPropPage
+ResumeRestore
+PrepareRestore
+PasswordChangeNotify
+IsSRFrozen
+InvokeDiskCleanup
+InitiateRestore
+InitializeChangeNotify
+DllMain
+CheckPrivilegesForRestore

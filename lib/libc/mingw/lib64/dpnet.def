@@ -1,0 +1,7 @@
+LIBRARY DPNET.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DirectPlay8Create

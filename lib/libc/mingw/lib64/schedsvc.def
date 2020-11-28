@@ -1,0 +1,9 @@
+LIBRARY SCHEDSVC.DLL
+EXPORTS
+SysPrepRestore
+SysPrepCallback
+SysPrepBackup
+SchedServiceMain
+SPUninstallCallback
+SPUninstall
+CloseProc

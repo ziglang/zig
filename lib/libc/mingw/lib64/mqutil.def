@@ -1,0 +1,3 @@
+LIBRARY MQUTIL.DLL
+EXPORTS
+MQGetResourceHandle

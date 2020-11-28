@@ -1,0 +1,5 @@
+LIBRARY CMCFG32.DLL
+EXPORTS
+CmstpExtensionProc
+CMConfigEx
+CMConfig

@@ -1,0 +1,5 @@
+LIBRARY IISSUBA.DLL
+EXPORTS
+UnregisterIISSUBA
+RegisterIISSUBA
+Msv1_0SubAuthenticationRoutineEx

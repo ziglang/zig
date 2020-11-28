@@ -1,0 +1,3 @@
+LIBRARY DSOUND3D.DLL
+EXPORTS
+CafBiquadCoeffs

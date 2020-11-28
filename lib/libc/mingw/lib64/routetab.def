@@ -1,0 +1,12 @@
+LIBRARY ROUTETAB.DLL
+EXPORTS
+SetAddrChangeNotifyEvent
+ReloadIPAddressTable
+RefreshAddresses
+GetRouteTable
+GetIfEntry
+GetIPAddressTable
+FreeRouteTable
+FreeIPAddressTable
+DeleteRoute
+AddRoute

@@ -1,0 +1,12 @@
+LIBRARY LPK.DLL
+EXPORTS
+ftsWordBreak
+LpkUseGDIWidthCache
+LpkTabbedTextOut
+LpkPSMTextOut
+LpkInitialize
+LpkGetTextExtentExPoint
+LpkGetCharacterPlacement
+LpkExtTextOut
+LpkDrawTextEx
+LpkDllInitialize

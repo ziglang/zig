@@ -1,0 +1,7 @@
+LIBRARY ICWCONN.DLL
+EXPORTS
+GetICWCONNVersion
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

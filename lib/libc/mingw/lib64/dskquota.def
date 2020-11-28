@@ -1,0 +1,7 @@
+LIBRARY DSKQUOTA.DLL
+EXPORTS
+ProcessGroupPolicy
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

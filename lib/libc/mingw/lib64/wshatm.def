@@ -1,0 +1,18 @@
+LIBRARY WSHATM.DLL
+EXPORTS
+WSHStringToAddress
+WSHSetSocketInformation
+WSHOpenSocket2
+WSHOpenSocket
+WSHNotify
+WSHJoinLeaf
+WSHIoctl
+WSHGetWinsockMapping
+WSHGetWildcardSockaddr
+WSHGetWSAProtocolInfo
+WSHGetSocketInformation
+WSHGetSockaddrType
+WSHGetProviderGuid
+WSHGetBroadcastSockaddr
+WSHEnumProtocols
+WSHAddressToString

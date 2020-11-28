@@ -1,0 +1,12 @@
+LIBRARY LOGHOURS.DLL
+EXPORTS
+ReplicationScheduleDialogEx
+ReplicationScheduleDialog
+LogonScheduleDialogEx
+LogonScheduleDialog
+DirSyncScheduleDialogEx
+DirSyncScheduleDialog
+DialinHoursDialogEx
+DialinHoursDialog
+ConnectionScheduleDialogEx
+ConnectionScheduleDialog

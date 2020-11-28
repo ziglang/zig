@@ -1,0 +1,5 @@
+LIBRARY MQISE.DLL
+EXPORTS
+TerminateExtension
+HttpExtensionProc
+GetExtensionVersion

@@ -1,0 +1,24 @@
+LIBRARY WOW64.DLL
+EXPORTS
+Wow64SystemServiceEx
+Wow64SystemService
+Wow64StartupContextToContextX86
+Wow64ShallowThunkSIZE_T64TO32
+Wow64ShallowThunkSIZE_T32TO64
+Wow64ShallowThunkAllocSecurityQualityOfService32TO64_FNC
+Wow64ShallowThunkAllocObjectAttributes32TO64_FNC
+Wow64RaiseException
+Wow64PrepareForException
+Wow64PrepareForDebuggerAttach
+Wow64OpenConfigKey
+Wow64LogPrint
+Wow64LdrpInitialize
+Wow64KiUserCallbackDispatcher
+Wow64GetWow64ImageOption
+Wow64FreeHeap
+Wow64EmulateAtlThunk
+Wow64CheckIfNXEnabled
+Wow64Assert
+Wow64ApcRoutine
+Wow64AllocateTemp
+Wow64AllocateHeap

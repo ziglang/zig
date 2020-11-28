@@ -1,0 +1,16 @@
+LIBRARY CABINET.DLL
+EXPORTS
+_GetDllVersion@0
+_FDITruncateCabinet
+_FDIIsCabinet
+_FDIDestroy
+_FDICreate
+_FDICopy
+_FCIFlushFolder
+_FCIFlushCabinet
+_FCIDestroy
+_FCICreate
+_FCIAddFile
+_Extract@8
+_DllGetVersion@4
+_DeleteExtractedFiles@4

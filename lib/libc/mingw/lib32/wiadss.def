@@ -1,0 +1,9 @@
+LIBRARY WIADSS.DLL
+EXPORTS
+_UnloadImportDS@4
+_LoadImportDS@16
+_GetLoaderStatus@4
+_FindNextImportDS@8
+_FindImportDSByDeviceName@8
+_FindFirstImportDS@8
+_CloseFindContext@4

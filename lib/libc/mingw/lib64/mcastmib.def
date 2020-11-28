@@ -1,0 +1,5 @@
+LIBRARY MCASTMIB.DLL
+EXPORTS
+SnmpExtensionTrap
+SnmpExtensionQuery
+SnmpExtensionInit

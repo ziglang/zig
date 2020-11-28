@@ -1,0 +1,12 @@
+LIBRARY MSVCP60.DLL
+EXPORTS
+_wctype
+_wctrans
+_wctob
+_wcsrtombs
+_wcrtomb
+_towctrans
+_mbsrtowcs
+_mbrtowc
+_mbrlen
+_btowc

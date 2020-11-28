@@ -1,0 +1,16 @@
+LIBRARY NETRAP.DLL
+EXPORTS
+RapTotalSize
+RapStructureSize
+RapStructureAlignment
+RapParmNumDescriptor
+RapLastPointerOffset
+RapIsValidDescriptorSmb
+RapGetFieldSize
+RapExamineDescriptor
+RapConvertSingleEntryEx
+RapConvertSingleEntry
+RapAuxDataCountOffset
+RapAuxDataCount
+RapAsciiToDecimal
+RapArrayLength

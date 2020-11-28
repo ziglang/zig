@@ -1,0 +1,20 @@
+LIBRARY TBS.DLL
+EXPORTS
+Tbsip_TestMorBit
+Tbsip_Submit_Command_NonBlocking
+Tbsip_Submit_Command
+Tbsip_Context_Close
+Tbsip_Cancel_Commands
+Tbsi_ShaHash
+Tbsi_Revoke_Attestation
+Tbsi_Physical_Presence_Command
+Tbsi_Get_TCG_Logs
+Tbsi_Get_TCG_Log
+Tbsi_Get_OwnerAuth
+Tbsi_GetDeviceInfo
+Tbsi_FilterLog
+Tbsi_Create_Attestation_From_Log
+Tbsi_Context_Create
+GetDeviceIDWithTimeout
+GetDeviceIDString
+GetDeviceID

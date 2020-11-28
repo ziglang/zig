@@ -1,0 +1,4 @@
+LIBRARY IMJPCUS.DLL
+EXPORTS
+OpenDetailDialog
+DllMain

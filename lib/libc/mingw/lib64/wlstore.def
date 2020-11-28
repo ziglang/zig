@@ -1,0 +1,27 @@
+LIBRARY WLSTORE.DLL
+EXPORTS
+WirelessWriteDirectoryPolicyToWMI
+WirelessSetPolicyData
+WirelessSetPSDataInPolicy
+WirelessRemovePSFromPolicyId
+WirelessRemovePSFromPolicy
+WirelessReallocatePolStr
+WirelessReallocatePolMem
+WirelessPolicyPSId
+WirelessGPOOpenPolicyStore
+WirelessFreePolicyData
+WirelessFreePolStr
+WirelessFreePolMem
+WirelessFreeMulPolicyData
+WirelessEnumPolicyData
+WirelessDeletePolicyData
+WirelessCreatePolicyData
+WirelessCopyPolicyData
+WirelessClosePolicyStore
+WirelessClearWMIStore
+WirelessAllocPolStr
+WirelessAllocPolMem
+WirelessAddPSToPolicy
+UpdateWirelessPSData
+DllUnregisterServer
+DllRegisterServer

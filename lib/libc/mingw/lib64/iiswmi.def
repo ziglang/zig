@@ -1,0 +1,7 @@
+LIBRARY IISWMI.DLL
+EXPORTS
+DoMofComp
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

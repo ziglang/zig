@@ -1,0 +1,7 @@
+LIBRARY DPNHUPNP.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DirectPlayNATHelpCreate

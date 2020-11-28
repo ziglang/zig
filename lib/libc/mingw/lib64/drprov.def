@@ -1,0 +1,14 @@
+LIBRARY DRPROV.DLL
+EXPORTS
+NPOpenEnum
+NPGetUniversalName
+NPGetResourceParent
+NPGetResourceInformation
+NPGetConnectionPerformance
+NPGetConnection
+NPGetCaps
+NPEnumResource
+NPCloseEnum
+NPCancelConnection
+NPAddConnection3
+NPAddConnection

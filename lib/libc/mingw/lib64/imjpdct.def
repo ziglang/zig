@@ -1,0 +1,4 @@
+LIBRARY IMJPDCT.DLL
+EXPORTS
+OpenRegisterWord
+OpenDicTool

@@ -1,0 +1,14 @@
+LIBRARY D3DCOMPILER_40.DLL
+EXPORTS
+_DebugSetMute@0
+_D3DStripShader@16
+_D3DReturnFailure1@12
+_D3DReflect@16
+_D3DPreprocess@28
+_D3DGetOutputSignatureBlob@12
+_D3DGetInputSignatureBlob@12
+_D3DGetInputAndOutputSignatureBlob@12
+_D3DGetDebugInfo@12
+_D3DDisassemble@20
+_D3DDisassemble10Effect@12
+_D3DCompile@44

@@ -1,0 +1,16 @@
+LIBRARY DSROLE.DLL
+EXPORTS
+_DsRoleUpgradeDownlevelServer@48
+_DsRoleServerSaveStateForUpgrade@4
+_DsRoleIfmHandleFree@8
+_DsRoleGetPrimaryDomainInformation@12
+_DsRoleGetDcOperationResults@12
+_DsRoleGetDcOperationProgress@12
+_DsRoleGetDatabaseFacts@24
+_DsRoleFreeMemory@4
+_DsRoleDnsNameToFlatName@16
+_DsRoleDemoteDc@44
+_DsRoleDcAsReplica@12
+_DsRoleDcAsDc@68
+_DsRoleCancel@8
+_DsRoleAbortDownlevelServerUpgrade@16

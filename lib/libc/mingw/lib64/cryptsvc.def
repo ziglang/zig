@@ -1,0 +1,4 @@
+LIBRARY CRYPTSVC.DLL
+EXPORTS
+SvchostPushServiceGlobals
+CryptServiceMain

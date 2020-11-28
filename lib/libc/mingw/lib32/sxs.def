@@ -1,0 +1,23 @@
+LIBRARY SXS.DLL
+EXPORTS
+_SxspGenerateManifestPathOnAssemblyIdentity@16
+_SxsUninstallW@8
+_SxsRunDllInstallAssemblyW@16
+_SxsRunDllInstallAssembly@16
+_SxsQueryManifestInformation@28
+_SxsProbeAssemblyInstallation@12
+_SxsOleAut32RedirectTypeLibrary@28
+_SxsOleAut32MapReferenceClsidToConfiguredClsid@8
+_SxsOleAut32MapIIDToTLBPath@16
+_SxsOleAut32MapIIDToProxyStubCLSID@8
+_SxsOleAut32MapIIDOrCLSIDToTypeLibrary@8
+_SxsOleAut32MapConfiguredClsidToReferenceClsid@8
+_SxsLookupClrGuid@24
+_SxsInstallW@4
+_SxsGenerateActivationContext@4
+_SxsFindClrSurrogateInformation@24
+_SxsFindClrClassInformation@24
+_SxsEndAssemblyInstall@12
+_SxsBeginAssemblyInstall@24
+_CreateAssemblyNameObject@16
+_CreateAssemblyCache@8

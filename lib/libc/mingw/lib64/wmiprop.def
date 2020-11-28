@@ -1,0 +1,4 @@
+LIBRARY WMIPROP.DLL
+EXPORTS
+WmiPropPageProvider
+WmiPropCoInstaller

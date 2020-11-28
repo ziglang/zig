@@ -1,0 +1,4 @@
+LIBRARY SDHCINST.DLL
+EXPORTS
+SdClassInstall
+SdClassCoInstaller

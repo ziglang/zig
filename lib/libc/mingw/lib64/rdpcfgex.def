@@ -1,0 +1,12 @@
+LIBRARY RDPCFGEX.DLL
+EXPORTS
+ExtStart
+ExtSecurityLayers
+ExtGetSecurityLayerName
+ExtGetSecurityLayerDescrString
+ExtGetEncryptionLevelDescr
+ExtGetEncryptionLevelAndDescrEx
+ExtGetCapabilities
+ExtEnd
+ExtEncryptionLevels
+ExGetCfgVersionInfo

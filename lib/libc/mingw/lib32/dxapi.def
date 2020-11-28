@@ -1,0 +1,4 @@
+LIBRARY DXAPI.DLL
+EXPORTS
+__DxApiGetVersion@0
+__DxApi@20

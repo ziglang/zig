@@ -1,0 +1,9 @@
+LIBRARY OEIMPORT.DLL
+EXPORTS
+PerformMigration
+PerformImport
+ExportMessages
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

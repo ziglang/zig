@@ -1,0 +1,6 @@
+LIBRARY CNETCFG.DLL
+EXPORTS
+InetStartServices
+InetNeedSystemComponents
+InetNeedModem
+InetConfigSystem

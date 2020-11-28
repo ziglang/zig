@@ -1,0 +1,18 @@
+LIBRARY RTM.DLL
+EXPORTS
+_MgmTakeInterfaceOwnership@12
+_MgmReleaseInterfaceOwnership@12
+_MgmRegisterMProtocol@16
+_MgmGroupEnumerationStart@12
+_MgmGroupEnumerationGetNext@16
+_MgmGroupEnumerationEnd@4
+_MgmGetProtocolOnInterface@16
+_MgmGetNextMfeStats@20
+_MgmGetNextMfe@16
+_MgmGetMfeStats@16
+_MgmGetMfe@12
+_MgmGetFirstMfeStats@16
+_MgmGetFirstMfe@12
+_MgmDeleteGroupMembershipEntry@32
+_MgmDeRegisterMProtocol@4
+_MgmAddGroupMembershipEntry@32

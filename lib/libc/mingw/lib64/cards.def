@@ -1,0 +1,8 @@
+LIBRARY CARDS.DLL
+EXPORTS
+cdtTerm
+cdtInit
+cdtDrawExt
+cdtDraw
+cdtAnimate
+WEP

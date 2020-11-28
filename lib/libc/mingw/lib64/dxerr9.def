@@ -1,0 +1,4 @@
+LIBRARY DXERR9.DLL
+EXPORTS
+DXGetErrorString9A
+DXGetErrorString9W

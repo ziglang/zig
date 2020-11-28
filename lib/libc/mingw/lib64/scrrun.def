@@ -1,0 +1,8 @@
+LIBRARY SCRRUN.DLL
+EXPORTS
+DoOpenPipeStream
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DLLGetDocumentation

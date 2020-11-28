@@ -1,0 +1,16 @@
+LIBRARY RASTLS.DLL
+EXPORTS
+RasEapUpdateServerConfig
+RasEapInvokeInteractiveUI
+RasEapInvokeConfigUI
+RasEapGetInfo
+RasEapGetIdentity
+RasEapGetCredentials
+RasEapFreeMemory
+RasEapCreateUserProperties
+RasEapCreateConnectionProperties
+PeapUpdateStateToTLV
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

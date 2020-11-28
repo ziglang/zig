@@ -1,0 +1,9 @@
+LIBRARY SCRIPT.DLL
+EXPORTS
+VirtualComputerModule
+TypeModule
+SourceModule
+ModuleTerminate
+ModuleInitialize
+DllMain
+DestinationModule

@@ -1,0 +1,3 @@
+LIBRARY SIGTAB.DLL
+EXPORTS
+DriverSigningDialog

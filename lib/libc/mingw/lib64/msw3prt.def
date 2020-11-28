@@ -1,0 +1,4 @@
+LIBRARY MSW3PRT.DLL
+EXPORTS
+HttpExtensionProc
+GetExtensionVersion

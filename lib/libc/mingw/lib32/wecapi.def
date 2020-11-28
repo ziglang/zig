@@ -1,0 +1,19 @@
+LIBRARY WECAPI.DLL
+EXPORTS
+_EcSetSubscriptionProperty@16
+_EcSetObjectArrayProperty@20
+_EcSaveSubscription@8
+_EcRetrySubscription@12
+_EcRemoveObjectArrayElement@8
+_EcQuickConfig@0
+_EcOpenSubscriptionEnum@4
+_EcOpenSubscription@12
+_EcIsConfigRequired@4
+_EcInsertObjectArrayElement@8
+_EcGetSubscriptionRunTimeStatus@28
+_EcGetSubscriptionProperty@24
+_EcGetObjectArraySize@8
+_EcGetObjectArrayProperty@28
+_EcEnumNextSubscription@16
+_EcDeleteSubscription@8
+_EcClose@4

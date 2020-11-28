@@ -1,0 +1,3 @@
+LIBRARY DWRITE.DLL
+EXPORTS
+_DWriteCreateFactory@12

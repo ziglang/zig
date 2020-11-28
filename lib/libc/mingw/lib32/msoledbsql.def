@@ -1,0 +1,8 @@
+LIBRARY MSOLEDBSQL.DLL
+EXPORTS
+_OpenSqlFilestream@24
+_DllUnregisterServer@0
+_DllRegisterServer@0
+_DllMain@12
+_DllGetClassObject@12
+_DllCanUnloadNow@0

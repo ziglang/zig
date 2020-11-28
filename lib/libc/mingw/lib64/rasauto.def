@@ -1,0 +1,4 @@
+LIBRARY RASAUTO.DLL
+EXPORTS
+SetAddressDisabledEx
+ServiceMain

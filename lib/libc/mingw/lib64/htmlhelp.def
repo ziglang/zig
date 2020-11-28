@@ -1,0 +1,12 @@
+LIBRARY HTMLHELP.DLL
+EXPORTS
+doWinMain
+LoadHHA
+HtmlHelpW
+HtmlHelpA
+HhWindowThread
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+AuthorMsg

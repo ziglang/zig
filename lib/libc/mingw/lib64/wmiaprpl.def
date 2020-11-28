@@ -1,0 +1,7 @@
+LIBRARY WMIAPRPL.DLL
+EXPORTS
+WmiOpenPerfData
+WmiCollectPerfData
+WmiClosePerfData
+DllUnregisterServer
+DllRegisterServer

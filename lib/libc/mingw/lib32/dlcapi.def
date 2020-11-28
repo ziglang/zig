@@ -1,0 +1,5 @@
+LIBRARY DLCAPI.DLL
+EXPORTS
+_NtAcsLan@16
+_DlcCallDriver@24
+_AcsLan@8

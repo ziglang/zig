@@ -1,0 +1,7 @@
+LIBRARY DINPUT8.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DirectInput8Create

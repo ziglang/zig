@@ -1,0 +1,6 @@
+LIBRARY UNIDRV.DLL
+EXPORTS
+DrvQueryDriverInfo
+DrvEnableDriver
+DrvDisableDriver
+DllMain

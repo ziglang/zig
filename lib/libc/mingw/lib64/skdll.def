@@ -1,0 +1,3 @@
+LIBRARY SKDLL.DLL
+EXPORTS
+SKEY_SystemParametersInfo

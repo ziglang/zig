@@ -1,0 +1,27 @@
+LIBRARY D3DCOMPILER_46.DLL
+EXPORTS
+DebugSetMute
+D3DWriteBlobToFile
+D3DStripShader
+D3DSetBlobPart
+D3DReturnFailure1
+D3DReflect
+D3DReadFileToBlob
+D3DPreprocess
+D3DGetTraceInstructionOffsets
+D3DGetOutputSignatureBlob
+D3DGetInputSignatureBlob
+D3DGetInputAndOutputSignatureBlob
+D3DGetDebugInfo
+D3DGetBlobPart
+D3DDisassembleRegion
+D3DDisassemble11Trace
+D3DDisassemble10Effect
+D3DDisassemble
+D3DDecompressShaders
+D3DCreateBlob
+D3DCompressShaders
+D3DCompileFromFile
+D3DCompile2
+D3DCompile
+D3DAssemble

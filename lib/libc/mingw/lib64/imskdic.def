@@ -1,0 +1,7 @@
+LIBRARY IMSKDIC.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+CreateIImeSkdicInstance

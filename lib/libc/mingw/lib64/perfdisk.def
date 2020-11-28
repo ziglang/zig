@@ -1,0 +1,5 @@
+LIBRARY PERFDISK.DLL
+EXPORTS
+OpenDiskObject
+CollectDiskObjectData
+CloseDiskObject

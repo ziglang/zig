@@ -1,0 +1,12 @@
+LIBRARY KERBEROS.DLL
+EXPORTS
+SpUserModeInitialize
+SpLsaModeInitialize
+SpInstanceInit
+SpInitialize
+KerbMakeKdcCall
+KerbKdcCallBack
+KerbIsInitialized
+KerbFree
+KerbDomainChangeCallback
+KerbCreateTokenFromTicket

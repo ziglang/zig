@@ -1,0 +1,5 @@
+LIBRARY HTTPODBC.DLL
+EXPORTS
+TerminateExtension
+HttpExtensionProc
+GetExtensionVersion

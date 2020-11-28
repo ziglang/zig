@@ -1,0 +1,21 @@
+LIBRARY CRYPTXML.DLL
+EXPORTS
+CryptXmlVerifySignature
+CryptXmlSign
+CryptXmlSetHMACSecret
+CryptXmlOpenToEncode
+CryptXmlOpenToDecode
+CryptXmlImportPublicKey
+CryptXmlGetTransforms
+CryptXmlGetStatus
+CryptXmlGetSignature
+CryptXmlGetReference
+CryptXmlGetDocContext
+CryptXmlGetAlgorithmInfo
+CryptXmlFindAlgorithmInfo
+CryptXmlEnumAlgorithmInfo
+CryptXmlEncode
+CryptXmlDigestReference
+CryptXmlCreateReference
+CryptXmlClose
+CryptXmlAddObject

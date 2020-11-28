@@ -1,0 +1,3 @@
+LIBRARY SSP_NONSHARED.DLL
+EXPORTS
+___stack_chk_fail_local

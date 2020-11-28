@@ -1,0 +1,18 @@
+LIBRARY QMGR.DLL
+EXPORTS
+ServiceMain
+DllUnregisterServer
+DllRegisterServer
+BITSServiceMain
+?HostFromProxyDescription@@YA?AV?$auto_ptr@G@std@@PEAG@Z
+?GetSubRanges@CRangeCollection@@QEAAJ_K00IPEAPEAV1@@Z
+?FindInterfaceIndex@@YAKPEBG@Z
+?Find@CCredentialsContainer@@QEBAJW4__MIDL_IBackgroundCopyJob2_0001@@W4__MIDL_IBackgroundCopyJob2_0002@@PEAPEAU__MIDL_IBackgroundCopyJob2_0005@@@Z
+?CalculateBytesTotal@CRangeCollection@@IEAA_NXZ
+?BytesRemainingInCurrentRange@CRangeCollection@@QEAA_KXZ
+?BITSFree@@YAXPEAX@Z
+?BITSAlloc@@YAPEAX_K@Z
+??0PROXY_SETTINGS_CONTAINER@@QEAA@PEBGPEBUPROXY_SETTINGS@@@Z
+??0CNestedImpersonation@@QEAA@XZ
+??0CNestedImpersonation@@QEAA@PEAX@Z
+??0CNestedImpersonation@@QEAA@AEAVTokenHandle@@@Z

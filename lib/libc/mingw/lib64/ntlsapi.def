@@ -1,0 +1,5 @@
+LIBRARY NTLSAPI.DLL
+EXPORTS
+NtLicenseRequestW
+NtLicenseRequestA
+NtLSFreeHandle

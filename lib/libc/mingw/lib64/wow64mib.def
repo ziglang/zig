@@ -1,0 +1,7 @@
+LIBRARY WOW64MIB.DLL
+EXPORTS
+SnmpExtensionTrap
+SnmpExtensionQuery
+SnmpExtensionInitEx
+SnmpExtensionInit
+SnmpExtensionClose

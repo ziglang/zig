@@ -1,0 +1,4 @@
+LIBRARY REGSVC.DLL
+EXPORTS
+SvchostPushServiceGlobals
+ServiceMain

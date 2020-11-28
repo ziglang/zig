@@ -1,0 +1,11 @@
+LIBRARY DSUIEXT.DLL
+EXPORTS
+DsGetIcon
+DsGetFriendlyClassName
+DsBrowseForContainerW
+DsBrowseForContainerA
+DllUnregisterServer
+DllRegisterServer
+DllInstall
+DllGetClassObject
+DllCanUnloadNow

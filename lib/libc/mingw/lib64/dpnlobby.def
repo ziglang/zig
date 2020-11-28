@@ -1,0 +1,3 @@
+LIBRARY DPNLOBBY.DLL
+EXPORTS
+DirectPlay8LobbyCreate

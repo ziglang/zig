@@ -1,0 +1,4 @@
+LIBRARY SHFOLDER.DLL
+EXPORTS
+SHGetFolderPathW
+SHGetFolderPathA

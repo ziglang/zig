@@ -1,0 +1,14 @@
+LIBRARY BROWCLI.DLL
+EXPORTS
+_NetServerEnumEx@36
+_NetServerEnum@36
+_NetBrowserStatisticsGet@12
+_I_BrowserSetNetlogonState@16
+_I_BrowserServerEnum@44
+_I_BrowserResetStatistics@4
+_I_BrowserResetNetlogonState@4
+_I_BrowserQueryStatistics@8
+_I_BrowserQueryOtherDomains@16
+_I_BrowserQueryEmulatedDomains@12
+_I_BrowserDebugTrace@8
+_I_BrowserDebugCall@12

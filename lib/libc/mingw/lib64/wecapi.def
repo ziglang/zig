@@ -1,0 +1,21 @@
+LIBRARY WECAPI.DLL
+EXPORTS
+vDbgLogError
+pszDbgAllocMsgA
+EcSetSubscriptionProperty
+EcSetObjectArrayProperty
+EcSaveSubscription
+EcRetrySubscription
+EcRemoveObjectArrayElement
+EcQuickConfig
+EcOpenSubscriptionEnum
+EcOpenSubscription
+EcIsConfigRequired
+EcInsertObjectArrayElement
+EcGetSubscriptionRunTimeStatus
+EcGetSubscriptionProperty
+EcGetObjectArraySize
+EcGetObjectArrayProperty
+EcEnumNextSubscription
+EcDeleteSubscription
+EcClose

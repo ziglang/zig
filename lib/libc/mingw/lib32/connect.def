@@ -1,0 +1,15 @@
+LIBRARY CONNECT.DLL
+EXPORTS
+_UnregisterPagesLink@8
+_UnregisterPage@8
+_RegisterPageWithPage@28
+_IsUniqueConnectionName@4
+_IsInternetConnectedGUID@8
+_IsInternetConnected@0
+_GetVPNConnected@24
+_GetNetworkConnected@24
+_GetInternetConnected@24
+_DllGetClassObject@12
+_DllCanUnloadNow@0
+_CreateVPNConnection@24
+_AddConnectionOptionListEntries@12

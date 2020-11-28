@@ -1,0 +1,6 @@
+LIBRARY ICMUI.DLL
+EXPORTS
+SetupColorMatchingW
+SetupColorMatchingA
+DllGetClassObject
+DllCanUnloadNow

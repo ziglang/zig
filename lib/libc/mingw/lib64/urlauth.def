@@ -1,0 +1,5 @@
+LIBRARY URLAUTH.DLL
+EXPORTS
+TerminateExtension
+HttpExtensionProc
+GetExtensionVersion

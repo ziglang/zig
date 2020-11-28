@@ -1,0 +1,5 @@
+LIBRARY NTVDM64.DLL
+EXPORTS
+NtVdm64RaiseInvalid16BitError
+NtVdm64CreateProcess
+DllInstall

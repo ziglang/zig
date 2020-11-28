@@ -1,0 +1,23 @@
+LIBRARY DAVCLNT.DLL
+EXPORTS
+NPOpenEnum
+NPGetUser
+NPGetUniversalName
+NPGetResourceParent
+NPGetResourceInformation
+NPGetConnection
+NPGetCaps
+NPFormatNetworkName
+NPEnumResource
+NPCloseEnum
+NPCancelConnection
+NPAddConnection3
+NPAddConnection
+DavUnregisterAuthCallback
+DavSetCookieW
+DavRegisterAuthCallback
+DavInvalidateCache
+DavGetTheLockOwnerOfTheFile
+DavGetDiskSpaceUsage
+DavFreeUsedDiskSpace
+DavCancelConnectionsToServer

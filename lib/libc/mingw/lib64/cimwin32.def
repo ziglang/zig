@@ -1,0 +1,13 @@
+LIBRARY CIMWIN32.DLL
+EXPORTS
+SetWin32SecurityDescriptorFromSD
+GetSDFromWin32SecurityDescriptor
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+??_7CTcpMib@@6B@
+??4CTcpMib@@QEAAAEAV0@AEBV0@@Z
+??1CTcpMib@@UEAA@XZ
+??0CTcpMib@@QEAA@XZ
+??0CTcpMib@@QEAA@AEBV0@@Z

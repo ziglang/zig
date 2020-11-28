@@ -1,0 +1,14 @@
+LIBRARY MSIR3JP.DLL
+EXPORTS
+WordBreakInitEx
+WordBreakInit
+EnumSummarizationOffsetsEx
+EnumSummarizationOffsets
+EnumStemOffsets
+EnumStemInfo
+EnumSentenceOffsets
+EnumSelectionOffsets
+EnumPhrases
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject

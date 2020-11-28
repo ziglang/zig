@@ -1,0 +1,14 @@
+LIBRARY HOTPLUG.DLL
+EXPORTS
+HotPlugWarmEjectVetoedW
+HotPlugStandbyVetoedW
+HotPlugSafeRemovalNotificationW
+HotPlugSafeRemovalDriveNotificationW
+HotPlugRemovalVetoedW
+HotPlugHibernateVetoedW
+HotPlugEjectVetoedW
+HotPlugEjectDeviceEx
+HotPlugEjectDevice
+HotPlugDriverBlockedW
+HotPlugChildWithInvalidIdW
+CPlApplet

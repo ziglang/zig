@@ -1,0 +1,11 @@
+LIBRARY IASPOLCY.DLL
+EXPORTS
+IASAttributeUnicodeAlloc
+IASAttributeRelease
+IASAttributeAnsiAlloc
+IASAttributeAlloc
+IASAttributeAddRef
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

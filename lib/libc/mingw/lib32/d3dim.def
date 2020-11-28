@@ -1,0 +1,9 @@
+LIBRARY D3DIM.DLL
+EXPORTS
+_SurfaceFlipNotify@4
+_PaletteUpdateNotify@20
+_PaletteAssociateNotify@16
+_FlushD3DDevices@4
+_FlushD3DDevices2@4
+_Direct3D_HALCleanUp@8
+_Direct3DCreate@12

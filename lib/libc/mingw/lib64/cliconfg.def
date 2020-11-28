@@ -1,0 +1,5 @@
+LIBRARY CLICONFG.DLL
+EXPORTS
+OnInitDialogMain
+ClientConfigureAddEdit
+CPlApplet

@@ -1,0 +1,10 @@
+LIBRARY MMFUTIL.DLL
+EXPORTS
+ErrorStringEx
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+?DisplayUserMessage@@YAHPEAUHWND__@@PEBG1W4ERROR_SRC@@JI@Z
+?DisplayUserMessage@@YAHPEAUHWND__@@PEAUHINSTANCE__@@IIW4ERROR_SRC@@JI@Z
+?DisplayAVIBox@@YA_JPEAUHWND__@@PEBG1PEAPEAU1@@Z

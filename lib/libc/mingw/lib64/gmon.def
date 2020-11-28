@@ -1,0 +1,5 @@
+LIBRARY GMON.DLL
+EXPORTS
+_mcount_private
+monstartup
+_mcount

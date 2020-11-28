@@ -1,0 +1,4 @@
+LIBRARY ALRSVC.DLL
+EXPORTS
+SvchostPushServiceGlobals
+ServiceMain

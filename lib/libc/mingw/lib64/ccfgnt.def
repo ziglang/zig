@@ -1,0 +1,17 @@
+LIBRARY CCFGNT.DLL
+EXPORTS
+InetSetAutodialAddress
+InetSetAutodial
+InetGetSupportedPlatform
+InetGetAutodial
+IcfgTurnOffFileSharing
+IcfgStartServices
+IcfgSetInstallSourcePath
+IcfgRemoveGlobalDNS
+IcfgNeedModem
+IcfgNeedInetComponents
+IcfgIsGlobalDNS
+IcfgIsFileSharingTurnedOn
+IcfgInstallModem
+IcfgInstallInetComponents
+IcfgGetLastInstallErrorText

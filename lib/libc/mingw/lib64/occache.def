@@ -1,0 +1,17 @@
+LIBRARY OCCACHE.DLL
+EXPORTS
+SweepControlsByLastAccessDate
+RemoveExpiredControls
+RemoveControlByName2
+RemoveControlByName
+RemoveControlByHandle2
+RemoveControlByHandle
+ReleaseControlHandle
+IsModuleRemovable
+GetControlInfo
+GetControlDependentFile
+FindNextControlArch
+FindNextControl
+FindFirstControlArch
+FindFirstControl
+FindControlClose

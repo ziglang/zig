@@ -1,0 +1,23 @@
+LIBRARY COMSVCS.DLL
+EXPORTS
+SafeRef
+RegisterComEvents
+RecycleSurrogate
+MiniDumpW
+MTSCreateActivity
+GetTrkSvrObject
+GetObjectContext
+GetManagedExtensions
+GetMTAThreadPoolMetrics
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DispManGetContext
+CosGetCallContext
+ComSvcsLogError
+ComSvcsExceptionFilter
+CoLoadServices
+CoLeaveServiceDomain
+CoEnterServiceDomain
+CoCreateActivity

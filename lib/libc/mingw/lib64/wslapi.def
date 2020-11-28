@@ -1,0 +1,9 @@
+LIBRARY WSLAPI.DLL
+EXPORTS
+WslUnregisterDistribution
+WslRegisterDistribution
+WslLaunchInteractive
+WslLaunch
+WslIsDistributionRegistered
+WslGetDistributionConfiguration
+WslConfigureDistribution

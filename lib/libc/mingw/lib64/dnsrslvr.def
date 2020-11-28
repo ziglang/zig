@@ -1,0 +1,6 @@
+LIBRARY DNSRSLVR.DLL
+EXPORTS
+SvchostPushServiceGlobals
+ServiceMain
+Reg_DoRegisterAdapter
+LoadGPExtension

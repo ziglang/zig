@@ -1,0 +1,25 @@
+LIBRARY DAVCLNT.DLL
+EXPORTS
+_NPOpenEnum@20
+_NPGetUser@12
+_NPGetUniversalName@16
+_NPGetResourceParent@12
+_NPGetResourceInformation@16
+_NPGetConnection@12
+_NPGetCaps@4
+_NPFormatNetworkName@20
+_NPEnumResource@16
+_NPCloseEnum@4
+_NPCancelConnection@8
+_NPAddConnection@12
+_NPAddConnection3@20
+_DllMain@12
+_DllGetClassObject@12
+_DllCanUnloadNow@0
+_DavUnregisterAuthCallback@4
+_DavRegisterAuthCallback@8
+_DavInvalidateCache@4
+_DavGetTheLockOwnerOfTheFile@12
+_DavGetDiskSpaceUsage@16
+_DavFreeUsedDiskSpace@4
+_DavCancelConnectionsToServer@8

@@ -1,0 +1,10 @@
+LIBRARY KEYMGR.DLL
+EXPORTS
+PRShowSaveWizardExW
+PRShowSaveFromMsginaW
+PRShowRestoreWizardW
+PRShowRestoreWizardExW
+PRShowRestoreFromMsginaW
+KRShowKeyMgr
+DllMain
+CPlApplet

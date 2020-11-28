@@ -1,0 +1,21 @@
+LIBRARY UNIMDMAT.DLL
+EXPORTS
+UmWaveAction
+UmSetSpeakerPhoneState
+UmSetPassthroughMode
+UmOpenModem
+UmMonitorModem
+UmLogStringA
+UmLogDiagnostics
+UmIssueCommand
+UmInitializeModemDriver
+UmInitModem
+UmHangupModem
+UmGetDiagnostics
+UmGenerateDigit
+UmDuplicateDeviceHandle
+UmDialModem
+UmDeinitializeModemDriver
+UmCloseModem
+UmAnswerModem
+UmAbortCurrentModemCommand

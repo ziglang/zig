@@ -1,0 +1,13 @@
+LIBRARY LPRHELP.DLL
+EXPORTS
+WriteJobData
+StartJob
+SetLPRTimeouts
+PrintWaitingJobs
+OpenLPR
+InitiateConnection
+GetShortQueue
+GetLongQueue
+EndJob
+CloseLPR
+CancelJob

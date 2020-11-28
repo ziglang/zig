@@ -1,0 +1,23 @@
+LIBRARY WOW64CPU.DLL
+EXPORTS
+TurboDispatchJumpAddressStart
+TurboDispatchJumpAddressEnd
+CpuThreadTerm
+CpuThreadInit
+CpuSuspendThread
+CpuSimulate
+CpuSetStackPointer
+CpuSetInstructionPointer
+CpuSetContext
+CpuResetToConsistentState
+CpuResetFloatingPoint
+CpuProcessTerm
+CpuProcessInit
+CpuProcessDebugEvent
+CpuPrepareForDebuggerAttach
+CpuNotifyDllUnload
+CpuNotifyDllLoad
+CpuInitializeStartupContext
+CpuGetStackPointer
+CpuGetContext
+CpuFlushInstructionCache

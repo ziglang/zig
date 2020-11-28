@@ -1,0 +1,8 @@
+LIBRARY MQLOGMGR.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetDTCLOG2
+DllGetClassObject
+?DllGetDTCLOG@@YAHAEBU_GUID@@0PEAPEAX@Z
+?CreateInstance@CLogMgr@@SAJPEAPEAV1@PEAUIUnknown@@@Z

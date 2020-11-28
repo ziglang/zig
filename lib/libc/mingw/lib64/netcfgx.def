@@ -1,0 +1,19 @@
+LIBRARY NETCFGX.DLL
+EXPORTS
+UpdateLanaConfigUsingAnswerfile
+SvchostChangeSvchostGroup
+RasRemoveBindings
+RasCountBindings
+RasAddBindings
+NetPropPageProvider
+NetClassInstaller
+NetCfgDiagRepairRegistryBindings
+NetCfgDiagFromCommandArgs
+ModemClassCoInstaller
+LanaCfgFromCommandArgs
+HrDiAddComponentToINetCfg
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+??4WLBS_REG_PARAMS@@QEAAAEAU0@AEBU0@@Z

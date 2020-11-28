@@ -1,0 +1,26 @@
+LIBRARY NDFAPI.DLL
+EXPORTS
+NdfRunDllHelpTopic
+NdfRunDllDuplicateIPOffendingSystem
+NdfRunDllDuplicateIPDefendingSystem
+NdfRunDllDiagnoseWithAnswerFile
+NdfRunDllDiagnoseNetConnectionIncident
+NdfRunDllDiagnoseIncident
+NdfRepairIncidentEx
+NdfRepairIncident
+NdfGetTraceFile
+NdfExecuteDiagnosis
+NdfDiagnoseIncident
+NdfCreateWinSockIncident
+NdfCreateWebIncidentEx
+NdfCreateWebIncident
+NdfCreateSharingIncident
+NdfCreatePnrpIncident
+NdfCreateNetConnectionIncident
+NdfCreateIncident
+NdfCreateInboundIncident
+NdfCreateGroupingIncident
+NdfCreateDNSIncident
+NdfCreateConnectivityIncident
+NdfCloseIncident
+NdfCancelIncident

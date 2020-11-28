@@ -1,0 +1,11 @@
+LIBRARY MGMTAPI.DLL
+EXPORTS
+SnmpMgrTrapListen
+SnmpMgrStrToOid
+SnmpMgrRequest
+SnmpMgrOpen
+SnmpMgrOidToStr
+SnmpMgrGetTrapEx
+SnmpMgrGetTrap
+SnmpMgrCtl
+SnmpMgrClose

@@ -1,0 +1,5 @@
+LIBRARY PSCHDPRF.DLL
+EXPORTS
+OpenPschedPerformanceData
+CollectPschedPerformanceData
+ClosePschedPerformanceData

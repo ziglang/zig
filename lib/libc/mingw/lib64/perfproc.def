@@ -1,0 +1,5 @@
+LIBRARY PERFPROC.DLL
+EXPORTS
+OpenSysProcessObject
+CollectSysProcessObjectData
+CloseSysProcessObject

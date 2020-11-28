@@ -1,0 +1,8 @@
+LIBRARY ICWDL.DLL
+EXPORTS
+DownLoadSetStatusCallback
+DownLoadProcess
+DownLoadInit
+DownLoadExecute
+DownLoadClose
+DownLoadCancel

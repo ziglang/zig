@@ -1,0 +1,7 @@
+LIBRARY ELSCORE.DLL
+EXPORTS
+_MappingRecognizeText@24
+_MappingGetServices@12
+_MappingFreeServices@4
+_MappingFreePropertyBag@4
+_MappingDoAction@12

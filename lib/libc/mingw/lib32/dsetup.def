@@ -1,0 +1,20 @@
+LIBRARY DSETUP.DLL
+EXPORTS
+_DirectXUnRegisterApplication@8
+_DirectXSetupW@12
+_DirectXSetupShowEULA@4
+_DirectXSetupSetCallback@4
+_DirectXSetupIsJapanNec@0
+_DirectXSetupIsJapan@0
+_DirectXSetupIsEng@0
+_DirectXSetupGetVersion@8
+_DirectXSetupGetFileVersion@12
+_DirectXSetupGetEULAW@12
+_DirectXSetupGetEULAA@12
+_DirectXSetupCallback@20
+_DirectXSetupA@12
+_DirectXRegisterApplicationW@8
+_DirectXRegisterApplicationA@8
+_DirectXLoadString@12
+_DirectXDeviceDriverSetupW@16
+_DirectXDeviceDriverSetupA@16

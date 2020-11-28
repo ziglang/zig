@@ -1,0 +1,8 @@
+LIBRARY TBS.DLL
+EXPORTS
+_Tbsip_Submit_Command@28
+_Tbsip_Context_Close@4
+_Tbsip_Cancel_Commands@4
+_Tbsi_Physical_Presence_Command@20
+_Tbsi_Get_TCG_Log@12
+_Tbsi_Context_Create@8

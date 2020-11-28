@@ -1,0 +1,16 @@
+LIBRARY T2EMBED.DLL
+EXPORTS
+TTRunValidationTestsEx
+TTRunValidationTests
+TTLoadEmbeddedFont
+TTIsEmbeddingEnabledForFacename
+TTIsEmbeddingEnabled
+TTGetNewFontName
+TTGetEmbeddingType
+TTGetEmbeddedFontInfo
+TTEnableEmbeddingForFacename
+TTEmbedFontFromFileA
+TTEmbedFontEx
+TTEmbedFont
+TTDeleteEmbeddedFont
+TTCharToUnicode

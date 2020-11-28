@@ -1,0 +1,18 @@
+LIBRARY DBNMPNTW.DLL
+EXPORTS
+ConnectionWriteOOB
+ConnectionWrite
+ConnectionVer
+ConnectionTransact
+ConnectionStatus
+ConnectionServerEnumW
+ConnectionServerEnum
+ConnectionRead
+ConnectionOpenW
+ConnectionOpen
+ConnectionObjectSize
+ConnectionMode
+ConnectionErrorW
+ConnectionError
+ConnectionClose
+ConnectionCheckForData

@@ -1,0 +1,11 @@
+LIBRARY IASSAM.DLL
+EXPORTS
+IASParmsSetUserProperty
+IASParmsSetRasUser0
+IASParmsQueryUserProperty
+IASParmsQueryRasUser0
+IASParmsFreeUserParms
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

@@ -1,0 +1,26 @@
+LIBRARY OLEACC.DLL
+EXPORTS
+WindowFromAccessibleObject
+PropMgrClient_LookupProp
+ObjectFromLresult
+LresultFromObject
+LIBID_Accessibility
+IID_IAccessibleHandler
+IID_IAccessible
+GetStateTextW
+GetStateTextA
+GetRoleTextW
+GetRoleTextA
+GetProcessHandleFromHwnd
+GetOleaccVersionInfo
+CreateStdAccessibleProxyW
+CreateStdAccessibleProxyA
+CreateStdAccessibleObject
+AccessibleObjectFromWindowTimeout
+AccessibleObjectFromWindow
+AccessibleObjectFromPoint
+AccessibleObjectFromEvent
+AccessibleChildren
+AccSetRunningUtilityState
+AccNotifyTouchInteraction
+AccGetRunningUtilityState

@@ -1,0 +1,7 @@
+LIBRARY MCD.DLL
+EXPORTS
+_ChangerClassSendSrbSynchronous@20
+_ChangerClassInitialize@12
+_ChangerClassFreePool@4
+_ChangerClassDebugPrint
+_ChangerClassAllocatePool@8

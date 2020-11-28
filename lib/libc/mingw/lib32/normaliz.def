@@ -1,0 +1,7 @@
+LIBRARY NORMALIZ.DLL
+EXPORTS
+_NormalizeString@20
+_IsNormalizedString@12
+_IdnToUnicode@20
+_IdnToNameprepUnicode@20
+_IdnToAscii@20

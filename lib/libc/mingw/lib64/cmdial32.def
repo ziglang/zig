@@ -1,0 +1,13 @@
+LIBRARY CMDIAL32.DLL
+EXPORTS
+RasCustomHangUp
+RasCustomEntryDlg
+RasCustomDialDlg
+RasCustomDial
+RasCustomDeleteEntryNotify
+InetDialHandler
+GetCustomProperty
+CmReConnect
+CmCustomHangUp
+CmCustomDialDlg
+AutoDialFunc

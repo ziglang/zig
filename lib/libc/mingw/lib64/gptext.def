@@ -1,0 +1,15 @@
+LIBRARY GPTEXT.DLL
+EXPORTS
+ScrRegGPOListToWbem
+ProcessWIRELESSPolicyEx
+ProcessScriptsGroupPolicyEx
+ProcessScriptsGroupPolicy
+ProcessPSCHEDPolicy
+ProcessIPSECPolicyEx
+GenerateWIRELESSPolicy
+GenerateScriptsGroupPolicy
+GenerateIPSECPolicy
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

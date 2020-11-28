@@ -1,0 +1,10 @@
+LIBRARY COMSETUP.DLL
+EXPORTS
+UpgradeDSSchema
+SetupPrintLog
+RunComPlusSetWebApplicationServerRoleW
+OcEntry
+InstallOnReboot
+HandlePendingInfOperations
+ComPlusSetWebApplicationServerRole
+ComPlusGetWebApplicationServerRole

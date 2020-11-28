@@ -1,0 +1,4 @@
+LIBRARY MSGSVC.DLL
+EXPORTS
+SvchostPushServiceGlobals
+ServiceMain

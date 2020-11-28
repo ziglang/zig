@@ -1,0 +1,9 @@
+LIBRARY SCARDDLG.DLL
+EXPORTS
+SCardUIDlgSelectCardW
+SCardUIDlgSelectCardA
+SCardUIDlgGetPINA
+SCardUIDlgChangePINA
+SCardDlgExtendedError
+GetOpenCardNameW
+GetOpenCardNameA

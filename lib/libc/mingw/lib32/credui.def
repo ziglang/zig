@@ -1,0 +1,26 @@
+LIBRARY CREDUI.DLL
+EXPORTS
+_DllUnregisterServer
+_DllRegisterServer
+_DllGetClassObject@12
+_DllCanUnloadNow
+_CredUnPackAuthenticationBufferW@36
+_CredUnPackAuthenticationBufferA@36
+_CredUIStoreSSOCredW@16
+_CredUIStoreSSOCredA@16
+_CredUIReadSSOCredW@8
+_CredUIReadSSOCredA@8
+_CredUIPromptForWindowsCredentialsWorker@44
+_CredUIPromptForWindowsCredentialsW@36
+_CredUIPromptForWindowsCredentialsA@36
+_CredUIPromptForCredentialsW@40
+_CredUIPromptForCredentialsA@40
+_CredUIParseUserNameW@20
+_CredUIParseUserNameA@20
+_CredUIInitControls
+_CredUIConfirmCredentialsW@8
+_CredUIConfirmCredentialsA@8
+_CredUICmdLinePromptForCredentialsW@36
+_CredUICmdLinePromptForCredentialsA@36
+_CredPackAuthenticationBufferW@20
+_CredPackAuthenticationBufferA@20

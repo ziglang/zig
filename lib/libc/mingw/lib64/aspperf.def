@@ -1,0 +1,7 @@
+LIBRARY ASPPERF.DLL
+EXPORTS
+UnRegisterAXS
+RegisterAXS
+OpenASPPerformanceData
+CollectASPPerformanceData
+CloseASPPerformanceData

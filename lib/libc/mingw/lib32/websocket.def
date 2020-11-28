@@ -1,0 +1,15 @@
+LIBRARY WEBSOCKET.DLL
+EXPORTS
+_WebSocketSend@16
+_WebSocketReceive@12
+_WebSocketGetGlobalProperty@12
+_WebSocketGetAction@32
+_WebSocketEndServerHandshake@4
+_WebSocketEndClientHandshake@24
+_WebSocketDeleteHandle@4
+_WebSocketCreateServerHandle@12
+_WebSocketCreateClientHandle@12
+_WebSocketCompleteAction@12
+_WebSocketBeginServerHandshake@32
+_WebSocketBeginClientHandshake@36
+_WebSocketAbortHandle@4

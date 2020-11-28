@@ -1,0 +1,8 @@
+LIBRARY EAPPHOST.DLL
+EXPORTS
+_UninitializeEapHost@0
+_InitializeEapHost@0
+_DllUnregisterServer@0
+_DllRegisterServer@0
+_DllGetClassObject@12
+_DllCanUnloadNow@0

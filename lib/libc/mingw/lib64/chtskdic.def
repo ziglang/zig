@@ -1,0 +1,7 @@
+LIBRARY CHTSKDIC.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+CreateIImeSkdicInstance

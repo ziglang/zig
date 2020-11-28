@@ -1,0 +1,9 @@
+LIBRARY DPAPI.DLL
+EXPORTS
+_iCryptIdentifyProtection@20
+_CryptUpdateProtectedState@20
+_CryptUnprotectMemory@12
+_CryptUnprotectDataNoUI@36
+_CryptResetMachineCredentials@4
+_CryptProtectMemory@12
+_CryptProtectDataNoUI@36

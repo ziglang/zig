@@ -1,0 +1,21 @@
+LIBRARY ISCOMLOG.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+ComLogTerminateLog
+ComLogSetConfig
+ComLogQueryExtraLogFields
+ComLogNotifyChange
+ComLogLogInformation
+ComLogInitializeLog
+ComLogGetConfig
+ComLogDllStartup
+ComLogDllCleanUp
+ComLogCustomInformation
+?Unlock@LOGGING@@AEAAXXZ
+?LockShared@LOGGING@@AEAAXXZ
+?LockExclusive@LOGGING@@AEAAXXZ
+??4LOGGING@@QEAAAEAV0@AEBV0@@Z
+??0LOGGING@@QEAA@AEBV0@@Z

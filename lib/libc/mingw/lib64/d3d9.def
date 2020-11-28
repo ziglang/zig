@@ -1,0 +1,18 @@
+LIBRARY D3D9.DLL
+EXPORTS
+ord_16
+PSGPSampleTexture
+PSGPError
+Direct3DShaderValidatorCreate9
+Direct3DCreate9Ex
+Direct3DCreate9
+Direct3D9EnableMaximizedWindowedModeShim
+DebugSetMute
+DebugSetLevel
+D3DPERF_SetRegion
+D3DPERF_SetOptions
+D3DPERF_SetMarker
+D3DPERF_QueryRepeatFrame
+D3DPERF_GetStatus
+D3DPERF_EndEvent
+D3DPERF_BeginEvent

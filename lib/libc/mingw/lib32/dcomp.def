@@ -1,0 +1,14 @@
+LIBRARY DCOMP.DLL
+EXPORTS
+_DwmpEnableDDASupport
+_DwmFlush
+_DwmEnableMMCSS@4
+_DllGetClassObject@12
+_DllGetActivationFactory@8
+_DllCanUnloadNow
+_DCompositionCreateSurfaceHandle@12
+_DCompositionCreateDevice@12
+_DCompositionCreateDevice3@12
+_DCompositionCreateDevice2@12
+_DCompositionAttachMouseWheelToHwnd@12
+_DCompositionAttachMouseDragToHwnd@12

@@ -1,0 +1,6 @@
+LIBRARY IGMPAGNT.DLL
+EXPORTS
+SnmpExtensionTrap
+SnmpExtensionQuery
+SnmpExtensionInit
+SnmpExtensionClose

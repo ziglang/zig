@@ -1,0 +1,3 @@
+LIBRARY PINTLCSD.DLL
+EXPORTS
+CreateIImeSkdicInstance

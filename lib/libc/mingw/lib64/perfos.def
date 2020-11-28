@@ -1,0 +1,5 @@
+LIBRARY PERFOS.DLL
+EXPORTS
+OpenOSObject
+CollectOSObjectData
+CloseOSObject

@@ -1,0 +1,5 @@
+LIBRARY W3CTRS.DLL
+EXPORTS
+OpenW3PerformanceData
+CollectW3PerformanceData
+CloseW3PerformanceData

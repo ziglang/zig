@@ -1,0 +1,9 @@
+LIBRARY UPNPUI.DLL
+EXPORTS
+UnInstallUPnPUI
+IsUPnPUIInstalled
+InstallUPnPUI
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

@@ -1,0 +1,22 @@
+LIBRARY DCIMAN32.DLL
+EXPORTS
+WinWatchOpen
+WinWatchNotify
+WinWatchGetClipList
+WinWatchDidStatusChange
+WinWatchClose
+GetWindowRegionData
+GetDCRegionData
+DCISetSrcDestClip
+DCISetDestination
+DCISetClipList
+DCIOpenProvider
+DCIEnum
+DCIEndAccess
+DCIDraw
+DCIDestroy
+DCICreatePrimary
+DCICreateOverlay
+DCICreateOffscreen
+DCICloseProvider
+DCIBeginAccess

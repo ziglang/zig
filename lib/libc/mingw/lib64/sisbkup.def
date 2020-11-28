@@ -1,0 +1,10 @@
+LIBRARY SISBKUP.DLL
+EXPORTS
+SisRestoredLink
+SisRestoredCommonStoreFile
+SisFreeRestoreStructure
+SisFreeBackupStructure
+SisFreeAllocatedMemory
+SisCreateRestoreStructure
+SisCreateBackupStructure
+SisCSFilesToBackupForLink

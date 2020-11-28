@@ -1,0 +1,16 @@
+LIBRARY OLETHK32.DLL
+EXPORTS
+_TransformHRESULT_3216@4
+_TransformHRESULT_1632@4
+_ThkMgrUninitialize@12
+_ThkMgrInitialize@12
+_ThkAddAppCompatFlag@4
+_InvokeOn32@12
+_IntOpUninitialize@12
+_IntOpInitialize@12
+_IUnknownObj32@12
+_ConvertObjDescriptor@8
+_ConvertHr3216Thunk@12
+_ConvertHr1632Thunk@12
+_CallbackProcessing_3216@12
+_CSm16ReleaseHandler_Release32@12

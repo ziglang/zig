@@ -1,0 +1,24 @@
+LIBRARY NETUTILS.DLL
+EXPORTS
+_NetpwPathType@12
+_NetpwPathCompare@16
+_NetpwPathCanonicalize@24
+_NetpwNameValidate@12
+_NetpwNameCompare@16
+_NetpwNameCanonicalize@20
+_NetpwListTraverse@12
+_NetpwListCanonicalize@32
+_NetpIsUserNameValid@4
+_NetpIsUncComputerNameValid@4
+_NetpIsShareNameValid@4
+_NetpIsRemoteNameValid@4
+_NetpIsRemote@20
+_NetpIsGroupNameValid@4
+_NetpIsDomainNameValid@4
+_NetpIsComputerNameValid@4
+_NetapipBufferAllocate@8
+_NetRemoteComputerSupports@12
+_NetApiBufferSize@8
+_NetApiBufferReallocate@12
+_NetApiBufferFree@4
+_NetApiBufferAllocate@8

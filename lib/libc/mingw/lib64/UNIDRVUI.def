@@ -1,0 +1,15 @@
+LIBRARY UNIDRVUI.DLL
+EXPORTS
+DrvUpgradePrinter
+DrvSplDeviceCaps
+DrvQueryJobAttributes
+DrvQueryColorProfile
+DrvPrinterEvent
+DrvDriverEvent
+DrvDocumentPropertySheets
+DrvDocumentEvent
+DrvDevicePropertySheets
+DrvDeviceCapabilities
+DrvConvertDevMode
+DllMain
+DevQueryPrintEx

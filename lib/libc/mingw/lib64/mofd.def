@@ -1,0 +1,8 @@
+LIBRARY MOFD.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+CreateBMOFViaDLL
+CompileFileViaDLL

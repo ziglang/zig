@@ -1,0 +1,25 @@
+LIBRARY OLESVR32.DLL
+EXPORTS
+_WEP@4
+_TerminateDocClients@12
+_TerminateClients@12
+_SrvrWndProc@16
+_SendRenameMsg@12
+_SendDataMsg@12
+_OleUnblockServer@8
+_OleSavedServerDoc@4
+_OleRevokeServerDoc@4
+_OleRevokeServer@4
+_OleRevokeObject@4
+_OleRevertServerDoc@4
+_OleRenameServerDoc@8
+_OleRegisterServerDoc@16
+_OleRegisterServer@20
+_OleQueryServerVersion@0
+_OleBlockServer@4
+_ItemWndProc@16
+_ItemCallBack@12
+_FindItemWnd@8
+_EnumForTerminate@12
+_DocWndProc@16
+_DeleteClientInfo@12

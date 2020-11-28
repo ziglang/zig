@@ -1,0 +1,17 @@
+LIBRARY W3TP.DLL
+EXPORTS
+ThreadPoolTerminate
+ThreadPoolSetInfo
+ThreadPoolPostCompletion
+ThreadPoolInitialize
+ThreadPoolGetStats
+ThreadPoolBindIoCompletionCallback
+DllMain
+?TerminateThreadPool@THREAD_POOL@@QEAAXXZ
+?SetInfo@THREAD_POOL@@QEAA_KW4THREAD_POOL_INFO@@_K@Z
+?PostCompletion@THREAD_POOL@@QEAAHKP6AXKKPEAU_OVERLAPPED@@@Z0@Z
+?GetStats@THREAD_POOL@@QEAAXPEAK00@Z
+?CreateThreadPool@THREAD_POOL@@SAHPEAPEAV1@PEAUTHREAD_POOL_CONFIG@@@Z
+?BindIoCompletionCallback@THREAD_POOL@@QEAAHPEAXP6AXKKPEAU_OVERLAPPED@@@ZK@Z
+??1THREAD_POOL@@AEAA@XZ
+??0THREAD_POOL@@AEAA@XZ

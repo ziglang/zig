@@ -1,0 +1,11 @@
+LIBRARY MSSIP32.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+CryptSIPVerifyIndirectData
+CryptSIPRemoveSignedDataMsg
+CryptSIPPutSignedDataMsg
+CryptSIPGetSignedDataMsg
+CryptSIPGetRegWorkingFlags
+CryptSIPGetInfo
+CryptSIPCreateIndirectData

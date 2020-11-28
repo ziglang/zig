@@ -1,0 +1,18 @@
+LIBRARY WDSCSL.DLL
+EXPORTS
+WdsCpRecvPacketInitialize
+WdsCpParameterValidate
+WdsCpParameterQuery
+WdsCpParameterDelete
+WdsCpParameterAdd
+WdsCpPacketRelease
+WdsCpPacketInitialize
+WdsCpPacketGetBuffer
+WdsClientSessionShutdown
+WdsClientSessionExecute
+WdsClientSessionCreate
+WdsClientRegisterTrace
+WdsClientPacketFree
+WdsClientPacketAllocate
+WdsClientInitializeLibrary
+WdsClientExecute

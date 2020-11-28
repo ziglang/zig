@@ -1,0 +1,10 @@
+LIBRARY WMI2XML.DLL
+EXPORTS
+WbemObjectToText
+TextToWbemObject
+OpenWbemTextSource
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+CloseWbemTextSource

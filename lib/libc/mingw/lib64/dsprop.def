@@ -1,0 +1,25 @@
+LIBRARY DSPROP.DLL
+EXPORTS
+Smart_PADS_ATTR_INFO__Empty
+ReportError
+PostADsPropSheet
+MsgBox
+IsSheetAlreadyUp
+FindSheet
+ErrMsgParam
+ErrMsg
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DSPROP_GetGCSearchOnDomain
+CrackName
+CheckADsError
+BringSheetToForeground
+ADsPropShowErrorDialog
+ADsPropSetHwndWithTitle
+ADsPropSetHwnd
+ADsPropSendErrorMessage
+ADsPropGetInitInfo
+ADsPropCreateNotifyObj
+ADsPropCheckIfWritable

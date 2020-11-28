@@ -1,0 +1,5 @@
+LIBRARY FDEPLOY.DLL
+EXPORTS
+ProcessWmiPolicy
+ProcessGroupPolicyEx
+GenerateGroupPolicy

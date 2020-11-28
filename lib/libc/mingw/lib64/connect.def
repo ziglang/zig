@@ -1,0 +1,15 @@
+LIBRARY CONNECT.DLL
+EXPORTS
+UnregisterPagesLink
+UnregisterPage
+RegisterPageWithPage
+IsUniqueConnectionName
+IsInternetConnectedGUID
+IsInternetConnected
+HrIsInternetConnectedGUID
+HrIsInternetConnected
+GetVPNConnected
+GetNetworkConnected
+GetInternetConnected
+CreateVPNConnection
+AddConnectionOptionListEntries

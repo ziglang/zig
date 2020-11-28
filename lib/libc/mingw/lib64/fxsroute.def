@@ -1,0 +1,12 @@
+LIBRARY FXSROUTE.DLL
+EXPORTS
+FaxRouteStore
+FaxRouteSetRoutingInfo
+FaxRoutePrint
+FaxRouteInitialize
+FaxRouteGetRoutingInfo
+FaxRouteEmail
+FaxRouteDeviceEnable
+FaxRouteDeviceChangeNotification
+FaxRouteConfigure
+FaxExtInitializeConfig

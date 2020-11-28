@@ -1,0 +1,7 @@
+LIBRARY CABVIEW.DLL
+EXPORTS
+Uninstall
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

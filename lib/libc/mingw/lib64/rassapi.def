@@ -1,0 +1,16 @@
+LIBRARY RASSAPI.DLL
+EXPORTS
+RasAdminUserSetInfo
+RasAdminUserGetInfo
+RasAdminSetUserParms
+RasAdminServerGetInfo
+RasAdminPortGetInfo
+RasAdminPortEnum
+RasAdminPortDisconnect
+RasAdminPortClearStatistics
+RasAdminGetUserParms
+RasAdminGetUserAccountServer
+RasAdminGetErrorString
+RasAdminFreeBuffer
+RasAdminDLLInit
+RasAdminCompressPhoneNumber

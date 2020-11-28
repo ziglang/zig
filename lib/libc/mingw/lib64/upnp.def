@@ -1,0 +1,8 @@
+LIBRARY UPNP.DLL
+EXPORTS
+HrRehydratorInvokeServiceAction
+HrRehydratorCreateServiceObject
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

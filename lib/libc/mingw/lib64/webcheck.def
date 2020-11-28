@@ -1,0 +1,8 @@
+LIBRARY WEBCHECK.DLL
+EXPORTS
+XMLScheduleElementToTaskTrigger
+DllUnregisterServer
+DllRegisterServer
+DllInstall
+DllGetClassObject
+DllCanUnloadNow

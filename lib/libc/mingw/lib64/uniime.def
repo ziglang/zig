@@ -1,0 +1,4 @@
+LIBRARY UNIIME.DLL
+EXPORTS
+UniSearchPhrasePredictionW
+UniSearchPhrasePredictionA

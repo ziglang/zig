@@ -1,0 +1,18 @@
+LIBRARY D3D12.DLL
+EXPORTS
+_SetAppCompatStringPointer@8
+_GetBehaviorValue@8
+_D3D12SerializeVersionedRootSignature@12
+_D3D12SerializeRootSignature@16
+_D3D12PIXReportCounter@8
+_D3D12PIXNotifyWakeFromFenceSignal@4
+_D3D12PIXGetThreadInfo@0
+_D3D12PIXEventsReplaceBlock@4
+_D3D12GetDebugInterface@8
+_D3D12EnableExperimentalFeatures@16
+_D3D12CreateVersionedRootSignatureDeserializer@16
+_D3D12CreateRootSignatureDeserializer@16
+_D3D12CreateDevice@16
+_D3D12CoreRegisterLayers@8
+_D3D12CoreGetLayeredDeviceSize@8
+_D3D12CoreCreateLayeredDevice@20

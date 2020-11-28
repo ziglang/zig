@@ -1,0 +1,16 @@
+LIBRARY SHIMGVW.DLL
+EXPORTS
+imageview_fullscreenW
+ImageView_PrintToW
+ImageView_PrintToA
+ImageView_PrintTo
+ImageView_FullscreenW
+ImageView_FullscreenA
+ImageView_Fullscreen
+ImageView_COMServer
+DllUnregisterServer
+DllRegisterServer
+DllInstall
+DllGetClassObject
+DllCanUnloadNow
+ConvertDIBSECTIONToThumbnail

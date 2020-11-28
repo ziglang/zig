@@ -1,0 +1,14 @@
+LIBRARY NEWDEV.DLL
+EXPORTS
+WindowsUpdateDriverSearchingPolicyUi
+UpdateDriverForPlugAndPlayDevicesW
+UpdateDriverForPlugAndPlayDevicesA
+RollbackDriver
+InstallWindowsUpdateDriver
+InstallSelectedDriver
+InstallSelectedDevice
+InstallNewDevice
+InstallDevInstEx
+InstallDevInst
+DevInstallW
+ClientSideInstallW

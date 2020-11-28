@@ -1,0 +1,5 @@
+LIBRARY USBPORT.DLL
+EXPORTS
+_USBPORT_RegisterUSBPortDriver@12
+_USBPORT_GetHciMn@0
+_DllUnload@0

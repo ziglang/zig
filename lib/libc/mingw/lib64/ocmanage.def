@@ -1,0 +1,10 @@
+LIBRARY OCMANAGE.DLL
+EXPORTS
+OcTerminate
+OcSubComponentsPresent
+OcRememberWizardDialogHandle
+OcInitialize
+OcGetWizardPages
+OcCreateSetupPage
+OcCreateOcPage
+OcComponentState

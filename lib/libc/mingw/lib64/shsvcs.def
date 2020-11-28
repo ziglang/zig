@@ -1,0 +1,10 @@
+LIBRARY SHSVCS.DLL
+EXPORTS
+ThemeServiceMain
+HardwareDetectionServiceMain
+DllUnregisterServer
+DllRegisterServer
+DllInstall
+DllGetClassObject
+DllCanUnloadNow
+CreateHardwareEventMoniker

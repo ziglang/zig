@@ -1,0 +1,4 @@
+LIBRARY ODBC32GT.DLL
+EXPORTS
+Dispatch2
+Dispatch

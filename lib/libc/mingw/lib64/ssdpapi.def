@@ -1,0 +1,21 @@
+LIBRARY SSDPAPI.DLL
+EXPORTS
+SsdpStartup
+SsdpCleanup
+RegisterService
+RegisterNotification
+GetNextService
+GetFirstService
+FreeSsdpMessage
+FindServicesClose
+FindServicesCancel
+FindServicesCallback
+FindServices
+DeregisterServiceByUSN
+DeregisterService
+DeregisterNotification
+DHSetICSOff
+DHSetICSInterfaces
+DHEnableDeviceHost
+DHDisableDeviceHost
+CleanupCache

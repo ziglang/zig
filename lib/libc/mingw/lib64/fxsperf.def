@@ -1,0 +1,5 @@
+LIBRARY FXSPERF.DLL
+EXPORTS
+OpenFaxPerformanceData
+CollectFaxPerformanceData
+CloseFaxPerformanceData

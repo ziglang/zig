@@ -1,0 +1,16 @@
+LIBRARY AVRT.DLL
+EXPORTS
+_AvSetMmThreadPriority@8
+_AvSetMmThreadCharacteristicsW@8
+_AvSetMmThreadCharacteristicsA@8
+_AvSetMmMaxThreadCharacteristicsW@12
+_AvSetMmMaxThreadCharacteristicsA@12
+_AvRtWaitOnThreadOrderingGroup@4
+_AvRtLeaveThreadOrderingGroup@4
+_AvRtJoinThreadOrderingGroup@12
+_AvRtDeleteThreadOrderingGroup@4
+_AvRtCreateThreadOrderingGroupExW@20
+_AvRtCreateThreadOrderingGroupExA@20
+_AvRtCreateThreadOrderingGroup@16
+_AvRevertMmThreadCharacteristics@4
+_AvQuerySystemResponsiveness@8

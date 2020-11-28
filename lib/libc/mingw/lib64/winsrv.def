@@ -1,0 +1,6 @@
+LIBRARY WINSRV.DLL
+EXPORTS
+_UserTestTokenForInteractive
+_UserSoundSentry
+UserServerDllInitialization
+ConServerDllInitialization

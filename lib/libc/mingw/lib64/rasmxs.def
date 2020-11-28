@@ -1,0 +1,9 @@
+LIBRARY RASMXS.DLL
+EXPORTS
+DeviceWork
+DeviceSetInfo
+DeviceListen
+DeviceGetInfo
+DeviceEnum
+DeviceDone
+DeviceConnect

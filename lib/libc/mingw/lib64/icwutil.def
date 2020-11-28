@@ -1,0 +1,10 @@
+LIBRARY ICWUTIL.DLL
+EXPORTS
+UnregisterServer
+URLEncode
+URLAppendQueryPair
+RegisterServer
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

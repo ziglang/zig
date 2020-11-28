@@ -1,0 +1,24 @@
+LIBRARY W32TIME.DLL
+EXPORTS
+W32TmServiceMain
+W32TimeVerifyUnjoinConfig
+W32TimeVerifyJoinConfig
+W32TimeSyncNow
+W32TimeSetConfig
+W32TimeQueryStatus
+W32TimeQuerySource
+W32TimeQueryNtpProviderConfiguration
+W32TimeQueryNTPProviderStatus
+W32TimeQueryHardwareProviderStatus
+W32TimeQueryConfiguration
+W32TimeQueryConfig
+W32TimeLog
+W32TimeGetNetlogonServiceBits
+W32TimeDeleteConfig
+W32TimeDcPromo
+W32TimeBufferFree
+TimeProvOpen
+TimeProvCommand
+TimeProvClose
+SvchostPushServiceGlobals
+SvchostEntry_W32Time

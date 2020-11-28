@@ -1,0 +1,9 @@
+LIBRARY EAPPGNUI.DLL
+EXPORTS
+EapPeerInvokeIdentityUI
+EapPeerFreeMemory
+EapPeerFreeErrorMemory
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

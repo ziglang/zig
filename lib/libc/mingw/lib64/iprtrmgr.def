@@ -1,0 +1,6 @@
+LIBRARY IPRTRMGR.DLL
+EXPORTS
+StartRouter
+MapInterfaceToRouterIfType
+MapInterfaceToAdapter
+MapAddressToAdapter

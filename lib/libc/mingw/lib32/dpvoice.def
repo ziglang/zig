@@ -1,0 +1,3 @@
+LIBRARY DPVOICE.DLL
+EXPORTS
+_DirectPlayVoiceCreate@12

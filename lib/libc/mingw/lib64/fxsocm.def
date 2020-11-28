@@ -1,0 +1,11 @@
+LIBRARY FXSOCM.DLL
+EXPORTS
+XP_UninstallProvider
+WhereDidMyFaxGo
+SecureFaxServiceDirectories
+FaxOcmSetupProc
+FaxModemCoClassInstaller
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

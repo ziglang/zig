@@ -1,0 +1,9 @@
+LIBRARY COLBACT.DLL
+EXPORTS
+PartitionAccessCheck
+GetDefaultPartitionForSid
+GetDefaultPartitionForCurrentUser
+GetClassInfoForCurrentUser
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject

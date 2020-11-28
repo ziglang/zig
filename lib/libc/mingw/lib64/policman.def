@@ -1,0 +1,7 @@
+LIBRARY POLICMAN.DLL
+EXPORTS
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+CreateADContainers

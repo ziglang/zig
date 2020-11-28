@@ -1,0 +1,7 @@
+LIBRARY ADMWPROX.DLL
+EXPORTS
+ReleaseObjectSecurityContextW
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

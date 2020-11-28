@@ -1,0 +1,4 @@
+LIBRARY W3SSL.DLL
+EXPORTS
+ServiceEntry
+HTTPFilterServiceMain

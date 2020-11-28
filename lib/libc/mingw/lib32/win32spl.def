@@ -1,0 +1,16 @@
+LIBRARY WIN32SPL.DLL
+EXPORTS
+_WritePort@16
+_StartDocPort@20
+_ReadPort@16
+_OpenPort@8
+_LibMain@12
+_InitializePrintProvidor@12
+_InitializeMonitor@4
+_EnumPortsW@24
+_EndDocPort@4
+_DeletePortW@12
+_ConfigurePortW@12
+_ClosePort@4
+_AddPortW@12
+_AddPortExW@16

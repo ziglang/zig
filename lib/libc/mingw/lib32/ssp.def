@@ -1,0 +1,12 @@
+LIBRARY SSP.DLL
+EXPORTS
+___gets_chk
+___memcpy_chk
+___memmove_chk
+___mempcpy_chk
+___memset_chk
+___stpcpy_chk
+___strcat_chk
+___strcpy_chk
+___strncat_chk
+___strncpy_chk

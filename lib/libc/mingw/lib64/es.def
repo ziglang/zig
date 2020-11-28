@@ -1,0 +1,12 @@
+LIBRARY ES.DLL
+EXPORTS
+ServiceMain
+RegisterTheEventServiceDuringSetup
+RegisterTheEventServiceAfterSetup
+NotifyLogonUser
+NotifyLogoffUser
+LCEControlServer
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

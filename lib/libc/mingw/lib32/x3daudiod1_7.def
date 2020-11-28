@@ -1,0 +1,5 @@
+LIBRARY X3DAUDIOD1_7.DLL
+EXPORTS
+_X3DAudioSetValidationCallback
+_X3DAudioInitialize
+_X3DAudioCalculate

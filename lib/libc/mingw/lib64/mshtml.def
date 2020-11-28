@@ -1,0 +1,21 @@
+LIBRARY MSHTML.DLL
+EXPORTS
+com_ms_osp_ospmrshl_toJava64
+com_ms_osp_ospmrshl_releaseByValExternal64
+com_ms_osp_ospmrshl_copyToExternal64
+com_ms_osp_ospmrshl_classInit
+ShowModelessHTMLDialog
+ShowModalDialog
+ShowHTMLDialogEx
+ShowHTMLDialog
+RunHTMLApplication
+RNIGetCompatibleVersion
+PrintHTML
+MatchExactGetIDsOfNames
+DllUnregisterServer
+DllRegisterServer
+DllInstall
+DllGetClassObject
+DllEnumClassObjects
+DllCanUnloadNow
+CreateHTMLPropertyPage

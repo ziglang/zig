@@ -1,0 +1,7 @@
+LIBRARY WLANUTIL.DLL
+EXPORTS
+WlanUtf8SsidToDisplayName
+WlanStringToSsid
+WlanSsidToDisplayName
+WlanSignalValueToBar
+WlanIsActiveConsoleUser

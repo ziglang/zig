@@ -1,0 +1,8 @@
+LIBRARY DSSEC.DLL
+EXPORTS
+_DllGetClassObject@12
+_DllCanUnloadNow
+_DSEditSecurity@32
+_DSCreateSecurityPage@28
+_DSCreateISecurityInfoObjectEx@40
+_DSCreateISecurityInfoObject@28

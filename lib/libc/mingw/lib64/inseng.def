@@ -1,0 +1,14 @@
+LIBRARY INSENG.DLL
+EXPORTS
+PurgeDownloadDirectory
+GetICifRWFileFromFile
+GetICifFileFromFile
+DownloadFile
+DllUnregisterServer
+DllRegisterServer
+DllInstall
+DllGetClassObject
+DllCanUnloadNow
+CheckTrustEx
+CheckTrust
+CheckForVersionConflict

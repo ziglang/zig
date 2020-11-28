@@ -1,0 +1,16 @@
+LIBRARY WDSTPTC.DLL
+EXPORTS
+_WdsTransportClientWaitForCompletion@8
+_WdsTransportClientStartSession@4
+_WdsTransportClientShutdown@0
+_WdsTransportClientReleaseBuffer@4
+_WdsTransportClientRegisterTrace@4
+_WdsTransportClientRegisterCallback@12
+_WdsTransportClientQueryStatus@12
+_WdsTransportClientInitializeSession@12
+_WdsTransportClientInitialize@0
+_WdsTransportClientCompleteReceive@12
+_WdsTransportClientCloseSession@4
+_WdsTransportClientCancelSessionEx@8
+_WdsTransportClientCancelSession@4
+_WdsTransportClientAddRefBuffer@4

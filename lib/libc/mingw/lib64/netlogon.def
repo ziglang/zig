@@ -1,0 +1,27 @@
+LIBRARY NETLOGON.DLL
+EXPORTS
+NlNetlogonMain
+NetILogonSamLogon
+InitSecurityInterfaceW
+I_NetNotifyTrustedDomain
+I_NetNotifyRole
+I_NetNotifyNtdsDsaDeletion
+I_NetNotifyNetlogonDllHandle
+I_NetNotifyMachineAccount
+I_NetNotifyDsChange
+I_NetNotifyDelta
+I_NetLogonSetServiceBits
+I_NetLogonSendToSamOnPdc
+I_NetLogonReadChangeLog
+I_NetLogonNewChangeLog
+I_NetLogonMixedDomain
+I_NetLogonLdapLookupEx
+I_NetLogonGetSerialNumber
+I_NetLogonGetIpAddresses
+I_NetLogonGetAuthDataEx
+I_NetLogonFree
+I_NetLogonCloseChangeLog
+I_NetLogonAppendChangeLog
+I_NetLogonAddressToSiteName
+I_DsGetDcCache
+DsrGetDcNameEx2

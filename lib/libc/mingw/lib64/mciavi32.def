@@ -1,0 +1,4 @@
+LIBRARY MCIAVI32.DLL
+EXPORTS
+KeyboardHookProc
+DriverProc

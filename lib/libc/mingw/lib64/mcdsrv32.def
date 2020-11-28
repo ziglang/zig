@@ -1,0 +1,7 @@
+LIBRARY MCDSRV32.DLL
+EXPORTS
+MCDEngUninit
+MCDEngSetMemStatus
+MCDEngInitEx
+MCDEngInit
+MCDEngEscFilter

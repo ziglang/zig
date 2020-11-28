@@ -1,0 +1,5 @@
+LIBRARY FTPCTRS2.DLL
+EXPORTS
+OpenFtpPerformanceData
+CollectFtpPerformanceData
+CloseFtpPerformanceData

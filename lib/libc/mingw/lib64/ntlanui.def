@@ -1,0 +1,12 @@
+LIBRARY NTLANUI.DLL
+EXPORTS
+StopShareDialogA0
+ShareStop
+ShareManage
+ShareCreate
+ShareAsDialogA0
+ServerBrowseDialogA0
+NPPropertyDialog
+NPGetPropertyText
+I_SystemFocusDialog
+DllMain

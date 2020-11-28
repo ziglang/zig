@@ -1,0 +1,25 @@
+LIBRARY MOBSYNC.DLL
+EXPORTS
+SyncMgrResolveConflictW
+SyncMgrResolveConflictA
+SyncMgrRasProc
+RunDllRegister
+RegSetUserDefaults
+RegSetSyncItemSettings
+RegSetProgressDetailsState
+RegSchedHandlerItemsChecked
+RegRemoveManualSyncSettings
+RegQueryLoadHandlerOnEvent
+RegGetSyncSettings
+RegGetSyncItemSettings
+RegGetSchedSyncSettings
+RegGetSchedConnectionName
+RegGetProgressDetailsState
+RegGetHandlerTopLevelKey
+RegGetHandlerRegistrationInfo
+MobsyncGetClassObject
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DisplayOptions

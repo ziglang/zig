@@ -1,0 +1,6 @@
+LIBRARY INETMIB1.DLL
+EXPORTS
+SnmpExtensionTrap
+SnmpExtensionQuery
+SnmpExtensionInitEx
+SnmpExtensionInit

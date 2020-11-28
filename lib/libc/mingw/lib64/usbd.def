@@ -1,0 +1,17 @@
+LIBRARY USBD.DLL
+EXPORTS
+USBD_ValidateConfigurationDescriptor
+USBD_RegisterHcFilter
+USBD_QueryBusTime
+USBD_ParseDescriptors
+USBD_ParseConfigurationDescriptorEx
+USBD_ParseConfigurationDescriptor
+USBD_GetUSBDIVersion
+USBD_GetRegistryKeyValue
+USBD_GetPdoRegistryParameter
+USBD_GetInterfaceLength
+USBD_CreateConfigurationRequestEx
+USBD_CreateConfigurationRequest
+USBD_CalculateUsbBandwidth
+DllUnload
+DllInitialize

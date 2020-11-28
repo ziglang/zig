@@ -1,0 +1,6 @@
+LIBRARY PSCRIPT5.DLL
+EXPORTS
+DrvQueryDriverInfo
+DrvEnableDriver
+DrvDisableDriver
+DllMain

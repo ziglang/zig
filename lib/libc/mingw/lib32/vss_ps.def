@@ -1,0 +1,7 @@
+LIBRARY VSS_PS.DLL
+EXPORTS
+_GetProxyDllInfo@8
+_DllUnregisterServer@0
+_DllRegisterServer@0
+_DllGetClassObject@12
+_DllCanUnloadNow@0

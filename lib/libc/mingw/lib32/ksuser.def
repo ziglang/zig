@@ -1,0 +1,6 @@
+LIBRARY KSUSER.DLL
+EXPORTS
+_KsCreateTopologyNode@16
+_KsCreatePin@16
+_KsCreateClock@12
+_KsCreateAllocator@12

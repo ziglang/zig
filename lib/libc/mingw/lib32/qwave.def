@@ -1,0 +1,16 @@
+LIBRARY QWAVE.DLL
+EXPORTS
+_ServiceMain@8
+_QOSStopTrackingClient@12
+_QOSStartTrackingClient@12
+_QOSSetFlow@28
+_QOSRemoveSocketFromFlow@16
+_QOSQueryFlow@28
+_QOSNotifyFlow@28
+_QOSEnumerateFlows@12
+_QOSCreateHandle@8
+_QOSCloseHandle@4
+_QOSCancel@8
+_QOSAddSocketToFlow@24
+_QDLHStartDiagnosingPath@12
+_QDLHPathDiagnostics@20

@@ -1,0 +1,3 @@
+LIBRARY EVENTLOG.DLL
+EXPORTS
+SvcEntry_Eventlog

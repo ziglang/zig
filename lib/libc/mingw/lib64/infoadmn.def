@@ -1,0 +1,20 @@
+LIBRARY INFOADMN.DLL
+EXPORTS
+W3QueryStatistics2
+W3ClearStatistics2
+InitW3CounterStructure
+InetInfoSetGlobalAdminInformation
+InetInfoSetAdminInformation
+InetInfoQueryStatistics
+InetInfoGetVersion
+InetInfoGetSites
+InetInfoGetServerCapabilities
+InetInfoGetGlobalAdminInformation
+InetInfoGetAdminInformation
+InetInfoFlushMemoryCache
+InetInfoClearStatistics
+IISEnumerateUsers
+IISDisconnectUser
+FtpQueryStatistics2
+FtpClearStatistics2
+CollectW3PerfData

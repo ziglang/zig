@@ -1,0 +1,6 @@
+LIBRARY CFGBKEND.DLL
+EXPORTS
+IID_ISettingsComp2
+IID_ISettingsComp
+IID_ICfgComp
+CLSID_CfgComp

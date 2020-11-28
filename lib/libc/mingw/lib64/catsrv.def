@@ -1,0 +1,15 @@
+LIBRARY CATSRV.DLL
+EXPORTS
+OpenComponentLibraryTS
+OpenComponentLibrarySharedTS
+GetCatalogCRMClerk
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+CreateComponentLibraryTS
+?SaveWriteICR@@YAJPEAPEAUIComponentRecords@@@Z
+?ReleaseReadICR@@YAXPEAPEAUIComponentRecords@@@Z
+?GetWriteICR@@YAJPEAPEAUIComponentRecords@@@Z
+?GetReadICR@@YAJHPEAPEAUIComponentRecords@@@Z
+?CancelWriteICR@@YAJPEAPEAUIComponentRecords@@@Z

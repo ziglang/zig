@@ -1,0 +1,6 @@
+LIBRARY IMJPUTYC.DLL
+EXPORTS
+OpenUty
+OpenImeTool
+DllMain
+AutoCorrLbSubWndProc

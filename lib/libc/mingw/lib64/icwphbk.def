@@ -1,0 +1,10 @@
+LIBRARY ICWPHBK.DLL
+EXPORTS
+PhoneBookUnload
+PhoneBookSuggestNumbers
+PhoneBookMergeChanges
+PhoneBookLoad
+PhoneBookGetCanonical
+PhoneBookDisplaySignUpNumbers
+PhbkGenericDlgProc
+GetSupportNumbers

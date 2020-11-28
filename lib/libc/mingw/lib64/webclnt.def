@@ -1,0 +1,6 @@
+LIBRARY WEBCLNT.DLL
+EXPORTS
+SvchostPushServiceGlobals
+ServiceMain
+DavInit
+DavClose

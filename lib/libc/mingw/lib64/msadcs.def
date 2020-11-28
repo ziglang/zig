@@ -1,0 +1,5 @@
+LIBRARY MSADCS.DLL
+EXPORTS
+TerminateExtension
+HttpExtensionProc
+GetExtensionVersion

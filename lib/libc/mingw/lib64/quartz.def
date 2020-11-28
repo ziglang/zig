@@ -1,0 +1,11 @@
+LIBRARY QUARTZ.DLL
+EXPORTS
+GetProxyDllInfo
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+DBToAmpFactor
+AmpFactorToDB
+AMGetErrorTextW
+AMGetErrorTextA

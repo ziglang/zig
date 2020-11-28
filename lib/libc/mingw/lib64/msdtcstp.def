@@ -1,0 +1,7 @@
+LIBRARY MSDTCSTP.DLL
+EXPORTS
+SetupPrintLog
+RunDtcSetWebApplicationServerRoleW
+OcEntry
+DtcSetWebApplicationServerRole
+DtcGetWebApplicationServerRole

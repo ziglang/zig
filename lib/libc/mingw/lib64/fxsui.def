@@ -1,0 +1,12 @@
+LIBRARY FXSUI.DLL
+EXPORTS
+PrinterProperties
+DrvPrinterEvent
+DrvDocumentPropertySheets
+DrvDocumentProperties
+DrvDocumentEvent
+DrvDevicePropertySheets
+DrvDeviceCapabilities
+DrvConvertDevMode
+DrvAdvancedDocumentProperties
+DevQueryPrintEx

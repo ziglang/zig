@@ -1,0 +1,6 @@
+LIBRARY RPCSS.DLL
+EXPORTS
+WhichService
+ServiceMain
+GetRPCSSInfo
+CoGetComCatalog

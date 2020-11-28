@@ -1,0 +1,5 @@
+LIBRARY TAPIPERF.DLL
+EXPORTS
+OpenTapiPerformanceData
+CollectTapiPerformanceData
+CloseTapiPerformanceData

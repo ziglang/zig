@@ -1,0 +1,22 @@
+LIBRARY MSHTML.DLL
+EXPORTS
+_ord_104@4
+_ord_103@8
+_ord_102@4
+_ord_101@4
+_ord_100@4
+_ShowModelessHTMLDialog@20
+_ShowModalDialog@20
+_ShowHTMLDialogEx@24
+_ShowHTMLDialog@20
+_RunHTMLApplication@16
+_PrintHTML@16
+_MatchExactGetIDsOfNames@28
+_IERegisterXMLNS@24
+_IEIsXMLNSRegistered@8
+_DllGetClassObject@12
+_DllEnumClassObjects@12
+_DllCanUnloadNow@0
+_CreateHTMLPropertyPage@8
+_ConvertAndEscapePostData@12
+_ClearPhishingFilterData@0

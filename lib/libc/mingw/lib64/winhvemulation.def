@@ -1,0 +1,6 @@
+LIBRARY WINHVEMULATION.DLL
+EXPORTS
+WHvEmulatorTryMmioEmulation
+WHvEmulatorTryIoEmulation
+WHvEmulatorDestroyEmulator
+WHvEmulatorCreateEmulator

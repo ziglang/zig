@@ -1,0 +1,11 @@
+LIBRARY UMPNPMGR.DLL
+EXPORTS
+SvcEntry_PlugPlay
+RegisterServiceNotification
+RegisterScmCallback
+PNP_SetActiveService
+PNP_HwProfFlags
+PNP_GetDeviceRegProp
+PNP_GetDeviceListSize
+PNP_GetDeviceList
+DeleteServicePlugPlayRegKeys

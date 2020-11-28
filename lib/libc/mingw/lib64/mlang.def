@@ -1,0 +1,16 @@
+LIBRARY MLANG.DLL
+EXPORTS
+Rfc1766ToLcidW
+Rfc1766ToLcidA
+LcidToRfc1766W
+LcidToRfc1766A
+IsConvertINetStringAvailable
+GetGlobalFontLinkObject
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow
+ConvertINetUnicodeToMultiByte
+ConvertINetString
+ConvertINetReset
+ConvertINetMultiByteToUnicode

@@ -1,0 +1,11 @@
+LIBRARY IESETUP.DLL
+EXPORTS
+SetFirstHomepage
+IEHardenUser
+IEHardenMachineNow
+IEHardenAdminNow
+IEHardenAdmin
+FixIE
+DllUnregisterServer
+DllRegisterServer
+DllInstall

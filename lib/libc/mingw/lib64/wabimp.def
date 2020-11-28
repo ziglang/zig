@@ -1,0 +1,16 @@
+LIBRARY WABIMP.DLL
+EXPORTS
+PABImport
+PABExport
+NetscapeImport
+NetscapeExport
+MessengerImport
+LDIFImport
+EudoraImport
+EudoraExport
+DllUnregisterServer
+DllRegisterServer
+CSVImport
+CSVExport
+Athena16Import
+Athena16Export

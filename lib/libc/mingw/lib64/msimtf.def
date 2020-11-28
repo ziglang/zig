@@ -1,0 +1,8 @@
+LIBRARY MSIMTF.DLL
+EXPORTS
+MsimtfIsWindowFiltered
+MsimtfIsGuidMapEnable
+DllUnregisterServer
+DllRegisterServer
+DllGetClassObject
+DllCanUnloadNow

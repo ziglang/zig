@@ -1,0 +1,14 @@
+LIBRARY EXSTRACE.DLL
+EXPORTS
+g_TestTraceEnable
+g_TestTraceDisable
+g_TestTrace
+TermAsyncTrace
+SetAsyncTraceParamsEx
+SetAsyncTraceParams
+InitAsyncTrace
+FlushAsyncTrace
+DllMain
+DebugAssert
+AsyncStringTrace
+AsyncBinaryTrace

@@ -1,0 +1,27 @@
+LIBRARY PRINTUI.DLL
+EXPORTS
+vServerPropPages
+vQueueCreate
+vPrinterPropPages
+vDocumentDefaults
+bPrinterSetup
+bFolderRefresh
+bFolderGetPrinter
+bFolderEnumPrinters
+UnregisterPrintNotify
+ShowErrorMessageSC
+ShowErrorMessageHR
+RegisterPrintNotify
+PrinterPropPageProvider
+PrintUIEntryW
+PrintNotifyTray_Init
+PrintNotifyTray_Exit
+PnPInterface
+GetLegacyPrintUI
+DocumentPropertiesWrap
+DllMain
+DllGetClassObject
+DllCanUnloadNow
+ConstructPrinterFriendlyName
+ConnectToPrinterPropertyPage
+ConnectToPrinterDlg

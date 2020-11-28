@@ -1,0 +1,25 @@
+LIBRARY CMPBK32.DLL
+EXPORTS
+PhoneBookUnload
+PhoneBookParseInfoA
+PhoneBookMergeChanges
+PhoneBookMatchFilter
+PhoneBookLoad
+PhoneBookHasPhoneType
+PhoneBookGetRegionNameA
+PhoneBookGetPhoneType
+PhoneBookGetPhoneNonCanonicalA
+PhoneBookGetPhoneDispA
+PhoneBookGetPhoneDescA
+PhoneBookGetPhoneDUNA
+PhoneBookGetPhoneCanonicalA
+PhoneBookGetCurrentCountryId
+PhoneBookGetCountryNameW
+PhoneBookGetCountryNameA
+PhoneBookGetCountryId
+PhoneBookFreeFilter
+PhoneBookEnumRegions
+PhoneBookEnumNumbersWithRegionsZero
+PhoneBookEnumNumbers
+PhoneBookEnumCountries
+PhoneBookCopyFilter

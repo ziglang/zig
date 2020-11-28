@@ -1,0 +1,8 @@
+LIBRARY KSPROXY.DLL
+EXPORTS
+_KsSynchronousDeviceControl@28
+_KsResolveRequiredAttributes@8
+_KsOpenDefaultDevice@12
+_KsGetMultiplePinFactoryItems@16
+_KsGetMediaTypeCount@12
+_KsGetMediaType@16

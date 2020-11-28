@@ -1,0 +1,17 @@
+LIBRARY RASRAD.DLL
+EXPORTS
+RasAuthProviderTerminate
+RasAuthProviderInitialize
+RasAuthProviderFreeAttributes
+RasAuthProviderAuthenticateUser
+RasAuthConfigChangeNotification
+RasAcctProviderTerminate
+RasAcctProviderStopAccounting
+RasAcctProviderStartAccounting
+RasAcctProviderInterimAccounting
+RasAcctProviderInitialize
+RasAcctProviderFreeAttributes
+RasAcctConfigChangeNotification
+Open
+Collect
+Close

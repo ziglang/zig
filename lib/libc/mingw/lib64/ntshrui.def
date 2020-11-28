@@ -1,0 +1,20 @@
+LIBRARY NTSHRUI.DLL
+EXPORTS
+ShowShareFolderUIW
+SharingDialogW
+SharingDialogA
+SharingDialog
+SetFolderPermissionsForSharing
+IsPathSharedW
+IsPathSharedA
+IsPathShared
+IsFolderPrivateForUser
+GetNetResourceFromLocalPathW
+GetNetResourceFromLocalPathA
+GetNetResourceFromLocalPath
+GetLocalPathFromNetResourceW
+GetLocalPathFromNetResourceA
+GetLocalPathFromNetResource
+DllGetClassObject
+DllCanUnloadNow
+CanShareFolderW
