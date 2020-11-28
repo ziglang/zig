@@ -1313,10 +1313,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 man.hash.addOptionalBytes(self.base.options.dynamic_linker);
             }
         }
-        if (is_dyn_lib) {
-            man.hash.addOptionalBytes(self.base.options.override_soname);
-            man.hash.addOptional(self.base.options.version);
-        }
+        man.hash.addOptionalBytes(self.base.options.soname);
+        man.hash.addOptional(self.base.options.version);
         man.hash.addStringSet(self.base.options.system_libs);
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
@@ -1505,13 +1503,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     if (is_dyn_lib) {
-        const soname = self.base.options.override_soname orelse if (self.base.options.version) |ver|
-            try std.fmt.allocPrint(arena, "lib{}.so.{}", .{ self.base.options.root_name, ver.major })
-        else
-            try std.fmt.allocPrint(arena, "lib{}.so", .{self.base.options.root_name});
-        try argv.append("-soname");
-        try argv.append(soname);
-
+        if (self.base.options.soname) |soname| {
+            try argv.append("-soname");
+            try argv.append(soname);
+        }
         if (self.base.options.version_script) |version_script| {
             try argv.append("-version-script");
             try argv.append(version_script);

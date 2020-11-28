@@ -911,13 +911,14 @@ fn buildSharedLib(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
     const emit_bin = Compilation.EmitLoc{
         .directory = bin_directory,
-        .basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover }),
+        .basename = basename,
     };
     const version: std.builtin.Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
-    const override_soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else null;
+    const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
     const map_file_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, all_map_basename });
     const c_source_files = [1]Compilation.CSourceFile{
         .{
@@ -955,7 +956,7 @@ fn buildSharedLib(
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .version = version,
         .version_script = map_file_path,
-        .override_soname = override_soname,
+        .soname = soname,
         .c_source_files = &c_source_files,
         .is_compiler_rt_or_libc = true,
     });
