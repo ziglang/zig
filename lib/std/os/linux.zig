@@ -112,7 +112,9 @@ pub fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:
 }
 
 pub fn fork() usize {
-    if (@hasField(SYS, "fork")) {
+    if (comptime builtin.arch.isSPARC()) {
+        return syscall_fork();
+    } else if (@hasField(SYS, "fork")) {
         return syscall0(.fork);
     } else {
         return syscall2(.clone, SIGCHLD, 0);
