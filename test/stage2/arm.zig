@@ -113,4 +113,40 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("addition", linux_arm);
+        // Add two numbers
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print(2, 4);
+            \\    print(1, 7);
+            \\    exit();
+            \\}
+            \\
+            \\fn print(a: u32, b: u32) void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg3] "{r2}" (a + b),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("123456789"))
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "12345612345678",
+        );
+    }
 }
