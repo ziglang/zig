@@ -5,6 +5,7 @@
 #include "softfloat.h"
 #include <stddef.h>
 #include <sys/types.h>
+#include <endian.h>
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
@@ -47,7 +48,6 @@
 
 #define DECIMAL_DIG 36
 
-
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 union ldshape {
     float128_t f;
@@ -76,6 +76,7 @@ union ldshape {
         uint64_t lo;
     } i2;
 };
+#else
 #error Unsupported endian
 #endif
 
