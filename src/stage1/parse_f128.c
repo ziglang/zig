@@ -5,11 +5,19 @@
 #include "softfloat.h"
 #include <stddef.h>
 #include <sys/types.h>
-#include <endian.h>
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
 #include <math.h>
+
+// Every OSes seem to define endianness macros in different files.
+#if defined(__APPLE__)
+  #include <machine/endian.h>
+#elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+  #include <sys/endian.h>
+#else
+  #include <endian.h>
+#endif
 
 #define shcnt(f) ((f)->shcnt + ((f)->rpos - (f)->buf))
 #define shlim(f, lim) __shlim((f), (lim))
