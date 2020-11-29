@@ -280,6 +280,10 @@ const usage_build_generic =
     \\  -fno-valgrind             Omit valgrind client requests in debug builds
     \\  -fdll-export-fns          Mark exported functions as DLL exports (Windows)
     \\  -fno-dll-export-fns       Force-disable marking exported functions as DLL exports
+    \\  -fLLVM                    Force using LLVM as the codegen backend
+    \\  -fno-LLVM                 Prevent using LLVM as a codegen backend
+    \\  -fClang                   Force using Clang as the C/C++ compilation backend
+    \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
     \\  --strip                   Omit debug symbols
     \\  --single-threaded         Code assumes it is only used single-threaded
     \\  -ofmt=[mode]              Override target object format
@@ -306,8 +310,10 @@ const usage_build_generic =
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --version [ver]                Dynamic library semver
-    \\  -fsoname[=name]                (linux) Override the default SONAME value
-    \\  -fno-soname                    (linux) Disable emitting a SONAME
+    \\  -fsoname[=name]                (Linux) Override the default SONAME value
+    \\  -fno-soname                    (Linux) Disable emitting a SONAME
+    \\  -fLLD                          Force using LLD as the linker
+    \\  -fno-LLD                       Prevent using LLD as the linker
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
@@ -317,11 +323,11 @@ const usage_build_generic =
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
-    \\  --subsystem [subsystem]        (windows) /SUBSYSTEM:<subsystem> to the linker\n"
+    \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker\n"
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
-    \\  -framework [name]              (darwin) link against framework
-    \\  -F[dir]                        (darwin) add search path for frameworks
+    \\  -framework [name]              (Darwin) link against framework
+    \\  -F[dir]                        (Darwin) add search path for frameworks
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
