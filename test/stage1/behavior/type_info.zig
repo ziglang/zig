@@ -82,9 +82,6 @@ fn testNullTerminatedPtr() void {
     expect(ptr_info.Pointer.sentinel.? == 0);
 
     expect(@typeInfo([:0]u8).Pointer.sentinel != null);
-    expect(@typeInfo([10:0]u8).Array.sentinel != null);
-    expect(@typeInfo([10:0]u8).Array.len == 10);
-    expect(@sizeOf([10:0]u8) == 11);
 }
 
 test "type info: C pointer type info" {
@@ -123,10 +120,21 @@ test "type info: array type info" {
 }
 
 fn testArray() void {
-    const arr_info = @typeInfo([42]bool);
-    expect(arr_info == .Array);
-    expect(arr_info.Array.len == 42);
-    expect(arr_info.Array.child == bool);
+    {
+        const info = @typeInfo([42]u8);
+        expect(info == .Array);
+        expect(info.Array.len == 42);
+        expect(info.Array.child == u8);
+        expect(info.Array.sentinel == null);
+    }
+
+    {
+        const info = @typeInfo([10:0]u8);
+        expect(info.Array.len == 10);
+        expect(info.Array.child == u8);
+        expect(info.Array.sentinel.? == @as(u8, 0));
+        expect(@sizeOf([10:0]u8) == info.Array.len + 1);
+    }
 }
 
 test "type info: optional type info" {

@@ -25062,12 +25062,12 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                         0, 0, 0, false);
                     fn_decl_fields[5]->type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
                     if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
-                        fn_decl_fields[5]->data.x_optional = ira->codegen->pass1_arena->create<ZigValue>();
+                        ZigValue *slice_val = ira->codegen->pass1_arena->create<ZigValue>();
                         ZigValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name)->data.x_ptr.data.ref.pointee;
-                        init_const_slice(ira->codegen, fn_decl_fields[5]->data.x_optional, lib_name, 0,
-                                buf_len(fn_node->lib_name), true);
+                        init_const_slice(ira->codegen, slice_val, lib_name, 0, buf_len(fn_node->lib_name), true);
+                        set_optional_payload(fn_decl_fields[5], slice_val);
                     } else {
-                        fn_decl_fields[5]->data.x_optional = nullptr;
+                        set_optional_payload(fn_decl_fields[5], nullptr);
                     }
                     // return_type: type
                     ensure_field_index(fn_decl_val->type, "return_type", 6);
@@ -25347,8 +25347,12 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 fields[1]->data.x_type = type_entry->data.array.child_type;
                 // sentinel: anytype
                 fields[2]->special = ConstValSpecialStatic;
-                fields[2]->type = get_optional_type(ira->codegen, type_entry->data.array.child_type);
-                fields[2]->data.x_optional = type_entry->data.array.sentinel;
+                if (type_entry->data.array.child_type != nullptr) {
+                    fields[2]->type = get_optional_type(ira->codegen, type_entry->data.array.child_type);
+                    set_optional_payload(fields[2], type_entry->data.array.sentinel);
+                } else {
+                    fields[2]->type = ira->codegen->builtin_types.entry_null;
+                }
                 break;
             }
         case ZigTypeIdVector: {
