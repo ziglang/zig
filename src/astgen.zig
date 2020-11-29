@@ -2221,6 +2221,20 @@ fn import(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError!*
     return addZIRUnOp(mod, scope, src, .import, target);
 }
 
+fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const arena = scope.arena();
+    const src = tree.token_locs[call.builtin_token].start;
+    const params = call.params();
+    if (params.len < 1) {
+        return mod.failTok(scope, call.builtin_token, "expected >=1 parameters, found 0", .{});
+    }
+    var items = try arena.alloc(*zir.Inst, params.len);
+    for (params) |param, param_i|
+        items[param_i] = try expr(mod, scope, .none, param);
+    return rlWrap(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.BuiltinTypeOf, .{ .items = items }, .{}));
+}
+
 fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
     const tree = scope.tree();
     const builtin_name = tree.tokenSlice(call.builtin_token);
@@ -2240,6 +2254,8 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
         return simpleCast(mod, scope, rl, call, .intcast);
     } else if (mem.eql(u8, builtin_name, "@bitCast")) {
         return bitCast(mod, scope, rl, call);
+    } else if (mem.eql(u8, builtin_name, "@TypeOf")) {
+        return typeOf(mod, scope, rl, call);
     } else if (mem.eql(u8, builtin_name, "@breakpoint")) {
         const src = tree.token_locs[call.builtin_token].start;
         return rlWrap(mod, scope, rl, try addZIRNoOp(mod, scope, src, .breakpoint));

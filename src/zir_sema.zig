@@ -118,6 +118,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .iserr => return analyzeInstIsErr(mod, scope, old_inst.castTag(.iserr).?),
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
+        .builtintypeof => return analyzeInstBuiltinTypeOf(mod, scope, old_inst.castTag(.builtintypeof).?),
         .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
         .unwrap_optional_safe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_safe).?, true),
         .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
@@ -1670,6 +1671,18 @@ fn analyzeInstCmp(
 fn analyzeInstTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.constType(scope, inst.base.src, operand.ty);
+}
+
+fn analyzeInstBuiltinTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.BuiltinTypeOf) InnerError!*Inst {
+    // hot path for one param
+    if (inst.positionals.items.len == 1) {
+        return mod.constType(scope, inst.base.src, (try resolveInst(mod, scope, inst.positionals.items[0])).ty);
+    }
+    var insts_to_res = try mod.gpa.alloc(*ir.Inst, inst.positionals.items.len);
+    for (inst.positionals.items) |item, i| {
+        insts_to_res[i] = try resolveInst(mod, scope, item);
+    }
+    return mod.constType(scope, inst.base.src, try mod.resolvePeerTypes(scope, insts_to_res));
 }
 
 fn analyzeInstBoolNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
