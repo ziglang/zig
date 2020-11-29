@@ -13,6 +13,9 @@
 // Every OSes seem to define endianness macros in different files.
 #if defined(__APPLE__)
   #include <machine/endian.h>
+  #define __BIG_ENDIAN BIG_ENDIAN
+  #define __LITTLE_ENDIAN LITTLE_ENDIAN
+  #define __BYTE_ORDER BYTE_ORDER
 #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
   #include <sys/endian.h>
 #elif defined(_WIN32) || defined(_WIN64)
