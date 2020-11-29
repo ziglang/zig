@@ -3893,15 +3893,30 @@ static LLVMValueRef ir_render_vector_store_elem(CodeGen *g, IrExecutableGen *exe
 }
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenVarPtr *instruction) {
-    if (instruction->base.value->special != ConstValSpecialRuntime)
-        return ir_llvm_value(g, &instruction->base);
-    ZigVar *var = instruction->var;
-    if (type_has_bits(g, var->var_type)) {
-        assert(var->value_ref);
-        return var->value_ref;
-    } else {
+    Error err;
+
+    ZigType *ptr_type = instruction->base.value->type;
+    assert(ptr_type->id == ZigTypeIdPointer);
+    bool ptr_type_has_bits;
+    if ((err = type_has_bits2(g, ptr_type, &ptr_type_has_bits)))
+        codegen_report_errors_and_exit(g);
+
+    if (!ptr_type_has_bits) {
         return nullptr;
     }
+
+    // The extra bitcasts are needed in case the LLVM value is an unnamed
+    // struct, as it happens when rendering container types with extra alignment
+    // fields.
+    if (instruction->base.value->special != ConstValSpecialRuntime) {
+        return LLVMBuildBitCast(g->builder, ir_llvm_value(g, &instruction->base),
+                get_llvm_type(g, ptr_type), "");
+    }
+
+    ZigVar *var = instruction->var;
+    assert(var->value_ref);
+    return LLVMBuildBitCast(g->builder, var->value_ref,
+            get_llvm_type(g, ptr_type), "");
 }
 
 static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutableGen *executable,
