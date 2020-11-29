@@ -15,6 +15,10 @@
   #include <machine/endian.h>
 #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
   #include <sys/endian.h>
+#elif defined(_WIN32) || defined(_WIN64)
+  // Assume that Windows installations are always little endian.
+  #define __LITTLE_ENDIAN 1
+  #define __BYTE_ORDER __LITTLE_ENDIAN
 #else
   #include <endian.h>
 #endif
@@ -56,7 +60,7 @@
 
 #define DECIMAL_DIG 36
 
-#if __BYTE_ORDER == __LITTLE_ENDIAN
+#if defined(__BYTE_ORDER) && __BYTE_ORDER == __LITTLE_ENDIAN
 union ldshape {
     float128_t f;
     struct {
@@ -70,7 +74,7 @@ union ldshape {
         uint64_t hi;
     } i2;
 };
-#elif __BYTE_ORDER == __BIG_ENDIAN
+#elif defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN
 union ldshape {
     float128_t f;
     struct {
