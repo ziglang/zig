@@ -813,7 +813,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             // Pad out space for code signature
             const text_cmd = parser.load_commands.items[parser.text_cmd_index.?].Segment.inner;
             const dataoff = @intCast(u32, mem.alignForward(parser.end_pos.?, @sizeOf(u64)));
-            const datasize = 0x1000;
+            const datasize = 0x400000;
             const code_sig = macho.linkedit_data_command{
                 .cmd = macho.LC_CODE_SIGNATURE,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
@@ -1600,7 +1600,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     return vaddr;
 }
 
-fn makeStaticString(comptime bytes: []const u8) [16]u8 {
+pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
     var buf = [_]u8{0} ** 16;
     if (bytes.len > buf.len) @compileError("string too long; max 16 bytes");
     mem.copy(u8, buf[0..], bytes);
@@ -1993,4 +1993,11 @@ fn writeMachOHeader(self: *MachO) !void {
 fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     return std.math.mul(T, a, b) catch std.math.maxInt(T);
+}
+
+test "" {
+    // TODO surprisingly this causes a linking error:
+    // _linkWithLLD symbol missing for arch
+    // _ = std.testing.refAllDecls(@This());
+    _ = std.testing.refAllDecls(@import("MachO/commands.zig"));
 }
