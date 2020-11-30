@@ -408,10 +408,9 @@ fn analyzeInstEnsureIndexable(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp)
     }
 }
 
-fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.Alloc) InnerError!*Inst {
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
-    // TODO this should happen only for var allocs
-    if (!var_type.isValidVarType(false)) {
+    if (inst.positionals.mutable and !var_type.isValidVarType(false)) {
         return mod.fail(scope, inst.base.src, "variable of type '{}' must be const or comptime", .{var_type});
     }
     const ptr_type = try mod.simplePtrType(scope, inst.base.src, var_type, true, .One);
@@ -419,7 +418,7 @@ fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErro
     return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
 }
 
-fn analyzeInstAllocInferred(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+fn analyzeInstAllocInferred(mod: *Module, scope: *Scope, inst: *zir.Inst.AllocInferred) InnerError!*Inst {
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstAllocInferred", .{});
 }
 

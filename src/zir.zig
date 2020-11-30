@@ -292,7 +292,6 @@ pub const Inst = struct {
                 .breakpoint,
                 .dbg_stmt,
                 .returnvoid,
-                .alloc_inferred,
                 .ret_ptr,
                 .ret_type,
                 .unreach_nocheck,
@@ -306,7 +305,6 @@ pub const Inst = struct {
                 .isnonnull,
                 .iserr,
                 .ptrtoint,
-                .alloc,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_indexable,
@@ -376,6 +374,8 @@ pub const Inst = struct {
                 .block_comptime_flat,
                 => Block,
 
+                .alloc => Alloc,
+                .alloc_inferred => AllocInferred,
                 .arg => Arg,
                 .array_type_sentinel => ArrayTypeSentinel,
                 .@"break" => Break,
@@ -581,6 +581,25 @@ pub const Inst = struct {
         positionals: struct {
             lhs: *Inst,
             rhs: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Alloc = struct {
+        pub const base_tag = Tag.alloc;
+        base: Inst,
+        positionals: struct {
+            operand: *Inst,
+            mutable: bool,
+        },
+        kw_args: struct {},
+    };
+
+    pub const AllocInferred = struct {
+        pub const base_tag = Tag.alloc;
+        base: Inst,
+        positionals: struct {
+            mutable: bool,
         },
         kw_args: struct {},
     };
