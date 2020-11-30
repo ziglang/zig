@@ -31,7 +31,6 @@ pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceE
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const Progress = @import("progress.zig").Progress;
 pub const ResetEvent = @import("reset_event.zig").ResetEvent;
-pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
