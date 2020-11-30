@@ -167,9 +167,7 @@ const Job = union(enum) {
     libcxx: void,
     libcxxabi: void,
     libssp: void,
-    /// needed when producing a dynamic library or executable
-    libcompiler_rt: void,
-    /// needed when producing a static library with bundle-compiler-rt
+    compiler_rt_lib: void,
     compiler_rt_obj: void,
     /// needed when not linking libc and using LLVM for code generation because it generates
     /// calls to, for example, memcpy and memset.
@@ -355,6 +353,7 @@ pub const InitOptions = struct {
     want_sanitize_c: ?bool = null,
     want_stack_check: ?bool = null,
     want_valgrind: ?bool = null,
+    want_compiler_rt: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
@@ -392,7 +391,6 @@ pub const InitOptions = struct {
     parent_compilation_link_libc: bool = false,
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
-    bundle_compiler_rt: bool = false,
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
@@ -410,15 +408,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         .Obj, .Exe => false,
         .Lib => (options.link_mode orelse .Static) == .Dynamic,
     };
-    const is_static_lib = switch (options.output_mode) {
-        .Obj, .Exe => false,
-        .Lib => (options.link_mode orelse .Static) == .Static,
-    };
     const is_exe_or_dyn_lib = switch (options.output_mode) {
         .Obj => false,
         .Lib => is_dyn_lib,
         .Exe => true,
     };
+    const needs_c_symbols = !options.is_compiler_rt_or_libc and
+        (is_exe_or_dyn_lib or (options.target.isWasm() and options.output_mode != .Obj));
+
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
         // initialization and then is freed in deinit().
@@ -594,6 +591,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 break :b false;
             break :b options.want_valgrind orelse (options.optimize_mode == .Debug);
         };
+
+        const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
 
         const single_threaded = options.single_threaded or target_util.isSingleThreaded(options.target);
 
@@ -831,7 +830,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .z_defs = options.linker_z_defs,
             .stack_size_override = options.stack_size_override,
             .image_base_override = options.image_base_override,
-            .bundle_compiler_rt = options.bundle_compiler_rt,
+            .include_compiler_rt = include_compiler_rt,
             .linker_script = options.linker_script,
             .version_script = options.version_script,
             .gc_sections = options.linker_gc_sections,
@@ -978,24 +977,31 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libcxxabi);
         }
 
-        const needs_libc = is_exe_or_dyn_lib or
-            (comp.getTarget().isWasm() and comp.bin_file.options.output_mode != .Obj);
-        const needs_compiler_rt = options.bundle_compiler_rt or needs_libc;
-
-        if (needs_compiler_rt and build_options.is_stage1) {
-            if (is_static_lib) {
-                try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
-            } else {
-                try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
+        // The `is_stage1` condition is here only because stage2 cannot yet build compiler-rt.
+        // Once it is capable this condition should be removed.
+        if (build_options.is_stage1) {
+            if (comp.bin_file.options.include_compiler_rt) {
+                if (is_exe_or_dyn_lib) {
+                    try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
+                } else {
+                    try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
+                    if (comp.bin_file.options.object_format != .elf) {
+                        // For ELF we can rely on using -r to link multiple objects together into one,
+                        // but to truly support `build-obj -fcompiler-rt` will require virtually
+                        // injecting `_ = @import("compiler_rt.zig")` into the root source file of
+                        // the compilation.
+                        fatal("Embedding compiler-rt into non-ELF objects is not yet implemented.", .{});
+                    }
+                }
             }
-        }
-        if (needs_libc and build_options.is_stage1) {
-            // MinGW provides no libssp, use our own implementation.
-            if (comp.getTarget().isMinGW()) {
-                try comp.work_queue.writeItem(.{ .libssp = {} });
-            }
-            if (!comp.bin_file.options.link_libc) {
-                try comp.work_queue.writeItem(.{ .zig_libc = {} });
+            if (needs_c_symbols) {
+                // MinGW provides no libssp, use our own implementation.
+                if (comp.getTarget().isMinGW()) {
+                    try comp.work_queue.writeItem(.{ .libssp = {} });
+                }
+                if (!comp.bin_file.options.link_libc) {
+                    try comp.work_queue.writeItem(.{ .zig_libc = {} });
+                }
             }
         }
     }
@@ -1393,26 +1399,26 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 fatal("unable to build libcxxabi: {}", .{@errorName(err)});
             };
         },
-        .libcompiler_rt => {
-            self.buildStaticLibFromZig("compiler_rt.zig", &self.compiler_rt_static_lib) catch |err| {
+        .compiler_rt_lib => {
+            self.buildOutputFromZig("compiler_rt.zig", .Lib, &self.compiler_rt_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build compiler_rt: {}", .{@errorName(err)});
+                fatal("unable to build compiler_rt: {s}", .{@errorName(err)});
             };
         },
         .compiler_rt_obj => {
             self.buildOutputFromZig("compiler_rt.zig", .Obj, &self.compiler_rt_obj) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build compiler_rt: {}", .{@errorName(err)});
+                fatal("unable to build compiler_rt: {s}", .{@errorName(err)});
             };
         },
         .libssp => {
-            self.buildStaticLibFromZig("ssp.zig", &self.libssp_static_lib) catch |err| {
+            self.buildOutputFromZig("ssp.zig", .Lib, &self.libssp_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build libssp: {}", .{@errorName(err)});
             };
         },
         .zig_libc => {
-            self.buildStaticLibFromZig("c.zig", &self.libc_static_lib) catch |err| {
+            self.buildOutputFromZig("c.zig", .Lib, &self.libc_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build zig's multitarget libc: {}", .{@errorName(err)});
             };
@@ -2668,10 +2674,6 @@ fn buildOutputFromZig(
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
-}
-
-fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CRTFile) !void {
-    return buildOutputFromZig(comp, src_basename, .Lib, out);
 }
 
 fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {

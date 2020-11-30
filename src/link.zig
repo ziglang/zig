@@ -46,7 +46,7 @@ pub const Options = struct {
     entry_addr: ?u64 = null,
     stack_size_override: ?u64,
     image_base_override: ?u64,
-    bundle_compiler_rt: bool,
+    include_compiler_rt: bool,
     /// Set to `true` to omit debug info.
     strip: bool,
     /// If this is true then this link code is responsible for outputting an object
@@ -474,6 +474,11 @@ pub const File = struct {
             break :blk full_obj_path;
         } else null;
 
+        const compiler_rt_path: ?[]const u8 = if (base.options.include_compiler_rt)
+            comp.compiler_rt_obj.?.full_object_path
+        else
+            null;
+
         // This function follows the same pattern as link.Elf.linkWithLLD so if you want some
         // insight as to what's going on here you can read that function body which is more
         // well-commented.
@@ -490,6 +495,7 @@ pub const File = struct {
             _ = try ch.addFile(entry.key.status.success.object_path, null);
         }
         try ch.addOptionalFile(module_obj_path);
+        try ch.addOptionalFile(compiler_rt_path);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try ch.hit();
@@ -519,8 +525,7 @@ pub const File = struct {
         var object_files = std.ArrayList([*:0]const u8).init(base.allocator);
         defer object_files.deinit();
 
-        try object_files.ensureCapacity(base.options.objects.len + comp.c_object_table.items().len +
-            1 + @boolToInt(base.options.bundle_compiler_rt));
+        try object_files.ensureCapacity(base.options.objects.len + comp.c_object_table.items().len + 2);
         for (base.options.objects) |obj_path| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj_path));
         }
@@ -530,8 +535,8 @@ pub const File = struct {
         if (module_obj_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         }
-        if (base.options.bundle_compiler_rt) {
-            object_files.appendAssumeCapacity(try arena.dupeZ(u8, comp.compiler_rt_obj.?.full_object_path));
+        if (compiler_rt_path) |p| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         }
 
         const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
