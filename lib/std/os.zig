@@ -2883,10 +2883,6 @@ pub const AcceptError = error{
     /// and accepting from the socket would block.
     WouldBlock,
 
-    /// Permission to create a socket of the specified type and/or
-    /// protocol is denied.
-    PermissionDenied,
-
     /// An incoming connection was indicated, but was subsequently terminated by the
     /// remote peer prior to accepting the call.
     ConnectionResetByPeer,
@@ -4070,12 +4066,14 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
             var fd_flags = fcntl(sock, F_GETFD, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fd_flags |= FD_CLOEXEC;
             _ = fcntl(sock, F_SETFD, fd_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
         }
@@ -4096,12 +4094,14 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
             var fl_flags = fcntl(sock, F_GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fl_flags |= O_NONBLOCK;
             _ = fcntl(sock, F_SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
         }
