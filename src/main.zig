@@ -314,6 +314,8 @@ const usage_build_generic =
     \\  -fno-soname                    (Linux) Disable emitting a SONAME
     \\  -fLLD                          Force using LLD as the linker
     \\  -fno-LLD                       Prevent using LLD as the linker
+    \\  -fcompiler-rt                  Always include compiler-rt symbols in output
+    \\  -fno-compiler-rt               Prevent including compiler-rt symbols in output
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
@@ -478,6 +480,7 @@ fn buildOutputType(
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
     var want_valgrind: ?bool = null;
+    var want_compiler_rt: ?bool = null;
     var rdynamic: bool = false;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
@@ -794,6 +797,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
+                    } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
+                        want_compiler_rt = true;
+                    } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
+                        want_compiler_rt = false;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
                         each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
@@ -1688,6 +1695,7 @@ fn buildOutputType(
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
         .want_valgrind = want_valgrind,
+        .want_compiler_rt = want_compiler_rt,
         .use_llvm = use_llvm,
         .use_lld = use_lld,
         .use_clang = use_clang,

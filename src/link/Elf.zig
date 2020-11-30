@@ -1260,6 +1260,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const gc_sections = self.base.options.gc_sections orelse !is_obj;
     const stack_size = self.base.options.stack_size_override orelse 16777216;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
+    const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt) blk: {
+        if (is_exe_or_dyn_lib) {
+            break :blk comp.compiler_rt_static_lib.?.full_object_path;
+        } else {
+            break :blk comp.compiler_rt_obj.?.full_object_path;
+        }
+    } else null;
 
     // Here we want to determine whether we can save time by not invoking LLD when the
     // output is unchanged. None of the linker options or the object files that are being
@@ -1289,6 +1296,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             _ = try man.addFile(entry.key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
+        try man.addOptionalFile(compiler_rt_path);
+
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
@@ -1531,12 +1540,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append(p);
     }
 
-    // compiler-rt and libc
-    if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
-        if (!self.base.options.link_libc) {
-            try argv.append(comp.libc_static_lib.?.full_object_path);
-        }
-        try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
+    // libc
+    if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc and !self.base.options.link_libc) {
+        try argv.append(comp.libc_static_lib.?.full_object_path);
+    }
+
+    // compiler-rt
+    if (compiler_rt_path) |p| {
+        try argv.append(p);
     }
 
     // Shared libraries.
