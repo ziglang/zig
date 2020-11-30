@@ -154,7 +154,11 @@ pub const LoadCommand = union(enum) {
 
 pub const SegmentCommand = struct {
     inner: macho.segment_command_64,
-    sections: std.StringArrayHashMapUnmanaged(macho.section_64) = .{},
+    sections: std.ArrayListUnmanaged(macho.section_64) = .{},
+
+    pub fn empty(inner: macho.segment_command_64) SegmentCommand {
+        return .{ .inner = inner };
+    }
 
     pub fn read(alloc: *Allocator, reader: anytype) !SegmentCommand {
         const inner = try reader.readStruct(macho.segment_command_64);
@@ -166,7 +170,7 @@ pub const SegmentCommand = struct {
         var i: usize = 0;
         while (i < inner.nsects) : (i += 1) {
             const section = try reader.readStruct(macho.section_64);
-            segment.sections.putAssumeCapacityNoClobber(mem.trimRight(u8, section.sectname[0..], &[_]u8{0}), section);
+            segment.sections.appendAssumeCapacity(section);
         }
 
         return segment;
@@ -176,8 +180,8 @@ pub const SegmentCommand = struct {
         const cmd = [1]macho.segment_command_64{self.inner};
         try writer.writeAll(mem.sliceAsBytes(cmd[0..1]));
 
-        for (self.sections.items()) |entry| {
-            const section = [1]macho.section_64{entry.value};
+        for (self.sections.items) |sect| {
+            const section = [1]macho.section_64{sect};
             try writer.writeAll(mem.sliceAsBytes(section[0..1]));
         }
     }
@@ -188,16 +192,19 @@ pub const SegmentCommand = struct {
 
     fn eql(self: SegmentCommand, other: SegmentCommand) bool {
         if (!mem.eql(u8, mem.asBytes(&self.inner), mem.asBytes(&other.inner))) return false;
-        const lhs = self.sections.items();
-        const rhs = other.sections.items();
+        const lhs = self.sections.items;
+        const rhs = other.sections.items;
         var i: usize = 0;
         while (i < self.inner.nsects) : (i += 1) {
-            if (!mem.eql(u8, lhs[i].key, rhs[i].key)) return false;
-            if (!mem.eql(u8, mem.asBytes(&lhs[i].value), mem.asBytes(&rhs[i].value))) return false;
+            if (!mem.eql(u8, mem.asBytes(&lhs[i]), mem.asBytes(&rhs[i]))) return false;
         }
         return true;
     }
 };
+
+pub fn emptyGenericCommandWithData(cmd: anytype) GenericCommandWithData(@TypeOf(cmd)) {
+    return .{ .inner = cmd };
+}
 
 pub fn GenericCommandWithData(comptime Cmd: type) type {
     return struct {
@@ -290,7 +297,7 @@ test "read-write segment command" {
             .flags = 0,
         },
     };
-    try cmd.sections.putNoClobber(gpa, "__text", .{
+    try cmd.sections.append(gpa, .{
         .sectname = makeName("__text"),
         .segname = makeName("__TEXT"),
         .addr = 4294983680,
