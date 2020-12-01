@@ -41,8 +41,18 @@ pub fn main() !void {
         warn("Expected third argument to be cache root directory path\n", .{});
         return error.InvalidArgs;
     };
+    const global_cache_root = nextArg(args, &arg_idx) orelse {
+        warn("Expected third argument to be global cache root directory path\n", .{});
+        return error.InvalidArgs;
+    };
 
-    const builder = try Builder.create(allocator, zig_exe, build_root, cache_root);
+    const builder = try Builder.create(
+        allocator,
+        zig_exe,
+        build_root,
+        cache_root,
+        global_cache_root,
+    );
     defer builder.destroy();
 
     var targets = ArrayList([]const u8).init(allocator);
