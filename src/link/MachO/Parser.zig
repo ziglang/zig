@@ -18,9 +18,9 @@ header: ?macho.mach_header_64 = null,
 /// Load commands
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
-text_cmd_index: ?usize = null,
+text_cmd_index: ?u16 = null,
 
-linkedit_cmd_index: ?usize = null,
+linkedit_cmd_index: ?u16 = null,
 linkedit_cmd_offset: ?u64 = null,
 
 code_sig_cmd_offset: ?u64 = null,
@@ -28,9 +28,7 @@ code_sig_cmd_offset: ?u64 = null,
 end_pos: ?u64 = null,
 
 pub fn init(allocator: *Allocator) Parser {
-    return .{
-        .allocator = allocator,
-    };
+    return .{ .allocator = allocator };
 }
 
 pub fn parse(self: *Parser, reader: anytype) !void {
@@ -46,10 +44,10 @@ pub fn parse(self: *Parser, reader: anytype) !void {
         switch (cmd.cmd()) {
             macho.LC_SEGMENT_64 => {
                 const x = cmd.Segment;
-                if (mem.eql(u8, mem.trimRight(u8, x.inner.segname[0..], &[_]u8{0}), "__LINKEDIT")) {
+                if (mem.eql(u8, parseName(&x.inner.segname), "__LINKEDIT")) {
                     self.linkedit_cmd_index = i;
                     self.linkedit_cmd_offset = off;
-                } else if (mem.eql(u8, mem.trimRight(u8, x.inner.segname[0..], &[_]u8{0}), "__TEXT")) {
+                } else if (mem.eql(u8, parseName(&x.inner.segname), "__TEXT")) {
                     self.text_cmd_index = i;
                 }
             },
@@ -77,4 +75,8 @@ pub fn deinit(self: *Parser) void {
         cmd.deinit(self.allocator);
     }
     self.load_commands.deinit(self.allocator);
+}
+
+fn parseName(name: *const [16]u8) []const u8 {
+    return mem.trimRight(u8, name.*[0..], &[_]u8{0});
 }

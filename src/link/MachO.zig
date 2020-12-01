@@ -773,7 +773,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             var signature = CodeSignature.init(self.base.allocator);
             defer signature.deinit();
             const emit = self.base.options.emit.?;
-            try signature.calcAdhocSignatureFile(
+            try signature.calcAdhocSignature(
                 out_file,
                 emit.sub_path,
                 text_cmd,
@@ -1741,15 +1741,21 @@ fn writeCodeSignaturePadding(self: *MachO) !void {
 }
 
 fn writeCodeSignature(self: *MachO) !void {
-    const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
+    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const code_sig_cmd = self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
+
     var code_sig = CodeSignature.init(self.base.allocator);
     defer code_sig.deinit();
-
-    try code_sig.calcAdhocSignature(self);
+    try code_sig.calcAdhocSignature(
+        self.base.file.?,
+        self.base.options.emit.?.sub_path,
+        text_segment.inner,
+        code_sig_cmd,
+        self.base.options.output_mode,
+    );
 
     var buffer = try self.base.allocator.alloc(u8, code_sig.size());
     defer self.base.allocator.free(buffer);
-
     code_sig.write(buffer);
 
     log.debug("writing code signature from 0x{x} to 0x{x}\n", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
