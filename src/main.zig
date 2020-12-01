@@ -1402,7 +1402,7 @@ fn buildOutputType(
                 continue;
             }
             if (std.fs.path.isAbsolute(lib_name)) {
-                fatal("cannot use absolute path as a system library: {}", .{lib_name});
+                fatal("cannot use absolute path as a system library: {s}", .{lib_name});
             }
             i += 1;
         }
