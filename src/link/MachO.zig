@@ -762,9 +762,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try self.writeHeader();
                 // Generate adhoc code signature
                 try self.writeCodeSignature();
-                // Move file in-place to please the kernel
-                const emit = self.base.options.emit.?;
-                try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
             }
         }
     }

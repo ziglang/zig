@@ -1773,8 +1773,16 @@ fn buildOutputType(
         error.SemanticAnalyzeFail => process.exit(1),
         else => |e| return e,
     };
-    if (output_mode == .Exe) {
-        try comp.makeBinFileExecutable();
+    switch (output_mode) {
+        .Exe => try comp.makeBinFileExecutable(),
+        .Lib => {
+            if (link_mode) |lm| {
+                if (lm == .Dynamic) {
+                    try comp.makeBinFileExecutable();
+                }
+            }
+        },
+        else => {},
     }
 
     if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
@@ -2413,6 +2421,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         defer comp.destroy();
 
         try updateModule(gpa, comp, null, .none);
+        try comp.makeBinFileExecutable();
 
         child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(
             arena,
