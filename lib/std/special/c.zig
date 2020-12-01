@@ -634,6 +634,11 @@ export fn cosf(a: f32) f32 {
     return math.cos(a);
 }
 
+export fn sincosf(a: f32, r_sin: *f32, r_cos: *f32) void {
+    r_sin.* = math.sin(a);
+    r_cos.* = math.cos(a);
+}
+
 export fn exp(a: f64) f64 {
     return math.exp(a);
 }
