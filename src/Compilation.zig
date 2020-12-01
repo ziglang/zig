@@ -1338,7 +1338,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     self.failed_c_objects.putAssumeCapacityNoClobber(c_object, try ErrorMsg.create(
                         self.gpa,
                         0,
-                        "unable to build C object: {}",
+                        "unable to build C object: {s}",
                         .{@errorName(err)},
                     ));
                     c_object.status = .{ .failure = {} };
@@ -2338,7 +2338,8 @@ fn wantBuildGLibCFromSource(comp: Compilation) bool {
 }
 
 fn wantBuildMuslFromSource(comp: Compilation) bool {
-    return comp.wantBuildLibCFromSource() and comp.getTarget().isMusl();
+    return comp.wantBuildLibCFromSource() and comp.getTarget().isMusl() and
+        !comp.getTarget().isWasm();
 }
 
 fn wantBuildMinGWFromSource(comp: Compilation) bool {
