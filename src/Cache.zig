@@ -60,6 +60,8 @@ pub const File = struct {
 pub const HashHelper = struct {
     hasher: Hasher = hasher_init,
 
+    const EmitLoc = @import("Compilation.zig").EmitLoc;
+
     /// Record a slice of bytes as an dependency of the process being cached
     pub fn addBytes(hh: *HashHelper, bytes: []const u8) void {
         hh.hasher.update(mem.asBytes(&bytes.len));
@@ -69,6 +71,15 @@ pub const HashHelper = struct {
     pub fn addOptionalBytes(hh: *HashHelper, optional_bytes: ?[]const u8) void {
         hh.add(optional_bytes != null);
         hh.addBytes(optional_bytes orelse return);
+    }
+
+    pub fn addEmitLoc(hh: *HashHelper, emit_loc: EmitLoc) void {
+        hh.addBytes(emit_loc.basename);
+    }
+
+    pub fn addOptionalEmitLoc(hh: *HashHelper, optional_emit_loc: ?EmitLoc) void {
+        hh.add(optional_emit_loc != null);
+        hh.addEmitLoc(optional_emit_loc orelse return);
     }
 
     pub fn addListOfBytes(hh: *HashHelper, list_of_bytes: []const []const u8) void {
