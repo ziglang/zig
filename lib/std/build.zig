@@ -1432,24 +1432,24 @@ pub const LibExeObjStep = struct {
                 self.out_lib_filename = self.out_filename;
             } else if (self.version) |version| {
                 if (target.isDarwin()) {
-                    self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", .{
+                    self.major_only_filename = self.builder.fmt("lib{s}.{d}.dylib", .{
                         self.name,
                         version.major,
                     });
-                    self.name_only_filename = self.builder.fmt("lib{}.dylib", .{self.name});
+                    self.name_only_filename = self.builder.fmt("lib{s}.dylib", .{self.name});
                     self.out_lib_filename = self.out_filename;
                 } else if (target.os.tag == .windows) {
-                    self.out_lib_filename = self.builder.fmt("{}.lib", .{self.name});
+                    self.out_lib_filename = self.builder.fmt("{s}.lib", .{self.name});
                 } else {
-                    self.major_only_filename = self.builder.fmt("lib{}.so.{d}", .{ self.name, version.major });
-                    self.name_only_filename = self.builder.fmt("lib{}.so", .{self.name});
+                    self.major_only_filename = self.builder.fmt("lib{s}.so.{d}", .{ self.name, version.major });
+                    self.name_only_filename = self.builder.fmt("lib{s}.so", .{self.name});
                     self.out_lib_filename = self.out_filename;
                 }
             } else {
                 if (target.isDarwin()) {
                     self.out_lib_filename = self.out_filename;
                 } else if (target.os.tag == .windows) {
-                    self.out_lib_filename = self.builder.fmt("{}.lib", .{self.name});
+                    self.out_lib_filename = self.builder.fmt("{s}.lib", .{self.name});
                 } else {
                     self.out_lib_filename = self.out_filename;
                 }
@@ -1980,7 +1980,7 @@ pub const LibExeObjStep = struct {
                         try zig_args.append(other.getOutputPath());
                     },
                     .Lib => {
-                        const full_path_lib = other.getOutputPath();
+                        const full_path_lib = other.getOutputLibPath();
                         try zig_args.append(full_path_lib);
 
                         if (other.is_dynamic and !self.target.isWindows()) {
