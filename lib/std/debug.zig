@@ -1764,13 +1764,15 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
     };
 
     // Don't use std.debug.print() as stderr_mutex may still be locked.
-    const stderr = io.getStdErr().writer();
-    _ = switch (sig) {
-        os.SIGSEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
-        os.SIGILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
-        os.SIGBUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
-        else => unreachable,
-    } catch os.abort();
+    nosuspend {
+        const stderr = io.getStdErr().writer();
+        _ = switch (sig) {
+            os.SIGSEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
+            os.SIGILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
+            os.SIGBUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
+            else => unreachable,
+        } catch os.abort();
+    }
 
     switch (builtin.arch) {
         .i386 => {
@@ -1823,13 +1825,15 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
     if (@hasDecl(windows, "CONTEXT")) {
         const regs = info.ContextRecord.getRegs();
         // Don't use std.debug.print() as stderr_mutex may still be locked.
-        const stderr = io.getStdErr().writer();
-        _ = switch (msg) {
-            0 => stderr.print("{s}\n", .{format.?}),
-            1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
-            2 => stderr.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
-            else => unreachable,
-        } catch os.abort();
+        nosuspend {
+            const stderr = io.getStdErr().writer();
+            _ = switch (msg) {
+                0 => stderr.print("{s}\n", .{format.?}),
+                1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
+                2 => stderr.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
+                else => unreachable,
+            } catch os.abort();
+        }
 
         dumpStackTraceFromBase(regs.bp, regs.ip);
         os.abort();
