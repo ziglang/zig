@@ -506,8 +506,19 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             {
                 break :dl true;
             }
-            if (options.system_libs.len != 0) {
-                // when creating a executable that links to system libraries,
+            const any_dyn_libs: bool = x: {
+                if (options.system_libs.len != 0)
+                    break :x true;
+                for (options.link_objects) |obj| {
+                    switch (classifyFileExt(obj)) {
+                        .shared_library => break :x true,
+                        else => continue,
+                    }
+                }
+                break :x false;
+            };
+            if (any_dyn_libs) {
+                // When creating a executable that links to system libraries,
                 // we require dynamic linking, but we must not link static libraries
                 // or object files dynamically!
                 break :dl (options.output_mode == .Exe);
