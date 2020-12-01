@@ -102,6 +102,7 @@ pub fn archMuslName(arch: std.Target.Cpu.Arch) [:0]const u8 {
         .i386 => return "i386",
         .x86_64 => return "x86_64",
         .riscv64 => return "riscv64",
+        .wasm32, .wasm64 => return "wasm",
         else => unreachable,
     }
 }
