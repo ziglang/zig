@@ -690,7 +690,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.link_libcpp);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
-        cache.hash.add(options.emit_bin != null);
+        cache.hash.addOptionalEmitLoc(options.emit_bin);
         cache.hash.addBytes(options.root_name);
         // TODO audit this and make sure everything is in it
 
@@ -2765,11 +2765,11 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.add(comp.bin_file.options.function_sections);
     man.hash.add(comp.bin_file.options.is_test);
     man.hash.add(comp.bin_file.options.emit != null);
-    man.hash.add(comp.emit_h != null);
-    man.hash.add(comp.emit_asm != null);
-    man.hash.add(comp.emit_llvm_ir != null);
-    man.hash.add(comp.emit_analysis != null);
-    man.hash.add(comp.emit_docs != null);
+    man.hash.addOptionalEmitLoc(comp.emit_h);
+    man.hash.addOptionalEmitLoc(comp.emit_asm);
+    man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
+    man.hash.addOptionalEmitLoc(comp.emit_analysis);
+    man.hash.addOptionalEmitLoc(comp.emit_docs);
     man.hash.addOptionalBytes(comp.test_filter);
     man.hash.addOptionalBytes(comp.test_name_prefix);
 
