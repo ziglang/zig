@@ -23,7 +23,6 @@ const target_util = @import("../target.zig");
 
 const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
-const Parser = @import("MachO/Parser.zig");
 
 usingnamespace @import("MachO/commands.zig");
 
@@ -34,6 +33,9 @@ base: File,
 /// Page size is dependent on the target cpu architecture.
 /// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
 page_size: u16,
+
+/// Mach-O header
+header: ?macho.mach_header_64 = null,
 
 /// Table of all load commands
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
@@ -105,8 +107,6 @@ offset_table: std.ArrayListUnmanaged(u64) = .{},
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 cmd_table_dirty: bool = false,
-dylinker_cmd_dirty: bool = false,
-libsystem_cmd_dirty: bool = false,
 
 /// A list of text blocks that have surplus capacity. This list can have false
 /// positives, as functions grow and shrink over time, only sometimes being added
@@ -325,7 +325,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
     if (self.cmd_table_dirty) {
         try self.writeLoadCommands();
-        try self.writeMachOHeader();
+        try self.writeHeader();
         self.cmd_table_dirty = false;
     }
 
@@ -725,66 +725,47 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
             // At this stage, LLD has done its job. It is time to patch the resultant
             // binaries up!
-            var parser = Parser.init(self.base.allocator);
-            defer parser.deinit();
             const out_file = try directory.handle.openFile(full_out_path, .{ .write = true });
-            defer out_file.close();
-            try parser.parseFile(out_file);
-            // Pad out space for code signature
-            const text_cmd = parser.load_commands.items[parser.text_cmd_index.?].Segment.inner;
-            const dataoff = @intCast(u32, mem.alignForward(parser.end_pos.?, @sizeOf(u64)));
-            const emit = self.base.options.emit.?;
-            const datasize = CodeSignature.calcCodeSignaturePadding(emit.sub_path, dataoff);
-            const code_sig = macho.linkedit_data_command{
-                .cmd = macho.LC_CODE_SIGNATURE,
-                .cmdsize = @sizeOf(macho.linkedit_data_command),
-                .dataoff = dataoff,
-                .datasize = datasize,
-            };
-            const linkedit_seg = parser.load_commands.items[parser.linkedit_cmd_index.?].Segment.inner;
-            const linkedit = macho.segment_command_64{
-                .cmd = linkedit_seg.cmd,
-                .cmdsize = linkedit_seg.cmdsize,
-                .segname = linkedit_seg.segname,
-                .vmaddr = linkedit_seg.vmaddr,
-                .vmsize = mem.alignForwardGeneric(u64, linkedit_seg.vmsize + datasize, self.page_size),
-                .fileoff = linkedit_seg.fileoff,
-                .filesize = linkedit_seg.filesize + (dataoff - parser.end_pos.?) + datasize,
-                .maxprot = linkedit_seg.maxprot,
-                .initprot = linkedit_seg.initprot,
-                .nsects = linkedit_seg.nsects,
-                .flags = linkedit_seg.flags,
-            };
-            const header_cmd = parser.header.?;
-            const header = macho.mach_header_64{
-                .magic = header_cmd.magic,
-                .cputype = header_cmd.cputype,
-                .cpusubtype = header_cmd.cpusubtype,
-                .filetype = header_cmd.filetype,
-                .ncmds = header_cmd.ncmds + 1,
-                .sizeofcmds = header_cmd.sizeofcmds + @sizeOf(macho.linkedit_data_command),
-                .flags = header_cmd.flags,
-                .reserved = header_cmd.reserved,
-            };
-            try out_file.pwriteAll(&[_]u8{0}, code_sig.dataoff + code_sig.datasize);
-            try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.linkedit_data_command{code_sig}), parser.code_sig_cmd_offset.?);
-            try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.segment_command_64{linkedit}), parser.linkedit_cmd_offset.?);
-            try out_file.pwriteAll(mem.sliceAsBytes(&[_]macho.mach_header_64{header}), 0);
-            // Generate adhoc code signature
-            var signature = CodeSignature.init(self.base.allocator);
-            defer signature.deinit();
-            try signature.calcAdhocSignature(
-                out_file,
-                emit.sub_path,
-                text_cmd,
-                code_sig,
-                self.base.options.output_mode,
-            );
-            var buffer = try self.base.allocator.alloc(u8, signature.size());
-            defer self.base.allocator.free(buffer);
-            signature.write(buffer);
-            try out_file.pwriteAll(buffer, code_sig.dataoff);
-            try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+            try self.parseFromFile(out_file);
+            if (self.code_signature_cmd_index == null) {
+                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                const text_section = text_segment.sections.items[self.text_section_index.?];
+                const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
+                const needed_size = @sizeOf(macho.linkedit_data_command);
+                if (needed_size + after_last_cmd_offset > text_section.offset) {
+                    // TODO We are in the position to be able to increase the padding by moving all sections
+                    // by the required offset, but this requires a little bit more thinking and bookkeeping.
+                    // For now, return an error informing the user of the problem.
+                    std.debug.print("Not enough padding between load commands and start of __text section:\n", .{});
+                    std.debug.print("Offset after last load command: 0x{x}\n", .{after_last_cmd_offset});
+                    std.debug.print("Beginning of __text section: 0x{x}\n", .{text_section.offset});
+                    std.debug.print("Needed size: 0x{x}\n", .{needed_size});
+                    return error.NotEnoughPadding;
+                }
+                const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+                // TODO This is clunky.
+                self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
+                // Add code signature load command
+                self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
+                try self.load_commands.append(self.base.allocator, .{
+                    .LinkeditData = .{
+                        .cmd = macho.LC_CODE_SIGNATURE,
+                        .cmdsize = @sizeOf(macho.linkedit_data_command),
+                        .dataoff = 0,
+                        .datasize = 0,
+                    },
+                });
+                // Pad out space for code signature
+                try self.writeCodeSignaturePadding();
+                // Write updated load commands and the header
+                try self.writeLoadCommands();
+                try self.writeHeader();
+                // Generate adhoc code signature
+                try self.writeCodeSignature();
+                // Move file in-place to please the kernel
+                const emit = self.base.options.emit.?;
+                try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+            }
         }
     }
 
@@ -1132,6 +1113,53 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 
+    if (self.header == null) {
+        var header: macho.mach_header_64 = undefined;
+        header.magic = macho.MH_MAGIC_64;
+
+        const CpuInfo = struct {
+            cpu_type: macho.cpu_type_t,
+            cpu_subtype: macho.cpu_subtype_t,
+        };
+
+        const cpu_info: CpuInfo = switch (self.base.options.target.cpu.arch) {
+            .aarch64 => .{
+                .cpu_type = macho.CPU_TYPE_ARM64,
+                .cpu_subtype = macho.CPU_SUBTYPE_ARM_ALL,
+            },
+            .x86_64 => .{
+                .cpu_type = macho.CPU_TYPE_X86_64,
+                .cpu_subtype = macho.CPU_SUBTYPE_X86_64_ALL,
+            },
+            else => return error.UnsupportedMachOArchitecture,
+        };
+        header.cputype = cpu_info.cpu_type;
+        header.cpusubtype = cpu_info.cpu_subtype;
+
+        const filetype: u32 = switch (self.base.options.output_mode) {
+            .Exe => macho.MH_EXECUTE,
+            .Obj => macho.MH_OBJECT,
+            .Lib => switch (self.base.options.link_mode) {
+                .Static => return error.TODOStaticLibMachOType,
+                .Dynamic => macho.MH_DYLIB,
+            },
+        };
+        header.filetype = filetype;
+        // These will get populated at the end of flushing the results to file.
+        header.ncmds = 0;
+        header.sizeofcmds = 0;
+
+        switch (self.base.options.output_mode) {
+            .Exe => {
+                header.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE;
+            },
+            else => {
+                header.flags = 0;
+            },
+        }
+        header.reserved = 0;
+        self.header = header;
+    }
     if (self.pagezero_segment_cmd_index == null) {
         self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
@@ -1852,64 +1880,65 @@ fn writeLoadCommands(self: *MachO) !void {
 }
 
 /// Writes Mach-O file header.
-fn writeMachOHeader(self: *MachO) !void {
-    var hdr: macho.mach_header_64 = undefined;
-    hdr.magic = macho.MH_MAGIC_64;
-
-    const CpuInfo = struct {
-        cpu_type: macho.cpu_type_t,
-        cpu_subtype: macho.cpu_subtype_t,
-    };
-
-    const cpu_info: CpuInfo = switch (self.base.options.target.cpu.arch) {
-        .aarch64 => .{
-            .cpu_type = macho.CPU_TYPE_ARM64,
-            .cpu_subtype = macho.CPU_SUBTYPE_ARM_ALL,
-        },
-        .x86_64 => .{
-            .cpu_type = macho.CPU_TYPE_X86_64,
-            .cpu_subtype = macho.CPU_SUBTYPE_X86_64_ALL,
-        },
-        else => return error.UnsupportedMachOArchitecture,
-    };
-    hdr.cputype = cpu_info.cpu_type;
-    hdr.cpusubtype = cpu_info.cpu_subtype;
-
-    const filetype: u32 = switch (self.base.options.output_mode) {
-        .Exe => macho.MH_EXECUTE,
-        .Obj => macho.MH_OBJECT,
-        .Lib => switch (self.base.options.link_mode) {
-            .Static => return error.TODOStaticLibMachOType,
-            .Dynamic => macho.MH_DYLIB,
-        },
-    };
-    hdr.filetype = filetype;
-    hdr.ncmds = @intCast(u32, self.load_commands.items.len);
-
+fn writeHeader(self: *MachO) !void {
+    self.header.?.ncmds = @intCast(u32, self.load_commands.items.len);
     var sizeofcmds: u32 = 0;
     for (self.load_commands.items) |cmd| {
         sizeofcmds += cmd.cmdsize();
     }
-
-    hdr.sizeofcmds = sizeofcmds;
-
-    switch (self.base.options.output_mode) {
-        .Exe => {
-            hdr.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE;
-        },
-        else => {
-            hdr.flags = 0;
-        },
-    }
-    hdr.reserved = 0;
-
-    log.debug("writing Mach-O header {}\n", .{hdr});
-
-    try self.base.file.?.pwriteAll(@ptrCast([*]const u8, &hdr)[0..@sizeOf(macho.mach_header_64)], 0);
+    self.header.?.sizeofcmds = sizeofcmds;
+    log.debug("writing Mach-O header {}\n", .{self.header.?});
+    const slice = [1]macho.mach_header_64{self.header.?};
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(slice[0..1]), 0);
 }
 
 /// Saturating multiplication
 fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     return std.math.mul(T, a, b) catch std.math.maxInt(T);
+}
+
+/// Parse MachO contents from existing binary file.
+/// TODO This method is incomplete and currently parses only the header
+/// plus the load commands.
+fn parseFromFile(self: *MachO, file: fs.File) !void {
+    self.base.file = file;
+    var reader = file.reader();
+    const header = try reader.readStruct(macho.mach_header_64);
+    try self.load_commands.ensureCapacity(self.base.allocator, header.ncmds);
+    var i: u16 = 0;
+    while (i < header.ncmds) : (i += 1) {
+        const cmd = try LoadCommand.read(self.base.allocator, reader);
+        switch (cmd.cmd()) {
+            macho.LC_SEGMENT_64 => {
+                const x = cmd.Segment;
+                if (isSegmentOrSection(&x.inner.segname, "__LINKEDIT")) {
+                    self.linkedit_segment_cmd_index = i;
+                } else if (isSegmentOrSection(&x.inner.segname, "__TEXT")) {
+                    self.text_segment_cmd_index = i;
+                    for (x.sections.items) |sect, j| {
+                        if (isSegmentOrSection(&sect.sectname, "__text")) {
+                            self.text_section_index = @intCast(u16, j);
+                        }
+                    }
+                }
+            },
+            macho.LC_SYMTAB => {
+                self.symtab_cmd_index = i;
+            },
+            macho.LC_CODE_SIGNATURE => {
+                self.code_signature_cmd_index = i;
+            },
+            // TODO populate more MachO fields
+            else => {},
+        }
+        self.load_commands.appendAssumeCapacity(cmd);
+    }
+    self.header = header;
+
+    // TODO parse memory mapped segments
+}
+
+fn isSegmentOrSection(name: *const [16]u8, needle: []const u8) bool {
+    return mem.eql(u8, mem.trimRight(u8, name.*[0..], &[_]u8{0}), needle);
 }
