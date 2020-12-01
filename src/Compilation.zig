@@ -647,6 +647,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
         cache.hash.add(options.emit_bin != null);
+        cache.hash.addBytes(options.root_name);
         // TODO audit this and make sure everything is in it
 
         const module: ?*Module = if (options.root_pkg) |root_pkg| blk: {
