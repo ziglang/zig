@@ -961,16 +961,20 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         // Once it is capable this condition should be removed.
         if (build_options.is_stage1) {
             if (comp.bin_file.options.include_compiler_rt) {
-                if (is_exe_or_dyn_lib) {
+                if (is_exe_or_dyn_lib or comp.getTarget().isWasm()) {
                     try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
                 } else {
                     try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
-                    if (comp.bin_file.options.object_format != .elf) {
+                    if (comp.bin_file.options.object_format != .elf and
+                        comp.bin_file.options.output_mode == .Obj)
+                    {
                         // For ELF we can rely on using -r to link multiple objects together into one,
                         // but to truly support `build-obj -fcompiler-rt` will require virtually
                         // injecting `_ = @import("compiler_rt.zig")` into the root source file of
                         // the compilation.
-                        fatal("Embedding compiler-rt into non-ELF objects is not yet implemented.", .{});
+                        fatal("Embedding compiler-rt into {s} objects is not yet implemented.", .{
+                            @tagName(comp.bin_file.options.object_format),
+                        });
                     }
                 }
             }
