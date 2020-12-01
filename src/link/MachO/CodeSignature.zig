@@ -179,3 +179,11 @@ test "CodeSignature header" {
     const expected = &[_]u8{ 0xfa, 0xde, 0x0c, 0xc0, 0x0, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x0 };
     testing.expect(mem.eql(u8, expected[0..], buffer[0..]));
 }
+
+pub fn calcCodeSignaturePadding(id: []const u8, file_size: u64) u32 {
+    const ident_size = id.len + 1;
+    const total_pages = mem.alignForwardGeneric(u64, file_size, page_size) / page_size;
+    const hashed_size = total_pages * hash_size;
+    const codesig_header = @sizeOf(macho.SuperBlob) + @sizeOf(macho.BlobIndex) + @sizeOf(macho.CodeDirectory);
+    return @intCast(u32, mem.alignForwardGeneric(u64, codesig_header + ident_size + hashed_size, @sizeOf(u64)));
+}

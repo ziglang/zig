@@ -733,7 +733,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             // Pad out space for code signature
             const text_cmd = parser.load_commands.items[parser.text_cmd_index.?].Segment.inner;
             const dataoff = @intCast(u32, mem.alignForward(parser.end_pos.?, @sizeOf(u64)));
-            const datasize = 0x400000;
+            const emit = self.base.options.emit.?;
+            const datasize = CodeSignature.calcCodeSignaturePadding(emit.sub_path, dataoff);
             const code_sig = macho.linkedit_data_command{
                 .cmd = macho.LC_CODE_SIGNATURE,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
@@ -772,7 +773,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             // Generate adhoc code signature
             var signature = CodeSignature.init(self.base.allocator);
             defer signature.deinit();
-            const emit = self.base.options.emit.?;
             try signature.calcAdhocSignature(
                 out_file,
                 emit.sub_path,
@@ -1723,7 +1723,7 @@ fn writeSymbolTable(self: *MachO) !void {
 fn writeCodeSignaturePadding(self: *MachO) !void {
     const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
     const fileoff = self.linkedit_segment_next_offset.?;
-    const datasize: u32 = 0x1000; // TODO Calculate the expected size of the signature.
+    const datasize = CodeSignature.calcCodeSignaturePadding(self.base.options.emit.?.sub_path, fileoff);
     code_sig_cmd.dataoff = fileoff;
     code_sig_cmd.datasize = datasize;
 
