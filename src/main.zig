@@ -2195,6 +2195,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const argv_index_cache_dir = child_argv.items.len;
         _ = try child_argv.addOne();
 
+        const argv_index_global_cache_dir = child_argv.items.len;
+        _ = try child_argv.addOne();
+
         {
             var i: usize = 0;
             while (i < args.len) : (i += 1) {
@@ -2215,13 +2218,11 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
                         i += 1;
                         override_local_cache_dir = args[i];
-                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
                         continue;
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
                         i += 1;
                         override_global_cache_dir = args[i];
-                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
                         continue;
                     }
                 }
@@ -2305,6 +2306,8 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             };
         };
         defer global_cache_directory.handle.close();
+
+        child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
 
         var local_cache_directory: Compilation.Directory = l: {
             if (override_local_cache_dir) |local_cache_dir_path| {
