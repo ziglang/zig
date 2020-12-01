@@ -1383,6 +1383,9 @@ fn buildOutputType(
                 _ = system_libs.orderedRemove(i);
                 continue;
             }
+            if (std.fs.path.isAbsolute(lib_name)) {
+                fatal("cannot use absolute path as a system library: {s}", .{lib_name});
+            }
             i += 1;
         }
     }
