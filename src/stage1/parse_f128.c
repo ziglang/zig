@@ -13,17 +13,23 @@
 // Every OSes seem to define endianness macros in different files.
 #if defined(__APPLE__)
   #include <machine/endian.h>
-  #define __BIG_ENDIAN BIG_ENDIAN
-  #define __LITTLE_ENDIAN LITTLE_ENDIAN
-  #define __BYTE_ORDER BYTE_ORDER
+  #define ZIG_BIG_ENDIAN    BIG_ENDIAN
+  #define ZIG_LITTLE_ENDIAN LITTLE_ENDIAN
+  #define ZIG_BYTE_ORDER    BYTE_ORDER
 #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
   #include <sys/endian.h>
+  #define ZIG_BIG_ENDIAN    _BIG_ENDIAN
+  #define ZIG_LITTLE_ENDIAN _LITTLE_ENDIAN
+  #define ZIG_BYTE_ORDER    _BYTE_ORDER
 #elif defined(_WIN32) || defined(_WIN64)
   // Assume that Windows installations are always little endian.
-  #define __LITTLE_ENDIAN 1
-  #define __BYTE_ORDER __LITTLE_ENDIAN
-#else
+  #define ZIG_LITTLE_ENDIAN 1
+  #define ZIG_BYTE_ORDER    ZIG_LITTLE_ENDIAN
+#else // Linux
   #include <endian.h>
+  #define ZIG_BIG_ENDIAN    __BIG_ENDIAN
+  #define ZIG_LITTLE_ENDIAN __LITTLE_ENDIAN
+  #define ZIG_BYTE_ORDER    __BYTE_ORDER
 #endif
 
 #define shcnt(f) ((f)->shcnt + ((f)->rpos - (f)->buf))
@@ -63,7 +69,7 @@
 
 #define DECIMAL_DIG 36
 
-#if defined(__BYTE_ORDER) && __BYTE_ORDER == __LITTLE_ENDIAN
+#if defined(ZIG_BYTE_ORDER) && ZIG_BYTE_ORDER == ZIG_LITTLE_ENDIAN
 union ldshape {
     float128_t f;
     struct {
@@ -77,7 +83,7 @@ union ldshape {
         uint64_t hi;
     } i2;
 };
-#elif defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN
+#elif defined(ZIG_BYTE_ORDER) && ZIG_BYTE_ORDER == ZIG_BIG_ENDIAN
 union ldshape {
     float128_t f;
     struct {
