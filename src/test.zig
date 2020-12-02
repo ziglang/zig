@@ -430,6 +430,9 @@ pub const TestContext = struct {
         var default_prng = std.rand.DefaultPrng.init(random_seed);
 
         for (self.cases.items) |case| {
+            if (build_options.skip_non_native and case.target.getCpuArch() != std.Target.current.cpu.arch)
+                continue;
+
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();
             defer prg_node.end();
