@@ -484,7 +484,7 @@ pub const File = struct {
         // well-commented.
 
         const id_symlink_basename = "llvm-ar.id";
-        const artifact_dir_handle = if (base.options.module) |mod| mod.zig_cache_artifact_directory.handle else directory.handle; // If it doesn't have an artifact dir, just put it wherever the output is?
+        const artifact_dir_handle = if (base.options.module) |mod| mod.zig_cache_artifact_directory.handle else directory.handle;
 
         base.releaseLock();
 
