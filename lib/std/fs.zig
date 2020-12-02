@@ -687,7 +687,7 @@ pub const Dir = struct {
         return self.openFileZ(&path_c, flags);
     }
 
-    /// Save as `openFile` but WASI only.
+    /// Same as `openFile` but WASI only.
     pub fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
         const w = os.wasi;
         var fdflags: w.fdflags_t = 0x0;
