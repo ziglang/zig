@@ -537,7 +537,7 @@ pub fn formatType(
                 }
                 try writer.writeAll("{ ");
                 for (value) |elem, i| {
-                    try formatType(elem, fmt, options, writer, max_depth);
+                    try formatType(elem, fmt, options, writer, max_depth - 1);
                     if (i != value.len - 1) {
                         try writer.writeAll(", ");
                     }
@@ -580,7 +580,7 @@ pub fn formatType(
         .Type => return formatBuf(@typeName(value), options, writer),
         .EnumLiteral => {
             const buffer = [_]u8{'.'} ++ @tagName(value);
-            return formatType(buffer, fmt, options, writer, max_depth);
+            return formatBuf(buffer, options, writer);
         },
         .Null => return formatBuf("null", options, writer),
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
