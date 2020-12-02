@@ -55,15 +55,53 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     // Reserve space to write the size after generating the code
     try buf.resize(5);
 
-    // Write the size of the locals vec
-    // TODO: implement locals
-    try leb.writeULEB128(writer, @as(u32, 0));
+    // Calculate the locals of the body
+    // We must calculate the occurance of each value type and emit the count of it
+    const tv = decl.typed_value.most_recent.typed_value;
+    const mod_fn = tv.val.cast(Value.Payload.Function).?.func;
+
+    var locals: [4]u8 = [_]u8{0} ** 4;
+    for (mod_fn.analysis.success.instructions) |inst| {
+        if (inst.tag != .alloc) continue;
+        const ptr = inst.ty.castPointer().?;
+        const ptr_type = ptr.pointee_type.zigTypeTag();
+
+        if (ptr_type != .Int and ptr_type != .Float) return error.TODOImplementMoreWasmCodegen;
+
+        switch (genValtype(ptr.pointee_type)) {
+            0x7F => locals[0] += 1,
+            0x7E => locals[1] += 1,
+            0x7D => locals[2] += 1,
+            0x7C => locals[3] += 1,
+            else => return error.TODOImplementMoreWasmCodegen,
+        }
+
+        var total_types: u32 = 0;
+        for (locals) |local_type| {
+            if (local_type != 0) total_types += 1;
+        }
+
+        try leb.writeULEB128(writer, total_types);
+
+        if (total_types != 0) {
+            for (locals) |local_count, i| {
+                if (local_count != 0) {
+                    try leb.writeULEB128(writer, local_count);
+                    try writer.writeByte(switch (i) {
+                        0 => 0x7F,
+                        1 => 0x7E,
+                        2 => 0x7D,
+                        3 => 0x7C,
+                        else => return error.TODOImplementMoreWasmCodegen,
+                    });
+                }
+            }
+        }
+    }
 
     // Write instructions
     // TODO: check for and handle death of instructions
-    const tv = decl.typed_value.most_recent.typed_value;
-    const mod_fn = tv.val.castTag(.function).?.data;
-    for (mod_fn.body.instructions) |inst| try genInst(buf, decl, inst);
+    for (mod_fn.analysis.success.instructions) |inst| try genInst(buf, decl, inst);
 
     // Write 'end' opcode
     try writer.writeByte(0x0B);
@@ -81,6 +119,7 @@ fn genInst(buf: *ArrayList(u8), decl: *Decl, inst: *Inst) !void {
         .dbg_stmt => {},
         .ret => genRet(buf, decl, inst.castTag(.ret).?),
         .retvoid => {},
+        .alloc => genAlloc(buf, decl, inst.castTag(.alloc)).?,
         else => error.TODOImplementMoreWasmCodegen,
     };
 }
