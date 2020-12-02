@@ -2,6 +2,7 @@ const std = @import("std");
 const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
+const meta = std.meta;
 const macho = std.macho;
 const testing = std.testing;
 
@@ -25,8 +26,7 @@ pub const LoadCommand = union(enum) {
         const header = try reader.readStruct(macho.load_command);
         var buffer = try allocator.alloc(u8, header.cmdsize);
         defer allocator.free(buffer);
-        const slice = [1]macho.load_command{header};
-        mem.copy(u8, buffer[0..], mem.sliceAsBytes(slice[0..1]));
+        mem.copy(u8, buffer[0..], mem.asBytes(&header));
         try reader.readNoEof(buffer[@sizeOf(macho.load_command)..]);
         var stream = io.fixedBufferStream(buffer[0..]);
 
@@ -126,29 +126,24 @@ pub const LoadCommand = union(enum) {
     }
 
     fn writeStruct(command: anytype, writer: anytype) !void {
-        const slice = [1]@TypeOf(command){command};
-        return writer.writeAll(mem.sliceAsBytes(slice[0..1]));
+        return writer.writeAll(mem.asBytes(&command));
     }
 
     fn eql(self: LoadCommand, other: LoadCommand) bool {
         if (@as(@TagType(LoadCommand), self) != @as(@TagType(LoadCommand), other)) return false;
         return switch (self) {
-            .DyldInfoOnly => |x| eqlStruct(x, other.DyldInfoOnly),
-            .Symtab => |x| eqlStruct(x, other.Symtab),
-            .Dysymtab => |x| eqlStruct(x, other.Dysymtab),
-            .Main => |x| eqlStruct(x, other.Main),
-            .VersionMin => |x| eqlStruct(x, other.VersionMin),
-            .SourceVersion => |x| eqlStruct(x, other.SourceVersion),
-            .LinkeditData => |x| eqlStruct(x, other.LinkeditData),
+            .DyldInfoOnly => |x| meta.eql(x, other.DyldInfoOnly),
+            .Symtab => |x| meta.eql(x, other.Symtab),
+            .Dysymtab => |x| meta.eql(x, other.Dysymtab),
+            .Main => |x| meta.eql(x, other.Main),
+            .VersionMin => |x| meta.eql(x, other.VersionMin),
+            .SourceVersion => |x| meta.eql(x, other.SourceVersion),
+            .LinkeditData => |x| meta.eql(x, other.LinkeditData),
             .Segment => |x| x.eql(other.Segment),
             .Dylinker => |x| x.eql(other.Dylinker),
             .Dylib => |x| x.eql(other.Dylib),
             .Unknown => |x| x.eql(other.Unknown),
         };
-    }
-
-    fn eqlStruct(lhs: anytype, rhs: anytype) bool {
-        return mem.eql(u8, mem.asBytes(&lhs), mem.asBytes(&rhs));
     }
 };
 
@@ -177,12 +172,9 @@ pub const SegmentCommand = struct {
     }
 
     pub fn write(self: SegmentCommand, writer: anytype) !void {
-        const cmd = [1]macho.segment_command_64{self.inner};
-        try writer.writeAll(mem.sliceAsBytes(cmd[0..1]));
-
+        try writer.writeAll(mem.asBytes(&self.inner));
         for (self.sections.items) |sect| {
-            const section = [1]macho.section_64{sect};
-            try writer.writeAll(mem.sliceAsBytes(section[0..1]));
+            try writer.writeAll(mem.asBytes(&sect));
         }
     }
 
@@ -191,12 +183,12 @@ pub const SegmentCommand = struct {
     }
 
     fn eql(self: SegmentCommand, other: SegmentCommand) bool {
-        if (!mem.eql(u8, mem.asBytes(&self.inner), mem.asBytes(&other.inner))) return false;
+        if (!meta.eql(self.inner, other.inner)) return false;
         const lhs = self.sections.items;
         const rhs = other.sections.items;
         var i: usize = 0;
         while (i < self.inner.nsects) : (i += 1) {
-            if (!mem.eql(u8, mem.asBytes(&lhs[i]), mem.asBytes(&rhs[i]))) return false;
+            if (!meta.eql(lhs[i], rhs[i])) return false;
         }
         return true;
     }
@@ -226,8 +218,7 @@ pub fn GenericCommandWithData(comptime Cmd: type) type {
         }
 
         pub fn write(self: Self, writer: anytype) !void {
-            const cmd = [1]Cmd{self.inner};
-            try writer.writeAll(mem.sliceAsBytes(cmd[0..1]));
+            try writer.writeAll(mem.asBytes(&self.inner));
             try writer.writeAll(self.data);
         }
 
@@ -235,8 +226,8 @@ pub fn GenericCommandWithData(comptime Cmd: type) type {
             allocator.free(self.data);
         }
 
-        pub fn eql(self: Self, other: Self) bool {
-            if (!mem.eql(u8, mem.asBytes(&self.inner), mem.asBytes(&other.inner))) return false;
+        fn eql(self: Self, other: Self) bool {
+            if (!meta.eql(self.inner, other.inner)) return false;
             return mem.eql(u8, self.data, other.data);
         }
     };
