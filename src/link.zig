@@ -484,6 +484,7 @@ pub const File = struct {
         // well-commented.
 
         const id_symlink_basename = "llvm-ar.id";
+        const artifact_dir_handle = base.options.module.?.zig_cache_artifact_directory.handle;
 
         base.releaseLock();
 
@@ -503,7 +504,7 @@ pub const File = struct {
 
         var prev_digest_buf: [digest.len]u8 = undefined;
         const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
+            artifact_dir_handle,
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| b: {
@@ -517,7 +518,7 @@ pub const File = struct {
         }
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+        artifact_dir_handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
             error.FileNotFound => {},
             else => |e| return e,
         };
@@ -555,7 +556,7 @@ pub const File = struct {
         const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
         if (bad) return error.UnableToWriteArchive;
 
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
+        Cache.writeSmallFile(artifact_dir_handle, id_symlink_basename, &digest) catch |err| {
             std.log.warn("failed to save archive hash digest file: {}", .{@errorName(err)});
         };
 
