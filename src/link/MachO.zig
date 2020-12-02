@@ -725,7 +725,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
             // At this stage, LLD has done its job. It is time to patch the resultant
             // binaries up!
-            const out_file = try directory.handle.openFile(full_out_path, .{ .write = true });
+            const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
             try self.parseFromFile(out_file);
             if (self.code_signature_cmd_index == null) {
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
