@@ -1808,6 +1808,29 @@ pub const LibExeObjStep = struct {
                 }
                 return;
             },
+            std.SemanticVersion => {
+                out.print(
+                    \\pub const {z}: @import("std").SemanticVersion = .{{
+                    \\    .major = {d},
+                    \\    .minor = {d},
+                    \\    .patch = {d},
+                    \\
+                , .{
+                    name,
+
+                    value.major,
+                    value.minor,
+                    value.patch,
+                }) catch unreachable;
+                if (value.pre) |some| {
+                    out.print("    .pre = \"{Z}\",\n", .{some}) catch unreachable;
+                }
+                if (value.build) |some| {
+                    out.print("    .build = \"{Z}\",\n", .{some}) catch unreachable;
+                }
+                out.writeAll("};\n") catch unreachable;
+                return;
+            },
             else => {},
         }
         switch (@typeInfo(T)) {
@@ -2774,12 +2797,20 @@ test "LibExeObjStep.addBuildOption" {
     exe.addBuildOption(?usize, "option2", null);
     exe.addBuildOption([]const u8, "string", "zigisthebest");
     exe.addBuildOption(?[]const u8, "optional_string", null);
+    exe.addBuildOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
     std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
         \\pub const option2: ?usize = null;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
+        \\pub const semantic_version: @import("std").SemanticVersion = .{
+        \\    .major = 0,
+        \\    .minor = 1,
+        \\    .patch = 2,
+        \\    .pre = "foo",
+        \\    .build = "bar",
+        \\};
         \\
     , exe.build_options_contents.items);
 }
