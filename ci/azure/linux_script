@@ -8,11 +8,27 @@ BUILDDIR="$(pwd)"
 sudo sh -c 'echo "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-11 main" >> /etc/apt/sources.list'
 wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
 sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-sudo apt-get update -q
 
 sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
-sudo apt-get install -y libxml2-dev libclang-11-dev llvm-11 llvm-11-dev liblld-11-dev cmake s3cmd gcc-7 g++-7 ninja-build tidy
+
+# Some APT mirrors can be flaky, retry the download instead of failing right
+# away.
+APT_MAX_RETRY=3
+
+for i in $(seq 1 "$APT_MAX_RETRY"); do
+  sudo apt-get update -q
+  sudo apt-get install -y \
+    libxml2-dev libclang-11-dev llvm-11 llvm-11-dev liblld-11-dev cmake s3cmd \
+    gcc-7 g++-7 ninja-build tidy \
+    && break
+  if [ "$i" -eq "$APT_MAX_RETRY" ]; then
+    echo 'apt-get failed, giving up...'
+    exit 1
+  fi
+  echo 'apt-get failed, retrying...'
+  sleep 5s
+done
 
 QEMUBASE="qemu-linux-x86_64-5.1.0"
 wget https://ziglang.org/deps/$QEMUBASE.tar.xz
