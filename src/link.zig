@@ -485,42 +485,49 @@ pub const File = struct {
 
         const id_symlink_basename = "llvm-ar.id";
 
-        base.releaseLock();
+        var man: Cache.Manifest = undefined;
+        defer if (!base.options.disable_lld_caching) man.deinit();
 
-        var ch = comp.cache_parent.obtain();
-        defer ch.deinit();
+        var digest: [Cache.hex_digest_len]u8 = undefined;
 
-        try ch.addListOfFiles(base.options.objects);
-        for (comp.c_object_table.items()) |entry| {
-            _ = try ch.addFile(entry.key.status.success.object_path, null);
+        if (!base.options.disable_lld_caching) {
+            man = comp.cache_parent.obtain();
+
+            // We are about to obtain this lock, so here we give other processes a chance first.
+            base.releaseLock();
+
+            try man.addListOfFiles(base.options.objects);
+            for (comp.c_object_table.items()) |entry| {
+                _ = try man.addFile(entry.key.status.success.object_path, null);
+            }
+            try man.addOptionalFile(module_obj_path);
+            try man.addOptionalFile(compiler_rt_path);
+
+            // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
+            _ = try man.hit();
+            digest = man.final();
+
+            var prev_digest_buf: [digest.len]u8 = undefined;
+            const prev_digest: []u8 = Cache.readSmallFile(
+                directory.handle,
+                id_symlink_basename,
+                &prev_digest_buf,
+            ) catch |err| b: {
+                log.debug("archive new_digest={} readFile error: {}", .{ digest, @errorName(err) });
+                break :b prev_digest_buf[0..0];
+            };
+            if (mem.eql(u8, prev_digest, &digest)) {
+                log.debug("archive digest={} match - skipping invocation", .{digest});
+                base.lock = man.toOwnedLock();
+                return;
+            }
+
+            // We are about to change the output file to be different, so we invalidate the build hash now.
+            directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => |e| return e,
+            };
         }
-        try ch.addOptionalFile(module_obj_path);
-        try ch.addOptionalFile(compiler_rt_path);
-
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-        _ = try ch.hit();
-        const digest = ch.final();
-
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| b: {
-            log.debug("archive new_digest={} readFile error: {}", .{ digest, @errorName(err) });
-            break :b prev_digest_buf[0..0];
-        };
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("archive digest={} match - skipping invocation", .{digest});
-            base.lock = ch.toOwnedLock();
-            return;
-        }
-
-        // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
 
         var object_files = std.ArrayList([*:0]const u8).init(base.allocator);
         defer object_files.deinit();
@@ -555,15 +562,17 @@ pub const File = struct {
         const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
         if (bad) return error.UnableToWriteArchive;
 
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            std.log.warn("failed to save archive hash digest file: {}", .{@errorName(err)});
-        };
+        if (!base.options.disable_lld_caching) {
+            Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
+                std.log.warn("failed to save archive hash digest file: {}", .{@errorName(err)});
+            };
 
-        ch.writeManifest() catch |err| {
-            std.log.warn("failed to write cache manifest when archiving: {}", .{@errorName(err)});
-        };
+            man.writeManifest() catch |err| {
+                std.log.warn("failed to write cache manifest when archiving: {}", .{@errorName(err)});
+            };
 
-        base.lock = ch.toOwnedLock();
+            base.lock = man.toOwnedLock();
+        }
     }
 
     pub const Tag = enum {
