@@ -16,6 +16,7 @@ const trace = @import("tracy.zig").trace;
 const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
+const build_options = @import("build_options");
 
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
 pub const BlockData = struct {
@@ -427,6 +428,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             code: *std.ArrayList(u8),
             debug_output: DebugInfoOutput,
         ) GenerateSymbolError!Result {
+            if (build_options.skip_non_native and std.Target.current.cpu.arch != arch) {
+                @panic("Attempted to compile for architecture that was disabled by build configuration");
+            }
+
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
             const fn_type = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;

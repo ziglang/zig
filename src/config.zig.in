@@ -4,3 +4,4 @@ pub const log_scopes: []const []const u8 = &[_][]const u8{};
 pub const zir_dumps: []const []const u8 = &[_][]const u8{};
 pub const enable_tracy = false;
 pub const is_stage1 = true;
+pub const skip_non_native = false;
