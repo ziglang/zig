@@ -148,6 +148,16 @@ pub const Config = struct {
     /// Whether the allocator may be used simultaneously from multiple threads.
     thread_safe: bool = !std.builtin.single_threaded,
 
+    /// What type of mutex you'd like to use, for thread safety.
+    /// when specfied, the mutex type must have the same shape as `std.Mutex` and
+    /// `std.mutex.Dummy`, and have no required fields. Specifying this field causes
+    /// the `thread_safe` field to be ignored.
+    ///
+    /// when null (default):
+    /// * the mutex type defaults to `std.Mutex` when thread_safe is enabled.
+    /// * the mutex type defaults to `std.mutex.Dummy` otherwise.
+    MutexType: ?type = null,
+
     /// This is a temporary debugging trick you can use to turn segfaults into more helpful
     /// logged error messages with stack trace details. The downside is that every allocation
     /// will be leaked!
@@ -174,7 +184,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};
 
-        const mutex_init = if (config.thread_safe) std.Mutex{} else std.mutex.Dummy{};
+        const mutex_init = if (config.MutexType) |T| T{} else
+          if (config.thread_safe) std.Mutex{} else std.mutex.Dummy{};
 
         const stack_n = config.stack_trace_frames;
         const one_trace_size = @sizeOf(usize) * stack_n;
@@ -847,6 +858,18 @@ test "realloc large object to small object" {
     slice = try allocator.realloc(slice, 19);
     std.testing.expect(slice[0] == 0x12);
     std.testing.expect(slice[16] == 0x34);
+}
+
+test "overrideable mutexes" {
+    var gpa = GeneralPurposeAllocator(.{.MutexType = std.Mutex}){
+        .backing_allocator = std.testing.allocator,
+        .mutex = std.Mutex{}
+    };
+    defer std.testing.expect(!gpa.deinit());
+    const allocator = &gpa.allocator;
+
+    const ptr = try allocator.create(i32);
+    defer allocator.destroy(ptr);
 }
 
 test "non-page-allocator backing allocator" {
