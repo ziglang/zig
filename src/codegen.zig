@@ -1795,7 +1795,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
                     if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                         const func = func_val.func;
-                        const got = &macho_file.sections.items[macho_file.got_section_index.?];
+                        const text_segment = &macho_file.load_commands.items[macho_file.text_segment_cmd_index.?].Segment;
+                        const got = &text_segment.sections.items[macho_file.got_section_index.?];
                         const got_addr = got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
                         switch (arch) {
                             .x86_64 => {
@@ -3196,7 +3197,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return MCValue{ .memory = got_addr };
                         } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                             const decl = payload.decl;
-                            const got = &macho_file.sections.items[macho_file.got_section_index.?];
+                            const text_segment = &macho_file.load_commands.items[macho_file.text_segment_cmd_index.?].Segment;
+                            const got = &text_segment.sections.items[macho_file.got_section_index.?];
                             const got_addr = got.addr + decl.link.macho.offset_table_index * ptr_bytes;
                             return MCValue{ .memory = got_addr };
                         } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {

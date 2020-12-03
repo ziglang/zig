@@ -238,6 +238,14 @@ pub const File = struct {
     }
 
     pub fn makeExecutable(base: *File) !void {
+        switch (base.options.output_mode) {
+            .Obj => return,
+            .Lib => switch (base.options.link_mode) {
+                .Static => return,
+                .Dynamic => {},
+            },
+            .Exe => {},
+        }
         switch (base.tag) {
             .macho => if (base.file) |f| {
                 if (base.intermediary_basename != null) {

@@ -2,14 +2,13 @@ const CodeSignature = @This();
 
 const std = @import("std");
 const assert = std.debug.assert;
+const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
 const Sha256 = std.crypto.hash.sha2.Sha256;
-
-const MachO = @import("../MachO.zig");
 
 const hash_size: u8 = 32;
 const page_size: u16 = 0x1000;
@@ -51,7 +50,7 @@ const CodeDirectory = struct {
     }
 };
 
-alloc: *Allocator,
+allocator: *Allocator,
 inner: macho.SuperBlob = .{
     .magic = macho.CSMAGIC_EMBEDDED_SIGNATURE,
     .length = @sizeOf(macho.SuperBlob),
@@ -59,19 +58,21 @@ inner: macho.SuperBlob = .{
 },
 cdir: ?CodeDirectory = null,
 
-pub fn init(alloc: *Allocator) CodeSignature {
-    return .{
-        .alloc = alloc,
-    };
+pub fn init(allocator: *Allocator) CodeSignature {
+    return .{ .allocator = allocator };
 }
 
-pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
-    const text_segment = bin_file.load_commands.items[bin_file.text_segment_cmd_index.?].Segment;
-    const code_sig_cmd = bin_file.load_commands.items[bin_file.code_signature_cmd_index.?].LinkeditData;
-
+pub fn calcAdhocSignature(
+    self: *CodeSignature,
+    file: fs.File,
+    id: []const u8,
+    text_segment: macho.segment_command_64,
+    code_sig_cmd: macho.linkedit_data_command,
+    output_mode: std.builtin.OutputMode,
+) !void {
     const execSegBase: u64 = text_segment.fileoff;
     const execSegLimit: u64 = text_segment.filesize;
-    const execSegFlags: u64 = if (bin_file.base.options.output_mode == .Exe) macho.CS_EXECSEG_MAIN_BINARY else 0;
+    const execSegFlags: u64 = if (output_mode == .Exe) macho.CS_EXECSEG_MAIN_BINARY else 0;
     const file_size = code_sig_cmd.dataoff;
     var cdir = CodeDirectory{
         .inner = .{
@@ -102,12 +103,10 @@ pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
     const total_pages = mem.alignForward(file_size, page_size) / page_size;
 
     var hash: [hash_size]u8 = undefined;
-    var buffer = try bin_file.base.allocator.alloc(u8, page_size);
-    defer bin_file.base.allocator.free(buffer);
-    const macho_file = bin_file.base.file.?;
+    var buffer = try self.allocator.alloc(u8, page_size);
+    defer self.allocator.free(buffer);
 
-    const id = bin_file.base.options.emit.?.sub_path;
-    try cdir.data.ensureCapacity(self.alloc, total_pages * hash_size + id.len + 1);
+    try cdir.data.ensureCapacity(self.allocator, total_pages * hash_size + id.len + 1);
 
     // 1. Save the identifier and update offsets
     cdir.inner.identOffset = cdir.inner.length;
@@ -122,7 +121,7 @@ pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
     while (i < total_pages) : (i += 1) {
         const fstart = i * page_size;
         const fsize = if (fstart + page_size > file_size) file_size - fstart else page_size;
-        const len = try macho_file.preadAll(buffer, fstart);
+        const len = try file.preadAll(buffer, fstart);
         assert(fsize <= len);
 
         Sha256.hash(buffer[0..fsize], &hash, .{});
@@ -153,7 +152,7 @@ pub fn write(self: CodeSignature, buffer: []u8) void {
 
 pub fn deinit(self: *CodeSignature) void {
     if (self.cdir) |*cdir| {
-        cdir.data.deinit(self.alloc);
+        cdir.data.deinit(self.allocator);
     }
 }
 
@@ -179,4 +178,12 @@ test "CodeSignature header" {
 
     const expected = &[_]u8{ 0xfa, 0xde, 0x0c, 0xc0, 0x0, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x0 };
     testing.expect(mem.eql(u8, expected[0..], buffer[0..]));
+}
+
+pub fn calcCodeSignaturePadding(id: []const u8, file_size: u64) u32 {
+    const ident_size = id.len + 1;
+    const total_pages = mem.alignForwardGeneric(u64, file_size, page_size) / page_size;
+    const hashed_size = total_pages * hash_size;
+    const codesig_header = @sizeOf(macho.SuperBlob) + @sizeOf(macho.BlobIndex) + @sizeOf(macho.CodeDirectory);
+    return @intCast(u32, mem.alignForwardGeneric(u64, codesig_header + ident_size + hashed_size, @sizeOf(u64)));
 }

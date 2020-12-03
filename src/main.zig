@@ -1773,9 +1773,7 @@ fn buildOutputType(
         error.SemanticAnalyzeFail => process.exit(1),
         else => |e| return e,
     };
-    if (output_mode == .Exe) {
-        try comp.makeBinFileExecutable();
-    }
+    try comp.makeBinFileExecutable();
 
     if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
         warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
@@ -1874,9 +1872,7 @@ fn buildOutputType(
 
     while (watch) {
         try stderr.print("(zig) ", .{});
-        if (output_mode == .Exe) {
-            try comp.makeBinFileExecutable();
-        }
+        try comp.makeBinFileExecutable();
         if (stdin.readUntilDelimiterOrEof(&repl_buf, '\n') catch |err| {
             try stderr.print("\nUnable to parse command: {}\n", .{@errorName(err)});
             continue;
@@ -2413,6 +2409,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         defer comp.destroy();
 
         try updateModule(gpa, comp, null, .none);
+        try comp.makeBinFileExecutable();
 
         child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(
             arena,
