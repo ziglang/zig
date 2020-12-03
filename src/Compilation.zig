@@ -1628,6 +1628,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
 
         const dep_basename = std.fs.path.basename(out_dep_path);
         try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        try comp.stage1_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
 
         const digest = man.final();
         const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
