@@ -19,6 +19,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/use_alias/build.zig");
     cases.addBuildFile("test/standalone/brace_expansion/build.zig");
     cases.addBuildFile("test/standalone/empty_env/build.zig");
+    cases.addBuildFile("test/standalone/issue_7030/build.zig");
     if (std.Target.current.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig");
     }
