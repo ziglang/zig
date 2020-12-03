@@ -1551,16 +1551,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     // Shared libraries.
-    const system_libs = self.base.options.system_libs.items();
-    try argv.ensureCapacity(argv.items.len + system_libs.len);
-    for (system_libs) |entry| {
-        const link_lib = entry.key;
-        // By this time, we depend on these libs being dynamically linked libraries and not static libraries
-        // (the check for that needs to be earlier), but they could be full paths to .so files, in which
-        // case we want to avoid prepending "-l".
-        const ext = Compilation.classifyFileExt(link_lib);
-        const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
-        argv.appendAssumeCapacity(arg);
+    if (is_exe_or_dyn_lib) {
+        const system_libs = self.base.options.system_libs.items();
+        try argv.ensureCapacity(argv.items.len + system_libs.len);
+        for (system_libs) |entry| {
+            const link_lib = entry.key;
+            // By this time, we depend on these libs being dynamically linked libraries and not static libraries
+            // (the check for that needs to be earlier), but they could be full paths to .so files, in which
+            // case we want to avoid prepending "-l".
+            const ext = Compilation.classifyFileExt(link_lib);
+            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
+            argv.appendAssumeCapacity(arg);
+        }
     }
 
     if (!is_obj) {
