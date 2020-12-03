@@ -1430,7 +1430,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             return di;
         }
 
-        fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
             nosuspend {
                 // Translate the VA into an address into this object
                 const relocated_address = address - self.base_address;
@@ -1499,7 +1499,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             return self.coff.allocator;
         }
 
-        fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
@@ -1652,7 +1652,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
 
-        fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
