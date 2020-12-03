@@ -681,7 +681,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             if (result.term != .Exited or result.term.Exited != 0) {
                 // TODO parse this output and surface with the Compilation API rather than
                 // directly outputting to stderr here.
-                std.debug.print("{}", .{result.stderr});
+                std.log.err("{}", .{result.stderr});
                 return error.LDReportedFailure;
             }
         } else {
@@ -716,7 +716,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             if (!ok) {
                 // TODO parse this output and surface with the Compilation API rather than
                 // directly outputting to stderr here.
-                std.debug.print("{}", .{stderr_context.data.items});
+                std.log.err("{}", .{stderr_context.data.items});
                 return error.LLDReportedFailure;
             }
             if (stderr_context.data.items.len != 0) {
@@ -736,10 +736,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     // TODO We are in the position to be able to increase the padding by moving all sections
                     // by the required offset, but this requires a little bit more thinking and bookkeeping.
                     // For now, return an error informing the user of the problem.
-                    std.debug.print("Not enough padding between load commands and start of __text section:\n", .{});
-                    std.debug.print("Offset after last load command: 0x{x}\n", .{after_last_cmd_offset});
-                    std.debug.print("Beginning of __text section: 0x{x}\n", .{text_section.offset});
-                    std.debug.print("Needed size: 0x{x}\n", .{needed_size});
+                    std.log.err("Not enough padding between load commands and start of __text section:\n", .{});
+                    std.log.err("Offset after last load command: 0x{x}\n", .{after_last_cmd_offset});
+                    std.log.err("Beginning of __text section: 0x{x}\n", .{text_section.offset});
+                    std.log.err("Needed size: 0x{x}\n", .{needed_size});
                     return error.NotEnoughPadding;
                 }
                 const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
