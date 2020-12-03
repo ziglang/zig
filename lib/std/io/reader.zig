@@ -64,7 +64,7 @@ pub fn Reader(
             self: Self,
             comptime alignment: ?u29,
             array_list: *std.ArrayListAligned(u8, alignment),
-            max_append_size: usize
+            max_append_size: usize,
         ) !void {
             try array_list.ensureCapacity(math.min(max_append_size, 4096));
             const original_len = array_list.items.len;
@@ -99,6 +99,35 @@ pub fn Reader(
             defer array_list.deinit();
             try self.readAllArrayList(&array_list, max_size);
             return array_list.toOwnedSlice();
+        }
+
+        /// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` or end-of-stream is found.
+        /// Does not include the delimiter in the result.
+        /// If the `std.ArrayList` length would exceed `max_size`, `error.StreamTooLong` is returned and the
+        /// `std.ArrayList` is populated with `max_size` bytes from the stream.
+        pub fn readUntilDelimiterOrEofArrayList(
+            self: Self,
+            array_list: *std.ArrayList(u8),
+            delimiter: u8,
+            max_size: usize,
+        ) !void {
+            array_list.shrink(0);
+            while (true) {
+                var byte: u8 = self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => return,
+                    else => |e| return e,
+                };
+
+                if (byte == delimiter) {
+                    return;
+                }
+
+                if (array_list.items.len == max_size) {
+                    return error.StreamTooLong;
+                }
+
+                try array_list.append(byte);
+            }
         }
 
         /// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` is found.
@@ -140,6 +169,22 @@ pub fn Reader(
             var array_list = std.ArrayList(u8).init(allocator);
             defer array_list.deinit();
             try self.readUntilDelimiterArrayList(&array_list, delimiter, max_size);
+            return array_list.toOwnedSlice();
+        }
+
+        /// Allocates enough memory to read until `delimiter` or end-of-stream.
+        /// If the allocated memory would be greater than `max_size`, returns `error.StreamTooLong`.
+        /// Caller owns returned memory.
+        /// If this function returns an error, the contents from the stream read so far are lost.
+        pub fn readUntilDelimiterOrEofAlloc(
+            self: Self,
+            allocator: *mem.Allocator,
+            delimiter: u8,
+            max_size: usize,
+        ) ![]u8 {
+            var array_list = std.ArrayList(u8).init(allocator);
+            defer array_list.deinit();
+            try self.readUntilDelimiterOrEofArrayList(&array_list, delimiter, max_size);
             return array_list.toOwnedSlice();
         }
 
