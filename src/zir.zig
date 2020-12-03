@@ -1952,10 +1952,9 @@ const EmitZIR = struct {
                     };
                     _ = try self.emitUnnamedDecl(&export_inst.base);
                 }
-            } else {
-                const new_decl = try self.emitTypedValue(ir_decl.src(), ir_decl.typed_value.most_recent.typed_value);
-                new_decl.name = try self.arena.allocator.dupe(u8, mem.spanZ(ir_decl.name));
             }
+            const new_decl = try self.emitTypedValue(ir_decl.src(), ir_decl.typed_value.most_recent.typed_value);
+            new_decl.name = try self.arena.allocator.dupe(u8, mem.spanZ(ir_decl.name));
         }
     }
 
