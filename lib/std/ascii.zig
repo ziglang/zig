@@ -335,6 +335,24 @@ test "eqlIgnoreCase" {
     std.testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
 }
 
+pub fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[0..needle.len], needle);
+}
+
+test "ascii.startsWithIgnoreCase" {
+    std.testing.expect(startsWithIgnoreCase("boB", "Bo"));
+    std.testing.expect(!startsWithIgnoreCase("Needle in hAyStAcK", "haystack"));
+}
+
+pub fn endsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[haystack.len - needle.len ..], needle);
+}
+
+test "ascii.endsWithIgnoreCase" {
+    std.testing.expect(endsWithIgnoreCase("Needle in HaYsTaCk", "haystack"));
+    std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
+}
+
 /// Finds `substr` in `container`, ignoring case, starting at `start_index`.
 /// TODO boyer-moore algorithm
 pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
