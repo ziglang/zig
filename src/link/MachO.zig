@@ -536,11 +536,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try argv.append(cur_vers);
             }
 
-            // TODO getting an error when running an executable when doing this rpath thing
-            //Buf *dylib_install_name = buf_sprintf("@rpath/lib%s.%" ZIG_PRI_usize ".dylib",
-            //    buf_ptr(g->root_out_name), g->version_major);
-            //try argv.append("-install_name");
-            //try argv.append(buf_ptr(dylib_install_name));
+            const dylib_install_name = try std.fmt.allocPrint(arena, "@rpath/{}", .{self.base.options.emit.?.sub_path});
+            try argv.append("-install_name");
+            try argv.append(dylib_install_name);
         }
 
         try argv.append("-arch");
