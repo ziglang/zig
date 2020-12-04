@@ -17841,7 +17841,7 @@ static bool is_pointer_arithmetic_allowed(ZigType *lhs_type, IrBinOp op) {
         return false;
     switch (lhs_type->data.pointer.ptr_len) {
         case PtrLenSingle:
-            return lhs_type->data.pointer.child_type->id == ZigTypeIdArray;
+            return false;
         case PtrLenUnknown:
         case PtrLenC:
             return true;

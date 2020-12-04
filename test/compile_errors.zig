@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("pointer arithmetic on pointer-to-array",
+        \\export fn foo() void {
+        \\    var x: [10]u8 = undefined;
+        \\    var y = &x;
+        \\    var z = y + 1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:17: error: integer value 1 cannot be coerced to type '*[10]u8'",
+    });
+
     cases.add("@Type() union payload is undefined",
         \\const Foo = @Type(@import("std").builtin.TypeInfo{
         \\    .Struct = undefined,
