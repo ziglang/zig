@@ -11,6 +11,7 @@ const log = std.log.scoped(.link);
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/wasm.zig");
+const codegen2 = @import("../codegen.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
@@ -45,6 +46,11 @@ pub const FnData = struct {
     /// Locations in the generated code where function indexes must be filled in.
     /// This must be kept ordered by offset.
     idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }) = .{},
+};
+
+pub const TextBlock = struct {
+    /// The index of the function declaration
+    symbol_index: u32 = 0,
 };
 
 base: link.File,
@@ -90,11 +96,18 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
 
 pub fn deinit(self: *Wasm) void {
     for (self.funcs.items) |decl| {
-        decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
-        decl.fn_link.wasm.?.code.deinit(self.base.allocator);
-        decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
+        decl.fn_link.wasm.functype.deinit(self.base.allocator);
+        decl.fn_link.wasm.code.deinit(self.base.allocator);
+        decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     }
     self.funcs.deinit(self.base.allocator);
+}
+
+/// Sets the symbol index of the declaration so it can be used for function calls
+pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
+    decl.link.wasm.symbol_index = @intCast(u32, self.funcs.items.len);
+    decl.fn_link.wasm = .{};
+    try self.funcs.append(self.base.allocator, decl);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -103,20 +116,28 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     if (decl.typed_value.most_recent.typed_value.ty.zigTypeTag() != .Fn)
         return error.TODOImplementNonFnDeclsForWasm;
 
-    if (decl.fn_link.wasm) |*fn_data| {
-        fn_data.functype.items.len = 0;
-        fn_data.code.items.len = 0;
-        fn_data.idx_refs.items.len = 0;
-    } else {
-        decl.fn_link.wasm = .{};
-        try self.funcs.append(self.base.allocator, decl);
-    }
-    const fn_data = &decl.fn_link.wasm.?;
+    const fn_data = &decl.fn_link.wasm;
+    fn_data.functype.items.len = 0;
+    fn_data.code.items.len = 0;
+    fn_data.idx_refs.items.len = 0;
 
     var managed_functype = fn_data.functype.toManaged(self.base.allocator);
     var managed_code = fn_data.code.toManaged(self.base.allocator);
+    // todo, handle this in codegen as well
     try codegen.genFunctype(&managed_functype, decl);
-    try codegen.genCode(&managed_code, decl);
+
+    const typed_value = decl.typed_value.most_recent.typed_value;
+    const result = try codegen2.generateSymbol(&self.base, decl.src(), typed_value, &managed_code, .none);
+    switch (result) {
+        .externally_managed => |ext| try managed_code.appendSlice(ext),
+        .appended => {}, // Code has been appended to managed_code already
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl, em);
+            return;
+        },
+    }
+
     fn_data.functype = managed_functype.toUnmanaged();
     fn_data.code = managed_code.toUnmanaged();
 }
@@ -132,10 +153,10 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     // TODO: remove this assert when non-function Decls are implemented
     assert(decl.typed_value.most_recent.typed_value.ty.zigTypeTag() == .Fn);
     _ = self.funcs.swapRemove(self.getFuncidx(decl).?);
-    decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
-    decl.fn_link.wasm.?.code.deinit(self.base.allocator);
-    decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
-    decl.fn_link.wasm = null;
+    decl.fn_link.wasm.functype.deinit(self.base.allocator);
+    decl.fn_link.wasm.code.deinit(self.base.allocator);
+    decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
+    decl.fn_link.wasm = .{};
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation) !void {
@@ -161,7 +182,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     {
         const header_offset = try reserveVecSectionHeader(file);
         for (self.funcs.items) |decl| {
-            try file.writeAll(decl.fn_link.wasm.?.functype.items);
+            try file.writeAll(decl.fn_link.wasm.functype.items);
         }
         try writeVecSectionHeader(
             file,
@@ -224,7 +245,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         for (self.funcs.items) |decl| {
-            const fn_data = &decl.fn_link.wasm.?;
+            const fn_data = &decl.fn_link.wasm;
 
             // Write the already generated code to the file, inserting
             // function indexes where required.
@@ -236,6 +257,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 // in codegen.wasm.genCode() simpler.
                 var buf: [5]u8 = undefined;
                 leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
+                for (buf) |c| {
+                    std.debug.print("0x{x:2>0}", .{c});
+                }
                 try writer.writeAll(&buf);
             }
 
@@ -477,7 +501,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
 /// Get the current index of a given Decl in the function list
 /// TODO: we could maintain a hash map to potentially make this
-fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
+pub fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
     return for (self.funcs.items) |func, idx| {
         if (func == decl) break @intCast(u32, idx);
     } else null;

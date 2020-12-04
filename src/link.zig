@@ -131,7 +131,7 @@ pub const File = struct {
         coff: Coff.TextBlock,
         macho: MachO.TextBlock,
         c: void,
-        wasm: void,
+        wasm: Wasm.TextBlock,
     };
 
     pub const LinkFn = union {
@@ -139,7 +139,7 @@ pub const File = struct {
         coff: Coff.SrcFn,
         macho: MachO.SrcFn,
         c: void,
-        wasm: ?Wasm.FnData,
+        wasm: Wasm.FnData,
     };
 
     pub const Export = union {
@@ -312,7 +312,8 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
-            .c, .wasm => {},
+            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
+            .c => {},
         }
     }
 

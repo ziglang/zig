@@ -80,8 +80,8 @@ pub fn generateSymbol(
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             switch (bin_file.options.target.cpu.arch) {
-                .wasm32 => unreachable, // has its own code path
-                .wasm64 => unreachable, // has its own code path
+                .wasm32 => return Function(.wasm32).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .wasm64 => return Function(.wasm64).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 .arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 .armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 .aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, debug_output),
@@ -631,6 +631,34 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // pop {fp, pc}
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
+                    } else {
+                        try self.dbgSetPrologueEnd();
+                        try self.genBody(self.mod_fn.analysis.success);
+                        try self.dbgSetEpilogueBegin();
+                    }
+                },
+                .wasm32, .wasm64 => {
+                    if (self.fn_type.fnCallingConvention() != .Naked) {
+                        const writer = self.code.writer();
+
+                        // Reserve space to write the size after generating the code.
+                        // This is done inside link/Wasm.zig
+                        try self.code.resize(5);
+
+                        // TODO: copy size of locals logic here from other branch
+                        try leb128.writeULEB128(writer, @as(u32, 0));
+
+                        try self.dbgSetPrologueEnd();
+                        try self.genBody(self.mod_fn.analysis.success);
+                        try self.dbgSetEpilogueBegin();
+
+                        // Write 'end' opcode
+                        try writer.writeByte(0x0B);
+
+                        // Fill in the size of the generated code to the reserved space at the
+                        // beginning of the buffer.
+                        const size = self.code.items.len - 5 + self.mod_fn.owner_decl.fn_link.wasm.idx_refs.items.len * 5;
+                        leb128.writeUnsignedFixed(5, self.code.items[0..5], @intCast(u32, size));
                     } else {
                         try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
@@ -1850,6 +1878,50 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 } else {
                     return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                 }
+            } else if (self.bin_file.cast(link.File.Wasm)) |wasm_file| {
+                for (info.args) |mc_arg, arg_i| {
+                    const arg = inst.args[arg_i];
+                    const arg_mcv = try self.resolveInst(arg);
+
+                    std.debug.print("Mc_arg: {}\n", .{mc_arg});
+                    switch (mc_arg) {
+                        .none => continue,
+                        .register => |reg| try self.genSetReg(arg.src, reg, arg_mcv),
+                        .stack_offset => {
+                            return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                        },
+                        .ptr_stack_offset => {
+                            return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset", .{});
+                        },
+                        .ptr_embedded_in_code => {
+                            return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                        },
+                        .undef => unreachable,
+                        .immediate => unreachable,
+                        .unreach => unreachable,
+                        .dead => unreachable,
+                        .embedded_in_code => unreachable,
+                        .memory => unreachable,
+                        .compare_flags_signed => unreachable,
+                        .compare_flags_unsigned => unreachable,
+                    }
+                }
+
+                if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                    if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                        const func = func_val.func;
+
+                        // emit .call opcode
+                        try self.code.append(0x10);
+
+                        // emit func id
+                        try leb128.writeULEB128(self.code.writer(), func.owner_decl.link.wasm.symbol_index);
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                    }
+                } else {
+                    return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                }
             } else {
                 unreachable;
             }
@@ -1910,6 +1982,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .aarch64 => {
                     // TODO: relocations
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.ret(null).toU32());
+                },
+                .wasm32, .wasm64 => {
+                    // .return bytecode
+                    try self.code.append(0x0F);
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
