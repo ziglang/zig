@@ -5178,11 +5178,7 @@ static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutableGen *executable, IrIns
 
 static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutableGen *executable, IrInstGenErrName *instruction) {
     assert(g->generate_error_name_table);
-
-    if (g->errors_by_index.length == 1) {
-        LLVMBuildUnreachable(g->builder);
-        return nullptr;
-    }
+    assert(g->errors_by_index.length > 0);
 
     LLVMValueRef err_val = ir_llvm_value(g, instruction->value);
     if (ir_want_runtime_safety(g, &instruction->base)) {
@@ -7890,7 +7886,7 @@ static void render_const_val_global(CodeGen *g, ZigValue *const_val, const char 
 }
 
 static void generate_error_name_table(CodeGen *g) {
-    if (g->err_name_table != nullptr || !g->generate_error_name_table || g->errors_by_index.length == 1) {
+    if (g->err_name_table != nullptr || !g->generate_error_name_table) {
         return;
     }
 
