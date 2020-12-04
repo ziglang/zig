@@ -339,7 +339,7 @@ pub fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[0..needle.len], needle);
 }
 
-test "mem.startsWith" {
+test "ascii.startsWithIgnoreCase" {
     std.testing.expect(startsWithIgnoreCase("boB", "Bo"));
     std.testing.expect(!startsWithIgnoreCase("Needle in hAyStAcK", "haystack"));
 }
@@ -348,7 +348,7 @@ pub fn endsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[haystack.len - needle.len ..], needle);
 }
 
-test "mem.endsWithIgnoreCase" {
+test "ascii.endsWithIgnoreCase" {
     std.testing.expect(endsWithIgnoreCase("Needle in HaYsTaCk", "haystack"));
     std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
 }
