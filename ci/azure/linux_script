@@ -37,12 +37,12 @@ retry sudo apt-get install -y \
     gcc-7 g++-7 ninja-build tidy \
 
 QEMUBASE="qemu-linux-x86_64-5.1.0"
-wget https://ziglang.org/deps/$QEMUBASE.tar.xz
+wget -nv https://ziglang.org/deps/$QEMUBASE.tar.xz
 tar xf $QEMUBASE.tar.xz
 PATH=$PWD/$QEMUBASE/bin:$PATH
 
 WASMTIME="wasmtime-v0.20.0-x86_64-linux"
-wget https://github.com/bytecodealliance/wasmtime/releases/download/v0.20.0/$WASMTIME.tar.xz
+wget -nv https://github.com/bytecodealliance/wasmtime/releases/download/v0.20.0/$WASMTIME.tar.xz
 tar xf $WASMTIME.tar.xz
 PATH=$PWD/$WASMTIME:$PATH
 
