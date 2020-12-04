@@ -1128,43 +1128,53 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, uppercase: bool, op
 /// Formats a duration in nanoseconds according to its magnitude:
 ///
 /// - #ns
-/// - #[.#]us
-/// - #[.#]ms
-/// - #[.#]s
-/// - #m#[.#]s
-/// - #h#m#[.#]s
-/// - #d#h#m#[.#]s
-/// - #w#d#h#m#[.#]s
+/// - #[.###]us
+/// - #[.###]ms
+/// - [#w][#d][#h][#m]#[.###]s
 pub fn formatDuration(ns: u64, writer: anytype) !void {
-    var ns_remaining = ns;
+    if (ns < std.time.ns_per_s) {
+        inline for (.{
+            .{ .ns = std.time.ns_per_ms, .sep = "ms" },
+            .{ .ns = std.time.ns_per_us, .sep = "us" },
+        }) |unit| {
+            if (ns >= unit.ns) {
+                // Floor to 3 decimal places
+                const kunits = ns * 1000 / unit.ns;
+                const units = @intToFloat(f64, kunits) / 1000.0;
+                try formatFloatDecimal(units, .{}, writer);
+                try writer.writeAll(unit.sep);
+                return;
+            }
+        }
 
+        try formatInt(ns, 10, false, .{}, writer);
+        try writer.writeAll("ns");
+        return;
+    }
+
+    var ns_remaining = ns;
     inline for (.{
+        .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
         .{ .ns = std.time.ns_per_week, .sep = 'w' },
         .{ .ns = std.time.ns_per_day, .sep = 'd' },
         .{ .ns = std.time.ns_per_hour, .sep = 'h' },
         .{ .ns = std.time.ns_per_min, .sep = 'm' },
     }) |unit| {
-        // Compare to total to retain intermediate units
-        if (ns >= unit.ns) {
+        if (ns_remaining >= unit.ns) {
             const units = ns_remaining / unit.ns;
             ns_remaining -= units * unit.ns;
-            try format(writer, "{}{c}", .{ units, unit.sep });
+            try formatInt(units, 10, false, .{}, writer);
+            try writer.writeByte(unit.sep);
         }
     }
 
-    // Mutually exclusive
-    inline for (.{
-        .{ .ns = std.time.ns_per_s, .sep = "s" },
-        .{ .ns = std.time.ns_per_ms, .sep = "ms" },
-        .{ .ns = std.time.ns_per_us, .sep = "us" },
-    }) |unit| {
-        if (ns >= unit.ns) {
-            const units = @intToFloat(f64, ns_remaining) / @intToFloat(f64, unit.ns);
-            return format(writer, "{d}{}", .{ units, unit.sep });
-        }
+    if (ns_remaining > 0) {
+        // Floor to 3 decimal places
+        const ksecs = ns_remaining * 1000 / std.time.ns_per_s;
+        const secs = @intToFloat(f64, ksecs) / 1000.0;
+        try formatFloatDecimal(secs, .{}, writer);
+        try writer.writeByte('s');
     }
-
-    return format(writer, "{}ns", .{ns});
 }
 
 test "formatDuration" {
@@ -1179,16 +1189,20 @@ test "formatDuration" {
         .{ .s = "999.999us", .d = std.time.ns_per_ms - 1 },
         .{ .s = "1ms", .d = std.time.ns_per_ms },
         .{ .s = "1.5ms", .d = 3 * std.time.ns_per_ms / 2 },
-        .{ .s = "9.999999ms", .d = 10 * std.time.ns_per_ms - 1 },
-        .{ .s = "999.999999ms", .d = std.time.ns_per_s - 1 },
+        .{ .s = "9.999ms", .d = 10 * std.time.ns_per_ms - 1 },
+        .{ .s = "999.999ms", .d = std.time.ns_per_s - 1 },
         .{ .s = "1s", .d = std.time.ns_per_s },
         .{ .s = "1.5s", .d = 3 * std.time.ns_per_s / 2 },
-        .{ .s = "59.999999999s", .d = std.time.ns_per_min - 1 },
-        .{ .s = "1m0s", .d = std.time.ns_per_min },
-        .{ .s = "1h0m0s", .d = std.time.ns_per_hour },
-        .{ .s = "1d0h0m0s", .d = std.time.ns_per_day },
-        .{ .s = "1w0d0h0m0s", .d = std.time.ns_per_week },
-        .{ .s = "1w6d23h59m59.999999999s", .d = 2 * std.time.ns_per_week - 1 },
+        .{ .s = "59.999s", .d = std.time.ns_per_min - 1 },
+        .{ .s = "1m", .d = std.time.ns_per_min },
+        .{ .s = "1h", .d = std.time.ns_per_hour },
+        .{ .s = "1d", .d = std.time.ns_per_day },
+        .{ .s = "1w", .d = std.time.ns_per_week },
+        .{ .s = "1w6d23h59m59.999s", .d = 2 * std.time.ns_per_week - 1 },
+        .{ .s = "1y", .d = 365 * std.time.ns_per_day },
+        .{ .s = "1y52w23h59m59.999s", .d = 730 * std.time.ns_per_day - 1 }, // 365d = 52w1d
+        .{ .s = "1y1h1.001s", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms },
+        .{ .s = "1y1h1s", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us },
     }) |tc| {
         const slice = try bufPrint(&buf, "{}", .{duration(tc.d)});
         std.testing.expectEqualStrings(tc.s, slice);
