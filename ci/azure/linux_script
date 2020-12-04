@@ -13,7 +13,7 @@ CMD_WAIT_TIME=10s
 # We give up after retrying CMD_MAX_RETRY times.
 retry() {
   for i in $(seq 1 "$CMD_MAX_RETRY"); do
-    "$@" && return
+    eval "$@" && return
     echo "command \"$@\" failed, retrying..."
     sleep ${CMD_WAIT_TIME}
   done
