@@ -741,11 +741,6 @@ test "open file with exclusive lock twice, make sure it waits" {
         return error.SkipZigTest;
     }
 
-    if (std.Target.current.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/7010
-        return error.SkipZigTest;
-    }
-
     const filename = "file_lock_test.txt";
 
     var tmp = tmpDir(.{});
@@ -770,13 +765,17 @@ test "open file with exclusive lock twice, make sure it waits" {
     defer t.wait();
 
     const SLEEP_TIMEOUT_NS = 10 * std.time.ns_per_ms;
-
-    std.time.sleep(SLEEP_TIMEOUT_NS);
+    // Make sure we've slept enough.
+    var timer = try std.time.Timer.start();
+    while (true) {
+        std.time.sleep(SLEEP_TIMEOUT_NS);
+        if (timer.read() >= SLEEP_TIMEOUT_NS) break;
+    }
     // Check that createFile is still waiting for the lock to be released.
     testing.expect(!evt.isSet());
     file.close();
-    // Generous timeout to avoid failures on heavily loaded systems.
-    try evt.timedWait(SLEEP_TIMEOUT_NS);
+    // No timeout to avoid failures on heavily loaded systems.
+    evt.wait();
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
