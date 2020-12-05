@@ -106,7 +106,7 @@ pub fn build(b: *Builder) !void {
             softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
             exe.linkLibrary(softfloat);
 
-            const exe_cflags = &[_][]const u8{
+            const exe_cflags = [_][]const u8{
                 "-std=c++14",
                 "-D__STDC_CONSTANT_MACROS",
                 "-D__STDC_FORMAT_MACROS",
@@ -119,9 +119,13 @@ pub fn build(b: *Builder) !void {
                 "-Wno-missing-braces",
                 "-Wno-comment",
             };
-            exe.addCSourceFiles(&stage1_sources, exe_cflags);
+            exe.addCSourceFiles(&stage1_sources, &exe_cflags);
             exe.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
-            exe.addCSourceFiles(&zig_cpp_sources, exe_cflags);
+            // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
+            // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
+            // unavailable when LLVM is compiled in Release mode.
+            const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
+            exe.addCSourceFiles(&zig_cpp_sources, &zig_cpp_cflags);
         }
 
         for (clang_libs) |lib_name| {
@@ -138,6 +142,11 @@ pub fn build(b: *Builder) !void {
 
         // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
         exe.linkSystemLibrary("c++");
+
+        if (target.getOs().tag == .windows) {
+            exe.linkSystemLibrary("version");
+            exe.linkSystemLibrary("uuid");
+        }
     }
     if (link_libc) {
         exe.linkLibC();
