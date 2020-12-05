@@ -107,6 +107,7 @@ offset_table: std.ArrayListUnmanaged(u64) = .{},
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 cmd_table_dirty: bool = false,
+other_dylibs_present: bool = false,
 
 /// A list of text blocks that have surplus capacity. This list can have false
 /// positives, as functions grow and shrink over time, only sometimes being added
@@ -755,6 +756,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
             try self.parseFromFile(out_file);
             if (self.libsystem_cmd_index == null) {
+                if (self.other_dylibs_present) return; // TODO We cannot handle this situation yet.
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const text_section = text_segment.sections.items[self.text_section_index.?];
                 const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
@@ -787,7 +789,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 mem.set(u8, dylib_cmd.data, 0);
                 mem.copy(u8, dylib_cmd.data, mem.spanZ(LIB_SYSTEM_PATH));
                 try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
-                // TODO Fixup linkedit data
+                // Parse dyld info
+                try self.parseBindingInfo();
+                try self.parseLazyBindingInfo();
                 // Write updated load commands and the header
                 try self.writeLoadCommands();
                 try self.writeHeader();
@@ -2002,6 +2006,8 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
                 const x = cmd.Dylib;
                 if (parseAndCmpName(x.data, mem.spanZ(LIB_SYSTEM_PATH))) {
                     self.libsystem_cmd_index = i;
+                } else {
+                    self.other_dylibs_present = true;
                 }
             },
             macho.LC_FUNCTION_STARTS => {
@@ -2029,4 +2035,76 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
 fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
     const len = mem.indexOfScalar(u8, name[0..], @as(u8, 0)) orelse name.len;
     return mem.eql(u8, name[0..len], needle);
+}
+
+fn parseBindingInfo(self: *MachO) !void {
+    const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    var buffer = try self.base.allocator.alloc(u8, dyld_info.bind_size);
+    defer self.base.allocator.free(buffer);
+    const nread = try self.base.file.?.preadAll(buffer, dyld_info.bind_off);
+    assert(nread == buffer.len);
+    if (try parseAndFixupBindingInfoBuffer(self.base.allocator, buffer)) {
+        try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
+    }
+}
+
+fn parseLazyBindingInfo(self: *MachO) !void {
+    const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    var buffer = try self.base.allocator.alloc(u8, dyld_info.lazy_bind_size);
+    defer self.base.allocator.free(buffer);
+    const nread = try self.base.file.?.preadAll(buffer, dyld_info.lazy_bind_off);
+    assert(nread == buffer.len);
+    if (try parseAndFixupBindingInfoBuffer(self.base.allocator, buffer)) {
+        try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
+    }
+}
+
+fn parseAndFixupBindingInfoBuffer(allocator: *Allocator, buffer: []u8) !bool{
+    var stream = std.io.fixedBufferStream(buffer);
+    var reader = stream.reader();
+    var done = false;
+    var fixups = std.ArrayList(usize).init(allocator);
+    defer fixups.deinit();
+
+    while (true) {
+        const inst = reader.readByte() catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => return err,
+        };
+        const imm: u8 = inst & macho.BIND_IMMEDIATE_MASK;
+        const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
+        switch (opcode) {
+            macho.BIND_OPCODE_DONE => {
+                done = true; // TODO There appear to be multiple BIND_OPCODE_DONE in lazy binding info...
+            },
+            macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                var next = try reader.readByte();
+                while (next != @as(u8, 0)) {
+                    next = try reader.readByte();
+                }
+            },
+            macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                const uleb_enc = try std.leb.readULEB128(u64, reader);
+            },
+            macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM => {
+                // We note the position in the stream to fixup later.
+                const pos = try reader.context.getPos();
+                try fixups.append(pos - 1);
+            },
+            else => {},
+        }
+    }
+    assert(done);
+
+    var buffer_dirty = false;
+    try stream.seekTo(0);
+    var writer = stream.writer();
+    for (fixups.items) |pos| {
+        try writer.context.seekTo(pos);
+        const inst = macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | 1;
+        _ = try writer.write(&[_]u8{inst});
+        buffer_dirty = true;
+    }
+
+    return buffer_dirty;
 }
