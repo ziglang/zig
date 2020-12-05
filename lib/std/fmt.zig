@@ -1128,7 +1128,7 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, uppercase: bool, op
 /// Formats a number of nanoseconds according to its magnitude:
 ///
 /// - #ns
-/// - [#y][#w][#d][#h][#m]#.[###][u|m]s
+/// - [#y][#w][#d][#h][#m]#[.###][u|m]s
 pub fn formatDuration(ns: u64, writer: anytype) !void {
     var ns_remaining = ns;
     inline for (.{
