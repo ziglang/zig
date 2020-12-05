@@ -752,44 +752,81 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
             // At this stage, LLD has done its job. It is time to patch the resultant
             // binaries up!
-            // This is currently needed only for aarch64 targets.
-            if (target.cpu.arch == .aarch64) {
-                const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
-                try self.parseFromFile(out_file);
-                if (self.code_signature_cmd_index == null) {
-                    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                    const text_section = text_segment.sections.items[self.text_section_index.?];
-                    const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                    const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+            const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
+            try self.parseFromFile(out_file);
+            if (self.libsystem_cmd_index == null) {
+                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                const text_section = text_segment.sections.items[self.text_section_index.?];
+                const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
+                const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
 
-                    if (needed_size + after_last_cmd_offset > text_section.offset) {
-                        std.log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
-                        std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size});
-                        std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
-                        return error.NotEnoughPadding;
-                    }
-
-                    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-                    // TODO This is clunky.
-                    self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
-                    // Add code signature load command
-                    self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
-                    try self.load_commands.append(self.base.allocator, .{
-                        .LinkeditData = .{
-                            .cmd = macho.LC_CODE_SIGNATURE,
-                            .cmdsize = @sizeOf(macho.linkedit_data_command),
-                            .dataoff = 0,
-                            .datasize = 0,
-                        },
-                    });
-                    // Pad out space for code signature
-                    try self.writeCodeSignaturePadding();
-                    // Write updated load commands and the header
-                    try self.writeLoadCommands();
-                    try self.writeHeader();
-                    // Generate adhoc code signature
-                    try self.writeCodeSignature();
+                if (needed_size + after_last_cmd_offset > text_section.offset) {
+                    std.log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
+                    std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size});
+                    std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
+                    return error.NotEnoughPadding;
                 }
+
+                // Add load dylib load command
+                self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
+                const cmdsize = mem.alignForwardGeneric(u64, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH), @sizeOf(u64));
+                // TODO Find a way to work out runtime version from the OS version triple stored in std.Target.
+                // In the meantime, we're gonna hardcode to the minimum compatibility version of 0.0.0.
+                const min_version = 0x0;
+                var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
+                    .cmd = macho.LC_LOAD_DYLIB,
+                    .cmdsize = @intCast(u32, cmdsize),
+                    .dylib = .{
+                        .name = @sizeOf(macho.dylib_command),
+                        .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
+                        .current_version = min_version,
+                        .compatibility_version = min_version,
+                    },
+                });
+                dylib_cmd.data = try self.base.allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
+                mem.set(u8, dylib_cmd.data, 0);
+                mem.copy(u8, dylib_cmd.data, mem.spanZ(LIB_SYSTEM_PATH));
+                try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
+                // TODO Fixup linkedit data
+                // Write updated load commands and the header
+                try self.writeLoadCommands();
+                try self.writeHeader();
+            }
+            if (self.code_signature_cmd_index == null) {
+                if (target.cpu.arch != .aarch64) return; // This is currently needed only for aarch64 targets.
+                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                const text_section = text_segment.sections.items[self.text_section_index.?];
+                const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
+                const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+
+                if (needed_size + after_last_cmd_offset > text_section.offset) {
+                    std.log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
+                    std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size});
+                    std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
+                    return error.NotEnoughPadding;
+                }
+
+                const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+                // TODO This is clunky.
+                self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
+                // Add code signature load command
+                self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
+                try self.load_commands.append(self.base.allocator, .{
+                    .LinkeditData = .{
+                        .cmd = macho.LC_CODE_SIGNATURE,
+                        .cmdsize = @sizeOf(macho.linkedit_data_command),
+                        .dataoff = 0,
+                        .datasize = 0,
+                    },
+                });
+
+                // Pad out space for code signature
+                try self.writeCodeSignaturePadding();
+                // Write updated load commands and the header
+                try self.writeLoadCommands();
+                try self.writeHeader();
+                // Generate adhoc code signature
+                try self.writeCodeSignature();
             }
         }
     }
@@ -1925,18 +1962,18 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
         switch (cmd.cmd()) {
             macho.LC_SEGMENT_64 => {
                 const x = cmd.Segment;
-                if (isSegmentOrSection(&x.inner.segname, "__PAGEZERO")) {
+                if (parseAndCmpName(x.inner.segname[0..], "__PAGEZERO")) {
                     self.pagezero_segment_cmd_index = i;
-                } else if (isSegmentOrSection(&x.inner.segname, "__LINKEDIT")) {
+                } else if (parseAndCmpName(x.inner.segname[0..], "__LINKEDIT")) {
                     self.linkedit_segment_cmd_index = i;
-                } else if (isSegmentOrSection(&x.inner.segname, "__TEXT")) {
+                } else if (parseAndCmpName(x.inner.segname[0..], "__TEXT")) {
                     self.text_segment_cmd_index = i;
                     for (x.sections.items) |sect, j| {
-                        if (isSegmentOrSection(&sect.sectname, "__text")) {
+                        if (parseAndCmpName(sect.sectname[0..], "__text")) {
                             self.text_section_index = @intCast(u16, j);
                         }
                     }
-                } else if (isSegmentOrSection(&x.inner.segname, "__DATA")) {
+                } else if (parseAndCmpName(x.inner.segname[0..], "__DATA")) {
                     self.data_segment_cmd_index = i;
                 }
             },
@@ -1962,7 +1999,10 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
                 self.main_cmd_index = i;
             },
             macho.LC_LOAD_DYLIB => {
-                self.libsystem_cmd_index = i; // TODO This is incorrect, but we'll fixup later.
+                const x = cmd.Dylib;
+                if (parseAndCmpName(x.data, mem.spanZ(LIB_SYSTEM_PATH))) {
+                    self.libsystem_cmd_index = i;
+                }
             },
             macho.LC_FUNCTION_STARTS => {
                 self.function_starts_cmd_index = i;
@@ -1983,9 +2023,10 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
     }
     self.header = header;
 
-    // TODO parse memory mapped segments
+    // TODO Should we parse memory mapped segments here or as needed?
 }
 
-fn isSegmentOrSection(name: *const [16]u8, needle: []const u8) bool {
-    return mem.eql(u8, mem.trimRight(u8, name.*[0..], &[_]u8{0}), needle);
+fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
+    const len = mem.indexOfScalar(u8, name[0..], @as(u8, 0)) orelse name.len;
+    return mem.eql(u8, name[0..len], needle);
 }
