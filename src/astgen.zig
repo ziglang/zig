@@ -507,7 +507,7 @@ fn varDecl(
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
-            const result_loc = if (nodeMayNeedMemoryLocation(init_node)) r: {
+            const result_loc = if (nodeMayNeedMemoryLocation(init_node, scope)) r: {
                 if (node.getTypeNode()) |type_node| {
                     const type_inst = try typeExpr(mod, scope, type_node);
                     const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
@@ -1804,7 +1804,7 @@ fn ret(mod: *Module, scope: *Scope, cfe: *ast.Node.ControlFlowExpression) InnerE
     const tree = scope.tree();
     const src = tree.token_locs[cfe.ltoken].start;
     if (cfe.getRHS()) |rhs_node| {
-        if (nodeMayNeedMemoryLocation(rhs_node)) {
+        if (nodeMayNeedMemoryLocation(rhs_node, scope)) {
             const ret_ptr = try addZIRNoOp(mod, scope, src, .ret_ptr);
             const operand = try expr(mod, scope, .{ .ptr = ret_ptr }, rhs_node);
             return addZIRUnOp(mod, scope, src, .@"return", operand);
@@ -2333,7 +2333,7 @@ fn getSimplePrimitiveValue(name: []const u8) ?TypedValue {
     return null;
 }
 
-fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
+fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
     var node = start_node;
     while (true) {
         switch (node.tag) {
@@ -2457,9 +2457,115 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .For,
             .Switch,
             .Call,
-            .BuiltinCall, // TODO some of these can return false
             .LabeledBlock,
             => return true,
+
+            .BuiltinCall => {
+                const name = scope.tree().tokenSlice(node.castTag(.BuiltinCall).?.builtin_token);
+                if (mem.eql(u8, name, "@addWithOverflow")) return true;
+                if (mem.eql(u8, name, "@alignCast")) return true; // TODO ?
+                if (mem.eql(u8, name, "@alignOf")) return false;
+                if (mem.eql(u8, name, "@as")) return false;
+                if (mem.eql(u8, name, "@asyncCall")) return true;
+                if (mem.eql(u8, name, "@atomicLoad")) return true;
+                if (mem.eql(u8, name, "@atomicRmw")) return true;
+                if (mem.eql(u8, name, "@atomicStore")) return true;
+                if (mem.eql(u8, name, "@bitCast")) return true;
+                if (mem.eql(u8, name, "@bitOffsetOf")) return false;
+                if (mem.eql(u8, name, "@boolToInt")) return true;
+                if (mem.eql(u8, name, "@bitSizeOf")) return true;
+                if (mem.eql(u8, name, "@breakpoint")) return true;
+                if (mem.eql(u8, name, "@mulAdd")) return true;
+                if (mem.eql(u8, name, "@byteSwap")) return true;
+                if (mem.eql(u8, name, "@bitReverse")) return true;
+                if (mem.eql(u8, name, "@byteOffsetOf")) return false;
+                if (mem.eql(u8, name, "@call")) return true;
+                if (mem.eql(u8, name, "@cDefine")) return false;
+                if (mem.eql(u8, name, "@cImport")) return false;
+                if (mem.eql(u8, name, "@cInclude")) return false;
+                if (mem.eql(u8, name, "@clz")) return true;
+                if (mem.eql(u8, name, "@cmpxchgStrong")) return true;
+                if (mem.eql(u8, name, "@cmpxchgWeak")) return true;
+                if (mem.eql(u8, name, "@compileError")) return false;
+                if (mem.eql(u8, name, "@compileLog")) return false;
+                if (mem.eql(u8, name, "@ctz")) return true;
+                if (mem.eql(u8, name, "@cUndef")) return false;
+                if (mem.eql(u8, name, "@divExact")) return true;
+                if (mem.eql(u8, name, "@divFloor")) return true;
+                if (mem.eql(u8, name, "@divTrunc")) return true;
+                if (mem.eql(u8, name, "@embedFile")) return false;
+                if (mem.eql(u8, name, "@enumToInt")) return true;
+                if (mem.eql(u8, name, "@errorName")) return true;
+                if (mem.eql(u8, name, "@errorReturnTrace")) return true; // TODO ?
+                if (mem.eql(u8, name, "@errorToInt")) return true; // TODO ?
+                if (mem.eql(u8, name, "@errSetCast")) return true;
+                if (mem.eql(u8, name, "@export")) return true;
+                if (mem.eql(u8, name, "@fence")) return true;
+                if (mem.eql(u8, name, "@field")) return true;
+                if (mem.eql(u8, name, "@fieldParentPtr")) return true;
+                if (mem.eql(u8, name, "@floatCast")) return true;
+                if (mem.eql(u8, name, "@floatToInt")) return true;
+                if (mem.eql(u8, name, "@frame")) return true;
+                if (mem.eql(u8, name, "@Frame")) return false;
+                if (mem.eql(u8, name, "@frameAddress")) return true;
+                if (mem.eql(u8, name, "@frameSize")) return true;
+                if (mem.eql(u8, name, "@hasDecl")) return false;
+                if (mem.eql(u8, name, "@hasField")) return false;
+                if (mem.eql(u8, name, "@import")) return false;
+                if (mem.eql(u8, name, "@intCast")) return true;
+                if (mem.eql(u8, name, "@intToEnum")) return true;
+                if (mem.eql(u8, name, "@intToError")) return true;
+                if (mem.eql(u8, name, "@intToFloat")) return true;
+                if (mem.eql(u8, name, "@intToPtr")) return true;
+                if (mem.eql(u8, name, "@memcpy")) return true;
+                if (mem.eql(u8, name, "@memset")) return true;
+                if (mem.eql(u8, name, "@wasmMemorySize")) return true;
+                if (mem.eql(u8, name, "@wasmMemoryGrow")) return true;
+                if (mem.eql(u8, name, "@mod")) return true;
+                if (mem.eql(u8, name, "@mulWithOverflow")) return true;
+                if (mem.eql(u8, name, "@panic")) return true; // TODO ?
+                if (mem.eql(u8, name, "@popCount")) return true;
+                if (mem.eql(u8, name, "@ptrCast")) return true;
+                if (mem.eql(u8, name, "@ptrToInt")) return true;
+                if (mem.eql(u8, name, "@rem")) return true;
+                if (mem.eql(u8, name, "@returnAddress")) return true; // TODO ?
+                if (mem.eql(u8, name, "@setAlignStack")) return false;
+                if (mem.eql(u8, name, "@setCold")) return false;
+                if (mem.eql(u8, name, "@setEvalBranchQuota")) return false;
+                if (mem.eql(u8, name, "@setFloatMode")) return false;
+                if (mem.eql(u8, name, "@setRuntimeSafety")) return false;
+                if (mem.eql(u8, name, "@shlExact")) return true;
+                if (mem.eql(u8, name, "@shlWithOverflow")) return true;
+                if (mem.eql(u8, name, "@shrExact")) return true;
+                if (mem.eql(u8, name, "@shuffle")) return true;
+                if (mem.eql(u8, name, "@sizeOf")) return true;
+                if (mem.eql(u8, name, "@splat")) return true;
+                if (mem.eql(u8, name, "@reduce")) return true;
+                if (mem.eql(u8, name, "@src")) return false;
+                if (mem.eql(u8, name, "@sqrt")) return true;
+                if (mem.eql(u8, name, "@sin")) return true;
+                if (mem.eql(u8, name, "@cos")) return true;
+                if (mem.eql(u8, name, "@exp")) return true;
+                if (mem.eql(u8, name, "@exp2")) return true;
+                if (mem.eql(u8, name, "@log")) return true;
+                if (mem.eql(u8, name, "@log2")) return true;
+                if (mem.eql(u8, name, "@log10")) return true;
+                if (mem.eql(u8, name, "@fabs")) return true;
+                if (mem.eql(u8, name, "@floor")) return true;
+                if (mem.eql(u8, name, "@ceil")) return true;
+                if (mem.eql(u8, name, "@trunc")) return true;
+                if (mem.eql(u8, name, "@round")) return true;
+                if (mem.eql(u8, name, "@subWithOverflow")) return true;
+                if (mem.eql(u8, name, "@tagName")) return true;
+                if (mem.eql(u8, name, "@TagType")) return false;
+                if (mem.eql(u8, name, "@This")) return false;
+                if (mem.eql(u8, name, "@truncate")) return true;
+                if (mem.eql(u8, name, "@Type")) return false;
+                if (mem.eql(u8, name, "@typeInfo")) return false;
+                if (mem.eql(u8, name, "@typeName")) return false;
+                if (mem.eql(u8, name, "@TypeOf")) return false;
+                if (mem.eql(u8, name, "@unionInit")) return false;
+            },
 
             // Depending on AST properties, they may need memory locations.
             .If => return node.castTag(.If).?.@"else" != null,
