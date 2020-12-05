@@ -18,7 +18,7 @@ const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
 
 /// Various magic numbers defined by the wasm spec
-const spec = struct {
+const Spec = struct {
     const magic = [_]u8{ 0x00, 0x61, 0x73, 0x6D }; // \0asm
     const version = [_]u8{ 0x01, 0x00, 0x00, 0x00 }; // version 1
 
@@ -43,9 +43,6 @@ pub const FnData = struct {
     functype: std.ArrayListUnmanaged(u8) = .{},
     /// Generated code for the body of the function
     code: std.ArrayListUnmanaged(u8) = .{},
-    /// Locations in the generated code where function indexes must be filled in.
-    /// This must be kept ordered by offset.
-    idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }) = .{},
 };
 
 pub const TextBlock = struct {
@@ -76,7 +73,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     wasm.base.file = file;
 
-    try file.writeAll(&(spec.magic ++ spec.version));
+    try file.writeAll(&(Spec.magic ++ Spec.version));
 
     return wasm;
 }
@@ -98,16 +95,17 @@ pub fn deinit(self: *Wasm) void {
     for (self.funcs.items) |decl| {
         decl.fn_link.wasm.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.code.deinit(self.base.allocator);
-        decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     }
     self.funcs.deinit(self.base.allocator);
 }
 
 /// Sets the symbol index of the declaration so it can be used for function calls
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
-    decl.link.wasm.symbol_index = @intCast(u32, self.funcs.items.len);
-    decl.fn_link.wasm = .{};
-    try self.funcs.append(self.base.allocator, decl);
+    if (self.getFuncidx(decl) == null) {
+        decl.link.wasm.symbol_index = @intCast(u32, self.funcs.items.len);
+        decl.fn_link.wasm = .{};
+        try self.funcs.append(self.base.allocator, decl);
+    }
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -119,7 +117,6 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     const fn_data = &decl.fn_link.wasm;
     fn_data.functype.items.len = 0;
     fn_data.code.items.len = 0;
-    fn_data.idx_refs.items.len = 0;
 
     var managed_functype = fn_data.functype.toManaged(self.base.allocator);
     var managed_code = fn_data.code.toManaged(self.base.allocator);
@@ -155,7 +152,6 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     _ = self.funcs.swapRemove(self.getFuncidx(decl).?);
     decl.fn_link.wasm.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.code.deinit(self.base.allocator);
-    decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     decl.fn_link.wasm = .{};
 }
 
@@ -175,8 +171,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     const header_size = 5 + 1;
 
     // No need to rewrite the magic/version header
-    try file.setEndPos(@sizeOf(@TypeOf(spec.magic ++ spec.version)));
-    try file.seekTo(@sizeOf(@TypeOf(spec.magic ++ spec.version)));
+    try file.setEndPos(@sizeOf(@TypeOf(Spec.magic ++ Spec.version)));
+    try file.seekTo(@sizeOf(@TypeOf(Spec.magic ++ Spec.version)));
 
     // Type section
     {
@@ -187,7 +183,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            spec.types_id,
+            Spec.types_id,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );
@@ -201,7 +197,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            spec.funcs_id,
+            Spec.funcs_id,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );
@@ -234,7 +230,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            spec.exports_id,
+            Spec.exports_id,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             count,
         );
@@ -247,28 +243,13 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         for (self.funcs.items) |decl| {
             const fn_data = &decl.fn_link.wasm;
 
-            // Write the already generated code to the file, inserting
-            // function indexes where required.
-            var current: u32 = 0;
-            for (fn_data.idx_refs.items) |idx_ref| {
-                try writer.writeAll(fn_data.code.items[current..idx_ref.offset]);
-                current = idx_ref.offset;
-                // Use a fixed width here to make calculating the code size
-                // in codegen.wasm.genCode() simpler.
-                var buf: [5]u8 = undefined;
-                leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
-                for (buf) |c| {
-                    std.debug.print("0x{x:2>0}", .{c});
-                }
-                try writer.writeAll(&buf);
-            }
-
-            try writer.writeAll(fn_data.code.items[current..]);
+            // Write the already generated code to the file
+            try writer.writeAll(fn_data.code.items);
         }
         try writeVecSectionHeader(
             file,
             header_offset,
-            spec.code_id,
+            Spec.code_id,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );
@@ -501,7 +482,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
 /// Get the current index of a given Decl in the function list
 /// TODO: we could maintain a hash map to potentially make this
-pub fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
+fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
     return for (self.funcs.items) |func, idx| {
         if (func == decl) break @intCast(u32, idx);
     } else null;

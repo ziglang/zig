@@ -657,7 +657,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         // Fill in the size of the generated code to the reserved space at the
                         // beginning of the buffer.
-                        const size = self.code.items.len - 5 + self.mod_fn.owner_decl.fn_link.wasm.idx_refs.items.len * 5;
+                        const size = self.code.items.len - 5;
                         leb128.writeUnsignedFixed(5, self.code.items[0..5], @intCast(u32, size));
                     } else {
                         try self.dbgSetPrologueEnd();
@@ -1914,6 +1914,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // emit .call opcode
                         try self.code.append(0x10);
 
+                        // try func.owner_decl.fn_link.wasm.idx_refs.append(wasm_file.base.allocator, .{
+                        //     .offset = @intCast(u32, self.code.items.len),
+                        //     .decl = func.owner_decl,
+                        // });
                         // emit func id
                         try leb128.writeULEB128(self.code.writer(), func.owner_decl.link.wasm.symbol_index);
                     } else {
