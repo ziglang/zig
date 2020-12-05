@@ -79,7 +79,7 @@ pub fn build(b: *Builder) !void {
 
     const main_file = if (is_stage1) "src/stage1.zig" else "src/main.zig";
 
-    var exe = b.addExecutable("zig", "src/main.zig");
+    var exe = b.addExecutable("zig", main_file);
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
@@ -92,6 +92,10 @@ pub fn build(b: *Builder) !void {
         if (is_stage1) {
             exe.addIncludeDir("src");
             exe.addIncludeDir("deps/SoftFloat-3e/source/include");
+            // This is intentionally a dummy path. stage1.zig tries to @import("compiler_rt") in case
+            // of being built by cmake. But when built by zig it's gonna get a compiler_rt so that
+            // is pointless.
+            exe.addPackagePath("compiler_rt", "src/empty.zig");
 
             const softfloat = b.addStaticLibrary("softfloat", null);
             softfloat.setBuildMode(.ReleaseFast);
@@ -188,7 +192,7 @@ pub fn build(b: *Builder) !void {
     exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
     exe.addBuildOption([]const []const u8, "zir_dumps", zir_dumps);
     exe.addBuildOption(bool, "enable_tracy", tracy != null);
-    exe.addBuildOption(bool, "is_stage1", false);
+    exe.addBuildOption(bool, "is_stage1", is_stage1);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,
@@ -210,7 +214,7 @@ pub fn build(b: *Builder) !void {
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
     test_stage2.addBuildOption(bool, "skip_non_native", skip_non_native);
-    test_stage2.addBuildOption(bool, "is_stage1", false);
+    test_stage2.addBuildOption(bool, "is_stage1", is_stage1);
     test_stage2.addBuildOption(bool, "have_llvm", enable_llvm);
     test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
     test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
