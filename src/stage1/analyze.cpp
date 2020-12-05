@@ -6122,6 +6122,11 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
         result->data.x_ptr.mut = ConstPtrMutComptimeConst;
         result->data.x_ptr.special = ConstPtrSpecialRef;
         result->data.x_ptr.data.ref.pointee = get_the_one_possible_value(g, result->type->data.pointer.child_type);
+    } else if (result->type->id == ZigTypeIdEnum) {
+        ZigType *enum_type = result->type;
+        assert(enum_type->data.enumeration.src_field_count == 1);
+        TypeEnumField *only_field = &result->type->data.enumeration.fields[0];
+        bigint_init_bigint(&result->data.x_enum_tag, &only_field->value);
     }
     g->one_possible_values.put(type_entry, result);
     return result;
