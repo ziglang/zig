@@ -36,7 +36,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 
-        case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
+        case.addError("", &[_][]const u8{"no entry point found"});
 
         // Incorrect return type
         case.addError(
@@ -147,7 +147,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
     {
         var case = ctx.exe("hello world with updates", macosx_x64);
-        case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
+        case.addError("", &[_][]const u8{"no entry point found"});
 
         // Incorrect return type
         case.addError(

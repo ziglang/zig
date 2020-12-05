@@ -226,20 +226,32 @@ pub const AllErrors = struct {
     arena: std.heap.ArenaAllocator.State,
     list: []const Message,
 
-    pub const Message = struct {
-        src_path: []const u8,
-        line: usize,
-        column: usize,
-        byte_offset: usize,
-        msg: []const u8,
+    pub const Message = union(enum) {
+        src: struct {
+            src_path: []const u8,
+            line: usize,
+            column: usize,
+            byte_offset: usize,
+            msg: []const u8,
+        },
+        plain: struct {
+            msg: []const u8,
+        },
 
         pub fn renderToStdErr(self: Message) void {
-            std.debug.print("{}:{}:{}: error: {}\n", .{
-                self.src_path,
-                self.line + 1,
-                self.column + 1,
-                self.msg,
-            });
+            switch (self) {
+                .src => |src| {
+                    std.debug.print("{s}:{d}:{d}: error: {s}\n", .{
+                        src.src_path,
+                        src.line + 1,
+                        src.column + 1,
+                        src.msg,
+                    });
+                },
+                .plain => |plain| {
+                    std.debug.print("error: {s}\n", .{plain.msg});
+                },
+            }
         }
     };
 
@@ -256,12 +268,22 @@ pub const AllErrors = struct {
     ) !void {
         const loc = std.zig.findLineColumn(source, simple_err_msg.byte_offset);
         try errors.append(.{
-            .src_path = try arena.allocator.dupe(u8, sub_file_path),
-            .msg = try arena.allocator.dupe(u8, simple_err_msg.msg),
-            .byte_offset = simple_err_msg.byte_offset,
-            .line = loc.line,
-            .column = loc.column,
+            .src = .{
+                .src_path = try arena.allocator.dupe(u8, sub_file_path),
+                .msg = try arena.allocator.dupe(u8, simple_err_msg.msg),
+                .byte_offset = simple_err_msg.byte_offset,
+                .line = loc.line,
+                .column = loc.column,
+            },
         });
+    }
+
+    fn addPlain(
+        arena: *std.heap.ArenaAllocator,
+        errors: *std.ArrayList(Message),
+        msg: []const u8,
+    ) !void {
+        try errors.append(.{ .plain = .{ .msg = msg } });
     }
 };
 
@@ -1169,11 +1191,15 @@ pub fn update(self: *Compilation) !void {
             // to force a refresh we unload now.
             if (module.root_scope.cast(Module.Scope.File)) |zig_file| {
                 zig_file.unload(module.gpa);
+                module.failed_root_src_file = null;
                 module.analyzeContainer(&zig_file.root_container) catch |err| switch (err) {
                     error.AnalysisFail => {
                         assert(self.totalErrorCount() != 0);
                     },
-                    else => |e| return e,
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => |e| {
+                        module.failed_root_src_file = e;
+                    },
                 };
             } else if (module.root_scope.cast(Module.Scope.ZIRModule)) |zir_module| {
                 zir_module.unload(module.gpa);
@@ -1251,7 +1277,8 @@ pub fn totalErrorCount(self: *Compilation) usize {
     if (self.bin_file.options.module) |module| {
         total += module.failed_decls.items().len +
             module.failed_exports.items().len +
-            module.failed_files.items().len;
+            module.failed_files.items().len +
+            @boolToInt(module.failed_root_src_file != null);
     }
 
     // The "no entry point found" error only counts if there are no other errors.
@@ -1293,21 +1320,22 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             const source = try decl.scope.getSource(module);
             try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
         }
+        if (module.failed_root_src_file) |err| {
+            const file_path = try module.root_pkg.root_src_directory.join(&arena.allocator, &[_][]const u8{
+                module.root_pkg.root_src_path,
+            });
+            const msg = try std.fmt.allocPrint(&arena.allocator, "unable to read {s}: {s}", .{
+                file_path, @errorName(err),
+            });
+            try AllErrors.addPlain(&arena, &errors, msg);
+        }
     }
 
     if (errors.items.len == 0 and self.link_error_flags.no_entry_point_found) {
-        const global_err_src_path = blk: {
-            if (self.bin_file.options.module) |module| break :blk module.root_pkg.root_src_path;
-            if (self.c_source_files.len != 0) break :blk self.c_source_files[0].src_path;
-            if (self.bin_file.options.objects.len != 0) break :blk self.bin_file.options.objects[0];
-            break :blk "(no file)";
-        };
         try errors.append(.{
-            .src_path = global_err_src_path,
-            .line = 0,
-            .column = 0,
-            .byte_offset = 0,
-            .msg = try std.fmt.allocPrint(&arena.allocator, "no entry point found", .{}),
+            .plain = .{
+                .msg = try std.fmt.allocPrint(&arena.allocator, "no entry point found", .{}),
+            },
         });
     }
 
@@ -2644,12 +2672,19 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
-            log.err("{}:{}:{}: {}\n", .{
-                full_err_msg.src_path,
-                full_err_msg.line + 1,
-                full_err_msg.column + 1,
-                full_err_msg.msg,
-            });
+            switch (full_err_msg) {
+                .src => |src| {
+                    log.err("{s}:{d}:{d}: {s}\n", .{
+                        src.src_path,
+                        src.line + 1,
+                        src.column + 1,
+                        src.msg,
+                    });
+                },
+                .plain => |plain| {
+                    log.err("{s}", .{plain.msg});
+                },
+            }
         }
         return error.BuildingLibCObjectFailed;
     }
