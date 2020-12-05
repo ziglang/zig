@@ -8,7 +8,6 @@
 #include "analyze.hpp"
 #include "ast_render.hpp"
 #include "codegen.hpp"
-#include "config.h"
 #include "errmsg.hpp"
 #include "error.hpp"
 #include "hash_map.hpp"
@@ -9051,7 +9050,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_append_str(contents, "/// Deprecated: use `std.Target.current.cpu.arch.endian()`\n");
     buf_append_str(contents, "pub const endian = Target.current.cpu.arch.endian();\n");
     buf_appendf(contents, "pub const output_mode = OutputMode.Obj;\n");
-    buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", ZIG_LINK_MODE);
+    buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", ZIG_QUOTE(ZIG_LINK_MODE));
     buf_appendf(contents, "pub const is_test = false;\n");
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
@@ -9251,9 +9250,9 @@ static void init(CodeGen *g) {
     g->builder = LLVMCreateBuilder();
     g->dbuilder = ZigLLVMCreateDIBuilder(g->module, true);
 
-    // Don't use ZIG_VERSION_STRING here, llvm misparses it when it includes
-    // the git revision.
-    Buf *producer = buf_sprintf("zig %d.%d.%d", ZIG_VERSION_MAJOR, ZIG_VERSION_MINOR, ZIG_VERSION_PATCH);
+    // Don't use the version string here, llvm misparses it when it includes the git revision.
+    Stage2SemVer semver = stage2_version();
+    Buf *producer = buf_sprintf("zig %d.%d.%d", semver.major, semver.minor, semver.patch);
     const char *flags = "";
     unsigned runtime_version = 0;
 
@@ -9551,9 +9550,9 @@ void codegen_build_object(CodeGen *g) {
     }
 
     do_code_gen(g);
-    codegen_add_time_event(g, "LLVM Emit Output");
+    codegen_add_time_event(g, "LLVM Emit Object");
     {
-        const char *progress_name = "LLVM Emit Output";
+        const char *progress_name = "LLVM Emit Object";
         codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
                 progress_name, strlen(progress_name), 0));
     }

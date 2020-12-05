@@ -537,3 +537,11 @@ const char *stage2_add_link_lib(struct ZigStage1 *stage1,
 {
     return nullptr;
 }
+
+const char *stage2_version_string(void) {
+    return "0.0.0+zig0";
+}
+
+struct Stage2SemVer stage2_version(void) {
+    return {0, 0, 0};
+}

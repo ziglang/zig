@@ -53,7 +53,8 @@ pub fn build(b: *Builder) !void {
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
-    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse false;
+    const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
+    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse is_stage1;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
     b.installDirectory(InstallDirectoryOptions{
@@ -76,6 +77,8 @@ pub fn build(b: *Builder) !void {
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
 
+    const main_file = if (is_stage1) "src/stage1.zig" else "src/main.zig";
+
     var exe = b.addExecutable("zig", "src/main.zig");
     exe.install();
     exe.setBuildMode(mode);
@@ -86,15 +89,51 @@ pub fn build(b: *Builder) !void {
     exe.addBuildOption(bool, "skip_non_native", skip_non_native);
     exe.addBuildOption(bool, "have_llvm", enable_llvm);
     if (enable_llvm) {
-        const config_h_text = if (config_h_path_option) |config_h_path|
-            try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
-        else
-            try findAndReadConfigH(b);
+        if (is_stage1) {
+            exe.addIncludeDir("src");
+            exe.addIncludeDir("deps/SoftFloat-3e/source/include");
 
-        var ctx = parseConfigH(b, config_h_text);
-        ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
+            const softfloat = b.addStaticLibrary("softfloat", null);
+            softfloat.setBuildMode(.ReleaseFast);
+            softfloat.setTarget(target);
+            softfloat.addIncludeDir("deps/SoftFloat-3e-prebuilt");
+            softfloat.addIncludeDir("deps/SoftFloat-3e/source/8086");
+            softfloat.addIncludeDir("deps/SoftFloat-3e/source/include");
+            softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
+            exe.linkLibrary(softfloat);
 
-        try configureStage2(b, exe, ctx, tracy != null);
+            const exe_cflags = &[_][]const u8{
+                "-std=c++14",
+                "-D__STDC_CONSTANT_MACROS",
+                "-D__STDC_FORMAT_MACROS",
+                "-D__STDC_LIMIT_MACROS",
+                "-D_GNU_SOURCE",
+                "-fvisibility-inlines-hidden",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-Werror=type-limits",
+                "-Wno-missing-braces",
+                "-Wno-comment",
+            };
+            exe.addCSourceFiles(&stage1_sources, exe_cflags);
+            exe.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
+            exe.addCSourceFiles(&zig_cpp_sources, exe_cflags);
+        }
+
+        for (clang_libs) |lib_name| {
+            exe.linkSystemLibrary(lib_name);
+        }
+
+        for (lld_libs) |lib_name| {
+            exe.linkSystemLibrary(lib_name);
+        }
+
+        for (llvm_libs) |lib_name| {
+            exe.linkSystemLibrary(lib_name);
+        }
+
+        // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
+        exe.linkSystemLibrary("c++");
     }
     if (link_libc) {
         exe.linkLibC();
@@ -141,7 +180,10 @@ pub fn build(b: *Builder) !void {
             break :v b.fmt("{}+{}{}", .{ version_string, git_sha_trimmed, dirty_suffix });
         }
     };
-    exe.addBuildOption([]const u8, "version", version);
+    exe.addBuildOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+
+    const semver = try std.SemanticVersion.parse(version);
+    exe.addBuildOption(std.SemanticVersion, "semver", semver);
 
     exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
     exe.addBuildOption([]const []const u8, "zir_dumps", zir_dumps);
@@ -226,327 +268,359 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(docs_step);
 }
 
-fn dependOnLib(b: *Builder, lib_exe_obj: anytype, dep: LibraryDep) void {
-    for (dep.libdirs.items) |lib_dir| {
-        lib_exe_obj.addLibPath(lib_dir);
-    }
-    const lib_dir = fs.path.join(
-        b.allocator,
-        &[_][]const u8{ dep.prefix, "lib" },
-    ) catch unreachable;
-    for (dep.system_libs.items) |lib| {
-        const static_bare_name = if (mem.eql(u8, lib, "curses"))
-            @as([]const u8, "libncurses.a")
-        else
-            b.fmt("lib{}.a", .{lib});
-        const static_lib_name = fs.path.join(
-            b.allocator,
-            &[_][]const u8{ lib_dir, static_bare_name },
-        ) catch unreachable;
-        const have_static = fileExists(static_lib_name) catch unreachable;
-        if (have_static) {
-            lib_exe_obj.addObjectFile(static_lib_name);
-        } else {
-            lib_exe_obj.linkSystemLibrary(lib);
-        }
-    }
-    for (dep.libs.items) |lib| {
-        lib_exe_obj.addObjectFile(lib);
-    }
-    for (dep.includes.items) |include_path| {
-        lib_exe_obj.addIncludeDir(include_path);
-    }
-}
-
-fn fileExists(filename: []const u8) !bool {
-    fs.cwd().access(filename, .{}) catch |err| switch (err) {
-        error.FileNotFound => return false,
-        else => return err,
-    };
-    return true;
-}
-
-fn addCppLib(b: *Builder, lib_exe_obj: anytype, cmake_binary_dir: []const u8, lib_name: []const u8) void {
-    lib_exe_obj.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
-        cmake_binary_dir,
-        "zigcpp",
-        b.fmt("{}{}{}", .{ lib_exe_obj.target.libPrefix(), lib_name, lib_exe_obj.target.staticLibSuffix() }),
-    }) catch unreachable);
-}
-
-const LibraryDep = struct {
-    prefix: []const u8,
-    libdirs: ArrayList([]const u8),
-    libs: ArrayList([]const u8),
-    system_libs: ArrayList([]const u8),
-    includes: ArrayList([]const u8),
+const softfloat_sources = [_][]const u8{
+    "deps/SoftFloat-3e/source/8086/f128M_isSignalingNaN.c",
+    "deps/SoftFloat-3e/source/8086/s_commonNaNToF128M.c",
+    "deps/SoftFloat-3e/source/8086/s_commonNaNToF16UI.c",
+    "deps/SoftFloat-3e/source/8086/s_commonNaNToF32UI.c",
+    "deps/SoftFloat-3e/source/8086/s_commonNaNToF64UI.c",
+    "deps/SoftFloat-3e/source/8086/s_f128MToCommonNaN.c",
+    "deps/SoftFloat-3e/source/8086/s_f16UIToCommonNaN.c",
+    "deps/SoftFloat-3e/source/8086/s_f32UIToCommonNaN.c",
+    "deps/SoftFloat-3e/source/8086/s_f64UIToCommonNaN.c",
+    "deps/SoftFloat-3e/source/8086/s_propagateNaNF128M.c",
+    "deps/SoftFloat-3e/source/8086/s_propagateNaNF16UI.c",
+    "deps/SoftFloat-3e/source/8086/softfloat_raiseFlags.c",
+    "deps/SoftFloat-3e/source/f128M_add.c",
+    "deps/SoftFloat-3e/source/f128M_div.c",
+    "deps/SoftFloat-3e/source/f128M_eq.c",
+    "deps/SoftFloat-3e/source/f128M_eq_signaling.c",
+    "deps/SoftFloat-3e/source/f128M_le.c",
+    "deps/SoftFloat-3e/source/f128M_le_quiet.c",
+    "deps/SoftFloat-3e/source/f128M_lt.c",
+    "deps/SoftFloat-3e/source/f128M_lt_quiet.c",
+    "deps/SoftFloat-3e/source/f128M_mul.c",
+    "deps/SoftFloat-3e/source/f128M_mulAdd.c",
+    "deps/SoftFloat-3e/source/f128M_rem.c",
+    "deps/SoftFloat-3e/source/f128M_roundToInt.c",
+    "deps/SoftFloat-3e/source/f128M_sqrt.c",
+    "deps/SoftFloat-3e/source/f128M_sub.c",
+    "deps/SoftFloat-3e/source/f128M_to_f16.c",
+    "deps/SoftFloat-3e/source/f128M_to_f32.c",
+    "deps/SoftFloat-3e/source/f128M_to_f64.c",
+    "deps/SoftFloat-3e/source/f128M_to_i32.c",
+    "deps/SoftFloat-3e/source/f128M_to_i32_r_minMag.c",
+    "deps/SoftFloat-3e/source/f128M_to_i64.c",
+    "deps/SoftFloat-3e/source/f128M_to_i64_r_minMag.c",
+    "deps/SoftFloat-3e/source/f128M_to_ui32.c",
+    "deps/SoftFloat-3e/source/f128M_to_ui32_r_minMag.c",
+    "deps/SoftFloat-3e/source/f128M_to_ui64.c",
+    "deps/SoftFloat-3e/source/f128M_to_ui64_r_minMag.c",
+    "deps/SoftFloat-3e/source/f16_add.c",
+    "deps/SoftFloat-3e/source/f16_div.c",
+    "deps/SoftFloat-3e/source/f16_eq.c",
+    "deps/SoftFloat-3e/source/f16_isSignalingNaN.c",
+    "deps/SoftFloat-3e/source/f16_lt.c",
+    "deps/SoftFloat-3e/source/f16_mul.c",
+    "deps/SoftFloat-3e/source/f16_mulAdd.c",
+    "deps/SoftFloat-3e/source/f16_rem.c",
+    "deps/SoftFloat-3e/source/f16_roundToInt.c",
+    "deps/SoftFloat-3e/source/f16_sqrt.c",
+    "deps/SoftFloat-3e/source/f16_sub.c",
+    "deps/SoftFloat-3e/source/f16_to_f128M.c",
+    "deps/SoftFloat-3e/source/f16_to_f64.c",
+    "deps/SoftFloat-3e/source/f32_to_f128M.c",
+    "deps/SoftFloat-3e/source/f64_to_f128M.c",
+    "deps/SoftFloat-3e/source/f64_to_f16.c",
+    "deps/SoftFloat-3e/source/i32_to_f128M.c",
+    "deps/SoftFloat-3e/source/s_add256M.c",
+    "deps/SoftFloat-3e/source/s_addCarryM.c",
+    "deps/SoftFloat-3e/source/s_addComplCarryM.c",
+    "deps/SoftFloat-3e/source/s_addF128M.c",
+    "deps/SoftFloat-3e/source/s_addM.c",
+    "deps/SoftFloat-3e/source/s_addMagsF16.c",
+    "deps/SoftFloat-3e/source/s_addMagsF32.c",
+    "deps/SoftFloat-3e/source/s_addMagsF64.c",
+    "deps/SoftFloat-3e/source/s_approxRecip32_1.c",
+    "deps/SoftFloat-3e/source/s_approxRecipSqrt32_1.c",
+    "deps/SoftFloat-3e/source/s_approxRecipSqrt_1Ks.c",
+    "deps/SoftFloat-3e/source/s_approxRecip_1Ks.c",
+    "deps/SoftFloat-3e/source/s_compare128M.c",
+    "deps/SoftFloat-3e/source/s_compare96M.c",
+    "deps/SoftFloat-3e/source/s_countLeadingZeros16.c",
+    "deps/SoftFloat-3e/source/s_countLeadingZeros32.c",
+    "deps/SoftFloat-3e/source/s_countLeadingZeros64.c",
+    "deps/SoftFloat-3e/source/s_countLeadingZeros8.c",
+    "deps/SoftFloat-3e/source/s_eq128.c",
+    "deps/SoftFloat-3e/source/s_invalidF128M.c",
+    "deps/SoftFloat-3e/source/s_isNaNF128M.c",
+    "deps/SoftFloat-3e/source/s_le128.c",
+    "deps/SoftFloat-3e/source/s_lt128.c",
+    "deps/SoftFloat-3e/source/s_mul128MTo256M.c",
+    "deps/SoftFloat-3e/source/s_mul64To128M.c",
+    "deps/SoftFloat-3e/source/s_mulAddF128M.c",
+    "deps/SoftFloat-3e/source/s_mulAddF16.c",
+    "deps/SoftFloat-3e/source/s_mulAddF32.c",
+    "deps/SoftFloat-3e/source/s_mulAddF64.c",
+    "deps/SoftFloat-3e/source/s_negXM.c",
+    "deps/SoftFloat-3e/source/s_normRoundPackMToF128M.c",
+    "deps/SoftFloat-3e/source/s_normRoundPackToF16.c",
+    "deps/SoftFloat-3e/source/s_normRoundPackToF32.c",
+    "deps/SoftFloat-3e/source/s_normRoundPackToF64.c",
+    "deps/SoftFloat-3e/source/s_normSubnormalF128SigM.c",
+    "deps/SoftFloat-3e/source/s_normSubnormalF16Sig.c",
+    "deps/SoftFloat-3e/source/s_normSubnormalF32Sig.c",
+    "deps/SoftFloat-3e/source/s_normSubnormalF64Sig.c",
+    "deps/SoftFloat-3e/source/s_remStepMBy32.c",
+    "deps/SoftFloat-3e/source/s_roundMToI64.c",
+    "deps/SoftFloat-3e/source/s_roundMToUI64.c",
+    "deps/SoftFloat-3e/source/s_roundPackMToF128M.c",
+    "deps/SoftFloat-3e/source/s_roundPackToF16.c",
+    "deps/SoftFloat-3e/source/s_roundPackToF32.c",
+    "deps/SoftFloat-3e/source/s_roundPackToF64.c",
+    "deps/SoftFloat-3e/source/s_roundToI32.c",
+    "deps/SoftFloat-3e/source/s_roundToI64.c",
+    "deps/SoftFloat-3e/source/s_roundToUI32.c",
+    "deps/SoftFloat-3e/source/s_roundToUI64.c",
+    "deps/SoftFloat-3e/source/s_shiftLeftM.c",
+    "deps/SoftFloat-3e/source/s_shiftNormSigF128M.c",
+    "deps/SoftFloat-3e/source/s_shiftRightJam256M.c",
+    "deps/SoftFloat-3e/source/s_shiftRightJam32.c",
+    "deps/SoftFloat-3e/source/s_shiftRightJam64.c",
+    "deps/SoftFloat-3e/source/s_shiftRightJamM.c",
+    "deps/SoftFloat-3e/source/s_shiftRightM.c",
+    "deps/SoftFloat-3e/source/s_shortShiftLeft64To96M.c",
+    "deps/SoftFloat-3e/source/s_shortShiftLeftM.c",
+    "deps/SoftFloat-3e/source/s_shortShiftRightExtendM.c",
+    "deps/SoftFloat-3e/source/s_shortShiftRightJam64.c",
+    "deps/SoftFloat-3e/source/s_shortShiftRightJamM.c",
+    "deps/SoftFloat-3e/source/s_shortShiftRightM.c",
+    "deps/SoftFloat-3e/source/s_sub1XM.c",
+    "deps/SoftFloat-3e/source/s_sub256M.c",
+    "deps/SoftFloat-3e/source/s_subM.c",
+    "deps/SoftFloat-3e/source/s_subMagsF16.c",
+    "deps/SoftFloat-3e/source/s_subMagsF32.c",
+    "deps/SoftFloat-3e/source/s_subMagsF64.c",
+    "deps/SoftFloat-3e/source/s_tryPropagateNaNF128M.c",
+    "deps/SoftFloat-3e/source/softfloat_state.c",
+    "deps/SoftFloat-3e/source/ui32_to_f128M.c",
+    "deps/SoftFloat-3e/source/ui64_to_f128M.c",
 };
 
-fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
-    const shared_mode = try b.exec(&[_][]const u8{ llvm_config_exe, "--shared-mode" });
-    const is_static = mem.startsWith(u8, shared_mode, "static");
-    const libs_output = if (is_static)
-        try b.exec(&[_][]const u8{
-            llvm_config_exe,
-            "--libfiles",
-            "--system-libs",
-        })
-    else
-        try b.exec(&[_][]const u8{
-            llvm_config_exe,
-            "--libs",
-        });
-    const includes_output = try b.exec(&[_][]const u8{ llvm_config_exe, "--includedir" });
-    const libdir_output = try b.exec(&[_][]const u8{ llvm_config_exe, "--libdir" });
-    const prefix_output = try b.exec(&[_][]const u8{ llvm_config_exe, "--prefix" });
-
-    var result = LibraryDep{
-        .prefix = mem.tokenize(prefix_output, " \r\n").next().?,
-        .libs = ArrayList([]const u8).init(b.allocator),
-        .system_libs = ArrayList([]const u8).init(b.allocator),
-        .includes = ArrayList([]const u8).init(b.allocator),
-        .libdirs = ArrayList([]const u8).init(b.allocator),
-    };
-    {
-        var it = mem.tokenize(libs_output, " \r\n");
-        while (it.next()) |lib_arg| {
-            if (mem.startsWith(u8, lib_arg, "-l")) {
-                try result.system_libs.append(lib_arg[2..]);
-            } else {
-                if (fs.path.isAbsolute(lib_arg)) {
-                    try result.libs.append(lib_arg);
-                } else {
-                    var lib_arg_copy = lib_arg;
-                    if (mem.endsWith(u8, lib_arg, ".lib")) {
-                        lib_arg_copy = lib_arg[0 .. lib_arg.len - 4];
-                    }
-                    try result.system_libs.append(lib_arg_copy);
-                }
-            }
-        }
-    }
-    {
-        var it = mem.tokenize(includes_output, " \r\n");
-        while (it.next()) |include_arg| {
-            if (mem.startsWith(u8, include_arg, "-I")) {
-                try result.includes.append(include_arg[2..]);
-            } else {
-                try result.includes.append(include_arg);
-            }
-        }
-    }
-    {
-        var it = mem.tokenize(libdir_output, " \r\n");
-        while (it.next()) |libdir| {
-            if (mem.startsWith(u8, libdir, "-L")) {
-                try result.libdirs.append(libdir[2..]);
-            } else {
-                try result.libdirs.append(libdir);
-            }
-        }
-    }
-    return result;
-}
-
-fn configureStage2(b: *Builder, exe: anytype, ctx: Context, need_cpp_includes: bool) !void {
-    exe.addIncludeDir("src");
-    exe.addIncludeDir(ctx.cmake_binary_dir);
-    addCppLib(b, exe, ctx.cmake_binary_dir, "zigcpp");
-    assert(ctx.lld_include_dir.len != 0);
-    exe.addIncludeDir(ctx.lld_include_dir);
-    {
-        var it = mem.tokenize(ctx.lld_libraries, ";");
-        while (it.next()) |lib| {
-            exe.addObjectFile(lib);
-        }
-    }
-    {
-        var it = mem.tokenize(ctx.clang_libraries, ";");
-        while (it.next()) |lib| {
-            exe.addObjectFile(lib);
-        }
-    }
-    dependOnLib(b, exe, ctx.llvm);
-
-    // Boy, it sure would be nice to simply linkSystemLibrary("c++") and rely on zig's
-    // ability to provide libc++ right? Well thanks to C++ not having a stable ABI this
-    // will cause linker errors. It would work in the situation when `zig cc` is used to
-    // build LLVM, Clang, and LLD, however when depending on them as system libraries, system
-    // libc++ must be used.
-    const cross_compile = false; // TODO
-    if (cross_compile) {
-        // In this case we assume that zig cc was used to build the LLVM, Clang, LLD dependencies.
-        exe.linkSystemLibrary("c++");
-    } else {
-        if (exe.target.getOsTag() == .linux) {
-            // First we try to static link against gcc libstdc++. If that doesn't work,
-            // we fall back to -lc++ and cross our fingers.
-            addCxxKnownPath(b, ctx, exe, "libstdc++.a", "", need_cpp_includes) catch |err| switch (err) {
-                error.RequiredLibraryNotFound => {
-                    exe.linkSystemLibrary("c++");
-                },
-                else => |e| return e,
-            };
-
-            exe.linkSystemLibrary("pthread");
-        } else if (exe.target.isFreeBSD()) {
-            try addCxxKnownPath(b, ctx, exe, "libc++.a", null, need_cpp_includes);
-            exe.linkSystemLibrary("pthread");
-        } else if (exe.target.isDarwin()) {
-            if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "", need_cpp_includes)) {
-                // Compiler is GCC.
-                try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null, need_cpp_includes);
-                exe.linkSystemLibrary("pthread");
-                // TODO LLD cannot perform this link.
-                // Set ZIG_SYSTEM_LINKER_HACK env var to use system linker ld instead.
-                // See https://github.com/ziglang/zig/issues/1535
-            } else |err| switch (err) {
-                error.RequiredLibraryNotFound => {
-                    // System compiler, not gcc.
-                    exe.linkSystemLibrary("c++");
-                },
-                else => |e| return e,
-            }
-        }
-
-        if (ctx.dia_guids_lib.len != 0) {
-            exe.addObjectFile(ctx.dia_guids_lib);
-        }
-    }
-}
-
-fn addCxxKnownPath(
-    b: *Builder,
-    ctx: Context,
-    exe: anytype,
-    objname: []const u8,
-    errtxt: ?[]const u8,
-    need_cpp_includes: bool,
-) !void {
-    const path_padded = try b.exec(&[_][]const u8{
-        ctx.cxx_compiler,
-        b.fmt("-print-file-name={}", .{objname}),
-    });
-    const path_unpadded = mem.tokenize(path_padded, "\r\n").next().?;
-    if (mem.eql(u8, path_unpadded, objname)) {
-        if (errtxt) |msg| {
-            warn("{}", .{msg});
-        } else {
-            warn("Unable to determine path to {}\n", .{objname});
-        }
-        return error.RequiredLibraryNotFound;
-    }
-    exe.addObjectFile(path_unpadded);
-
-    // TODO a way to integrate with system c++ include files here
-    // cc -E -Wp,-v -xc++ /dev/null
-    if (need_cpp_includes) {
-        // I used these temporarily for testing something but we obviously need a
-        // more general purpose solution here.
-        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0");
-        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0/x86_64-unknown-linux-gnu");
-        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0/backward");
-    }
-}
-
-const Context = struct {
-    cmake_binary_dir: []const u8,
-    cxx_compiler: []const u8,
-    llvm_config_exe: []const u8,
-    lld_include_dir: []const u8,
-    lld_libraries: []const u8,
-    clang_libraries: []const u8,
-    dia_guids_lib: []const u8,
-    llvm: LibraryDep,
+const stage1_sources = [_][]const u8{
+    "src/stage1/analyze.cpp",
+    "src/stage1/ast_render.cpp",
+    "src/stage1/bigfloat.cpp",
+    "src/stage1/bigint.cpp",
+    "src/stage1/buffer.cpp",
+    "src/stage1/codegen.cpp",
+    "src/stage1/dump_analysis.cpp",
+    "src/stage1/errmsg.cpp",
+    "src/stage1/error.cpp",
+    "src/stage1/heap.cpp",
+    "src/stage1/ir.cpp",
+    "src/stage1/ir_print.cpp",
+    "src/stage1/mem.cpp",
+    "src/stage1/os.cpp",
+    "src/stage1/parser.cpp",
+    "src/stage1/range_set.cpp",
+    "src/stage1/stage1.cpp",
+    "src/stage1/target.cpp",
+    "src/stage1/tokenizer.cpp",
+    "src/stage1/util.cpp",
+    "src/stage1/softfloat_ext.cpp",
+};
+const optimized_c_sources = [_][]const u8{
+    "src/stage1/parse_f128.c",
+};
+const zig_cpp_sources = [_][]const u8{
+    // These are planned to stay even when we are self-hosted.
+    "src/zig_llvm.cpp",
+    "src/zig_clang.cpp",
+    "src/zig_clang_driver.cpp",
+    "src/zig_clang_cc1_main.cpp",
+    "src/zig_clang_cc1as_main.cpp",
+    // https://github.com/ziglang/zig/issues/6363
+    "src/windows_sdk.cpp",
 };
 
-const max_config_h_bytes = 1 * 1024 * 1024;
-
-fn findAndReadConfigH(b: *Builder) ![]const u8 {
-    var check_dir = fs.path.dirname(b.zig_exe).?;
-    while (true) {
-        var dir = try fs.cwd().openDir(check_dir, .{});
-        defer dir.close();
-
-        const config_h_text = dir.readFileAlloc(b.allocator, "config.h", max_config_h_bytes) catch |err| switch (err) {
-            error.FileNotFound => {
-                const new_check_dir = fs.path.dirname(check_dir);
-                if (new_check_dir == null or mem.eql(u8, new_check_dir.?, check_dir)) {
-                    std.debug.warn("Unable to find config.h file relative to Zig executable.\n", .{});
-                    std.debug.warn("`zig build` must be run using a Zig executable within the source tree.\n", .{});
-                    std.process.exit(1);
-                }
-                check_dir = new_check_dir.?;
-                continue;
-            },
-            else => |e| return e,
-        };
-        return config_h_text;
-    } else unreachable; // TODO should not need `else unreachable`.
-}
-
-fn parseConfigH(b: *Builder, config_h_text: []const u8) Context {
-    var ctx: Context = .{
-        .cmake_binary_dir = undefined,
-        .cxx_compiler = undefined,
-        .llvm_config_exe = undefined,
-        .lld_include_dir = undefined,
-        .lld_libraries = undefined,
-        .clang_libraries = undefined,
-        .dia_guids_lib = undefined,
-        .llvm = undefined,
-    };
-
-    const mappings = [_]struct { prefix: []const u8, field: []const u8 }{
-        .{
-            .prefix = "#define ZIG_CMAKE_BINARY_DIR ",
-            .field = "cmake_binary_dir",
-        },
-        .{
-            .prefix = "#define ZIG_CXX_COMPILER ",
-            .field = "cxx_compiler",
-        },
-        .{
-            .prefix = "#define ZIG_LLD_INCLUDE_PATH ",
-            .field = "lld_include_dir",
-        },
-        .{
-            .prefix = "#define ZIG_LLD_LIBRARIES ",
-            .field = "lld_libraries",
-        },
-        .{
-            .prefix = "#define ZIG_CLANG_LIBRARIES ",
-            .field = "clang_libraries",
-        },
-        .{
-            .prefix = "#define ZIG_LLVM_CONFIG_EXE ",
-            .field = "llvm_config_exe",
-        },
-        .{
-            .prefix = "#define ZIG_DIA_GUIDS_LIB ",
-            .field = "dia_guids_lib",
-        },
-    };
-
-    var lines_it = mem.tokenize(config_h_text, "\r\n");
-    while (lines_it.next()) |line| {
-        inline for (mappings) |mapping| {
-            if (mem.startsWith(u8, line, mapping.prefix)) {
-                var it = mem.split(line, "\"");
-                _ = it.next().?; // skip the stuff before the quote
-                const quoted = it.next().?; // the stuff inside the quote
-                @field(ctx, mapping.field) = toNativePathSep(b, quoted);
-            }
-        }
-    }
-    return ctx;
-}
-
-fn toNativePathSep(b: *Builder, s: []const u8) []u8 {
-    const duplicated = mem.dupe(b.allocator, u8, s) catch unreachable;
-    for (duplicated) |*byte| switch (byte.*) {
-        '/' => byte.* = fs.path.sep,
-        else => {},
-    };
-    return duplicated;
-}
+const clang_libs = [_][]const u8{
+    "clangFrontendTool",
+    "clangCodeGen",
+    "clangFrontend",
+    "clangDriver",
+    "clangSerialization",
+    "clangSema",
+    "clangStaticAnalyzerFrontend",
+    "clangStaticAnalyzerCheckers",
+    "clangStaticAnalyzerCore",
+    "clangAnalysis",
+    "clangASTMatchers",
+    "clangAST",
+    "clangParse",
+    "clangSema",
+    "clangBasic",
+    "clangEdit",
+    "clangLex",
+    "clangARCMigrate",
+    "clangRewriteFrontend",
+    "clangRewrite",
+    "clangCrossTU",
+    "clangIndex",
+    "clangToolingCore",
+};
+const lld_libs = [_][]const u8{
+    "lldDriver",
+    "lldMinGW",
+    "lldELF",
+    "lldCOFF",
+    "lldMachO",
+    "lldWasm",
+    "lldReaderWriter",
+    "lldCore",
+    "lldYAML",
+    "lldCommon",
+};
+// This list can be re-generated with `llvm-config --libfiles` and then
+// reformatting using your favorite text editor. Note we do not execute
+// `llvm-config` here because we are cross compiling.
+const llvm_libs = [_][]const u8{
+    "LLVMXRay",
+    "LLVMWindowsManifest",
+    "LLVMSymbolize",
+    "LLVMDebugInfoPDB",
+    "LLVMOrcJIT",
+    "LLVMOrcError",
+    "LLVMJITLink",
+    "LLVMObjectYAML",
+    "LLVMMCA",
+    "LLVMLTO",
+    "LLVMPasses",
+    "LLVMCoroutines",
+    "LLVMObjCARCOpts",
+    "LLVMExtensions",
+    "LLVMLineEditor",
+    "LLVMLibDriver",
+    "LLVMInterpreter",
+    "LLVMFuzzMutate",
+    "LLVMMCJIT",
+    "LLVMExecutionEngine",
+    "LLVMRuntimeDyld",
+    "LLVMDWARFLinker",
+    "LLVMDlltoolDriver",
+    "LLVMOption",
+    "LLVMDebugInfoGSYM",
+    "LLVMCoverage",
+    "LLVMXCoreDisassembler",
+    "LLVMXCoreCodeGen",
+    "LLVMXCoreDesc",
+    "LLVMXCoreInfo",
+    "LLVMX86Disassembler",
+    "LLVMX86CodeGen",
+    "LLVMX86AsmParser",
+    "LLVMX86Desc",
+    "LLVMX86Info",
+    "LLVMWebAssemblyDisassembler",
+    "LLVMWebAssemblyCodeGen",
+    "LLVMWebAssemblyDesc",
+    "LLVMWebAssemblyAsmParser",
+    "LLVMWebAssemblyInfo",
+    "LLVMSystemZDisassembler",
+    "LLVMSystemZCodeGen",
+    "LLVMSystemZAsmParser",
+    "LLVMSystemZDesc",
+    "LLVMSystemZInfo",
+    "LLVMSparcDisassembler",
+    "LLVMSparcCodeGen",
+    "LLVMSparcAsmParser",
+    "LLVMSparcDesc",
+    "LLVMSparcInfo",
+    "LLVMRISCVDisassembler",
+    "LLVMRISCVCodeGen",
+    "LLVMRISCVAsmParser",
+    "LLVMRISCVDesc",
+    "LLVMRISCVUtils",
+    "LLVMRISCVInfo",
+    "LLVMPowerPCDisassembler",
+    "LLVMPowerPCCodeGen",
+    "LLVMPowerPCAsmParser",
+    "LLVMPowerPCDesc",
+    "LLVMPowerPCInfo",
+    "LLVMNVPTXCodeGen",
+    "LLVMNVPTXDesc",
+    "LLVMNVPTXInfo",
+    "LLVMMSP430Disassembler",
+    "LLVMMSP430CodeGen",
+    "LLVMMSP430AsmParser",
+    "LLVMMSP430Desc",
+    "LLVMMSP430Info",
+    "LLVMMipsDisassembler",
+    "LLVMMipsCodeGen",
+    "LLVMMipsAsmParser",
+    "LLVMMipsDesc",
+    "LLVMMipsInfo",
+    "LLVMLanaiDisassembler",
+    "LLVMLanaiCodeGen",
+    "LLVMLanaiAsmParser",
+    "LLVMLanaiDesc",
+    "LLVMLanaiInfo",
+    "LLVMHexagonDisassembler",
+    "LLVMHexagonCodeGen",
+    "LLVMHexagonAsmParser",
+    "LLVMHexagonDesc",
+    "LLVMHexagonInfo",
+    "LLVMBPFDisassembler",
+    "LLVMBPFCodeGen",
+    "LLVMBPFAsmParser",
+    "LLVMBPFDesc",
+    "LLVMBPFInfo",
+    "LLVMAVRDisassembler",
+    "LLVMAVRCodeGen",
+    "LLVMAVRAsmParser",
+    "LLVMAVRDesc",
+    "LLVMAVRInfo",
+    "LLVMARMDisassembler",
+    "LLVMARMCodeGen",
+    "LLVMARMAsmParser",
+    "LLVMARMDesc",
+    "LLVMARMUtils",
+    "LLVMARMInfo",
+    "LLVMAMDGPUDisassembler",
+    "LLVMAMDGPUCodeGen",
+    "LLVMMIRParser",
+    "LLVMipo",
+    "LLVMInstrumentation",
+    "LLVMVectorize",
+    "LLVMLinker",
+    "LLVMIRReader",
+    "LLVMAsmParser",
+    "LLVMFrontendOpenMP",
+    "LLVMAMDGPUAsmParser",
+    "LLVMAMDGPUDesc",
+    "LLVMAMDGPUUtils",
+    "LLVMAMDGPUInfo",
+    "LLVMAArch64Disassembler",
+    "LLVMMCDisassembler",
+    "LLVMAArch64CodeGen",
+    "LLVMCFGuard",
+    "LLVMGlobalISel",
+    "LLVMSelectionDAG",
+    "LLVMAsmPrinter",
+    "LLVMDebugInfoDWARF",
+    "LLVMCodeGen",
+    "LLVMTarget",
+    "LLVMScalarOpts",
+    "LLVMInstCombine",
+    "LLVMAggressiveInstCombine",
+    "LLVMTransformUtils",
+    "LLVMBitWriter",
+    "LLVMAnalysis",
+    "LLVMProfileData",
+    "LLVMObject",
+    "LLVMTextAPI",
+    "LLVMBitReader",
+    "LLVMCore",
+    "LLVMRemarks",
+    "LLVMBitstreamReader",
+    "LLVMAArch64AsmParser",
+    "LLVMMCParser",
+    "LLVMAArch64Desc",
+    "LLVMMC",
+    "LLVMDebugInfoCodeView",
+    "LLVMDebugInfoMSF",
+    "LLVMBinaryFormat",
+    "LLVMAArch64Utils",
+    "LLVMAArch64Info",
+    "LLVMSupport",
+    "LLVMDemangle",
+};

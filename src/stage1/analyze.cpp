@@ -8,7 +8,6 @@
 #include "analyze.hpp"
 #include "ast_render.hpp"
 #include "codegen.hpp"
-#include "config.h"
 #include "error.hpp"
 #include "ir.hpp"
 #include "ir_print.hpp"

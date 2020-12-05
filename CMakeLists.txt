@@ -24,34 +24,6 @@ set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX
 project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
-set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 7)
-set(ZIG_VERSION_PATCH 0)
-set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
-
-if("${ZIG_VERSION}" STREQUAL "")
-    set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
-    find_program(GIT_EXE NAMES git)
-    if(GIT_EXE)
-        execute_process(
-            COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} name-rev HEAD --tags --name-only --no-undefined --always
-            RESULT_VARIABLE EXIT_STATUS
-            OUTPUT_VARIABLE ZIG_GIT_REV
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET)
-        if(EXIT_STATUS EQUAL "0")
-            if(ZIG_GIT_REV MATCHES "\\^0$")
-                if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
-                    message("WARNING: Tag does not match configured Zig version")
-                endif()
-            else()
-                set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
-            endif()
-        endif()
-    endif()
-endif()
-message("Configuring zig version ${ZIG_VERSION}")
-
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_PREFER_CLANG_CPP_DYLIB off CACHE BOOL "Try to link against -lclang-cpp")
@@ -63,9 +35,6 @@ endif()
 
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM "on")
-    set(ZIG_LINK_MODE "Static")
-else()
-    set(ZIG_LINK_MODE "Dynamic")
 endif()
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
@@ -264,8 +233,6 @@ set(LIBC_FILES_DEST "${ZIG_LIB_DIR}/libc")
 set(LIBUNWIND_FILES_DEST "${ZIG_LIB_DIR}/libunwind")
 set(LIBCXX_FILES_DEST "${ZIG_LIB_DIR}/libcxx")
 set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
-set(ZIG_CONFIG_H_OUT "${CMAKE_BINARY_DIR}/config.h")
-set(ZIG_CONFIG_ZIG_OUT "${CMAKE_BINARY_DIR}/config.zig")
 
 # This is our shim which will be replaced by stage1.zig.
 set(ZIG0_SOURCES
@@ -313,7 +280,6 @@ set(ZIG_CPP_SOURCES
 # then manually running the build-obj command (see BUILD_ZIG1_ARGS), and then looking
 # in the zig-cache directory for the compiler-generated list of zig file dependencies.
 set(ZIG_STAGE2_SOURCES
-    "${ZIG_CONFIG_ZIG_OUT}"
     "${CMAKE_SOURCE_DIR}/lib/std/array_hash_map.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/array_list.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/ascii.zig"
@@ -553,6 +519,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/print_env.zig"
     "${CMAKE_SOURCE_DIR}/src/print_targets.zig"
     "${CMAKE_SOURCE_DIR}/src/stage1.zig"
+    "${CMAKE_SOURCE_DIR}/src/stage1_config.zig"
     "${CMAKE_SOURCE_DIR}/src/target.zig"
     "${CMAKE_SOURCE_DIR}/src/tracy.zig"
     "${CMAKE_SOURCE_DIR}/src/translate_c.zig"
@@ -571,15 +538,6 @@ if(MSVC)
     endif()
 endif()
 
-configure_file (
-    "${CMAKE_SOURCE_DIR}/src/stage1/config.h.in"
-    "${ZIG_CONFIG_H_OUT}"
-)
-configure_file (
-    "${CMAKE_SOURCE_DIR}/src/config.zig.in"
-    "${ZIG_CONFIG_ZIG_OUT}"
-)
-
 include_directories(
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_BINARY_DIR}
@@ -593,6 +551,12 @@ if(MSVC)
 else(MSVC)
   set(EXE_CFLAGS "-std=c++14")
 endif(MSVC)
+
+if(ZIG_STATIC)
+    set(EXE_CFLAGS "${EXE_CFLAGS} -DZIG_LINK_MODE=Static")
+else()
+    set(EXE_CFLAGS "${EXE_CFLAGS} -DZIG_LINK_MODE=Dynamic")
+endif()
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     if(MSVC)
@@ -720,7 +684,7 @@ set(BUILD_ZIG1_ARGS
     "-femit-bin=${ZIG1_OBJECT}"
     "${ZIG1_RELEASE_ARG}"
     -lc
-    --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
+    --pkg-begin build_options "${CMAKE_SOURCE_DIR}/src/stage1_config.zig"
     --pkg-end
     --pkg-begin compiler_rt "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt.zig"
     --pkg-end
@@ -769,7 +733,6 @@ set(ZIG_INSTALL_ARGS "build"
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     "-Dlib-files-only"
     --prefix "${CMAKE_INSTALL_PREFIX}"
-    "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
     install
 )
 

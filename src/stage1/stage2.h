@@ -157,6 +157,12 @@ struct Stage2SemVer {
 };
 
 // ABI warning
+ZIG_EXTERN_C const char *stage2_version_string(void);
+
+// ABI warning
+ZIG_EXTERN_C Stage2SemVer stage2_version(void);
+
+// ABI warning
 ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu,
         const char *dynamic_linker);
 
