@@ -53,9 +53,7 @@ decl_table: std.ArrayHashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_has
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
 /// Note that a Decl can succeed but the Fn it represents can fail. In this case,
 /// a Decl can have a failed_decls entry but have analysis status of success.
-failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *Compilation.ErrorMsg) = .{},
-/// A Decl can have multiple compileLogs, but only one error, so we map a Decl to a the src locs of all the compileLogs
-compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ArrayListUnmanaged(usize)) = .{},
+failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ArrayListUnmanaged(*Compilation.ErrorMsg)) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Scope`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*Scope, *Compilation.ErrorMsg) = .{},
@@ -845,7 +843,8 @@ pub fn deinit(self: *Module) void {
     self.decl_table.deinit(gpa);
 
     for (self.failed_decls.items()) |entry| {
-        entry.value.destroy(gpa);
+        entry.value.deinit(gpa);
+        gpa.destroy(entry.value);
     }
     self.failed_decls.deinit(gpa);
 
@@ -858,12 +857,6 @@ pub fn deinit(self: *Module) void {
         entry.value.destroy(gpa);
     }
     self.failed_exports.deinit(gpa);
-
-    for (self.compile_log_decls.items()) |entry| {
-        entry.value.deinit(gpa);
-        gpa.destroy(entry.value);
-    }
-    self.compile_log_decls.deinit(gpa);
 
     for (self.decl_exports.items()) |entry| {
         const export_list = entry.value;
@@ -947,8 +940,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => return error.AnalysisFail,
             else => {
-                try self.failed_decls.ensureCapacity(self.gpa, self.failed_decls.items().len + 1);
-                self.failed_decls.putAssumeCapacityNoClobber(decl, try Compilation.ErrorMsg.create(
+                try self.addDeclErr(decl, try Compilation.ErrorMsg.create(
                     self.gpa,
                     decl.src(),
                     "unable to analyze: {}",
@@ -1555,7 +1547,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                     decl.analysis = .sema_failure;
                     const err_msg = try Compilation.ErrorMsg.create(self.gpa, tree.token_locs[name_tok].start, "redefinition of '{}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
-                    try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
+                    try self.addDeclErr(decl, err_msg);
                 } else {
                     if (!srcHashEql(decl.contents_hash, contents_hash)) {
                         try self.markOutdatedDecl(decl);
@@ -1597,7 +1589,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                     decl.analysis = .sema_failure;
                     const err_msg = try Compilation.ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
-                    try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
+                    try self.addDeclErr(decl, err_msg);
                 } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
                     try self.markOutdatedDecl(decl);
                     decl.contents_hash = contents_hash;
@@ -1724,7 +1716,8 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
         }
     }
     if (self.failed_decls.remove(decl)) |entry| {
-        entry.value.destroy(self.gpa);
+        entry.value.deinit(self.gpa);
+        self.gpa.destroy(entry.value);
     }
     self.deleteDeclExports(decl);
     self.comp.bin_file.freeDecl(decl);
@@ -1804,7 +1797,8 @@ fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     log.debug("mark {} outdated\n", .{decl.name});
     try self.comp.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
-        entry.value.destroy(self.gpa);
+        entry.value.deinit(self.gpa);
+        self.gpa.destroy(entry.value);
     }
     decl.analysis = .outdated;
 }
@@ -2949,60 +2943,25 @@ pub fn failNode(
     return self.fail(scope, src, format, args);
 }
 
-fn addCompileLog(self: *Module, decl: *Decl, src: usize) error{OutOfMemory}!void {
-    var res = self.compile_log_decls.get(decl);
+pub fn addDeclErr(self: *Module, decl: *Decl, err: *Compilation.ErrorMsg) error{OutOfMemory}!void {
+    var res = self.failed_decls.get(decl);
     if (res) |value| {
-        try value.append(self.gpa, src);
+        try value.append(self.gpa, err);
     } else {
         // TODO does it have to be this complicated. why doesn't ArrayListUnmanaged have initCapacityAlloc that returns a heap allocated ArrayList?
-        var new_list = try self.gpa.create(ArrayListUnmanaged(usize));
-        const new_memory = try self.gpa.alloc(usize, 1);
+        var new_list = try self.gpa.create(ArrayListUnmanaged(*Compilation.ErrorMsg));
+        const new_memory = try self.gpa.alloc(*Compilation.ErrorMsg, 1);
         new_list.items.ptr = new_memory.ptr;
         new_list.items.len = 0;
         new_list.capacity = new_memory.len;
-        new_list.appendAssumeCapacity(src);
-        try self.compile_log_decls.put(self.gpa, decl, new_list);
+        new_list.appendAssumeCapacity(err);
+        try self.failed_decls.putNoClobber(self.gpa, decl, new_list);
     }
 }
-pub fn failCompileLog(
-    self: *Module,
-    scope: *Scope,
-    src: usize,
-) InnerError!void { // we do void because we dont actually want to fail because analysis should continue
-    switch (scope.tag) {
-        .decl => {
-            const decl = scope.cast(Scope.DeclAnalysis).?.decl;
-            try self.addCompileLog(decl, src);
-        },
-        .block => {
-            const block = scope.cast(Scope.Block).?;
-            try self.addCompileLog(block.decl, src);
-        },
-        .gen_zir => {
-            const gen_zir = scope.cast(Scope.GenZIR).?;
-            try self.addCompileLog(gen_zir.decl, src);
-        },
-        .local_val => {
-            const gen_zir = scope.cast(Scope.LocalVal).?.gen_zir;
-            try self.addCompileLog(gen_zir.decl, src);
-        },
-        .local_ptr => {
-            const gen_zir = scope.cast(Scope.LocalPtr).?.gen_zir;
-            try self.addCompileLog(gen_zir.decl, src);
-        },
-        .zir_module => {
-            // TODO is this actually unreachable?
-            unreachable;
-            // const zir_module = scope.cast(Scope.ZIRModule).?;
-        },
-        .file => unreachable,
-        .container => unreachable,
-    }
-}
+
 fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Compilation.ErrorMsg) InnerError {
     {
         errdefer err_msg.destroy(self.gpa);
-        try self.failed_decls.ensureCapacity(self.gpa, self.failed_decls.items().len + 1);
         try self.failed_files.ensureCapacity(self.gpa, self.failed_files.items().len + 1);
     }
     switch (scope.tag) {
@@ -3010,7 +2969,7 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Com
             const decl = scope.cast(Scope.DeclAnalysis).?.decl;
             decl.analysis = .sema_failure;
             decl.generation = self.generation;
-            self.failed_decls.putAssumeCapacityNoClobber(decl, err_msg);
+            try self.addDeclErr(decl, err_msg);
         },
         .block => {
             const block = scope.cast(Scope.Block).?;
@@ -3020,25 +2979,25 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Com
                 block.decl.analysis = .sema_failure;
                 block.decl.generation = self.generation;
             }
-            self.failed_decls.putAssumeCapacityNoClobber(block.decl, err_msg);
+            try self.addDeclErr(block.decl, err_msg);
         },
         .gen_zir => {
             const gen_zir = scope.cast(Scope.GenZIR).?;
             gen_zir.decl.analysis = .sema_failure;
             gen_zir.decl.generation = self.generation;
-            self.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+            try self.addDeclErr(gen_zir.decl, err_msg);
         },
         .local_val => {
             const gen_zir = scope.cast(Scope.LocalVal).?.gen_zir;
             gen_zir.decl.analysis = .sema_failure;
             gen_zir.decl.generation = self.generation;
-            self.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+            try self.addDeclErr(gen_zir.decl, err_msg);
         },
         .local_ptr => {
             const gen_zir = scope.cast(Scope.LocalPtr).?.gen_zir;
             gen_zir.decl.analysis = .sema_failure;
             gen_zir.decl.generation = self.generation;
-            self.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+            try self.addDeclErr(gen_zir.decl, err_msg);
         },
         .zir_module => {
             const zir_module = scope.cast(Scope.ZIRModule).?;

@@ -503,7 +503,10 @@ fn analyzeInstCompileLog(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileLog
     std.debug.print("\n", .{});
     if (!inst.kw_args.seen) {
         inst.kw_args.seen = true; // so that we do not give multiple compile errors if it gets evaled twice
-        try mod.failCompileLog(scope, inst.base.src);
+        switch (mod.fail(scope, inst.base.src, "found compile log statement", .{})) {
+            error.AnalysisFail => {}, // analysis continues
+            else => |e| return e,
+        }
     }
     return mod.constVoid(scope, inst.base.src);
 }

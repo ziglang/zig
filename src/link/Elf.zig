@@ -2223,7 +2223,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, em);
+            try module.addDeclErr(decl, em);
             return;
         },
     };

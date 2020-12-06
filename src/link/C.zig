@@ -67,7 +67,7 @@ pub fn deinit(self: *C) void {
 pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     codegen.generate(self, decl) catch |err| {
         if (err == error.AnalysisFail) {
-            try module.failed_decls.put(module.gpa, decl, self.error_msg);
+            try module.addDeclErr(decl, self.error_msg);
         }
         return err;
     };

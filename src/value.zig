@@ -350,7 +350,7 @@ pub const Value = extern union {
                 val = elem_ptr.array_ptr;
             },
             .empty_array => return out_stream.writeAll(".{}"),
-            .enum_literal => return out_stream.print(".{z}", .{self.cast(Payload.Bytes).?.data}),
+            .enum_literal => return out_stream.print(".{z}", .{self.cast(Payload.Bytes).?.data}), // TODO this does not work. enum_literal is not bytes
             .bytes => return out_stream.print("\"{Z}\"", .{self.cast(Payload.Bytes).?.data}),
             .repeated => {
                 try out_stream.writeAll("(repeated) ");

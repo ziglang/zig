@@ -1930,7 +1930,7 @@ const EmitZIR = struct {
                 .sema_failure,
                 .sema_failure_retryable,
                 .dependency_failure,
-                => if (self.old_module.failed_decls.get(ir_decl)) |err_msg| {
+                => if (self.old_module.failed_decls.get(ir_decl)) |err_msg_list| {
                     const fail_inst = try self.arena.allocator.create(Inst.CompileError);
                     fail_inst.* = .{
                         .base = .{
@@ -1938,7 +1938,7 @@ const EmitZIR = struct {
                             .tag = Inst.CompileError.base_tag,
                         },
                         .positionals = .{
-                            .msg = try self.arena.allocator.dupe(u8, err_msg.msg),
+                            .msg = try self.arena.allocator.dupe(u8, err_msg_list.items[0].msg),
                         },
                         .kw_args = .{},
                     };
@@ -2061,7 +2061,7 @@ const EmitZIR = struct {
                 try self.emitBody(body, &inst_table, &instructions);
             },
             .sema_failure => {
-                const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
+                const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?.items[0];
                 const fail_inst = try self.arena.allocator.create(Inst.CompileError);
                 fail_inst.* = .{
                     .base = .{
