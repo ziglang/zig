@@ -641,9 +641,35 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     if (self.fn_type.fnCallingConvention() != .Naked) {
                         const writer = self.code.writer();
 
+                        // First, generate the bytecode to define our function type
+                        // TODO save function types so they can be reused for smaller wasm bytecode
+                        try writer.writeByte(0x60);
+
+                        // param types bytecode
+                        try leb128.writeULEB128(writer, @intCast(u32, self.fn_type.fnParamLen()));
+                        if (self.fn_type.fnParamLen() != 0) {
+                            const params = try self.code.allocator.alloc(Type, self.fn_type.fnParamLen());
+                            defer self.code.allocator.free(params);
+                            self.fn_type.fnParamTypes(params);
+                            for (params) |param_type| try writer.writeByte(genValtype(self.fn_type));
+                        }
+
+                        // generate return type bytecode
+                        const ret_type = self.fn_type.fnReturnType();
+                        switch (ret_type.tag()) {
+                            .void, .noreturn => try leb128.writeULEB128(writer, @as(u32, 0)),
+                            else => {
+                                // Currently, wasm only supports a singular return type so hardcode it as 1
+                                try leb128.writeULEB128(writer, @as(u32, 1));
+                                try writer.writeByte(genValtype(self.fn_type));
+                            },
+                        }
+
+                        const offset = @intCast(u32, self.code.items.len);
+                        self.mod_fn.owner_decl.link.wasm.code_offset = offset;
+
                         // Reserve space to write the size after generating the code.
-                        // This is done inside link/Wasm.zig
-                        try self.code.resize(5);
+                        try self.code.resize(offset + 5);
 
                         // TODO: copy size of locals logic here from other branch
                         try leb128.writeULEB128(writer, @as(u32, 0));
@@ -657,8 +683,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         // Fill in the size of the generated code to the reserved space at the
                         // beginning of the buffer.
-                        const size = self.code.items.len - 5;
-                        leb128.writeUnsignedFixed(5, self.code.items[0..5], @intCast(u32, size));
+                        const size = self.code.items.len - offset - 5;
+                        leb128.writeUnsignedFixed(5, self.code.items[offset .. offset + 5][0..5], @intCast(u32, size));
                     } else {
                         try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
@@ -1883,7 +1909,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const arg = inst.args[arg_i];
                     const arg_mcv = try self.resolveInst(arg);
 
-                    std.debug.print("Mc_arg: {}\n", .{mc_arg});
                     switch (mc_arg) {
                         .none => continue,
                         .register => |reg| try self.genSetReg(arg.src, reg, arg_mcv),
@@ -1914,11 +1939,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // emit .call opcode
                         try self.code.append(0x10);
 
-                        // try func.owner_decl.fn_link.wasm.idx_refs.append(wasm_file.base.allocator, .{
-                        //     .offset = @intCast(u32, self.code.items.len),
-                        //     .decl = func.owner_decl,
-                        // });
-                        // emit func id
+                        // emite func idx to be called
                         try leb128.writeULEB128(self.code.writer(), func.owner_decl.link.wasm.symbol_index);
                     } else {
                         return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
@@ -3532,6 +3553,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .spu_2 => @import("codegen/spu-mk2.zig"),
             .arm, .armeb => @import("codegen/arm.zig"),
             .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig"),
+            .wasm32, .wasm64 => @import("codegen/wasm.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,

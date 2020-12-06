@@ -10,8 +10,7 @@ const log = std.log.scoped(.link);
 
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const codegen = @import("../codegen/wasm.zig");
-const codegen2 = @import("../codegen.zig");
+const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
@@ -39,15 +38,18 @@ const Spec = struct {
 pub const base_tag = link.File.Tag.wasm;
 
 pub const FnData = struct {
-    /// Generated code for the type of the function
-    functype: std.ArrayListUnmanaged(u8) = .{},
     /// Generated code for the body of the function
     code: std.ArrayListUnmanaged(u8) = .{},
 };
 
 pub const TextBlock = struct {
-    /// The index of the function declaration
+    /// The index of the symbol. Each type has their own indices
+    /// meaning that for a function, index 0 is the first function declaration
+    /// regardless of other non-function declarations.
     symbol_index: u32 = 0,
+    /// Offset where the 'code' section starts of the function
+    /// This is only relevant for Function declarations.
+    code_offset: u32 = 0,
 };
 
 base: link.File,
@@ -93,7 +95,6 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
 
 pub fn deinit(self: *Wasm) void {
     for (self.funcs.items) |decl| {
-        decl.fn_link.wasm.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.code.deinit(self.base.allocator);
     }
     self.funcs.deinit(self.base.allocator);
@@ -101,6 +102,9 @@ pub fn deinit(self: *Wasm) void {
 
 /// Sets the symbol index of the declaration so it can be used for function calls
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
+    if (decl.typed_value.most_recent.typed_value.ty.zigTypeTag() != .Fn)
+        return error.TODOImplementNonFnDeclsForWasm;
+
     if (self.getFuncidx(decl) == null) {
         decl.link.wasm.symbol_index = @intCast(u32, self.funcs.items.len);
         decl.fn_link.wasm = .{};
@@ -115,16 +119,12 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         return error.TODOImplementNonFnDeclsForWasm;
 
     const fn_data = &decl.fn_link.wasm;
-    fn_data.functype.items.len = 0;
     fn_data.code.items.len = 0;
 
-    var managed_functype = fn_data.functype.toManaged(self.base.allocator);
     var managed_code = fn_data.code.toManaged(self.base.allocator);
-    // todo, handle this in codegen as well
-    try codegen.genFunctype(&managed_functype, decl);
 
     const typed_value = decl.typed_value.most_recent.typed_value;
-    const result = try codegen2.generateSymbol(&self.base, decl.src(), typed_value, &managed_code, .none);
+    const result = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &managed_code, .none);
     switch (result) {
         .externally_managed => |ext| try managed_code.appendSlice(ext),
         .appended => {}, // Code has been appended to managed_code already
@@ -135,7 +135,6 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         },
     }
 
-    fn_data.functype = managed_functype.toUnmanaged();
     fn_data.code = managed_code.toUnmanaged();
 }
 
@@ -150,7 +149,6 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     // TODO: remove this assert when non-function Decls are implemented
     assert(decl.typed_value.most_recent.typed_value.ty.zigTypeTag() == .Fn);
     _ = self.funcs.swapRemove(self.getFuncidx(decl).?);
-    decl.fn_link.wasm.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.code.deinit(self.base.allocator);
     decl.fn_link.wasm = .{};
 }
@@ -178,7 +176,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     {
         const header_offset = try reserveVecSectionHeader(file);
         for (self.funcs.items) |decl| {
-            try file.writeAll(decl.fn_link.wasm.functype.items);
+            try file.writeAll(decl.fn_link.wasm.code.items[0..decl.link.wasm.code_offset]);
         }
         try writeVecSectionHeader(
             file,
@@ -244,7 +242,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             const fn_data = &decl.fn_link.wasm;
 
             // Write the already generated code to the file
-            try writer.writeAll(fn_data.code.items);
+            try writer.writeAll(fn_data.code.items[decl.link.wasm.code_offset..]);
         }
         try writeVecSectionHeader(
             file,
