@@ -15,7 +15,7 @@ pub extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn CreateDirectoryW(lpPathName: [*:0]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn SetEndOfFile(hFile: HANDLE) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn GetCurrentProcessId() callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn GetCurrentProcessId() callconv(WINAPI) DWORD;
 
 pub extern "kernel32" fn CreateNamedPipeA(
     lpName: [*:0]const u8,
@@ -26,7 +26,7 @@ pub extern "kernel32" fn CreateNamedPipeA(
     nInBufferSize: DWORD,
     nDefaultTimeOut: DWORD,
     lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
-) callconv(.Stdcall) HANDLE;
+) callconv(WINAPI) HANDLE;
 pub extern "kernel32" fn CreateNamedPipeW(
     lpName: LPCWSTR,
     dwOpenMode: DWORD,
@@ -36,7 +36,7 @@ pub extern "kernel32" fn CreateNamedPipeW(
     nInBufferSize: DWORD,
     nDefaultTimeOut: DWORD,
     lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
-) callconv(.Stdcall) HANDLE;
+) callconv(WINAPI) HANDLE;
 
 pub extern "kernel32" fn CreateEventExW(
     lpEventAttributes: ?*SECURITY_ATTRIBUTES,
@@ -63,7 +63,7 @@ pub extern "kernel32" fn CreateFileA(
     dwCreationDisposition: DWORD,
     dwFlagsAndAttributes: DWORD,
     hTemplateFile: ?HANDLE,
-) callconv(.Stdcall) HANDLE;
+) callconv(WINAPI) HANDLE;
 
 pub extern "kernel32" fn CreatePipe(
     hReadPipe: *HANDLE,
