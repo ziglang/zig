@@ -843,6 +843,9 @@ pub fn deinit(self: *Module) void {
     self.decl_table.deinit(gpa);
 
     for (self.failed_decls.items()) |entry| {
+        for (entry.value.items) |compile_err| {
+            compile_err.destroy(gpa);
+        }
         entry.value.deinit(gpa);
         gpa.destroy(entry.value);
     }
