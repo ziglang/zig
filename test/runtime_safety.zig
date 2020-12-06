@@ -4,6 +4,85 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     {
         const check_panic_msg =
             \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+            \\    if (std.mem.eql(u8, message, "reached unreachable code")) {
+            \\        std.process.exit(126); // good
+            \\    }
+            \\    std.process.exit(0); // test failed
+            \\}
+        ;
+
+        cases.addRuntimeSafety("switch on corrupted enum value",
+            \\const std = @import("std");
+            ++ check_panic_msg ++
+            \\const E = enum(u32) {
+            \\    X = 1,
+            \\};
+            \\pub fn main() void {
+            \\    var e: E = undefined;
+            \\    @memset(@ptrCast([*]u8, &e), 0x55, @sizeOf(E));
+            \\    switch (e) {
+            \\        .X => @breakpoint(),
+            \\    }
+            \\}
+        );
+
+        cases.addRuntimeSafety("switch on corrupted union value",
+            \\const std = @import("std");
+            ++ check_panic_msg ++
+            \\const U = union(enum(u32)) {
+            \\    X: u8,
+            \\};
+            \\pub fn main() void {
+            \\    var u: U = undefined;
+            \\    @memset(@ptrCast([*]u8, &u), 0x55, @sizeOf(U));
+            \\    switch (u) {
+            \\        .X => @breakpoint(),
+            \\    }
+            \\}
+        );
+    }
+
+    {
+        const check_panic_msg =
+            \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+            \\    if (std.mem.eql(u8, message, "invalid enum value")) {
+            \\        std.process.exit(126); // good
+            \\    }
+            \\    std.process.exit(0); // test failed
+            \\}
+        ;
+
+        cases.addRuntimeSafety("@tagName on corrupted enum value",
+            \\const std = @import("std");
+            ++ check_panic_msg ++
+            \\const E = enum(u32) {
+            \\    X = 1,
+            \\};
+            \\pub fn main() void {
+            \\    var e: E = undefined;
+            \\    @memset(@ptrCast([*]u8, &e), 0x55, @sizeOf(E));
+            \\    var n = @tagName(e);
+            \\}
+        );
+
+        cases.addRuntimeSafety("@tagName on corrupted union value",
+            \\const std = @import("std");
+            ++ check_panic_msg ++
+            \\const U = union(enum(u32)) {
+            \\    X: u8,
+            \\};
+            \\pub fn main() void {
+            \\    var u: U = undefined;
+            \\    @memset(@ptrCast([*]u8, &u), 0x55, @sizeOf(U));
+            \\    var t: @TagType(U) = u;
+            \\    var n = @tagName(t);
+            \\}
+        );
+    }
+
+    {
+        const check_panic_msg =
+            \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
             \\    if (std.mem.eql(u8, message, "index out of bounds")) {
             \\        std.process.exit(126); // good
             \\    }
