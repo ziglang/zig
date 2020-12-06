@@ -2711,7 +2711,6 @@ pub const ShutdownError = error{
 
     /// Connection was reset by peer, application should close socket as it is no longer usable.
     ConnectionResetByPeer,
-
     BlockingOperationInProgress,
 
     /// The network subsystem has failed.
@@ -2719,8 +2718,7 @@ pub const ShutdownError = error{
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
-
-    SystemResources
+    SystemResources,
 } || UnexpectedError;
 
 pub const ShutdownHow = enum { recv, send, both };
@@ -4776,6 +4774,7 @@ pub const SendError = error{
     BrokenPipe,
 
     FileDescriptorNotASocket,
+    AddressFamilyNotSupported,
 } || UnexpectedError;
 
 /// Transmit a message to another socket.
@@ -4822,6 +4821,7 @@ pub fn sendto(
                     .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAENOBUFS => return error.SystemResources,
                     .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
                     // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
@@ -4849,6 +4849,7 @@ pub fn sendto(
                 ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
                 EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
                 EPIPE => return error.BrokenPipe,
+                EAFNOSUPPORT => return error.AddressFamilyNotSupported,
                 else => |err| return unexpectedErrno(err),
             }
         }
