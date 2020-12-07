@@ -1296,6 +1296,9 @@ pub const LibExeObjStep = struct {
 
     subsystem: ?builtin.SubSystem = null,
 
+    /// Overrides the default stack size
+    stack_size: ?u64 = null,
+
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
@@ -2027,6 +2030,11 @@ pub const LibExeObjStep = struct {
         if (builder.color != .auto) {
             try zig_args.append("--color");
             try zig_args.append(@tagName(builder.color));
+        }
+
+        if (self.stack_size) |stack_size| {
+            try zig_args.append("--stack");
+            try zig_args.append(try std.fmt.allocPrint(builder.allocator, "{}", .{stack_size}));
         }
 
         if (self.root_src) |root_src| try zig_args.append(root_src.getPath(builder));
