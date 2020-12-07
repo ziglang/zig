@@ -248,7 +248,7 @@ pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 
 pub extern "c" fn malloc(usize) ?*c_void;
 pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
-pub extern "c" fn free(*c_void) void;
+pub extern "c" fn free(?*c_void) void;
 
 pub extern "c" fn futimes(fd: fd_t, times: *[2]timeval) c_int;
 pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]timeval) c_int;
