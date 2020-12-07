@@ -517,7 +517,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         second_free_stack_trace,
                     });
                     if (new_size == 0) {
-                        // Recoverable.
+                        // Recoverable. Restore self.total_requested_bytes if needed, as we
+                        // don't return an error value so the errdefer above does not run.
+                        if (config.enable_memory_limit) {
+                            self.total_requested_bytes = prev_req_bytes;
+                        }
                         return @as(usize, 0);
                     }
                     @panic("Unrecoverable double free");
