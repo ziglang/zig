@@ -17,7 +17,7 @@ const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
 
 /// Various magic numbers defined by the wasm spec
-const Spec = struct {
+const spec = struct {
     const magic = [_]u8{ 0x00, 0x61, 0x73, 0x6D }; // \0asm
     const version = [_]u8{ 0x01, 0x00, 0x00, 0x00 }; // version 1
 
@@ -75,7 +75,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     wasm.base.file = file;
 
-    try file.writeAll(&(Spec.magic ++ Spec.version));
+    try file.writeAll(&(spec.magic ++ spec.version));
 
     return wasm;
 }
@@ -166,8 +166,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     const header_size = 5 + 1;
 
     // No need to rewrite the magic/version header
-    try file.setEndPos(@sizeOf(@TypeOf(Spec.magic ++ Spec.version)));
-    try file.seekTo(@sizeOf(@TypeOf(Spec.magic ++ Spec.version)));
+    try file.setEndPos(@sizeOf(@TypeOf(spec.magic ++ spec.version)));
+    try file.seekTo(@sizeOf(@TypeOf(spec.magic ++ spec.version)));
 
     // Type section
     {
@@ -178,7 +178,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            Spec.types_id,
+            spec.types_id,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );
@@ -192,7 +192,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            Spec.funcs_id,
+            spec.funcs_id,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );
@@ -225,7 +225,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            Spec.exports_id,
+            spec.exports_id,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             count,
         );
@@ -244,7 +244,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            Spec.code_id,
+            spec.code_id,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );

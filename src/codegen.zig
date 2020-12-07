@@ -2751,7 +2751,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => return self.fail(
                                 src,
                                 "TODO implement immediate genSetStack for type: {}",
-                                .{@tagName(self.ty.tag())},
+                                .{@tagName(ty.tag())},
                             ),
                         }
                     },

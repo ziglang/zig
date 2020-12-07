@@ -28,45 +28,12 @@ pub const Register = enum(u32) {
         return null;
     }
 
+    /// TODO implement support for DWARF
     pub fn dwarfLocOp(self: Register) u8 {
         return @truncate(u8, @enumToInt(self));
     }
 };
 
-/// Wasm doesn't really have registers. For now just create a registry with length 100
+/// Wasm doesn't really have registers. For now just create a fake registry with length 100
 /// TODO: Allow non-registry based backends
 pub const callee_preserved_regs = [_]Register{@intToEnum(Register, 0)} ** 100;
-
-fn genConstant(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Constant) !void {
-    const writer = buf.writer();
-    switch (inst.base.ty.tag()) {
-        .u32 => {
-            try writer.writeByte(0x41); // i32.const
-            try leb.writeILEB128(writer, inst.val.toUnsignedInt());
-        },
-        .i32 => {
-            try writer.writeByte(0x41); // i32.const
-            try leb.writeILEB128(writer, inst.val.toSignedInt());
-        },
-        .u64 => {
-            try writer.writeByte(0x42); // i64.const
-            try leb.writeILEB128(writer, inst.val.toUnsignedInt());
-        },
-        .i64 => {
-            try writer.writeByte(0x42); // i64.const
-            try leb.writeILEB128(writer, inst.val.toSignedInt());
-        },
-        .f32 => {
-            try writer.writeByte(0x43); // f32.const
-            // TODO: enforce LE byte order
-            try writer.writeAll(mem.asBytes(&inst.val.toFloat(f32)));
-        },
-        .f64 => {
-            try writer.writeByte(0x44); // f64.const
-            // TODO: enforce LE byte order
-            try writer.writeAll(mem.asBytes(&inst.val.toFloat(f64)));
-        },
-        .void => {},
-        else => return error.TODOImplementMoreWasmCodegen,
-    }
-}
