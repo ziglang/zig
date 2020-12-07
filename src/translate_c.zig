@@ -1993,6 +1993,21 @@ fn transStringLiteral(
     }
 }
 
+fn cIsEnum(qt: clang.QualType) bool {
+    return qt.getCanonicalType().getTypeClass() == .Enum;
+}
+
+/// Get the underlying int type of an enum. The C compiler chooses a signed int
+/// type that is large enough to hold all of the enum's values. It is not required
+/// to be the smallest possible type that can hold all the values.
+fn cIntTypeForEnum(enum_qt: clang.QualType) clang.QualType {
+    assert(cIsEnum(enum_qt));
+    const ty = enum_qt.getCanonicalType().getTypePtr();
+    const enum_ty = @ptrCast(*const clang.EnumType, ty);
+    const enum_decl = enum_ty.getDecl();
+    return enum_decl.getIntegerType();
+}
+
 fn transCCast(
     rp: RestorePoint,
     scope: *Scope,
@@ -2005,40 +2020,45 @@ fn transCCast(
     if (dst_type.eq(src_type)) return expr;
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
         return transCPtrCast(rp, loc, dst_type, src_type, expr);
-    if (cIsInteger(dst_type) and cIsInteger(src_type)) {
-        // 1. Extend or truncate without changing signed-ness.
-        // 2. Bit-cast to correct signed-ness
+    if (cIsInteger(dst_type) and (cIsInteger(src_type) or cIsEnum(src_type))) {
+        // 1. If src_type is an enum, determine the underlying signed int type
+        // 2. Extend or truncate without changing signed-ness.
+        // 3. Bit-cast to correct signed-ness
+
+        const src_type_is_signed = cIsSignedInteger(src_type) or cIsEnum(src_type);
+        const src_int_type = if (cIsInteger(src_type)) src_type else cIntTypeForEnum(src_type);
+        const src_int_expr = if (cIsInteger(src_type)) expr else try transEnumToInt(rp.c, expr);
 
         // @bitCast(dest_type, intermediate_value)
         const cast_node = try rp.c.createBuiltinCall("@bitCast", 2);
         cast_node.params()[0] = try transQualType(rp, dst_type, loc);
         _ = try appendToken(rp.c, .Comma, ",");
 
-        switch (cIntTypeCmp(dst_type, src_type)) {
+        switch (cIntTypeCmp(dst_type, src_int_type)) {
             .lt => {
-                // @truncate(SameSignSmallerInt, src_type)
+                // @truncate(SameSignSmallerInt, src_int_expr)
                 const trunc_node = try rp.c.createBuiltinCall("@truncate", 2);
-                const ty_node = try transQualTypeIntWidthOf(rp.c, dst_type, cIsSignedInteger(src_type));
+                const ty_node = try transQualTypeIntWidthOf(rp.c, dst_type, src_type_is_signed);
                 trunc_node.params()[0] = ty_node;
                 _ = try appendToken(rp.c, .Comma, ",");
-                trunc_node.params()[1] = expr;
+                trunc_node.params()[1] = src_int_expr;
                 trunc_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
                 cast_node.params()[1] = &trunc_node.base;
             },
             .gt => {
-                // @as(SameSignBiggerInt, src_type)
+                // @as(SameSignBiggerInt, src_int_expr)
                 const as_node = try rp.c.createBuiltinCall("@as", 2);
-                const ty_node = try transQualTypeIntWidthOf(rp.c, dst_type, cIsSignedInteger(src_type));
+                const ty_node = try transQualTypeIntWidthOf(rp.c, dst_type, src_type_is_signed);
                 as_node.params()[0] = ty_node;
                 _ = try appendToken(rp.c, .Comma, ",");
-                as_node.params()[1] = expr;
+                as_node.params()[1] = src_int_expr;
                 as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
                 cast_node.params()[1] = &as_node.base;
             },
             .eq => {
-                cast_node.params()[1] = expr;
+                cast_node.params()[1] = src_int_expr;
             },
         }
         cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
@@ -2119,7 +2139,7 @@ fn transCCast(
 
         return &cast_node.base;
     }
-    if (dst_type.getCanonicalType().getTypeClass() == .Enum) {
+    if (cIsEnum(dst_type)) {
         const builtin_node = try rp.c.createBuiltinCall("@intToEnum", 2);
         builtin_node.params()[0] = try transQualType(rp, dst_type, loc);
         _ = try appendToken(rp.c, .Comma, ",");
@@ -2127,13 +2147,8 @@ fn transCCast(
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &builtin_node.base;
     }
-    if (src_type.getCanonicalType().getTypeClass() == .Enum and
-        dst_type.getCanonicalType().getTypeClass() != .Enum)
-    {
-        const builtin_node = try rp.c.createBuiltinCall("@enumToInt", 1);
-        builtin_node.params()[0] = expr;
-        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-        return &builtin_node.base;
+    if (cIsEnum(src_type) and !cIsEnum(dst_type)) {
+        return transEnumToInt(rp.c, expr);
     }
     const cast_node = try rp.c.createBuiltinCall("@as", 2);
     cast_node.params()[0] = try transQualType(rp, dst_type, loc);
@@ -2141,6 +2156,13 @@ fn transCCast(
     cast_node.params()[1] = expr;
     cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
     return &cast_node.base;
+}
+
+fn transEnumToInt(c: *Context, enum_expr: *ast.Node) TypeError!*ast.Node {
+    const builtin_node = try c.createBuiltinCall("@enumToInt", 1);
+    builtin_node.params()[0] = enum_expr;
+    builtin_node.rparen_token = try appendToken(c, .RParen, ")");
+    return &builtin_node.base;
 }
 
 fn transExpr(

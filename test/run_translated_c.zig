@@ -371,4 +371,117 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("assign enum to uint, no explicit cast",
+        \\#include <stdlib.h>
+        \\typedef enum {
+        \\    ENUM_0 = 0,
+        \\    ENUM_1 = 1,
+        \\} my_enum_t;
+        \\
+        \\int main() {
+        \\    my_enum_t val = ENUM_1;
+        \\    unsigned int x = val;
+        \\    if (x != 1) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("assign enum to int",
+        \\#include <stdlib.h>
+        \\typedef enum {
+        \\    ENUM_0 = 0,
+        \\    ENUM_1 = 1,
+        \\} my_enum_t;
+        \\
+        \\int main() {
+        \\    my_enum_t val = ENUM_1;
+        \\    int x = val;
+        \\    if (x != 1) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("cast enum to smaller uint",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef enum {
+        \\    ENUM_0 = 0,
+        \\    ENUM_257 = 257,
+        \\} my_enum_t;
+        \\
+        \\int main() {
+        \\    my_enum_t val = ENUM_257;
+        \\    uint8_t x = (uint8_t)val;
+        \\    if (x != (uint8_t)257) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("cast enum to smaller signed int",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef enum {
+        \\    ENUM_0 = 0,
+        \\    ENUM_384 = 384,
+        \\} my_enum_t;
+        \\
+        \\int main() {
+        \\    my_enum_t val = ENUM_384;
+        \\    int8_t x = (int8_t)val;
+        \\    if (x != (int8_t)384) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("cast negative enum to smaller signed int",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef enum {
+        \\    ENUM_MINUS_1 = -1,
+        \\    ENUM_384 = 384,
+        \\} my_enum_t;
+        \\
+        \\int main() {
+        \\    my_enum_t val = ENUM_MINUS_1;
+        \\    int8_t x = (int8_t)val;
+        \\    if (x != -1) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("cast negative enum to smaller unsigned int",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\typedef enum {
+        \\    ENUM_MINUS_1 = -1,
+        \\    ENUM_384 = 384,
+        \\} my_enum_t;
+        \\
+        \\int main() {
+        \\    my_enum_t val = ENUM_MINUS_1;
+        \\    uint8_t x = (uint8_t)val;
+        \\    if (x != (uint8_t)-1) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("implicit enum cast in boolean expression",
+        \\#include <stdlib.h>
+        \\enum Foo {
+        \\    FooA,
+        \\    FooB,
+        \\    FooC,
+        \\};
+        \\int main() {
+        \\    int a = 0;
+        \\    float b = 0;
+        \\    void *c = 0;
+        \\    enum Foo d = FooA;
+        \\    if (a || d) abort();
+        \\    if (d && b) abort();
+        \\    if (c || d) abort();
+        \\    return 0;
+        \\}
+    , "");
 }
