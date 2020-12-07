@@ -102,10 +102,7 @@ pub fn deinit(self: *Wasm) void {
 
 /// Sets the symbol index of the declaration so it can be used for function calls
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
-    if (decl.typed_value.most_recent.typed_value.ty.zigTypeTag() != .Fn)
-        return error.TODOImplementNonFnDeclsForWasm;
-
-    if (self.getFuncidx(decl) == null) {
+    if (decl.typed_value.most_recent.typed_value.ty.zigTypeTag() == .Fn and self.getFuncidx(decl) == null) {
         decl.link.wasm.symbol_index = @intCast(u32, self.funcs.items.len);
         decl.fn_link.wasm = .{};
         try self.funcs.append(self.base.allocator, decl);

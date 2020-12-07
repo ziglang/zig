@@ -21,15 +21,21 @@ pub fn genValtype(ty: Type) u8 {
     };
 }
 
-pub const Register = enum {
-    temp,
+pub const Register = enum(u32) {
+    _,
 
     pub fn allocIndex(self: Register) ?u4 {
         return null;
     }
+
+    pub fn dwarfLocOp(self: Register) u8 {
+        return @truncate(u8, @enumToInt(self));
+    }
 };
 
-pub const callee_preserved_regs = [_]Register{};
+/// Wasm doesn't really have registers. For now just create a registry with length 100
+/// TODO: Allow non-registry based backends
+pub const callee_preserved_regs = [_]Register{@intToEnum(Register, 0)} ** 100;
 
 fn genConstant(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Constant) !void {
     const writer = buf.writer();

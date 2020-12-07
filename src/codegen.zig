@@ -81,7 +81,7 @@ pub fn generateSymbol(
         .Fn => {
             switch (bin_file.options.target.cpu.arch) {
                 .wasm32 => return Function(.wasm32).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                .wasm64 => return Function(.wasm64).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .wasm64 => unreachable,
                 .arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 .armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 .aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, debug_output),
@@ -637,7 +637,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         try self.dbgSetEpilogueBegin();
                     }
                 },
-                .wasm32, .wasm64 => {
+                .wasm32 => {
                     if (self.fn_type.fnCallingConvention() != .Naked) {
                         const writer = self.code.writer();
 
@@ -651,7 +651,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const params = try self.code.allocator.alloc(Type, self.fn_type.fnParamLen());
                             defer self.code.allocator.free(params);
                             self.fn_type.fnParamTypes(params);
-                            for (params) |param_type| try writer.writeByte(genValtype(self.fn_type));
+                            for (params) |param_type| try writer.writeByte(genValtype(param_type));
                         }
 
                         // generate return type bytecode
@@ -661,7 +661,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => {
                                 // Currently, wasm only supports a singular return type so hardcode it as 1
                                 try leb128.writeULEB128(writer, @as(u32, 1));
-                                try writer.writeByte(genValtype(self.fn_type));
+                                try writer.writeByte(genValtype(self.fn_type.fnReturnType()));
                             },
                         }
 
@@ -1911,9 +1911,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     switch (mc_arg) {
                         .none => continue,
-                        .register => |reg| try self.genSetReg(arg.src, reg, arg_mcv),
-                        .stack_offset => {
-                            return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                        .register => unreachable,
+                        .stack_offset => |offset| {
+                            try self.genSetStack(arg.src, arg.ty, offset, arg_mcv);
                         },
                         .ptr_stack_offset => {
                             return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset", .{});
@@ -2008,7 +2008,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // TODO: relocations
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.ret(null).toU32());
                 },
-                .wasm32, .wasm64 => {
+                .wasm32 => {
                     // .return bytecode
                     try self.code.append(0x0F);
                 },
@@ -2703,7 +2703,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 try self.code.ensureCapacity(self.code.items.len + 14);
                                 var buf: [8]u8 = undefined;
                                 mem.writeIntLittle(u64, &buf, x_big);
-
                                 // mov    DWORD PTR [rbp+offset+4], immediate
                                 self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp + 4 });
                                 self.code.appendSliceAssumeCapacity(buf[4..8]);
@@ -2734,7 +2733,31 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                 },
-                else => return self.fail(src, "TODO implement getSetStack for {}", .{self.target.cpu.arch}),
+                .wasm32 => switch (mcv) {
+                    .stack_offset => |offset| {
+                        try self.code.append(0x21); // local.set
+                        try leb128.writeULEB128(self.code.writer(), offset);
+                    },
+                    .immediate => |val| {
+                        switch (ty.tag()) {
+                            .u32 => {
+                                try self.code.append(0x41);
+                                try leb128.writeILEB128(self.code.writer(), @intCast(u32, val));
+                            },
+                            .u64 => {
+                                try self.code.append(0x42); // i64.const
+                                try leb128.writeILEB128(self.code.writer(), val);
+                            },
+                            else => return self.fail(
+                                src,
+                                "TODO implement immediate genSetStack for type: {}",
+                                .{@tagName(self.ty.tag())},
+                            ),
+                        }
+                    },
+                    else => return self.fail(src, "TODO implement genSetStack for Wasm for {}", .{@tagName(mcv)}),
+                },
+                else => return self.fail(src, "TODO implement genSetStack for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -3494,6 +3517,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         else => return self.fail(src, "TODO implement function parameters for {} on arm", .{cc}),
                     }
                 },
+                .wasm32 => {
+                    switch (cc) {
+                        .Naked => {
+                            assert(result.args.len == 0);
+                            result.return_value = .{ .unreach = {} };
+                            result.stack_byte_count = 0;
+                            result.stack_align = 1;
+                            return result;
+                        },
+                        .Unspecified => {
+                            // for wasm, all parameters are available from the stack at the parameter's index
+                            for (param_types) |ty, index| {
+                                result.args[index] = .{ .stack_offset = @intCast(u32, index) };
+                            }
+                            result.stack_byte_count = @intCast(u32, 4 * param_types.len);
+                            result.stack_align = 4;
+                        },
+                        else => return self.fail(src, "TODO implement function parameters for {} on wasm", .{cc}),
+                    }
+                },
                 else => if (param_types.len != 0)
                     return self.fail(src, "TODO implement codegen parameters for {}", .{self.target.cpu.arch}),
             }
@@ -3521,6 +3564,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         } else {
                             return self.fail(src, "TODO support more return types for ARM backend", .{});
                         }
+                    },
+                    else => return self.fail(src, "TODO implement function return values for {}", .{cc}),
+                },
+                .wasm32 => switch (cc) {
+                    .Naked => unreachable,
+                    .Unspecified => {
+                        // for wasm, the return value is the last value that exists on the stack
+                        // TODO: This is a placeholder
+                        result.return_value = .{ .stack_offset = 0 };
                     },
                     else => return self.fail(src, "TODO implement function return values for {}", .{cc}),
                 },
@@ -3553,7 +3605,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .spu_2 => @import("codegen/spu-mk2.zig"),
             .arm, .armeb => @import("codegen/arm.zig"),
             .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig"),
-            .wasm32, .wasm64 => @import("codegen/wasm.zig"),
+            .wasm32 => @import("codegen/wasm.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,
