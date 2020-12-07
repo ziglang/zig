@@ -688,11 +688,15 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--stack")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
-                        stack_size_override = parseAnyBaseInt(args[i]);
+                        stack_size_override = std.fmt.parseUnsigned(u64, args[i], 0) catch |err| {
+                            fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "--image-base")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
-                        image_base_override = parseAnyBaseInt(args[i]);
+                        image_base_override = std.fmt.parseUnsigned(u64, args[i], 0) catch |err| {
+                            fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "--name")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -1225,7 +1229,7 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    version.major = std.fmt.parseInt(u32, linker_args.items[i], 10) catch |err| {
+                    version.major = std.fmt.parseUnsigned(u32, linker_args.items[i], 10) catch |err| {
                         fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
@@ -1234,7 +1238,7 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    version.minor = std.fmt.parseInt(u32, linker_args.items[i], 10) catch |err| {
+                    version.minor = std.fmt.parseUnsigned(u32, linker_args.items[i], 10) catch |err| {
                         fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
@@ -1243,13 +1247,17 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    stack_size_override = parseAnyBaseInt(linker_args.items[i]);
+                    stack_size_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
+                        fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                    };
                 } else if (mem.eql(u8, arg, "--image-base")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    image_base_override = parseAnyBaseInt(linker_args.items[i]);
+                    image_base_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
+                        fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                    };
                 } else {
                     warn("unsupported linker arg: {}", .{arg});
                 }
@@ -3187,19 +3195,4 @@ pub fn cleanExit() void {
     } else {
         process.exit(0);
     }
-}
-
-fn parseAnyBaseInt(prefixed_bytes: []const u8) u64 {
-    const base: u8 = if (mem.startsWith(u8, prefixed_bytes, "0x"))
-        16
-    else if (mem.startsWith(u8, prefixed_bytes, "0o"))
-        8
-    else if (mem.startsWith(u8, prefixed_bytes, "0b"))
-        2
-    else
-        @as(u8, 10);
-    const bytes = if (base == 10) prefixed_bytes else prefixed_bytes[2..];
-    return std.fmt.parseInt(u64, bytes, base) catch |err| {
-        fatal("unable to parse '{}': {}", .{ prefixed_bytes, @errorName(err) });
-    };
 }
