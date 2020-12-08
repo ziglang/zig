@@ -420,6 +420,15 @@ const Emit = union(enum) {
     }
 };
 
+fn optionalStringEnvVar(arena: *Allocator, name: []const u8) !?[]const u8 {
+    if (std.process.getEnvVarOwned(arena, name)) |value| {
+        return value;
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => return null,
+        else => |e| return e,
+    }
+}
+
 fn buildOutputType(
     gpa: *Allocator,
     arena: *Allocator,
@@ -499,17 +508,14 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
-    var libc_paths_file: ?[]const u8 = std.process.getEnvVarOwned(arena, "ZIG_LIBC") catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => null,
-        else => |e| return e,
-    };
+    var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
     var test_name_prefix: ?[]const u8 = null;
-    var override_local_cache_dir: ?[]const u8 = null;
-    var override_global_cache_dir: ?[]const u8 = null;
-    var override_lib_dir: ?[]const u8 = null;
+    var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
+    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+    var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
