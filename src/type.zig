@@ -38,7 +38,6 @@ pub const Type = extern union {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
-            .c_longdouble,
             .int_signed,
             .int_unsigned,
             => return .Int,
@@ -47,6 +46,7 @@ pub const Type = extern union {
             .f32,
             .f64,
             .f128,
+            .c_longdouble,
             => return .Float,
 
             .c_void => return .Opaque,
