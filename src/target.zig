@@ -324,8 +324,6 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "dl"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "util"))
-            return true;
     }
 
     if (target.os.tag.isDarwin() and eqlIgnoreCase(ignore_case, name, "System"))
