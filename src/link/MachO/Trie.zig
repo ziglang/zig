@@ -34,6 +34,7 @@ const std = @import("std");
 const mem = std.mem;
 const leb = std.leb;
 const log = std.log.scoped(.link);
+const macho = std.macho;
 const testing = std.testing;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
@@ -61,10 +62,14 @@ pub const Edge = struct {
 
 pub const Node = struct {
     base: *Trie,
-    /// Export flags associated with this exported symbol (if any).
-    export_flags: ?u64 = null,
-    /// VM address offset wrt to the section this symbol is defined against (if any).
-    vmaddr_offset: ?u64 = null,
+    /// Terminal info associated with this node.
+    /// If this node is not a terminal node, info is null.
+    terminal_info: ?struct {
+        /// Export flags associated with this exported symbol.
+        export_flags: u64,
+        /// VM address offset wrt to the section this symbol is defined against.
+        vmaddr_offset: u64,
+    } = null,
     /// Offset of this node in the trie output byte stream.
     trie_offset: ?usize = null,
     /// List of all edges originating from this node.
@@ -125,9 +130,15 @@ pub const Node = struct {
         var reader = stream.reader();
         const node_size = try leb.readULEB128(u64, reader);
         if (node_size > 0) {
-            self.export_flags = try leb.readULEB128(u64, reader);
-            // TODO Parse flags.
-            self.vmaddr_offset = try leb.readULEB128(u64, reader);
+            const export_flags = try leb.readULEB128(u64, reader);
+            // TODO Parse special flags.
+            assert(export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
+                export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
+            const vmaddr_offset = try leb.readULEB128(u64, reader);
+            self.terminal_info = .{
+                .export_flags = export_flags,
+                .vmaddr_offset = vmaddr_offset,
+            };
         }
         const nedges = try reader.readByte();
         self.base.node_count += nedges;
@@ -162,13 +173,16 @@ pub const Node = struct {
     /// In case this is not upheld, this method will panic.
     fn writeULEB128Mem(self: Node, buffer: *std.ArrayList(u8)) !void {
         assert(self.trie_offset != null); // You need to call updateOffset first.
-        if (self.vmaddr_offset) |offset| {
+        if (self.terminal_info) |info| {
             // Terminal node info: encode export flags and vmaddr offset of this symbol.
             var info_buf_len: usize = 0;
             var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
             var info_stream = std.io.fixedBufferStream(&info_buf);
-            try leb.writeULEB128(info_stream.writer(), self.export_flags.?);
-            try leb.writeULEB128(info_stream.writer(), offset);
+            // TODO Implement for special flags.
+            assert(info.export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
+                info.export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
+            try leb.writeULEB128(info_stream.writer(), info.export_flags);
+            try leb.writeULEB128(info_stream.writer(), info.vmaddr_offset);
 
             // Encode the size of the terminal node info.
             var size_buf: [@sizeOf(u64)]u8 = undefined;
@@ -208,9 +222,9 @@ pub const Node = struct {
     /// Updates offset of this node in the output byte stream.
     fn updateOffset(self: *Node, offset: usize) UpdateResult {
         var node_size: usize = 0;
-        if (self.vmaddr_offset) |vmaddr| {
-            node_size += sizeULEB128Mem(self.export_flags.?);
-            node_size += sizeULEB128Mem(vmaddr);
+        if (self.terminal_info) |info| {
+            node_size += sizeULEB128Mem(info.export_flags);
+            node_size += sizeULEB128Mem(info.vmaddr_offset);
             node_size += sizeULEB128Mem(node_size);
         } else {
             node_size += 1; // 0x0 for non-terminal nodes
@@ -263,8 +277,10 @@ pub fn put(self: *Trie, symbol: Symbol) !void {
         self.root = .{ .base = self };
     }
     const node = try self.root.?.put(symbol.name);
-    node.vmaddr_offset = symbol.vmaddr_offset;
-    node.export_flags = symbol.export_flags;
+    node.terminal_info = .{
+        .vmaddr_offset = symbol.vmaddr_offset,
+        .export_flags = symbol.export_flags,
+    };
 }
 
 const FromByteStreamError = error{
