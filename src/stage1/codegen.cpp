@@ -8657,6 +8657,9 @@ static void define_builtin_types(CodeGen *g) {
             // It's either a float or a double, depending on a toolchain switch
             add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
             break;
+        case ZigLLVM_msp430:
+            add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
         default:
             zig_panic("TODO implement mapping for c_longdouble");
     }
