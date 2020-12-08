@@ -54,7 +54,8 @@ pub fn build(b: *Builder) !void {
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
-    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse is_stage1;
+    const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
+    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
     b.installDirectory(InstallDirectoryOptions{
@@ -89,6 +90,7 @@ pub fn build(b: *Builder) !void {
     exe.addBuildOption(bool, "skip_non_native", skip_non_native);
     exe.addBuildOption(bool, "have_llvm", enable_llvm);
     if (enable_llvm) {
+        const cmake_cfg = if (static_llvm) null else findAndParseConfigH(b, config_h_path_option);
         if (is_stage1) {
             exe.addIncludeDir("src");
             exe.addIncludeDir("deps/SoftFloat-3e/source/include");
@@ -96,6 +98,7 @@ pub fn build(b: *Builder) !void {
             // of being built by cmake. But when built by zig it's gonna get a compiler_rt so that
             // is pointless.
             exe.addPackagePath("compiler_rt", "src/empty.zig");
+            exe.defineCMacro("ZIG_LINK_MODE=Static");
 
             const softfloat = b.addStaticLibrary("softfloat", null);
             softfloat.setBuildMode(.ReleaseFast);
@@ -121,31 +124,91 @@ pub fn build(b: *Builder) !void {
             };
             exe.addCSourceFiles(&stage1_sources, &exe_cflags);
             exe.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
-            // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
-            // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
-            // unavailable when LLVM is compiled in Release mode.
-            const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
-            exe.addCSourceFiles(&zig_cpp_sources, &zig_cpp_cflags);
+            if (cmake_cfg == null) {
+                // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
+                // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
+                // unavailable when LLVM is compiled in Release mode.
+                const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
+                exe.addCSourceFiles(&zig_cpp_sources, &zig_cpp_cflags);
+            }
         }
+        if (cmake_cfg) |cfg| {
+            // Inside this code path, we have to coordinate with system packaged LLVM, Clang, and LLD.
+            // That means we also have to rely on stage1 compiled c++ files. We parse config.h to find
+            // the information passed on to us from cmake.
+            if (cfg.cmake_prefix_path.len > 0) {
+                b.addSearchPrefix(cfg.cmake_prefix_path);
+            }
+            exe.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
+                cfg.cmake_binary_dir,
+                "zigcpp",
+                b.fmt("{s}{s}{s}", .{ exe.target.libPrefix(), "zigcpp", exe.target.staticLibSuffix() }),
+            }) catch unreachable);
+            assert(cfg.lld_include_dir.len != 0);
+            exe.addIncludeDir(cfg.lld_include_dir);
+            addCMakeLibraryList(exe, cfg.clang_libraries);
+            addCMakeLibraryList(exe, cfg.lld_libraries);
+            addCMakeLibraryList(exe, cfg.llvm_libraries);
 
-        for (clang_libs) |lib_name| {
-            exe.linkSystemLibrary(lib_name);
-        }
+            const need_cpp_includes = tracy != null;
 
-        for (lld_libs) |lib_name| {
-            exe.linkSystemLibrary(lib_name);
-        }
+            // System -lc++ must be used because in this code path we are attempting to link
+            // against system-provided LLVM, Clang, LLD.
+            if (exe.target.getOsTag() == .linux) {
+                // First we try to static link against gcc libstdc++. If that doesn't work,
+                // we fall back to -lc++ and cross our fingers.
+                addCxxKnownPath(b, cfg, exe, "libstdc++.a", "", need_cpp_includes) catch |err| switch (err) {
+                    error.RequiredLibraryNotFound => {
+                        exe.linkSystemLibrary("c++");
+                    },
+                    else => |e| return e,
+                };
 
-        for (llvm_libs) |lib_name| {
-            exe.linkSystemLibrary(lib_name);
-        }
+                exe.linkSystemLibrary("pthread");
+            } else if (exe.target.isFreeBSD()) {
+                try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
+                exe.linkSystemLibrary("pthread");
+            } else if (exe.target.isDarwin()) {
+                if (addCxxKnownPath(b, cfg, exe, "libgcc_eh.a", "", need_cpp_includes)) {
+                    // Compiler is GCC.
+                    try addCxxKnownPath(b, cfg, exe, "libstdc++.a", null, need_cpp_includes);
+                    exe.linkSystemLibrary("pthread");
+                    // TODO LLD cannot perform this link.
+                    // Set ZIG_SYSTEM_LINKER_HACK env var to use system linker ld instead.
+                    // See https://github.com/ziglang/zig/issues/1535
+                } else |err| switch (err) {
+                    error.RequiredLibraryNotFound => {
+                        // System compiler, not gcc.
+                        exe.linkSystemLibrary("c++");
+                    },
+                    else => |e| return e,
+                }
+            }
 
-        // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
-        exe.linkSystemLibrary("c++");
+            if (cfg.dia_guids_lib.len != 0) {
+                exe.addObjectFile(cfg.dia_guids_lib);
+            }
+        } else {
+            // Here we are -Denable-llvm but no cmake integration.
+            for (clang_libs) |lib_name| {
+                exe.linkSystemLibrary(lib_name);
+            }
 
-        if (target.getOs().tag == .windows) {
-            exe.linkSystemLibrary("version");
-            exe.linkSystemLibrary("uuid");
+            for (lld_libs) |lib_name| {
+                exe.linkSystemLibrary(lib_name);
+            }
+
+            for (llvm_libs) |lib_name| {
+                exe.linkSystemLibrary(lib_name);
+            }
+
+            // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
+            exe.linkSystemLibrary("c++");
+
+            if (target.getOs().tag == .windows) {
+                exe.linkSystemLibrary("version");
+                exe.linkSystemLibrary("uuid");
+            }
         }
     }
     if (link_libc) {
@@ -279,6 +342,158 @@ pub fn build(b: *Builder) !void {
         test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     }
     test_step.dependOn(docs_step);
+}
+
+fn addCxxKnownPath(
+    b: *Builder,
+    ctx: CMakeConfig,
+    exe: *std.build.LibExeObjStep,
+    objname: []const u8,
+    errtxt: ?[]const u8,
+    need_cpp_includes: bool,
+) !void {
+    const path_padded = try b.exec(&[_][]const u8{
+        ctx.cxx_compiler,
+        b.fmt("-print-file-name={}", .{objname}),
+    });
+    const path_unpadded = mem.tokenize(path_padded, "\r\n").next().?;
+    if (mem.eql(u8, path_unpadded, objname)) {
+        if (errtxt) |msg| {
+            warn("{}", .{msg});
+        } else {
+            warn("Unable to determine path to {}\n", .{objname});
+        }
+        return error.RequiredLibraryNotFound;
+    }
+    exe.addObjectFile(path_unpadded);
+
+    // TODO a way to integrate with system c++ include files here
+    // cc -E -Wp,-v -xc++ /dev/null
+    if (need_cpp_includes) {
+        // I used these temporarily for testing something but we obviously need a
+        // more general purpose solution here.
+        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0");
+        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0/x86_64-unknown-linux-gnu");
+        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0/backward");
+    }
+}
+
+fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
+    var it = mem.tokenize(list, ";");
+    while (it.next()) |lib| {
+        if (mem.startsWith(u8, lib, "-l")) {
+            exe.linkSystemLibrary(lib["-l".len..]);
+        } else {
+            exe.addObjectFile(lib);
+        }
+    }
+}
+
+const CMakeConfig = struct {
+    cmake_binary_dir: []const u8,
+    cmake_prefix_path: []const u8,
+    cxx_compiler: []const u8,
+    lld_include_dir: []const u8,
+    lld_libraries: []const u8,
+    clang_libraries: []const u8,
+    llvm_libraries: []const u8,
+    dia_guids_lib: []const u8,
+};
+
+const max_config_h_bytes = 1 * 1024 * 1024;
+
+fn findAndParseConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?CMakeConfig {
+    const config_h_text: []const u8 = if (config_h_path_option) |config_h_path| blk: {
+        break :blk fs.cwd().readFileAlloc(b.allocator, config_h_path, max_config_h_bytes) catch unreachable;
+    } else blk: {
+        // TODO this should stop looking for config.h once it detects we hit the
+        // zig source root directory.
+        var check_dir = fs.path.dirname(b.zig_exe).?;
+        while (true) {
+            var dir = fs.cwd().openDir(check_dir, .{}) catch unreachable;
+            defer dir.close();
+
+            break :blk dir.readFileAlloc(b.allocator, "config.h", max_config_h_bytes) catch |err| switch (err) {
+                error.FileNotFound => {
+                    const new_check_dir = fs.path.dirname(check_dir);
+                    if (new_check_dir == null or mem.eql(u8, new_check_dir.?, check_dir)) {
+                        return null;
+                    }
+                    check_dir = new_check_dir.?;
+                    continue;
+                },
+                else => unreachable,
+            };
+        } else unreachable; // TODO should not need `else unreachable`.
+    };
+
+    var ctx: CMakeConfig = .{
+        .cmake_binary_dir = undefined,
+        .cmake_prefix_path = undefined,
+        .cxx_compiler = undefined,
+        .lld_include_dir = undefined,
+        .lld_libraries = undefined,
+        .clang_libraries = undefined,
+        .llvm_libraries = undefined,
+        .dia_guids_lib = undefined,
+    };
+
+    const mappings = [_]struct { prefix: []const u8, field: []const u8 }{
+        .{
+            .prefix = "#define ZIG_CMAKE_BINARY_DIR ",
+            .field = "cmake_binary_dir",
+        },
+        .{
+            .prefix = "#define ZIG_CMAKE_PREFIX_PATH ",
+            .field = "cmake_prefix_path",
+        },
+        .{
+            .prefix = "#define ZIG_CXX_COMPILER ",
+            .field = "cxx_compiler",
+        },
+        .{
+            .prefix = "#define ZIG_LLD_INCLUDE_PATH ",
+            .field = "lld_include_dir",
+        },
+        .{
+            .prefix = "#define ZIG_LLD_LIBRARIES ",
+            .field = "lld_libraries",
+        },
+        .{
+            .prefix = "#define ZIG_CLANG_LIBRARIES ",
+            .field = "clang_libraries",
+        },
+        .{
+            .prefix = "#define ZIG_LLVM_LIBRARIES ",
+            .field = "llvm_libraries",
+        },
+        .{
+            .prefix = "#define ZIG_DIA_GUIDS_LIB ",
+            .field = "dia_guids_lib",
+        },
+    };
+
+    var lines_it = mem.tokenize(config_h_text, "\r\n");
+    while (lines_it.next()) |line| {
+        inline for (mappings) |mapping| {
+            if (mem.startsWith(u8, line, mapping.prefix)) {
+                var it = mem.split(line, "\"");
+                _ = it.next().?; // skip the stuff before the quote
+                const quoted = it.next().?; // the stuff inside the quote
+                @field(ctx, mapping.field) = toNativePathSep(b, quoted);
+            }
+        }
+    }
+    return ctx;
+}
+
+fn toNativePathSep(b: *Builder, s: []const u8) []u8 {
+    const duplicated = mem.dupe(b.allocator, u8, s) catch unreachable;
+    for (duplicated) |*byte| switch (byte.*) {
+        '/' => byte.* = fs.path.sep,
+        else => {},
+    };
+    return duplicated;
 }
 
 const softfloat_sources = [_][]const u8{
