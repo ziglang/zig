@@ -13,6 +13,7 @@ pub const RunTranslatedCContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
+    target: std.zig.CrossTarget,
 
     const TestCase = struct {
         name: []const u8,
@@ -93,6 +94,7 @@ pub const RunTranslatedCContext = struct {
         });
         translate_c.step.name = b.fmt("{} translate-c", .{annotated_case_name});
         const exe = translate_c.addExecutable();
+        exe.setTarget(self.target);
         exe.step.name = b.fmt("{} build-exe", .{annotated_case_name});
         exe.linkLibC();
         const run = exe.run();
