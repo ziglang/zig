@@ -8,7 +8,6 @@
 #ifndef ZIG_HEAP_HPP
 #define ZIG_HEAP_HPP
 
-#include "config.h"
 #include "util_base.hpp"
 #include "mem.hpp"
 

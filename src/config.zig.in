@@ -1,5 +1,11 @@
 pub const have_llvm = true;
-pub const version: []const u8 = "@ZIG_VERSION@";
+pub const version: [:0]const u8 = "@ZIG_VERSION@";
+pub const semver: @import("std").SemanticVersion = .{
+    .major = @ZIG_VERSION_MAJOR@,
+    .minor = @ZIG_VERSION_MINOR@,
+    .patch = @ZIG_VERSION_PATCH@,
+    .build = "@ZIG_GIT_REV@",
+};
 pub const log_scopes: []const []const u8 = &[_][]const u8{};
 pub const zir_dumps: []const []const u8 = &[_][]const u8{};
 pub const enable_tracy = false;

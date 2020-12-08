@@ -252,6 +252,20 @@ const Error = extern enum {
 };
 
 // ABI warning
+export fn stage2_version_string() [*:0]const u8 {
+    return build_options.version;
+}
+
+// ABI warning
+export fn stage2_version() Stage2SemVer {
+    return .{
+        .major = build_options.semver.major,
+        .minor = build_options.semver.minor,
+        .patch = build_options.semver.patch,
+    };
+}
+
+// ABI warning
 export fn stage2_attach_segfault_handler() void {
     if (std.debug.runtime_safety and std.debug.have_segfault_handling_support) {
         std.debug.attachSegfaultHandler();

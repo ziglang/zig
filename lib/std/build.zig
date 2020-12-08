@@ -1150,6 +1150,11 @@ const CSourceFile = struct {
     args: []const []const u8,
 };
 
+const CSourceFiles = struct {
+    files: []const []const u8,
+    flags: []const []const u8,
+};
+
 fn isLibCLibrary(name: []const u8) bool {
     const libc_libraries = [_][]const u8{ "c", "m", "dl", "rt", "pthread" };
     for (libc_libraries) |libc_lib_name| {
@@ -1297,6 +1302,7 @@ pub const LibExeObjStep = struct {
         SystemLib: []const u8,
         AssemblyFile: FileSource,
         CSourceFile: *CSourceFile,
+        CSourceFiles: *CSourceFiles,
     };
 
     const IncludeDir = union(enum) {
@@ -1670,9 +1676,25 @@ pub const LibExeObjStep = struct {
         self.filter = text;
     }
 
-    pub fn addCSourceFile(self: *LibExeObjStep, file: []const u8, args: []const []const u8) void {
+    /// Handy when you have many C/C++ source files and want them all to have the same flags.
+    pub fn addCSourceFiles(self: *LibExeObjStep, files: []const []const u8, flags: []const []const u8) void {
+        const c_source_files = self.builder.allocator.create(CSourceFiles) catch unreachable;
+
+        const flags_copy = self.builder.allocator.alloc([]u8, flags.len) catch unreachable;
+        for (flags) |flag, i| {
+            flags_copy[i] = self.builder.dupe(flag);
+        }
+
+        c_source_files.* = .{
+            .files = files,
+            .flags = flags_copy,
+        };
+        self.link_objects.append(LinkObject{ .CSourceFiles = c_source_files }) catch unreachable;
+    }
+
+    pub fn addCSourceFile(self: *LibExeObjStep, file: []const u8, flags: []const []const u8) void {
         self.addCSourceFileSource(.{
-            .args = args,
+            .args = flags,
             .source = .{ .path = file },
         });
     }
@@ -1795,6 +1817,10 @@ pub const LibExeObjStep = struct {
                 out.writeAll("};\n") catch unreachable;
                 return;
             },
+            [:0]const u8 => {
+                out.print("pub const {z}: [:0]const u8 = \"{Z}\";\n", .{ name, value }) catch unreachable;
+                return;
+            },
             []const u8 => {
                 out.print("pub const {z}: []const u8 = \"{Z}\";\n", .{ name, value }) catch unreachable;
                 return;
@@ -1807,6 +1833,22 @@ pub const LibExeObjStep = struct {
                     out.writeAll("null;\n") catch unreachable;
                 }
                 return;
+            },
+            std.builtin.Version => {
+                out.print(
+                    \\pub const {z}: @import("builtin").Version = .{{
+                    \\    .major = {d},
+                    \\    .minor = {d},
+                    \\    .patch = {d},
+                    \\}};
+                    \\
+                , .{
+                    name,
+
+                    value.major,
+                    value.minor,
+                    value.patch,
+                }) catch unreachable;
             },
             std.SemanticVersion => {
                 out.print(
@@ -2015,8 +2057,7 @@ pub const LibExeObjStep = struct {
                     },
                 },
                 .SystemLib => |name| {
-                    try zig_args.append("--library");
-                    try zig_args.append(name);
+                    try zig_args.append(builder.fmt("-l{s}", .{name}));
                 },
                 .AssemblyFile => |asm_file| {
                     if (prev_has_extra_flags) {
@@ -2026,6 +2067,7 @@ pub const LibExeObjStep = struct {
                     }
                     try zig_args.append(asm_file.getPath(builder));
                 },
+
                 .CSourceFile => |c_source_file| {
                     if (c_source_file.args.len == 0) {
                         if (prev_has_extra_flags) {
@@ -2041,6 +2083,25 @@ pub const LibExeObjStep = struct {
                         try zig_args.append("--");
                     }
                     try zig_args.append(c_source_file.source.getPath(builder));
+                },
+
+                .CSourceFiles => |c_source_files| {
+                    if (c_source_files.flags.len == 0) {
+                        if (prev_has_extra_flags) {
+                            try zig_args.append("-cflags");
+                            try zig_args.append("--");
+                            prev_has_extra_flags = false;
+                        }
+                    } else {
+                        try zig_args.append("-cflags");
+                        for (c_source_files.flags) |flag| {
+                            try zig_args.append(flag);
+                        }
+                        try zig_args.append("--");
+                    }
+                    for (c_source_files.files) |file| {
+                        try zig_args.append(builder.pathFromRoot(file));
+                    }
                 },
             }
         }
@@ -2302,6 +2363,17 @@ pub const LibExeObjStep = struct {
                 zig_args.append("-framework") catch unreachable;
                 zig_args.append(entry.key) catch unreachable;
             }
+        }
+
+        for (builder.search_prefixes.items) |search_prefix| {
+            try zig_args.append("-L");
+            try zig_args.append(try fs.path.join(builder.allocator, &[_][]const u8{
+                search_prefix, "lib",
+            }));
+            try zig_args.append("-isystem");
+            try zig_args.append(try fs.path.join(builder.allocator, &[_][]const u8{
+                search_prefix, "include",
+            }));
         }
 
         if (self.valgrind_support) |valgrind_support| {

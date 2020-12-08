@@ -8,7 +8,7 @@
 #ifndef ZIG_ZIG_CLANG_H
 #define ZIG_ZIG_CLANG_H
 
-#include "stage2.h"
+#include "stage1/stage2.h"
 #include <inttypes.h>
 #include <stdbool.h>
 
