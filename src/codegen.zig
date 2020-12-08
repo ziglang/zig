@@ -665,13 +665,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             },
                         }
 
+                        // save the offset so we know where code section starts
                         const offset = @intCast(u32, self.code.items.len);
-                        self.mod_fn.owner_decl.link.wasm.code_offset = offset;
+                        const decl = self.mod_fn.owner_decl;
+                        decl.link.wasm.code_offset = offset;
 
                         // Reserve space to write the size after generating the code.
                         try self.code.resize(offset + 5);
 
-                        // TODO: copy size of locals logic here from other branch
+                        // TODO: calculate the locals and its types
                         try leb128.writeULEB128(writer, @as(u32, 0));
 
                         try self.dbgSetPrologueEnd();
@@ -683,7 +685,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         // Fill in the size of the generated code to the reserved space at the
                         // beginning of the buffer.
-                        const size = self.code.items.len - offset - 5;
+                        const size = self.code.items.len - offset - 5 + decl.fn_link.wasm.idx_refs.items.len * 5;
                         leb128.writeUnsignedFixed(5, self.code.items[offset .. offset + 5][0..5], @intCast(u32, size));
                     } else {
                         try self.dbgSetPrologueEnd();
@@ -1939,8 +1941,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // emit .call opcode
                         try self.code.append(0x10);
 
-                        // emite func idx to be called
-                        try leb128.writeULEB128(self.code.writer(), func.owner_decl.link.wasm.symbol_index);
+                        // save current decl's code offset into target's idx_refs
+                        // The correct function idx will then be inserted in link/Wasm.zig
+                        try self.mod_fn.owner_decl.fn_link.wasm.idx_refs.append(self.gpa, .{
+                            .offset = @intCast(u32, self.code.items.len),
+                            .decl = func.owner_decl,
+                        });
                     } else {
                         return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                     }
@@ -3571,7 +3577,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .Naked => unreachable,
                     .Unspecified => {
                         // for wasm, the return value is the last value that exists on the stack
-                        // TODO: This is a placeholder
                         result.return_value = .{ .stack_offset = 0 };
                     },
                     else => return self.fail(src, "TODO implement function return values for {}", .{cc}),
