@@ -725,43 +725,46 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
             // At this stage, LLD has done its job. It is time to patch the resultant
             // binaries up!
-            const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
-            try self.parseFromFile(out_file);
-            if (self.code_signature_cmd_index == null) {
-                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                const text_section = text_segment.sections.items[self.text_section_index.?];
-                const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                const needed_size = @sizeOf(macho.linkedit_data_command);
-                if (needed_size + after_last_cmd_offset > text_section.offset) {
-                    // TODO We are in the position to be able to increase the padding by moving all sections
-                    // by the required offset, but this requires a little bit more thinking and bookkeeping.
-                    // For now, return an error informing the user of the problem.
-                    std.log.err("Not enough padding between load commands and start of __text section:\n", .{});
-                    std.log.err("Offset after last load command: 0x{x}\n", .{after_last_cmd_offset});
-                    std.log.err("Beginning of __text section: 0x{x}\n", .{text_section.offset});
-                    std.log.err("Needed size: 0x{x}\n", .{needed_size});
-                    return error.NotEnoughPadding;
+            // This is currently needed only for aarch64 targets.
+            if (target.cpu.arch == .aarch64) {
+                const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
+                try self.parseFromFile(out_file);
+                if (self.code_signature_cmd_index == null) {
+                    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                    const text_section = text_segment.sections.items[self.text_section_index.?];
+                    const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
+                    const needed_size = @sizeOf(macho.linkedit_data_command);
+                    if (needed_size + after_last_cmd_offset > text_section.offset) {
+                        // TODO We are in the position to be able to increase the padding by moving all sections
+                        // by the required offset, but this requires a little bit more thinking and bookkeeping.
+                        // For now, return an error informing the user of the problem.
+                        std.log.err("Not enough padding between load commands and start of __text section:\n", .{});
+                        std.log.err("Offset after last load command: 0x{x}\n", .{after_last_cmd_offset});
+                        std.log.err("Beginning of __text section: 0x{x}\n", .{text_section.offset});
+                        std.log.err("Needed size: 0x{x}\n", .{needed_size});
+                        return error.NotEnoughPadding;
+                    }
+                    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+                    // TODO This is clunky.
+                    self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
+                    // Add code signature load command
+                    self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
+                    try self.load_commands.append(self.base.allocator, .{
+                        .LinkeditData = .{
+                            .cmd = macho.LC_CODE_SIGNATURE,
+                            .cmdsize = @sizeOf(macho.linkedit_data_command),
+                            .dataoff = 0,
+                            .datasize = 0,
+                        },
+                    });
+                    // Pad out space for code signature
+                    try self.writeCodeSignaturePadding();
+                    // Write updated load commands and the header
+                    try self.writeLoadCommands();
+                    try self.writeHeader();
+                    // Generate adhoc code signature
+                    try self.writeCodeSignature();
                 }
-                const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-                // TODO This is clunky.
-                self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
-                // Add code signature load command
-                self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
-                try self.load_commands.append(self.base.allocator, .{
-                    .LinkeditData = .{
-                        .cmd = macho.LC_CODE_SIGNATURE,
-                        .cmdsize = @sizeOf(macho.linkedit_data_command),
-                        .dataoff = 0,
-                        .datasize = 0,
-                    },
-                });
-                // Pad out space for code signature
-                try self.writeCodeSignaturePadding();
-                // Write updated load commands and the header
-                try self.writeLoadCommands();
-                try self.writeHeader();
-                // Generate adhoc code signature
-                try self.writeCodeSignature();
             }
         }
     }
