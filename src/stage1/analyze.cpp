@@ -1880,7 +1880,7 @@ ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
 }
 
 // Sync this with get_llvm_cc in codegen.cpp
-static Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_node, CallingConvention cc) {
+Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_node, CallingConvention cc) {
     Error ret = ErrorNone;
     const char *allowed_platforms = nullptr;
     switch (cc) {
@@ -2065,8 +2065,10 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         fn_entry->align_bytes = fn_type_id.alignment;
     }
 
-    if ((err = emit_error_unless_callconv_allowed_for_target(g, proto_node->data.fn_proto.callconv_expr, cc)))
-        return g->builtin_types.entry_invalid;
+    if (proto_node->data.fn_proto.callconv_expr != nullptr) {
+        if ((err = emit_error_unless_callconv_allowed_for_target(g, proto_node->data.fn_proto.callconv_expr, cc)))
+            return g->builtin_types.entry_invalid;
+    }
 
     if (fn_proto->return_anytype_token != nullptr) {
         if (!calling_convention_allows_zig_types(fn_type_id.cc)) {

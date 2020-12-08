@@ -32796,6 +32796,11 @@ static ZigType *ir_resolve_lazy_fn_type(IrAnalyze *ira, AstNode *source_node, La
     FnTypeId fn_type_id = {0};
     init_fn_type_id(&fn_type_id, proto_node, lazy_fn_type->cc, proto_node->data.fn_proto.params.length);
 
+    if (proto_node->data.fn_proto.callconv_expr != nullptr) {
+        if ((err = emit_error_unless_callconv_allowed_for_target(ira->codegen, proto_node->data.fn_proto.callconv_expr, lazy_fn_type->cc)))
+            return nullptr;
+    }
+
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(fn_type_id.next_param_index);
         assert(param_node->type == NodeTypeParamDecl);
