@@ -44,20 +44,23 @@ pub const Symbol = struct {
     export_flags: u64,
 };
 
-const Edge = struct {
+pub const Edge = struct {
     from: *Node,
     to: *Node,
-    label: []const u8,
+    label: []u8,
 
-    fn deinit(self: *Edge, alloc: *Allocator) void {
-        self.to.deinit(alloc);
-        alloc.destroy(self.to);
+    fn deinit(self: *Edge, allocator: *Allocator) void {
+        self.to.deinit();
+        allocator.destroy(self.to);
+        allocator.free(self.label);
         self.from = undefined;
         self.to = undefined;
+        self.label = undefined;
     }
 };
 
-const Node = struct {
+pub const Node = struct {
+    base: *Trie,
     /// Export flags associated with this exported symbol (if any).
     export_flags: ?u64 = null,
     /// VM address offset wrt to the section this symbol is defined against (if any).
@@ -67,73 +70,97 @@ const Node = struct {
     /// List of all edges originating from this node.
     edges: std.ArrayListUnmanaged(Edge) = .{},
 
-    fn deinit(self: *Node, alloc: *Allocator) void {
+    fn deinit(self: *Node) void {
         for (self.edges.items) |*edge| {
-            edge.deinit(alloc);
+            edge.deinit(self.base.allocator);
         }
-        self.edges.deinit(alloc);
+        self.edges.deinit(self.base.allocator);
     }
 
-    const PutResult = struct {
-        /// Node reached at this stage of `put` op.
-        node: *Node,
-        /// Count of newly inserted nodes at this stage of `put` op.
-        node_count: usize,
-    };
-
     /// Inserts a new node starting from `self`.
-    fn put(self: *Node, alloc: *Allocator, label: []const u8, node_count: usize) !PutResult {
-        var curr_node_count = node_count;
+    fn put(self: *Node, label: []const u8) !*Node {
         // Check for match with edges from this node.
         for (self.edges.items) |*edge| {
-            const match = mem.indexOfDiff(u8, edge.label, label) orelse return PutResult{
-                .node = edge.to,
-                .node_count = curr_node_count,
-            };
+            const match = mem.indexOfDiff(u8, edge.label, label) orelse return edge.to;
             if (match == 0) continue;
-            if (match == edge.label.len) return edge.to.put(alloc, label[match..], curr_node_count);
+            if (match == edge.label.len) return edge.to.put(label[match..]);
 
             // Found a match, need to splice up nodes.
             // From: A -> B
             // To: A -> C -> B
-            const mid = try alloc.create(Node);
-            mid.* = .{};
-            const to_label = edge.label;
+            const mid = try self.base.allocator.create(Node);
+            mid.* = .{ .base = self.base };
+            var to_label = try self.base.allocator.dupe(u8, edge.label[match..]);
+            self.base.allocator.free(edge.label);
             const to_node = edge.to;
             edge.to = mid;
-            edge.label = label[0..match];
-            curr_node_count += 1;
+            edge.label = try self.base.allocator.dupe(u8, label[0..match]);
+            self.base.node_count += 1;
 
-            try mid.edges.append(alloc, .{
+            try mid.edges.append(self.base.allocator, .{
                 .from = mid,
                 .to = to_node,
-                .label = to_label[match..],
+                .label = to_label,
             });
 
-            if (match == label.len) {
-                return PutResult{ .node = to_node, .node_count = curr_node_count };
-            } else {
-                return mid.put(alloc, label[match..], curr_node_count);
-            }
+            return if (match == label.len) to_node else mid.put(label[match..]);
         }
 
         // Add a new node.
-        const node = try alloc.create(Node);
-        node.* = .{};
-        curr_node_count += 1;
+        const node = try self.base.allocator.create(Node);
+        node.* = .{ .base = self.base };
+        self.base.node_count += 1;
 
-        try self.edges.append(alloc, .{
+        try self.edges.append(self.base.allocator, .{
             .from = self,
             .to = node,
-            .label = label,
+            .label = try self.base.allocator.dupe(u8, label),
         });
 
-        return PutResult{ .node = node, .node_count = curr_node_count };
+        return node;
+    }
+
+    fn fromByteStream(self: *Node, stream: anytype) Trie.FromByteStreamError!void {
+        self.trie_offset = try stream.getPos();
+        var reader = stream.reader();
+        const node_size = try leb.readULEB128(u64, reader);
+        if (node_size > 0) {
+            self.export_flags = try leb.readULEB128(u64, reader);
+            // TODO Parse flags.
+            self.vmaddr_offset = try leb.readULEB128(u64, reader);
+        }
+        const nedges = try reader.readByte();
+        self.base.node_count += nedges;
+        var i: usize = 0;
+        while (i < nedges) : (i += 1) {
+            var label = blk: {
+                var label_buf = std.ArrayList(u8).init(self.base.allocator);
+                while (true) {
+                    const next = try reader.readByte();
+                    if (next == @as(u8, 0))
+                        break;
+                    try label_buf.append(next);
+                }
+                break :blk label_buf.toOwnedSlice();
+            };
+            const seek_to = try leb.readULEB128(u64, reader);
+            const cur_pos = try stream.getPos();
+            try stream.seekTo(seek_to);
+            var node = try self.base.allocator.create(Node);
+            node.* = .{ .base = self.base };
+            try node.fromByteStream(stream);
+            try self.edges.append(self.base.allocator, .{
+                .from = self,
+                .to = node,
+                .label = label,
+            });
+            try stream.seekTo(cur_pos);
+        }
     }
 
     /// This method should only be called *after* updateOffset has been called!
     /// In case this is not upheld, this method will panic.
-    fn writeULEB128Mem(self: Node, buffer: *std.ArrayListUnmanaged(u8)) !void {
+    fn writeULEB128Mem(self: Node, buffer: *std.ArrayList(u8)) !void {
         assert(self.trie_offset != null); // You need to call updateOffset first.
         if (self.vmaddr_offset) |offset| {
             // Terminal node info: encode export flags and vmaddr offset of this symbol.
@@ -221,64 +248,95 @@ const Node = struct {
 /// the count always starts at 1.
 node_count: usize = 1,
 /// The root node of the trie.
-root: Node = .{},
+root: ?Node = null,
+allocator: *Allocator,
+
+pub fn init(allocator: *Allocator) Trie {
+    return .{ .allocator = allocator };
+}
 
 /// Insert a symbol into the trie, updating the prefixes in the process.
 /// This operation may change the layout of the trie by splicing edges in
 /// certain circumstances.
-pub fn put(self: *Trie, alloc: *Allocator, symbol: Symbol) !void {
-    const res = try self.root.put(alloc, symbol.name, 0);
-    self.node_count += res.node_count;
-    res.node.vmaddr_offset = symbol.vmaddr_offset;
-    res.node.export_flags = symbol.export_flags;
+pub fn put(self: *Trie, symbol: Symbol) !void {
+    if (self.root == null) {
+        self.root = .{ .base = self };
+    }
+    const node = try self.root.?.put(symbol.name);
+    node.vmaddr_offset = symbol.vmaddr_offset;
+    node.export_flags = symbol.export_flags;
+}
+
+const FromByteStreamError = error{
+    OutOfMemory,
+    EndOfStream,
+    Overflow,
+};
+
+/// Parse the trie from a byte stream.
+pub fn fromByteStream(self: *Trie, stream: anytype) FromByteStreamError!void {
+    if (self.root == null) {
+        self.root = .{ .base = self };
+    }
+    return self.root.?.fromByteStream(stream);
 }
 
 /// Write the trie to a buffer ULEB128 encoded.
-pub fn writeULEB128Mem(self: *Trie, alloc: *Allocator, buffer: *std.ArrayListUnmanaged(u8)) !void {
-    var ordered_nodes: std.ArrayListUnmanaged(*Node) = .{};
-    defer ordered_nodes.deinit(alloc);
-
-    try ordered_nodes.ensureCapacity(alloc, self.node_count);
-    walkInOrder(&self.root, &ordered_nodes);
+/// Caller owns the memory and needs to free it.
+pub fn writeULEB128Mem(self: *Trie) ![]u8 {
+    var ordered_nodes = try self.nodes();
+    defer self.allocator.free(ordered_nodes);
 
     var offset: usize = 0;
     var more: bool = true;
     while (more) {
         offset = 0;
         more = false;
-        for (ordered_nodes.items) |node| {
+        for (ordered_nodes) |node| {
             const res = node.updateOffset(offset);
             offset += res.node_size;
             if (res.updated) more = true;
         }
     }
 
-    try buffer.ensureCapacity(alloc, buffer.items.len + offset);
-    for (ordered_nodes.items) |node| {
-        try node.writeULEB128Mem(buffer);
+    var buffer = std.ArrayList(u8).init(self.allocator);
+    try buffer.ensureCapacity(offset);
+    for (ordered_nodes) |node| {
+        try node.writeULEB128Mem(&buffer);
     }
+    return buffer.toOwnedSlice();
 }
 
-/// Walks the trie in DFS order gathering all nodes into a linear stream of nodes.
-fn walkInOrder(node: *Node, list: *std.ArrayListUnmanaged(*Node)) void {
-    list.appendAssumeCapacity(node);
-    for (node.edges.items) |*edge| {
-        walkInOrder(edge.to, list);
+pub fn nodes(self: *Trie) ![]*Node {
+    var ordered_nodes = std.ArrayList(*Node).init(self.allocator);
+    try ordered_nodes.ensureCapacity(self.node_count);
+
+    comptime const Fifo = std.fifo.LinearFifo(*Node, .{ .Static = std.math.maxInt(u8) });
+    var fifo = Fifo.init();
+    try fifo.writeItem(&self.root.?);
+
+    while (fifo.readItem()) |next| {
+        for (next.edges.items) |*edge| {
+            try fifo.writeItem(edge.to);
+        }
+        ordered_nodes.appendAssumeCapacity(next);
     }
+
+    return ordered_nodes.toOwnedSlice();
 }
 
-pub fn deinit(self: *Trie, alloc: *Allocator) void {
-    self.root.deinit(alloc);
+pub fn deinit(self: *Trie) void {
+    self.root.?.deinit();
 }
 
 test "Trie node count" {
     var gpa = testing.allocator;
-    var trie: Trie = .{};
-    defer trie.deinit(gpa);
+    var trie = Trie.init(gpa);
+    defer trie.deinit();
 
     testing.expectEqual(trie.node_count, 1);
 
-    try trie.put(gpa, .{
+    try trie.put(.{
         .name = "_main",
         .vmaddr_offset = 0,
         .export_flags = 0,
@@ -286,14 +344,14 @@ test "Trie node count" {
     testing.expectEqual(trie.node_count, 2);
 
     // Inserting the same node shouldn't update the trie.
-    try trie.put(gpa, .{
+    try trie.put(.{
         .name = "_main",
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
     testing.expectEqual(trie.node_count, 2);
 
-    try trie.put(gpa, .{
+    try trie.put(.{
         .name = "__mh_execute_header",
         .vmaddr_offset = 0x1000,
         .export_flags = 0,
@@ -301,13 +359,13 @@ test "Trie node count" {
     testing.expectEqual(trie.node_count, 4);
 
     // Inserting the same node shouldn't update the trie.
-    try trie.put(gpa, .{
+    try trie.put(.{
         .name = "__mh_execute_header",
         .vmaddr_offset = 0x1000,
         .export_flags = 0,
     });
     testing.expectEqual(trie.node_count, 4);
-    try trie.put(gpa, .{
+    try trie.put(.{
         .name = "_main",
         .vmaddr_offset = 0,
         .export_flags = 0,
@@ -317,31 +375,28 @@ test "Trie node count" {
 
 test "Trie basic" {
     var gpa = testing.allocator;
-    var trie: Trie = .{};
-    defer trie.deinit(gpa);
-
-    // root
-    testing.expect(trie.root.edges.items.len == 0);
+    var trie = Trie.init(gpa);
+    defer trie.deinit();
 
     // root --- _st ---> node
-    try trie.put(gpa, .{
+    try trie.put(.{
         .name = "_st",
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
-    testing.expect(trie.root.edges.items.len == 1);
-    testing.expect(mem.eql(u8, trie.root.edges.items[0].label, "_st"));
+    testing.expect(trie.root.?.edges.items.len == 1);
+    testing.expect(mem.eql(u8, trie.root.?.edges.items[0].label, "_st"));
 
     {
         // root --- _st ---> node --- art ---> node
-        try trie.put(gpa, .{
+        try trie.put(.{
             .name = "_start",
             .vmaddr_offset = 0,
             .export_flags = 0,
         });
-        testing.expect(trie.root.edges.items.len == 1);
+        testing.expect(trie.root.?.edges.items.len == 1);
 
-        const nextEdge = &trie.root.edges.items[0];
+        const nextEdge = &trie.root.?.edges.items[0];
         testing.expect(mem.eql(u8, nextEdge.label, "_st"));
         testing.expect(nextEdge.to.edges.items.len == 1);
         testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "art"));
@@ -350,14 +405,14 @@ test "Trie basic" {
         // root --- _ ---> node --- st ---> node --- art ---> node
         //                  |
         //                  |   --- main ---> node
-        try trie.put(gpa, .{
+        try trie.put(.{
             .name = "_main",
             .vmaddr_offset = 0,
             .export_flags = 0,
         });
-        testing.expect(trie.root.edges.items.len == 1);
+        testing.expect(trie.root.?.edges.items.len == 1);
 
-        const nextEdge = &trie.root.edges.items[0];
+        const nextEdge = &trie.root.?.edges.items[0];
         testing.expect(mem.eql(u8, nextEdge.label, "_"));
         testing.expect(nextEdge.to.edges.items.len == 2);
         testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "st"));
@@ -370,24 +425,22 @@ test "Trie basic" {
 
 test "Trie.writeULEB128Mem" {
     var gpa = testing.allocator;
-    var trie: Trie = .{};
-    defer trie.deinit(gpa);
+    var trie = Trie.init(gpa);
+    defer trie.deinit();
 
-    try trie.put(gpa, .{
+    try trie.put(.{
         .name = "__mh_execute_header",
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
-    try trie.put(gpa, .{
+    try trie.put(.{
         .name = "_main",
         .vmaddr_offset = 0x1000,
         .export_flags = 0,
     });
 
-    var buffer: std.ArrayListUnmanaged(u8) = .{};
-    defer buffer.deinit(gpa);
-
-    try trie.writeULEB128Mem(gpa, &buffer);
+    var buffer = try trie.writeULEB128Mem();
+    defer gpa.free(buffer);
 
     const exp_buffer = [_]u8{
         0x0,
@@ -434,6 +487,64 @@ test "Trie.writeULEB128Mem" {
         0x0,
     };
 
-    testing.expect(buffer.items.len == exp_buffer.len);
-    testing.expect(mem.eql(u8, buffer.items, exp_buffer[0..]));
+    testing.expect(buffer.len == exp_buffer.len);
+    testing.expect(mem.eql(u8, buffer, exp_buffer[0..]));
+}
+
+test "parse Trie from byte stream" {
+    var gpa = testing.allocator;
+
+    const in_buffer = [_]u8{
+        0x0,
+        0x1,
+        0x5f,
+        0x0,
+        0x5,
+        0x0,
+        0x2,
+        0x5f,
+        0x6d,
+        0x68,
+        0x5f,
+        0x65,
+        0x78,
+        0x65,
+        0x63,
+        0x75,
+        0x74,
+        0x65,
+        0x5f,
+        0x68,
+        0x65,
+        0x61,
+        0x64,
+        0x65,
+        0x72,
+        0x0,
+        0x21,
+        0x6d,
+        0x61,
+        0x69,
+        0x6e,
+        0x0,
+        0x25,
+        0x2,
+        0x0,
+        0x0,
+        0x0,
+        0x3,
+        0x0,
+        0x80,
+        0x20,
+        0x0,
+    };
+    var stream = std.io.fixedBufferStream(in_buffer[0..]);
+    var trie = Trie.init(gpa);
+    defer trie.deinit();
+    try trie.fromByteStream(&stream);
+
+    var out_buffer = try trie.writeULEB128Mem();
+    defer gpa.free(out_buffer);
+
+    testing.expect(mem.eql(u8, in_buffer[0..], out_buffer));
 }
