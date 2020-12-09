@@ -26697,7 +26697,7 @@ static IrInstGen *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ira,
         IrInstSrcSetEvalBranchQuota *instruction)
 {
     uint64_t new_quota;
-    if (!ir_resolve_usize(ira, instruction->new_quota->child, &new_quota))
+    if (!ir_resolve_unsigned(ira, instruction->new_quota->child, ira->codegen->builtin_types.entry_u32, &new_quota))
         return ira->codegen->invalid_inst_gen;
 
     if (new_quota > *ira->new_irb.exec->backward_branch_quota) {
