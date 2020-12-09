@@ -2736,7 +2736,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // https://community.arm.com/developer/ip-products/processors/b/processors-ip-blog/posts/using-the-stack-in-aarch64-implementing-push-and-pop)
                                 // str x28, [sp, #-16]
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.str(.x28, Register.sp, .{
-                                    .offset = Instruction.Offset.imm_pre_index(-16),
+                                    .offset = Instruction.LoadStoreOffset.imm_pre_index(-16),
                                 }).toU32());
                                 // adr x28, #8
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
@@ -2760,7 +2760,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // ldr x28, [sp], #16
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.x28, .{
                                     .rn = Register.sp,
-                                    .offset = Instruction.Offset.imm_post_index(16),
+                                    .offset = Instruction.LoadStoreOffset.imm_post_index(16),
                                 }).toU32());
                             } else {
                                 // stp x0, x28, [sp, #-16]
@@ -2768,8 +2768,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     .x0,
                                     .x28,
                                     Register.sp,
-                                    -16,
-                                    .PreIndex,
+                                    Instruction.LoadStorePairOffset.pre_index(-16),
                                 ).toU32());
                                 // adr x28, #8
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
@@ -2795,8 +2794,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     .x0,
                                     .x28,
                                     Register.sp,
-                                    16,
-                                    .PostIndex,
+                                    Instruction.LoadStorePairOffset.post_index(16),
                                 ).toU32());
                             }
                         } else {
