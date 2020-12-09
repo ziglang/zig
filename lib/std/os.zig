@@ -5214,7 +5214,7 @@ pub const CopyFileRangeError = error{
 
 var has_copy_file_range_syscall = init: {
     const kernel_has_syscall = std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
-    break :init std.atomic.Int(bool).init(kernel_has_syscall);
+    break :init std.atomic.Bool.init(kernel_has_syscall);
 };
 
 /// Transfer data between file descriptors at specified offsets.
@@ -5246,7 +5246,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
 
     if (std.Target.current.os.tag == .linux and
-        (use_c or has_copy_file_range_syscall.get()))
+        (use_c or has_copy_file_range_syscall.load(.Monotonic)))
     {
         const sys = if (use_c) std.c else linux;
 
@@ -5271,7 +5271,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             EXDEV => {},
             // syscall added in Linux 4.5, use fallback
             ENOSYS => {
-                has_copy_file_range_syscall.set(false);
+                has_copy_file_range_syscall.store(true, .Monotonic);
             },
             else => |err| return unexpectedErrno(err),
         }
