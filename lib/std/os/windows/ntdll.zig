@@ -112,6 +112,4 @@ pub extern "NtDll" fn NtWaitForKeyedEvent(
     Timeout: ?*LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
 
-pub extern "NtDll" fn RtlSetCurrentDirectory_U(
-    PathName: *UNICODE_STRING
-) callconv(WINAPI) NTSTATUS;
+pub extern "NtDll" fn RtlSetCurrentDirectory_U(PathName: *UNICODE_STRING) callconv(WINAPI) NTSTATUS;

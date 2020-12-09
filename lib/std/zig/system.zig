@@ -212,7 +212,7 @@ pub const NativeTargetInfo = struct {
                     const uts = std.os.uname();
                     const release = mem.spanZ(&uts.release);
                     // The release field sometimes has a weird format,
-                    // `Version.parse` will attempt to find some meaningful interpretation. 
+                    // `Version.parse` will attempt to find some meaningful interpretation.
                     if (std.builtin.Version.parse(release)) |ver| {
                         os.version_range.linux.range.min = ver;
                         os.version_range.linux.range.max = ver;
@@ -237,7 +237,7 @@ pub const NativeTargetInfo = struct {
                     //   `---` `` ``--> Sub-version (Starting from Windows 10 onwards)
                     //     \    `--> Service pack (Always zero in the constants defined)
                     //      `--> OS version (Major & minor)
-                    const os_ver: u16 = //
+                    const os_ver: u16 =
                         @intCast(u16, version_info.dwMajorVersion & 0xff) << 8 |
                         @intCast(u16, version_info.dwMinorVersion & 0xff);
                     const sp_ver: u8 = 0;

@@ -673,15 +673,15 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 self.base.allocator.free(result.stderr);
             }
             if (result.stdout.len != 0) {
-                std.log.warn("unexpected LD stdout: {}", .{result.stdout});
+                log.warn("unexpected LD stdout: {}", .{result.stdout});
             }
             if (result.stderr.len != 0) {
-                std.log.warn("unexpected LD stderr: {}", .{result.stderr});
+                log.warn("unexpected LD stderr: {}", .{result.stderr});
             }
             if (result.term != .Exited or result.term.Exited != 0) {
                 // TODO parse this output and surface with the Compilation API rather than
                 // directly outputting to stderr here.
-                std.log.err("{}", .{result.stderr});
+                log.err("{}", .{result.stderr});
                 return error.LDReportedFailure;
             }
         } else {
@@ -738,7 +738,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 }
 
                 if (stderr.len != 0) {
-                    std.log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+                    log.warn("unexpected LLD stderr:\n{s}", .{stderr});
                 }
             }
 
@@ -757,10 +757,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                         // TODO We are in the position to be able to increase the padding by moving all sections
                         // by the required offset, but this requires a little bit more thinking and bookkeeping.
                         // For now, return an error informing the user of the problem.
-                        std.log.err("Not enough padding between load commands and start of __text section:\n", .{});
-                        std.log.err("Offset after last load command: 0x{x}\n", .{after_last_cmd_offset});
-                        std.log.err("Beginning of __text section: 0x{x}\n", .{text_section.offset});
-                        std.log.err("Needed size: 0x{x}\n", .{needed_size});
+                        log.err("Not enough padding between load commands and start of __text section:\n", .{});
+                        log.err("Offset after last load command: 0x{x}\n", .{after_last_cmd_offset});
+                        log.err("Beginning of __text section: 0x{x}\n", .{text_section.offset});
+                        log.err("Needed size: 0x{x}\n", .{needed_size});
                         return error.NotEnoughPadding;
                     }
                     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
@@ -792,11 +792,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            std.log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            std.log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.

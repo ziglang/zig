@@ -226,43 +226,55 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
     switch (@typeInfo(T)) {
         .Pointer => |info| switch (info.size) {
             .One => switch (@typeInfo(info.child)) {
-                .Array => |array_info| return @Type(.{ .Pointer = .{
+                .Array => |array_info| return @Type(.{
+                    .Pointer = .{
+                        .size = info.size,
+                        .is_const = info.is_const,
+                        .is_volatile = info.is_volatile,
+                        .alignment = info.alignment,
+                        .child = @Type(.{
+                            .Array = .{
+                                .len = array_info.len,
+                                .child = array_info.child,
+                                .sentinel = sentinel_val,
+                            },
+                        }),
+                        .is_allowzero = info.is_allowzero,
+                        .sentinel = info.sentinel,
+                    },
+                }),
+                else => {},
+            },
+            .Many, .Slice => return @Type(.{
+                .Pointer = .{
                     .size = info.size,
                     .is_const = info.is_const,
                     .is_volatile = info.is_volatile,
                     .alignment = info.alignment,
-                    .child = @Type(.{ .Array = .{
-                        .len = array_info.len,
-                        .child = array_info.child,
-                        .sentinel = sentinel_val,
-                    }}),
+                    .child = info.child,
                     .is_allowzero = info.is_allowzero,
-                    .sentinel = info.sentinel,
-                }}),
-                else => {},
-            },
-            .Many, .Slice => return @Type(.{ .Pointer = .{
-                .size = info.size,
-                .is_const = info.is_const,
-                .is_volatile = info.is_volatile,
-                .alignment = info.alignment,
-                .child = info.child,
-                .is_allowzero = info.is_allowzero,
-                .sentinel = sentinel_val,
-            }}),
+                    .sentinel = sentinel_val,
+                },
+            }),
             else => {},
         },
         .Optional => |info| switch (@typeInfo(info.child)) {
             .Pointer => |ptr_info| switch (ptr_info.size) {
-                .Many => return @Type(.{ .Optional = .{ .child = @Type(.{ .Pointer = .{
-                    .size = ptr_info.size,
-                    .is_const = ptr_info.is_const,
-                    .is_volatile = ptr_info.is_volatile,
-                    .alignment = ptr_info.alignment,
-                    .child = ptr_info.child,
-                    .is_allowzero = ptr_info.is_allowzero,
-                    .sentinel = sentinel_val,
-                }})}}),
+                .Many => return @Type(.{
+                    .Optional = .{
+                        .child = @Type(.{
+                            .Pointer = .{
+                                .size = ptr_info.size,
+                                .is_const = ptr_info.is_const,
+                                .is_volatile = ptr_info.is_volatile,
+                                .alignment = ptr_info.alignment,
+                                .child = ptr_info.child,
+                                .is_allowzero = ptr_info.is_allowzero,
+                                .sentinel = sentinel_val,
+                            },
+                        }),
+                    },
+                }),
                 else => {},
             },
             else => {},
@@ -296,17 +308,17 @@ pub fn assumeSentinel(p: anytype, comptime sentinel_val: Elem(@TypeOf(p))) Senti
 }
 
 test "std.meta.assumeSentinel" {
-    testing.expect([*:0]u8        == @TypeOf(assumeSentinel(@as([*]u8      , undefined), 0)));
-    testing.expect([:0]u8         == @TypeOf(assumeSentinel(@as([]u8       , undefined), 0)));
-    testing.expect([*:0]const u8  == @TypeOf(assumeSentinel(@as([*]const u8, undefined), 0)));
-    testing.expect([:0]const u8   == @TypeOf(assumeSentinel(@as([]const u8 , undefined), 0)));
-    testing.expect([*:0]u16       == @TypeOf(assumeSentinel(@as([*]u16     , undefined), 0)));
-    testing.expect([:0]const u16  == @TypeOf(assumeSentinel(@as([]const u16, undefined), 0)));
-    testing.expect([*:3]u8        == @TypeOf(assumeSentinel(@as([*:1]u8    , undefined), 3)));
-    testing.expect([:null]?[*]u8  == @TypeOf(assumeSentinel(@as([]?[*]u8   , undefined), null)));
-    testing.expect([*:null]?[*]u8 == @TypeOf(assumeSentinel(@as([*]?[*]u8  , undefined), null)));
-    testing.expect(*[10:0]u8      == @TypeOf(assumeSentinel(@as(*[10]u8    , undefined), 0)));
-    testing.expect(?[*:0]u8       == @TypeOf(assumeSentinel(@as(?[*]u8     , undefined), 0)));
+    testing.expect([*:0]u8 == @TypeOf(assumeSentinel(@as([*]u8, undefined), 0)));
+    testing.expect([:0]u8 == @TypeOf(assumeSentinel(@as([]u8, undefined), 0)));
+    testing.expect([*:0]const u8 == @TypeOf(assumeSentinel(@as([*]const u8, undefined), 0)));
+    testing.expect([:0]const u8 == @TypeOf(assumeSentinel(@as([]const u8, undefined), 0)));
+    testing.expect([*:0]u16 == @TypeOf(assumeSentinel(@as([*]u16, undefined), 0)));
+    testing.expect([:0]const u16 == @TypeOf(assumeSentinel(@as([]const u16, undefined), 0)));
+    testing.expect([*:3]u8 == @TypeOf(assumeSentinel(@as([*:1]u8, undefined), 3)));
+    testing.expect([:null]?[*]u8 == @TypeOf(assumeSentinel(@as([]?[*]u8, undefined), null)));
+    testing.expect([*:null]?[*]u8 == @TypeOf(assumeSentinel(@as([*]?[*]u8, undefined), null)));
+    testing.expect(*[10:0]u8 == @TypeOf(assumeSentinel(@as(*[10]u8, undefined), 0)));
+    testing.expect(?[*:0]u8 == @TypeOf(assumeSentinel(@as(?[*]u8, undefined), 0)));
 }
 
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
