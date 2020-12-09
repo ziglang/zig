@@ -109,6 +109,20 @@ pub const Target = struct {
             /// Latest Windows version that the Zig Standard Library is aware of
             pub const latest = WindowsVersion.win10_20h1;
 
+            /// Compared against build numbers reported by the runtime to distinguish win10 versions,
+            /// where 0x0A000000 + index corresponds to the WindowsVersion u32 value.
+            pub const known_win10_build_numbers = [_]u32{
+                10240, //win10
+                10586, //win10_th2
+                14393, //win_rs1
+                15063, //win_rs2
+                16299, //win_rs3
+                17134, //win_rs4
+                17763, //win_rs5
+                18362, //win_19h1
+                19041, //win_20h1
+            };
+
             pub const Range = struct {
                 min: WindowsVersion,
                 max: WindowsVersion,
