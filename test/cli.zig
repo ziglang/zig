@@ -92,13 +92,13 @@ fn exec(cwd: []const u8, expect_0: bool, argv: []const []const u8) !ChildProcess
 fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, true, &[_][]const u8{ zig_exe, "init-lib" });
     const test_result = try exec(dir_path, true, &[_][]const u8{ zig_exe, "build", "test" });
-    testing.expect(std.mem.endsWith(u8, test_result.stderr, "All 1 tests passed.\n"));
+    testing.expectStringEndsWith(test_result.stderr, "All 1 tests passed.\n");
 }
 
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, true, &[_][]const u8{ zig_exe, "init-exe" });
     const run_result = try exec(dir_path, true, &[_][]const u8{ zig_exe, "build", "run" });
-    testing.expect(std.mem.eql(u8, run_result.stderr, "info: All your codebase are belong to us.\n"));
+    testing.expectEqualStrings("info: All your codebase are belong to us.\n", run_result.stderr);
 }
 
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {

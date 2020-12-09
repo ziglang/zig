@@ -176,6 +176,12 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
         return punt_to_clang(arena, args);
+    } else if (mem.eql(u8, cmd, "ld.lld") or
+        mem.eql(u8, cmd, "ld64.lld") or
+        mem.eql(u8, cmd, "lld-link") or
+        mem.eql(u8, cmd, "wasm-ld"))
+    {
+        return punt_to_lld(arena, args);
     } else if (mem.eql(u8, cmd, "build")) {
         return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
@@ -2783,6 +2789,39 @@ fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory}
     }
     argv[args.len] = null;
     const exit_code = ZigClang_main(@intCast(c_int, args.len), argv[0..args.len :null].ptr);
+    process.exit(@bitCast(u8, @truncate(i8, exit_code)));
+}
+
+/// The first argument determines which backend is invoked. The options are:
+/// * `ld.lld` - ELF
+/// * `ld64.lld` - Mach-O
+/// * `lld-link` - COFF
+/// * `wasm-ld` - WebAssembly
+/// TODO https://github.com/ziglang/zig/issues/3257
+pub fn punt_to_lld(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
+    if (!build_options.have_llvm)
+        fatal("`zig {s}` unavailable: compiler built without LLVM extensions", .{args[0]});
+    // Convert the args to the format LLD expects.
+    // We subtract 1 to shave off the zig binary from args[0].
+    const argv = try arena.allocSentinel(?[*:0]const u8, args.len - 1, null);
+    for (args[1..]) |arg, i| {
+        argv[i] = try arena.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
+    }
+    const exit_code = rc: {
+        const llvm = @import("llvm.zig");
+        const argc = @intCast(c_int, argv.len);
+        if (mem.eql(u8, args[1], "ld.lld")) {
+            break :rc llvm.LinkELF(argc, argv.ptr, true);
+        } else if (mem.eql(u8, args[1], "ld64.lld")) {
+            break :rc llvm.LinkMachO(argc, argv.ptr, true);
+        } else if (mem.eql(u8, args[1], "lld-link")) {
+            break :rc llvm.LinkCOFF(argc, argv.ptr, true);
+        } else if (mem.eql(u8, args[1], "wasm-ld")) {
+            break :rc llvm.LinkWasm(argc, argv.ptr, true);
+        } else {
+            unreachable;
+        }
+    };
     process.exit(@bitCast(u8, @truncate(i8, exit_code)));
 }
 
