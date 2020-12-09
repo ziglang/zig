@@ -95,7 +95,7 @@ fn exp2_32(x: f32) f32 {
     uf -= redux;
 
     const z: f64 = x - uf;
-    var r: f64 = exp2ft[i_0];
+    var r: f64 = exp2ft[@intCast(usize, i_0)];
     const t: f64 = r * z;
     r = r + t * (P1 + z * P2) + t * (z * z) * (P3 + z * P4);
     return @floatCast(f32, r * uk);
@@ -418,8 +418,8 @@ fn exp2_64(x: f64) f64 {
 
     // r = exp2(y) = exp2t[i_0] * p(z - eps[i])
     var z = x - uf;
-    const t = exp2dt[2 * i_0];
-    z -= exp2dt[2 * i_0 + 1];
+    const t = exp2dt[@intCast(usize, 2 * i_0)];
+    z -= exp2dt[@intCast(usize, 2 * i_0 + 1)];
     const r = t + t * z * (P1 + z * (P2 + z * (P3 + z * (P4 + z * P5))));
 
     return math.scalbn(r, ik);

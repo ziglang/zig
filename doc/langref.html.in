@@ -7988,7 +7988,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
-      <pre>{#syntax#}@setEvalBranchQuota(new_quota: usize){#endsyntax#}</pre>
+      <pre>{#syntax#}@setEvalBranchQuota(new_quota: u32){#endsyntax#}</pre>
       <p>
       Changes the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
