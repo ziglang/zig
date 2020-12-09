@@ -1804,7 +1804,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
                     if (comp.clang_preprocessor_mode == .stdout)
                         std.process.exit(0);
                 },
-                else => std.process.exit(1),
+                else => std.process.abort(),
             }
         } else {
             child.stdin_behavior = .Ignore;
