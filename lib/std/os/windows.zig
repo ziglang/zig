@@ -28,6 +28,9 @@ pub const gdi32 = @import("windows/gdi32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
+//version detection
+usingnamespace std.zig.system.windows;
+
 pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
 
 pub const OpenError = error{
@@ -953,12 +956,19 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     return @bitCast(u64, result);
 }
 
-pub const GetFinalPathNameByHandleError = error{
-    BadPathName,
-    FileNotFound,
-    NameTooLong,
-    Unexpected,
-};
+pub const GetFinalPathNameByHandleError = error {
+        BadPathName,
+        FileNotFound,
+        NameTooLong,
+        Unexpected,
+    }
+    || if((comptime builtin.os.tag != .windows) or (targetVersionIsAtLeast(WindowsVersion.win10_rs4) == true))
+        error {}
+    else
+        error {
+            AccessDenied,
+            SystemResources,
+        };
 
 /// Specifies how to format volume path in the result of `GetFinalPathNameByHandle`.
 /// Defaults to DOS volume names.
@@ -981,8 +991,52 @@ pub fn GetFinalPathNameByHandle(
     fmt: GetFinalPathNameByHandleFormat,
     out_buffer: []u16,
 ) GetFinalPathNameByHandleError![]u16 {
-    // Get normalized path; doesn't include volume name though.
+
     var path_buffer: [@sizeOf(FILE_NAME_INFORMATION) + PATH_MAX_WIDE * 2]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined;
+
+    if ((comptime (targetVersionIsAtLeast(WindowsVersion.win10_rs4) != true)) //need explicit comptime, because error returns affect return type
+       and !runtimeVersionIsAtLeast(WindowsVersion.win10_rs4)) {
+        // TODO: directly replace/emulate QueryInformationFile of .FileNormalizedNameInformation
+        // with ntdll instead of calling into kernel32
+        // (probably using some less-powerful query and looping over path segments)
+        const flags: DWORD = FILE_NAME_NORMALIZED | switch(fmt.volume_name) {
+            .Dos => @as(DWORD, VOLUME_NAME_DOS),
+            .Nt => @as(DWORD, VOLUME_NAME_NT),
+        };
+        const wide_path_buffer = std.mem.bytesAsSlice(u16, path_buffer[0..]);
+        const rc = kernel32.GetFinalPathNameByHandleW(hFile, wide_path_buffer.ptr, @intCast(u32, wide_path_buffer.len), flags);
+        if (rc == 0) {
+            switch (kernel32.GetLastError()) {
+                .FILE_NOT_FOUND => return error.FileNotFound,
+                .PATH_NOT_FOUND => return error.FileNotFound,
+                .NOT_ENOUGH_MEMORY => return error.SystemResources,
+                .FILENAME_EXCED_RANGE => return error.NameTooLong,
+                .ACCESS_DENIED => return error.AccessDenied, //can happen in SMB sub-queries for parent path segments
+                .INVALID_PARAMETER => unreachable,
+                else => |err| return unexpectedError(err),
+            }
+        }
+
+        //in case of failure, rc == length of string INCLUDING null terminator,
+        if (rc > wide_path_buffer.len) return error.NameTooLong;
+        //in case of success, rc == length of string EXCLUDING null terminator
+        const result_slice = switch(fmt.volume_name) {
+            .Dos => blk: {
+                const expected_prefix = [_]u16{'\\', '\\', '?', '\\'};
+                if (!std.mem.eql(u16, expected_prefix[0..], wide_path_buffer[0..expected_prefix.len])) {
+                    return error.BadPathName;
+                }
+                break :blk wide_path_buffer[expected_prefix.len..rc:0];
+            },
+            //no prefix here
+            .Nt => wide_path_buffer[0..rc:0],
+        };
+        if(result_slice.len > out_buffer.len) return error.NameTooLong;
+        std.mem.copy(u16, out_buffer[0..], result_slice);
+        return out_buffer[0..result_slice.len];
+    }
+
+    // Get normalized path; doesn't include volume name though.
     try QueryInformationFile(hFile, .FileNormalizedNameInformation, path_buffer[0..]);
 
     // Get NT volume name.
