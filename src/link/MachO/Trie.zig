@@ -39,27 +39,6 @@ const testing = std.testing;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 
-pub const Symbol = struct {
-    name: []const u8,
-    vmaddr_offset: u64,
-    export_flags: u64,
-};
-
-pub const Edge = struct {
-    from: *Node,
-    to: *Node,
-    label: []u8,
-
-    fn deinit(self: *Edge, allocator: *Allocator) void {
-        self.to.deinit(allocator);
-        allocator.destroy(self.to);
-        allocator.free(self.label);
-        self.from = undefined;
-        self.to = undefined;
-        self.label = undefined;
-    }
-};
-
 pub const Node = struct {
     base: *Trie,
 
@@ -79,6 +58,22 @@ pub const Node = struct {
     edges: std.ArrayListUnmanaged(Edge) = .{},
 
     node_dirty: bool = true,
+
+    /// Edge connecting to nodes in the trie.
+    pub const Edge = struct {
+        from: *Node,
+        to: *Node,
+        label: []u8,
+
+        fn deinit(self: *Edge, allocator: *Allocator) void {
+            self.to.deinit(allocator);
+            allocator.destroy(self.to);
+            allocator.free(self.label);
+            self.from = undefined;
+            self.to = undefined;
+            self.label = undefined;
+        }
+    };
 
     fn deinit(self: *Node, allocator: *Allocator) void {
         for (self.edges.items) |*edge| {
@@ -131,10 +126,12 @@ pub const Node = struct {
     }
 
     /// Recursively parses the node from the input byte stream.
-    fn read(self: *Node, allocator: *Allocator, reader: anytype) Trie.ReadError!void {
+    fn read(self: *Node, allocator: *Allocator, reader: anytype) Trie.ReadError!usize {
         self.node_dirty = true;
+        const trie_offset = try reader.context.getPos();
+        self.trie_offset = trie_offset;
 
-        self.trie_offset = try reader.context.getPos();
+        var nread: usize = 0;
 
         const node_size = try leb.readULEB128(u64, reader);
         if (node_size > 0) {
@@ -154,9 +151,13 @@ pub const Node = struct {
         const nedges = try reader.readByte();
         self.base.node_count += nedges;
 
+        nread += (try reader.context.getPos()) - trie_offset;
+
         var i: usize = 0;
         while (i < nedges) : (i += 1) {
-            var label = blk: {
+            const edge_start_pos = try reader.context.getPos();
+
+            const label = blk: {
                 var label_buf = std.ArrayList(u8).init(allocator);
                 while (true) {
                     const next = try reader.readByte();
@@ -168,20 +169,24 @@ pub const Node = struct {
             };
 
             const seek_to = try leb.readULEB128(u64, reader);
-            const cur_pos = try reader.context.getPos();
+            const return_pos = try reader.context.getPos();
+
+            nread += return_pos - edge_start_pos;
             try reader.context.seekTo(seek_to);
 
             const node = try allocator.create(Node);
             node.* = .{ .base = self.base };
 
-            try node.read(allocator, reader);
+            nread += try node.read(allocator, reader);
             try self.edges.append(allocator, .{
                 .from = self,
                 .to = node,
                 .label = label,
             });
-            try reader.context.seekTo(cur_pos);
+            try reader.context.seekTo(return_pos);
         }
+
+        return nread;
     }
 
     /// Writes this node to a byte stream.
@@ -301,10 +306,23 @@ pub fn init(allocator: *Allocator) Trie {
     return .{ .allocator = allocator };
 }
 
+/// Export symbol that is to be placed in the trie.
+pub const ExportSymbol = struct {
+    /// Name of the symbol.
+    name: []const u8,
+
+    /// Offset of this symbol's virtual memory address from the beginning
+    /// of the __TEXT segment.
+    vmaddr_offset: u64,
+
+    /// Export flags of this exported symbol.
+    export_flags: u64,
+};
+
 /// Insert a symbol into the trie, updating the prefixes in the process.
 /// This operation may change the layout of the trie by splicing edges in
 /// certain circumstances.
-pub fn put(self: *Trie, symbol: Symbol) !void {
+pub fn put(self: *Trie, symbol: ExportSymbol) !void {
     try self.createRoot();
     const node = try self.root.?.put(self.allocator, symbol.name);
     node.terminal_info = .{
@@ -356,7 +374,7 @@ const ReadError = error{
 };
 
 /// Parse the trie from a byte stream.
-pub fn read(self: *Trie, reader: anytype) ReadError!void {
+pub fn read(self: *Trie, reader: anytype) ReadError!usize {
     try self.createRoot();
     return self.root.?.read(self.allocator, reader);
 }
@@ -533,60 +551,34 @@ test "write Trie to a byte stream" {
     }
 }
 
-// test "parse Trie from byte stream" {
-//     var gpa = testing.allocator;
+test "parse Trie from byte stream" {
+    var gpa = testing.allocator;
 
-//     const in_buffer = [_]u8{
-//         0x0,
-//         0x1,
-//         0x5f,
-//         0x0,
-//         0x5,
-//         0x0,
-//         0x2,
-//         0x5f,
-//         0x6d,
-//         0x68,
-//         0x5f,
-//         0x65,
-//         0x78,
-//         0x65,
-//         0x63,
-//         0x75,
-//         0x74,
-//         0x65,
-//         0x5f,
-//         0x68,
-//         0x65,
-//         0x61,
-//         0x64,
-//         0x65,
-//         0x72,
-//         0x0,
-//         0x21,
-//         0x6d,
-//         0x61,
-//         0x69,
-//         0x6e,
-//         0x0,
-//         0x25,
-//         0x2,
-//         0x0,
-//         0x0,
-//         0x0,
-//         0x3,
-//         0x0,
-//         0x80,
-//         0x20,
-//         0x0,
-//     };
-//     var stream = std.io.fixedBufferStream(in_buffer[0..]);
-//     var trie = Trie.init(gpa);
-//     defer trie.deinit();
-//     try trie.fromByteStream(&stream);
+    const in_buffer = [_]u8{
+        0x0, 0x1, // node root
+        0x5f, 0x0, 0x5, // edge '_'
+        0x0, 0x2, // non-terminal node
+        0x5f, 0x6d, 0x68, 0x5f, 0x65, 0x78, 0x65, 0x63, 0x75, 0x74, // edge '_mh_execute_header'
+        0x65, 0x5f, 0x68, 0x65, 0x61, 0x64, 0x65, 0x72, 0x0, 0x21, // edge '_mh_execute_header'
+        0x6d, 0x61, 0x69, 0x6e, 0x0, 0x25, // edge 'main'
+        0x2, 0x0, 0x0, 0x0, // terminal node
+        0x3, 0x0, 0x80, 0x20, 0x0, // terminal node
+    };
 
-//     var out_buffer = try trie.writeULEB128Mem();
-//     defer gpa.free(out_buffer);
+    var in_stream = std.io.fixedBufferStream(in_buffer[0..]);
+    var trie = Trie.init(gpa);
+    defer trie.deinit();
+    const nread = try trie.read(in_stream.reader());
 
-//     testing.expect(mem.eql(u8, in_buffer[0..], out_buffer));
-// }
+    testing.expect(nread == in_buffer.len);
+
+    try trie.finalize();
+
+    var out_buffer = try gpa.alloc(u8, trie.size);
+    defer gpa.free(out_buffer);
+    var out_stream = std.io.fixedBufferStream(out_buffer);
+    const nwritten = try trie.write(out_stream.writer());
+
+    testing.expect(nwritten == trie.size);
+    testing.expect(mem.eql(u8, in_buffer[0..], out_buffer));
+}

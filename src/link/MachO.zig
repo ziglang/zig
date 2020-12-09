@@ -1806,7 +1806,7 @@ fn writeExportTrie(self: *MachO) !void {
         try trie.put(.{
             .name = name,
             .vmaddr_offset = symbol.n_value - text_segment.inner.vmaddr,
-            .export_flags = 0, // TODO workout creation of export flags
+            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
         });
     }
 
