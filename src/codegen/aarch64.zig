@@ -19,7 +19,7 @@ pub const Register = enum(u6) {
     w16, w17, w18, w19, w20, w21, w22, w23,
     w24, w25, w26, w27, w28, w29, w30, wzr,
 
-    pub const sp = .xzr;
+    pub const sp = Register.xzr;
 
     pub fn id(self: Register) u5 {
         return @truncate(u5, @enumToInt(self));
@@ -72,6 +72,9 @@ test "Register.id" {
 
     testing.expectEqual(@as(u5, 31), Register.xzr.id());
     testing.expectEqual(@as(u5, 31), Register.wzr.id());
+
+    testing.expectEqual(@as(u5, 31), Register.sp.id());
+    testing.expectEqual(@as(u5, 31), Register.sp.id());
 }
 
 test "Register.size" {
@@ -232,6 +235,16 @@ pub const Instruction = union(enum) {
         fixed: u4 = 0b111_0,
         size: u2,
     },
+    LoadStorePairOfRegisters: packed struct {
+        rt1: u5,
+        rn: u5,
+        rt2: u5,
+        imm7: u7,
+        load: u1,
+        encoding: u2,
+        fixed: u5 = 0b101_0_0,
+        opc: u2,
+    },
     LoadLiteral: packed struct {
         rt: u5,
         imm19: u19,
@@ -268,6 +281,7 @@ pub const Instruction = union(enum) {
             .MoveWideImmediate => |v| @bitCast(u32, v),
             .PCRelativeAddress => |v| @bitCast(u32, v),
             .LoadStoreRegister => |v| @bitCast(u32, v),
+            .LoadStorePairOfRegisters => |v| @bitCast(u32, v),
             .LoadLiteral => |v| @bitCast(u32, v),
             .ExceptionGeneration => |v| @bitCast(u32, v),
             .UnconditionalBranchRegister => |v| @bitCast(u32, v),
@@ -542,6 +556,46 @@ pub const Instruction = union(enum) {
         }
     }
 
+    fn loadStorePairOfRegisters(
+        rt1: Register,
+        rt2: Register,
+        rn: Register,
+        imm7: i7,
+        encoding: u2,
+        load: bool,
+    ) Instruction {
+        const imm7_u: u7 = @bitCast(u7, imm7);
+        switch (rt1.size()) {
+            32 => {
+                return Instruction{
+                    .LoadStorePairOfRegisters = .{
+                        .rt1 = rt1.id(),
+                        .rn = rn.id(),
+                        .rt2 = rt2.id(),
+                        .imm7 = imm7_u,
+                        .load = @boolToInt(load),
+                        .encoding = encoding,
+                        .opc = 0b00,
+                    },
+                };
+            },
+            64 => {
+                return Instruction{
+                    .LoadStorePairOfRegisters = .{
+                        .rt1 = rt1.id(),
+                        .rn = rn.id(),
+                        .rt2 = rt2.id(),
+                        .imm7 = imm7_u,
+                        .load = @boolToInt(load),
+                        .encoding = encoding,
+                        .opc = 0b10,
+                    },
+                };
+            },
+            else => unreachable, // unexpected register size
+        }
+    }
+
     fn loadLiteral(rt: Register, imm19: u19) Instruction {
         switch (rt.size()) {
             32 => {
@@ -668,6 +722,29 @@ pub const Instruction = union(enum) {
     };
     pub fn str(rt: Register, rn: Register, args: StrArgs) Instruction {
         return loadStoreRegister(rt, rn, args.offset, false);
+    }
+
+    // Load or store pair of registers
+
+    pub const LoadStorePairEncoding = enum(u2) {
+        PostIndex = 0b01,
+        SignedOffset = 0b10,
+        PreIndex = 0b11,
+    };
+    pub fn ldp(rt1: Register, rt2: Register, rn: Register, imm: i7, encoding: LoadStorePairEncoding) Instruction {
+        return loadStorePairOfRegisters(rt1, rt2, rn, imm, @enumToInt(encoding), true);
+    }
+
+    pub fn ldnp(rt1: Register, rt2: Register, rn: Register, imm: i7) Instruction {
+        return loadStorePairOfRegisters(rt1, rt2, rn, imm, 0, true);
+    }
+
+    pub fn stp(rt1: Register, rt2: Register, rn: Register, imm: i7, encoding: LoadStorePairEncoding) Instruction {
+        return loadStorePairOfRegisters(rt1, rt2, rn, imm, @enumToInt(encoding), false);
+    }
+
+    pub fn stnp(rt1: Register, rt2: Register, rn: Register, imm: i7) Instruction {
+        return loadStorePairOfRegisters(rt1, rt2, rn, imm, 0, false);
     }
 
     // Exception generation
@@ -826,10 +903,29 @@ test "serialize instructions" {
             .inst = Instruction.adrp(.x2, -0x8),
             .expected = 0b1_00_10000_1111111111111111110_00010,
         },
+        .{ // stp x1, x2, [sp, #1]
+            .inst = Instruction.stp(.x1, .x2, Register.sp, 1, .SignedOffset),
+            .expected = 0b10_101_0_010_0_0000001_00010_11111_00001,
+        },
+        .{ // stp x1, x2, [sp, #-16]
+            .inst = Instruction.stp(.x1, .x2, Register.sp, -16, .SignedOffset),
+            .expected = 0b10_101_0_010_0_1110000_00010_11111_00001,
+        },
+        .{ // ldp x1, x2, [sp, #1]
+            .inst = Instruction.ldp(.x1, .x2, Register.sp, 1, .SignedOffset),
+            .expected = 0b10_101_0_010_1_0000001_00010_11111_00001,
+        },
+        .{ // ldp x1, x2, [sp, #16]
+            .inst = Instruction.ldp(.x1, .x2, Register.sp, 16, .SignedOffset),
+            .expected = 0b10_101_0_010_1_0010000_00010_11111_00001,
+        },
     };
 
     for (testcases) |case| {
         const actual = case.inst.toU32();
+        if (case.expected != actual) {
+            std.debug.print("0b{b} != 0b{b}\n", .{ case.expected, actual });
+        }
         testing.expectEqual(case.expected, actual);
     }
 }
