@@ -2209,10 +2209,10 @@ fn renderAsmOutput(
     try ais.writer().writeAll(" (");
 
     switch (asm_output.kind) {
-        ast.Node.Asm.Output.Kind.Variable => |variable_name| {
+        .Variable => |variable_name| {
             try renderExpression(allocator, ais, tree, &variable_name.base, Space.None);
         },
-        ast.Node.Asm.Output.Kind.Return => |return_type| {
+        .Return => |return_type| {
             try ais.writer().writeAll("-> ");
             try renderExpression(allocator, ais, tree, return_type, Space.None);
         },
@@ -2304,8 +2304,17 @@ fn renderVarDecl(
     }
 
     if (var_decl.getInitNode()) |init_node| {
-        const s = if (init_node.tag == .MultilineStringLiteral) Space.None else Space.Space;
-        try renderToken(tree, ais, var_decl.getEqToken().?, s); // =
+        const eq_token = var_decl.getEqToken().?;
+        const eq_space = blk: {
+            const loc = tree.tokenLocation(tree.token_locs[eq_token].end, tree.nextToken(eq_token));
+            break :blk if (loc.line == 0) Space.Space else Space.Newline;
+        };
+
+        {
+            ais.pushIndent();
+            defer ais.popIndent();
+            try renderToken(tree, ais, eq_token, eq_space); // =
+        }
         ais.pushIndentOneShot();
         try renderExpression(allocator, ais, tree, init_node, Space.None);
     }
@@ -2470,20 +2479,20 @@ fn renderTokenOffset(
 
     var loc = tree.tokenLocationLoc(token_loc.end, next_token_loc);
     if (loc.line == 0) {
-        try ais.writer().print(" {}", .{mem.trimRight(u8, tree.tokenSliceLoc(next_token_loc), " ")});
+        if (tree.token_ids[token_index] != .MultilineStringLiteralLine) {
+            try ais.writer().writeByte(' ');
+        }
+        try ais.writer().writeAll(mem.trimRight(u8, tree.tokenSliceLoc(next_token_loc), " "));
         offset = 2;
         token_loc = next_token_loc;
         next_token_loc = tree.token_locs[token_index + offset];
         next_token_id = tree.token_ids[token_index + offset];
         if (next_token_id != .LineComment) {
             switch (space) {
-                Space.None, Space.Space => {
+                .None, .Space, .SpaceOrOutdent => {
                     try ais.insertNewline();
                 },
-                Space.SpaceOrOutdent => {
-                    try ais.insertNewline();
-                },
-                Space.Newline => {
+                .Newline => {
                     if (next_token_id == .MultilineStringLiteralLine) {
                         return;
                     } else {
@@ -2491,8 +2500,8 @@ fn renderTokenOffset(
                         return;
                     }
                 },
-                Space.NoNewline => {},
-                Space.NoComment, Space.Comma, Space.BlockStart => unreachable,
+                .NoNewline => {},
+                .NoComment, .Comma, .BlockStart => unreachable,
             }
             return;
         }
@@ -2513,7 +2522,7 @@ fn renderTokenOffset(
         next_token_id = tree.token_ids[token_index + offset];
         if (next_token_id != .LineComment) {
             switch (space) {
-                Space.Newline => {
+                .Newline => {
                     if (next_token_id == .MultilineStringLiteralLine) {
                         return;
                     } else {
@@ -2521,14 +2530,11 @@ fn renderTokenOffset(
                         return;
                     }
                 },
-                Space.None, Space.Space => {
+                .None, .Space, .SpaceOrOutdent => {
                     try ais.insertNewline();
                 },
-                Space.SpaceOrOutdent => {
-                    try ais.insertNewline();
-                },
-                Space.NoNewline => {},
-                Space.NoComment, Space.Comma, Space.BlockStart => unreachable,
+                .NoNewline => {},
+                .NoComment, .Comma, .BlockStart => unreachable,
             }
             return;
         }
