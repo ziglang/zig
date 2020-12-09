@@ -1810,8 +1810,12 @@ fn writeExportTrie(self: *MachO) !void {
         });
     }
 
-    var buffer = try trie.writeULEB128Mem();
+    try trie.finalize();
+    var buffer = try self.base.allocator.alloc(u8, trie.size);
     defer self.base.allocator.free(buffer);
+    var stream = std.io.fixedBufferStream(buffer);
+    const nwritten = try trie.write(stream.writer());
+    assert(nwritten == trie.size);
 
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     const export_size = @intCast(u32, mem.alignForward(buffer.len, @sizeOf(u64)));
