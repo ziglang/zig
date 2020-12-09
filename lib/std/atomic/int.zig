@@ -10,6 +10,9 @@ const testing = std.testing;
 
 /// Thread-safe, lock-free integer
 pub fn Int(comptime T: type) type {
+    if (!std.meta.trait.isIntegral(T))
+        @compileError("Expected integral type, got '" ++ @typeName(T) ++ "'");
+
     return extern struct {
         unprotected_value: T,
 
