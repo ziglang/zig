@@ -301,7 +301,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    switch (self.base.options.output_mode) {
+    const output_mode = self.base.options.output_mode;
+    const target = self.base.options.target;
+
+    switch (output_mode) {
         .Exe => {
             if (self.entry_addr) |addr| {
                 // Update LC_MAIN with entry offset.
@@ -312,12 +315,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.writeExportTrie();
             try self.writeSymbolTable();
             try self.writeStringTable();
-            // Preallocate space for the code signature.
-            // We need to do this at this stage so that we have the load commands with proper values
-            // written out to the file.
-            // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
-            // where the code signature goes into.
-            try self.writeCodeSignaturePadding();
+
+            if (target.cpu.arch == .aarch64) {
+                // Preallocate space for the code signature.
+                // We need to do this at this stage so that we have the load commands with proper values
+                // written out to the file.
+                // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
+                // where the code signature goes into.
+                try self.writeCodeSignaturePadding();
+            }
         },
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
@@ -339,9 +345,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
     assert(!self.cmd_table_dirty);
 
-    switch (self.base.options.output_mode) {
-        .Exe, .Lib => try self.writeCodeSignature(), // code signing always comes last
-        else => {},
+    if (target.cpu.arch == .aarch64) {
+        switch (output_mode) {
+            .Exe, .Lib => try self.writeCodeSignature(), // code signing always comes last
+            else => {},
+        }
     }
 }
 
