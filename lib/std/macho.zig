@@ -42,7 +42,6 @@ pub const uuid_command = extern struct {
     uuid: [16]u8,
 };
 
-
 /// The version_min_command contains the min OS version on which this
 /// binary was built to run.
 pub const version_min_command = extern struct {

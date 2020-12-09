@@ -572,11 +572,11 @@ pub const File = struct {
 
         if (!base.options.disable_lld_caching) {
             Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-                std.log.warn("failed to save archive hash digest file: {}", .{@errorName(err)});
+                log.warn("failed to save archive hash digest file: {}", .{@errorName(err)});
             };
 
             man.writeManifest() catch |err| {
-                std.log.warn("failed to write cache manifest when archiving: {}", .{@errorName(err)});
+                log.warn("failed to write cache manifest when archiving: {}", .{@errorName(err)});
             };
 
             base.lock = man.toOwnedLock();

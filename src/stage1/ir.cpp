@@ -25312,24 +25312,6 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                     inner_fields[2]->data.x_union.payload = fn_decl_val;
                     break;
                 }
-            case TldIdContainer:
-                {
-                    ZigType *type_entry = ((TldContainer *)curr_entry->value)->type_entry;
-                    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
-                        return ErrorSemanticAnalyzeFail;
-
-                    // This is a type.
-                    bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 0);
-
-                    ZigValue *payload = ira->codegen->pass1_arena->create<ZigValue>();
-                    payload->special = ConstValSpecialStatic;
-                    payload->type = ira->codegen->builtin_types.entry_type;
-                    payload->data.x_type = type_entry;
-
-                    inner_fields[2]->data.x_union.payload = payload;
-
-                    break;
-                }
             default:
                 zig_unreachable();
         }

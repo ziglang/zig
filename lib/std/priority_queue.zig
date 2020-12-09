@@ -468,7 +468,6 @@ test "std.PriorityQueue: update min heap" {
     expectEqual(@as(u32, 5), queue.remove());
 }
 
-
 test "std.PriorityQueue: update same min heap" {
     var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();

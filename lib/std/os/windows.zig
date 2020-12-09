@@ -570,13 +570,13 @@ pub fn SetCurrentDirectory(path_name: []const u16) SetCurrentDirectoryError!void
     const path_len_bytes = math.cast(u16, path_name.len * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
-    
+
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
         .Buffer = @intToPtr([*]u16, @ptrToInt(path_name.ptr)),
     };
-    
+
     const rc = ntdll.RtlSetCurrentDirectory_U(&nt_name);
     switch (rc) {
         .SUCCESS => {},

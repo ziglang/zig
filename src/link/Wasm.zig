@@ -455,7 +455,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         }
 
         if (stderr.len != 0) {
-            std.log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+            log.warn("unexpected LLD stderr:\n{s}", .{stderr});
         }
     }
 
@@ -463,11 +463,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            std.log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
