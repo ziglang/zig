@@ -760,13 +760,15 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                     const text_section = text_segment.sections.items[self.text_section_index.?];
                     const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                    const needed_size = @sizeOf(macho.linkedit_data_command);
+                    const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+
                     if (needed_size + after_last_cmd_offset > text_section.offset) {
-                        std.log.err("Unable to extend padding between load commands and start of __text section.", .{});
-                        std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size * alloc_num / alloc_den});
-                        std.log.err("fall back to the system linker.", .{});
+                        std.log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
+                        std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size});
+                        std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
                         return error.NotEnoughPadding;
                     }
+
                     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
                     // TODO This is clunky.
                     self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
