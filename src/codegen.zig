@@ -2768,8 +2768,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     .x0,
                                     .x28,
                                     Register.sp,
-                                    -2,
-                                    .SignedOffset,
+                                    -16,
+                                    .PreIndex,
                                 ).toU32());
                                 // adr x28, #8
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
@@ -2795,8 +2795,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     .x0,
                                     .x28,
                                     Register.sp,
-                                    2,
-                                    .SignedOffset,
+                                    16,
+                                    .PostIndex,
                                 ).toU32());
                             }
                         } else {
