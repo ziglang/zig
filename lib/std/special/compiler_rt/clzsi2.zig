@@ -3,7 +3,8 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 
 fn __clzsi2_generic(a: i32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
@@ -25,8 +26,6 @@ fn __clzsi2_generic(a: i32) callconv(.C) i32 {
 }
 
 fn __clzsi2_thumb1() callconv(.Naked) void {
-    @setRuntimeSafety(builtin.is_test);
-
     // Similar to the generic version with the last two rounds replaced by a LUT
     asm volatile (
         \\ movs r1, #32
@@ -59,8 +58,6 @@ fn __clzsi2_thumb1() callconv(.Naked) void {
 }
 
 fn __clzsi2_arm32() callconv(.Naked) void {
-    @setRuntimeSafety(builtin.is_test);
-
     asm volatile (
         \\ // Assumption: n != 0
         \\ // r0: n
@@ -107,14 +104,13 @@ fn __clzsi2_arm32() callconv(.Naked) void {
     unreachable;
 }
 
-pub const __clzsi2 = blk: {
-    if (builtin.arch.isARM()) {
-        break :blk __clzsi2_arm32;
-    } else if (builtin.arch.isThumb()) {
-        break :blk __clzsi2_thumb1;
-    } else {
-        break :blk __clzsi2_generic;
-    }
+pub const __clzsi2 = switch (std.Target.current.cpu.arch) {
+    .arm, .armeb => if (std.Target.arm.featureSetHas(std.Target.current.cpu.features, .noarm))
+        __clzsi2_thumb1
+    else
+        __clzsi2_arm32,
+    .thumb, .thumbeb => __clzsi2_thumb1,
+    else => __clzsi2_generic,
 };
 
 test "test clzsi2" {
