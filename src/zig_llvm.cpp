@@ -1056,39 +1056,24 @@ bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size
     return false;
 }
 
+int ZigLLDLinkCOFF(int argc, const char **argv, bool can_exit_early) {
+    std::vector<const char *> args(argv, argv + argc);
+    return lld::coff::link(args, can_exit_early, llvm::outs(), llvm::errs());
+}
 
-bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,
-        void (*append_diagnostic)(void *, const char *, size_t),
-        void *context_stdout, void *context_stderr)
-{
-    ArrayRef<const char *> array_ref_args(args, arg_count);
+int ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early) {
+    std::vector<const char *> args(argv, argv + argc);
+    return lld::elf::link(args, can_exit_early, llvm::outs(), llvm::errs());
+}
 
-    MyOStream diag_stdout(append_diagnostic, context_stdout);
-    MyOStream diag_stderr(append_diagnostic, context_stderr);
+int ZigLLDLinkMachO(int argc, const char **argv, bool can_exit_early) {
+    std::vector<const char *> args(argv, argv + argc);
+    return lld::mach_o::link(args, can_exit_early, llvm::outs(), llvm::errs());
+}
 
-    switch (oformat) {
-        case ZigLLVM_UnknownObjectFormat:
-        case ZigLLVM_XCOFF:
-            assert(false); // unreachable
-            break;
-
-        case ZigLLVM_COFF:
-            return lld::coff::link(array_ref_args, false, diag_stdout, diag_stderr);
-
-        case ZigLLVM_ELF:
-            return lld::elf::link(array_ref_args, false, diag_stdout, diag_stderr);
-
-        case ZigLLVM_MachO:
-            return lld::mach_o::link(array_ref_args, false, diag_stdout, diag_stderr);
-
-        case ZigLLVM_Wasm:
-            return lld::wasm::link(array_ref_args, false, diag_stdout, diag_stderr);
-
-        default:
-            break;
-    }
-    assert(false); // unreachable
-    abort();
+int ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early) {
+    std::vector<const char *> args(argv, argv + argc);
+    return lld::wasm::link(args, can_exit_early, llvm::outs(), llvm::errs());
 }
 
 static AtomicRMWInst::BinOp toLLVMRMWBinOp(enum ZigLLVM_AtomicRMWBinOp BinOp) {
