@@ -2655,6 +2655,9 @@ fn fmtPathDir(
     var dir_it = dir.iterate();
     while (try dir_it.next()) |entry| {
         const is_dir = entry.kind == .Directory;
+
+        if (is_dir and std.mem.eql(u8, entry.name, "zig-cache")) continue;
+
         if (is_dir or mem.endsWith(u8, entry.name, ".zig")) {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
             defer fmt.gpa.free(full_path);
