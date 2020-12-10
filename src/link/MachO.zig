@@ -789,6 +789,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 mem.set(u8, dylib_cmd.data, 0);
                 mem.copy(u8, dylib_cmd.data, mem.spanZ(LIB_SYSTEM_PATH));
                 try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
+
                 // Parse dyld info
                 try self.parseBindingInfo();
                 try self.parseLazyBindingInfo();
@@ -2059,7 +2060,7 @@ fn parseLazyBindingInfo(self: *MachO) !void {
     }
 }
 
-fn parseAndFixupBindingInfoBuffer(allocator: *Allocator, buffer: []u8) !bool{
+fn parseAndFixupBindingInfoBuffer(allocator: *Allocator, buffer: []u8) !bool {
     var stream = std.io.fixedBufferStream(buffer);
     var reader = stream.reader();
     var done = false;
