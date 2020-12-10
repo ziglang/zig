@@ -1311,10 +1311,10 @@ fn buildOutputType(
         } else if (root_src_file) |file| {
             const basename = fs.path.basename(file);
             break :blk mem.split(basename, ".").next().?;
-        } else if (c_source_files.items.len == 1) {
+        } else if (c_source_files.items.len >= 1) {
             const basename = fs.path.basename(c_source_files.items[0].src_path);
             break :blk mem.split(basename, ".").next().?;
-        } else if (link_objects.items.len == 1) {
+        } else if (link_objects.items.len >= 1) {
             const basename = fs.path.basename(link_objects.items[0]);
             break :blk mem.split(basename, ".").next().?;
         } else if (emit_bin == .yes) {
