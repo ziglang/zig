@@ -36,7 +36,7 @@ retry sudo apt-get install -y \
     libxml2-dev libclang-11-dev llvm-11 llvm-11-dev liblld-11-dev cmake s3cmd \
     gcc-7 g++-7 ninja-build tidy \
 
-QEMUBASE="qemu-linux-x86_64-5.1.0"
+QEMUBASE="qemu-linux-x86_64-5.2.0"
 wget -nv https://ziglang.org/deps/$QEMUBASE.tar.xz
 tar xf $QEMUBASE.tar.xz
 PATH=$PWD/$QEMUBASE/bin:$PATH
