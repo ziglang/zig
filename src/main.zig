@@ -1656,21 +1656,18 @@ fn buildOutputType(
         if (arg_mode == .run) {
             break :l global_cache_directory;
         }
-        const cache_dir_path = blk: {
-            if (root_pkg) |pkg| {
-                if (pkg.root_src_directory.path) |p| {
-                    break :blk try fs.path.join(arena, &[_][]const u8{ p, "zig-cache" });
-                }
-            }
-            break :blk "zig-cache";
-        };
-        const cache_parent_dir = if (root_pkg) |pkg| pkg.root_src_directory.handle else fs.cwd();
-        const dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
-        cleanup_local_cache_dir = dir;
-        break :l .{
-            .handle = dir,
-            .path = cache_dir_path,
-        };
+        if (root_pkg) |pkg| {
+            const cache_dir_path = try pkg.root_src_directory.join(arena, &[_][]const u8{"zig-cache"});
+            const dir = try pkg.root_src_directory.handle.makeOpenPath("zig-cache", .{});
+            cleanup_local_cache_dir = dir;
+            break :l .{
+                .handle = dir,
+                .path = cache_dir_path,
+            };
+        }
+        // Otherwise we really don't have a reasonable place to put the local cache directory,
+        // so we utilize the global one.
+        break :l global_cache_directory;
     };
 
     if (build_options.have_llvm and emit_asm != .no) {
