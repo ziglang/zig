@@ -1379,6 +1379,9 @@ test "timeout_remove" {
     if (cqe_timeout.user_data == 0x99999999 and cqe_timeout.res == -linux.EINVAL) {
         return error.SkipZigTest;
     }
+    if (cqe_timeout.user_data == 0x99999999) {
+        std.debug.print("unexpected cqe={}\n", .{ cqe_timeout });
+    }
     testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x88888888,
         .res = -linux.ECANCELED,
