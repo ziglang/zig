@@ -1376,11 +1376,16 @@ test "timeout_remove" {
     testing.expectEqual(@as(u32, 2), try ring.submit());
 
     const cqe_timeout = try ring.copy_cqe();
-    if (cqe_timeout.user_data == 0x99999999 and cqe_timeout.res == -linux.EINVAL) {
+    // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
+    // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
+    // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
+    // We don't want to skip this test for newer kernels.
+    if (
+        cqe_timeout.user_data == 0x99999999 and
+        cqe_timeout.res == -linux.EBADF and
+        (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0
+    ) {
         return error.SkipZigTest;
-    }
-    if (cqe_timeout.user_data == 0x99999999) {
-        std.debug.print("unexpected cqe={}\n", .{ cqe_timeout });
     }
     testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x88888888,
