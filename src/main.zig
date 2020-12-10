@@ -118,11 +118,6 @@ pub fn main() anyerror!void {
 const os_can_execve = std.builtin.os.tag != .windows;
 
 pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
-    if (args.len <= 1) {
-        std.log.info("{}", .{usage});
-        fatal("expected command argument", .{});
-    }
-
     if (os_can_execve and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion
@@ -152,6 +147,51 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             modified_args[0] = "cc";
             return std.os.execvpe(arena, modified_args, &env_map);
         }
+    }
+
+    const is_cgo = std.os.getenvZ("ZIG_CGO") != null;
+    if (is_cgo) cgo: {
+        // Workaround for https://github.com/golang/go/issues/43078, here we fix the order of
+        // command line arguments. Dear Go developers please let the Zig project know when
+        // we can remove this!
+        var fixed_args = std.ArrayList([]const u8).init(arena);
+        try fixed_args.ensureCapacity(args.len);
+        fixed_args.appendAssumeCapacity(args[0]);
+        fixed_args.appendAssumeCapacity("cc");
+        var arg_mode: BuildArgMode = .cc;
+        var found_cc_arg = false;
+        for (args[1..]) |arg| {
+            if (!found_cc_arg) {
+                if (mem.eql(u8, arg, "cc")) {
+                    arg_mode = .cc;
+                    fixed_args.items[1] = arg;
+                    found_cc_arg = true;
+                } else if (mem.eql(u8, arg, "c++")) {
+                    arg_mode = .cpp;
+                    fixed_args.items[1] = arg;
+                    found_cc_arg = true;
+                } else if (mem.eql(u8, arg, "clang") or
+                    mem.eql(u8, arg, "-cc1") or
+                    mem.eql(u8, arg, "-cc1as") or
+                    mem.eql(u8, arg, "ld.lld") or
+                    mem.eql(u8, arg, "ld64.lld") or
+                    mem.eql(u8, arg, "lld-link") or
+                    mem.eql(u8, arg, "wasm-ld"))
+                {
+                    break :cgo; // fall back to regular arg parsing
+                } else {
+                    fixed_args.appendAssumeCapacity(arg);
+                }
+            } else {
+                fixed_args.appendAssumeCapacity(arg);
+            }
+        }
+        return buildOutputType(gpa, arena, fixed_args.items, arg_mode);
+    }
+
+    if (args.len <= 1) {
+        std.log.info("{}", .{usage});
+        fatal("expected command argument", .{});
     }
 
     const cmd = args[1];
@@ -435,18 +475,20 @@ fn optionalStringEnvVar(arena: *Allocator, name: []const u8) !?[]const u8 {
     }
 }
 
+const BuildArgMode = union(enum) {
+    build: std.builtin.OutputMode,
+    cc,
+    cpp,
+    translate_c,
+    zig_test,
+    run,
+};
+
 fn buildOutputType(
     gpa: *Allocator,
     arena: *Allocator,
     all_args: []const []const u8,
-    arg_mode: union(enum) {
-        build: std.builtin.OutputMode,
-        cc,
-        cpp,
-        translate_c,
-        zig_test,
-        run,
-    },
+    arg_mode: BuildArgMode,
 ) !void {
     var color: Color = .auto;
     var optimize_mode: std.builtin.Mode = .Debug;
@@ -477,7 +519,7 @@ fn buildOutputType(
     var emit_zir: Emit = .no;
     var emit_docs: Emit = .no;
     var emit_analysis: Emit = .no;
-    var target_arch_os_abi: []const u8 = "native";
+    var target_arch_os_abi: ?[]const u8 = null;
     var target_mcpu: ?[]const u8 = null;
     var target_dynamic_linker: ?[]const u8 = null;
     var target_ofmt: ?[]const u8 = null;
@@ -1361,38 +1403,65 @@ fn buildOutputType(
         }
     };
 
-    var diags: std.zig.CrossTarget.ParseOptions.Diagnostics = .{};
-    const cross_target = std.zig.CrossTarget.parse(.{
-        .arch_os_abi = target_arch_os_abi,
-        .cpu_features = target_mcpu,
-        .dynamic_linker = target_dynamic_linker,
-        .diagnostics = &diags,
-    }) catch |err| switch (err) {
-        error.UnknownCpuModel => {
-            help: {
-                var help_text = std.ArrayList(u8).init(arena);
-                for (diags.arch.?.allCpuModels()) |cpu| {
-                    help_text.writer().print(" {}\n", .{cpu.name}) catch break :help;
-                }
-                std.log.info("Available CPUs for architecture '{}': {}", .{
-                    @tagName(diags.arch.?), help_text.items,
+    const is_cgo = std.os.getenvZ("ZIG_CGO") != null;
+
+    const cross_target: std.zig.CrossTarget = t: {
+        if (is_cgo and target_arch_os_abi == null) {
+            const go_os = std.os.getenvZ("GOOS") orelse "native";
+            const go_arch = std.os.getenvZ("GOARCH") orelse "native";
+            const cgo_ct = target_util.fromGoTarget(go_arch, go_os) catch |err| {
+                fatal("unable to determine target from GOOS={s} GOARCH={s}: {s}", .{
+                    go_os, go_arch, @errorName(err),
                 });
+            };
+            // We render the CGO target to a string so that we can call CrossTarget.parse below
+            // and which takes into account the CPU features and dynamic linker CLI parameters.
+            const cpu_arch = if (cgo_ct.cpu_arch) |arch| @tagName(arch) else "native";
+            const os_tag = if (cgo_ct.os_tag) |os_tag| @tagName(os_tag) else "native";
+            if (cgo_ct.abi) |abi| {
+                target_arch_os_abi = try std.fmt.allocPrint(arena, "{s}-{s}-{s}", .{ cpu_arch, os_tag, abi });
+            } else {
+                target_arch_os_abi = try std.fmt.allocPrint(arena, "{s}-{s}", .{ cpu_arch, os_tag });
             }
-            fatal("Unknown CPU: '{}'", .{diags.cpu_name.?});
-        },
-        error.UnknownCpuFeature => {
-            help: {
-                var help_text = std.ArrayList(u8).init(arena);
-                for (diags.arch.?.allFeaturesList()) |feature| {
-                    help_text.writer().print(" {}: {}\n", .{ feature.name, feature.description }) catch break :help;
+        }
+
+        var diags: std.zig.CrossTarget.ParseOptions.Diagnostics = .{};
+        const cross_target = std.zig.CrossTarget.parse(.{
+            .arch_os_abi = target_arch_os_abi orelse "native",
+            .cpu_features = target_mcpu,
+            .dynamic_linker = target_dynamic_linker,
+            .diagnostics = &diags,
+        }) catch |err| switch (err) {
+            error.UnknownCpuModel => {
+                help: {
+                    var help_text = std.ArrayList(u8).init(arena);
+                    for (diags.arch.?.allCpuModels()) |cpu| {
+                        help_text.writer().print(" {}\n", .{cpu.name}) catch break :help;
+                    }
+                    std.log.info("Available CPUs for architecture '{}': {}", .{
+                        @tagName(diags.arch.?), help_text.items,
+                    });
                 }
-                std.log.info("Available CPU features for architecture '{}': {}", .{
-                    @tagName(diags.arch.?), help_text.items,
-                });
-            }
-            fatal("Unknown CPU feature: '{}'", .{diags.unknown_feature_name});
-        },
-        else => |e| return e,
+                fatal("Unknown CPU: '{}'", .{diags.cpu_name.?});
+            },
+            error.UnknownCpuFeature => {
+                help: {
+                    var help_text = std.ArrayList(u8).init(arena);
+                    for (diags.arch.?.allFeaturesList()) |feature| {
+                        help_text.writer().print(" {}: {}\n", .{ feature.name, feature.description }) catch break :help;
+                    }
+                    std.log.info("Available CPU features for architecture '{}': {}", .{
+                        @tagName(diags.arch.?), help_text.items,
+                    });
+                }
+                fatal("Unknown CPU feature: '{}'", .{diags.unknown_feature_name});
+            },
+            error.UnknownOperatingSystem => {
+                fatal("Unknown Operating System: '{s}'", .{diags.os_name});
+            },
+            else => |e| return e,
+        };
+        break :t cross_target;
     };
 
     const target_info = try detectNativeTargetInfo(gpa, cross_target);
@@ -1653,7 +1722,7 @@ fn buildOutputType(
                 .path = local_cache_dir_path,
             };
         }
-        if (arg_mode == .run) {
+        if (arg_mode == .run or is_cgo) {
             break :l global_cache_directory;
         }
         const cache_dir_path = blk: {

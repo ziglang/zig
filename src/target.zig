@@ -343,3 +343,79 @@ pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
 pub fn hasDebugInfo(target: std.Target) bool {
     return !target.cpu.arch.isWasm();
 }
+
+pub fn fromGoTarget(go_arch: []const u8, go_os: []const u8) !std.zig.CrossTarget {
+    var os_tag: ?std.Target.Os.Tag = undefined;
+    var abi: ?std.Target.Abi = null;
+    if (std.mem.eql(u8, go_os, "native")) {
+        os_tag = null;
+    } else if (std.mem.eql(u8, go_os, "aix")) {
+        os_tag = .aix;
+    } else if (std.mem.eql(u8, go_os, "android")) {
+        os_tag = .linux;
+        abi = .android;
+    } else if (std.mem.eql(u8, go_os, "darwin")) {
+        os_tag = .macos;
+    } else if (std.mem.eql(u8, go_os, "dragonfly")) {
+        os_tag = .dragonfly;
+    } else if (std.mem.eql(u8, go_os, "freebsd")) {
+        os_tag = .freebsd;
+    } else if (std.mem.eql(u8, go_os, "illumos")) {
+        return error.UnsupportedOperatingSystem;
+    } else if (std.mem.eql(u8, go_os, "js")) {
+        return error.UnsupportedOperatingSystem;
+    } else if (std.mem.eql(u8, go_os, "linux")) {
+        os_tag = .linux;
+        abi = .musl; // go wants static linking on linux
+    } else if (std.mem.eql(u8, go_os, "netbsd")) {
+        os_tag = .netbsd;
+    } else if (std.mem.eql(u8, go_os, "openbsd")) {
+        os_tag = .openbsd;
+    } else if (std.mem.eql(u8, go_os, "plan9")) {
+        return error.UnsupportedOperatingSystem;
+    } else if (std.mem.eql(u8, go_os, "solaris")) {
+        os_tag = .solaris;
+    } else if (std.mem.eql(u8, go_os, "windows")) {
+        os_tag = .windows;
+        abi = .gnu; // so we can provide libc
+    } else {
+        return error.UnrecognizedOperatingSystem;
+    }
+
+    var cpu_arch: ?std.Target.Cpu.Arch = undefined;
+    if (std.mem.eql(u8, go_arch, "386")) {
+        cpu_arch = null;
+    } else if (std.mem.eql(u8, go_arch, "386")) {
+        cpu_arch = .i386;
+    } else if (std.mem.eql(u8, go_arch, "amd64")) {
+        cpu_arch = .x86_64;
+    } else if (std.mem.eql(u8, go_arch, "arm")) {
+        cpu_arch = .arm;
+    } else if (std.mem.eql(u8, go_arch, "arm64")) {
+        cpu_arch = .aarch64;
+    } else if (std.mem.eql(u8, go_arch, "mips")) {
+        cpu_arch = .mips;
+    } else if (std.mem.eql(u8, go_arch, "mips64")) {
+        cpu_arch = .mips64;
+    } else if (std.mem.eql(u8, go_arch, "mips64le")) {
+        cpu_arch = .mips64el;
+    } else if (std.mem.eql(u8, go_arch, "mipsle")) {
+        cpu_arch = .mipsel;
+    } else if (std.mem.eql(u8, go_arch, "ppc64")) {
+        cpu_arch = .powerpc64;
+    } else if (std.mem.eql(u8, go_arch, "ppc64le")) {
+        cpu_arch = .powerpc64le;
+    } else if (std.mem.eql(u8, go_arch, "riscv64")) {
+        cpu_arch = .riscv64;
+    } else if (std.mem.eql(u8, go_arch, "s390x")) {
+        cpu_arch = .s390x;
+    } else {
+        return error.UnrecognizedCPUArchitecture;
+    }
+
+    return std.zig.CrossTarget{
+        .cpu_arch = cpu_arch,
+        .os_tag = os_tag,
+        .abi = abi,
+    };
+}
