@@ -1333,6 +1333,15 @@ pub const N_WEAK_DEF: u16 = 0x80;
 /// This bit is only available in .o files (MH_OBJECT filetype)
 pub const N_SYMBOL_RESOLVER: u16 = 0x100;
 
+// The following are used on the flags byte of a terminal node // in the export information.
+pub const EXPORT_SYMBOL_FLAGS_KIND_MASK: u8 = 0x03;
+pub const EXPORT_SYMBOL_FLAGS_KIND_REGULAR: u8 = 0x00;
+pub const EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL: u8 = 0x01;
+pub const EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE: u8 = 0x02;
+pub const EXPORT_SYMBOL_FLAGS_KIND_WEAK_DEFINITION: u8 = 0x04;
+pub const EXPORT_SYMBOL_FLAGS_REEXPORT: u8 = 0x08;
+pub const EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER: u8 = 0x10;
+
 // Codesign consts and structs taken from:
 // https://opensource.apple.com/source/xnu/xnu-6153.81.5/osfmk/kern/cs_blobs.h.auto.html
 

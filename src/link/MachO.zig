@@ -301,7 +301,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    switch (self.base.options.output_mode) {
+    const output_mode = self.base.options.output_mode;
+    const target = self.base.options.target;
+
+    switch (output_mode) {
         .Exe => {
             if (self.entry_addr) |addr| {
                 // Update LC_MAIN with entry offset.
@@ -312,12 +315,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.writeExportTrie();
             try self.writeSymbolTable();
             try self.writeStringTable();
-            // Preallocate space for the code signature.
-            // We need to do this at this stage so that we have the load commands with proper values
-            // written out to the file.
-            // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
-            // where the code signature goes into.
-            try self.writeCodeSignaturePadding();
+
+            if (target.cpu.arch == .aarch64) {
+                // Preallocate space for the code signature.
+                // We need to do this at this stage so that we have the load commands with proper values
+                // written out to the file.
+                // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
+                // where the code signature goes into.
+                try self.writeCodeSignaturePadding();
+            }
         },
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
@@ -339,9 +345,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
     assert(!self.cmd_table_dirty);
 
-    switch (self.base.options.output_mode) {
-        .Exe, .Lib => try self.writeCodeSignature(), // code signing always comes last
-        else => {},
+    if (target.cpu.arch == .aarch64) {
+        switch (output_mode) {
+            .Exe, .Lib => try self.writeCodeSignature(), // code signing always comes last
+            else => {},
+        }
     }
 }
 
@@ -752,17 +760,15 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                     const text_section = text_segment.sections.items[self.text_section_index.?];
                     const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                    const needed_size = @sizeOf(macho.linkedit_data_command);
+                    const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+
                     if (needed_size + after_last_cmd_offset > text_section.offset) {
-                        // TODO We are in the position to be able to increase the padding by moving all sections
-                        // by the required offset, but this requires a little bit more thinking and bookkeeping.
-                        // For now, return an error informing the user of the problem.
-                        log.err("Not enough padding between load commands and start of __text section:\n", .{});
-                        log.err("Offset after last load command: 0x{x}\n", .{after_last_cmd_offset});
-                        log.err("Beginning of __text section: 0x{x}\n", .{text_section.offset});
-                        log.err("Needed size: 0x{x}\n", .{needed_size});
+                        std.log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
+                        std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size});
+                        std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
                         return error.NotEnoughPadding;
                     }
+
                     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
                     // TODO This is clunky.
                     self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
@@ -1799,38 +1805,40 @@ fn writeCodeSignature(self: *MachO) !void {
 fn writeExportTrie(self: *MachO) !void {
     if (self.global_symbols.items.len == 0) return;
 
-    var trie: Trie = .{};
-    defer trie.deinit(self.base.allocator);
+    var trie = Trie.init(self.base.allocator);
+    defer trie.deinit();
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     for (self.global_symbols.items) |symbol| {
         // TODO figure out if we should put all global symbols into the export trie
         const name = self.getString(symbol.n_strx);
         assert(symbol.n_value >= text_segment.inner.vmaddr);
-        try trie.put(self.base.allocator, .{
+        try trie.put(.{
             .name = name,
             .vmaddr_offset = symbol.n_value - text_segment.inner.vmaddr,
-            .export_flags = 0, // TODO workout creation of export flags
+            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
         });
     }
 
-    var buffer: std.ArrayListUnmanaged(u8) = .{};
-    defer buffer.deinit(self.base.allocator);
-
-    try trie.writeULEB128Mem(self.base.allocator, &buffer);
+    try trie.finalize();
+    var buffer = try self.base.allocator.alloc(u8, trie.size);
+    defer self.base.allocator.free(buffer);
+    var stream = std.io.fixedBufferStream(buffer);
+    const nwritten = try trie.write(stream.writer());
+    assert(nwritten == trie.size);
 
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const export_size = @intCast(u32, mem.alignForward(buffer.items.len, @sizeOf(u64)));
+    const export_size = @intCast(u32, mem.alignForward(buffer.len, @sizeOf(u64)));
     dyld_info.export_off = self.linkedit_segment_next_offset.?;
     dyld_info.export_size = export_size;
 
     log.debug("writing export trie from 0x{x} to 0x{x}\n", .{ dyld_info.export_off, dyld_info.export_off + export_size });
 
-    if (export_size > buffer.items.len) {
+    if (export_size > buffer.len) {
         // Pad out to align(8).
         try self.base.file.?.pwriteAll(&[_]u8{0}, dyld_info.export_off + export_size);
     }
-    try self.base.file.?.pwriteAll(buffer.items, dyld_info.export_off);
+    try self.base.file.?.pwriteAll(buffer, dyld_info.export_off);
 
     self.linkedit_segment_next_offset = dyld_info.export_off + dyld_info.export_size;
     // Advance size of __LINKEDIT segment
@@ -1917,7 +1925,9 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
         switch (cmd.cmd()) {
             macho.LC_SEGMENT_64 => {
                 const x = cmd.Segment;
-                if (isSegmentOrSection(&x.inner.segname, "__LINKEDIT")) {
+                if (isSegmentOrSection(&x.inner.segname, "__PAGEZERO")) {
+                    self.pagezero_segment_cmd_index = i;
+                } else if (isSegmentOrSection(&x.inner.segname, "__LINKEDIT")) {
                     self.linkedit_segment_cmd_index = i;
                 } else if (isSegmentOrSection(&x.inner.segname, "__TEXT")) {
                     self.text_segment_cmd_index = i;
@@ -1926,16 +1936,48 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
                             self.text_section_index = @intCast(u16, j);
                         }
                     }
+                } else if (isSegmentOrSection(&x.inner.segname, "__DATA")) {
+                    self.data_segment_cmd_index = i;
                 }
+            },
+            macho.LC_DYLD_INFO_ONLY => {
+                self.dyld_info_cmd_index = i;
             },
             macho.LC_SYMTAB => {
                 self.symtab_cmd_index = i;
+            },
+            macho.LC_DYSYMTAB => {
+                self.dysymtab_cmd_index = i;
+            },
+            macho.LC_LOAD_DYLINKER => {
+                self.dylinker_cmd_index = i;
+            },
+            macho.LC_VERSION_MIN_MACOSX, macho.LC_VERSION_MIN_IPHONEOS, macho.LC_VERSION_MIN_WATCHOS, macho.LC_VERSION_MIN_TVOS => {
+                self.version_min_cmd_index = i;
+            },
+            macho.LC_SOURCE_VERSION => {
+                self.source_version_cmd_index = i;
+            },
+            macho.LC_MAIN => {
+                self.main_cmd_index = i;
+            },
+            macho.LC_LOAD_DYLIB => {
+                self.libsystem_cmd_index = i; // TODO This is incorrect, but we'll fixup later.
+            },
+            macho.LC_FUNCTION_STARTS => {
+                self.function_starts_cmd_index = i;
+            },
+            macho.LC_DATA_IN_CODE => {
+                self.data_in_code_cmd_index = i;
             },
             macho.LC_CODE_SIGNATURE => {
                 self.code_signature_cmd_index = i;
             },
             // TODO populate more MachO fields
-            else => {},
+            else => {
+                std.log.err("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
+                return error.UnknownLoadCommand;
+            },
         }
         self.load_commands.appendAssumeCapacity(cmd);
     }
