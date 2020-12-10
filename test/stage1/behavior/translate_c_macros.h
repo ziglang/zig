@@ -10,3 +10,9 @@ typedef struct Color {
 
 #define MY_SIZEOF(x) ((int)sizeof(x))
 #define MY_SIZEOF2(x) ((int)sizeof x)
+
+struct Foo {
+    int a;
+};
+
+#define SIZE_OF_FOO sizeof(struct Foo)

@@ -16,3 +16,7 @@ test "sizeof in macros" {
     expectEqual(@as(c_int, @sizeOf(u32)), h.MY_SIZEOF(u32));
     expectEqual(@as(c_int, @sizeOf(u32)), h.MY_SIZEOF2(u32));
 }
+
+test "reference to a struct type" {
+    expectEqual(@sizeOf(h.struct_Foo), h.SIZE_OF_FOO);
+}

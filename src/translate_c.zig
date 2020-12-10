@@ -5847,6 +5847,22 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
         } else {
             return transCreateNodeIdentifierUnchecked(c, "c_int");
         },
+        .Keyword_enum, .Keyword_struct, .Keyword_union => {
+            // struct Foo will be declared as struct_Foo by transRecordDecl
+            const next_id = m.next().?;
+            if (next_id != .Identifier) {
+                try m.fail(c, "unable to translate C expr: expected Identifier instead got: {}", .{@tagName(next_id)});
+                return error.ParseError;
+            }
+
+            const ident_token = try appendTokenFmt(c, .Identifier, "{}_{}", .{slice, m.slice()});
+            const identifier = try c.arena.create(ast.Node.OneToken);
+            identifier.* = .{
+                .base = .{ .tag = .Identifier },
+                .token = ident_token,
+            };
+            return &identifier.base;
+        },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
             return transCreateNodeIdentifier(c, checkForBuiltinTypedef(mangled_name) orelse mangled_name);
@@ -5856,7 +5872,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
 
             const next_id = m.next().?;
             if (next_id != .RParen) {
-                try m.fail(c, "unable to translate C expr: expected ')'' instead got: {}", .{@tagName(next_id)});
+                try m.fail(c, "unable to translate C expr: expected ')' instead got: {}", .{@tagName(next_id)});
                 return error.ParseError;
             }
             var saw_l_paren = false;
@@ -5886,7 +5902,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
             const node_to_cast = try parseCExpr(c, m, scope);
 
             if (saw_l_paren and m.next().? != .RParen) {
-                try m.fail(c, "unable to translate C expr: expected ')''", .{});
+                try m.fail(c, "unable to translate C expr: expected ')'", .{});
                 return error.ParseError;
             }
 
