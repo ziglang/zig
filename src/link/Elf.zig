@@ -1587,6 +1587,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 if (target.os.tag == .freebsd or target.os.tag == .netbsd) {
                     try argv.append("-lpthread");
                 }
+                if (target.os.tag == .openbsd) {
+                    try argv.append("-lcompiler_rt"); // __emutls_get_address
+                    try argv.append("-lpthread");
+                }
             } else if (target.isGnuLibC()) {
                 try argv.append(comp.libunwind_static_lib.?.full_object_path);
                 for (glibc.libs) |lib| {
