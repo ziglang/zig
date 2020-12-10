@@ -955,6 +955,51 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     return @bitCast(u64, result);
 }
 
+pub fn QueryObjectName(
+    handle: HANDLE,
+    out_buffer: []u16,
+) ![]u16 {
+    var full_buffer: [@sizeOf(OBJECT_NAME_INFORMATION) + PATH_MAX_WIDE * 2]u8 align(@alignOf(OBJECT_NAME_INFORMATION)) = undefined;
+    var info = @ptrCast(*OBJECT_NAME_INFORMATION, &full_buffer);
+    //buffer size is specified in bytes
+    const full_buffer_length = @intCast(ULONG, @sizeOf(OBJECT_NAME_INFORMATION) + std.math.min(PATH_MAX_WIDE, (out_buffer.len + 1) * 2));
+    //last argument would return the length required for full_buffer, not exposed here
+    const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, full_buffer[0..], full_buffer_length, null);
+    return switch (rc) {
+        .SUCCESS => if (@ptrCast(?[*]WCHAR, info.Name.Buffer)) |buffer| blk: {
+            //resulting string length is specified in bytes
+            const path_length_unterminated = @divExact(info.Name.Length, 2);
+            if (out_buffer.len < path_length_unterminated) {
+                return error.NameTooLong;
+            }
+            std.mem.copy(WCHAR, out_buffer[0..path_length_unterminated], buffer[0..path_length_unterminated :0]);
+            break :blk out_buffer[0..path_length_unterminated];
+        } else error.Unexpected,
+        .ACCESS_DENIED => error.AccessDenied,
+        .INVALID_HANDLE => error.InvalidHandle,
+        .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => error.NameTooLong,
+        //name_buffer.len >= @sizeOf(OBJECT_NAME_INFORMATION) holds statically
+        .INFO_LENGTH_MISMATCH => unreachable,
+        else => |e| unexpectedStatus(e),
+    };
+}
+test "QueryObjectName" {
+    if (comptime builtin.os.tag != .windows)
+        return;
+
+    //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
+    const file = try std.fs.openSelfExe(.{});
+    defer file.close();
+    //make this large enough for the test runner exe path
+    var out_buffer align(16) = std.mem.zeroes([1 << 10]u16);
+
+    var result_path = try QueryObjectName(file.handle, out_buffer[0..]);
+    //insufficient size
+    std.testing.expectError(error.NameTooLong, QueryObjectName(file.handle, out_buffer[0 .. result_path.len - 1]));
+    //exactly-sufficient size
+    _ = try QueryObjectName(file.handle, out_buffer[0..result_path.len]);
+}
+
 pub const GetFinalPathNameByHandleError = error {
         BadPathName,
         FileNotFound,
