@@ -165,36 +165,11 @@ pub fn utf8ValidCodepoint(value: u21) bool {
 
 /// Returns the length of a supplied UTF-8 string literal in terms of unicode
 /// codepoints.
-/// Asserts that the data is valid UTF-8.
+/// If the data is not a valid UTF-8 string, returns InvalidUtf8.
 pub fn utf8CountCodepoints(s: []const u8) !usize {
     var len: usize = 0;
-
-    const N = @sizeOf(usize);
-    const MASK = 0x80 * (std.math.maxInt(usize) / 0xff);
-
-    var i: usize = 0;
-    while (i < s.len) {
-        // Fast path for ASCII sequences
-        while (i + N <= s.len) : (i += N) {
-            const v = mem.readIntNative(usize, s[i..][0..N]);
-            if (v & MASK != 0) break;
-            len += N;
-        }
-
-        if (i < s.len) {
-            const n = try utf8ByteSequenceLength(s[i]);
-            if (i + n > s.len) return error.TruncatedInput;
-
-            switch (n) {
-                1 => {}, // ASCII, no validation needed
-                else => _ = try utf8Decode(s[i .. i + n]),
-            }
-
-            i += n;
-            len += 1;
-        }
-    }
-
+    var utf8 = (try Utf8View.init(s)).iterator();
+    while (utf8.nextCodepoint()) |_| len += 1;
     return len;
 }
 
@@ -827,7 +802,7 @@ fn testUtf8CountCodepoints() !void {
     testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("abcdefghij"));
     testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("äåéëþüúíóö"));
     testing.expectEqual(@as(usize, 5), try utf8CountCodepoints("こんにちは"));
-    // testing.expectError(error.Utf8EncodesSurrogateHalf, utf8CountCodepoints("\xED\xA0\x80"));
+    testing.expectError(error.InvalidUtf8, utf8CountCodepoints("\xED\xA0\x80"));
 }
 
 test "utf8 count codepoints" {
