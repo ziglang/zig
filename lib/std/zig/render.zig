@@ -813,12 +813,10 @@ fn renderExpression(
                                     const expr_last_token = expr.*.lastToken() + 1;
                                     const next_expr = section_exprs[i + 1];
                                     const loc = tree.tokenLocation(tree.token_locs[expr_last_token].start, next_expr.*.firstToken());
-                                    if (loc.line == 0) {
-                                        column_counter += 1;
-                                    } else {
-                                        single_line = false;
-                                        column_counter = 0;
-                                    }
+
+                                    column_counter += 1;
+
+                                    if (loc.line != 0) single_line = false;
                                 } else {
                                     single_line = false;
                                     column_counter = 0;
@@ -2655,6 +2653,8 @@ fn copyFixingWhitespace(ais: anytype, slice: []const u8) @TypeOf(ais.*).Error!vo
     };
 }
 
+// Returns the number of nodes in `expr` that are on the same line as `rtoken`,
+// or null if they all are on the same line.
 fn rowSize(tree: *ast.Tree, exprs: []*ast.Node, rtoken: ast.TokenIndex) ?usize {
     const first_token = exprs[0].firstToken();
     const first_loc = tree.tokenLocation(tree.token_locs[first_token].start, rtoken);
