@@ -2101,7 +2101,7 @@ pub const Parser = struct {
 // Unescape a JSON string
 // Only to be used on strings already validated by the parser
 // (note the unreachable statements and lack of bounds checking)
-fn unescapeString(output: []u8, input: []const u8) !void {
+pub fn unescapeString(output: []u8, input: []const u8) !void {
     var inIndex: usize = 0;
     var outIndex: usize = 0;
 
