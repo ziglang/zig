@@ -7,7 +7,10 @@ personal project. Here are some great examples:
 
  * [Oxid](https://github.com/dbandstra/oxid) - arcade style game
  * [TM35-Metronome](https://github.com/TM35-Metronome) - tools for modifying and randomizing Pokémon games
- * [trOS](https://github.com/sjdh02/trOS) - tiny aarch64 baremetal OS thingy
+ * [River](https://github.com/ifreund/river/) - a dynamic tiling wayland compositor 
+
+More examples can be found on the
+[Community Projects Wiki](https://github.com/ziglang/zig/wiki/Community-Projects).
 
 Without fail, these projects lead to discovering bugs and helping flesh out use
 cases, which lead to further design iterations of Zig. Importantly, each issue
@@ -51,7 +54,8 @@ knowledge of Zig internals.**
 
 ### Editing Source Code
 
-First, build the Stage 1 compiler as described in [Building from Source](README.md#Building-from-Source).
+First, build the Stage 1 compiler as described in
+[Building Zig From Source](https://github.com/ziglang/zig/wiki/Building-Zig-From-Source).
 
 Zig locates lib files relative to executable path by searching up the
 filesystem tree for a sub-path of `lib/zig/std/std.zig` or `lib/std/std.zig`.
@@ -128,6 +132,14 @@ When developing on Linux, another option is available to you: `-Denable-wine`.
 This will enable running behavior tests and std lib tests with Wine. It's
 recommended for Linux users to install Wine and enable this testing option 
 when editing the standard library or anything Windows-related.
+
+#### Testing WebAssembly using wasmtime
+
+If you have [wasmtime](https://wasmtime.dev/) installed, take advantage of the
+`-Denable-wasmtime` flag which will enable running WASI behavior tests and std
+lib tests. It's recommended for all users to install wasmtime and enable this
+testing option when editing the standard library and especially anything
+WebAssembly-related.
 
 #### Improving Translate-C
 
