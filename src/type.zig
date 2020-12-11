@@ -866,7 +866,7 @@ pub const Type = extern union {
             .f32 => return 4,
             .f64 => return 8,
             .f128 => return 16,
-            .c_longdouble => return 16,
+            .c_longdouble => @panic("TODO figure out what alignment `long double` should have on this target"),
 
             .error_set,
             .error_set_single,
