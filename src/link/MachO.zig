@@ -107,7 +107,6 @@ offset_table: std.ArrayListUnmanaged(u64) = .{},
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 cmd_table_dirty: bool = false,
-other_dylibs_present: bool = false,
 
 /// A list of text blocks that have surplus capacity. This list can have false
 /// positives, as functions grow and shrink over time, only sometimes being added
@@ -755,8 +754,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             // binaries up!
             const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
             try self.parseFromFile(out_file);
+
             if (self.libsystem_cmd_index == null) {
-                if (self.other_dylibs_present) return; // TODO We cannot handle this situation yet.
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const text_section = text_segment.sections.items[self.text_section_index.?];
                 const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
@@ -768,6 +767,18 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
                     return error.NotEnoughPadding;
                 }
+
+                // Calculate next available dylib ordinal.
+                const next_ordinal = blk: {
+                    var ordinal: u32 = 1;
+                    for (self.load_commands.items) |cmd| {
+                        switch (cmd) {
+                            .Dylib => ordinal += 1,
+                            else => {},
+                        }
+                    }
+                    break :blk ordinal;
+                };
 
                 // Add load dylib load command
                 self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -2007,8 +2018,6 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
                 const x = cmd.Dylib;
                 if (parseAndCmpName(x.data, mem.spanZ(LIB_SYSTEM_PATH))) {
                     self.libsystem_cmd_index = i;
-                } else {
-                    self.other_dylibs_present = true;
                 }
             },
             macho.LC_FUNCTION_STARTS => {
