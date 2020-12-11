@@ -33,6 +33,7 @@ gpa: *Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
+c_object_cache_digest_set: std.AutoHashMapUnmanaged(Cache.BinDigest, void) = .{},
 stage1_lock: ?Cache.Lock = null,
 stage1_cache_manifest: *Cache.Manifest = undefined,
 
@@ -1110,6 +1111,7 @@ pub fn destroy(self: *Compilation) void {
         entry.key.destroy(gpa);
     }
     self.c_object_table.deinit(gpa);
+    self.c_object_cache_digest_set.deinit(gpa);
 
     for (self.failed_c_objects.items()) |entry| {
         entry.value.destroy(gpa);
@@ -1679,6 +1681,17 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
                     _ = try man.addFile(c_object.src.extra_flags[arg_i], null);
                 }
             }
+        }
+    }
+
+    {
+        const gop = try comp.c_object_cache_digest_set.getOrPut(comp.gpa, man.hash.peekBin());
+        if (gop.found_existing) {
+            return comp.failCObj(
+                c_object,
+                "the same source file was already added to the same compilation with the same flags",
+                .{},
+            );
         }
     }
 
