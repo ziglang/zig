@@ -1005,7 +1005,7 @@ pub const Type = extern union {
             .f32 => return 4,
             .f64 => return 8,
             .f128 => return 16,
-            .c_longdouble => return 16,
+            .c_longdouble => return @divExact(CType.longdouble.sizeInBits(target), 8),
 
             .error_set,
             .error_set_single,
