@@ -175,7 +175,8 @@ pub const Manifest = struct {
     hash: HashHelper,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
-    files: std.ArrayListUnmanaged(File) = .{},
+    /// The key is the resolved_path.
+    files: std.StringArrayHashMapUnmanaged(File) = .{},
     hex_digest: [hex_digest_len]u8,
 
     /// Add a file as a dependency of process being cached. When `hit` is
@@ -186,30 +187,36 @@ pub const Manifest = struct {
     /// are allowed to take up in memory. If max_file_size is null, then the contents
     /// will not be loaded into memory.
     ///
-    /// Returns the index of the entry in the `files` array list. You can use it
+    /// Returns the index of the entry in `files`. You can use it
     /// to access the contents of the file after calling `hit()` like so:
     ///
     /// ```
-    /// var file_contents = cache_hash.files.items[file_index].contents.?;
+    /// const file_contents = cache_hash.files.entries.items[index].contents.?;
     /// ```
     pub fn addFile(self: *Manifest, file_path: []const u8, max_file_size: ?usize) !usize {
         assert(self.manifest_file == null);
 
-        try self.files.ensureCapacity(self.cache.gpa, self.files.items.len + 1);
-        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
-
-        const idx = self.files.items.len;
-        self.files.addOneAssumeCapacity().* = .{
-            .path = resolved_path,
-            .contents = null,
-            .max_file_size = max_file_size,
-            .stat = undefined,
-            .bin_digest = undefined,
-        };
-
+        var index = self.files.count();
+        try self.files.ensureCapacity(self.cache.gpa, index + 1);
+        var resolved_path: []const u8 = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
+        const gop = self.files.getOrPutAssumeCapacity(resolved_path);
+        if (gop.found_existing) {
+            self.cache.gpa.free(resolved_path);
+            resolved_path = gop.entry.key;
+            // TODO getOrPut should give us the index
+            // https://github.com/ziglang/zig/issues/7391
+            index = self.files.getIndex(resolved_path).?;
+        } else {
+            gop.entry.value = .{
+                .path = resolved_path,
+                .contents = null,
+                .max_file_size = max_file_size,
+                .stat = undefined,
+                .bin_digest = undefined,
+            };
+        }
         self.hash.addBytes(resolved_path);
-
-        return idx;
+        return index;
     }
 
     pub fn addOptionalFile(self: *Manifest, optional_file_path: ?[]const u8) !void {
@@ -252,7 +259,7 @@ pub const Manifest = struct {
         mem.copy(u8, &manifest_file_path, &self.hex_digest);
         manifest_file_path[self.hex_digest.len..][0..ext.len].* = ext.*;
 
-        if (self.files.items.len != 0) {
+        if (self.files.count() != 0) {
             self.manifest_file = try self.cache.manifest_dir.createFile(&manifest_file_path, .{
                 .read = true,
                 .truncate = false,
@@ -282,23 +289,26 @@ pub const Manifest = struct {
         const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.cache.gpa, manifest_file_size_max);
         defer self.cache.gpa.free(file_contents);
 
-        const input_file_count = self.files.items.len;
+        const input_file_count = self.files.count();
         var any_file_changed = false;
         var line_iter = mem.tokenize(file_contents, "\n");
         var idx: usize = 0;
         while (line_iter.next()) |line| {
-            defer idx += 1;
+            var new_file: File = undefined;
+            var is_new = false;
 
-            const cache_hash_file = if (idx < input_file_count) &self.files.items[idx] else blk: {
-                const new = try self.files.addOne(self.cache.gpa);
-                new.* = .{
+            const cache_hash_file = if (idx < input_file_count)
+                &self.files.entries.items[idx].value
+            else blk: {
+                is_new = true;
+                new_file = .{
                     .path = null,
                     .contents = null,
                     .max_file_size = null,
                     .stat = undefined,
                     .bin_digest = undefined,
                 };
-                break :blk new;
+                break :blk &new_file;
             };
 
             var iter = mem.tokenize(line, " ");
@@ -360,6 +370,12 @@ pub const Manifest = struct {
             if (!any_file_changed) {
                 self.hash.hasher.update(&cache_hash_file.bin_digest);
             }
+
+            if (is_new) {
+                try self.files.putNoClobber(self.cache.gpa, new_file.path.?, new_file);
+            }
+
+            idx += 1;
         }
 
         if (any_file_changed) {
@@ -372,7 +388,7 @@ pub const Manifest = struct {
         if (idx < input_file_count) {
             self.manifest_dirty = true;
             while (idx < input_file_count) : (idx += 1) {
-                const ch_file = &self.files.items[idx];
+                const ch_file = &self.files.entries.items[idx].value;
                 try self.populateFileHash(ch_file);
             }
             return false;
@@ -387,13 +403,16 @@ pub const Manifest = struct {
         self.hash.hasher.update(&bin_digest);
 
         // Remove files not in the initial hash.
-        for (self.files.items[input_file_count..]) |*file| {
-            file.deinit(self.cache.gpa);
+        // TODO this code can get cleaner and more efficient after
+        // https://github.com/ziglang/zig/issues/7391
+        while (self.files.count() > input_file_count) {
+            const file_path = self.files.entries.items[self.files.entries.items.len - 1].value.path.?;
+            var entry = self.files.remove(file_path).?;
+            entry.value.deinit(self.cache.gpa);
         }
-        self.files.shrinkRetainingCapacity(input_file_count);
 
-        for (self.files.items) |file| {
-            self.hash.hasher.update(&file.bin_digest);
+        for (self.files.entries.items) |*entry| {
+            self.hash.hasher.update(&entry.value.bin_digest);
         }
     }
 
@@ -445,21 +464,27 @@ pub const Manifest = struct {
         assert(self.manifest_file != null);
 
         const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
-        errdefer self.cache.gpa.free(resolved_path);
+        var keep_resolved_path = false;
+        defer if (!keep_resolved_path) self.cache.gpa.free(resolved_path);
 
-        const new_ch_file = try self.files.addOne(self.cache.gpa);
-        new_ch_file.* = .{
+        const gop = try self.files.getOrPut(self.cache.gpa, resolved_path);
+        if (gop.found_existing) {
+            return gop.entry.value.contents.?;
+        }
+        gop.entry.value = .{
             .path = resolved_path,
             .max_file_size = max_file_size,
             .stat = undefined,
             .bin_digest = undefined,
             .contents = null,
         };
-        errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
+        // TODO after https://github.com/ziglang/zig/issues/7391 this can be replaced with pop()
+        errdefer self.files.removeAssertDiscard(resolved_path);
 
-        try self.populateFileHash(new_ch_file);
+        try self.populateFileHash(&gop.entry.value);
 
-        return new_ch_file.contents.?;
+        keep_resolved_path = true;
+        return gop.entry.value.contents.?;
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
@@ -470,19 +495,26 @@ pub const Manifest = struct {
         assert(self.manifest_file != null);
 
         const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
-        errdefer self.cache.gpa.free(resolved_path);
+        var keep_resolved_path = false;
+        defer if (!keep_resolved_path) self.cache.gpa.free(resolved_path);
 
-        const new_ch_file = try self.files.addOne(self.cache.gpa);
-        new_ch_file.* = .{
+        const gop = try self.files.getOrPut(self.cache.gpa, resolved_path);
+        if (gop.found_existing) {
+            return;
+        }
+        gop.entry.value = .{
             .path = resolved_path,
             .max_file_size = null,
             .stat = undefined,
             .bin_digest = undefined,
             .contents = null,
         };
-        errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
+        // TODO after https://github.com/ziglang/zig/issues/7391 this can be replaced with pop()
+        errdefer self.files.removeAssertDiscard(resolved_path);
 
-        try self.populateFileHash(new_ch_file);
+        try self.populateFileHash(&gop.entry.value);
+
+        keep_resolved_path = true;
     }
 
     pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
@@ -549,7 +581,8 @@ pub const Manifest = struct {
         const writer = contents.writer();
         var encoded_digest: [hex_digest_len]u8 = undefined;
 
-        for (self.files.items) |file| {
+        for (self.files.entries.items) |entry| {
+            const file = &entry.value;
             _ = std.fmt.bufPrint(&encoded_digest, "{x}", .{file.bin_digest}) catch unreachable;
             try writer.print("{d} {d} {d} {s} {s}\n", .{
                 file.stat.size,
@@ -581,8 +614,8 @@ pub const Manifest = struct {
         if (self.manifest_file) |file| {
             file.close();
         }
-        for (self.files.items) |*file| {
-            file.deinit(self.cache.gpa);
+        for (self.files.entries.items) |*file_entry| {
+            file_entry.value.deinit(self.cache.gpa);
         }
         self.files.deinit(self.cache.gpa);
     }
@@ -775,7 +808,11 @@ test "check that changing a file makes cache fail" {
             // There should be nothing in the cache
             testing.expectEqual(false, try ch.hit());
 
-            testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
+            testing.expect(mem.eql(
+                u8,
+                original_temp_file_contents,
+                ch.files.entries.items[temp_file_idx].value.contents.?,
+            ));
 
             digest1 = ch.final();
 
@@ -795,7 +832,7 @@ test "check that changing a file makes cache fail" {
             testing.expectEqual(false, try ch.hit());
 
             // The cache system does not keep the contents of re-hashed input files.
-            testing.expect(ch.files.items[temp_file_idx].contents == null);
+            testing.expect(ch.files.entries.items[temp_file_idx].value.contents == null);
 
             digest2 = ch.final();
 

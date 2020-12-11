@@ -1584,7 +1584,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     const prev_hash_state = man.hash.peekBin();
     const actual_hit = hit: {
         const is_hit = try man.hit();
-        if (man.files.items.len == 0) {
+        if (man.files.count() == 0) {
             man.unhit(prev_hash_state, 0);
             break :hit false;
         }
@@ -2842,7 +2842,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
 
     // Capture the state in case we come back from this branch where the hash doesn't match.
     const prev_hash_state = man.hash.peekBin();
-    const input_file_count = man.files.items.len;
+    const input_file_count = man.files.count();
 
     if (try man.hit()) {
         const digest = man.final();
