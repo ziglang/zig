@@ -801,6 +801,16 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 mem.copy(u8, dylib_cmd.data, mem.spanZ(LIB_SYSTEM_PATH));
                 try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
 
+                if (self.symtab_cmd_index == null or self.dysymtab_cmd_index == null) {
+                    std.log.err("Incomplete Mach-O binary: no LC_SYMTAB or LC_DYSYMTAB load command found!", .{});
+                    std.log.err("Without the symbol table, it is not possible to patch up the binary for cross-compilation.", .{});
+                    return error.NoSymbolTable;
+                }
+
+                // Parse symbol and string tables.
+                try self.parseSymbolTable();
+                try self.parseStringTable();
+
                 // Parse dyld info
                 try self.parseBindingInfo();
                 try self.parseLazyBindingInfo();
@@ -2038,13 +2048,42 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
         self.load_commands.appendAssumeCapacity(cmd);
     }
     self.header = header;
-
-    // TODO Should we parse memory mapped segments here or as needed?
 }
 
 fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
     const len = mem.indexOfScalar(u8, name[0..], @as(u8, 0)) orelse name.len;
     return mem.eql(u8, name[0..len], needle);
+}
+
+fn parseSymbolTable(self: *MachO) !void {
+    const symtab = self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+    const dysymtab = self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+
+    var buffer = try self.base.allocator.alloc(macho.nlist_64, symtab.nsyms);
+    defer self.base.allocator.free(buffer);
+    const nread = try self.base.file.?.preadAll(@ptrCast([*]u8, buffer)[0 .. symtab.nsyms * @sizeOf(macho.nlist_64)], symtab.symoff);
+    assert(@divExact(nread, @sizeOf(macho.nlist_64)) == buffer.len);
+
+    try self.local_symbols.ensureCapacity(self.base.allocator, dysymtab.nlocalsym);
+    try self.global_symbols.ensureCapacity(self.base.allocator, dysymtab.nextdefsym);
+    try self.undef_symbols.ensureCapacity(self.base.allocator, dysymtab.nundefsym);
+
+    self.local_symbols.appendSliceAssumeCapacity(buffer[dysymtab.ilocalsym .. dysymtab.ilocalsym + dysymtab.nlocalsym]);
+    self.global_symbols.appendSliceAssumeCapacity(buffer[dysymtab.iextdefsym .. dysymtab.iextdefsym + dysymtab.nextdefsym]);
+    self.undef_symbols.appendSliceAssumeCapacity(buffer[dysymtab.iundefsym .. dysymtab.iundefsym + dysymtab.nundefsym]);
+}
+
+fn parseStringTable(self: *MachO) !void {
+    const symtab = self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+
+    var buffer = try self.base.allocator.alloc(u8, symtab.strsize);
+    defer self.base.allocator.free(buffer);
+    const nread = try self.base.file.?.preadAll(buffer, symtab.stroff);
+    assert(nread == buffer.len);
+
+    try self.string_table.ensureCapacity(self.base.allocator, symtab.strsize);
+
+    self.string_table.appendSliceAssumeCapacity(buffer);
 }
 
 fn parseBindingInfo(self: *MachO) !void {
