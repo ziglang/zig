@@ -755,7 +755,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
             try self.parseFromFile(out_file);
 
-            if (self.libsystem_cmd_index == null) {
+            if (self.libsystem_cmd_index == null and self.header.?.filetype == macho.MH_EXECUTE) {
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const text_section = text_segment.sections.items[self.text_section_index.?];
                 const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
@@ -2039,10 +2039,8 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
             macho.LC_CODE_SIGNATURE => {
                 self.code_signature_cmd_index = i;
             },
-            // TODO populate more MachO fields
             else => {
-                std.log.err("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
-                return error.UnknownLoadCommand;
+                std.log.warn("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);
