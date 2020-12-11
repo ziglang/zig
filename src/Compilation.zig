@@ -3174,6 +3174,11 @@ pub fn build_crt_file(
 }
 
 pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
+    // Avoid deadlocking on building import libs such as kernel32.lib
+    // This can happen when the user uses `build-exe foo.obj -lkernel32` and then
+    // when we create a sub-Compilation for zig libc, it also tries to build kernel32.lib.
+    if (comp.bin_file.options.is_compiler_rt_or_libc) return;
+
     // This happens when an `extern "foo"` function is referenced by the stage1 backend.
     // If we haven't seen this library yet and we're targeting Windows, we need to queue up
     // a work item to produce the DLL import library for this.
