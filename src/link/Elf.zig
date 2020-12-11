@@ -1598,7 +1598,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
                 try argv.append(comp.libunwind_static_lib.?.full_object_path);
-                try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
+                try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                    .Static => "libc.a",
+                    .Dynamic => "libc.so",
+                }));
             } else if (self.base.options.link_libcpp) {
                 try argv.append(comp.libunwind_static_lib.?.full_object_path);
             } else {

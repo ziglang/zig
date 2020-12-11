@@ -1025,7 +1025,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .{ .musl_crt_file = .crt1_o },
                 .{ .musl_crt_file = .scrt1_o },
                 .{ .musl_crt_file = .rcrt1_o },
-                .{ .musl_crt_file = .libc_a },
+                switch (comp.bin_file.options.link_mode) {
+                    .Static => .{ .musl_crt_file = .libc_a },
+                    .Dynamic => .{ .musl_crt_file = .libc_so },
+                },
             });
         }
         if (comp.wantBuildMinGWFromSource()) {
