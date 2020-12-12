@@ -749,10 +749,47 @@ pub const Sigaction = extern struct {
     },
 
     /// see signal options
-    sa_flags: u32,
+    sa_flags: c_int,
 
     /// signal mask to apply
     sa_mask: sigset_t,
+};
+
+pub const __siginfo = extern struct {
+    si_signo: c_int,
+    si_errno: c_int,
+    si_code: c_int,
+    si_pid: pid_t,
+    si_uid: uid_t,
+    si_status: c_int,
+    si_addr: ?*c_void,
+    si_value: sigval,
+    _reason: extern union {
+        _fault: extern struct {
+            _trapno: c_int,
+        },
+        _timer: extern struct {
+            _timerid: c_int,
+            _overrun: c_int,
+        },
+        _mesgq: extern struct {
+            _mqd: c_int,
+        },
+        _poll: extern struct {
+            _band: c_long,
+        },
+        __spare__: extern struct {
+            __spare1__: c_long,
+            __spare2__: [7]c_int,
+        },
+    },
+};
+
+pub const sigval = extern union {
+    sival_int: c_int,
+    sival_ptr: ?*c_void,
+    sigval_int: c_int,
+    sigval_ptr: ?*c_void,
 };
 
 pub const _SIG_WORDS = 4;
@@ -774,6 +811,8 @@ pub inline fn _SIG_VALID(sig: usize) usize {
 pub const sigset_t = extern struct {
     __bits: [_SIG_WORDS]u32,
 };
+
+pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
 
 pub const EPERM = 1; // Operation not permitted
 pub const ENOENT = 2; // No such file or directory
