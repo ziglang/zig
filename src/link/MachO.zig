@@ -811,6 +811,20 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try self.parseSymbolTable();
                 try self.parseStringTable();
 
+                std.debug.print("Undef symbols\n", .{});
+                for (self.undef_symbols.items) |sym| {
+                    const name = self.string_table.items[sym.n_strx..];
+                    const len = blk: {
+                        var end: usize = 0;
+                        while (true) {
+                            if (name[end] == @as(u8, 0)) break;
+                            end += 1;
+                        }
+                        break :blk end;
+                    };
+                    std.debug.print("name={},sym={}\n", .{ name[0..len], sym });
+                }
+
                 // Parse dyld info
                 try self.parseBindingInfo();
                 try self.parseLazyBindingInfo();
@@ -2090,6 +2104,9 @@ fn parseBindingInfo(self: *MachO) !void {
     defer self.base.allocator.free(buffer);
     const nread = try self.base.file.?.preadAll(buffer, dyld_info.bind_off);
     assert(nread == buffer.len);
+
+    try parseBindingInfos(self, buffer);
+
     if (try parseAndFixupBindingInfoBuffer(self.base.allocator, buffer)) {
         try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
     }
@@ -2101,6 +2118,9 @@ fn parseLazyBindingInfo(self: *MachO) !void {
     defer self.base.allocator.free(buffer);
     const nread = try self.base.file.?.preadAll(buffer, dyld_info.lazy_bind_off);
     assert(nread == buffer.len);
+
+    try parseBindingInfos(self, buffer);
+
     if (try parseAndFixupBindingInfoBuffer(self.base.allocator, buffer)) {
         try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
     }
@@ -2154,4 +2174,106 @@ fn parseAndFixupBindingInfoBuffer(allocator: *Allocator, buffer: []u8) !bool {
     }
 
     return buffer_dirty;
+}
+
+const BindingEntry = struct {
+    symbol: ?u16 = null,
+    offset: i64,
+    dylib_ordinal: ?i64 = null,
+    segment: u8,
+    bind_type: u8,
+};
+
+fn parseBindingInfos(self: *MachO, buffer: []u8) !void {
+    var symbolsByName = std.StringHashMap(u16).init(self.base.allocator);
+    defer symbolsByName.deinit();
+    try symbolsByName.ensureCapacity(@intCast(u32, self.undef_symbols.items.len));
+
+    for (self.undef_symbols.items) |sym, i| {
+        const name = self.string_table.items[sym.n_strx..];
+        const len = blk: {
+            var end: usize = 0;
+            while (true) {
+                if (name[end] == @as(u8, 0)) break;
+                end += 1;
+            }
+            break :blk end;
+        };
+        symbolsByName.putAssumeCapacityNoClobber(name[0..len], @intCast(u16, i));
+    }
+
+    var stream = std.io.fixedBufferStream(buffer);
+    var reader = stream.reader();
+    var done = false;
+
+    var name = std.ArrayList(u8).init(self.base.allocator);
+    defer name.deinit();
+
+    var entries = std.ArrayList(BindingEntry).init(self.base.allocator);
+    defer entries.deinit();
+    var dylib_ordinal: i64 = 0;
+
+    var entry: BindingEntry = .{
+        .offset = 0,
+        .segment = 0,
+        .bind_type = 0,
+    };
+
+    while (true) {
+        const inst = reader.readByte() catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => return err,
+        };
+        const imm: u8 = inst & macho.BIND_IMMEDIATE_MASK;
+        const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
+
+        switch (opcode) {
+            macho.BIND_OPCODE_DO_BIND => {
+                if (entry.dylib_ordinal == null) {
+                    entry.dylib_ordinal = dylib_ordinal;
+                }
+                try entries.append(entry);
+                entry = .{
+                    .offset = 0,
+                    .segment = 0,
+                    .bind_type = 0,
+                };
+            },
+            macho.BIND_OPCODE_DONE => {
+                done = true;
+            },
+            macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                name.shrinkRetainingCapacity(0);
+                var next = try reader.readByte();
+                while (next != @as(u8, 0)) {
+                    try name.append(next);
+                    next = try reader.readByte();
+                }
+                std.debug.print("name={}\n", .{name.items});
+                entry.symbol = symbolsByName.get(name.items[0..]);
+            },
+            macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                entry.segment = imm;
+                entry.offset = try std.leb.readILEB128(i64, reader);
+            },
+            macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM, macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
+                entry.dylib_ordinal = imm;
+            },
+            macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB => {
+                dylib_ordinal = try std.leb.readILEB128(i64, reader);
+                entry.dylib_ordinal = dylib_ordinal;
+            },
+            macho.BIND_OPCODE_SET_TYPE_IMM => {
+                entry.bind_type = imm;
+            },
+            else => {
+                std.log.warn("unhandled BIND_OPCODE_: 0x{x}", .{opcode});
+            },
+        }
+    }
+    assert(done);
+
+    for (entries.items) |e| {
+        std.debug.print("entry={}\n", .{e});
+    }
 }
