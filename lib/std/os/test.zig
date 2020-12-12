@@ -656,14 +656,15 @@ test "sigaction" {
     const S = struct {
         fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) void {
             // Check that we received the correct signal.
-            signal_test_failed = info.signo == os.SIGUSR1;
+            if (sig == os.SIGUSR1 and sig == info.signo)
+                signal_test_failed = false;
         }
     };
 
     var sa = os.Sigaction{
         .sigaction = S.handler,
         .mask = os.empty_sigset,
-        .flags = os.SA_RESETHAND,
+        .flags = os.SA_SIGINFO | os.SA_RESETHAND,
     };
     var old_sa: os.Sigaction = undefined;
     // Install the new signal handler.
