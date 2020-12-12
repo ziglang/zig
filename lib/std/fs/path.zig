@@ -1197,7 +1197,7 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// - `"main.zig"`     ⇒ `".zig"`
 /// - `"src/main.zig"` ⇒ `".zig"`
 /// - `".gitignore"`   ⇒ `""`
-/// - `"keep."`        ⇒ `""`
+/// - `"keep."`        ⇒ `"."`
 /// - `"src.keep.me"`  ⇒ `".me"`
 /// - `"/src/keep.me"`  ⇒ `".me"`
 /// - `"/src/keep.me/"`  ⇒ `".me"`
@@ -1205,13 +1205,9 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// pointer address range of `path`, even if it is length zero.
 pub fn extension(path: []const u8) []const u8 {
     const filename = basename(path);
-    return if (std.mem.lastIndexOf(u8, filename, ".")) |index|
-        if (index == 0 or index == filename.len - 1)
-            path[path.len..]
-        else
-            filename[index..]
-    else
-        path[path.len..];
+    const index = mem.lastIndexOf(u8, filename, ".") orelse return path[path.len..];
+    if (index == 0) return path[path.len..];
+    return filename[index..];
 }
 
 fn testExtension(path: []const u8, expected: []const u8) void {
@@ -1221,39 +1217,39 @@ fn testExtension(path: []const u8, expected: []const u8) void {
 test "extension" {
     testExtension("", "");
     testExtension(".", "");
-    testExtension("a.", "");
-    testExtension("abc.", "");
+    testExtension("a.", ".");
+    testExtension("abc.", ".");
     testExtension(".a", "");
     testExtension(".file", "");
     testExtension(".gitignore", "");
     testExtension("file.ext", ".ext");
-    testExtension("file.ext.", "");
+    testExtension("file.ext.", ".");
     testExtension("very-long-file.bruh", ".bruh");
     testExtension("a.b.c", ".c");
     testExtension("a.b.c/", ".c");
 
     testExtension("/", "");
     testExtension("/.", "");
-    testExtension("/a.", "");
-    testExtension("/abc.", "");
+    testExtension("/a.", ".");
+    testExtension("/abc.", ".");
     testExtension("/.a", "");
     testExtension("/.file", "");
     testExtension("/.gitignore", "");
     testExtension("/file.ext", ".ext");
-    testExtension("/file.ext.", "");
+    testExtension("/file.ext.", ".");
     testExtension("/very-long-file.bruh", ".bruh");
     testExtension("/a.b.c", ".c");
     testExtension("/a.b.c/", ".c");
 
     testExtension("/foo/bar/bam/", "");
     testExtension("/foo/bar/bam/.", "");
-    testExtension("/foo/bar/bam/a.", "");
-    testExtension("/foo/bar/bam/abc.", "");
+    testExtension("/foo/bar/bam/a.", ".");
+    testExtension("/foo/bar/bam/abc.", ".");
     testExtension("/foo/bar/bam/.a", "");
     testExtension("/foo/bar/bam/.file", "");
     testExtension("/foo/bar/bam/.gitignore", "");
     testExtension("/foo/bar/bam/file.ext", ".ext");
-    testExtension("/foo/bar/bam/file.ext.", "");
+    testExtension("/foo/bar/bam/file.ext.", ".");
     testExtension("/foo/bar/bam/very-long-file.bruh", ".bruh");
     testExtension("/foo/bar/bam/a.b.c", ".c");
     testExtension("/foo/bar/bam/a.b.c/", ".c");
