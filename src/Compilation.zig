@@ -1714,7 +1714,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
     const o_basename_noext = if (direct_o)
         comp.bin_file.options.root_name
     else
-        mem.split(c_source_basename, ".").next().?;
+        c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
     const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, comp.getTarget().oFileExt() });
 
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
@@ -2676,7 +2676,7 @@ fn buildOutputFromZig(
         },
         .root_src_path = src_basename,
     };
-    const root_name = mem.split(src_basename, ".").next().?;
+    const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
     const fixed_output_mode = if (target.cpu.arch.isWasm()) .Obj else output_mode;
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{

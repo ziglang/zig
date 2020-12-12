@@ -1310,16 +1310,16 @@ fn buildOutputType(
             break :blk "test";
         } else if (root_src_file) |file| {
             const basename = fs.path.basename(file);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (c_source_files.items.len >= 1) {
             const basename = fs.path.basename(c_source_files.items[0].src_path);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (link_objects.items.len >= 1) {
             const basename = fs.path.basename(link_objects.items[0]);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (emit_bin == .yes) {
             const basename = fs.path.basename(emit_bin.yes);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (show_builtin) {
             break :blk "builtin";
         } else if (arg_mode == .run) {
