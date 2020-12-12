@@ -22,7 +22,6 @@ const lib_names = [_][]const u8{
     "rt",
     "ld",
     "util",
-    "crypt",
 };
 
 // fpu/nofpu are hardcoded elsewhere, based on .gnueabi/.gnueabihf with an exception for .arm

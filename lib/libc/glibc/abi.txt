@@ -1655,8 +1655,6 @@ aarch64-linux-gnu aarch64_be-linux-gnu
 29
 29
 29
-29
-29
 37
 37
 37
@@ -1731,8 +1729,6 @@ aarch64-linux-gnu aarch64_be-linux-gnu
 29
 29
 38
-29
-29
 29
 29
 29
@@ -1914,7 +1910,6 @@ aarch64-linux-gnu aarch64_be-linux-gnu
 29
 29
 38
-29
 29
 29
 29
@@ -3256,8 +3251,6 @@ aarch64-linux-gnu aarch64_be-linux-gnu
 29
 29
 40
-29
-29
 29
 29
 29
@@ -5621,8 +5614,6 @@ s390x-linux-gnu
 5
 5
 5
-5
-5
 37
 37
 37
@@ -5703,8 +5694,6 @@ s390x-linux-gnu
 12
 5
 16
-5
-5
 5
 5
 5
@@ -5880,7 +5869,6 @@ s390x-linux-gnu
 5
 5
 38
-5
 5
 5
 5
@@ -7262,8 +7250,6 @@ s390x-linux-gnu
 15
 5
 31 5
-5
-5
 5
 5
 5
@@ -9587,8 +9573,6 @@ arm-linux-gnueabi armeb-linux-gnueabi arm-linux-gnueabihf armeb-linux-gnueabihf
 16
 16
 16
-16
-16
 
 37
 37
@@ -9666,8 +9650,6 @@ arm-linux-gnueabi armeb-linux-gnueabi arm-linux-gnueabihf armeb-linux-gnueabihf
 16
 16
 21
-16
-16
 16
 16
 16
@@ -9846,7 +9828,6 @@ arm-linux-gnueabi armeb-linux-gnueabi arm-linux-gnueabihf armeb-linux-gnueabihf
 16
 38 16
 38
-16
 16
 16
 16
@@ -11206,8 +11187,6 @@ arm-linux-gnueabi armeb-linux-gnueabi arm-linux-gnueabihf armeb-linux-gnueabihf
 16
 16
 26
-16
-16
 16
 16
 16
@@ -13551,8 +13530,6 @@ sparc-linux-gnu sparcel-linux-gnu
 0
 1
 0
-0
-0
 1
 1
 37
@@ -13636,8 +13613,6 @@ sparc-linux-gnu sparcel-linux-gnu
 0
 16
 1
-0
-0
 0
 0
 0
@@ -13812,7 +13787,6 @@ sparc-linux-gnu sparcel-linux-gnu
 0
 0 38
 38
-0
 0
 0
 0
@@ -15192,8 +15166,6 @@ sparc-linux-gnu sparcel-linux-gnu
 0
 0
 15
-0
-0
 0
 0
 0
@@ -17517,8 +17489,6 @@ sparcv9-linux-gnu
 5
 5
 5
-0
-0
 5
 5
 37
@@ -17604,8 +17574,6 @@ sparcv9-linux-gnu
 5
 5
 5
-0
-0
 5
 5
 5
@@ -17778,7 +17746,6 @@ sparcv9-linux-gnu
 5
 5
 38
-0
 5
 5
 5
@@ -19160,8 +19127,6 @@ sparcv9-linux-gnu
 15
 5
 5
-0
-0
 5
 5
 5
@@ -21483,8 +21448,6 @@ mips64el-linux-gnuabi64 mips64-linux-gnuabi64
 0
 5
 0
-0
-0
 5
 5
 37
@@ -21568,8 +21531,6 @@ mips64el-linux-gnuabi64 mips64-linux-gnuabi64
 0
 16
 5
-0
-0
 0
 0
 0
@@ -21744,7 +21705,6 @@ mips64el-linux-gnuabi64 mips64-linux-gnuabi64
 0
 0
 38
-0
 0
 0
 0
@@ -23124,8 +23084,6 @@ mips64el-linux-gnuabi64 mips64-linux-gnuabi64
 0
 0
 15
-0
-0
 0
 0
 0
@@ -25449,8 +25407,6 @@ mips64el-linux-gnuabin32 mips64-linux-gnuabin32
 0
 5
 0
-0
-0
 5
 5
 37
@@ -25534,8 +25490,6 @@ mips64el-linux-gnuabin32 mips64-linux-gnuabin32
 0
 16
 5
-0
-0
 0
 0
 0
@@ -25710,7 +25664,6 @@ mips64el-linux-gnuabin32 mips64-linux-gnuabin32
 0
 0 38
 38
-0
 0
 0
 0
@@ -27090,8 +27043,6 @@ mips64el-linux-gnuabin32 mips64-linux-gnuabin32
 0
 0
 15
-0
-0
 0
 0
 0
@@ -29415,8 +29366,6 @@ mipsel-linux-gnueabihf mips-linux-gnueabihf
 0
 5
 0
-0
-0
 5
 5
 
@@ -29500,8 +29449,6 @@ mipsel-linux-gnueabihf mips-linux-gnueabihf
 0
 16
 5
-0
-0
 0
 0
 0
@@ -29676,7 +29623,6 @@ mipsel-linux-gnueabihf mips-linux-gnueabihf
 0
 0 38
 38
-0
 0
 0
 0
@@ -31056,8 +31002,6 @@ mipsel-linux-gnueabihf mips-linux-gnueabihf
 0
 0
 15
-0
-0
 0
 0
 0
@@ -33381,8 +33325,6 @@ mipsel-linux-gnueabi mips-linux-gnueabi
 0
 5
 0
-0
-0
 5
 5
 
@@ -33466,8 +33408,6 @@ mipsel-linux-gnueabi mips-linux-gnueabi
 0
 16
 5
-0
-0
 0
 0
 0
@@ -33642,7 +33582,6 @@ mipsel-linux-gnueabi mips-linux-gnueabi
 0
 0 38
 38
-0
 0
 0
 0
@@ -35022,8 +34961,6 @@ mipsel-linux-gnueabi mips-linux-gnueabi
 0
 0
 15
-0
-0
 0
 0
 0
@@ -37349,8 +37286,6 @@ x86_64-linux-gnu
 10
 10
 10
-10
-10
 36
 37
 37
@@ -37431,8 +37366,6 @@ x86_64-linux-gnu
 12
 10
 16
-10
-10
 10
 10
 10
@@ -37608,7 +37541,6 @@ x86_64-linux-gnu
 10
 10
 38
-10
 10
 10
 10
@@ -38988,8 +38920,6 @@ x86_64-linux-gnu
 10
 10
 15
-10
-10
 10
 10
 10
@@ -41315,8 +41245,6 @@ x86_64-linux-gnux32
 28
 28
 28
-28
-28
 36
 37
 37
@@ -41391,8 +41319,6 @@ x86_64-linux-gnux32
 28
 28
 38
-28
-28
 28
 28
 28
@@ -41574,7 +41500,6 @@ x86_64-linux-gnux32
 28
 28
 38
-28
 28
 28
 28
@@ -42916,8 +42841,6 @@ x86_64-linux-gnux32
 28
 28
 40
-28
-28
 28
 28
 28
@@ -45279,8 +45202,6 @@ i386-linux-gnu
 0
 1
 0
-0
-0
 1
 1
 36
@@ -45364,8 +45285,6 @@ i386-linux-gnu
 0
 16
 1
-0
-0
 0
 0
 0
@@ -45540,7 +45459,6 @@ i386-linux-gnu
 0
 0 38
 38
-0
 0
 0
 0
@@ -46920,8 +46838,6 @@ i386-linux-gnu
 0
 0
 15
-0
-0
 0
 0
 0
@@ -49247,8 +49163,6 @@ powerpc64le-linux-gnu
 29
 29
 29
-29
-29
 36
 37
 37
@@ -49323,8 +49237,6 @@ powerpc64le-linux-gnu
 29
 29
 38
-29
-29
 29
 29
 29
@@ -49506,7 +49418,6 @@ powerpc64le-linux-gnu
 29
 29
 38
-29
 29
 29
 29
@@ -50848,8 +50759,6 @@ powerpc64le-linux-gnu
 29
 29
 40
-29
-29
 29
 29
 29
@@ -53213,8 +53122,6 @@ powerpc64-linux-gnu
 12
 12
 12
-12
-12
 
 37
 37
@@ -53295,8 +53202,6 @@ powerpc64-linux-gnu
 12
 12
 16
-12
-12
 12
 12
 12
@@ -53472,7 +53377,6 @@ powerpc64-linux-gnu
 12
 12
 38
-12
 12
 12
 12
@@ -54854,8 +54758,6 @@ powerpc64-linux-gnu
 15
 12
 12 15
-12
-12
 12
 12
 12
@@ -57177,8 +57079,6 @@ powerpc-linux-gnueabi powerpc-linux-gnueabihf
 0
 1
 0
-0
-0
 1
 1
 
@@ -57262,8 +57162,6 @@ powerpc-linux-gnueabi powerpc-linux-gnueabihf
 0
 16
 1
-0
-0
 0
 0
 0
@@ -57438,7 +57336,6 @@ powerpc-linux-gnueabi powerpc-linux-gnueabihf
 0
 0 38
 38
-0
 0
 0
 0
@@ -58820,8 +58717,6 @@ powerpc-linux-gnueabi powerpc-linux-gnueabihf
 15
 0
 0 15
-0
-0
 0
 0
 0
