@@ -869,7 +869,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     if (act) |new| {
         const restorer_fn = if ((new.flags & SA_SIGINFO) != 0) restore_rt else restore;
         ksa = k_sigaction{
-            .sigaction = new.sigaction,
+            .handler = new.handler.handler,
             .flags = new.flags | SA_RESTORER,
             .mask = undefined,
             .restorer = @ptrCast(fn () callconv(.C) void, restorer_fn),
@@ -888,8 +888,8 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     if (getErrno(result) != 0) return result;
 
     if (oact) |old| {
-        old.sigaction = oldksa.sigaction;
-        old.flags = @truncate(u32, oldksa.flags);
+        old.handler.handler = oldksa.handler;
+        old.flags = @truncate(c_uint, oldksa.flags);
         @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &oldksa.mask), mask_size);
     }
 

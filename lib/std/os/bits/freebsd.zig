@@ -742,14 +742,17 @@ pub const SIG_IGN = @intToPtr(fn (i32) callconv(.C) void, 1);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
+    pub const handler_fn = fn (c_int) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+
     /// signal handler
-    __sigaction_u: extern union {
-        __sa_handler: fn (i32) callconv(.C) void,
-        __sa_sigaction: fn (i32, *__siginfo, usize) callconv(.C) void,
+    handler: extern union {
+        handler: ?handler_fn,
+        sigaction: ?sigaction_fn,
     },
 
     /// see signal options
-    sa_flags: u32,
+    sa_flags: c_uint,
 
     /// signal mask to apply
     sa_mask: sigset_t,

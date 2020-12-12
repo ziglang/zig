@@ -1721,7 +1721,7 @@ pub fn attachSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .sigaction = handleSegfaultLinux,
+        .handler = .{ .sigaction = handleSegfaultLinux },
         .mask = os.empty_sigset,
         .flags = (os.SA_SIGINFO | os.SA_RESTART | os.SA_RESETHAND),
     };
@@ -1740,7 +1740,7 @@ fn resetSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .sigaction = os.SIG_DFL,
+        .handler = .{ .sigaction = os.SIG_DFL },
         .mask = os.empty_sigset,
         .flags = 0,
     };

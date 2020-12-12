@@ -662,7 +662,7 @@ test "sigaction" {
     };
 
     var sa = os.Sigaction{
-        .sigaction = S.handler,
+        .handler = .{ .sigaction = S.handler },
         .mask = os.empty_sigset,
         .flags = os.SA_SIGINFO | os.SA_RESETHAND,
     };
@@ -671,7 +671,7 @@ test "sigaction" {
     os.sigaction(os.SIGUSR1, &sa, null);
     // Check that we can read it back correctly.
     os.sigaction(os.SIGUSR1, null, &old_sa);
-    testing.expectEqual(S.handler, old_sa.sigaction.?);
+    testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
     testing.expect((old_sa.flags & os.SA_RESETHAND) != 0);
     // Invoke the handler.
     try os.raise(os.SIGUSR1);
