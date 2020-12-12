@@ -867,13 +867,13 @@ pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffff
 pub const k_sigaction = if (is_mips)
     extern struct {
         flags: usize,
-        sigaction: ?fn (i32, *siginfo_t, ?*c_void) callconv(.C) void,
+        sigaction: ?fn (i32, *const siginfo_t, ?*const c_void) callconv(.C) void,
         mask: [4]u32,
         restorer: fn () callconv(.C) void,
     }
 else
     extern struct {
-        sigaction: ?fn (i32, *siginfo_t, ?*c_void) callconv(.C) void,
+        sigaction: ?fn (i32, *const siginfo_t, ?*const c_void) callconv(.C) void,
         flags: usize,
         restorer: fn () callconv(.C) void,
         mask: [2]u32,
@@ -881,7 +881,7 @@ else
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const sigaction_fn = fn (i32, *siginfo_t, ?*c_void) callconv(.C) void;
+    pub const sigaction_fn = fn (i32, *const siginfo_t, ?*const c_void) callconv(.C) void;
     sigaction: ?sigaction_fn,
     mask: sigset_t,
     flags: u32,
