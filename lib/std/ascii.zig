@@ -14,9 +14,9 @@
 
 const std = @import("std");
 
-/// Contains constants for the C0 control codes of the ASCII encoding.
-/// https://en.wikipedia.org/wiki/C0_and_C1_control_codes
 pub const control_code = struct {
+    //! Contains constants for the C0 control codes of the ASCII encoding.
+    //! https://en.wikipedia.org/wiki/C0_and_C1_control_codes
     pub const NUL = 0x00;
     pub const SOH = 0x01;
     pub const STX = 0x02;
@@ -378,4 +378,8 @@ test "indexOfIgnoreCase" {
     std.testing.expect(indexOfIgnoreCase("foo", "fool") == null);
 
     std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
+}
+
+test "" {
+    std.testing.refAllDeclsInTree(@This(), 2);
 }

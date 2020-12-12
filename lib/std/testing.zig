@@ -435,3 +435,23 @@ pub fn refAllDecls(comptime T: type) void {
         _ = decl;
     }
 }
+
+/// Given a type, recursively reference all the declarations inside,
+/// so that the semantic analyzer sees them. Up to `levels` deep. 
+pub fn refAllDeclsInTree(comptime T: type, comptime levels: u8) void {
+    if (!@import("builtin").is_test) return;
+    if (levels < 1) return;
+    inline for (std.meta.declarations(T)) |decl| {
+        switch (decl.data) {
+            .Type => |S| {
+                refAllDeclsInTree(S, levels - 1);
+            },
+            .Var => |v| {
+                _ = v;
+            },
+            .Fn => |f| {
+                _ = f;
+            },
+        }
+    }
+}
