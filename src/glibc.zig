@@ -48,7 +48,6 @@ pub const libs = [_]Lib{
     .{ .name = "rt", .sover = 1 },
     .{ .name = "ld", .sover = 2 },
     .{ .name = "util", .sover = 1 },
-    .{ .name = "crypt", .sover = 1 },
 };
 
 pub const LoadMetaDataError = error{
