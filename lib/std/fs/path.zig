@@ -1201,15 +1201,17 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// - `"src.keep.me"`  ⇒ `".me"`
 /// - `"/src/keep.me"`  ⇒ `".me"`
 /// - `"/src/keep.me/"`  ⇒ `".me"`
+/// The returned slice is guaranteed to have its pointer within the start and end
+/// pointer address range of `path`, even if it is length zero.
 pub fn extension(path: []const u8) []const u8 {
     const filename = basename(path);
     return if (std.mem.lastIndexOf(u8, filename, ".")) |index|
         if (index == 0 or index == filename.len - 1)
-            ""
+            path[path.len..]
         else
             filename[index..]
     else
-        "";
+        path[path.len..];
 }
 
 fn testExtension(path: []const u8, expected: []const u8) void {
