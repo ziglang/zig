@@ -183,7 +183,7 @@ pub const Inst = struct {
     }
 
     pub fn Args(comptime T: type) type {
-        return std.meta.fieldInfo(T, "args").field_type;
+        return std.meta.fieldInfo(T, .args).field_type;
     }
 
     /// Returns `null` if runtime-known.

@@ -688,7 +688,7 @@ pub const Node = struct {
 
     /// Prefer `castTag` to this.
     pub fn cast(base: *Node, comptime T: type) ?*T {
-        if (std.meta.fieldInfo(T, "base").default_value) |default_base| {
+        if (std.meta.fieldInfo(T, .base).default_value) |default_base| {
             return base.castTag(default_base.tag);
         }
         inline for (@typeInfo(Tag).Enum.fields) |field| {

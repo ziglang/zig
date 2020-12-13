@@ -486,19 +486,14 @@ test "std.meta.fields" {
     testing.expect(comptime uf[0].field_type == u8);
 }
 
-pub fn fieldInfo(comptime T: type, comptime field_name: []const u8) switch (@typeInfo(T)) {
+pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
     .Struct => TypeInfo.StructField,
     .Union => TypeInfo.UnionField,
     .ErrorSet => TypeInfo.Error,
     .Enum => TypeInfo.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
-    inline for (comptime fields(T)) |field| {
-        if (comptime mem.eql(u8, field.name, field_name))
-            return field;
-    }
-
-    @compileError("'" ++ @typeName(T) ++ "' has no field '" ++ field_name ++ "'");
+    return fields(T)[@enumToInt(field)];
 }
 
 test "std.meta.fieldInfo" {
@@ -513,10 +508,10 @@ test "std.meta.fieldInfo" {
         a: u8,
     };
 
-    const e1f = comptime fieldInfo(E1, "A");
-    const e2f = comptime fieldInfo(E2, "A");
-    const sf = comptime fieldInfo(S1, "a");
-    const uf = comptime fieldInfo(U1, "a");
+    const e1f = fieldInfo(E1, .A);
+    const e2f = fieldInfo(E2, .A);
+    const sf = fieldInfo(S1, .a);
+    const uf = fieldInfo(U1, .a);
 
     testing.expect(mem.eql(u8, e1f.name, "A"));
     testing.expect(mem.eql(u8, e2f.name, "A"));

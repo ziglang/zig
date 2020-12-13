@@ -116,7 +116,7 @@ pub const Type = extern union {
         if (self.tag_if_small_enough < Tag.no_payload_count)
             return null;
 
-        const expected_tag = std.meta.fieldInfo(T, "base").default_value.?.tag;
+        const expected_tag = std.meta.fieldInfo(T, .base).default_value.?.tag;
         if (self.ptr_otherwise.tag != expected_tag)
             return null;
 
