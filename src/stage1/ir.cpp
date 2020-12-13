@@ -17,6 +17,7 @@
 #include "util.hpp"
 #include "mem_list.hpp"
 #include "all_types.hpp"
+#include "zigendian.h"
 
 #include <errno.h>
 #include <math.h>
@@ -11403,7 +11404,7 @@ static void float_negate(ZigValue *out_val, ZigValue *op) {
     }
 }
 
-void float_write_ieee597(ZigValue *op, uint8_t *buf, bool is_big_endian) {
+void float_write_ieee597(ZigValue *op, uint8_t *buf, bool target_is_big_endian) {
     if (op->type->id != ZigTypeIdFloat)
         zig_unreachable();
 
@@ -11427,8 +11428,8 @@ void float_write_ieee597(ZigValue *op, uint8_t *buf, bool is_big_endian) {
             zig_unreachable();
     }
 
-    if (is_big_endian) {
-        // Byteswap in place if needed
+    // Byteswap if system endianness != target endianness
+    if (native_is_big_endian != target_is_big_endian) {
         for (size_t i = 0; i < n / 2; i++) {
             uint8_t u = buf[i];
             buf[i] = buf[n - 1 - i];
@@ -11437,7 +11438,7 @@ void float_write_ieee597(ZigValue *op, uint8_t *buf, bool is_big_endian) {
     }
 }
 
-void float_read_ieee597(ZigValue *val, uint8_t *buf, bool is_big_endian) {
+void float_read_ieee597(ZigValue *val, uint8_t *buf, bool target_is_big_endian) {
     if (val->type->id != ZigTypeIdFloat)
         zig_unreachable();
 
@@ -11447,10 +11448,9 @@ void float_read_ieee597(ZigValue *val, uint8_t *buf, bool is_big_endian) {
     uint8_t tmp[16];
     uint8_t *ptr = buf;
 
-    if (is_big_endian) {
+    // Byteswap if system endianness != target endianness
+    if (native_is_big_endian != target_is_big_endian) {
         memcpy(tmp, buf, n);
-
-        // Byteswap if needed
         for (size_t i = 0; i < n / 2; i++) {
             uint8_t u = tmp[i];
             tmp[i] = tmp[n - 1 - i];
