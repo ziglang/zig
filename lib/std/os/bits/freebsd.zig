@@ -752,47 +752,45 @@ pub const Sigaction = extern struct {
     },
 
     /// see signal options
-    sa_flags: c_uint,
+    flags: c_uint,
 
     /// signal mask to apply
-    sa_mask: sigset_t,
+    mask: sigset_t,
 };
 
-pub const __siginfo = extern struct {
-    si_signo: c_int,
-    si_errno: c_int,
-    si_code: c_int,
-    si_pid: pid_t,
-    si_uid: uid_t,
-    si_status: c_int,
-    si_addr: ?*c_void,
-    si_value: sigval,
-    _reason: extern union {
-        _fault: extern struct {
-            _trapno: c_int,
+pub const siginfo_t = extern struct {
+    signo: c_int,
+    errno: c_int,
+    code: c_int,
+    pid: pid_t,
+    uid: uid_t,
+    status: c_int,
+    addr: ?*c_void,
+    value: sigval,
+    reason: extern union {
+        fault: extern struct {
+            trapno: c_int,
         },
-        _timer: extern struct {
-            _timerid: c_int,
-            _overrun: c_int,
+        timer: extern struct {
+            timerid: c_int,
+            overrun: c_int,
         },
-        _mesgq: extern struct {
-            _mqd: c_int,
+        mesgq: extern struct {
+            mqd: c_int,
         },
-        _poll: extern struct {
-            _band: c_long,
+        poll: extern struct {
+            band: c_long,
         },
-        __spare__: extern struct {
-            __spare1__: c_long,
-            __spare2__: [7]c_int,
+        spare: extern struct {
+            spare1: c_long,
+            spare2: [7]c_int,
         },
     },
 };
 
 pub const sigval = extern union {
-    sival_int: c_int,
-    sival_ptr: ?*c_void,
-    sigval_int: c_int,
-    sigval_ptr: ?*c_void,
+    int: c_int,
+    ptr: ?*c_void,
 };
 
 pub const _SIG_WORDS = 4;
