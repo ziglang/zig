@@ -813,10 +813,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     return error.NoSymbolTableFound;
                 }
 
-                // Parse symbol and string tables.
-                try self.parseSymbolTable();
-                try self.parseStringTable();
-
                 // Parse dyld info
                 try self.parseBindingInfoTable();
                 try self.parseLazyBindingInfoTable();
