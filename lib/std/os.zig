@@ -4776,7 +4776,26 @@ pub const SendError = error{
     FileDescriptorNotASocket,
 } || UnexpectedError;
 
-pub const SendToError = SendError || error{AddressFamilyNotSupported};
+pub const SendToError = SendError || error{
+    /// The passed address didn't have the correct address family in its sa_family field.
+    AddressFamilyNotSupported,
+
+    /// Returned when socket is AF_UNIX and the given path has a symlink loop.
+    SymLinkLoop,
+
+    /// Returned when socket is AF_UNIX and the given path length exceeds `MAX_PATH_BYTES` bytes.
+    NameTooLong,
+
+    /// Returned when socket is AF_UNIX and the given path does not point to an existing file.
+    FileNotFound,
+    NotDir,
+
+    /// Network is unreachable.
+    NetworkUnreachable,
+
+    /// Insufficient memory was available to fulfill the request.
+    SystemResources,
+};
 
 /// Transmit a message to another socket.
 ///
