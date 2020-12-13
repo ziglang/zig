@@ -672,8 +672,11 @@ test "sigaction" {
     // Check that we can read it back correctly.
     os.sigaction(os.SIGUSR1, null, &old_sa);
     testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
-    testing.expect((old_sa.flags & os.SA_RESETHAND) != 0);
+    testing.expect((old_sa.flags & os.SA_SIGINFO) != 0);
     // Invoke the handler.
     try os.raise(os.SIGUSR1);
     testing.expect(signal_test_failed == false);
+    // Check if the handler has been correctly reset to SIG_DFL
+    os.sigaction(os.SIGUSR1, null, &old_sa);
+    testing.expectEqual(os.SIG_DFL, old_sa.handler.sigaction);
 }

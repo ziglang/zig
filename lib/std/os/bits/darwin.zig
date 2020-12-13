@@ -126,6 +126,11 @@ pub const timespec = extern struct {
 pub const sigset_t = u32;
 pub const empty_sigset: sigset_t = 0;
 
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 5);
+
 pub const siginfo_t = extern struct {
     signo: c_int,
     errno: c_int,
