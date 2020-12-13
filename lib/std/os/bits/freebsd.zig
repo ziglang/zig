@@ -736,9 +736,9 @@ pub const winsize = extern struct {
 
 const NSIG = 32;
 
-pub const SIG_ERR = @intToPtr(fn (i32) callconv(.C) void, maxInt(usize));
-pub const SIG_DFL = @intToPtr(fn (i32) callconv(.C) void, 0);
-pub const SIG_IGN = @intToPtr(fn (i32) callconv(.C) void, 1);
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
