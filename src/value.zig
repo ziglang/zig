@@ -207,7 +207,7 @@ pub const Value = extern union {
         }
 
         pub fn Data(comptime t: Tag) type {
-            return std.meta.fieldInfo(t.Type(), "data").field_type;
+            return std.meta.fieldInfo(t.Type(), .data).field_type;
         }
     };
 

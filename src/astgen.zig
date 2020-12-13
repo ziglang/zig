@@ -758,7 +758,7 @@ fn ptrSliceType(mod: *Module, scope: *Scope, src: usize, ptr_info: *ast.PtrInfo,
         }, child_type);
     }
 
-    var kw_args: std.meta.fieldInfo(zir.Inst.PtrType, "kw_args").field_type = .{};
+    var kw_args: std.meta.fieldInfo(zir.Inst.PtrType, .kw_args).field_type = .{};
     kw_args.size = size;
     kw_args.@"allowzero" = ptr_info.allowzero_token != null;
     if (ptr_info.align_info) |some| {
@@ -2756,8 +2756,8 @@ pub fn addZIRInstSpecial(
     scope: *Scope,
     src: usize,
     comptime T: type,
-    positionals: std.meta.fieldInfo(T, "positionals").field_type,
-    kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
+    positionals: std.meta.fieldInfo(T, .positionals).field_type,
+    kw_args: std.meta.fieldInfo(T, .kw_args).field_type,
 ) !*T {
     const gen_zir = scope.getGenZIR();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
@@ -2874,8 +2874,8 @@ pub fn addZIRInst(
     scope: *Scope,
     src: usize,
     comptime T: type,
-    positionals: std.meta.fieldInfo(T, "positionals").field_type,
-    kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
+    positionals: std.meta.fieldInfo(T, .positionals).field_type,
+    kw_args: std.meta.fieldInfo(T, .kw_args).field_type,
 ) !*zir.Inst {
     const inst_special = try addZIRInstSpecial(mod, scope, src, T, positionals, kw_args);
     return &inst_special.base;
@@ -2883,12 +2883,12 @@ pub fn addZIRInst(
 
 /// TODO The existence of this function is a workaround for a bug in stage1.
 pub fn addZIRInstConst(mod: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*zir.Inst {
-    const P = std.meta.fieldInfo(zir.Inst.Const, "positionals").field_type;
+    const P = std.meta.fieldInfo(zir.Inst.Const, .positionals).field_type;
     return addZIRInst(mod, scope, src, zir.Inst.Const, P{ .typed_value = typed_value }, .{});
 }
 
 /// TODO The existence of this function is a workaround for a bug in stage1.
 pub fn addZIRInstLoop(mod: *Module, scope: *Scope, src: usize, body: zir.Module.Body) !*zir.Inst.Loop {
-    const P = std.meta.fieldInfo(zir.Inst.Loop, "positionals").field_type;
+    const P = std.meta.fieldInfo(zir.Inst.Loop, .positionals).field_type;
     return addZIRInstSpecial(mod, scope, src, zir.Inst.Loop, P{ .body = body }, .{});
 }
