@@ -811,7 +811,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                     while (ver_i < ver_list.len) : (ver_i += 1) {
                         // Example:
                         // .globl _Exit_2_2_5
-                        // .type _Exit_2_2_5, @function;
+                        // .type _Exit_2_2_5, %function;
                         // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
                         // .hidden _Exit_2_2_5
                         // _Exit_2_2_5:
@@ -830,7 +830,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                             );
                             try zig_body.writer().print(
                                 \\.globl {s}
-                                \\.type {s}, @function;
+                                \\.type {s}, %function;
                                 \\.symver {s}, {s}{s}GLIBC_{d}.{d}
                                 \\.hidden {s}
                                 \\{s}:
@@ -854,7 +854,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                             );
                             try zig_body.writer().print(
                                 \\.globl {s}
-                                \\.type {s}, @function;
+                                \\.type {s}, %function;
                                 \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
                                 \\.hidden {s}
                                 \\{s}:
