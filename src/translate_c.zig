@@ -328,6 +328,47 @@ pub const Context = struct {
     }
 };
 
+fn addCBuiltinsNamespace(c: *Context) Error!void {
+    // pub usingnamespace @import("std").c.builtins;
+    const pub_tok = try appendToken(c, .Keyword_pub, "pub");
+    const use_tok = try appendToken(c, .Keyword_usingnamespace, "usingnamespace");
+    const import_tok = try appendToken(c, .Builtin, "@import");
+    const lparen_tok = try appendToken(c, .LParen, "(");
+    const std_tok = try appendToken(c, .StringLiteral, "\"std\"");
+    const rparen_tok = try appendToken(c, .RParen, ")");
+
+    const std_node = try c.arena.create(ast.Node.OneToken);
+    std_node.* = .{
+        .base = .{ .tag = .StringLiteral },
+        .token = std_tok,
+    };
+
+    const call_node = try ast.Node.BuiltinCall.alloc(c.arena, 1);
+    call_node.* = .{
+        .builtin_token = import_tok,
+        .params_len = 1,
+        .rparen_token = rparen_tok,
+    };
+    call_node.params()[0] = &std_node.base;
+
+    var access_chain = &call_node.base;
+    access_chain = try transCreateNodeFieldAccess(c, access_chain, "c");
+    access_chain = try transCreateNodeFieldAccess(c, access_chain, "builtins");
+
+    const semi_tok = try appendToken(c, .Semicolon, ";");
+
+    const bytes = try c.gpa.alignedAlloc(u8, @alignOf(ast.Node.Use), @sizeOf(ast.Node.Use));
+    const using_node = @ptrCast(*ast.Node.Use, bytes.ptr);
+    using_node.* = .{
+        .doc_comments = null,
+        .visib_token = pub_tok,
+        .use_token = use_tok,
+        .expr = access_chain,
+        .semicolon_token = semi_tok,
+    };
+    try c.root_decls.append(c.gpa, &using_node.base);
+}
+
 pub fn translate(
     gpa: *mem.Allocator,
     args_begin: [*]?[*]const u8,
@@ -376,6 +417,8 @@ pub fn translate(
         context.root_decls.deinit(gpa);
         context.opaque_demotes.deinit(gpa);
     }
+
+    try addCBuiltinsNamespace(&context);
 
     try prepopulateGlobalNameTable(ast_unit, &context);
 
@@ -1726,6 +1769,9 @@ fn transImplicitCastExpr(
             const rhs_node = try transCreateNodeInt(rp.c, 0);
             return transCreateNodeInfixOp(rp, scope, sub_expr_node, .BangEqual, op_token, rhs_node, result_used, false);
         },
+        .BuiltinFnToFnPtr => {
+            return transExpr(rp, scope, sub_expr, .used, .r_value);
+        },
         else => |kind| return revertAndWarn(
             rp,
             error.UnsupportedTranslation,
@@ -2028,7 +2074,6 @@ fn transCCast(
         // 1. If src_type is an enum, determine the underlying signed int type
         // 2. Extend or truncate without changing signed-ness.
         // 3. Bit-cast to correct signed-ness
-
         const src_type_is_signed = cIsSignedInteger(src_type) or cIsEnum(src_type);
         const src_int_type = if (cIsInteger(src_type)) src_type else cIntTypeForEnum(src_type);
         const src_int_expr = if (cIsInteger(src_type)) expr else try transEnumToInt(rp.c, expr);
@@ -3048,8 +3093,9 @@ fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.CallExpr, r
     const fn_expr = if (is_ptr and fn_ty != null) blk: {
         if (callee.getStmtClass() == .ImplicitCastExprClass) {
             const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, callee);
-
-            if (implicit_cast.getCastKind() == .FunctionToPointerDecay) {
+            const cast_kind = implicit_cast.getCastKind();
+            if (cast_kind == .BuiltinFnToFnPtr) break :blk raw_fn_expr;
+            if (cast_kind == .FunctionToPointerDecay) {
                 const subexpr = implicit_cast.getSubExpr();
                 if (subexpr.getStmtClass() == .DeclRefExprClass) {
                     const decl_ref = @ptrCast(*const clang.DeclRefExpr, subexpr);
@@ -5881,7 +5927,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
                 return error.ParseError;
             }
 
-            const ident_token = try appendTokenFmt(c, .Identifier, "{}_{}", .{slice, m.slice()});
+            const ident_token = try appendTokenFmt(c, .Identifier, "{}_{}", .{ slice, m.slice() });
             const identifier = try c.arena.create(ast.Node.OneToken);
             identifier.* = .{
                 .base = .{ .tag = .Identifier },
