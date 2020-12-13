@@ -3,34 +3,13 @@
 
 #include "parse_f128.h"
 #include "softfloat.h"
+#include "zigendian.h"
 #include <stddef.h>
 #include <sys/types.h>
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
 #include <math.h>
-
-// Every OSes seem to define endianness macros in different files.
-#if defined(__APPLE__)
-  #include <machine/endian.h>
-  #define ZIG_BIG_ENDIAN    BIG_ENDIAN
-  #define ZIG_LITTLE_ENDIAN LITTLE_ENDIAN
-  #define ZIG_BYTE_ORDER    BYTE_ORDER
-#elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-  #include <sys/endian.h>
-  #define ZIG_BIG_ENDIAN    _BIG_ENDIAN
-  #define ZIG_LITTLE_ENDIAN _LITTLE_ENDIAN
-  #define ZIG_BYTE_ORDER    _BYTE_ORDER
-#elif defined(_WIN32) || defined(_WIN64)
-  // Assume that Windows installations are always little endian.
-  #define ZIG_LITTLE_ENDIAN 1
-  #define ZIG_BYTE_ORDER    ZIG_LITTLE_ENDIAN
-#else // Linux
-  #include <endian.h>
-  #define ZIG_BIG_ENDIAN    __BIG_ENDIAN
-  #define ZIG_LITTLE_ENDIAN __LITTLE_ENDIAN
-  #define ZIG_BYTE_ORDER    __BYTE_ORDER
-#endif
 
 #define shcnt(f) ((f)->shcnt + ((f)->rpos - (f)->buf))
 #define shlim(f, lim) __shlim((f), (lim))
@@ -783,7 +762,7 @@ static float128_t decfloat(struct MuslFILE *f, int c, int bits, int emin, int si
     }
 
     if ((e2+LDBL_MANT_DIG & INT_MAX) > emax-5) {
-        //if (fabsf128(y) >= 0x1p113) 
+        //if (fabsf128(y) >= 0x1p113)
         float128_t abs_y = fabsf128(y);
         float128_t mant_f128 = make_f128(0x4070000000000000, 0x0000000000000000);
         if (!f128M_lt(&abs_y, &mant_f128)) {
