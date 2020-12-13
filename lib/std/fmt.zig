@@ -537,7 +537,7 @@ pub fn formatType(
         .Fn => {
             return format(writer, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
-        .Type => return writer.writeAll(@typeName(T)),
+        .Type => return formatBuf(@typeName(value), options, writer),
         .EnumLiteral => {
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatType(buffer, fmt, options, writer, max_depth);
@@ -2050,6 +2050,12 @@ test "sci float padding" {
 test "null" {
     const inst = null;
     try testFmt("null", "{}", .{inst});
+}
+
+test "type" {
+    try testFmt("u8", "{}", .{u8});
+    try testFmt("?f32", "{}", .{?f32});
+    try testFmt("[]const u8", "{}", .{[]const u8});
 }
 
 test "named arguments" {
