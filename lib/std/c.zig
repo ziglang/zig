@@ -12,6 +12,7 @@ pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 pub const parse = @import("c/parse.zig").parse;
 pub const ast = @import("c/ast.zig");
+pub const builtins = @import("c/builtins.zig");
 
 test "" {
     _ = tokenizer;
