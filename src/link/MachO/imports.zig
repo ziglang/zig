@@ -5,16 +5,22 @@ const mem = std.mem;
 
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
+const sizeLEB128 = @import("../MachO.zig").sizeLEB128;
 
+/// Table of binding info entries used to tell the dyld which
+/// symbols to bind at loading time.
 pub const BindingInfoTable = struct {
+    /// Id of the dynamic library where the specified entries can be found.
     dylib_ordinal: i64 = 0,
-    binding_type: u8 = macho.BIND_TYPE_POINTER,
-    entries: std.ArrayListUnmanaged(Entry) = .{},
 
-    pub const Entry = struct {
-        /// Id of the symbol in the undef symbol table.
-        /// Can be null.
-        symbol: ?u16 = null,
+    /// Binding type; defaults to pointer type.
+    binding_type: u8 = macho.BIND_TYPE_POINTER,
+
+    symbols: std.ArrayListUnmanaged(Symbol) = .{},
+
+    pub const Symbol = struct {
+        /// Symbol name.
+        name: ?[]u8 = null,
 
         /// Id of the segment where to bind this symbol to.
         segment: u8,
@@ -24,14 +30,17 @@ pub const BindingInfoTable = struct {
     };
 
     pub fn deinit(self: *BindingInfoTable, allocator: *Allocator) void {
-        self.entries.deinit(allocator);
+        for (self.symbols.items) |*symbol| {
+            if (symbol.name) |name| {
+                allocator.free(name);
+            }
+        }
+        self.symbols.deinit(allocator);
     }
 
-    pub fn read(self: *BindingInfoTable, allocator: *Allocator, symbols_by_name: anytype, reader: anytype) !void {
-        var name = std.ArrayList(u8).init(allocator);
-        defer name.deinit();
-
-        var entry: Entry = .{
+    /// Parse the binding info table from byte stream.
+    pub fn read(self: *BindingInfoTable, reader: anytype, allocator: *Allocator) !void {
+        var symbol: Symbol = .{
             .segment = 0,
             .offset = 0,
         };
@@ -48,8 +57,8 @@ pub const BindingInfoTable = struct {
 
             switch (opcode) {
                 macho.BIND_OPCODE_DO_BIND => {
-                    try self.entries.append(allocator, entry);
-                    entry = .{
+                    try self.symbols.append(allocator, symbol);
+                    symbol = .{
                         .segment = 0,
                         .offset = 0,
                     };
@@ -59,17 +68,17 @@ pub const BindingInfoTable = struct {
                     break;
                 },
                 macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
-                    name.shrinkRetainingCapacity(0);
+                    var name = std.ArrayList(u8).init(allocator);
                     var next = try reader.readByte();
                     while (next != @as(u8, 0)) {
                         try name.append(next);
                         next = try reader.readByte();
                     }
-                    entry.symbol = symbols_by_name.get(name.items[0..]);
+                    symbol.name = name.toOwnedSlice();
                 },
                 macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
-                    entry.segment = imm;
-                    entry.offset = try leb.readILEB128(i64, reader);
+                    symbol.segment = imm;
+                    symbol.offset = try leb.readILEB128(i64, reader);
                 },
                 macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM, macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
                     assert(!dylib_ordinal_set);
@@ -90,15 +99,69 @@ pub const BindingInfoTable = struct {
         assert(done);
     }
 
-    pub fn write(self: BindingInfoTable, writer: anytype) !void {}
+    /// Write the binding info table to byte stream.
+    pub fn write(self: BindingInfoTable, writer: anytype) !void {
+        if (self.dylib_ordinal > 15) {
+            try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
+            try leb.writeULEB128(writer, @bitCast(u64, self.dylib_ordinal));
+        } else if (self.dylib_ordinal > 0) {
+            try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | @truncate(u4, @bitCast(u64, self.dylib_ordinal)));
+        } else {
+            try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM | @truncate(u4, @bitCast(u64, self.dylib_ordinal)));
+        }
+        try writer.writeByte(macho.BIND_OPCODE_SET_TYPE_IMM | @truncate(u4, self.binding_type));
+
+        for (self.symbols.items) |symbol| {
+            if (symbol.name) |name| {
+                try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM); // TODO Sometimes we might want to add flags.
+                try writer.writeAll(name);
+                try writer.writeByte(0);
+            }
+
+            try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
+            try leb.writeILEB128(writer, symbol.offset);
+
+            try writer.writeByte(macho.BIND_OPCODE_DO_BIND);
+        }
+
+        try writer.writeByte(macho.BIND_OPCODE_DONE);
+    }
+
+    /// Calculate size in bytes of this binding info table.
+    pub fn calcSize(self: *BindingInfoTable) usize {
+        var size: usize = 1;
+        if (self.dylib_ordinal > 15) {
+            size += sizeLEB128(self.dylib_ordinal);
+        }
+
+        size += 1;
+
+        for (self.symbols.items) |symbol| {
+            if (symbol.name) |name| {
+                size += 1;
+                size += name.len;
+                size += 1;
+            }
+
+            size += 1;
+            size += sizeLEB128(symbol.offset);
+
+            size += 1;
+        }
+
+        size += 1;
+        return size;
+    }
 };
 
+/// Table of lazy binding info entries used to tell the dyld which
+/// symbols to lazily bind at first load of a dylib.
 pub const LazyBindingInfoTable = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
+    symbols: std.ArrayListUnmanaged(Symbol) = .{},
 
-    pub const Entry = struct {
-        /// Id of the symbol in the undef symbol table.
-        symbol: u16,
+    pub const Symbol = struct {
+        /// Symbol name.
+        name: ?[]u8 = null,
 
         /// Offset of this symbol wrt to the segment id encoded in `segment`.
         offset: i64,
@@ -113,15 +176,17 @@ pub const LazyBindingInfoTable = struct {
     };
 
     pub fn deinit(self: *LazyBindingInfoTable, allocator: *Allocator) void {
-        self.entries.deinit(allocator);
+        for (self.symbols.items) |*symbol| {
+            if (symbol.name) |name| {
+                allocator.free(name);
+            }
+        }
+        self.symbols.deinit(allocator);
     }
 
-    pub fn read(self: *LazyBindingInfoTable, allocator: *Allocator, symbols_by_name: anytype, reader: anytype) !void {
-        var name = std.ArrayList(u8).init(allocator);
-        defer name.deinit();
-
-        var entry: Entry = .{
-            .symbol = 0,
+    /// Parse the binding info table from byte stream.
+    pub fn read(self: *LazyBindingInfoTable, reader: anytype, allocator: *Allocator) !void {
+        var symbol: Symbol = .{
             .offset = 0,
             .segment = 0,
             .dylib_ordinal = 0,
@@ -138,35 +203,34 @@ pub const LazyBindingInfoTable = struct {
 
             switch (opcode) {
                 macho.BIND_OPCODE_DO_BIND => {
-                    try self.entries.append(allocator, entry);
+                    try self.symbols.append(allocator, symbol);
                 },
                 macho.BIND_OPCODE_DONE => {
                     done = true;
-                    entry = .{
-                        .symbol = 0,
+                    symbol = .{
                         .offset = 0,
                         .segment = 0,
                         .dylib_ordinal = 0,
                     };
                 },
                 macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
-                    name.shrinkRetainingCapacity(0);
+                    var name = std.ArrayList(u8).init(allocator);
                     var next = try reader.readByte();
                     while (next != @as(u8, 0)) {
                         try name.append(next);
                         next = try reader.readByte();
                     }
-                    entry.symbol = symbols_by_name.get(name.items[0..]) orelse unreachable;
+                    symbol.name = name.toOwnedSlice();
                 },
                 macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
-                    entry.segment = imm;
-                    entry.offset = try leb.readILEB128(i64, reader);
+                    symbol.segment = imm;
+                    symbol.offset = try leb.readILEB128(i64, reader);
                 },
                 macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM, macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
-                    entry.dylib_ordinal = imm;
+                    symbol.dylib_ordinal = imm;
                 },
                 macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB => {
-                    entry.dylib_ordinal = try leb.readILEB128(i64, reader);
+                    symbol.dylib_ordinal = try leb.readILEB128(i64, reader);
                 },
                 else => {
                     std.log.warn("unhandled BIND_OPCODE_: 0x{x}", .{opcode});
@@ -176,5 +240,51 @@ pub const LazyBindingInfoTable = struct {
         assert(done);
     }
 
-    pub fn write(self: LazyBindingInfoTable, writer: anytype) !void {}
+    /// Write the binding info table to byte stream.
+    pub fn write(self: LazyBindingInfoTable, writer: anytype) !void {
+        for (self.symbols.items) |symbol| {
+            try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
+            try leb.writeILEB128(writer, symbol.offset);
+
+            if (symbol.dylib_ordinal > 15) {
+                try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
+                try leb.writeULEB128(writer, @bitCast(u64, symbol.dylib_ordinal));
+            } else if (symbol.dylib_ordinal > 0) {
+                try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | @truncate(u4, @bitCast(u64, symbol.dylib_ordinal)));
+            } else {
+                try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM | @truncate(u4, @bitCast(u64, symbol.dylib_ordinal)));
+            }
+
+            if (symbol.name) |name| {
+                try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM); // TODO Sometimes we might want to add flags.
+                try writer.writeAll(name);
+                try writer.writeByte(0);
+            }
+
+            try writer.writeByte(macho.BIND_OPCODE_DO_BIND);
+            try writer.writeByte(macho.BIND_OPCODE_DONE);
+        }
+    }
+
+    /// Calculate size in bytes of this binding info table.
+    pub fn calcSize(self: *LazyBindingInfoTable) usize {
+        var size: usize = 0;
+
+        for (self.symbols.items) |symbol| {
+            size += 1;
+            size += sizeLEB128(symbol.offset);
+            size += 1;
+            if (symbol.dylib_ordinal > 15) {
+                size += sizeLEB128(symbol.dylib_ordinal);
+            }
+            if (symbol.name) |name| {
+                size += 1;
+                size += name.len;
+                size += 1;
+            }
+            size += 2;
+        }
+
+        return size;
+    }
 };

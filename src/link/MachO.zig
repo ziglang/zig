@@ -810,47 +810,50 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 if (self.symtab_cmd_index == null or self.dysymtab_cmd_index == null) {
                     std.log.err("Incomplete Mach-O binary: no LC_SYMTAB or LC_DYSYMTAB load command found!", .{});
                     std.log.err("Without the symbol table, it is not possible to patch up the binary for cross-compilation.", .{});
-                    return error.NoSymbolTable;
+                    return error.NoSymbolTableFound;
                 }
 
                 // Parse symbol and string tables.
                 try self.parseSymbolTable();
                 try self.parseStringTable();
 
-                std.debug.print("Undef symbols\n", .{});
-                for (self.undef_symbols.items) |sym| {
-                    const name = self.string_table.items[sym.n_strx..];
-                    const len = blk: {
-                        var end: usize = 0;
-                        while (true) {
-                            if (name[end] == @as(u8, 0)) break;
-                            end += 1;
-                        }
-                        break :blk end;
-                    };
-                    std.debug.print("name={},sym={}\n", .{ name[0..len], sym });
-                }
-
                 // Parse dyld info
-                var symbols_by_name = std.StringHashMap(u16).init(self.base.allocator);
-                defer symbols_by_name.deinit();
-                try symbols_by_name.ensureCapacity(@intCast(u32, self.undef_symbols.items.len));
+                try self.parseBindingInfoTable();
+                try self.parseLazyBindingInfoTable();
 
-                for (self.undef_symbols.items) |sym, i| {
-                    const name = self.string_table.items[sym.n_strx..];
-                    const len = blk: {
-                        var end: usize = 0;
-                        while (true) {
-                            if (name[end] == @as(u8, 0)) break;
-                            end += 1;
-                        }
-                        break :blk end;
-                    };
-                    symbols_by_name.putAssumeCapacityNoClobber(name[0..len], @intCast(u16, i));
+                // Update the dylib ordinals.
+                self.binding_info_table.dylib_ordinal = next_ordinal;
+                for (self.lazy_binding_info_table.symbols.items) |*symbol| {
+                    symbol.dylib_ordinal = next_ordinal;
                 }
 
-                try self.parseBindingInfoTable(symbols_by_name);
-                try self.parseLazyBindingInfoTable(symbols_by_name);
+                // Write update dyld info
+                const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+                {
+                    const size = self.binding_info_table.calcSize();
+                    assert(dyld_info.bind_size == size);
+
+                    var buffer = try self.base.allocator.alloc(u8, size);
+                    defer self.base.allocator.free(buffer);
+
+                    var stream = std.io.fixedBufferStream(buffer);
+                    try self.binding_info_table.write(stream.writer());
+
+                    try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
+                }
+                {
+                    const size = self.lazy_binding_info_table.calcSize();
+                    assert(dyld_info.lazy_bind_size == size);
+
+                    var buffer = try self.base.allocator.alloc(u8, size);
+                    defer self.base.allocator.free(buffer);
+
+                    var stream = std.io.fixedBufferStream(buffer);
+                    try self.lazy_binding_info_table.write(stream.writer());
+
+                    try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
+                }
+
                 // Write updated load commands and the header
                 try self.writeLoadCommands();
                 try self.writeHeader();
@@ -1952,6 +1955,68 @@ fn writeExportTrie(self: *MachO) !void {
     self.cmd_table_dirty = true;
 }
 
+fn writeBindingInfoTable(self: *MachO) !void {
+    const size = self.binding_info_table.calcSize();
+    var buffer = try self.base.allocator.alloc(u8, size);
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try self.binding_info_table.write(stream.writer());
+
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    const bind_size = @intCast(u32, mem.alignForward(buffer.len, @sizeOf(u64)));
+    dyld_info.bind_off = self.linkedit_segment_next_offset.?;
+    dyld_info.bind_size = bind_size;
+
+    log.debug("writing binding info table from 0x{x} to 0x{x}\n", .{ dyld_info.bind_off, dyld_info.bind_off + bind_size });
+
+    if (bind_size > buffer.len) {
+        // Pad out to align(8).
+        try self.base.file.?.pwriteAll(&[_]u8{0}, dyld_info.bind_off + bind_size);
+    }
+    try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
+
+    self.linkedit_segment_next_offset = dyld_info.bind_off + dyld_info.bind_size;
+    // Advance size of __LINKEDIT segment
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.inner.filesize += dyld_info.bind_size;
+    if (linkedit.inner.vmsize < linkedit.inner.filesize) {
+        linkedit.inner.vmsize = mem.alignForwardGeneric(u64, linkedit.inner.filesize, self.page_size);
+    }
+    self.cmd_table_dirty = true;
+}
+
+fn writeLazyBindingInfoTable(self: *MachO) !void {
+    const size = self.lazy_binding_info_table.calcSize();
+    var buffer = try self.base.allocator.alloc(u8, size);
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try self.lazy_binding_info_table.write(stream.writer());
+
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    const bind_size = @intCast(u32, mem.alignForward(buffer.len, @sizeOf(u64)));
+    dyld_info.lazy_bind_off = self.linkedit_segment_next_offset.?;
+    dyld_info.lazy_bind_size = bind_size;
+
+    log.debug("writing lazy binding info table from 0x{x} to 0x{x}\n", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + bind_size });
+
+    if (bind_size > buffer.len) {
+        // Pad out to align(8).
+        try self.base.file.?.pwriteAll(&[_]u8{0}, dyld_info.lazy_bind_off + bind_size);
+    }
+    try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
+
+    self.linkedit_segment_next_offset = dyld_info.lazy_bind_off + dyld_info.lazy_bind_size;
+    // Advance size of __LINKEDIT segment
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.inner.filesize += dyld_info.lazy_bind_size;
+    if (linkedit.inner.vmsize < linkedit.inner.filesize) {
+        linkedit.inner.vmsize = mem.alignForwardGeneric(u64, linkedit.inner.filesize, self.page_size);
+    }
+    self.cmd_table_dirty = true;
+}
+
 fn writeStringTable(self: *MachO) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const needed_size = self.string_table.items.len;
@@ -2122,7 +2187,7 @@ fn parseStringTable(self: *MachO) !void {
     self.string_table.appendSliceAssumeCapacity(buffer);
 }
 
-fn parseBindingInfoTable(self: *MachO, symbols_by_name: std.StringHashMap(u16)) !void {
+fn parseBindingInfoTable(self: *MachO) !void {
     const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     var buffer = try self.base.allocator.alloc(u8, dyld_info.bind_size);
     defer self.base.allocator.free(buffer);
@@ -2130,10 +2195,10 @@ fn parseBindingInfoTable(self: *MachO, symbols_by_name: std.StringHashMap(u16)) 
     assert(nread == buffer.len);
 
     var stream = std.io.fixedBufferStream(buffer);
-    try self.binding_info_table.read(self.base.allocator, symbols_by_name, stream.reader());
+    try self.binding_info_table.read(stream.reader(), self.base.allocator);
 }
 
-fn parseLazyBindingInfoTable(self: *MachO, symbols_by_name: std.StringHashMap(u16)) !void {
+fn parseLazyBindingInfoTable(self: *MachO) !void {
     const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     var buffer = try self.base.allocator.alloc(u8, dyld_info.lazy_bind_size);
     defer self.base.allocator.free(buffer);
@@ -2141,5 +2206,17 @@ fn parseLazyBindingInfoTable(self: *MachO, symbols_by_name: std.StringHashMap(u1
     assert(nread == buffer.len);
 
     var stream = std.io.fixedBufferStream(buffer);
-    try self.lazy_binding_info_table.read(self.base.allocator, symbols_by_name, stream.reader());
+    try self.lazy_binding_info_table.read(stream.reader(), self.base.allocator);
+}
+
+/// Calculates number of bytes in LEB128 encoding of value.
+pub fn sizeLEB128(value: anytype) usize {
+    var res: usize = 0;
+    var v = value;
+    while (true) {
+        v = v >> 7;
+        res += 1;
+        if (v == 0) break;
+    }
+    return res;
 }
