@@ -122,10 +122,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
         }
 
         pub fn Field(comptime field: FieldEnum) type {
-            inline for (@typeInfo(Fields).Struct.fields) |field_info, i| {
-                if (i == @enumToInt(field))
-                    return field_info.field_type;
-            }
+            return @typeInfo(Fields).Struct.fields[@enumToInt(field)].field_type;
         }
 
         pub fn sizeInBytes(self: Self) usize {
