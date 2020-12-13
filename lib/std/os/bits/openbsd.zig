@@ -750,6 +750,8 @@ const NSIG = 33;
 pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_CATCH = @intToPtr(?Sigaction.sigaction_fn, 2);
+pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 3);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
@@ -772,7 +774,7 @@ pub const sigval = extern union {
     ptr: ?*c_void,
 };
 
-pub const siginfo_t = extern union {
+pub const siginfo_t = extern struct {
     signo: c_int,
     code: c_int,
     errno: c_int,
@@ -790,21 +792,19 @@ pub const siginfo_t = extern union {
             trapno: c_int,
         },
         __pad: [128 - 3 * @sizeOf(c_int)]u8,
-    } align(@sizeOf(usize)),
+    },
 };
 
 comptime {
-    std.debug.assert(@sizeOf(siginfo_t) == 128);
+    if (@sizeOf(usize) == 4)
+        std.debug.assert(@sizeOf(siginfo_t) == 128)
+    else
+    // Take into account the padding between errno and data fields.
+        std.debug.assert(@sizeOf(siginfo_t) == 136);
 }
 
 pub const sigset_t = c_uint;
 pub const empty_sigset: sigset_t = 0;
-
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-pub const SIG_CATCH = @intToPtr(?Sigaction.sigaction_fn, 2);
-pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 3);
 
 pub const EPERM = 1; // Operation not permitted
 pub const ENOENT = 2; // No such file or directory
