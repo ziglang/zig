@@ -2941,6 +2941,18 @@ pub fn failNode(
     return self.fail(scope, src, format, args);
 }
 
+pub fn addDeclErr(self: *Module, decl: *Decl, err: *Compilation.ErrorMsg) error{OutOfMemory}!void {
+    var res = self.failed_decls.get(decl);
+    if (res) |value| {
+        try value.append(self.gpa, err);
+    } else {
+        var new_list = try self.gpa.create(ArrayListUnmanaged(*Compilation.ErrorMsg));
+        new_list.* = try ArrayListUnmanaged(*Compilation.ErrorMsg).initCapacity(1);
+        new_list.appendAssumeCapacity(err);
+        try self.failed_decls.putNoClobber(self.gpa, decl, new_list);
+    }
+}
+
 fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Compilation.ErrorMsg) InnerError {
     {
         errdefer err_msg.destroy(self.gpa);
