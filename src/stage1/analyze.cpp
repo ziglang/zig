@@ -5749,6 +5749,28 @@ static bool can_mutate_comptime_var_state(ZigValue *value) {
     assert(value != nullptr);
     if (value->special == ConstValSpecialUndef)
         return false;
+
+    if (value->special == ConstValSpecialLazy) {
+        // No lazy value has side effects.
+        // Use a switch here to get a compile error whenever a new kind of lazy
+        // value is added.
+        switch (value->data.x_lazy->id) {
+            case LazyValueIdInvalid:
+                zig_unreachable();
+
+            case LazyValueIdAlignOf:
+            case LazyValueIdSizeOf:
+            case LazyValueIdPtrType:
+            case LazyValueIdOptType:
+            case LazyValueIdSliceType:
+            case LazyValueIdFnType:
+            case LazyValueIdErrUnionType:
+            case LazyValueIdArrayType:
+            case LazyValueIdTypeInfoDecls:
+                return false;
+        }
+    }
+
     switch (value->type->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
