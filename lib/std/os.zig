@@ -4774,8 +4774,9 @@ pub const SendError = error{
     BrokenPipe,
 
     FileDescriptorNotASocket,
-    AddressFamilyNotSupported,
 } || UnexpectedError;
+
+pub const SendToError = SendError || error{AddressFamilyNotSupported};
 
 /// Transmit a message to another socket.
 ///
@@ -4810,7 +4811,7 @@ pub fn sendto(
     flags: u32,
     dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
-) SendError!usize {
+) SendToError!usize {
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         if (builtin.os.tag == .windows) {
