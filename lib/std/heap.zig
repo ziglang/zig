@@ -789,7 +789,7 @@ pub fn stackFallback(comptime size: usize, fallback_allocator: *Allocator) Stack
         .fallback_allocator = fallback_allocator,
         .fixed_buffer_allocator = undefined,
         .allocator = Allocator{
-            .allocFn = StackFallbackAllocator(size).realloc,
+            .allocFn = StackFallbackAllocator(size).alloc,
             .resizeFn = StackFallbackAllocator(size).resize,
         },
     };
@@ -815,25 +815,25 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             ptr_align: u29,
             len_align: u29,
             return_address: usize,
-        ) error{OutOfMemory}![*]u8 {
+        ) error{OutOfMemory}![]u8 {
             const self = @fieldParentPtr(Self, "allocator", allocator);
-            return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator, len, ptr_align) catch
-                return fallback_allocator.alloc(len, ptr_align);
+            return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator.allocator, len, ptr_align, len_align, return_address) catch
+                return self.fallback_allocator.allocFn(self.fallback_allocator, len, ptr_align, len_align, return_address);
         }
 
         fn resize(
-            self: *Allocator,
+            allocator: *Allocator,
             buf: []u8,
             buf_align: u29,
             new_len: usize,
             len_align: u29,
             return_address: usize,
-        ) error{OutOfMemory}!void {
+        ) error{OutOfMemory}!usize {
             const self = @fieldParentPtr(Self, "allocator", allocator);
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
-                try self.fixed_buffer_allocator.resize(buf, new_len);
+                return FixedBufferAllocator.resize(&self.fixed_buffer_allocator.allocator, buf, buf_align, new_len, len_align, return_address);
             } else {
-                try self.fallback_allocator.resize(buf, new_len);
+                return self.fallback_allocator.resizeFn(self.fallback_allocator, buf, buf_align, new_len, len_align, return_address);
             }
         }
     };
@@ -968,6 +968,16 @@ test "FixedBufferAllocator.reset" {
     // we expect Y to have overwritten X.
     testing.expect(x.* == y.*);
     testing.expect(y.* == Y);
+}
+
+test "StackFallbackAllocator" {
+    const fallback_allocator = page_allocator;
+    var stack_allocator = stackFallback(4096, fallback_allocator);
+
+    try testAllocator(stack_allocator.get());
+    try testAllocatorAligned(stack_allocator.get());
+    try testAllocatorLargeAlignment(stack_allocator.get());
+    try testAllocatorAlignedShrink(stack_allocator.get());
 }
 
 test "FixedBufferAllocator Reuse memory on realloc" {
