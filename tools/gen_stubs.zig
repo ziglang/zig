@@ -92,7 +92,7 @@ pub fn main() !void {
                 .weak => try stdout.print(".weak {s}\n", .{symbol.name}),
             }
             switch (symbol.type) {
-                .function => try stdout.print(".type {s}, @function;\n", .{symbol.name}),
+                .function => try stdout.print(".type {s}, %function;\n", .{symbol.name}),
                 .object => try stdout.print(".type {s}, @object;\n", .{symbol.name}),
                 .none => {},
             }
