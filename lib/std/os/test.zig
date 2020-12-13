@@ -653,6 +653,10 @@ test "sigaction" {
     if (builtin.os.tag == .wasi or builtin.os.tag == .windows)
         return error.SkipZigTest;
 
+    // https://github.com/ziglang/zig/issues/7427
+    if (builtin.os.tag == .linux and builtin.arch == .i386)
+        return error.SkipZigTest;
+
     const S = struct {
         fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) void {
             // Check that we received the correct signal.
