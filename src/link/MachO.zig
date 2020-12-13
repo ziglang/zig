@@ -25,6 +25,7 @@ const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 
 usingnamespace @import("MachO/commands.zig");
+usingnamespace @import("MachO/imports.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
@@ -103,6 +104,11 @@ string_table: std.ArrayListUnmanaged(u8) = .{},
 /// If the vaddr of the executable __TEXT segment vaddr changes, the entire offset
 /// table needs to be rewritten.
 offset_table: std.ArrayListUnmanaged(u64) = .{},
+
+/// Table of binding info entries.
+binding_info_table: BindingInfoTable = .{},
+/// Table of lazy binding info entries.
+lazy_binding_info_table: LazyBindingInfoTable = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
@@ -826,8 +832,25 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 }
 
                 // Parse dyld info
-                try self.parseBindingInfo();
-                try self.parseLazyBindingInfo();
+                var symbols_by_name = std.StringHashMap(u16).init(self.base.allocator);
+                defer symbols_by_name.deinit();
+                try symbols_by_name.ensureCapacity(@intCast(u32, self.undef_symbols.items.len));
+
+                for (self.undef_symbols.items) |sym, i| {
+                    const name = self.string_table.items[sym.n_strx..];
+                    const len = blk: {
+                        var end: usize = 0;
+                        while (true) {
+                            if (name[end] == @as(u8, 0)) break;
+                            end += 1;
+                        }
+                        break :blk end;
+                    };
+                    symbols_by_name.putAssumeCapacityNoClobber(name[0..len], @intCast(u16, i));
+                }
+
+                try self.parseBindingInfoTable(symbols_by_name);
+                try self.parseLazyBindingInfoTable(symbols_by_name);
                 // Write updated load commands and the header
                 try self.writeLoadCommands();
                 try self.writeHeader();
@@ -900,6 +923,8 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 }
 
 pub fn deinit(self: *MachO) void {
+    self.binding_info_table.deinit(self.base.allocator);
+    self.lazy_binding_info_table.deinit(self.base.allocator);
     self.pie_fixups.deinit(self.base.allocator);
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
@@ -2094,186 +2119,27 @@ fn parseStringTable(self: *MachO) !void {
     assert(nread == buffer.len);
 
     try self.string_table.ensureCapacity(self.base.allocator, symtab.strsize);
-
     self.string_table.appendSliceAssumeCapacity(buffer);
 }
 
-fn parseBindingInfo(self: *MachO) !void {
+fn parseBindingInfoTable(self: *MachO, symbols_by_name: std.StringHashMap(u16)) !void {
     const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     var buffer = try self.base.allocator.alloc(u8, dyld_info.bind_size);
     defer self.base.allocator.free(buffer);
     const nread = try self.base.file.?.preadAll(buffer, dyld_info.bind_off);
     assert(nread == buffer.len);
 
-    try parseBindingInfos(self, buffer);
-
-    if (try parseAndFixupBindingInfoBuffer(self.base.allocator, buffer)) {
-        try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
-    }
+    var stream = std.io.fixedBufferStream(buffer);
+    try self.binding_info_table.read(self.base.allocator, symbols_by_name, stream.reader());
 }
 
-fn parseLazyBindingInfo(self: *MachO) !void {
+fn parseLazyBindingInfoTable(self: *MachO, symbols_by_name: std.StringHashMap(u16)) !void {
     const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     var buffer = try self.base.allocator.alloc(u8, dyld_info.lazy_bind_size);
     defer self.base.allocator.free(buffer);
     const nread = try self.base.file.?.preadAll(buffer, dyld_info.lazy_bind_off);
     assert(nread == buffer.len);
 
-    try parseBindingInfos(self, buffer);
-
-    if (try parseAndFixupBindingInfoBuffer(self.base.allocator, buffer)) {
-        try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
-    }
-}
-
-fn parseAndFixupBindingInfoBuffer(allocator: *Allocator, buffer: []u8) !bool {
     var stream = std.io.fixedBufferStream(buffer);
-    var reader = stream.reader();
-    var done = false;
-    var fixups = std.ArrayList(usize).init(allocator);
-    defer fixups.deinit();
-
-    while (true) {
-        const inst = reader.readByte() catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => return err,
-        };
-        const imm: u8 = inst & macho.BIND_IMMEDIATE_MASK;
-        const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
-        switch (opcode) {
-            macho.BIND_OPCODE_DONE => {
-                done = true; // TODO There appear to be multiple BIND_OPCODE_DONE in lazy binding info...
-            },
-            macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
-                var next = try reader.readByte();
-                while (next != @as(u8, 0)) {
-                    next = try reader.readByte();
-                }
-            },
-            macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
-                const uleb_enc = try std.leb.readULEB128(u64, reader);
-            },
-            macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM => {
-                // We note the position in the stream to fixup later.
-                const pos = try reader.context.getPos();
-                try fixups.append(pos - 1);
-            },
-            else => {},
-        }
-    }
-    assert(done);
-
-    var buffer_dirty = false;
-    try stream.seekTo(0);
-    var writer = stream.writer();
-    for (fixups.items) |pos| {
-        try writer.context.seekTo(pos);
-        const inst = macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | 1;
-        _ = try writer.write(&[_]u8{inst});
-        buffer_dirty = true;
-    }
-
-    return buffer_dirty;
-}
-
-const BindingEntry = struct {
-    symbol: ?u16 = null,
-    offset: i64,
-    dylib_ordinal: ?i64 = null,
-    segment: u8,
-    bind_type: u8,
-};
-
-fn parseBindingInfos(self: *MachO, buffer: []u8) !void {
-    var symbolsByName = std.StringHashMap(u16).init(self.base.allocator);
-    defer symbolsByName.deinit();
-    try symbolsByName.ensureCapacity(@intCast(u32, self.undef_symbols.items.len));
-
-    for (self.undef_symbols.items) |sym, i| {
-        const name = self.string_table.items[sym.n_strx..];
-        const len = blk: {
-            var end: usize = 0;
-            while (true) {
-                if (name[end] == @as(u8, 0)) break;
-                end += 1;
-            }
-            break :blk end;
-        };
-        symbolsByName.putAssumeCapacityNoClobber(name[0..len], @intCast(u16, i));
-    }
-
-    var stream = std.io.fixedBufferStream(buffer);
-    var reader = stream.reader();
-    var done = false;
-
-    var name = std.ArrayList(u8).init(self.base.allocator);
-    defer name.deinit();
-
-    var entries = std.ArrayList(BindingEntry).init(self.base.allocator);
-    defer entries.deinit();
-    var dylib_ordinal: i64 = 0;
-
-    var entry: BindingEntry = .{
-        .offset = 0,
-        .segment = 0,
-        .bind_type = 0,
-    };
-
-    while (true) {
-        const inst = reader.readByte() catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => return err,
-        };
-        const imm: u8 = inst & macho.BIND_IMMEDIATE_MASK;
-        const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
-
-        switch (opcode) {
-            macho.BIND_OPCODE_DO_BIND => {
-                if (entry.dylib_ordinal == null) {
-                    entry.dylib_ordinal = dylib_ordinal;
-                }
-                try entries.append(entry);
-                entry = .{
-                    .offset = 0,
-                    .segment = 0,
-                    .bind_type = 0,
-                };
-            },
-            macho.BIND_OPCODE_DONE => {
-                done = true;
-            },
-            macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
-                name.shrinkRetainingCapacity(0);
-                var next = try reader.readByte();
-                while (next != @as(u8, 0)) {
-                    try name.append(next);
-                    next = try reader.readByte();
-                }
-                std.debug.print("name={}\n", .{name.items});
-                entry.symbol = symbolsByName.get(name.items[0..]);
-            },
-            macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
-                entry.segment = imm;
-                entry.offset = try std.leb.readILEB128(i64, reader);
-            },
-            macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM, macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
-                entry.dylib_ordinal = imm;
-            },
-            macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB => {
-                dylib_ordinal = try std.leb.readILEB128(i64, reader);
-                entry.dylib_ordinal = dylib_ordinal;
-            },
-            macho.BIND_OPCODE_SET_TYPE_IMM => {
-                entry.bind_type = imm;
-            },
-            else => {
-                std.log.warn("unhandled BIND_OPCODE_: 0x{x}", .{opcode});
-            },
-        }
-    }
-    assert(done);
-
-    for (entries.items) |e| {
-        std.debug.print("entry={}\n", .{e});
-    }
+    try self.lazy_binding_info_table.read(self.base.allocator, symbols_by_name, stream.reader());
 }
