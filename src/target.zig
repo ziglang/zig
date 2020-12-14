@@ -1,5 +1,5 @@
 const std = @import("std");
-const llvm = @import("llvm.zig");
+const llvm = @import("llvm_bindings.zig");
 
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,

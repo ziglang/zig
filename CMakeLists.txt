@@ -549,7 +549,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/cbe.h"
     "${CMAKE_SOURCE_DIR}/src/link/msdos-stub.bin"
     "${CMAKE_SOURCE_DIR}/src/liveness.zig"
-    "${CMAKE_SOURCE_DIR}/src/llvm.zig"
+    "${CMAKE_SOURCE_DIR}/src/llvm_bindings.zig"
     "${CMAKE_SOURCE_DIR}/src/main.zig"
     "${CMAKE_SOURCE_DIR}/src/mingw.zig"
     "${CMAKE_SOURCE_DIR}/src/musl.zig"
