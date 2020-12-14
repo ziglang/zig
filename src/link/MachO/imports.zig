@@ -5,7 +5,6 @@ const mem = std.mem;
 
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
-const sizeLEB128 = @import("../MachO.zig").sizeLEB128;
 
 /// Table of binding info entries used to tell the dyld which
 /// symbols to bind at loading time.
@@ -27,6 +26,9 @@ pub const BindingInfoTable = struct {
 
         /// Offset of this symbol wrt to the segment id encoded in `segment`.
         offset: i64,
+
+        /// Addend value (if any).
+        addend: ?i64 = null,
     };
 
     pub fn deinit(self: *BindingInfoTable, allocator: *Allocator) void {
@@ -91,6 +93,9 @@ pub const BindingInfoTable = struct {
                 macho.BIND_OPCODE_SET_TYPE_IMM => {
                     self.binding_type = imm;
                 },
+                macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                    symbol.addend = try leb.readILEB128(i64, reader);
+                },
                 else => {
                     std.log.warn("unhandled BIND_OPCODE_: 0x{x}", .{opcode});
                 },
@@ -121,6 +126,11 @@ pub const BindingInfoTable = struct {
             try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
             try leb.writeILEB128(writer, symbol.offset);
 
+            if (symbol.addend) |addend| {
+                try writer.writeByte(macho.BIND_OPCODE_SET_ADDEND_SLEB);
+                try leb.writeILEB128(writer, addend);
+            }
+
             try writer.writeByte(macho.BIND_OPCODE_DO_BIND);
         }
 
@@ -128,10 +138,13 @@ pub const BindingInfoTable = struct {
     }
 
     /// Calculate size in bytes of this binding info table.
-    pub fn calcSize(self: *BindingInfoTable) usize {
+    pub fn calcSize(self: *BindingInfoTable) !usize {
+        var stream = std.io.countingWriter(std.io.null_writer);
+        var writer = stream.writer();
         var size: usize = 1;
+
         if (self.dylib_ordinal > 15) {
-            size += sizeLEB128(self.dylib_ordinal);
+            try leb.writeULEB128(writer, @bitCast(u64, self.dylib_ordinal));
         }
 
         size += 1;
@@ -144,12 +157,17 @@ pub const BindingInfoTable = struct {
             }
 
             size += 1;
-            size += sizeLEB128(symbol.offset);
+            try leb.writeILEB128(writer, symbol.offset);
+
+            if (symbol.addend) |addend| {
+                size += 1;
+                try leb.writeILEB128(writer, addend);
+            }
 
             size += 1;
         }
 
-        size += 1;
+        size += 1 + stream.bytes_written;
         return size;
     }
 };
@@ -173,6 +191,9 @@ pub const LazyBindingInfoTable = struct {
 
         /// Id of the segment where to bind this symbol to.
         segment: u8,
+
+        /// Addend value (if any).
+        addend: ?i64 = null,
     };
 
     pub fn deinit(self: *LazyBindingInfoTable, allocator: *Allocator) void {
@@ -232,6 +253,9 @@ pub const LazyBindingInfoTable = struct {
                 macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB => {
                     symbol.dylib_ordinal = try leb.readILEB128(i64, reader);
                 },
+                macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                    symbol.addend = try leb.readILEB128(i64, reader);
+                },
                 else => {
                     std.log.warn("unhandled BIND_OPCODE_: 0x{x}", .{opcode});
                 },
@@ -245,6 +269,11 @@ pub const LazyBindingInfoTable = struct {
         for (self.symbols.items) |symbol| {
             try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
             try leb.writeILEB128(writer, symbol.offset);
+
+            if (symbol.addend) |addend| {
+                try writer.writeByte(macho.BIND_OPCODE_SET_ADDEND_SLEB);
+                try leb.writeILEB128(writer, addend);
+            }
 
             if (symbol.dylib_ordinal > 15) {
                 try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
@@ -267,15 +296,23 @@ pub const LazyBindingInfoTable = struct {
     }
 
     /// Calculate size in bytes of this binding info table.
-    pub fn calcSize(self: *LazyBindingInfoTable) usize {
+    pub fn calcSize(self: *LazyBindingInfoTable) !usize {
+        var stream = std.io.countingWriter(std.io.null_writer);
+        var writer = stream.writer();
         var size: usize = 0;
 
         for (self.symbols.items) |symbol| {
             size += 1;
-            size += sizeLEB128(symbol.offset);
+            try leb.writeILEB128(writer, symbol.offset);
+
+            if (symbol.addend) |addend| {
+                size += 1;
+                try leb.writeILEB128(writer, addend);
+            }
+
             size += 1;
             if (symbol.dylib_ordinal > 15) {
-                size += sizeLEB128(symbol.dylib_ordinal);
+                try leb.writeULEB128(writer, @bitCast(u64, symbol.dylib_ordinal));
             }
             if (symbol.name) |name| {
                 size += 1;
@@ -285,6 +322,7 @@ pub const LazyBindingInfoTable = struct {
             size += 2;
         }
 
+        size += stream.bytes_written;
         return size;
     }
 };

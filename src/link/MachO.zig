@@ -826,7 +826,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 // Write update dyld info
                 const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
                 {
-                    const size = self.binding_info_table.calcSize();
+                    const size = try self.binding_info_table.calcSize();
                     assert(dyld_info.bind_size >= size);
 
                     var buffer = try self.base.allocator.alloc(u8, size);
@@ -838,7 +838,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
                 }
                 {
-                    const size = self.lazy_binding_info_table.calcSize();
+                    const size = try self.lazy_binding_info_table.calcSize();
                     assert(dyld_info.lazy_bind_size >= size);
 
                     var buffer = try self.base.allocator.alloc(u8, size);
@@ -2203,16 +2203,4 @@ fn parseLazyBindingInfoTable(self: *MachO) !void {
 
     var stream = std.io.fixedBufferStream(buffer);
     try self.lazy_binding_info_table.read(stream.reader(), self.base.allocator);
-}
-
-/// Calculates number of bytes in LEB128 encoding of value.
-pub fn sizeLEB128(value: anytype) usize {
-    var res: usize = 0;
-    var v = value;
-    while (true) {
-        v = v >> 7;
-        res += 1;
-        if (v == 0) break;
-    }
-    return res;
 }

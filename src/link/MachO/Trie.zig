@@ -38,7 +38,6 @@ const macho = std.macho;
 const testing = std.testing;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
-const sizeLEB128 = @import("../MachO.zig").sizeLEB128;
 
 pub const Node = struct {
     base: *Trie,
@@ -242,12 +241,15 @@ pub const Node = struct {
     };
 
     /// Updates offset of this node in the output byte stream.
-    fn finalize(self: *Node, offset_in_trie: usize) FinalizeResult {
+    fn finalize(self: *Node, offset_in_trie: usize) !FinalizeResult {
+        var stream = std.io.countingWriter(std.io.null_writer);
+        var writer = stream.writer();
+
         var node_size: usize = 0;
         if (self.terminal_info) |info| {
-            node_size += sizeLEB128(info.export_flags);
-            node_size += sizeLEB128(info.vmaddr_offset);
-            node_size += sizeLEB128(node_size);
+            try leb.writeULEB128(writer, info.export_flags);
+            try leb.writeULEB128(writer, info.vmaddr_offset);
+            try leb.writeULEB128(writer, stream.bytes_written);
         } else {
             node_size += 1; // 0x0 for non-terminal nodes
         }
@@ -255,15 +257,17 @@ pub const Node = struct {
 
         for (self.edges.items) |edge| {
             const next_node_offset = edge.to.trie_offset orelse 0;
-            node_size += edge.label.len + 1 + sizeLEB128(next_node_offset);
+            node_size += edge.label.len + 1;
+            try leb.writeULEB128(writer, next_node_offset);
         }
 
         const trie_offset = self.trie_offset orelse 0;
         const updated = offset_in_trie != trie_offset;
         self.trie_offset = offset_in_trie;
         self.node_dirty = false;
+        node_size += stream.bytes_written;
 
-        return .{ .node_size = node_size, .updated = updated };
+        return FinalizeResult{ .node_size = node_size, .updated = updated };
     }
 };
 
@@ -347,7 +351,7 @@ pub fn finalize(self: *Trie) !void {
         self.size = 0;
         more = false;
         for (self.ordered_nodes.items) |node| {
-            const res = node.finalize(self.size);
+            const res = try node.finalize(self.size);
             self.size += res.node_size;
             if (res.updated) more = true;
         }
