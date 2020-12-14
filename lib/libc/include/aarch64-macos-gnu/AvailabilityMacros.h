@@ -4011,5 +4011,3 @@
 #endif
 
 #endif  /* __AVAILABILITYMACROS__ */
-
-

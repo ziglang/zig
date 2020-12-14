@@ -205,4 +205,3 @@
 #define __DRIVERKIT_20_0 200000
 
 #endif /* __AVAILABILITY_VERSIONS__ */
-

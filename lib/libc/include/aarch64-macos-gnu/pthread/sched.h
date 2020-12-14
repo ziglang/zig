@@ -43,4 +43,3 @@ extern int sched_get_priority_max(int);
 __END_DECLS
 
 #endif /* _SCHED_H_ */
-

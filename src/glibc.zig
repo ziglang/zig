@@ -553,6 +553,9 @@ fn add_include_dirs(comp: *Compilation, arena: *Allocator, args: *std.ArrayList(
 
     try args.append("-I");
     try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "any-linux-any"));
+
+    try args.append("-I");
+    try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "any-macos-any"));
 }
 
 fn add_include_dirs_arch(

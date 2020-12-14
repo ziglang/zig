@@ -1964,4 +1964,3 @@ static simd_double8  SIMD_CFUNC simd_double(simd_double8  __x) { return __builti
 #endif
 #endif // SIMD_COMPILER_HAS_REQUIRED_FEATURES
 #endif // __SIMD_CONVERSION_HEADER__
-

@@ -827,7 +827,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
                 {
                     const size = self.binding_info_table.calcSize();
-                    assert(dyld_info.bind_size == size);
+                    assert(dyld_info.bind_size >= size);
 
                     var buffer = try self.base.allocator.alloc(u8, size);
                     defer self.base.allocator.free(buffer);
@@ -839,7 +839,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 }
                 {
                     const size = self.lazy_binding_info_table.calcSize();
-                    assert(dyld_info.lazy_bind_size == size);
+                    assert(dyld_info.lazy_bind_size >= size);
 
                     var buffer = try self.base.allocator.alloc(u8, size);
                     defer self.base.allocator.free(buffer);
