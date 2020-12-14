@@ -2951,12 +2951,8 @@ pub fn addDeclErr(self: *Module, decl: *Decl, err: *Compilation.ErrorMsg) error{
     if (res) |value| {
         try value.append(self.gpa, err);
     } else {
-        // TODO does it have to be this complicated. why doesn't ArrayListUnmanaged have initCapacityAlloc that returns a heap allocated ArrayList?
         var new_list = try self.gpa.create(ArrayListUnmanaged(*Compilation.ErrorMsg));
-        const new_memory = try self.gpa.alloc(*Compilation.ErrorMsg, 1);
-        new_list.items.ptr = new_memory.ptr;
-        new_list.items.len = 0;
-        new_list.capacity = new_memory.len;
+        new_list.* = try ArrayListUnmanaged(*Compilation.ErrorMsg).initCapacity(self.gpa, 1);
         new_list.appendAssumeCapacity(err);
         try self.failed_decls.putNoClobber(self.gpa, decl, new_list);
     }
