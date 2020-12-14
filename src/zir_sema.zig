@@ -1664,6 +1664,11 @@ fn analyzeInstCmp(
         // signed-ness, comptime-ness, and bit-width. So peer type resolution is incorrect for
         // numeric types.
         return mod.cmpNumeric(scope, inst.base.src, lhs, rhs, op);
+    } else if (lhs_ty_tag == .Type and rhs_ty_tag == .Type) {
+        if (!is_equality_cmp) {
+            return mod.fail(scope, inst.base.src, "{} operator not allowed for errors", .{@tagName(op)});
+        }
+        return mod.constBool(scope, inst.base.src, lhs.value().?.eql(rhs.value().?) == (op == .eq));
     }
     return mod.fail(scope, inst.base.src, "TODO implement more cmp analysis", .{});
 }
@@ -1679,10 +1684,12 @@ fn analyzeInstBuiltinTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.Builtin
         return mod.constType(scope, inst.base.src, (try resolveInst(mod, scope, inst.positionals.items[0])).ty);
     }
     var insts_to_res = try mod.gpa.alloc(*ir.Inst, inst.positionals.items.len);
+    defer mod.gpa.free(insts_to_res);
     for (inst.positionals.items) |item, i| {
         insts_to_res[i] = try resolveInst(mod, scope, item);
     }
-    return mod.constType(scope, inst.base.src, try mod.resolvePeerTypes(scope, insts_to_res));
+    const pt_res = try mod.resolvePeerTypes(scope, insts_to_res);
+    return mod.constType(scope, inst.base.src, pt_res);
 }
 
 fn analyzeInstBoolNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
