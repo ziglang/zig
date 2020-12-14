@@ -124,13 +124,40 @@ pub const timespec = extern struct {
 };
 
 pub const sigset_t = u32;
-pub const empty_sigset = sigset_t(0);
+pub const empty_sigset: sigset_t = 0;
+
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 5);
+
+pub const siginfo_t = extern struct {
+    signo: c_int,
+    errno: c_int,
+    code: c_int,
+    pid: pid_t,
+    uid: uid_t,
+    status: c_int,
+    addr: *c_void,
+    value: extern union {
+        int: c_int,
+        ptr: *c_void,
+    },
+    si_band: c_long,
+    _pad: [7]c_ulong,
+};
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    handler: fn (c_int) callconv(.C) void,
-    sa_mask: sigset_t,
-    sa_flags: c_int,
+    pub const handler_fn = fn (c_int) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+
+    handler: extern union {
+        handler: ?handler_fn,
+        sigaction: ?sigaction_fn,
+    },
+    mask: sigset_t,
+    flags: c_uint,
 };
 
 pub const dirent = extern struct {

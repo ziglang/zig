@@ -4592,7 +4592,7 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
 }
 
 /// Examine and change a signal action.
-pub fn sigaction(sig: u6, act: *const Sigaction, oact: ?*Sigaction) void {
+pub fn sigaction(sig: u6, act: ?*const Sigaction, oact: ?*Sigaction) void {
     switch (errno(system.sigaction(sig, act, oact))) {
         0 => return,
         EFAULT => unreachable,
