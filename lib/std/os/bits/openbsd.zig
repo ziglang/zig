@@ -61,18 +61,18 @@ pub const Flock = extern struct {
     l_start: off_t,
     l_len: off_t,
     l_pid: pid_t,
-    l_type: i16,
-    l_whence: i16,
+    l_type: c_short,
+    l_whence: c_short,
 };
 
 pub const addrinfo = extern struct {
-    flags: i32,
-    family: i32,
-    socktype: i32,
-    protocol: i32,
+    flags: c_int,
+    family: c_int,
+    socktype: c_int,
+    protocol: c_int,
     addrlen: socklen_t,
-    canonname: ?[*:0]u8,
     addr: ?*sockaddr,
+    canonname: ?[*:0]u8,
     next: ?*addrinfo,
 };
 
@@ -135,7 +135,7 @@ pub const msghdr = extern struct {
     msg_iov: [*]iovec,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    msg_iovlen: c_uint,
 
     /// ancillary data
     msg_control: ?*c_void,
@@ -144,7 +144,7 @@ pub const msghdr = extern struct {
     msg_controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    msg_flags: c_int,
 };
 
 pub const msghdr_const = extern struct {
@@ -158,7 +158,7 @@ pub const msghdr_const = extern struct {
     msg_iov: [*]iovec_const,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    msg_iovlen: c_uint,
 
     /// ancillary data
     msg_control: ?*c_void,
@@ -167,7 +167,7 @@ pub const msghdr_const = extern struct {
     msg_controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    msg_flags: c_int,
 };
 
 pub const libc_stat = extern struct {
@@ -739,10 +739,10 @@ pub fn WIFSIGNALED(s: u32) bool {
 }
 
 pub const winsize = extern struct {
-    ws_row: u16,
-    ws_col: u16,
-    ws_xpixel: u16,
-    ws_ypixel: u16,
+    ws_row: c_ushort,
+    ws_col: c_ushort,
+    ws_xpixel: c_ushort,
+    ws_ypixel: c_ushort,
 };
 
 const NSIG = 33;
