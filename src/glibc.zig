@@ -287,6 +287,8 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             try args.appendSlice(&[_][]const u8{
                 "-D_LIBC_REENTRANT",
                 "-DMODULE_NAME=libc",
+                "-include",
+                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                 "-DTOP_NAMESPACE=glibc",
                 "-DASSEMBLER",
                 "-g",
