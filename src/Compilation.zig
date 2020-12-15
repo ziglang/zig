@@ -41,7 +41,12 @@ link_error_flags: link.File.ErrorFlags = .{},
 
 work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 
+/// These jobs are to invoke the Clang compiler to create an object file, which
+/// gets linked with the Compilation.
+c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
+
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
+/// This data is accessed by multiple threads and is protected by `mutex`.
 failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *ErrorMsg) = .{},
 
 keep_source_files_loaded: bool,
@@ -111,6 +116,9 @@ owned_link_dir: ?std.fs.Dir,
 /// Don't use this for anything other than stage1 compatibility.
 color: @import("main.zig").Color = .auto,
 
+/// This mutex guards all `Compilation` mutable state.
+mutex: std.Mutex = .{},
+
 test_filter: ?[]const u8,
 test_name_prefix: ?[]const u8,
 test_evented_io: bool,
@@ -150,9 +158,6 @@ const Job = union(enum) {
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
     update_line_number: *Module.Decl,
-    /// Invoke the Clang compiler to create an object file, which gets linked
-    /// with the Compilation.
-    c_object: *CObject,
 
     /// one of the glibc static objects
     glibc_crt_file: glibc.CRTFile,
@@ -971,6 +976,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .emit_analysis = options.emit_analysis,
             .emit_docs = options.emit_docs,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
+            .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
             .clang_argv = options.clang_argv,
@@ -1190,11 +1196,13 @@ pub fn update(self: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    self.c_object_cache_digest_set.clearRetainingCapacity();
+
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each C object.
-    try self.work_queue.ensureUnusedCapacity(self.c_object_table.items().len);
+    try self.c_object_work_queue.ensureUnusedCapacity(self.c_object_table.items().len);
     for (self.c_object_table.items()) |entry| {
-        self.work_queue.writeItemAssumeCapacity(.{ .c_object = entry.key });
+        self.c_object_work_queue.writeItemAssumeCapacity(entry.key);
     }
 
     const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_llvm;
@@ -1372,6 +1380,26 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
     defer c_comp_progress_node.end();
 
+    while (self.c_object_work_queue.readItem()) |c_object| {
+        self.updateCObject(c_object, &c_comp_progress_node) catch |err| switch (err) {
+            error.AnalysisFail => continue,
+            else => {
+                {
+                    var lock = self.mutex.acquire();
+                    defer lock.release();
+                    try self.failed_c_objects.ensureCapacity(self.gpa, self.failed_c_objects.items().len + 1);
+                    self.failed_c_objects.putAssumeCapacityNoClobber(c_object, try ErrorMsg.create(
+                        self.gpa,
+                        0,
+                        "unable to build C object: {s}",
+                        .{@errorName(err)},
+                    ));
+                }
+                c_object.status = .{ .failure = {} };
+            },
+        };
+    }
+
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
         .codegen_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,
@@ -1445,21 +1473,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     .{@errorName(err)},
                 ));
                 decl.analysis = .codegen_failure_retryable;
-            };
-        },
-        .c_object => |c_object| {
-            self.updateCObject(c_object, &c_comp_progress_node) catch |err| switch (err) {
-                error.AnalysisFail => continue,
-                else => {
-                    try self.failed_c_objects.ensureCapacity(self.gpa, self.failed_c_objects.items().len + 1);
-                    self.failed_c_objects.putAssumeCapacityNoClobber(c_object, try ErrorMsg.create(
-                        self.gpa,
-                        0,
-                        "unable to build C object: {s}",
-                        .{@errorName(err)},
-                    ));
-                    c_object.status = .{ .failure = {} };
-                },
             };
         },
         .glibc_crt_file => |crt_file| {
@@ -1553,7 +1566,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     };
 }
 
-pub fn obtainCObjectCacheManifest(comp: *Compilation) Cache.Manifest {
+pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
     var man = comp.cache_parent.obtain();
 
     // Only things that need to be added on top of the base hash, and only things
@@ -1720,6 +1733,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
 
     if (c_object.clearStatus(comp.gpa)) {
         // There was previous failure.
+        var lock = comp.mutex.acquire();
+        defer lock.release();
         comp.failed_c_objects.removeAssertDiscard(c_object);
     }
 
@@ -1747,8 +1762,14 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
     }
 
     {
-        const gop = try comp.c_object_cache_digest_set.getOrPut(comp.gpa, man.hash.peekBin());
-        if (gop.found_existing) {
+        const is_collision = blk: {
+            var lock = comp.mutex.acquire();
+            defer lock.release();
+
+            const gop = try comp.c_object_cache_digest_set.getOrPut(comp.gpa, man.hash.peekBin());
+            break :blk gop.found_existing;
+        };
+        if (is_collision) {
             return comp.failCObj(
                 c_object,
                 "the same source file was already added to the same compilation with the same flags",
@@ -1929,7 +1950,7 @@ pub fn addTranslateCCArgs(
 
 /// Add common C compiler args between translate-c and C object compilation.
 pub fn addCCArgs(
-    comp: *Compilation,
+    comp: *const Compilation,
     arena: *Allocator,
     argv: *std.ArrayList([]const u8),
     ext: FileExt,
@@ -2164,10 +2185,14 @@ fn failCObj(comp: *Compilation, c_object: *CObject, comptime format: []const u8,
 
 fn failCObjWithOwnedErrorMsg(comp: *Compilation, c_object: *CObject, err_msg: *ErrorMsg) InnerError {
     {
-        errdefer err_msg.destroy(comp.gpa);
-        try comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.items().len + 1);
+        var lock = comp.mutex.acquire();
+        defer lock.release();
+        {
+            errdefer err_msg.destroy(comp.gpa);
+            try comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.items().len + 1);
+        }
+        comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
     }
-    comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
     c_object.status = .failure;
     return error.AnalysisFail;
 }
@@ -2324,7 +2349,7 @@ test "classifyFileExt" {
     std.testing.expectEqual(FileExt.zir, classifyFileExt("foo.zir"));
 }
 
-fn haveFramePointer(comp: *Compilation) bool {
+fn haveFramePointer(comp: *const Compilation) bool {
     // If you complicate this logic make sure you update the parent cache hash.
     // Right now it's not in the cache hash because the value depends on optimize_mode
     // and strip which are both already part of the hash.
