@@ -89,7 +89,13 @@ pub const NativePaths = struct {
         }
 
         if (!is_windows) {
-            const triple = try Target.current.linuxTriple(allocator);
+            // on linux the native abi might be different if we are statically linked
+            const target = if (Target.current.os.tag == .linux)
+                (try NativeTargetInfo.detectAbiAndDynamicLinker(allocator, Target.current.cpu, Target.current.os, .{})).target
+            else
+                Target.current;
+
+            const triple = try target.linuxTriple(allocator);
             const qual = Target.current.cpu.arch.ptrBitWidth();
 
             // TODO: $ ld --verbose | grep SEARCH_DIR
