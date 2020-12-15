@@ -168,6 +168,9 @@ pub fn build(b: *Builder) !void {
             } else if (exe.target.isFreeBSD()) {
                 try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
                 exe.linkSystemLibrary("pthread");
+            } else if (exe.target.getOsTag() == .openbsd) {
+                try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, exe, "libc++abi.a", null, need_cpp_includes);
             } else if (exe.target.isDarwin()) {
                 if (addCxxKnownPath(b, cfg, exe, "libgcc_eh.a", "", need_cpp_includes)) {
                     // Compiler is GCC.
