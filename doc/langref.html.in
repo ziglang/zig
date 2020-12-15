@@ -2328,10 +2328,10 @@ const mem = std.mem;
 const fmt = std.fmt;
 
 test "using slices for strings" {
-    // Zig has no concept of strings. String literals are const pointers to
-    // arrays of u8, and by convention parameters that are "strings" are
-    // expected to be UTF-8 encoded slices of u8.
-    // Here we coerce [5]u8 to []const u8
+    // Zig has no concept of strings. String literals are const pointers
+    // to null-terminated arrays of u8, and by convention parameters
+    // that are "strings" are expected to be UTF-8 encoded slices of u8.
+    // Here we coerce *const [5:0]u8 and *const [6:0]u8 to []const u8
     const hello: []const u8 = "hello";
     const world: []const u8 = "世界";
 
