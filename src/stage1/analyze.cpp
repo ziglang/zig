@@ -2550,8 +2550,8 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
             union_type->data.unionation.gen_tag_index = 1;
         }
     } else {
-        assert(most_aligned_union_member != nullptr);
-        union_type->abi_align = most_aligned_union_member->align;
+        union_type->abi_align = most_aligned_union_member?
+                most_aligned_union_member->align : 0;
         union_type->data.unionation.gen_union_index = SIZE_MAX;
         union_type->data.unionation.gen_tag_index = SIZE_MAX;
     }
@@ -3535,31 +3535,11 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     union_type->data.unionation.resolve_loop_flag_zero_bits = false;
 
     union_type->data.unionation.gen_field_count = gen_field_index;
-    bool zero_bits = gen_field_index == 0 && (field_count < 2 || !src_have_tag);
+    bool zero_bits = gen_field_index == 0 &&
+            (tag_type == nullptr || !type_has_bits(g, tag_type));
     if (!zero_bits) {
         union_type->abi_size = SIZE_MAX;
         union_type->size_in_bits = SIZE_MAX;
-    }
-
-    if (zero_bits) {
-        // Don't forget to resolve the types for each union member even though
-        // the type is zero sized.
-        // XXX: Do it in a nicer way in stage2.
-        union_type->data.unionation.resolve_loop_flag_other = true;
-
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            TypeUnionField *union_field = &union_type->data.unionation.fields[i];
-            ZigType *field_type = resolve_union_field_type(g, union_field);
-            if (field_type == nullptr) {
-                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                return ErrorSemanticAnalyzeFail;
-            }
-        }
-
-        union_type->data.unionation.resolve_loop_flag_other = false;
-        union_type->data.unionation.resolve_status = ResolveStatusSizeKnown;
-
-        return ErrorNone;
     }
 
     union_type->data.unionation.resolve_status = ResolveStatusZeroBitsKnown;
@@ -8877,6 +8857,9 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
             union_type->llvm_type = get_llvm_type(g, tag_type);
             union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
         }
+
+        union_type->data.unionation.gen_union_index = SIZE_MAX;
+        union_type->data.unionation.gen_tag_index = SIZE_MAX;
         union_type->data.unionation.resolve_status = ResolveStatusLLVMFull;
         return;
     }
