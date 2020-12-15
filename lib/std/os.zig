@@ -4774,8 +4774,33 @@ pub const SendError = error{
     BrokenPipe,
 
     FileDescriptorNotASocket,
-    AddressFamilyNotSupported,
 } || UnexpectedError;
+
+pub const SendToError = SendError || error{
+    /// The passed address didn't have the correct address family in its sa_family field.
+    AddressFamilyNotSupported,
+
+    /// Returned when socket is AF_UNIX and the given path has a symlink loop.
+    SymLinkLoop,
+
+    /// Returned when socket is AF_UNIX and the given path length exceeds `MAX_PATH_BYTES` bytes.
+    NameTooLong,
+
+    /// Returned when socket is AF_UNIX and the given path does not point to an existing file.
+    FileNotFound,
+    NotDir,
+
+    /// Network is unreachable.
+    NetworkUnreachable,
+
+    /// Insufficient memory was available to fulfill the request.
+    SystemResources,
+
+    /// The socket is not connected (connection-oriented sockets only).
+    SocketNotConnected,
+    WouldBlock,
+    AddressNotAvailable,
+};
 
 /// Transmit a message to another socket.
 ///
@@ -4810,19 +4835,31 @@ pub fn sendto(
     flags: u32,
     dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
-) SendError!usize {
+) SendToError!usize {
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSAEACCES => return error.AccessDenied,
+                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAENOBUFS => return error.SystemResources,
                     .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                     .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                    // TODO: handle more errors
+                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                    // TODO: WSAEINPROGRESS, WSAEINTR
+                    .WSAEINVAL => unreachable,
+                    .WSAENETDOWN => return error.NetworkUnreachable,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENETUNREACH => return error.NetworkUnreachable,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
@@ -4850,6 +4887,11 @@ pub fn sendto(
                 EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
                 EPIPE => return error.BrokenPipe,
                 EAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                ELOOP => return error.SymLinkLoop,
+                ENAMETOOLONG => return error.NameTooLong,
+                ENOENT => return error.FileNotFound,
+                ENOTDIR => return error.NotDir,
+                EHOSTUNREACH => return error.NetworkUnreachable,
                 else => |err| return unexpectedErrno(err),
             }
         }
