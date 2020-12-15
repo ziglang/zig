@@ -3,6 +3,13 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("parenthesized string literal",
+        \\void foo(const char *s) {}
+        \\int main(void) {
+        \\	foo(("bar"));
+        \\}
+    , "");
+
     cases.add("variable shadowing type type",
         \\#include <stdlib.h>
         \\int main() {

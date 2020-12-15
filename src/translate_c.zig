@@ -1797,6 +1797,10 @@ fn exprIsStringLiteral(expr: *const clang.Expr) bool {
             const op_expr = @ptrCast(*const clang.UnaryOperator, expr).getSubExpr();
             return exprIsStringLiteral(op_expr);
         },
+        .ParenExprClass => {
+            const op_expr = @ptrCast(*const clang.ParenExpr, expr).getSubExpr();
+            return exprIsStringLiteral(op_expr);
+        },
         else => return false,
     }
 }
