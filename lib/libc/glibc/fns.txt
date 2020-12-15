@@ -1652,8 +1652,6 @@ creall m
 creat c
 creat64 c
 create_module c
-crypt crypt
-crypt_r crypt
 csin m
 csinf m
 csinf128 m
@@ -1739,8 +1737,6 @@ eaccess c
 ecb_crypt c
 ecvt c
 ecvt_r c
-encrypt crypt
-encrypt_r crypt
 endaliasent c
 endfsent c
 endgrent c
@@ -1913,7 +1909,6 @@ fclose c
 fcloseall c
 fcntl c
 fcntl64 c
-fcrypt crypt
 fcvt c
 fcvt_r c
 fdatasync c
@@ -3295,8 +3290,6 @@ sethostname c
 setipv4sourcefilter c
 setitimer c
 setjmp c
-setkey crypt
-setkey_r crypt
 setlinebuf c
 setlocale c
 setlogin c

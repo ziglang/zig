@@ -15,6 +15,7 @@ pub const CRTFile = enum {
     rcrt1_o,
     scrt1_o,
     libc_a,
+    libc_so,
 };
 
 pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
@@ -140,7 +141,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
 
                 const dirname = path.dirname(src_file).?;
                 const basename = path.basename(src_file);
-                const noextbasename = mem.split(basename, ".").next().?;
+                const noextbasename = basename[0 .. basename.len - std.fs.path.extension(basename).len];
                 const before_arch_dir = path.dirname(dirname).?;
                 const dirbasename = path.basename(dirname);
 
@@ -188,6 +189,59 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 };
             }
             return comp.build_crt_file("c", .Lib, c_source_files.items);
+        },
+        .libc_so => {
+            const sub_compilation = try Compilation.create(comp.gpa, .{
+                .local_cache_directory = comp.global_cache_directory,
+                .global_cache_directory = comp.global_cache_directory,
+                .zig_lib_directory = comp.zig_lib_directory,
+                .target = comp.getTarget(),
+                .root_name = "c",
+                .root_pkg = null,
+                .output_mode = .Lib,
+                .link_mode = .Dynamic,
+                .rand = comp.rand,
+                .libc_installation = comp.bin_file.options.libc_installation,
+                .emit_bin = Compilation.EmitLoc{ .directory = null, .basename = "libc.so" },
+                .optimize_mode = comp.bin_file.options.optimize_mode,
+                .want_sanitize_c = false,
+                .want_stack_check = false,
+                .want_valgrind = false,
+                .emit_h = null,
+                .strip = comp.bin_file.options.strip,
+                .is_native_os = false,
+                .is_native_abi = false,
+                .self_exe_path = comp.self_exe_path,
+                .verbose_cc = comp.verbose_cc,
+                .verbose_link = comp.bin_file.options.verbose_link,
+                .verbose_tokenize = comp.verbose_tokenize,
+                .verbose_ast = comp.verbose_ast,
+                .verbose_ir = comp.verbose_ir,
+                .verbose_llvm_ir = comp.verbose_llvm_ir,
+                .verbose_cimport = comp.verbose_cimport,
+                .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
+                .clang_passthrough_mode = comp.clang_passthrough_mode,
+                .c_source_files = &[_]Compilation.CSourceFile{
+                    .{ .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "libc.s" }) },
+                },
+                .is_compiler_rt_or_libc = true,
+                .soname = "libc.so",
+            });
+            defer sub_compilation.destroy();
+
+            try sub_compilation.updateSubCompilation();
+
+            try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+
+            const basename = try comp.gpa.dupe(u8, "libc.so");
+            errdefer comp.gpa.free(basename);
+
+            comp.crt_files.putAssumeCapacityNoClobber(basename, .{
+                .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
+                    sub_compilation.bin_file.options.emit.?.sub_path,
+                }),
+                .lock = sub_compilation.bin_file.toOwnedLock(),
+            });
         },
     }
 }

@@ -1339,16 +1339,16 @@ fn buildOutputType(
             break :blk "test";
         } else if (root_src_file) |file| {
             const basename = fs.path.basename(file);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (c_source_files.items.len >= 1) {
             const basename = fs.path.basename(c_source_files.items[0].src_path);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (link_objects.items.len >= 1) {
             const basename = fs.path.basename(link_objects.items[0]);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (emit_bin == .yes) {
             const basename = fs.path.basename(emit_bin.yes);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (show_builtin) {
             break :blk "builtin";
         } else if (arg_mode == .run) {
@@ -1656,21 +1656,18 @@ fn buildOutputType(
         if (arg_mode == .run) {
             break :l global_cache_directory;
         }
-        const cache_dir_path = blk: {
-            if (root_pkg) |pkg| {
-                if (pkg.root_src_directory.path) |p| {
-                    break :blk try fs.path.join(arena, &[_][]const u8{ p, "zig-cache" });
-                }
-            }
-            break :blk "zig-cache";
-        };
-        const cache_parent_dir = if (root_pkg) |pkg| pkg.root_src_directory.handle else fs.cwd();
-        const dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
-        cleanup_local_cache_dir = dir;
-        break :l .{
-            .handle = dir,
-            .path = cache_dir_path,
-        };
+        if (root_pkg) |pkg| {
+            const cache_dir_path = try pkg.root_src_directory.join(arena, &[_][]const u8{"zig-cache"});
+            const dir = try pkg.root_src_directory.handle.makeOpenPath("zig-cache", .{});
+            cleanup_local_cache_dir = dir;
+            break :l .{
+                .handle = dir,
+                .path = cache_dir_path,
+            };
+        }
+        // Otherwise we really don't have a reasonable place to put the local cache directory,
+        // so we utilize the global one.
+        break :l global_cache_directory;
     };
 
     if (build_options.have_llvm and emit_asm != .no) {
@@ -1688,6 +1685,7 @@ fn buildOutputType(
         .root_name = root_name,
         .target = target_info.target,
         .is_native_os = cross_target.isNativeOs(),
+        .is_native_abi = cross_target.isNativeAbi(),
         .dynamic_linker = target_info.dynamic_linker.get(),
         .output_mode = output_mode,
         .root_pkg = root_pkg,
@@ -2260,6 +2258,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const argv_index_cache_dir = child_argv.items.len;
         _ = try child_argv.addOne();
 
+        const argv_index_global_cache_dir = child_argv.items.len;
+        _ = try child_argv.addOne();
+
         {
             var i: usize = 0;
             while (i < args.len) : (i += 1) {
@@ -2280,13 +2281,11 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
                         i += 1;
                         override_local_cache_dir = args[i];
-                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
                         continue;
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
                         i += 1;
                         override_global_cache_dir = args[i];
-                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
                         continue;
                     }
                 }
@@ -2371,6 +2370,8 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         };
         defer global_cache_directory.handle.close();
 
+        child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
+
         var local_cache_directory: Compilation.Directory = l: {
             if (override_local_cache_dir) |local_cache_dir_path| {
                 break :l .{
@@ -2415,6 +2416,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .root_name = "build",
             .target = target_info.target,
             .is_native_os = cross_target.isNativeOs(),
+            .is_native_abi = cross_target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .output_mode = .Exe,
             .root_pkg = &root_pkg,

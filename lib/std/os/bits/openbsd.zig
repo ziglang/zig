@@ -750,16 +750,23 @@ const NSIG = 33;
 pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_CATCH = @intToPtr(?Sigaction.sigaction_fn, 2);
+pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 3);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const sigaction_fn = fn (c_int, *siginfo_t, ?*c_void) callconv(.C) void;
+    pub const handler_fn = fn (c_int) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+
     /// signal handler
-    sigaction: ?sigaction_fn,
+    handler: extern union {
+        handler: ?handler_fn,
+        sigaction: ?sigaction_fn,
+    },
     /// signal mask to apply
     mask: sigset_t,
     /// signal options
-    flags: c_int,
+    flags: c_uint,
 };
 
 pub const sigval = extern union {
@@ -767,12 +774,7 @@ pub const sigval = extern union {
     ptr: ?*c_void,
 };
 
-pub const siginfo_t = extern union {
-    pad: [128]u8,
-    info: _ksiginfo,
-};
-
-pub const _ksiginfo = extern struct {
+pub const siginfo_t = extern struct {
     signo: c_int,
     code: c_int,
     errno: c_int,
@@ -789,11 +791,20 @@ pub const _ksiginfo = extern struct {
             addr: ?*c_void,
             trapno: c_int,
         },
-    } align(@sizeOf(usize)),
+        __pad: [128 - 3 * @sizeOf(c_int)]u8,
+    },
 };
 
+comptime {
+    if (@sizeOf(usize) == 4)
+        std.debug.assert(@sizeOf(siginfo_t) == 128)
+    else
+    // Take into account the padding between errno and data fields.
+        std.debug.assert(@sizeOf(siginfo_t) == 136);
+}
+
 pub const sigset_t = c_uint;
-pub const empty_sigset = sigset_t(0);
+pub const empty_sigset: sigset_t = 0;
 
 pub const EPERM = 1; // Operation not permitted
 pub const ENOENT = 2; // No such file or directory

@@ -286,7 +286,7 @@ test "zig fmt: respect line breaks after var declarations" {
         \\    lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
         \\    lookup_tables[7][@truncate(u8, self.crc >> 0)];
         \\
-    );    
+    );
 }
 
 test "zig fmt: multiline string mixed with comments" {
@@ -558,6 +558,24 @@ test "zig fmt: anon literal in array" {
         \\var arr: [2]Foo = .{
         \\    .{ .a = 2 },
         \\    .{ .b = 3 },
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: alignment in anonymous literal" {
+    try testTransform(
+        \\const a = .{
+        \\    "U",     "L",     "F",
+        \\    "U'",
+        \\    "L'",
+        \\    "F'",
+        \\};
+        \\
+    ,
+        \\const a = .{
+        \\    "U",  "L",  "F",
+        \\    "U'", "L'", "F'",
         \\};
         \\
     );

@@ -646,3 +646,41 @@ test "shutdown socket" {
     };
     os.closeSocket(sock);
 }
+
+var signal_test_failed = true;
+
+test "sigaction" {
+    if (builtin.os.tag == .wasi or builtin.os.tag == .windows)
+        return error.SkipZigTest;
+
+    // https://github.com/ziglang/zig/issues/7427
+    if (builtin.os.tag == .linux and builtin.arch == .i386)
+        return error.SkipZigTest;
+
+    const S = struct {
+        fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) void {
+            // Check that we received the correct signal.
+            if (sig == os.SIGUSR1 and sig == info.signo)
+                signal_test_failed = false;
+        }
+    };
+
+    var sa = os.Sigaction{
+        .handler = .{ .sigaction = S.handler },
+        .mask = os.empty_sigset,
+        .flags = os.SA_SIGINFO | os.SA_RESETHAND,
+    };
+    var old_sa: os.Sigaction = undefined;
+    // Install the new signal handler.
+    os.sigaction(os.SIGUSR1, &sa, null);
+    // Check that we can read it back correctly.
+    os.sigaction(os.SIGUSR1, null, &old_sa);
+    testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
+    testing.expect((old_sa.flags & os.SA_SIGINFO) != 0);
+    // Invoke the handler.
+    try os.raise(os.SIGUSR1);
+    testing.expect(signal_test_failed == false);
+    // Check if the handler has been correctly reset to SIG_DFL
+    os.sigaction(os.SIGUSR1, null, &old_sa);
+    testing.expectEqual(os.SIG_DFL, old_sa.handler.sigaction);
+}

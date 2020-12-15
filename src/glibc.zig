@@ -48,7 +48,6 @@ pub const libs = [_]Lib{
     .{ .name = "rt", .sover = 1 },
     .{ .name = "ld", .sover = 2 },
     .{ .name = "util", .sover = 1 },
-    .{ .name = "crypt", .sover = 1 },
 };
 
 pub const LoadMetaDataError = error{
@@ -812,7 +811,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                     while (ver_i < ver_list.len) : (ver_i += 1) {
                         // Example:
                         // .globl _Exit_2_2_5
-                        // .type _Exit_2_2_5, @function;
+                        // .type _Exit_2_2_5, %function;
                         // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
                         // .hidden _Exit_2_2_5
                         // _Exit_2_2_5:
@@ -831,7 +830,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                             );
                             try zig_body.writer().print(
                                 \\.globl {s}
-                                \\.type {s}, @function;
+                                \\.type {s}, %function;
                                 \\.symver {s}, {s}{s}GLIBC_{d}.{d}
                                 \\.hidden {s}
                                 \\{s}:
@@ -855,7 +854,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                             );
                             try zig_body.writer().print(
                                 \\.globl {s}
-                                \\.type {s}, @function;
+                                \\.type {s}, %function;
                                 \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
                                 \\.hidden {s}
                                 \\{s}:
@@ -945,6 +944,7 @@ fn buildSharedLib(
         .emit_h = null,
         .strip = comp.bin_file.options.strip,
         .is_native_os = false,
+        .is_native_abi = false,
         .self_exe_path = comp.self_exe_path,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,

@@ -716,13 +716,18 @@ pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const sigaction_fn = fn (i32, *siginfo_t, ?*c_void) callconv(.C) void;
+    pub const handler_fn = fn (c_int) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+
     /// signal handler
-    sigaction: ?sigaction_fn,
+    handler: extern union {
+        handler: ?handler_fn,
+        sigaction: ?sigaction_fn,
+    },
     /// signal mask to apply
     mask: sigset_t,
     /// signal options
-    flags: u32,
+    flags: c_uint,
 };
 
 pub const sigval_t = extern union {
@@ -799,6 +804,10 @@ pub inline fn _SIG_VALID(sig: usize) usize {
 pub const sigset_t = extern struct {
     __bits: [_SIG_WORDS]u32,
 };
+
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
+pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
 

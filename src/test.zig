@@ -561,6 +561,7 @@ pub const TestContext = struct {
             .keep_source_files_loaded = true,
             .object_format = ofmt,
             .is_native_os = case.target.isNativeOs(),
+            .is_native_abi = case.target.isNativeAbi(),
         });
         defer comp.destroy();
 
