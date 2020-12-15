@@ -47,10 +47,10 @@ pub fn Watch(comptime V: type) type {
         };
 
         const KqOsData = struct {
-            file_table: FileTable,
             table_lock: event.Lock,
+            file_table: FileTable,
 
-            const FileTable = std.StringHashMap(*Put);
+            const FileTable = std.StringHashMapUnmanaged(*Put);
             const Put = struct {
                 putter_frame: @Frame(kqPutEvents),
                 cancelled: bool = false,
@@ -147,7 +147,7 @@ pub fn Watch(comptime V: type) type {
                         .allocator = allocator,
                         .channel = undefined,
                         .os_data = OsData{
-                            .table_lock = event.Lock.init(),
+                            .table_lock = event.Lock{},
                             .file_table = OsData.FileTable.init(allocator),
                         },
                     };
@@ -160,22 +160,17 @@ pub fn Watch(comptime V: type) type {
             }
         }
 
-        /// All addFile calls and removeFile calls must have completed.
         pub fn deinit(self: *Self) void {
             switch (builtin.os.tag) {
                 .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                    // TODO we need to cancel the frames before destroying the lock
-                    self.os_data.table_lock.deinit();
                     var it = self.os_data.file_table.iterator();
                     while (it.next()) |entry| {
-                        entry.cancelled = true;
-                        await entry.value.putter;
+                        entry.value.cancelled = true;
+                        // @TODO Close the fd here?
+                        await entry.value.putter_frame;
                         self.allocator.free(entry.key);
-                        self.allocator.free(entry.value);
+                        self.allocator.destroy(entry.value);
                     }
-                    self.channel.deinit();
-                    self.allocator.destroy(self.channel.buffer_nodes);
-                    self.allocator.destroy(self);
                 },
                 .linux => {
                     self.os_data.cancelled = true;
@@ -189,9 +184,7 @@ pub fn Watch(comptime V: type) type {
                             std.debug.assert(rc == 0);
                         }
                     }
-
                     await self.os_data.putter_frame;
-                    self.allocator.destroy(self);
                 },
                 .windows => {
                     self.os_data.cancelled = true;
@@ -218,12 +211,12 @@ pub fn Watch(comptime V: type) type {
                         self.allocator.destroy(dir_entry.value);
                     }
                     self.os_data.dir_table.deinit(self.allocator);
-                    self.allocator.free(self.channel.buffer_nodes);
-                    self.channel.deinit();
-                    self.allocator.destroy(self);
                 },
                 else => @compileError("Unsupported OS"),
             }
+            self.allocator.free(self.channel.buffer_nodes);
+            self.channel.deinit();
+            self.allocator.destroy(self);
         }
 
         pub fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
@@ -236,91 +229,109 @@ pub fn Watch(comptime V: type) type {
         }
 
         fn addFileKEvent(self: *Self, file_path: []const u8, value: V) !?V {
-            const resolved_path = try std.fs.path.resolve(self.allocator, [_][]const u8{file_path});
-            var resolved_path_consumed = false;
-            defer if (!resolved_path_consumed) self.allocator.free(resolved_path);
+            var realpath_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            const realpath = try os.realpath(file_path, &realpath_buf);
 
-            var close_op = try CloseOperation.start(self.allocator);
-            var close_op_consumed = false;
-            defer if (!close_op_consumed) close_op.finish();
+            const held = self.os_data.table_lock.acquire();
+            defer held.release();
 
-            const flags = if (comptime std.Target.current.isDarwin()) os.O_SYMLINK | os.O_EVTONLY else 0;
-            const mode = 0;
-            const fd = try openPosix(self.allocator, resolved_path, flags, mode);
-            close_op.setHandle(fd);
-
-            var put = try self.allocator.create(OsData.Put);
-            errdefer self.allocator.destroy(put);
-            put.* = OsData.Put{
-                .value = value,
-                .putter_frame = undefined,
-            };
-            put.putter_frame = async self.kqPutEvents(close_op, put);
-            close_op_consumed = true;
-            errdefer {
-                put.cancelled = true;
-                await put.putter_frame;
+            const gop = try self.os_data.file_table.getOrPut(self.allocator, realpath);
+            errdefer self.os_data.file_table.removeAssertDiscard(realpath);
+            if (gop.found_existing) {
+                const prev_value = gop.entry.value.value;
+                gop.entry.value.value = value;
+                return prev_value;
             }
 
-            const result = blk: {
-                const held = self.os_data.table_lock.acquire();
-                defer held.release();
-
-                const gop = try self.os_data.file_table.getOrPut(resolved_path);
-                if (gop.found_existing) {
-                    const prev_value = gop.kv.value.value;
-                    await gop.kv.value.putter_frame;
-                    gop.kv.value = put;
-                    break :blk prev_value;
-                } else {
-                    resolved_path_consumed = true;
-                    gop.kv.value = put;
-                    break :blk null;
-                }
+            gop.entry.key = try self.allocator.dupe(u8, realpath);
+            errdefer self.allocator.free(gop.entry.key);
+            gop.entry.value = try self.allocator.create(OsData.Put);
+            errdefer self.allocator.destroy(gop.entry.value);
+            gop.entry.value.* = .{
+                .putter_frame = undefined,
+                .value = value,
             };
 
-            return result;
+            // @TODO Can I close this fd and get an error from bsdWaitKev?
+            const flags = if (comptime std.Target.current.isDarwin()) os.O_SYMLINK | os.O_EVTONLY else 0;
+            const fd = try os.open(realpath, flags, 0);
+            gop.entry.value.putter_frame = async self.kqPutEvents(fd, gop.entry.key, gop.entry.value);
+            return null;
         }
 
-        fn kqPutEvents(self: *Self, close_op: *CloseOperation, put: *OsData.Put) void {
+        fn kqPutEvents(self: *Self, fd: os.fd_t, file_path: []const u8, put: *OsData.Put) void {
             global_event_loop.beginOneEvent();
-
             defer {
-                close_op.finish();
                 global_event_loop.finishOneEvent();
+                // @TODO: Remove this if we force close otherwise
+                os.close(fd);
             }
 
+            // We need to manually do a bsdWaitKev to access the fflags.
+            var resume_node = event.Loop.ResumeNode.Basic{
+                .base = .{
+                    .id = .Basic,
+                    .handle = @frame(),
+                    .overlapped = event.Loop.ResumeNode.overlapped_init,
+                },
+                .kev = undefined,
+            };
+
+            var kevs = [1]os.Kevent{undefined};
+            const kev = &kevs[0];
+
             while (!put.cancelled) {
-                if (global_event_loop.bsdWaitKev(
-                    @intCast(usize, close_op.getHandle()),
-                    os.EVFILT_VNODE,
-                    os.NOTE_WRITE | os.NOTE_DELETE,
-                )) |kev| {
-                    // TODO handle EV_ERROR
-                    if (kev.fflags & os.NOTE_DELETE != 0) {
-                        self.channel.put(Self.Event{
-                            .id = Event.Id.Delete,
-                            .data = put.value,
-                        });
-                    } else if (kev.fflags & os.NOTE_WRITE != 0) {
-                        self.channel.put(Self.Event{
-                            .id = Event.Id.CloseWrite,
-                            .data = put.value,
-                        });
-                    }
-                } else |err| switch (err) {
-                    error.EventNotFound => unreachable,
-                    error.ProcessNotFound => unreachable,
-                    error.Overflow => unreachable,
-                    error.AccessDenied, error.SystemResources => |casted_err| {
-                        self.channel.put(casted_err);
-                    },
+                kev.* = os.Kevent{
+                    .ident = @intCast(usize, fd),
+                    .filter = os.EVFILT_VNODE,
+                    .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR | os.EV_ONESHOT |
+                        os.NOTE_WRITE | os.NOTE_DELETE | os.NOTE_REVOKE,
+                    .fflags = 0,
+                    .data = 0,
+                    .udata = @ptrToInt(&resume_node.base),
+                };
+                suspend {
+                    global_event_loop.beginOneEvent();
+                    errdefer global_event_loop.finishOneEvent();
+
+                    const empty_kevs = &[0]os.Kevent{};
+                    _ = os.kevent(global_event_loop.os_data.kqfd, &kevs, empty_kevs, null) catch |err| switch (err) {
+                        error.EventNotFound,
+                        error.ProcessNotFound,
+                        error.Overflow,
+                        => unreachable,
+                        error.AccessDenied, error.SystemResources => |e| {
+                            self.channel.put(e);
+                            continue;
+                        },
+                    };
+                }
+
+                if (kev.flags & os.EV_ERROR != 0) {
+                    self.channel.put(os.unexpectedErrno(os.errno(kev.data)));
+                    continue;
+                }
+
+                if (kev.fflags & os.NOTE_DELETE != 0 or kev.fflags & os.NOTE_REVOKE != 0) {
+                    self.channel.put(Self.Event{
+                        .id = .Delete,
+                        .data = put.value,
+                        .dirname = std.fs.path.dirname(file_path) orelse "/",
+                        .basename = std.fs.path.basename(file_path),
+                    });
+                } else if (kev.fflags & os.NOTE_WRITE != 0) {
+                    self.channel.put(Self.Event{
+                        .id = .CloseWrite,
+                        .data = put.value,
+                        .dirname = std.fs.path.dirname(file_path) orelse "/",
+                        .basename = std.fs.path.basename(file_path),
+                    });
                 }
             }
         }
 
         fn addFileLinux(self: *Self, file_path: []const u8, value: V) !?V {
-            const dirname = std.fs.path.dirname(file_path) orelse ".";
+            const dirname = std.fs.path.dirname(file_path) orelse if (file_path[0] == '/') "/" else ".";
             const basename = std.fs.path.basename(file_path);
 
             const wd = try os.inotify_add_watch(
@@ -334,6 +345,7 @@ pub fn Watch(comptime V: type) type {
             defer held.release();
 
             const gop = try self.os_data.wd_table.getOrPut(self.allocator, wd);
+            errdefer self.os_data.wd_table.removeAssertDiscard(wd);
             if (!gop.found_existing) {
                 gop.entry.value = OsData.Dir{
                     .dirname = try self.allocator.dupe(u8, dirname),
@@ -343,6 +355,7 @@ pub fn Watch(comptime V: type) type {
 
             const dir = &gop.entry.value;
             const file_table_gop = try dir.file_table.getOrPut(self.allocator, basename);
+            errdefer dir.file_table.removeAssertDiscard(basename);
             if (file_table_gop.found_existing) {
                 const prev_value = file_table_gop.entry.value;
                 file_table_gop.entry.value = value;
@@ -356,7 +369,7 @@ pub fn Watch(comptime V: type) type {
 
         fn addFileWindows(self: *Self, file_path: []const u8, value: V) !?V {
             // TODO we might need to convert dirname and basename to canonical file paths ("short"?)
-            const dirname = std.fs.path.dirname(file_path) orelse ".";
+            const dirname = std.fs.path.dirname(file_path) orelse if (file_path[0] == '/') "/" else ".";
             var dirname_path_space: windows.PathSpace = undefined;
             dirname_path_space.len = try std.unicode.utf8ToUtf16Le(&dirname_path_space.data, dirname);
             dirname_path_space.data[dirname_path_space.len] = 0;
@@ -370,10 +383,12 @@ pub fn Watch(comptime V: type) type {
             defer held.release();
 
             const gop = try self.os_data.dir_table.getOrPut(self.allocator, dirname);
+            errdefer self.os_data.dir_table.removeAssertDiscard(dirname);
             if (gop.found_existing) {
                 const dir = gop.entry.value;
 
                 const file_gop = try dir.file_table.getOrPut(self.allocator, basename);
+                errdefer dir.file_table.removeAssertDiscard(basename);
                 if (file_gop.found_existing) {
                     const prev_value = file_gop.entry.value;
                     file_gop.entry.value = value;
@@ -384,7 +399,6 @@ pub fn Watch(comptime V: type) type {
                     return null;
                 }
             } else {
-                errdefer _ = self.os_data.dir_table.remove(dirname);
                 const dir_handle = try windows.OpenFile(dirname_path_space.span(), .{
                     .dir = std.fs.cwd().fd,
                     .access_mask = windows.FILE_LIST_DIRECTORY,
@@ -501,10 +515,10 @@ pub fn Watch(comptime V: type) type {
             }
         }
 
-        pub fn removeFile(self: *Self, file_path: []const u8) ?V {
+        pub fn removeFile(self: *Self, file_path: []const u8) !?V {
             switch (builtin.os.tag) {
                 .linux => {
-                    const dirname = std.fs.path.dirname(file_path) orelse ".";
+                    const dirname = std.fs.path.dirname(file_path) orelse if (file_path[0] == '/') "/" else ".";
                     const basename = std.fs.path.basename(file_path);
 
                     const held = self.os_data.table_lock.acquire();
@@ -518,7 +532,7 @@ pub fn Watch(comptime V: type) type {
                     return null;
                 },
                 .windows => {
-                    const dirname = std.fs.path.dirname(file_path) orelse ".";
+                    const dirname = std.fs.path.dirname(file_path) orelse if (file_path[0] == '/') "/" else ".";
                     const basename = std.fs.path.basename(file_path);
 
                     const held = self.os_data.table_lock.acquire();
@@ -531,7 +545,22 @@ pub fn Watch(comptime V: type) type {
                     }
                     return null;
                 },
-                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => @panic("TODO"),
+                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
+                    var realpath_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                    const realpath = try os.realpath(file_path, &realpath_buf);
+
+                    const held = self.os_data.table_lock.acquire();
+                    defer held.release();
+
+                    const entry = self.os_data.file_table.get(realpath) orelse return null;
+                    entry.value.cancelled = true;
+                    // @TODO Close the fd here?
+                    await entry.value.putter_frame;
+                    self.allocator.free(entry.key);
+                    self.allocator.destroy(entry.value);
+
+                    self.os_data.file_table.removeAssertDiscard(realpath);
+                },
                 else => @compileError("Unsupported OS"),
             }
         }
@@ -685,3 +714,5 @@ fn testWriteWatchWriteDelete(allocator: *Allocator) !void {
         .CloseWrite => @panic("wrong event"),
     }
 }
+
+// TODO Test: Add another file watch, remove the old file watch, get an event in the new
