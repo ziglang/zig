@@ -1554,3 +1554,186 @@ pub const rlimit = extern struct {
 pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
 pub const SHUT_RDWR = 2;
+
+// Term
+pub const VEOF = 0;
+pub const VEOL = 1;
+pub const VEOL2 = 2;
+pub const VERASE = 3;
+pub const VWERASE = 4;
+pub const VKILL = 5;
+pub const VREPRINT = 6;
+pub const VINTR = 8;
+pub const VQUIT = 9;
+pub const VSUSP = 10;
+pub const VDSUSP = 11;
+pub const VSTART = 12;
+pub const VSTOP = 13;
+pub const VLNEXT = 14;
+pub const VDISCARD = 15;
+pub const VMIN = 16;
+pub const VTIME = 17;
+pub const VSTATUS = 18;
+pub const NCCS = 20; // 2 spares (7, 19)
+
+pub const IGNBRK = 0x00000001;
+pub const BRKINT = 0x00000002;
+pub const IGNPAR = 0x00000004;
+pub const PARMRK = 0x00000008;
+pub const INPCK = 0x00000010;
+pub const ISTRIP = 0x00000020;
+pub const INLCR = 0x00000040;
+pub const IGNCR = 0x00000080;
+pub const ICRNL = 0x00000100;
+pub const IXON = 0x00000200;
+pub const IXOFF = 0x00000400;
+pub const IXANY = 0x00000800;
+pub const IMAXBEL = 0x00002000;
+pub const IUTF8 = 0x00004000;
+
+pub const OPOST = 0x00000001;
+pub const ONLCR = 0x00000002;
+pub const OXTABS = 0x00000004;
+pub const ONOEOT = 0x00000008;
+
+pub const OCRNL = 0x00000010;
+pub const ONOCR = 0x00000020;
+pub const ONLRET = 0x00000040;
+pub const OFILL = 0x00000080;
+pub const NLDLY = 0x00000300;
+pub const TABDLY = 0x00000c04;
+pub const CRDLY = 0x00003000;
+pub const FFDLY = 0x00004000;
+pub const BSDLY = 0x00008000;
+pub const VTDLY = 0x00010000;
+pub const OFDEL = 0x00020000;
+
+pub const NL0 = 0x00000000;
+pub const NL1 = 0x00000100;
+pub const NL2 = 0x00000200;
+pub const NL3 = 0x00000300;
+pub const TAB0 = 0x00000000;
+pub const TAB1 = 0x00000400;
+pub const TAB2 = 0x00000800;
+pub const TAB3 = 0x00000004;
+pub const CR0 = 0x00000000;
+pub const CR1 = 0x00001000;
+pub const CR2 = 0x00002000;
+pub const CR3 = 0x00003000;
+pub const FF0 = 0x00000000;
+pub const FF1 = 0x00004000;
+pub const BS0 = 0x00000000;
+pub const BS1 = 0x00008000;
+pub const VT0 = 0x00000000;
+pub const VT1 = 0x00010000;
+
+pub const CIGNORE = 0x00000001;
+pub const CSIZE = 0x00000300;
+pub const CS5 = 0x00000000;
+pub const CS6 = 0x00000100;
+pub const CS7 = 0x00000200;
+pub const CS8 = 0x00000300;
+pub const CSTOPB = 0x00000400;
+pub const CREAD = 0x00000800;
+pub const PARENB = 0x00001000;
+pub const PARODD = 0x00002000;
+pub const HUPCL = 0x00004000;
+pub const CLOCAL = 0x00008000;
+pub const CCTS_OFLOW = 0x00010000;
+pub const CRTSCTS = (CCTS_OFLOW | CRTS_IFLOW);
+pub const CRTS_IFLOW = 0x00020000;
+pub const CDTR_IFLOW = 0x00040000;
+pub const CDSR_OFLOW = 0x00080000;
+pub const CCAR_OFLOW = 0x00100000;
+pub const MDMBUF = 0x00100000;
+
+pub const ECHOKE = 0x00000001;
+pub const ECHOE = 0x00000002;
+pub const ECHOK = 0x00000004;
+pub const ECHO = 0x00000008;
+pub const ECHONL = 0x00000010;
+pub const ECHOPRT = 0x00000020;
+pub const ECHOCTL = 0x00000040;
+pub const ISIG = 0x00000080;
+pub const ICANON = 0x00000100;
+pub const ALTWERASE = 0x00000200;
+pub const IEXTEN = 0x00000400;
+pub const EXTPROC = 0x00000800;
+pub const TOSTOP = 0x00400000;
+pub const FLUSHO = 0x00800000;
+pub const NOKERNINFO = 0x02000000;
+pub const PENDIN = 0x20000000;
+pub const NOFLSH = 0x80000000;
+
+pub const TCSANOW = 0;
+pub const TCSADRAIN = 1;
+pub const TCSAFLUSH = 2;
+pub const TCSASOFT = 0x10;
+pub const TCSA = extern enum(c_uint) {
+    NOW,
+    DRAIN,
+    FLUSH,
+    _,
+};
+
+pub const B0 = 0;
+pub const B50 = 50;
+pub const B75 = 75;
+pub const B110 = 110;
+pub const B134 = 134;
+pub const B150 = 150;
+pub const B200 = 200;
+pub const B300 = 300;
+pub const B600 = 600;
+pub const B1200 = 1200;
+pub const B1800 = 1800;
+pub const B2400 = 2400;
+pub const B4800 = 4800;
+pub const B9600 = 9600;
+pub const B19200 = 19200;
+pub const B38400 = 38400;
+pub const B7200 = 7200;
+pub const B14400 = 14400;
+pub const B28800 = 28800;
+pub const B57600 = 57600;
+pub const B76800 = 76800;
+pub const B115200 = 115200;
+pub const B230400 = 230400;
+pub const EXTA = 19200;
+pub const EXTB = 38400;
+
+pub const TCIFLUSH = 1;
+pub const TCOFLUSH = 2;
+pub const TCIOFLUSH = 3;
+pub const TCOOFF = 1;
+pub const TCOON = 2;
+pub const TCIOFF = 3;
+pub const TCION = 4;
+
+pub const cc_t = u8;
+pub const speed_t = u64;
+pub const tcflag_t = u64;
+
+pub const termios = extern struct {
+    iflag: tcflag_t,
+    oflag: tcflag_t,
+    cflag: tcflag_t,
+    lflag: tcflag_t,
+    cc: [NCCS]cc_t,
+    ispeed: speed_t align(8),
+    ospeed: speed_t,
+};
+
+pub const winsize = extern struct {
+    ws_row: u16,
+    ws_col: u16,
+    ws_xpixel: u16,
+    ws_ypixel: u16,
+};
+
+pub const TIOCGWINSZ = comptime ior(0x40000000, 't', 104, @sizeOf(winsize));
+pub const IOCPARM_MASK = 0x1fff;
+
+fn ior(comptime inout: u32, comptime group: usize, comptime num: usize, comptime len: usize) usize {
+    return (inout | ((len & IOCPARM_MASK) << 16) | ((group) << 8) | (num));
+}
