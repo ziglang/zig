@@ -408,7 +408,7 @@ pub const Expr = opaque {
     extern fn ZigClangExpr_getBeginLoc(*const Expr) SourceLocation;
 
     pub const EvaluateAsConstantExpr = ZigClangExpr_EvaluateAsConstantExpr;
-    extern fn ZigClangExpr_EvaluateAsConstantExpr(*const Expr, *ExprEvalResult, Expr_ConstExprUsage, *const ASTContext) bool;
+    extern fn ZigClangExpr_EvaluateAsConstantExpr(*const Expr, *ExprEvalResult, Expr_ConstantExprKind, *const ASTContext) bool;
 };
 
 pub const FieldDecl = opaque {
@@ -1250,6 +1250,8 @@ pub const CK = extern enum {
     IntegralCast,
     IntegralToBoolean,
     IntegralToFloating,
+    FloatingToFixedPoint,
+    FixedPointToFloating,
     FixedPointCast,
     FixedPointToIntegral,
     IntegralToFixedPoint,
@@ -1356,6 +1358,7 @@ pub const DeclKind = extern enum {
     MSGuid,
     OMPDeclareMapper,
     OMPDeclareReduction,
+    TemplateParamObject,
     UnresolvedUsingValue,
     OMPAllocate,
     OMPRequires,
@@ -1466,6 +1469,8 @@ pub const BuiltinTypeKind = extern enum {
     SveFloat64x4,
     SveBFloat16x4,
     SveBool,
+    VectorQuad,
+    VectorPair,
     Void,
     Bool,
     Char_U,
@@ -1619,9 +1624,11 @@ pub const PreprocessedEntity_EntityKind = extern enum {
     InclusionDirectiveKind,
 };
 
-pub const Expr_ConstExprUsage = extern enum {
-    EvaluateForCodeGen,
-    EvaluateForMangling,
+pub const Expr_ConstantExprKind = extern enum {
+    Normal,
+    NonClassTemplateArgument,
+    ClassTemplateArgument,
+    ImmediateInvocation,
 };
 
 pub const UnaryExprOrTypeTrait_Kind = extern enum {

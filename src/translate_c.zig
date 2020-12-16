@@ -2028,7 +2028,6 @@ fn transCCast(
         // 1. If src_type is an enum, determine the underlying signed int type
         // 2. Extend or truncate without changing signed-ness.
         // 3. Bit-cast to correct signed-ness
-
         const src_type_is_signed = cIsSignedInteger(src_type) or cIsEnum(src_type);
         const src_int_type = if (cIsInteger(src_type)) src_type else cIntTypeForEnum(src_type);
         const src_int_expr = if (cIsInteger(src_type)) expr else try transEnumToInt(rp.c, expr);
@@ -2859,7 +2858,7 @@ fn transDefault(
 
 fn transConstantExpr(rp: RestorePoint, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!*ast.Node {
     var result: clang.ExprEvalResult = undefined;
-    if (!expr.EvaluateAsConstantExpr(&result, .EvaluateForCodeGen, rp.c.clang_context))
+    if (!expr.EvaluateAsConstantExpr(&result, .Normal, rp.c.clang_context))
         return revertAndWarn(rp, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid constant expression", .{});
 
     var val_node: ?*ast.Node = null;
@@ -5881,7 +5880,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
                 return error.ParseError;
             }
 
-            const ident_token = try appendTokenFmt(c, .Identifier, "{}_{}", .{slice, m.slice()});
+            const ident_token = try appendTokenFmt(c, .Identifier, "{}_{}", .{ slice, m.slice() });
             const identifier = try c.arena.create(ast.Node.OneToken);
             identifier.* = .{
                 .base = .{ .tag = .Identifier },
