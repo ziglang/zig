@@ -492,14 +492,12 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     if (fn->body_node != nullptr) {
         maybe_export_dll(g, llvm_fn, linkage);
 
-        bool want_fn_safety = g->build_mode != BuildModeFastRelease &&
+        bool want_ssp_attrs = g->build_mode != BuildModeFastRelease &&
                               g->build_mode != BuildModeSmallRelease &&
-                              !fn->def_scope->safety_off;
-        if (want_fn_safety) {
-            if (g->link_libc) {
-                addLLVMFnAttr(llvm_fn, "sspstrong");
-                addLLVMFnAttrStr(llvm_fn, "stack-protector-buffer-size", "4");
-            }
+                              g->link_libc;
+        if (want_ssp_attrs) {
+            addLLVMFnAttr(llvm_fn, "sspstrong");
+            addLLVMFnAttrStr(llvm_fn, "stack-protector-buffer-size", "4");
         }
         if (g->have_stack_probing && !fn->def_scope->safety_off) {
             addLLVMFnAttrStr(llvm_fn, "probe-stack", "__zig_probe_stack");
