@@ -523,6 +523,8 @@ enum ZigClangCK {
     ZigClangCK_IntegralCast,
     ZigClangCK_IntegralToBoolean,
     ZigClangCK_IntegralToFloating,
+    ZigClangCK_FloatingToFixedPoint,
+    ZigClangCK_FixedPointToFloating,
     ZigClangCK_FixedPointCast,
     ZigClangCK_FixedPointToIntegral,
     ZigClangCK_IntegralToFixedPoint,
@@ -629,6 +631,7 @@ enum ZigClangDeclKind {
     ZigClangDeclMSGuid,
     ZigClangDeclOMPDeclareMapper,
     ZigClangDeclOMPDeclareReduction,
+    ZigClangDeclTemplateParamObject,
     ZigClangDeclUnresolvedUsingValue,
     ZigClangDeclOMPAllocate,
     ZigClangDeclOMPRequires,
@@ -739,6 +742,8 @@ enum ZigClangBuiltinTypeKind {
     ZigClangBuiltinTypeSveFloat64x4,
     ZigClangBuiltinTypeSveBFloat16x4,
     ZigClangBuiltinTypeSveBool,
+    ZigClangBuiltinTypeVectorQuad,
+    ZigClangBuiltinTypeVectorPair,
     ZigClangBuiltinTypeVoid,
     ZigClangBuiltinTypeBool,
     ZigClangBuiltinTypeChar_U,
@@ -897,9 +902,11 @@ enum ZigClangPreprocessedEntity_EntityKind {
     ZigClangPreprocessedEntity_InclusionDirectiveKind,
 };
 
-enum ZigClangExpr_ConstExprUsage {
-    ZigClangExpr_EvaluateForCodeGen,
-    ZigClangExpr_EvaluateForMangling,
+enum ZigClangExpr_ConstantExprKind {
+    ZigClangExpr_ContantExprKind_Normal,
+    ZigClangExpr_ContantExprKind_NonClassTemplateArgument,
+    ZigClangExpr_ContantExprKind_ClassTemplateArgument,
+    ZigClangExpr_ContantExprKind_ImmediateInvocation,
 };
 
 enum ZigClangUnaryExprOrTypeTrait_Kind {
@@ -1058,7 +1065,7 @@ ZIG_EXTERN_C bool ZigClangExpr_EvaluateAsBooleanCondition(const struct ZigClangE
 ZIG_EXTERN_C bool ZigClangExpr_EvaluateAsFloat(const struct ZigClangExpr *self,
         ZigClangAPFloat **result, const struct ZigClangASTContext *ctx);
 ZIG_EXTERN_C bool ZigClangExpr_EvaluateAsConstantExpr(const struct ZigClangExpr *,
-        struct ZigClangExprEvalResult *, ZigClangExpr_ConstExprUsage, const struct ZigClangASTContext *);
+        struct ZigClangExprEvalResult *, ZigClangExpr_ConstantExprKind, const struct ZigClangASTContext *);
 
 ZIG_EXTERN_C const ZigClangExpr *ZigClangInitListExpr_getInit(const ZigClangInitListExpr *, unsigned);
 ZIG_EXTERN_C const ZigClangExpr *ZigClangInitListExpr_getArrayFiller(const ZigClangInitListExpr *);

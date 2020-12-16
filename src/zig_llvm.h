@@ -288,6 +288,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
+    ZigLLVM_csky,           // CSKY: csky
     ZigLLVM_hexagon,        // Hexagon: hexagon
     ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
     ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
@@ -340,8 +341,6 @@ enum ZigLLVM_VendorType {
     ZigLLVM_Apple,
     ZigLLVM_PC,
     ZigLLVM_SCEI,
-    ZigLLVM_BGP,
-    ZigLLVM_BGQ,
     ZigLLVM_Freescale,
     ZigLLVM_IBM,
     ZigLLVM_ImaginationTechnologies,
@@ -375,11 +374,11 @@ enum ZigLLVM_OSType {
     ZigLLVM_OpenBSD,
     ZigLLVM_Solaris,
     ZigLLVM_Win32,
+    ZigLLVM_ZOS,
     ZigLLVM_Haiku,
     ZigLLVM_Minix,
     ZigLLVM_RTEMS,
     ZigLLVM_NaCl,       // Native Client
-    ZigLLVM_CNK,        // BG/P Compute-Node Kernel
     ZigLLVM_AIX,
     ZigLLVM_CUDA,       // NVIDIA CUDA
     ZigLLVM_NVCL,       // NVIDIA OpenCL
@@ -432,6 +431,7 @@ enum ZigLLVM_ObjectFormatType {
 
     ZigLLVM_COFF,
     ZigLLVM_ELF,
+    ZigLLVM_GOFF,
     ZigLLVM_MachO,
     ZigLLVM_Wasm,
     ZigLLVM_XCOFF,

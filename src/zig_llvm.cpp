@@ -600,8 +600,9 @@ void ZigLLVMDisposeDIBuilder(ZigLLVMDIBuilder *dbuilder) {
 }
 
 void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope) {
-    unwrap(builder)->SetCurrentDebugLocation(DebugLoc::get(
-                line, column, reinterpret_cast<DIScope*>(scope)));
+    DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, column, di_scope, nullptr, false);
+    unwrap(builder)->SetCurrentDebugLocation(debug_loc);
 }
 
 void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder) {
@@ -762,7 +763,8 @@ LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef stor
 }
 
 ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, ZigLLVMDIScope *scope) {
-    DebugLoc debug_loc = DebugLoc::get(line, col, reinterpret_cast<DIScope*>(scope), nullptr);
+    DIScope* di_scope = reinterpret_cast<DIScope*>(scope);
+    DebugLoc debug_loc = DILocation::get(di_scope->getContext(), line, col, di_scope, nullptr, false);
     return reinterpret_cast<ZigLLVMDILocation*>(debug_loc.get());
 }
 
@@ -1180,6 +1182,7 @@ static_assert((Triple::ArchType)ZigLLVM_arc == Triple::arc, "");
 static_assert((Triple::ArchType)ZigLLVM_avr == Triple::avr, "");
 static_assert((Triple::ArchType)ZigLLVM_bpfel == Triple::bpfel, "");
 static_assert((Triple::ArchType)ZigLLVM_bpfeb == Triple::bpfeb, "");
+static_assert((Triple::ArchType)ZigLLVM_csky == Triple::csky, "");
 static_assert((Triple::ArchType)ZigLLVM_hexagon == Triple::hexagon, "");
 static_assert((Triple::ArchType)ZigLLVM_mips == Triple::mips, "");
 static_assert((Triple::ArchType)ZigLLVM_mipsel == Triple::mipsel, "");
@@ -1228,8 +1231,6 @@ static_assert((Triple::VendorType)ZigLLVM_UnknownVendor == Triple::UnknownVendor
 static_assert((Triple::VendorType)ZigLLVM_Apple == Triple::Apple, "");
 static_assert((Triple::VendorType)ZigLLVM_PC == Triple::PC, "");
 static_assert((Triple::VendorType)ZigLLVM_SCEI == Triple::SCEI, "");
-static_assert((Triple::VendorType)ZigLLVM_BGP == Triple::BGP, "");
-static_assert((Triple::VendorType)ZigLLVM_BGQ == Triple::BGQ, "");
 static_assert((Triple::VendorType)ZigLLVM_Freescale == Triple::Freescale, "");
 static_assert((Triple::VendorType)ZigLLVM_IBM == Triple::IBM, "");
 static_assert((Triple::VendorType)ZigLLVM_ImaginationTechnologies == Triple::ImaginationTechnologies, "");
@@ -1261,11 +1262,11 @@ static_assert((Triple::OSType)ZigLLVM_NetBSD == Triple::NetBSD, "");
 static_assert((Triple::OSType)ZigLLVM_OpenBSD == Triple::OpenBSD, "");
 static_assert((Triple::OSType)ZigLLVM_Solaris == Triple::Solaris, "");
 static_assert((Triple::OSType)ZigLLVM_Win32 == Triple::Win32, "");
+static_assert((Triple::OSType)ZigLLVM_ZOS == Triple::ZOS, "");
 static_assert((Triple::OSType)ZigLLVM_Haiku == Triple::Haiku, "");
 static_assert((Triple::OSType)ZigLLVM_Minix == Triple::Minix, "");
 static_assert((Triple::OSType)ZigLLVM_RTEMS == Triple::RTEMS, "");
 static_assert((Triple::OSType)ZigLLVM_NaCl == Triple::NaCl, "");
-static_assert((Triple::OSType)ZigLLVM_CNK == Triple::CNK, "");
 static_assert((Triple::OSType)ZigLLVM_AIX == Triple::AIX, "");
 static_assert((Triple::OSType)ZigLLVM_CUDA == Triple::CUDA, "");
 static_assert((Triple::OSType)ZigLLVM_NVCL == Triple::NVCL, "");
@@ -1308,6 +1309,7 @@ static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::La
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_GOFF == Triple::GOFF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_XCOFF == Triple::XCOFF, "");

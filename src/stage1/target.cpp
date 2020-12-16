@@ -23,6 +23,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
+    ZigLLVM_csky,           // CSKY: csky
     ZigLLVM_hexagon,        // Hexagon: hexagon
     ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
     ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
@@ -71,8 +72,6 @@ static const ZigLLVM_VendorType vendor_list[] = {
     ZigLLVM_Apple,
     ZigLLVM_PC,
     ZigLLVM_SCEI,
-    ZigLLVM_BGP,
-    ZigLLVM_BGQ,
     ZigLLVM_Freescale,
     ZigLLVM_IBM,
     ZigLLVM_ImaginationTechnologies,
@@ -101,11 +100,11 @@ static const Os os_list[] = {
     OsOpenBSD,
     OsSolaris,
     OsWindows,
+    OsZOS,
     OsHaiku,
     OsMinix,
     OsRTEMS,
     OsNaCl,       // Native Client
-    OsCNK,        // BG/P Compute-Node Kernel
     OsAIX,
     OsCUDA,       // NVIDIA CUDA
     OsNVCL,       // NVIDIA OpenCL
@@ -155,8 +154,10 @@ static const ZigLLVM_ObjectFormatType oformat_list[] = {
     ZigLLVM_UnknownObjectFormat,
     ZigLLVM_COFF,
     ZigLLVM_ELF,
+    ZigLLVM_GOFF,
     ZigLLVM_MachO,
     ZigLLVM_Wasm,
+    ZigLLVM_XCOFF,
 };
 
 size_t target_oformat_count(void) {
@@ -173,6 +174,7 @@ const char *target_oformat_name(ZigLLVM_ObjectFormatType oformat) {
         case ZigLLVM_UnknownObjectFormat: return "unknown";
         case ZigLLVM_COFF: return "coff";
         case ZigLLVM_ELF: return "elf";
+        case ZigLLVM_GOFF: return "goff";
         case ZigLLVM_MachO: return "macho";
         case ZigLLVM_Wasm: return "wasm";
         case ZigLLVM_XCOFF: return "xcoff";
@@ -240,6 +242,8 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
         case OsWindows:
         case OsUefi:
             return ZigLLVM_Win32;
+        case OsZOS:
+            return ZigLLVM_ZOS;
         case OsHaiku:
             return ZigLLVM_Haiku;
         case OsMinix:
@@ -248,8 +252,6 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_RTEMS;
         case OsNaCl:
             return ZigLLVM_NaCl;
-        case OsCNK:
-            return ZigLLVM_CNK;
         case OsAIX:
             return ZigLLVM_AIX;
         case OsCUDA:
@@ -306,11 +308,11 @@ const char *target_os_name(Os os_type) {
         case OsOpenBSD:
         case OsSolaris:
         case OsWindows:
+        case OsZOS:
         case OsHaiku:
         case OsMinix:
         case OsRTEMS:
         case OsNaCl:       // Native Client
-        case OsCNK:        // BG/P Compute-Node Kernel
         case OsAIX:
         case OsCUDA:       // NVIDIA CUDA
         case OsNVCL:       // NVIDIA OpenCL
@@ -501,6 +503,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_wasm32:
         case ZigLLVM_renderscript32:
         case ZigLLVM_aarch64_32:
+        case ZigLLVM_csky:
             return 32;
 
         case ZigLLVM_aarch64:
@@ -565,6 +568,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_shave:
         case ZigLLVM_wasm32:
         case ZigLLVM_renderscript32:
+        case ZigLLVM_csky:
             return 32;
 
         case ZigLLVM_aarch64:
@@ -703,11 +707,11 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsKFreeBSD:
         case OsLv2:
         case OsSolaris:
+        case OsZOS:
         case OsHaiku:
         case OsMinix:
         case OsRTEMS:
         case OsNaCl:
-        case OsCNK:
         case OsAIX:
         case OsCUDA:
         case OsNVCL:
@@ -811,6 +815,7 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_avr:
         case ZigLLVM_bpfeb:
         case ZigLLVM_bpfel:
+        case ZigLLVM_csky:
         case ZigLLVM_hexagon:
         case ZigLLVM_lanai:
         case ZigLLVM_hsail:
@@ -865,6 +870,7 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_avr:
         case ZigLLVM_bpfeb:
         case ZigLLVM_bpfel:
+        case ZigLLVM_csky:
         case ZigLLVM_hexagon:
         case ZigLLVM_lanai:
         case ZigLLVM_hsail:
@@ -948,11 +954,11 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsCloudABI:
         case OsLv2:
         case OsSolaris:
+        case OsZOS:
         case OsHaiku:
         case OsMinix:
         case OsRTEMS:
         case OsNaCl:
-        case OsCNK:
         case OsAIX:
         case OsCUDA:
         case OsNVCL:
