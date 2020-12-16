@@ -230,20 +230,24 @@
 */
 
 #include <__config>
+#include <__availability>
 #include <cstddef>
 #include <cstdlib>
 #include <chrono>
 #include <iterator>
 #include <iosfwd>
-#include <locale>
 #include <memory>
 #include <stack>
 #include <string>
 #include <system_error>
 #include <utility>
-#include <iomanip> // for quoted
 #include <string_view>
 #include <version>
+
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+# include <locale>
+# include <iomanip> // for quoted
+#endif
 
 #include <__debug>
 
@@ -543,6 +547,13 @@ struct __can_convert_char<wchar_t> {
   static const bool value = true;
   using __char_type = wchar_t;
 };
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+template <>
+struct __can_convert_char<char8_t> {
+  static const bool value = true;
+  using __char_type = char8_t;
+};
+#endif
 template <>
 struct __can_convert_char<char16_t> {
   static const bool value = true;
@@ -560,7 +571,7 @@ __is_separator(_ECharT __e) {
   return __e == _ECharT('/');
 }
 
-struct _NullSentinal {};
+struct _NullSentinel {};
 
 template <class _Tp>
 using _Void = void;
@@ -615,9 +626,9 @@ struct __is_pathable_char_array<_Source, _ECharT*, _UPtr, true>
   static _ECharT const* __range_begin(const _ECharT* __b) { return __b; }
   static _ECharT const* __range_end(const _ECharT* __b) {
     using _Iter = const _ECharT*;
-    const _ECharT __sentinal = _ECharT{};
+    const _ECharT __sentinel = _ECharT{};
     _Iter __e = __b;
-    for (; *__e != __sentinal; ++__e)
+    for (; *__e != __sentinel; ++__e)
       ;
     return __e;
   }
@@ -639,7 +650,7 @@ struct __is_pathable_iter<
   using _Base = __can_convert_char<_ECharT>;
 
   static _Iter __range_begin(_Iter __b) { return __b; }
-  static _NullSentinal __range_end(_Iter) { return _NullSentinal{}; }
+  static _NullSentinel __range_end(_Iter) { return _NullSentinel{}; }
 
   static _ECharT __first_or_null(_Iter __b) { return *__b; }
 };
@@ -661,6 +672,10 @@ struct __is_pathable<_Tp, false, true, false> : __is_pathable_char_array<_Tp> {
 template <class _Tp>
 struct __is_pathable<_Tp, false, false, true> : __is_pathable_iter<_Tp> {};
 
+template <class _ECharT>
+struct _PathCVT;
+
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
 template <class _ECharT>
 struct _PathCVT {
   static_assert(__can_convert_char<_ECharT>::value,
@@ -684,13 +699,13 @@ struct _PathCVT {
   }
 
   template <class _Iter>
-  static void __append_range(string& __dest, _Iter __b, _NullSentinal) {
+  static void __append_range(string& __dest, _Iter __b, _NullSentinel) {
     static_assert(!is_same<_Iter, _ECharT*>::value, "Call const overload");
-    const _ECharT __sentinal = _ECharT{};
-    if (*__b == __sentinal)
+    const _ECharT __sentinel = _ECharT{};
+    if (*__b == __sentinel)
       return;
     basic_string<_ECharT> __tmp;
-    for (; *__b != __sentinal; ++__b)
+    for (; *__b != __sentinel; ++__b)
       __tmp.push_back(*__b);
     _Narrower()(back_inserter(__dest), __tmp.data(),
                 __tmp.data() + __tmp.length());
@@ -703,6 +718,7 @@ struct _PathCVT {
                    _Traits::__range_end(__s));
   }
 };
+#endif // !_LIBCPP_HAS_NO_LOCALIZATION
 
 template <>
 struct _PathCVT<char> {
@@ -721,9 +737,9 @@ struct _PathCVT<char> {
   }
 
   template <class _Iter>
-  static void __append_range(string& __dest, _Iter __b, _NullSentinal) {
-    const char __sentinal = char{};
-    for (; *__b != __sentinal; ++__b)
+  static void __append_range(string& __dest, _Iter __b, _NullSentinel) {
+    const char __sentinel = char{};
+    for (; *__b != __sentinel; ++__b)
       __dest.push_back(*__b);
   }
 
@@ -779,12 +795,14 @@ public:
     _PathCVT<_ItVal>::__append_range(__pn_, __first, __last);
   }
 
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
   // TODO Implement locale conversions.
   template <class _Source, class = _EnableIfPathable<_Source, void> >
   path(const _Source& __src, const locale& __loc, format = format::auto_format);
   template <class _InputIt>
   path(_InputIt __first, _InputIt _last, const locale& __loc,
        format = format::auto_format);
+#endif
 
   _LIBCPP_INLINE_VISIBILITY
   ~path() = default;
@@ -922,9 +940,8 @@ public:
   template <class _ECharT>
   typename enable_if<__can_convert_char<_ECharT>::value, path&>::type
   operator+=(_ECharT __x) {
-    basic_string<_ECharT> __tmp;
-    __tmp += __x;
-    _PathCVT<_ECharT>::__append_source(__pn_, __tmp);
+    _PathCVT<_ECharT>::__append_source(__pn_,
+                                       basic_string_view<_ECharT>(&__x, 1));
     return *this;
   }
 
@@ -983,6 +1000,14 @@ public:
 
   _LIBCPP_INLINE_VISIBILITY operator string_type() const { return __pn_; }
 
+  _LIBCPP_INLINE_VISIBILITY _VSTD::string string() const { return __pn_; }
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+  _LIBCPP_INLINE_VISIBILITY _VSTD::u8string u8string() const { return _VSTD::u8string(__pn_.begin(), __pn_.end()); }
+#else
+  _LIBCPP_INLINE_VISIBILITY _VSTD::string u8string() const { return __pn_; }
+#endif
+
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
   template <class _ECharT, class _Traits = char_traits<_ECharT>,
             class _Allocator = allocator<_ECharT> >
   basic_string<_ECharT, _Traits, _Allocator>
@@ -995,19 +1020,26 @@ public:
     return __s;
   }
 
-  _LIBCPP_INLINE_VISIBILITY std::string string() const { return __pn_; }
-  _LIBCPP_INLINE_VISIBILITY std::wstring wstring() const {
+  _LIBCPP_INLINE_VISIBILITY _VSTD::wstring wstring() const {
     return string<wchar_t>();
   }
-  _LIBCPP_INLINE_VISIBILITY std::string u8string() const { return __pn_; }
-  _LIBCPP_INLINE_VISIBILITY std::u16string u16string() const {
+  _LIBCPP_INLINE_VISIBILITY _VSTD::u16string u16string() const {
     return string<char16_t>();
   }
-  _LIBCPP_INLINE_VISIBILITY std::u32string u32string() const {
+  _LIBCPP_INLINE_VISIBILITY _VSTD::u32string u32string() const {
     return string<char32_t>();
   }
+#endif
 
   // generic format observers
+  _VSTD::string generic_string() const { return __pn_; }
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+  _VSTD::u8string generic_u8string() const { return _VSTD::u8string(__pn_.begin(), __pn_.end()); }
+#else
+  _VSTD::string generic_u8string() const { return __pn_; }
+#endif
+
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
   template <class _ECharT, class _Traits = char_traits<_ECharT>,
             class _Allocator = allocator<_ECharT> >
   basic_string<_ECharT, _Traits, _Allocator>
@@ -1015,11 +1047,10 @@ public:
     return string<_ECharT, _Traits, _Allocator>(__a);
   }
 
-  std::string generic_string() const { return __pn_; }
-  std::wstring generic_wstring() const { return string<wchar_t>(); }
-  std::string generic_u8string() const { return __pn_; }
-  std::u16string generic_u16string() const { return string<char16_t>(); }
-  std::u32string generic_u32string() const { return string<char32_t>(); }
+  _VSTD::wstring generic_wstring() const { return string<wchar_t>(); }
+  _VSTD::u16string generic_u16string() const { return string<char16_t>(); }
+  _VSTD::u32string generic_u32string() const { return string<char32_t>(); }
+#endif
 
 private:
   int __compare(__string_view) const;
@@ -1123,13 +1154,14 @@ public:
   iterator begin() const;
   iterator end() const;
 
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
   template <class _CharT, class _Traits>
   _LIBCPP_INLINE_VISIBILITY friend
       typename enable_if<is_same<_CharT, char>::value &&
                              is_same<_Traits, char_traits<char> >::value,
                          basic_ostream<_CharT, _Traits>&>::type
       operator<<(basic_ostream<_CharT, _Traits>& __os, const path& __p) {
-    __os << std::__quoted(__p.native());
+    __os << _VSTD::__quoted(__p.native());
     return __os;
   }
 
@@ -1139,7 +1171,7 @@ public:
                              !is_same<_Traits, char_traits<char> >::value,
                          basic_ostream<_CharT, _Traits>&>::type
       operator<<(basic_ostream<_CharT, _Traits>& __os, const path& __p) {
-    __os << std::__quoted(__p.string<_CharT, _Traits>());
+    __os << _VSTD::__quoted(__p.string<_CharT, _Traits>());
     return __os;
   }
 
@@ -1151,6 +1183,7 @@ public:
     __p = __tmp;
     return __is;
   }
+#endif // !_LIBCPP_HAS_NO_LOCALIZATION
 
   friend _LIBCPP_INLINE_VISIBILITY bool operator==(const path& __lhs, const path& __rhs) noexcept {
     return __lhs.compare(__rhs) == 0;
@@ -1194,23 +1227,37 @@ _LIBCPP_FUNC_VIS
 size_t hash_value(const path& __p) noexcept;
 
 template <class _Source>
-_LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_DEPRECATED_WITH_CHAR8_T
     typename enable_if<__is_pathable<_Source>::value, path>::type
     u8path(const _Source& __s) {
   static_assert(
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+      is_same<typename __is_pathable<_Source>::__char_type, char8_t>::value ||
+#endif
       is_same<typename __is_pathable<_Source>::__char_type, char>::value,
       "u8path(Source const&) requires Source have a character type of type "
-      "'char'");
+      "'char'"
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+      " or 'char8_t'"
+#endif
+      );
   return path(__s);
 }
 
 template <class _InputIt>
-_LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_DEPRECATED_WITH_CHAR8_T
     typename enable_if<__is_pathable<_InputIt>::value, path>::type
     u8path(_InputIt __f, _InputIt __l) {
   static_assert(
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+      is_same<typename __is_pathable<_InputIt>::__char_type, char8_t>::value ||
+#endif
       is_same<typename __is_pathable<_InputIt>::__char_type, char>::value,
-      "u8path(Iter, Iter) requires Iter have a value_type of type 'char'");
+      "u8path(Iter, Iter) requires Iter have a value_type of type 'char'"
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+      " or 'char8_t'"
+#endif
+      );
   return path(__f, __l);
 }
 
@@ -1230,7 +1277,7 @@ public:
   typedef bidirectional_iterator_tag iterator_category;
 
   typedef path value_type;
-  typedef std::ptrdiff_t difference_type;
+  typedef ptrdiff_t difference_type;
   typedef const path* pointer;
   typedef const path& reference;
 
@@ -1374,7 +1421,7 @@ template <class... _Args>
 _LIBCPP_NORETURN inline _LIBCPP_INLINE_VISIBILITY
 #ifndef _LIBCPP_NO_EXCEPTIONS
 void __throw_filesystem_error(_Args&&... __args) {
-  throw filesystem_error(std::forward<_Args>(__args)...);
+  throw filesystem_error(_VSTD::forward<_Args>(__args)...);
 }
 #else
 void __throw_filesystem_error(_Args&&...) {
@@ -2204,7 +2251,7 @@ private:
 
   _LIBCPP_INLINE_VISIBILITY
   void __assign_iter_entry(_Path&& __p, __cached_data __dt) {
-    __p_ = std::move(__p);
+    __p_ = _VSTD::move(__p);
     __data_ = __dt;
   }
 
@@ -2505,10 +2552,10 @@ end(const directory_iterator&) noexcept {
 class recursive_directory_iterator {
 public:
   using value_type = directory_entry;
-  using difference_type = std::ptrdiff_t;
+  using difference_type = ptrdiff_t;
   using pointer = directory_entry const*;
   using reference = directory_entry const&;
-  using iterator_category = std::input_iterator_tag;
+  using iterator_category = input_iterator_tag;
 
 public:
   // constructors and destructor

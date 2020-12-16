@@ -197,6 +197,7 @@ namespace std {
 */
 
 #include <__config>
+#include <__availability>
 #include <__tuple>
 #include <array>
 #include <exception>
@@ -227,7 +228,10 @@ public:
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+// TODO: GCC 5 lies about its support for C++17 (it says it supports it but it
+//       really doesn't). That breaks variant, which uses some C++17 features.
+//       Remove this once we drop support for GCC 5.
+#if _LIBCPP_STD_VER > 14 && !(defined(_LIBCPP_COMPILER_GCC) && _GNUC_VER_NEW < 6000)
 
 _LIBCPP_NORETURN
 inline _LIBCPP_INLINE_VISIBILITY
@@ -290,9 +294,9 @@ struct _LIBCPP_TEMPLATE_VIS variant_alternative<_Ip, variant<_Types...>> {
 _LIBCPP_INLINE_VAR constexpr size_t variant_npos = static_cast<size_t>(-1);
 
 constexpr int __choose_index_type(unsigned int __num_elem) {
-  if (__num_elem < std::numeric_limits<unsigned char>::max())
+  if (__num_elem < numeric_limits<unsigned char>::max())
     return 0;
-  if (__num_elem < std::numeric_limits<unsigned short>::max())
+  if (__num_elem < numeric_limits<unsigned short>::max())
     return 1;
   return 2;
 }
@@ -482,12 +486,12 @@ private:
     return __result{{_VSTD::forward<_Fs>(__fs)...}};
   }
 
-  template <std::size_t... _Is>
+  template <size_t... _Is>
   struct __dispatcher {
     template <class _Fp, class... _Vs>
     inline _LIBCPP_INLINE_VISIBILITY
     static constexpr decltype(auto) __dispatch(_Fp __f, _Vs... __vs) {
-        return __invoke_constexpr(
+        return _VSTD::__invoke_constexpr(
             static_cast<_Fp>(__f),
             __access::__base::__get_alt<_Is>(static_cast<_Vs>(__vs))...);
     }
@@ -595,7 +599,7 @@ private:
       __std_visit_exhaustive_visitor_check<
           _Visitor,
           decltype((_VSTD::forward<_Alts>(__alts).__value))...>();
-      return __invoke_constexpr(_VSTD::forward<_Visitor>(__visitor),
+      return _VSTD::__invoke_constexpr(_VSTD::forward<_Visitor>(__visitor),
                                 _VSTD::forward<_Alts>(__alts).__value...);
     }
     _Visitor&& __visitor;
@@ -720,12 +724,12 @@ protected:
 };
 
 template <class _Traits, _Trait = _Traits::__destructible_trait>
-class _LIBCPP_TEMPLATE_VIS __destructor;
+class _LIBCPP_TEMPLATE_VIS __dtor;
 
 #define _LIBCPP_VARIANT_DESTRUCTOR(destructible_trait, destructor, destroy)    \
   template <class... _Types>                                                   \
-  class _LIBCPP_TEMPLATE_VIS __destructor<__traits<_Types...>,                 \
-                                           destructible_trait>                 \
+  class _LIBCPP_TEMPLATE_VIS __dtor<__traits<_Types...>,                       \
+                                    destructible_trait>                        \
       : public __base<destructible_trait, _Types...> {                         \
     using __base_type = __base<destructible_trait, _Types...>;                 \
     using __index_t = typename __base_type::__index_t;                         \
@@ -734,11 +738,11 @@ class _LIBCPP_TEMPLATE_VIS __destructor;
     using __base_type::__base_type;                                            \
     using __base_type::operator=;                                              \
                                                                                \
-    __destructor(const __destructor&) = default;                               \
-    __destructor(__destructor&&) = default;                                    \
+    __dtor(const __dtor&) = default;                                           \
+    __dtor(__dtor&&) = default;                                                \
     destructor                                                                 \
-    __destructor& operator=(const __destructor&) = default;                    \
-    __destructor& operator=(__destructor&&) = default;                         \
+    __dtor& operator=(const __dtor&) = default;                                \
+    __dtor& operator=(__dtor&&) = default;                                     \
                                                                                \
   protected:                                                                   \
     inline _LIBCPP_INLINE_VISIBILITY                                           \
@@ -747,12 +751,12 @@ class _LIBCPP_TEMPLATE_VIS __destructor;
 
 _LIBCPP_VARIANT_DESTRUCTOR(
     _Trait::_TriviallyAvailable,
-    ~__destructor() = default;,
+    ~__dtor() = default;,
     void __destroy() noexcept { this->__index = __variant_npos<__index_t>; });
 
 _LIBCPP_VARIANT_DESTRUCTOR(
     _Trait::_Available,
-    ~__destructor() { __destroy(); },
+    ~__dtor() { __destroy(); },
     void __destroy() noexcept {
       if (!this->valueless_by_exception()) {
         __visitation::__base::__visit_alt(
@@ -767,14 +771,14 @@ _LIBCPP_VARIANT_DESTRUCTOR(
 
 _LIBCPP_VARIANT_DESTRUCTOR(
     _Trait::_Unavailable,
-    ~__destructor() = delete;,
+    ~__dtor() = delete;,
     void __destroy() noexcept = delete;);
 
 #undef _LIBCPP_VARIANT_DESTRUCTOR
 
 template <class _Traits>
-class _LIBCPP_TEMPLATE_VIS __constructor : public __destructor<_Traits> {
-  using __base_type = __destructor<_Traits>;
+class _LIBCPP_TEMPLATE_VIS __ctor : public __dtor<_Traits> {
+  using __base_type = __dtor<_Traits>;
 
 public:
   using __base_type::__base_type;
@@ -791,7 +795,7 @@ protected:
 
   template <class _Rhs>
   inline _LIBCPP_INLINE_VISIBILITY
-  static void __generic_construct(__constructor& __lhs, _Rhs&& __rhs) {
+  static void __generic_construct(__ctor& __lhs, _Rhs&& __rhs) {
     __lhs.__destroy();
     if (!__rhs.valueless_by_exception()) {
       __visitation::__base::__visit_alt_at(
@@ -813,10 +817,10 @@ class _LIBCPP_TEMPLATE_VIS __move_constructor;
 #define _LIBCPP_VARIANT_MOVE_CONSTRUCTOR(move_constructible_trait,             \
                                          move_constructor)                     \
   template <class... _Types>                                                   \
-  class _LIBCPP_TEMPLATE_VIS __move_constructor<__traits<_Types...>,          \
-                                                 move_constructible_trait>     \
-      : public __constructor<__traits<_Types...>> {                            \
-    using __base_type = __constructor<__traits<_Types...>>;                    \
+  class _LIBCPP_TEMPLATE_VIS __move_constructor<__traits<_Types...>,           \
+                                                move_constructible_trait>      \
+      : public __ctor<__traits<_Types...>> {                                   \
+    using __base_type = __ctor<__traits<_Types...>>;                           \
                                                                                \
   public:                                                                      \
     using __base_type::__base_type;                                            \
@@ -1104,7 +1108,7 @@ struct __narrowing_check {
   template <class _Dest>
   static auto __test_impl(_Dest (&&)[1]) -> __identity<_Dest>;
   template <class _Dest, class _Source>
-  using _Apply _LIBCPP_NODEBUG_TYPE = decltype(__test_impl<_Dest>({std::declval<_Source>()}));
+  using _Apply _LIBCPP_NODEBUG_TYPE = decltype(__test_impl<_Dest>({_VSTD::declval<_Source>()}));
 };
 
 template <class _Dest, class _Source>
@@ -1510,7 +1514,7 @@ template <class _Operator>
 struct __convert_to_bool {
   template <class _T1, class _T2>
   _LIBCPP_INLINE_VISIBILITY constexpr bool operator()(_T1 && __t1, _T2&& __t2) const {
-    static_assert(std::is_convertible<decltype(_Operator{}(_VSTD::forward<_T1>(__t1), _VSTD::forward<_T2>(__t2))), bool>::value,
+    static_assert(is_convertible<decltype(_Operator{}(_VSTD::forward<_T1>(__t1), _VSTD::forward<_T2>(__t2))), bool>::value,
         "the relational operator does not return a type which is implicitly convertible to bool");
     return _Operator{}(_VSTD::forward<_T1>(__t1), _VSTD::forward<_T2>(__t2));
   }

@@ -146,7 +146,6 @@ private:
     unique_lock& operator=(unique_lock const&); // = delete;
 
 public:
-#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     unique_lock(unique_lock&& __u) _NOEXCEPT
         : __m_(__u.__m_), __owns_(__u.__owns_)
@@ -162,8 +161,6 @@ public:
             __u.__owns_ = false;
             return *this;
         }
-
-#endif  // _LIBCPP_CXX03_LANG
 
     void lock();
     bool try_lock();
@@ -382,12 +379,12 @@ __safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d)
 
     using __ratio = ratio_divide<_Period, nano>;
     using __ns_rep = nanoseconds::rep;
-    __ns_rep __result_max = std::numeric_limits<__ns_rep>::max();
+    __ns_rep __result_max = numeric_limits<__ns_rep>::max();
     if (__d.count() > 0 && __d.count() > __result_max / __ratio::num) {
         return nanoseconds::max();
     }
 
-    __ns_rep __result_min = std::numeric_limits<__ns_rep>::min();
+    __ns_rep __result_min = numeric_limits<__ns_rep>::min();
     if (__d.count() < 0 && __d.count() < __result_min / __ratio::num) {
         return nanoseconds::min();
     }

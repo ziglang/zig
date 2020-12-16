@@ -116,7 +116,7 @@ public:
         { return do_is_equal(__other); }
 
 // 8.5.3, memory.resource.priv
-protected:
+private:
     virtual void* do_allocate(size_t, size_t) = 0;
     virtual void do_deallocate(void*, size_t, size_t) = 0;
     virtual bool do_is_equal(memory_resource const &) const _NOEXCEPT = 0;
@@ -381,7 +381,7 @@ public:
     { return __alloc_; }
 
 // 8.7.3, memory.resource.adaptor.mem
-protected:
+private:
     virtual void * do_allocate(size_t __bytes, size_t)
     {
         if (__bytes > __max_size()) {
@@ -407,7 +407,6 @@ protected:
         return __p  ? __alloc_ == __p->__alloc_ : false;
     }
 
-private:
     _LIBCPP_INLINE_VISIBILITY
     size_t __max_size() const _NOEXCEPT {
         return numeric_limits<size_t>::max() - _MaxAlign;

@@ -277,18 +277,18 @@ inline _LIBCPP_INLINE_VISIBILITY
 void
 __thread_execute(tuple<_TSp, _Fp, _Args...>& __t, __tuple_indices<_Indices...>)
 {
-    __invoke(_VSTD::move(_VSTD::get<1>(__t)), _VSTD::move(_VSTD::get<_Indices>(__t))...);
+    _VSTD::__invoke(_VSTD::move(_VSTD::get<1>(__t)), _VSTD::move(_VSTD::get<_Indices>(__t))...);
 }
 
 template <class _Fp>
 _LIBCPP_INLINE_VISIBILITY
 void* __thread_proxy(void* __vp)
 {
-    // _Fp = std::tuple< unique_ptr<__thread_struct>, Functor, Args...>
-    std::unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
-    __thread_local_data().set_pointer(_VSTD::get<0>(*__p).release());
+    // _Fp = tuple< unique_ptr<__thread_struct>, Functor, Args...>
+    unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
+    __thread_local_data().set_pointer(_VSTD::get<0>(*__p.get()).release());
     typedef typename __make_tuple_indices<tuple_size<_Fp>::value, 2>::type _Index;
-    __thread_execute(*__p, _Index());
+    _VSTD::__thread_execute(*__p.get(), _Index());
     return nullptr;
 }
 
@@ -300,11 +300,11 @@ thread::thread(_Fp&& __f, _Args&&... __args)
     typedef unique_ptr<__thread_struct> _TSPtr;
     _TSPtr __tsp(new __thread_struct);
     typedef tuple<_TSPtr, typename decay<_Fp>::type, typename decay<_Args>::type...> _Gp;
-    _VSTD::unique_ptr<_Gp> __p(
-            new _Gp(std::move(__tsp),
-                    __decay_copy(_VSTD::forward<_Fp>(__f)),
-                    __decay_copy(_VSTD::forward<_Args>(__args))...));
-    int __ec = __libcpp_thread_create(&__t_, &__thread_proxy<_Gp>, __p.get());
+    unique_ptr<_Gp> __p(
+            new _Gp(_VSTD::move(__tsp),
+                    _VSTD::__decay_copy(_VSTD::forward<_Fp>(__f)),
+                    _VSTD::__decay_copy(_VSTD::forward<_Args>(__args))...));
+    int __ec = _VSTD::__libcpp_thread_create(&__t_, &__thread_proxy<_Gp>, __p.get());
     if (__ec == 0)
         __p.release();
     else
@@ -326,7 +326,7 @@ struct __thread_invoke_pair {
 template <class _Fp>
 void* __thread_proxy_cxx03(void* __vp)
 {
-    std::unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
+    unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
     __thread_local_data().set_pointer(__p->__tsp_.release());
     (__p->__fn_)();
     return nullptr;
@@ -337,9 +337,9 @@ thread::thread(_Fp __f)
 {
 
     typedef __thread_invoke_pair<_Fp> _InvokePair;
-    typedef std::unique_ptr<_InvokePair> _PairPtr;
+    typedef unique_ptr<_InvokePair> _PairPtr;
     _PairPtr __pp(new _InvokePair(__f));
-    int __ec = __libcpp_thread_create(&__t_, &__thread_proxy_cxx03<_InvokePair>, __pp.get());
+    int __ec = _VSTD::__libcpp_thread_create(&__t_, &__thread_proxy_cxx03<_InvokePair>, __pp.get());
     if (__ec == 0)
         __pp.release();
     else
@@ -360,25 +360,24 @@ template <class _Rep, class _Period>
 void
 sleep_for(const chrono::duration<_Rep, _Period>& __d)
 {
-    using namespace chrono;
-    if (__d > duration<_Rep, _Period>::zero())
+    if (__d > chrono::duration<_Rep, _Period>::zero())
     {
 #if defined(_LIBCPP_COMPILER_GCC) && (__powerpc__ || __POWERPC__)
     //  GCC's long double const folding is incomplete for IBM128 long doubles.
-        _LIBCPP_CONSTEXPR duration<long double> _Max = duration<long double>(ULLONG_MAX/1000000000ULL) ;
+        _LIBCPP_CONSTEXPR chrono::duration<long double> _Max = chrono::duration<long double>(ULLONG_MAX/1000000000ULL) ;
 #else
-        _LIBCPP_CONSTEXPR duration<long double> _Max = nanoseconds::max();
+        _LIBCPP_CONSTEXPR chrono::duration<long double> _Max = chrono::nanoseconds::max();
 #endif
-        nanoseconds __ns;
+        chrono::nanoseconds __ns;
         if (__d < _Max)
         {
-            __ns = duration_cast<nanoseconds>(__d);
+            __ns = chrono::duration_cast<chrono::nanoseconds>(__d);
             if (__ns < __d)
                 ++__ns;
         }
         else
-            __ns = nanoseconds::max();
-        sleep_for(__ns);
+            __ns = chrono::nanoseconds::max();
+        this_thread::sleep_for(__ns);
     }
 }
 
@@ -386,7 +385,6 @@ template <class _Clock, class _Duration>
 void
 sleep_until(const chrono::time_point<_Clock, _Duration>& __t)
 {
-    using namespace chrono;
     mutex __mut;
     condition_variable __cv;
     unique_lock<mutex> __lk(__mut);
@@ -399,8 +397,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 void
 sleep_until(const chrono::time_point<chrono::steady_clock, _Duration>& __t)
 {
-    using namespace chrono;
-    sleep_for(__t - steady_clock::now());
+    this_thread::sleep_for(__t - chrono::steady_clock::now());
 }
 
 inline _LIBCPP_INLINE_VISIBILITY

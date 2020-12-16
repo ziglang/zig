@@ -380,7 +380,7 @@ unsigned long long
 __bitset<_N_words, _Size>::to_ullong(true_type, true_type) const
 {
     unsigned long long __r = __first_[0];
-    for (std::size_t __i = 1; __i < sizeof(unsigned long long) / sizeof(__storage_type); ++__i)
+    for (size_t __i = 1; __i < sizeof(unsigned long long) / sizeof(__storage_type); ++__i)
         __r |= static_cast<unsigned long long>(__first_[__i]) << (sizeof(__storage_type) * CHAR_BIT);
     return __r;
 }
@@ -625,13 +625,13 @@ protected:
     explicit _LIBCPP_CONSTEXPR __bitset(unsigned long long) _NOEXCEPT;
 
     _LIBCPP_INLINE_VISIBILITY reference __make_ref(size_t) _NOEXCEPT
-        {return reference(0, 1);}
+        {return reference(nullptr, 1);}
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR const_reference __make_ref(size_t) const _NOEXCEPT
-        {return const_reference(0, 1);}
+        {return const_reference(nullptr, 1);}
     _LIBCPP_INLINE_VISIBILITY iterator __make_iter(size_t) _NOEXCEPT
-        {return iterator(0, 0);}
+        {return iterator(nullptr, 0);}
     _LIBCPP_INLINE_VISIBILITY const_iterator __make_iter(size_t) const _NOEXCEPT
-        {return const_iterator(0, 0);}
+        {return const_iterator(nullptr, 0);}
 
     _LIBCPP_INLINE_VISIBILITY void operator&=(const __bitset&) _NOEXCEPT {}
     _LIBCPP_INLINE_VISIBILITY void operator|=(const __bitset&) _NOEXCEPT {}

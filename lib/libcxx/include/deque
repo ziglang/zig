@@ -1237,7 +1237,7 @@ __deque_base<_Tp, _Allocator>::swap(__deque_base& __c)
     __map_.swap(__c.__map_);
     _VSTD::swap(__start_, __c.__start_);
     _VSTD::swap(size(), __c.size());
-    __swap_allocator(__alloc(), __c.__alloc());
+    _VSTD::__swap_allocator(__alloc(), __c.__alloc());
 }
 
 template <class _Tp, class _Allocator>
@@ -1393,7 +1393,7 @@ public:
     size_type size() const _NOEXCEPT {return __base::size();}
     _LIBCPP_INLINE_VISIBILITY
     size_type max_size() const _NOEXCEPT
-        {return std::min<size_type>(
+        {return _VSTD::min<size_type>(
             __alloc_traits::max_size(__base::__alloc()),
             numeric_limits<difference_type>::max());}
     void resize(size_type __n);
@@ -1586,7 +1586,7 @@ public:
 
 #ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
 template<class _InputIterator,
-         class _Alloc = typename std::allocator<typename iterator_traits<_InputIterator>::value_type>,
+         class _Alloc = allocator<typename iterator_traits<_InputIterator>::value_type>,
          class = typename enable_if<__is_allocator<_Alloc>::value, void>::type
          >
 deque(_InputIterator, _InputIterator)
@@ -2376,7 +2376,7 @@ deque<_Tp, _Allocator>::__append(_ForIter __f, _ForIter __l,
     for (__deque_block_range __br : __deque_range(__base::end(), __base::end() + __n)) {
       _ConstructTransaction __tx(this, __br);
       for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_, (void)++__f) {
-        __alloc_traits::construct(__a, std::__to_address(__tx.__pos_), *__f);
+        __alloc_traits::construct(__a, _VSTD::__to_address(__tx.__pos_), *__f);
       }
     }
 }
@@ -2393,7 +2393,7 @@ deque<_Tp, _Allocator>::__append(size_type __n)
     for (__deque_block_range __br : __deque_range(__base::end(), __base::end() + __n)) {
       _ConstructTransaction __tx(this, __br);
       for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_) {
-        __alloc_traits::construct(__a, std::__to_address(__tx.__pos_));
+        __alloc_traits::construct(__a, _VSTD::__to_address(__tx.__pos_));
       }
     }
 }
@@ -2410,7 +2410,7 @@ deque<_Tp, _Allocator>::__append(size_type __n, const value_type& __v)
     for (__deque_block_range __br : __deque_range(__base::end(), __base::end() + __n)) {
       _ConstructTransaction __tx(this, __br);
       for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_) {
-        __alloc_traits::construct(__a, std::__to_address(__tx.__pos_), __v);
+        __alloc_traits::construct(__a, _VSTD::__to_address(__tx.__pos_), __v);
       }
     }
 
@@ -2708,7 +2708,7 @@ void
 deque<_Tp, _Allocator>::pop_front()
 {
     allocator_type& __a = __base::__alloc();
-    __alloc_traits::destroy(__a, __to_address(*(__base::__map_.begin() +
+    __alloc_traits::destroy(__a, _VSTD::__to_address(*(__base::__map_.begin() +
                                                     __base::__start_ / __base::__block_size) +
                                                     __base::__start_ % __base::__block_size));
     --__base::size();
@@ -2723,7 +2723,7 @@ deque<_Tp, _Allocator>::pop_back()
     _LIBCPP_ASSERT(!empty(), "deque::pop_back called for empty deque");
     allocator_type& __a = __base::__alloc();
     size_type __p = __base::size() + __base::__start_ - 1;
-    __alloc_traits::destroy(__a, __to_address(*(__base::__map_.begin() +
+    __alloc_traits::destroy(__a, _VSTD::__to_address(*(__base::__map_.begin() +
                                                     __p / __base::__block_size) +
                                                     __p % __base::__block_size));
     --__base::size();

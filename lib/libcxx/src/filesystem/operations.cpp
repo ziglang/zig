@@ -9,8 +9,6 @@
 #include "filesystem"
 #include "array"
 #include "iterator"
-#include "fstream"
-#include "random" /* for unique_path */
 #include "string_view"
 #include "type_traits"
 #include "vector"
@@ -25,29 +23,23 @@
 #include <time.h>
 #include <fcntl.h> /* values for fchmodat */
 
-#if defined(__linux__)
-#include <linux/version.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 33)
-#include <sys/sendfile.h>
-#define _LIBCPP_USE_SENDFILE
-#endif
+#if __has_include(<sys/sendfile.h>)
+# include <sys/sendfile.h>
+# define _LIBCPP_FILESYSTEM_USE_SENDFILE
 #elif defined(__APPLE__) || __has_include(<copyfile.h>)
-#include <copyfile.h>
-#define _LIBCPP_USE_COPYFILE
+# include <copyfile.h>
+# define _LIBCPP_FILESYSTEM_USE_COPYFILE
+#else
+# include "fstream"
+# define _LIBCPP_FILESYSTEM_USE_FSTREAM
 #endif
 
 #if !defined(CLOCK_REALTIME)
-#include <sys/time.h> // for gettimeofday and timeval
-#endif // !defined(CLOCK_REALTIME)
+# include <sys/time.h> // for gettimeofday and timeval
+#endif
 
 #if defined(__ELF__) && defined(_LIBCPP_LINK_RT_LIB)
-#pragma comment(lib, "rt")
-#endif
-
-#if defined(_LIBCPP_COMPILER_GCC)
-#if _GNUC_VER < 500
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-#endif
+# pragma comment(lib, "rt")
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
@@ -542,7 +534,7 @@ path __canonical(path const& orig_p, error_code* ec) {
   ErrorHandler<path> err("canonical", ec, &orig_p, &cwd);
 
   path p = __do_absolute(orig_p, &cwd, ec);
-#if _POSIX_VERSION >= 200112
+#if defined(_POSIX_VERSION) && _POSIX_VERSION >= 200112
   std::unique_ptr<char, decltype(&::free)>
     hold(::realpath(p.c_str(), nullptr), &::free);
   if (hold.get() == nullptr)
@@ -646,96 +638,83 @@ void __copy(const path& from, const path& to, copy_options options,
 namespace detail {
 namespace {
 
-#ifdef _LIBCPP_USE_SENDFILE
-bool copy_file_impl_sendfile(FileDescriptor& read_fd, FileDescriptor& write_fd,
-                             error_code& ec) {
+#if defined(_LIBCPP_FILESYSTEM_USE_SENDFILE)
+  bool copy_file_impl(FileDescriptor& read_fd, FileDescriptor& write_fd, error_code& ec) {
+    size_t count = read_fd.get_stat().st_size;
+    do {
+      ssize_t res;
+      if ((res = ::sendfile(write_fd.fd, read_fd.fd, nullptr, count)) == -1) {
+        ec = capture_errno();
+        return false;
+      }
+      count -= res;
+    } while (count > 0);
 
-  size_t count = read_fd.get_stat().st_size;
-  do {
-    ssize_t res;
-    if ((res = ::sendfile(write_fd.fd, read_fd.fd, nullptr, count)) == -1) {
+    ec.clear();
+
+    return true;
+  }
+#elif defined(_LIBCPP_FILESYSTEM_USE_COPYFILE)
+  bool copy_file_impl(FileDescriptor& read_fd, FileDescriptor& write_fd, error_code& ec) {
+    struct CopyFileState {
+      copyfile_state_t state;
+      CopyFileState() { state = copyfile_state_alloc(); }
+      ~CopyFileState() { copyfile_state_free(state); }
+
+    private:
+      CopyFileState(CopyFileState const&) = delete;
+      CopyFileState& operator=(CopyFileState const&) = delete;
+    };
+
+    CopyFileState cfs;
+    if (fcopyfile(read_fd.fd, write_fd.fd, cfs.state, COPYFILE_DATA) < 0) {
       ec = capture_errno();
       return false;
     }
-    count -= res;
-  } while (count > 0);
 
-  ec.clear();
-
-  return true;
-}
-#elif defined(_LIBCPP_USE_COPYFILE)
-bool copy_file_impl_copyfile(FileDescriptor& read_fd, FileDescriptor& write_fd,
-                             error_code& ec) {
-  struct CopyFileState {
-    copyfile_state_t state;
-    CopyFileState() { state = copyfile_state_alloc(); }
-    ~CopyFileState() { copyfile_state_free(state); }
-
-  private:
-    CopyFileState(CopyFileState const&) = delete;
-    CopyFileState& operator=(CopyFileState const&) = delete;
-  };
-
-  CopyFileState cfs;
-  if (fcopyfile(read_fd.fd, write_fd.fd, cfs.state, COPYFILE_DATA) < 0) {
-    ec = capture_errno();
-    return false;
+    ec.clear();
+    return true;
   }
+#elif defined(_LIBCPP_FILESYSTEM_USE_FSTREAM)
+  bool copy_file_impl(FileDescriptor& read_fd, FileDescriptor& write_fd, error_code& ec) {
+    ifstream in;
+    in.__open(read_fd.fd, ios::binary);
+    if (!in.is_open()) {
+      // This assumes that __open didn't reset the error code.
+      ec = capture_errno();
+      return false;
+    }
+    read_fd.fd = -1;
+    ofstream out;
+    out.__open(write_fd.fd, ios::binary);
+    if (!out.is_open()) {
+      ec = capture_errno();
+      return false;
+    }
+    write_fd.fd = -1;
 
-  ec.clear();
-  return true;
-}
-#endif
+    if (in.good() && out.good()) {
+      using InIt = istreambuf_iterator<char>;
+      using OutIt = ostreambuf_iterator<char>;
+      InIt bin(in);
+      InIt ein;
+      OutIt bout(out);
+      copy(bin, ein, bout);
+    }
+    if (out.fail() || in.fail()) {
+      ec = make_error_code(errc::io_error);
+      return false;
+    }
 
-// Note: This function isn't guarded by ifdef's even though it may be unused
-// in order to assure it still compiles.
-__attribute__((unused)) bool copy_file_impl_default(FileDescriptor& read_fd,
-                                                    FileDescriptor& write_fd,
-                                                    error_code& ec) {
-  ifstream in;
-  in.__open(read_fd.fd, ios::binary);
-  if (!in.is_open()) {
-    // This assumes that __open didn't reset the error code.
-    ec = capture_errno();
-    return false;
+    ec.clear();
+    return true;
   }
-  ofstream out;
-  out.__open(write_fd.fd, ios::binary);
-  if (!out.is_open()) {
-    ec = capture_errno();
-    return false;
-  }
-
-  if (in.good() && out.good()) {
-    using InIt = istreambuf_iterator<char>;
-    using OutIt = ostreambuf_iterator<char>;
-    InIt bin(in);
-    InIt ein;
-    OutIt bout(out);
-    copy(bin, ein, bout);
-  }
-  if (out.fail() || in.fail()) {
-    ec = make_error_code(errc::io_error);
-    return false;
-  }
-
-  ec.clear();
-  return true;
-}
-
-bool copy_file_impl(FileDescriptor& from, FileDescriptor& to, error_code& ec) {
-#if defined(_LIBCPP_USE_SENDFILE)
-  return copy_file_impl_sendfile(from, to, ec);
-#elif defined(_LIBCPP_USE_COPYFILE)
-  return copy_file_impl_copyfile(from, to, ec);
 #else
-  return copy_file_impl_default(from, to, ec);
-#endif
-}
+# error "Unknown implementation for copy_file_impl"
+#endif // copy_file_impl implementation
 
-} // namespace
-} // namespace detail
+} // end anonymous namespace
+} // end namespace detail
 
 bool __copy_file(const path& from, const path& to, copy_options options,
                  error_code* ec) {
@@ -870,8 +849,17 @@ bool __create_directory(const path& p, error_code* ec) {
 
   if (::mkdir(p.c_str(), static_cast<int>(perms::all)) == 0)
     return true;
-  if (errno != EEXIST)
+
+  if (errno == EEXIST) {
+    error_code mec = capture_errno();
+    error_code ignored_ec;
+    const file_status st = status(p, ignored_ec);
+    if (!is_directory(st)) {
+      err.report(mec);
+    }
+  } else {
     err.report(capture_errno());
+  }
   return false;
 }
 
@@ -889,8 +877,17 @@ bool __create_directory(path const& p, path const& attributes, error_code* ec) {
 
   if (::mkdir(p.c_str(), attr_stat.st_mode) == 0)
     return true;
-  if (errno != EEXIST)
+
+  if (errno == EEXIST) {
+    error_code mec = capture_errno();
+    error_code ignored_ec;
+    const file_status st = status(p, ignored_ec);
+    if (!is_directory(st)) {
+      err.report(mec);
+    }
+  } else {
     err.report(capture_errno());
+  }
   return false;
 }
 

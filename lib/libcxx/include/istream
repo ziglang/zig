@@ -150,9 +150,9 @@ template <class charT, class traits>
   basic_istream<charT,traits>&
   ws(basic_istream<charT,traits>& is);
 
-template <class charT, class traits, class T>
-  basic_istream<charT, traits>&
-  operator>>(basic_istream<charT, traits>&& is, T& x);
+// rvalue stream extraction
+template <class Stream, class T>
+  Stream&& operator>>(Stream&& is, T&& x);
 
 }  // std
 
@@ -1142,7 +1142,7 @@ basic_istream<_CharT, _Traits>::putback(char_type __c)
         try
         {
 #endif  // _LIBCPP_NO_EXCEPTIONS
-            if (this->rdbuf() == 0 || this->rdbuf()->sputbackc(__c) == traits_type::eof())
+            if (this->rdbuf() == nullptr || this->rdbuf()->sputbackc(__c) == traits_type::eof())
                 __state |= ios_base::badbit;
 #ifndef _LIBCPP_NO_EXCEPTIONS
         }
@@ -1179,7 +1179,7 @@ basic_istream<_CharT, _Traits>::unget()
         try
         {
 #endif  // _LIBCPP_NO_EXCEPTIONS
-            if (this->rdbuf() == 0 || this->rdbuf()->sungetc() == traits_type::eof())
+            if (this->rdbuf() == nullptr || this->rdbuf()->sungetc() == traits_type::eof())
                 __state |= ios_base::badbit;
 #ifndef _LIBCPP_NO_EXCEPTIONS
         }
@@ -1215,7 +1215,7 @@ basic_istream<_CharT, _Traits>::sync()
         try
         {
 #endif  // _LIBCPP_NO_EXCEPTIONS
-            if (this->rdbuf() == 0)
+            if (this->rdbuf() == nullptr)
                 return -1;
             if (this->rdbuf()->pubsync() == -1)
             {
@@ -1378,13 +1378,23 @@ ws(basic_istream<_CharT, _Traits>& __is)
 
 #ifndef _LIBCPP_CXX03_LANG
 
-template <class _CharT, class _Traits, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-basic_istream<_CharT, _Traits>&
-operator>>(basic_istream<_CharT, _Traits>&& __is, _Tp&& __x)
+template <class _Stream, class _Tp, class = void>
+struct __is_istreamable : false_type { };
+
+template <class _Stream, class _Tp>
+struct __is_istreamable<_Stream, _Tp, decltype(
+    _VSTD::declval<_Stream>() >> _VSTD::declval<_Tp>(), void()
+)> : true_type { };
+
+template <class _Stream, class _Tp, class = typename enable_if<
+    _And<is_base_of<ios_base, _Stream>,
+         __is_istreamable<_Stream&, _Tp&&>>::value
+>::type>
+_LIBCPP_INLINE_VISIBILITY
+_Stream&& operator>>(_Stream&& __is, _Tp&& __x)
 {
     __is >> _VSTD::forward<_Tp>(__x);
-    return __is;
+    return _VSTD::move(__is);
 }
 
 #endif  // _LIBCPP_CXX03_LANG
@@ -1638,11 +1648,9 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x)
     return __is;
 }
 
-#ifndef _LIBCPP_DO_NOT_ASSUME_STREAMS_EXPLICIT_INSTANTIATION_IN_DYLIB
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<char>)
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<wchar_t>)
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_iostream<char>)
-#endif
 
 _LIBCPP_END_NAMESPACE_STD
 

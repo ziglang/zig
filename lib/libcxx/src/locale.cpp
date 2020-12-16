@@ -30,7 +30,7 @@
 #include "__sso_allocator"
 #if defined(_LIBCPP_MSVCRT) || defined(__MINGW32__)
 #include "support/win32/locale_win32.h"
-#elif !defined(__BIONIC__)
+#elif !defined(__BIONIC__) && !defined(__NuttX__)
 #include <langinfo.h>
 #endif
 #include <stdlib.h>
@@ -158,7 +158,7 @@ const locale::category locale::all;
 class _LIBCPP_HIDDEN locale::__imp
     : public facet
 {
-    enum {N = 28};
+    enum {N = 30};
 #if defined(_LIBCPP_COMPILER_MSVC)
 // FIXME: MSVC doesn't support aligned parameters by value.
 // I can't get the __sso_allocator to work here
@@ -202,8 +202,14 @@ locale::__imp::__imp(size_t refs)
     install(&make<_VSTD::ctype<wchar_t> >(1u));
     install(&make<codecvt<char, char, mbstate_t> >(1u));
     install(&make<codecvt<wchar_t, char, mbstate_t> >(1u));
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
     install(&make<codecvt<char16_t, char, mbstate_t> >(1u));
     install(&make<codecvt<char32_t, char, mbstate_t> >(1u));
+_LIBCPP_SUPPRESS_DEPRECATED_POP
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+    install(&make<codecvt<char16_t, char8_t, mbstate_t> >(1u));
+    install(&make<codecvt<char32_t, char8_t, mbstate_t> >(1u));
+#endif
     install(&make<numpunct<char> >(1u));
     install(&make<numpunct<wchar_t> >(1u));
     install(&make<num_get<char> >(1u));
@@ -245,8 +251,14 @@ locale::__imp::__imp(const string& name, size_t refs)
         install(new ctype_byname<wchar_t>(name_));
         install(new codecvt_byname<char, char, mbstate_t>(name_));
         install(new codecvt_byname<wchar_t, char, mbstate_t>(name_));
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
         install(new codecvt_byname<char16_t, char, mbstate_t>(name_));
         install(new codecvt_byname<char32_t, char, mbstate_t>(name_));
+_LIBCPP_SUPPRESS_DEPRECATED_POP
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+        install(new codecvt_byname<char16_t, char8_t, mbstate_t>(name_));
+        install(new codecvt_byname<char32_t, char8_t, mbstate_t>(name_));
+#endif
         install(new numpunct_byname<char>(name_));
         install(new numpunct_byname<wchar_t>(name_));
         install(new moneypunct_byname<char, false>(name_));
@@ -315,8 +327,14 @@ locale::__imp::__imp(const __imp& other, const string& name, locale::category c)
             install(new ctype_byname<wchar_t>(name));
             install(new codecvt_byname<char, char, mbstate_t>(name));
             install(new codecvt_byname<wchar_t, char, mbstate_t>(name));
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
             install(new codecvt_byname<char16_t, char, mbstate_t>(name));
             install(new codecvt_byname<char32_t, char, mbstate_t>(name));
+_LIBCPP_SUPPRESS_DEPRECATED_POP
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+            install(new codecvt_byname<char16_t, char8_t, mbstate_t>(name));
+            install(new codecvt_byname<char32_t, char8_t, mbstate_t>(name));
+#endif
         }
         if (c & locale::monetary)
         {
@@ -385,8 +403,14 @@ locale::__imp::__imp(const __imp& other, const __imp& one, locale::category c)
             install_from<_VSTD::ctype<char> >(one);
             install_from<_VSTD::ctype<wchar_t> >(one);
             install_from<_VSTD::codecvt<char, char, mbstate_t> >(one);
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
             install_from<_VSTD::codecvt<char16_t, char, mbstate_t> >(one);
             install_from<_VSTD::codecvt<char32_t, char, mbstate_t> >(one);
+_LIBCPP_SUPPRESS_DEPRECATED_POP
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+            install_from<_VSTD::codecvt<char16_t, char8_t, mbstate_t> >(one);
+            install_from<_VSTD::codecvt<char32_t, char8_t, mbstate_t> >(one);
+#endif
             install_from<_VSTD::codecvt<wchar_t, char, mbstate_t> >(one);
         }
         if (c & locale::monetary)
@@ -1149,7 +1173,7 @@ ctype<char>::__classic_upper_table() _NOEXCEPT
 {
     return _LIBCPP_GET_C_LOCALE->__ctype_toupper;
 }
-#elif __NetBSD__
+#elif defined(__NetBSD__)
 const short*
 ctype<char>::__classic_lower_table() _NOEXCEPT
 {
@@ -3171,6 +3195,87 @@ codecvt<char16_t, char, mbstate_t>::do_max_length() const  _NOEXCEPT
     return 4;
 }
 
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+
+// template <> class codecvt<char16_t, char8_t, mbstate_t>
+
+locale::id codecvt<char16_t, char8_t, mbstate_t>::id;
+
+codecvt<char16_t, char8_t, mbstate_t>::~codecvt()
+{
+}
+
+codecvt<char16_t, char8_t, mbstate_t>::result
+codecvt<char16_t, char8_t, mbstate_t>::do_out(state_type&,
+    const intern_type* frm, const intern_type* frm_end, const intern_type*& frm_nxt,
+    extern_type* to, extern_type* to_end, extern_type*& to_nxt) const
+{
+    const uint16_t* _frm = reinterpret_cast<const uint16_t*>(frm);
+    const uint16_t* _frm_end = reinterpret_cast<const uint16_t*>(frm_end);
+    const uint16_t* _frm_nxt = _frm;
+    uint8_t* _to = reinterpret_cast<uint8_t*>(to);
+    uint8_t* _to_end = reinterpret_cast<uint8_t*>(to_end);
+    uint8_t* _to_nxt = _to;
+    result r = utf16_to_utf8(_frm, _frm_end, _frm_nxt, _to, _to_end, _to_nxt);
+    frm_nxt = frm + (_frm_nxt - _frm);
+    to_nxt = to + (_to_nxt - _to);
+    return r;
+}
+
+codecvt<char16_t, char8_t, mbstate_t>::result
+codecvt<char16_t, char8_t, mbstate_t>::do_in(state_type&,
+    const extern_type* frm, const extern_type* frm_end, const extern_type*& frm_nxt,
+    intern_type* to, intern_type* to_end, intern_type*& to_nxt) const
+{
+    const uint8_t* _frm = reinterpret_cast<const uint8_t*>(frm);
+    const uint8_t* _frm_end = reinterpret_cast<const uint8_t*>(frm_end);
+    const uint8_t* _frm_nxt = _frm;
+    uint16_t* _to = reinterpret_cast<uint16_t*>(to);
+    uint16_t* _to_end = reinterpret_cast<uint16_t*>(to_end);
+    uint16_t* _to_nxt = _to;
+    result r = utf8_to_utf16(_frm, _frm_end, _frm_nxt, _to, _to_end, _to_nxt);
+    frm_nxt = frm + (_frm_nxt - _frm);
+    to_nxt = to + (_to_nxt - _to);
+    return r;
+}
+
+codecvt<char16_t, char8_t, mbstate_t>::result
+codecvt<char16_t, char8_t, mbstate_t>::do_unshift(state_type&,
+    extern_type* to, extern_type*, extern_type*& to_nxt) const
+{
+    to_nxt = to;
+    return noconv;
+}
+
+int
+codecvt<char16_t, char8_t, mbstate_t>::do_encoding() const  _NOEXCEPT
+{
+    return 0;
+}
+
+bool
+codecvt<char16_t, char8_t, mbstate_t>::do_always_noconv() const  _NOEXCEPT
+{
+    return false;
+}
+
+int
+codecvt<char16_t, char8_t, mbstate_t>::do_length(state_type&,
+    const extern_type* frm, const extern_type* frm_end, size_t mx) const
+{
+    const uint8_t* _frm = reinterpret_cast<const uint8_t*>(frm);
+    const uint8_t* _frm_end = reinterpret_cast<const uint8_t*>(frm_end);
+    return utf8_to_utf16_length(_frm, _frm_end, mx);
+}
+
+int
+codecvt<char16_t, char8_t, mbstate_t>::do_max_length() const  _NOEXCEPT
+{
+    return 4;
+}
+
+#endif
+
 // template <> class codecvt<char32_t, char, mbstate_t>
 
 locale::id codecvt<char32_t, char, mbstate_t>::id;
@@ -3247,6 +3352,87 @@ codecvt<char32_t, char, mbstate_t>::do_max_length() const  _NOEXCEPT
 {
     return 4;
 }
+
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+
+// template <> class codecvt<char32_t, char8_t, mbstate_t>
+
+locale::id codecvt<char32_t, char8_t, mbstate_t>::id;
+
+codecvt<char32_t, char8_t, mbstate_t>::~codecvt()
+{
+}
+
+codecvt<char32_t, char8_t, mbstate_t>::result
+codecvt<char32_t, char8_t, mbstate_t>::do_out(state_type&,
+    const intern_type* frm, const intern_type* frm_end, const intern_type*& frm_nxt,
+    extern_type* to, extern_type* to_end, extern_type*& to_nxt) const
+{
+    const uint32_t* _frm = reinterpret_cast<const uint32_t*>(frm);
+    const uint32_t* _frm_end = reinterpret_cast<const uint32_t*>(frm_end);
+    const uint32_t* _frm_nxt = _frm;
+    uint8_t* _to = reinterpret_cast<uint8_t*>(to);
+    uint8_t* _to_end = reinterpret_cast<uint8_t*>(to_end);
+    uint8_t* _to_nxt = _to;
+    result r = ucs4_to_utf8(_frm, _frm_end, _frm_nxt, _to, _to_end, _to_nxt);
+    frm_nxt = frm + (_frm_nxt - _frm);
+    to_nxt = to + (_to_nxt - _to);
+    return r;
+}
+
+codecvt<char32_t, char8_t, mbstate_t>::result
+codecvt<char32_t, char8_t, mbstate_t>::do_in(state_type&,
+    const extern_type* frm, const extern_type* frm_end, const extern_type*& frm_nxt,
+    intern_type* to, intern_type* to_end, intern_type*& to_nxt) const
+{
+    const uint8_t* _frm = reinterpret_cast<const uint8_t*>(frm);
+    const uint8_t* _frm_end = reinterpret_cast<const uint8_t*>(frm_end);
+    const uint8_t* _frm_nxt = _frm;
+    uint32_t* _to = reinterpret_cast<uint32_t*>(to);
+    uint32_t* _to_end = reinterpret_cast<uint32_t*>(to_end);
+    uint32_t* _to_nxt = _to;
+    result r = utf8_to_ucs4(_frm, _frm_end, _frm_nxt, _to, _to_end, _to_nxt);
+    frm_nxt = frm + (_frm_nxt - _frm);
+    to_nxt = to + (_to_nxt - _to);
+    return r;
+}
+
+codecvt<char32_t, char8_t, mbstate_t>::result
+codecvt<char32_t, char8_t, mbstate_t>::do_unshift(state_type&,
+    extern_type* to, extern_type*, extern_type*& to_nxt) const
+{
+    to_nxt = to;
+    return noconv;
+}
+
+int
+codecvt<char32_t, char8_t, mbstate_t>::do_encoding() const  _NOEXCEPT
+{
+    return 0;
+}
+
+bool
+codecvt<char32_t, char8_t, mbstate_t>::do_always_noconv() const  _NOEXCEPT
+{
+    return false;
+}
+
+int
+codecvt<char32_t, char8_t, mbstate_t>::do_length(state_type&,
+    const extern_type* frm, const extern_type* frm_end, size_t mx) const
+{
+    const uint8_t* _frm = reinterpret_cast<const uint8_t*>(frm);
+    const uint8_t* _frm_end = reinterpret_cast<const uint8_t*>(frm_end);
+    return utf8_to_ucs4_length(_frm, _frm_end, mx);
+}
+
+int
+codecvt<char32_t, char8_t, mbstate_t>::do_max_length() const  _NOEXCEPT
+{
+    return 4;
+}
+
+#endif
 
 // __codecvt_utf8<wchar_t>
 
@@ -5128,7 +5314,7 @@ __time_get_storage<wchar_t>::init(const ctype<wchar_t>& ct)
         mb = mbstate_t();
         const char* bb = buf;
         size_t j = __libcpp_mbsrtowcs_l(wbuf, &bb, countof(wbuf), &mb, __loc_);
-        if (j == size_t(-1))
+        if (j == size_t(-1) || j == 0)
             __throw_runtime_error("locale not supported");
         wbe = wbuf + j;
         __weeks_[i].assign(wbuf, wbe);
@@ -5136,7 +5322,7 @@ __time_get_storage<wchar_t>::init(const ctype<wchar_t>& ct)
         mb = mbstate_t();
         bb = buf;
         j = __libcpp_mbsrtowcs_l(wbuf, &bb, countof(wbuf), &mb, __loc_);
-        if (j == size_t(-1))
+        if (j == size_t(-1) || j == 0)
             __throw_runtime_error("locale not supported");
         wbe = wbuf + j;
         __weeks_[i+7].assign(wbuf, wbe);
@@ -5149,7 +5335,7 @@ __time_get_storage<wchar_t>::init(const ctype<wchar_t>& ct)
         mb = mbstate_t();
         const char* bb = buf;
         size_t j = __libcpp_mbsrtowcs_l(wbuf, &bb, countof(wbuf), &mb, __loc_);
-        if (j == size_t(-1))
+        if (j == size_t(-1) || j == 0)
             __throw_runtime_error("locale not supported");
         wbe = wbuf + j;
         __months_[i].assign(wbuf, wbe);
@@ -5157,7 +5343,7 @@ __time_get_storage<wchar_t>::init(const ctype<wchar_t>& ct)
         mb = mbstate_t();
         bb = buf;
         j = __libcpp_mbsrtowcs_l(wbuf, &bb, countof(wbuf), &mb, __loc_);
-        if (j == size_t(-1))
+        if (j == size_t(-1) || j == 0)
             __throw_runtime_error("locale not supported");
         wbe = wbuf + j;
         __months_[i+12].assign(wbuf, wbe);
@@ -6148,7 +6334,11 @@ template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS messages_byname<wchar_t>
 
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char, char, mbstate_t>;
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<wchar_t, char, mbstate_t>;
-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char16_t, char, mbstate_t>;
-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char32_t, char, mbstate_t>;
+template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS _LIBCPP_DEPRECATED_IN_CXX20 codecvt_byname<char16_t, char, mbstate_t>;
+template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS _LIBCPP_DEPRECATED_IN_CXX20 codecvt_byname<char32_t, char, mbstate_t>;
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char16_t, char8_t, mbstate_t>;
+template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS codecvt_byname<char32_t, char8_t, mbstate_t>;
+#endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -142,8 +142,8 @@ struct _LIBCPP_TEMPLATE_VIS array
     typedef const value_type*                     const_pointer;
     typedef size_t                                size_type;
     typedef ptrdiff_t                             difference_type;
-    typedef std::reverse_iterator<iterator>       reverse_iterator;
-    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    typedef _VSTD::reverse_iterator<iterator>       reverse_iterator;
+    typedef _VSTD::reverse_iterator<const_iterator> const_reverse_iterator;
 
     _Tp __elems_[_Size];
 
@@ -155,7 +155,7 @@ struct _LIBCPP_TEMPLATE_VIS array
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
     void swap(array& __a) _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value) {
-        std::swap_ranges(data(), data() + _Size, __a.data());
+        _VSTD::swap_ranges(data(), data() + _Size, __a.data());
     }
 
     // iterators:
@@ -245,8 +245,8 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0>
     typedef const value_type*                     const_pointer;
     typedef size_t                                size_type;
     typedef ptrdiff_t                             difference_type;
-    typedef std::reverse_iterator<iterator>       reverse_iterator;
-    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    typedef _VSTD::reverse_iterator<iterator>       reverse_iterator;
+    typedef _VSTD::reverse_iterator<const_iterator> const_reverse_iterator;
 
     typedef typename conditional<is_const<_Tp>::value, const char,
                                 char>::type _CharType;
@@ -459,8 +459,6 @@ get(const array<_Tp, _Size>& __a) _NOEXCEPT
     return __a.__elems_[_Ip];
 }
 
-#ifndef _LIBCPP_CXX03_LANG
-
 template <size_t _Ip, class _Tp, size_t _Size>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 _Tp&&
@@ -478,8 +476,6 @@ get(const array<_Tp, _Size>&& __a) _NOEXCEPT
     static_assert(_Ip < _Size, "Index out of bounds in std::get<> (const std::array &&)");
     return _VSTD::move(__a.__elems_[_Ip]);
 }
-
-#endif  // !_LIBCPP_CXX03_LANG
 
 #if _LIBCPP_STD_VER > 17
 

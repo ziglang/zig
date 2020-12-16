@@ -154,8 +154,13 @@ enum class _LIBCPP_ENUM_VIS _NCmpResult : signed char {
   __unordered = -127
 };
 
-struct _CmpUnspecifiedType;
-using _CmpUnspecifiedParam = void (_CmpUnspecifiedType::*)();
+struct _CmpUnspecifiedParam {
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEVAL
+  _CmpUnspecifiedParam(int _CmpUnspecifiedParam::*) noexcept {}
+
+  template<typename _Tp, typename = _VSTD::enable_if_t<!_VSTD::is_same_v<_Tp, int>>>
+  _CmpUnspecifiedParam(_Tp) = delete;
+};
 
 class  weak_equality {
   _LIBCPP_INLINE_VISIBILITY
@@ -696,8 +701,8 @@ constexpr _ClassifyCompCategory __type_to_enum() noexcept {
 
 template <size_t _Size>
 constexpr _ClassifyCompCategory
-__compute_comp_type(std::array<_ClassifyCompCategory, _Size> __types) {
-  std::array<int, _CCC_Size> __seen = {};
+__compute_comp_type(array<_ClassifyCompCategory, _Size> __types) {
+  array<int, _CCC_Size> __seen = {};
   for (auto __type : __types)
     ++__seen[__type];
   if (__seen[_None])

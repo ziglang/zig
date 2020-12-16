@@ -19,12 +19,12 @@ class strstreambuf
 public:
     explicit strstreambuf(streamsize alsize_arg = 0);
     strstreambuf(void* (*palloc_arg)(size_t), void (*pfree_arg)(void*));
-    strstreambuf(char* gnext_arg, streamsize n, char* pbeg_arg = 0);
+    strstreambuf(char* gnext_arg, streamsize n, char* pbeg_arg = nullptr);
     strstreambuf(const char* gnext_arg, streamsize n);
 
-    strstreambuf(signed char* gnext_arg, streamsize n, signed char* pbeg_arg = 0);
+    strstreambuf(signed char* gnext_arg, streamsize n, signed char* pbeg_arg = nullptr);
     strstreambuf(const signed char* gnext_arg, streamsize n);
-    strstreambuf(unsigned char* gnext_arg, streamsize n, unsigned char* pbeg_arg = 0);
+    strstreambuf(unsigned char* gnext_arg, streamsize n, unsigned char* pbeg_arg = nullptr);
     strstreambuf(const unsigned char* gnext_arg, streamsize n);
 
     strstreambuf(strstreambuf&& rhs);
@@ -142,12 +142,12 @@ class _LIBCPP_TYPE_VIS strstreambuf
 public:
     explicit strstreambuf(streamsize __alsize = 0);
     strstreambuf(void* (*__palloc)(size_t), void (*__pfree)(void*));
-    strstreambuf(char* __gnext, streamsize __n, char* __pbeg = 0);
+    strstreambuf(char* __gnext, streamsize __n, char* __pbeg = nullptr);
     strstreambuf(const char* __gnext, streamsize __n);
 
-    strstreambuf(signed char* __gnext, streamsize __n, signed char* __pbeg = 0);
+    strstreambuf(signed char* __gnext, streamsize __n, signed char* __pbeg = nullptr);
     strstreambuf(const signed char* __gnext, streamsize __n);
-    strstreambuf(unsigned char* __gnext, streamsize __n, unsigned char* __pbeg = 0);
+    strstreambuf(unsigned char* __gnext, streamsize __n, unsigned char* __pbeg = nullptr);
     strstreambuf(const unsigned char* __gnext, streamsize __n);
 
 #ifndef _LIBCPP_CXX03_LANG
@@ -290,7 +290,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     ostrstream(char* __s, int __n, ios_base::openmode __mode = ios_base::out)
         : ostream(&__sb_),
-          __sb_(__s, __n, __s + (__mode & ios::app ? strlen(__s) : 0))
+          __sb_(__s, __n, __s + (__mode & ios::app ? _VSTD::strlen(__s) : 0))
         {}
 
 #ifndef _LIBCPP_CXX03_LANG
@@ -350,7 +350,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     strstream(char* __s, int __n, ios_base::openmode __mode = ios_base::in | ios_base::out)
         : iostream(&__sb_),
-          __sb_(__s, __n, __s + (__mode & ios::app ? strlen(__s) : 0))
+          __sb_(__s, __n, __s + (__mode & ios::app ? _VSTD::strlen(__s) : 0))
         {}
 
 #ifndef _LIBCPP_CXX03_LANG

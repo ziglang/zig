@@ -1642,8 +1642,7 @@ class piecewise_linear_distribution
 #include <numeric>
 #include <vector>
 #include <string>
-#include <istream>
-#include <ostream>
+#include <iosfwd>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -1669,7 +1668,23 @@ struct __is_seed_sequence
 
 template <unsigned long long __a, unsigned long long __c,
           unsigned long long __m, unsigned long long _Mp,
-          bool _MightOverflow = (__a != 0 && __m != 0 && __m-1 > (_Mp-__c)/__a)>
+          bool _MightOverflow = (__a != 0 && __m != 0 && __m-1 > (_Mp-__c)/__a),
+          bool _OverflowOK = ((__m|__m-1) > __m), // m = 2^n
+          bool _SchrageOK = (__a != 0 && __m != 0 && __m % __a <= __m / __a)> // r <= q
+struct __lce_alg_picker
+{
+    static_assert(__a != 0 || __m != 0 || !_MightOverflow || _OverflowOK || _SchrageOK,
+                  "The current values of a, c, and m cannot generate a number "
+                  "within bounds of linear_congruential_engine.");
+
+    static _LIBCPP_CONSTEXPR const bool __use_schrage = _MightOverflow &&
+                                                        !_OverflowOK &&
+                                                        _SchrageOK;
+};
+
+template <unsigned long long __a, unsigned long long __c,
+          unsigned long long __m, unsigned long long _Mp,
+          bool _UseSchrage = __lce_alg_picker<__a, __c, __m, _Mp>::__use_schrage>
 struct __lce_ta;
 
 // 64
@@ -1843,6 +1858,7 @@ private:
 
     static_assert(__m == 0 || __a < __m, "linear_congruential_engine invalid parameters");
     static_assert(__m == 0 || __c < __m, "linear_congruential_engine invalid parameters");
+    static_assert(_VSTD::is_unsigned<_UIntType>::value, "_UIntType must be unsigned type");
 public:
     static _LIBCPP_CONSTEXPR const result_type _Min = __c == 0u ? 1u: 0u;
     static _LIBCPP_CONSTEXPR const result_type _Max = __m - 1u;
@@ -1982,7 +1998,8 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const linear_congruential_engine<_UIntType, __a, __c, __m>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left);
+    typedef basic_ostream<_CharT, _Traits> _Ostream;
+    __os.flags(_Ostream::dec | _Ostream::left);
     __os.fill(__os.widen(' '));
     return __os << __x.__x_;
 }
@@ -1994,7 +2011,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
            linear_congruential_engine<_UIntType, __a, __c, __m>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     _UIntType __t;
     __is >> __t;
     if (!__is.fail())
@@ -2453,7 +2471,8 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
                                          _Bp, _Tp, _Cp, _Lp, _Fp>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left);
+    typedef basic_ostream<_CharT, _Traits> _Ostream;
+    __os.flags(_Ostream::dec | _Ostream::left);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.__x_[__x.__i_];
@@ -2474,7 +2493,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
                                    _Bp, _Tp, _Cp, _Lp, _Fp>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     _UInt __t[_Np];
     for (size_t __i = 0; __i < _Np; ++__i)
         __is >> __t[__i];
@@ -2773,7 +2793,8 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left);
+    typedef basic_ostream<_CharT, _Traits> _Ostream;
+    __os.flags(_Ostream::dec | _Ostream::left);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.__x_[__x.__i_];
@@ -2792,7 +2813,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
            subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     _UInt __t[_Rp+1];
     for (size_t __i = 0; __i < _Rp+1; ++__i)
         __is >> __t[__i];
@@ -2955,7 +2977,8 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const discard_block_engine<_Eng, _Pp, _Rp>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left);
+    typedef basic_ostream<_CharT, _Traits> _Ostream;
+    __os.flags(_Ostream::dec | _Ostream::left);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     return __os << __x.__e_ << __sp << __x.__n_;
@@ -2968,7 +2991,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
            discard_block_engine<_Eng, _Pp, _Rp>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     _Eng __e;
     int __n;
     __is >> __e >> __n;
@@ -3440,7 +3464,8 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const shuffle_order_engine<_Eng, _Kp>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left);
+    typedef basic_ostream<_CharT, _Traits> _Ostream;
+    __os.flags(_Ostream::dec | _Ostream::left);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.__e_ << __sp << __x._V_[0];
@@ -3457,7 +3482,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
 {
     typedef typename shuffle_order_engine<_Eng, _Kp>::result_type result_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     _Eng __e;
     result_type _Vp[_Kp+1];
     __is >> __e;
@@ -3476,6 +3502,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
 typedef shuffle_order_engine<minstd_rand0, 256>                         knuth_b;
 
 // random_device
+
+#if !defined(_LIBCPP_HAS_NO_RANDOM_DEVICE)
 
 class _LIBCPP_TYPE_VIS random_device
 {
@@ -3510,6 +3538,8 @@ private:
     random_device(const random_device&); // = delete;
     random_device& operator=(const random_device&); // = delete;
 };
+
+#endif // !_LIBCPP_HAS_NO_RANDOM_DEVICE
 
 // seed_seq
 
@@ -3663,7 +3693,8 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const uniform_int_distribution<_IT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left);
+    typedef basic_ostream<_CharT, _Traits> _Ostream;
+    __os.flags(_Ostream::dec | _Ostream::left);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     return __os << __x.a() << __sp << __x.b();
@@ -3678,7 +3709,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __a;
     result_type __b;
     __is >> __a >> __b;
@@ -3784,8 +3816,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const uniform_real_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     return __os << __x.a() << __sp << __x.b();
@@ -3800,7 +3833,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __a;
     result_type __b;
     __is >> __a >> __b;
@@ -3895,8 +3929,9 @@ basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const bernoulli_distribution& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     return __os << __x.p();
@@ -3909,7 +3944,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bernoulli_distribution& __x)
     typedef bernoulli_distribution _Eng;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     double __p;
     __is >> __p;
     if (!__is.fail())
@@ -3999,12 +4035,12 @@ public:
         {return !(__x == __y);}
 };
 
-#ifndef _LIBCPP_MSVCRT
+#ifndef _LIBCPP_MSVCRT_LIKE
 extern "C" double lgamma_r(double, int *);
 #endif
 
 inline _LIBCPP_INLINE_VISIBILITY double __libcpp_lgamma(double __d) {
-#if defined(_LIBCPP_MSVCRT)
+#if defined(_LIBCPP_MSVCRT_LIKE)
   return lgamma(__d);
 #else
   int __sign;
@@ -4079,8 +4115,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const binomial_distribution<_IntType>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     return __os << __x.t() << __sp << __x.p();
@@ -4095,7 +4132,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __t;
     double __p;
     __is >> __t >> __p;
@@ -4197,8 +4235,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const exponential_distribution<_RealType>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     return __os << __x.lambda();
 }
 
@@ -4211,7 +4250,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __lambda;
     __is >> __lambda;
     if (!__is.fail())
@@ -4351,8 +4391,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const normal_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.mean() << __sp << __x.stddev() << __sp << __x._V_hot_;
@@ -4370,7 +4411,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __mean;
     result_type __stddev;
     result_type _Vp = 0;
@@ -4618,7 +4660,7 @@ poisson_distribution<_IntType>::param_type::param_type(double __mean)
     {
         __s_ = _VSTD::sqrt(__mean_);
         __d_ = 6 * __mean_ * __mean_;
-        __l_ = std::trunc(__mean_ - 1.1484);
+        __l_ = _VSTD::trunc(__mean_ - 1.1484);
         __omega_ = .3989423 / __s_;
         double __b1_ = .4166667E-1 / __mean_;
         double __b2_ = .3 * __b1_ * __b1_;
@@ -4650,13 +4692,13 @@ poisson_distribution<_IntType>::operator()(_URNG& __urng, const param_type& __pr
         double __u;
         if (__g > 0)
         {
-            __tx = std::trunc(__g);
+            __tx = _VSTD::trunc(__g);
             if (__tx >= __pr.__l_)
-                return std::__clamp_to_integral<result_type>(__tx);
+                return _VSTD::__clamp_to_integral<result_type>(__tx);
             __difmuk = __pr.__mean_ - __tx;
             __u = __urd(__urng);
             if (__pr.__d_ * __u >= __difmuk * __difmuk * __difmuk)
-                return std::__clamp_to_integral<result_type>(__tx);
+                return _VSTD::__clamp_to_integral<result_type>(__tx);
         }
         exponential_distribution<double> __edist;
         for (bool __using_exp_dist = false; true; __using_exp_dist = true)
@@ -4672,7 +4714,7 @@ poisson_distribution<_IntType>::operator()(_URNG& __urng, const param_type& __pr
                     __u += __u - 1;
                     __t = 1.8 + (__u < 0 ? -__e : __e);
                 } while (__t <= -.6744);
-                __tx = std::trunc(__pr.__mean_ + __pr.__s_ * __t);
+                __tx = _VSTD::trunc(__pr.__mean_ + __pr.__s_ * __t);
                 __difmuk = __pr.__mean_ - __tx;
                 __using_exp_dist = true;
             }
@@ -4716,7 +4758,7 @@ poisson_distribution<_IntType>::operator()(_URNG& __urng, const param_type& __pr
             }
         }
     }
-    return std::__clamp_to_integral<result_type>(__tx);
+    return _VSTD::__clamp_to_integral<result_type>(__tx);
 }
 
 template <class _CharT, class _Traits, class _IntType>
@@ -4725,8 +4767,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const poisson_distribution<_IntType>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     return __os << __x.mean();
 }
 
@@ -4738,7 +4781,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef poisson_distribution<_IntType> _Eng;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     double __mean;
     __is >> __mean;
     if (!__is.fail())
@@ -4836,8 +4880,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const weibull_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.a() << __sp << __x.b();
@@ -4853,7 +4898,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __a;
     result_type __b;
     __is >> __a >> __b;
@@ -4955,8 +5001,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const extreme_value_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.a() << __sp << __x.b();
@@ -4972,7 +5019,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __a;
     result_type __b;
     __is >> __a >> __b;
@@ -5127,8 +5175,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const gamma_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.alpha() << __sp << __x.beta();
@@ -5144,7 +5193,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __alpha;
     result_type __beta;
     __is >> __alpha >> __beta;
@@ -5263,8 +5313,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const negative_binomial_distribution<_IntType>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     return __os << __x.k() << __sp << __x.p();
@@ -5279,7 +5330,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __k;
     double __p;
     __is >> __k >> __p;
@@ -5369,8 +5421,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const geometric_distribution<_IntType>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     return __os << __x.p();
 }
 
@@ -5382,7 +5435,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef geometric_distribution<_IntType> _Eng;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     double __p;
     __is >> __p;
     if (!__is.fail())
@@ -5473,8 +5527,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const chi_squared_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     __os << __x.n();
     return __os;
 }
@@ -5488,7 +5543,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __n;
     __is >> __n;
     if (!__is.fail())
@@ -5593,8 +5649,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const cauchy_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.a() << __sp << __x.b();
@@ -5610,7 +5667,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __a;
     result_type __b;
     __is >> __a >> __b;
@@ -5715,8 +5773,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const fisher_f_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     __os << __x.m() << __sp << __x.n();
@@ -5732,7 +5791,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __m;
     result_type __n;
     __is >> __m >> __n;
@@ -5831,8 +5891,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const student_t_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     __os << __x.n();
     return __os;
 }
@@ -5846,7 +5907,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef typename _Eng::result_type result_type;
     typedef typename _Eng::param_type param_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     result_type __n;
     __is >> __n;
     if (!__is.fail())
@@ -6054,8 +6116,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const discrete_distribution<_IT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     size_t __n = __x.__p_.__p_.size();
@@ -6071,7 +6134,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
            discrete_distribution<_IT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     size_t __n;
     __is >> __n;
     vector<double> __p(__n);
@@ -6356,8 +6420,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const piecewise_constant_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     size_t __n = __x.__p_.__b_.size();
@@ -6383,7 +6448,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef piecewise_constant_distribution<_RT> _Eng;
     typedef typename _Eng::result_type result_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     size_t __n;
     __is >> __n;
     vector<result_type> __b(__n);
@@ -6696,8 +6762,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
            const piecewise_linear_distribution<_RT>& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
-    __os.flags(ios_base::dec | ios_base::left | ios_base::fixed |
-               ios_base::scientific);
+    typedef basic_ostream<_CharT, _Traits> _OStream;
+    __os.flags(_OStream::dec | _OStream::left | _OStream::fixed |
+               _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
     size_t __n = __x.__p_.__b_.size();
@@ -6723,7 +6790,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef piecewise_linear_distribution<_RT> _Eng;
     typedef typename _Eng::result_type result_type;
     __save_flags<_CharT, _Traits> __lx(__is);
-    __is.flags(ios_base::dec | ios_base::skipws);
+    typedef basic_istream<_CharT, _Traits> _Istream;
+    __is.flags(_Istream::dec | _Istream::skipws);
     size_t __n;
     __is >> __n;
     vector<result_type> __b(__n);
