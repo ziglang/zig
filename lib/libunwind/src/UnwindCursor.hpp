@@ -81,6 +81,7 @@ template <typename A>
 class _LIBUNWIND_HIDDEN DwarfFDECache {
   typedef typename A::pint_t pint_t;
 public:
+  static constexpr pint_t kSearchAll = static_cast<pint_t>(-1);
   static pint_t findFDE(pint_t mh, pint_t pc);
   static void add(pint_t mh, pint_t ip_start, pint_t ip_end, pint_t fde);
   static void removeAllIn(pint_t mh);
@@ -138,7 +139,7 @@ typename A::pint_t DwarfFDECache<A>::findFDE(pint_t mh, pint_t pc) {
   pint_t result = 0;
   _LIBUNWIND_LOG_IF_FALSE(_lock.lock_shared());
   for (entry *p = _buffer; p < _bufferUsed; ++p) {
-    if ((mh == p->mh) || (mh == 0)) {
+    if ((mh == p->mh) || (mh == kSearchAll)) {
       if ((p->ip_start <= pc) && (pc < p->ip_end)) {
         result = p->fde;
         break;
@@ -530,6 +531,8 @@ UnwindCursor<A, R>::UnwindCursor(unw_context_t *context, A &as)
     : _addressSpace(as), _unwindInfoMissing(false) {
   static_assert((check_fit<UnwindCursor<A, R>, unw_cursor_t>::does_fit),
                 "UnwindCursor<> does not fit in unw_cursor_t");
+  static_assert((alignof(UnwindCursor<A, R>) <= alignof(unw_cursor_t)),
+                "UnwindCursor<> requires more alignment than unw_cursor_t");
   memset(&_info, 0, sizeof(_info));
   memset(&_histTable, 0, sizeof(_histTable));
   _dispContext.ContextRecord = &_msContext;
@@ -923,6 +926,9 @@ private:
 #endif
 
 #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
+  bool getInfoFromFdeCie(const typename CFI_Parser<A>::FDE_Info &fdeInfo,
+                         const typename CFI_Parser<A>::CIE_Info &cieInfo,
+                         pint_t pc, uintptr_t dso_base);
   bool getInfoFromDwarfSection(pint_t pc, const UnwindInfoSections &sects,
                                             uint32_t fdeSectionOffsetHint=0);
   int stepWithDwarfFDE() {
@@ -1182,6 +1188,8 @@ UnwindCursor<A, R>::UnwindCursor(unw_context_t *context, A &as)
       _isSignalFrame(false) {
   static_assert((check_fit<UnwindCursor<A, R>, unw_cursor_t>::does_fit),
                 "UnwindCursor<> does not fit in unw_cursor_t");
+  static_assert((alignof(UnwindCursor<A, R>) <= alignof(unw_cursor_t)),
+                "UnwindCursor<> requires more alignment than unw_cursor_t");
   memset(&_info, 0, sizeof(_info));
 }
 
@@ -1473,6 +1481,32 @@ bool UnwindCursor<A, R>::getInfoFromEHABISection(
 
 #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
 template <typename A, typename R>
+bool UnwindCursor<A, R>::getInfoFromFdeCie(
+    const typename CFI_Parser<A>::FDE_Info &fdeInfo,
+    const typename CFI_Parser<A>::CIE_Info &cieInfo, pint_t pc,
+    uintptr_t dso_base) {
+  typename CFI_Parser<A>::PrologInfo prolog;
+  if (CFI_Parser<A>::parseFDEInstructions(_addressSpace, fdeInfo, cieInfo, pc,
+                                          R::getArch(), &prolog)) {
+    // Save off parsed FDE info
+    _info.start_ip          = fdeInfo.pcStart;
+    _info.end_ip            = fdeInfo.pcEnd;
+    _info.lsda              = fdeInfo.lsda;
+    _info.handler           = cieInfo.personality;
+    // Some frameless functions need SP altered when resuming in function, so
+    // propagate spExtraArgSize.
+    _info.gp                = prolog.spExtraArgSize;
+    _info.flags             = 0;
+    _info.format            = dwarfEncoding();
+    _info.unwind_info       = fdeInfo.fdeStart;
+    _info.unwind_info_size  = static_cast<uint32_t>(fdeInfo.fdeLength);
+    _info.extra             = static_cast<unw_word_t>(dso_base);
+    return true;
+  }
+  return false;
+}
+
+template <typename A, typename R>
 bool UnwindCursor<A, R>::getInfoFromDwarfSection(pint_t pc,
                                                 const UnwindInfoSections &sects,
                                                 uint32_t fdeSectionOffsetHint) {
@@ -1483,7 +1517,7 @@ bool UnwindCursor<A, R>::getInfoFromDwarfSection(pint_t pc,
   // If compact encoding table gave offset into dwarf section, go directly there
   if (fdeSectionOffsetHint != 0) {
     foundFDE = CFI_Parser<A>::findFDE(_addressSpace, pc, sects.dwarf_section,
-                                    (uint32_t)sects.dwarf_section_length,
+                                    sects.dwarf_section_length,
                                     sects.dwarf_section + fdeSectionOffsetHint,
                                     &fdeInfo, &cieInfo);
   }
@@ -1500,7 +1534,7 @@ bool UnwindCursor<A, R>::getInfoFromDwarfSection(pint_t pc,
     if (cachedFDE != 0) {
       foundFDE =
           CFI_Parser<A>::findFDE(_addressSpace, pc, sects.dwarf_section,
-                                 (uint32_t)sects.dwarf_section_length,
+                                 sects.dwarf_section_length,
                                  cachedFDE, &fdeInfo, &cieInfo);
       foundInCache = foundFDE;
     }
@@ -1508,25 +1542,11 @@ bool UnwindCursor<A, R>::getInfoFromDwarfSection(pint_t pc,
   if (!foundFDE) {
     // Still not found, do full scan of __eh_frame section.
     foundFDE = CFI_Parser<A>::findFDE(_addressSpace, pc, sects.dwarf_section,
-                                      (uint32_t)sects.dwarf_section_length, 0,
+                                      sects.dwarf_section_length, 0,
                                       &fdeInfo, &cieInfo);
   }
   if (foundFDE) {
-    typename CFI_Parser<A>::PrologInfo prolog;
-    if (CFI_Parser<A>::parseFDEInstructions(_addressSpace, fdeInfo, cieInfo, pc,
-                                            R::getArch(), &prolog)) {
-      // Save off parsed FDE info
-      _info.start_ip          = fdeInfo.pcStart;
-      _info.end_ip            = fdeInfo.pcEnd;
-      _info.lsda              = fdeInfo.lsda;
-      _info.handler           = cieInfo.personality;
-      _info.gp                = prolog.spExtraArgSize;
-      _info.flags             = 0;
-      _info.format            = dwarfEncoding();
-      _info.unwind_info       = fdeInfo.fdeStart;
-      _info.unwind_info_size  = (uint32_t)fdeInfo.fdeLength;
-      _info.extra             = (unw_word_t) sects.dso_base;
-
+    if (getInfoFromFdeCie(fdeInfo, cieInfo, pc, sects.dso_base)) {
       // Add to cache (to make next lookup faster) if we had no hint
       // and there was no index.
       if (!foundInCache && (fdeSectionOffsetHint == 0)) {
@@ -1759,12 +1779,12 @@ bool UnwindCursor<A, R>::getInfoFromCompactEncodingSection(pint_t pc,
     }
   }
 
-  // extact personality routine, if encoding says function has one
+  // extract personality routine, if encoding says function has one
   uint32_t personalityIndex = (encoding & UNWIND_PERSONALITY_MASK) >>
                               (__builtin_ctz(UNWIND_PERSONALITY_MASK));
   if (personalityIndex != 0) {
     --personalityIndex; // change 1-based to zero-based index
-    if (personalityIndex > sectionHeader.personalityArrayCount()) {
+    if (personalityIndex >= sectionHeader.personalityArrayCount()) {
       _LIBUNWIND_DEBUG_LOG("found encoding 0x%08X with personality index %d,  "
                             "but personality table has only %d entries",
                             encoding, personalityIndex,
@@ -1926,60 +1946,27 @@ void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
 #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
   // There is no static unwind info for this pc. Look to see if an FDE was
   // dynamically registered for it.
-  pint_t cachedFDE = DwarfFDECache<A>::findFDE(0, pc);
+  pint_t cachedFDE = DwarfFDECache<A>::findFDE(DwarfFDECache<A>::kSearchAll,
+                                               pc);
   if (cachedFDE != 0) {
-    CFI_Parser<LocalAddressSpace>::FDE_Info fdeInfo;
-    CFI_Parser<LocalAddressSpace>::CIE_Info cieInfo;
-    const char *msg = CFI_Parser<A>::decodeFDE(_addressSpace,
-                                                cachedFDE, &fdeInfo, &cieInfo);
-    if (msg == NULL) {
-      typename CFI_Parser<A>::PrologInfo prolog;
-      if (CFI_Parser<A>::parseFDEInstructions(_addressSpace, fdeInfo, cieInfo,
-                                              pc, R::getArch(), &prolog)) {
-        // save off parsed FDE info
-        _info.start_ip         = fdeInfo.pcStart;
-        _info.end_ip           = fdeInfo.pcEnd;
-        _info.lsda             = fdeInfo.lsda;
-        _info.handler          = cieInfo.personality;
-        _info.gp               = prolog.spExtraArgSize;
-                                  // Some frameless functions need SP
-                                  // altered when resuming in function.
-        _info.flags            = 0;
-        _info.format           = dwarfEncoding();
-        _info.unwind_info      = fdeInfo.fdeStart;
-        _info.unwind_info_size = (uint32_t)fdeInfo.fdeLength;
-        _info.extra            = 0;
+    typename CFI_Parser<A>::FDE_Info fdeInfo;
+    typename CFI_Parser<A>::CIE_Info cieInfo;
+    if (!CFI_Parser<A>::decodeFDE(_addressSpace, cachedFDE, &fdeInfo, &cieInfo))
+      if (getInfoFromFdeCie(fdeInfo, cieInfo, pc, 0))
         return;
-      }
-    }
   }
 
   // Lastly, ask AddressSpace object about platform specific ways to locate
   // other FDEs.
   pint_t fde;
   if (_addressSpace.findOtherFDE(pc, fde)) {
-    CFI_Parser<LocalAddressSpace>::FDE_Info fdeInfo;
-    CFI_Parser<LocalAddressSpace>::CIE_Info cieInfo;
+    typename CFI_Parser<A>::FDE_Info fdeInfo;
+    typename CFI_Parser<A>::CIE_Info cieInfo;
     if (!CFI_Parser<A>::decodeFDE(_addressSpace, fde, &fdeInfo, &cieInfo)) {
       // Double check this FDE is for a function that includes the pc.
-      if ((fdeInfo.pcStart <= pc) && (pc < fdeInfo.pcEnd)) {
-        typename CFI_Parser<A>::PrologInfo prolog;
-        if (CFI_Parser<A>::parseFDEInstructions(_addressSpace, fdeInfo, cieInfo,
-                                                pc, R::getArch(), &prolog)) {
-          // save off parsed FDE info
-          _info.start_ip         = fdeInfo.pcStart;
-          _info.end_ip           = fdeInfo.pcEnd;
-          _info.lsda             = fdeInfo.lsda;
-          _info.handler          = cieInfo.personality;
-          _info.gp               = prolog.spExtraArgSize;
-          _info.flags            = 0;
-          _info.format           = dwarfEncoding();
-          _info.unwind_info      = fdeInfo.fdeStart;
-          _info.unwind_info_size = (uint32_t)fdeInfo.fdeLength;
-          _info.extra            = 0;
+      if ((fdeInfo.pcStart <= pc) && (pc < fdeInfo.pcEnd))
+        if (getInfoFromFdeCie(fdeInfo, cieInfo, pc, 0))
           return;
-        }
-      }
     }
   }
 #endif // #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)

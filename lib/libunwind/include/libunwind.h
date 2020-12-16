@@ -43,6 +43,12 @@
   #define LIBUNWIND_AVAIL
 #endif
 
+#if defined(_WIN32) && defined(__SEH__)
+  #define LIBUNWIND_CURSOR_ALIGNMENT_ATTR __attribute__((__aligned__(16)))
+#else
+  #define LIBUNWIND_CURSOR_ALIGNMENT_ATTR
+#endif
+
 /* error codes */
 enum {
   UNW_ESUCCESS      = 0,     /* no error */
@@ -68,7 +74,7 @@ typedef struct unw_context_t unw_context_t;
 
 struct unw_cursor_t {
   uint64_t data[_LIBUNWIND_CURSOR_SIZE];
-};
+} LIBUNWIND_CURSOR_ALIGNMENT_ATTR;
 typedef struct unw_cursor_t unw_cursor_t;
 
 typedef struct unw_addr_space *unw_addr_space_t;
