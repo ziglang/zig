@@ -32,6 +32,7 @@ pub const Feature = enum {
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
+    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
@@ -158,6 +159,11 @@ pub const cpu = struct {
     pub const f934 = CpuModel{
         .name = "f934",
         .llvm_name = "f934",
+        .features = featureSet(&[_]Feature{}),
+    };
+    pub const generic = CpuModel{
+        .name = "generic",
+        .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
     pub const gr712rc = CpuModel{

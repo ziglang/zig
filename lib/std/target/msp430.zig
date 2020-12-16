@@ -17,6 +17,7 @@ pub const Feature = enum {
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
+    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;

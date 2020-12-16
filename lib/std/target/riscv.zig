@@ -25,6 +25,9 @@ pub const Feature = enum {
     experimental_zbr,
     experimental_zbs,
     experimental_zbt,
+    experimental_zfh,
+    experimental_zvamo,
+    experimental_zvlsseg,
     f,
     m,
     no_rvc_hints,
@@ -66,6 +69,7 @@ pub const Feature = enum {
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
+    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
@@ -167,6 +171,27 @@ pub const all_features = blk: {
         .llvm_name = "experimental-zbt",
         .description = "'Zbt' (Ternary 'B' Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zfh)] = .{
+        .llvm_name = "experimental-zfh",
+        .description = "'Zfh' (Half-Precision Floating-Point)",
+        .dependencies = featureSet(&[_]Feature{
+            .f,
+        }),
+    };
+    result[@enumToInt(Feature.experimental_zvamo)] = .{
+        .llvm_name = "experimental-zvamo",
+        .description = "'Zvamo'(Vector AMO Operations)",
+        .dependencies = featureSet(&[_]Feature{
+            .experimental_v,
+        }),
+    };
+    result[@enumToInt(Feature.experimental_zvlsseg)] = .{
+        .llvm_name = "experimental-zvlsseg",
+        .description = "'Zvlsseg' (Vector segment load/store instructions)",
+        .dependencies = featureSet(&[_]Feature{
+            .experimental_v,
+        }),
     };
     result[@enumToInt(Feature.f)] = .{
         .llvm_name = "f",
@@ -357,29 +382,6 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const baseline_rv32 = CpuModel{
-        .name = "baseline_rv32",
-        .llvm_name = null,
-        .features = featureSet(&[_]Feature{
-            .a,
-            .c,
-            .d,
-            .f,
-            .m,
-        }),
-    };
-    pub const baseline_rv64 = CpuModel{
-        .name = "baseline_rv64",
-        .llvm_name = null,
-        .features = featureSet(&[_]Feature{
-            .@"64bit",
-            .a,
-            .c,
-            .d,
-            .f,
-            .m,
-        }),
-    };
     pub const generic_rv32 = CpuModel{
         .name = "generic_rv32",
         .llvm_name = "generic-rv32",
@@ -404,6 +406,18 @@ pub const cpu = struct {
             .@"64bit",
         }),
     };
+    pub const sifive_7_rv32 = CpuModel{
+        .name = "sifive_7_rv32",
+        .llvm_name = "sifive-7-rv32",
+        .features = featureSet(&[_]Feature{}),
+    };
+    pub const sifive_7_rv64 = CpuModel{
+        .name = "sifive_7_rv64",
+        .llvm_name = "sifive-7-rv64",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+        }),
+    };
     pub const sifive_e31 = CpuModel{
         .name = "sifive_e31",
         .llvm_name = "sifive-e31",
@@ -413,9 +427,31 @@ pub const cpu = struct {
             .m,
         }),
     };
+    pub const sifive_e76 = CpuModel{
+        .name = "sifive_e76",
+        .llvm_name = "sifive-e76",
+        .features = featureSet(&[_]Feature{
+            .a,
+            .c,
+            .f,
+            .m,
+        }),
+    };
     pub const sifive_u54 = CpuModel{
         .name = "sifive_u54",
         .llvm_name = "sifive-u54",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .a,
+            .c,
+            .d,
+            .f,
+            .m,
+        }),
+    };
+    pub const sifive_u74 = CpuModel{
+        .name = "sifive_u74",
+        .llvm_name = "sifive-u74",
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .a,

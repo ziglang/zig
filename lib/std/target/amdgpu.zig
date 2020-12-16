@@ -16,7 +16,6 @@ pub const Feature = enum {
     atomic_fadd_insts,
     auto_waitcnt_before_barrier,
     ci_insts,
-    code_object_v3,
     cumode,
     dl_insts,
     dot1_insts,
@@ -54,6 +53,8 @@ pub const Feature = enum {
     gfx9,
     gfx9_insts,
     half_rate_64_ops,
+    image_gather4_d16_bug,
+    image_store_d16_bug,
     inst_fwd_prefetch_bug,
     int_clamp_insts,
     inv_2pi_inline_imm,
@@ -104,7 +105,9 @@ pub const Feature = enum {
     sram_ecc,
     trap_handler,
     trig_reduced_range,
+    unaligned_access_mode,
     unaligned_buffer_access,
+    unaligned_ds_access,
     unaligned_scratch_access,
     unpacked_d16_vmem,
     unsafe_ds_offset_folding,
@@ -125,6 +128,7 @@ pub const Feature = enum {
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
+    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
@@ -168,11 +172,6 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ci_insts)] = .{
         .llvm_name = "ci-insts",
         .description = "Additional instructions for CI+",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.code_object_v3)] = .{
-        .llvm_name = "code-object-v3",
-        .description = "Generate code object version 3",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.cumode)] = .{
@@ -353,6 +352,8 @@ pub const all_features = blk: {
             .sdwa_omod,
             .sdwa_scalar,
             .sdwa_sdst,
+            .unaligned_buffer_access,
+            .unaligned_ds_access,
             .vop3_literal,
             .vop3p,
             .vscnt,
@@ -418,6 +419,8 @@ pub const all_features = blk: {
             .sdwa_omod,
             .sdwa_scalar,
             .sdwa_sdst,
+            .unaligned_buffer_access,
+            .unaligned_ds_access,
             .vgpr_index_mode,
             .vop3p,
             .wavefrontsize64,
@@ -431,6 +434,16 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.half_rate_64_ops)] = .{
         .llvm_name = "half-rate-64-ops",
         .description = "Most fp64 instructions are half rate instead of quarter",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.image_gather4_d16_bug)] = .{
+        .llvm_name = "image-gather4-d16-bug",
+        .description = "Image Gather4 D16 hardware bug",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.image_store_d16_bug)] = .{
+        .llvm_name = "image-store-d16-bug",
+        .description = "Image Store D16 hardware bug",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.inst_fwd_prefetch_bug)] = .{
@@ -455,7 +468,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.lds_misaligned_bug)] = .{
         .llvm_name = "lds-misaligned-bug",
-        .description = "Some GFX10 bug with misaligned multi-dword LDS access in WGP mode",
+        .description = "Some GFX10 bug with multi-dword LDS and flat access that is not naturally aligned in WGP mode",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ldsbankcount16)] = .{
@@ -659,6 +672,7 @@ pub const all_features = blk: {
             .no_sram_ecc_support,
             .s_memtime_inst,
             .trig_reduced_range,
+            .unaligned_buffer_access,
             .wavefrontsize64,
         }),
     };
@@ -710,9 +724,19 @@ pub const all_features = blk: {
         .description = "Requires use of fract on arguments to trig instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.unaligned_access_mode)] = .{
+        .llvm_name = "unaligned-access-mode",
+        .description = "Enable unaligned global, local and region loads and stores if the hardware supports it",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.unaligned_buffer_access)] = .{
         .llvm_name = "unaligned-buffer-access",
-        .description = "Support unaligned global loads and stores",
+        .description = "Hardware supports unaligned global loads and stores",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.unaligned_ds_access)] = .{
+        .llvm_name = "unaligned-ds-access",
+        .description = "Hardware supports unaligned local and region loads and stores",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.unaligned_scratch_access)] = .{
@@ -778,6 +802,7 @@ pub const all_features = blk: {
             .sdwa_mav,
             .sdwa_out_mods_vopc,
             .trig_reduced_range,
+            .unaligned_buffer_access,
             .vgpr_index_mode,
             .wavefrontsize64,
         }),
@@ -830,7 +855,6 @@ pub const cpu = struct {
         .name = "bonaire",
         .llvm_name = "bonaire",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .sea_islands,
@@ -840,7 +864,6 @@ pub const cpu = struct {
         .name = "carrizo",
         .llvm_name = "carrizo",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .fast_fmaf,
             .half_rate_64_ops,
             .ldsbankcount32,
@@ -853,7 +876,6 @@ pub const cpu = struct {
         .name = "fiji",
         .llvm_name = "fiji",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .unpacked_d16_vmem,
@@ -879,7 +901,6 @@ pub const cpu = struct {
         .name = "gfx1010",
         .llvm_name = "gfx1010",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .dl_insts,
             .ds_src2_insts,
             .flat_segment_offset_bug,
@@ -909,7 +930,6 @@ pub const cpu = struct {
         .name = "gfx1011",
         .llvm_name = "gfx1011",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -921,6 +941,7 @@ pub const cpu = struct {
             .gfx10,
             .inst_fwd_prefetch_bug,
             .lds_branch_vmem_war_hazard,
+            .lds_misaligned_bug,
             .ldsbankcount32,
             .mad_mac_f32_insts,
             .no_xnack_support,
@@ -942,7 +963,6 @@ pub const cpu = struct {
         .name = "gfx1012",
         .llvm_name = "gfx1012",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -976,7 +996,60 @@ pub const cpu = struct {
         .name = "gfx1030",
         .llvm_name = "gfx1030",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .dot5_insts,
+            .dot6_insts,
+            .gfx10,
+            .gfx10_3_insts,
+            .gfx10_b_encoding,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .nsa_encoding,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1031 = CpuModel{
+        .name = "gfx1031",
+        .llvm_name = "gfx1031",
+        .features = featureSet(&[_]Feature{
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .dot5_insts,
+            .dot6_insts,
+            .gfx10,
+            .gfx10_3_insts,
+            .gfx10_b_encoding,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .nsa_encoding,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1032 = CpuModel{
+        .name = "gfx1032",
+        .llvm_name = "gfx1032",
+        .features = featureSet(&[_]Feature{
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .dot5_insts,
+            .dot6_insts,
+            .gfx10,
+            .gfx10_3_insts,
+            .gfx10_b_encoding,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .nsa_encoding,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1033 = CpuModel{
+        .name = "gfx1033",
+        .llvm_name = "gfx1033",
+        .features = featureSet(&[_]Feature{
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -995,7 +1068,6 @@ pub const cpu = struct {
         .name = "gfx600",
         .llvm_name = "gfx600",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .fast_fmaf,
             .half_rate_64_ops,
             .ldsbankcount32,
@@ -1007,7 +1079,15 @@ pub const cpu = struct {
         .name = "gfx601",
         .llvm_name = "gfx601",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .southern_islands,
+        }),
+    };
+    pub const gfx602 = CpuModel{
+        .name = "gfx602",
+        .llvm_name = "gfx602",
+        .features = featureSet(&[_]Feature{
             .ldsbankcount32,
             .no_xnack_support,
             .southern_islands,
@@ -1017,7 +1097,6 @@ pub const cpu = struct {
         .name = "gfx700",
         .llvm_name = "gfx700",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .sea_islands,
@@ -1027,7 +1106,6 @@ pub const cpu = struct {
         .name = "gfx701",
         .llvm_name = "gfx701",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .fast_fmaf,
             .half_rate_64_ops,
             .ldsbankcount32,
@@ -1039,7 +1117,6 @@ pub const cpu = struct {
         .name = "gfx702",
         .llvm_name = "gfx702",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .fast_fmaf,
             .ldsbankcount16,
             .no_xnack_support,
@@ -1050,7 +1127,6 @@ pub const cpu = struct {
         .name = "gfx703",
         .llvm_name = "gfx703",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount16,
             .no_xnack_support,
             .sea_islands,
@@ -1060,8 +1136,16 @@ pub const cpu = struct {
         .name = "gfx704",
         .llvm_name = "gfx704",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const gfx705 = CpuModel{
+        .name = "gfx705",
+        .llvm_name = "gfx705",
+        .features = featureSet(&[_]Feature{
+            .ldsbankcount16,
             .no_xnack_support,
             .sea_islands,
         }),
@@ -1070,7 +1154,6 @@ pub const cpu = struct {
         .name = "gfx801",
         .llvm_name = "gfx801",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .fast_fmaf,
             .half_rate_64_ops,
             .ldsbankcount32,
@@ -1083,7 +1166,6 @@ pub const cpu = struct {
         .name = "gfx802",
         .llvm_name = "gfx802",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .sgpr_init_bug,
@@ -1095,9 +1177,19 @@ pub const cpu = struct {
         .name = "gfx803",
         .llvm_name = "gfx803",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const gfx805 = CpuModel{
+        .name = "gfx805",
+        .llvm_name = "gfx805",
+        .features = featureSet(&[_]Feature{
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sgpr_init_bug,
             .unpacked_d16_vmem,
             .volcanic_islands,
         }),
@@ -1106,7 +1198,8 @@ pub const cpu = struct {
         .name = "gfx810",
         .llvm_name = "gfx810",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
+            .image_gather4_d16_bug,
+            .image_store_d16_bug,
             .ldsbankcount16,
             .volcanic_islands,
             .xnack,
@@ -1116,8 +1209,8 @@ pub const cpu = struct {
         .name = "gfx900",
         .llvm_name = "gfx900",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .gfx9,
+            .image_gather4_d16_bug,
             .ldsbankcount32,
             .mad_mix_insts,
             .no_sram_ecc_support,
@@ -1128,8 +1221,8 @@ pub const cpu = struct {
         .name = "gfx902",
         .llvm_name = "gfx902",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .gfx9,
+            .image_gather4_d16_bug,
             .ldsbankcount32,
             .mad_mix_insts,
             .no_sram_ecc_support,
@@ -1140,9 +1233,9 @@ pub const cpu = struct {
         .name = "gfx904",
         .llvm_name = "gfx904",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .fma_mix_insts,
             .gfx9,
+            .image_gather4_d16_bug,
             .ldsbankcount32,
             .no_sram_ecc_support,
             .no_xnack_support,
@@ -1152,13 +1245,13 @@ pub const cpu = struct {
         .name = "gfx906",
         .llvm_name = "gfx906",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
             .fma_mix_insts,
             .gfx9,
             .half_rate_64_ops,
+            .image_gather4_d16_bug,
             .ldsbankcount32,
             .no_xnack_support,
         }),
@@ -1168,7 +1261,6 @@ pub const cpu = struct {
         .llvm_name = "gfx908",
         .features = featureSet(&[_]Feature{
             .atomic_fadd_insts,
-            .code_object_v3,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1179,6 +1271,7 @@ pub const cpu = struct {
             .fma_mix_insts,
             .gfx9,
             .half_rate_64_ops,
+            .image_gather4_d16_bug,
             .ldsbankcount32,
             .mai_insts,
             .mfma_inline_literal_bug,
@@ -1190,8 +1283,19 @@ pub const cpu = struct {
         .name = "gfx909",
         .llvm_name = "gfx909",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .gfx9,
+            .image_gather4_d16_bug,
+            .ldsbankcount32,
+            .mad_mix_insts,
+            .xnack,
+        }),
+    };
+    pub const gfx90c = CpuModel{
+        .name = "gfx90c",
+        .llvm_name = "gfx90c",
+        .features = featureSet(&[_]Feature{
+            .gfx9,
+            .image_gather4_d16_bug,
             .ldsbankcount32,
             .mad_mix_insts,
             .xnack,
@@ -1201,7 +1305,6 @@ pub const cpu = struct {
         .name = "hainan",
         .llvm_name = "hainan",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .southern_islands,
@@ -1211,7 +1314,6 @@ pub const cpu = struct {
         .name = "hawaii",
         .llvm_name = "hawaii",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .fast_fmaf,
             .half_rate_64_ops,
             .ldsbankcount32,
@@ -1223,7 +1325,6 @@ pub const cpu = struct {
         .name = "iceland",
         .llvm_name = "iceland",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .sgpr_init_bug,
@@ -1235,7 +1336,6 @@ pub const cpu = struct {
         .name = "kabini",
         .llvm_name = "kabini",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount16,
             .no_xnack_support,
             .sea_islands,
@@ -1245,7 +1345,6 @@ pub const cpu = struct {
         .name = "kaveri",
         .llvm_name = "kaveri",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .sea_islands,
@@ -1255,7 +1354,6 @@ pub const cpu = struct {
         .name = "mullins",
         .llvm_name = "mullins",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount16,
             .no_xnack_support,
             .sea_islands,
@@ -1265,7 +1363,6 @@ pub const cpu = struct {
         .name = "oland",
         .llvm_name = "oland",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .southern_islands,
@@ -1275,7 +1372,6 @@ pub const cpu = struct {
         .name = "pitcairn",
         .llvm_name = "pitcairn",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .southern_islands,
@@ -1285,7 +1381,6 @@ pub const cpu = struct {
         .name = "polaris10",
         .llvm_name = "polaris10",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .unpacked_d16_vmem,
@@ -1296,7 +1391,6 @@ pub const cpu = struct {
         .name = "polaris11",
         .llvm_name = "polaris11",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .unpacked_d16_vmem,
@@ -1307,7 +1401,8 @@ pub const cpu = struct {
         .name = "stoney",
         .llvm_name = "stoney",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
+            .image_gather4_d16_bug,
+            .image_store_d16_bug,
             .ldsbankcount16,
             .volcanic_islands,
             .xnack,
@@ -1317,7 +1412,6 @@ pub const cpu = struct {
         .name = "tahiti",
         .llvm_name = "tahiti",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .fast_fmaf,
             .half_rate_64_ops,
             .ldsbankcount32,
@@ -1329,7 +1423,17 @@ pub const cpu = struct {
         .name = "tonga",
         .llvm_name = "tonga",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sgpr_init_bug,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const tongapro = CpuModel{
+        .name = "tongapro",
+        .llvm_name = "tongapro",
+        .features = featureSet(&[_]Feature{
             .ldsbankcount32,
             .no_xnack_support,
             .sgpr_init_bug,
@@ -1341,7 +1445,6 @@ pub const cpu = struct {
         .name = "verde",
         .llvm_name = "verde",
         .features = featureSet(&[_]Feature{
-            .code_object_v3,
             .ldsbankcount32,
             .no_xnack_support,
             .southern_islands,
