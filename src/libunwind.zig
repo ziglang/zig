@@ -95,6 +95,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .root_name = root_name,
         .root_pkg = null,
         .output_mode = output_mode,
+        .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
         .optimize_mode = comp.bin_file.options.optimize_mode,

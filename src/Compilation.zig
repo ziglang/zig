@@ -26,6 +26,8 @@ const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
 const stage1 = @import("stage1.zig");
 const translate_c = @import("translate_c.zig");
+const ThreadPool = @import("ThreadPool.zig");
+const WaitGroup = @import("WaitGroup.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -79,6 +81,7 @@ zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
+thread_pool: *ThreadPool,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
@@ -335,6 +338,7 @@ pub const InitOptions = struct {
     root_name: []const u8,
     root_pkg: ?*Package,
     output_mode: std.builtin.OutputMode,
+    thread_pool: *ThreadPool,
     dynamic_linker: ?[]const u8 = null,
     /// `null` means to not emit a binary file.
     emit_bin: ?EmitLoc,
@@ -985,6 +989,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .self_exe_path = options.self_exe_path,
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
             .sanitize_c = sanitize_c,
+            .thread_pool = options.thread_pool,
             .clang_passthrough_mode = options.clang_passthrough_mode,
             .clang_preprocessor_mode = options.clang_preprocessor_mode,
             .verbose_cc = options.verbose_cc,
@@ -1380,24 +1385,14 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
     defer c_comp_progress_node.end();
 
+    var wg = WaitGroup{};
+    defer wg.wait();
+
     while (self.c_object_work_queue.readItem()) |c_object| {
-        self.updateCObject(c_object, &c_comp_progress_node) catch |err| switch (err) {
-            error.AnalysisFail => continue,
-            else => {
-                {
-                    var lock = self.mutex.acquire();
-                    defer lock.release();
-                    try self.failed_c_objects.ensureCapacity(self.gpa, self.failed_c_objects.items().len + 1);
-                    self.failed_c_objects.putAssumeCapacityNoClobber(c_object, try ErrorMsg.create(
-                        self.gpa,
-                        0,
-                        "unable to build C object: {s}",
-                        .{@errorName(err)},
-                    ));
-                }
-                c_object.status = .{ .failure = {} };
-            },
-        };
+        wg.start();
+        try self.thread_pool.spawn(workerUpdateCObject, .{
+            self, c_object, &c_comp_progress_node, &wg,
+        });
     }
 
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
@@ -1718,6 +1713,37 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     return CImportResult{
         .out_zig_path = out_zig_path,
         .errors = &[0]translate_c.ClangErrMsg{},
+    };
+}
+
+fn workerUpdateCObject(
+    comp: *Compilation,
+    c_object: *CObject,
+    progress_node: *std.Progress.Node,
+    wg: *WaitGroup,
+) void {
+    defer wg.stop();
+
+    comp.updateCObject(c_object, progress_node) catch |err| switch (err) {
+        error.AnalysisFail => return,
+        else => {
+            {
+                var lock = comp.mutex.acquire();
+                defer lock.release();
+                comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.items().len + 1) catch {
+                    fatal("TODO handle this by setting c_object.status = oom failure", .{});
+                };
+                comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, ErrorMsg.create(
+                    comp.gpa,
+                    0,
+                    "unable to build C object: {s}",
+                    .{@errorName(err)},
+                ) catch {
+                    fatal("TODO handle this by setting c_object.status = oom failure", .{});
+                });
+            }
+            c_object.status = .{ .failure = {} };
+        },
     };
 }
 
@@ -2800,6 +2826,7 @@ fn buildOutputFromZig(
         .root_name = root_name,
         .root_pkg = &root_pkg,
         .output_mode = fixed_output_mode,
+        .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
         .optimize_mode = optimize_mode,
@@ -3173,6 +3200,7 @@ pub fn build_crt_file(
         .root_name = root_name,
         .root_pkg = null,
         .output_mode = output_mode,
+        .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
         .optimize_mode = comp.bin_file.options.optimize_mode,

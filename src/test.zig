@@ -10,6 +10,7 @@ const enable_qemu: bool = build_options.enable_qemu;
 const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
+const ThreadPool = @import("ThreadPool.zig");
 
 const cheader = @embedFile("link/cbe.h");
 
@@ -467,6 +468,10 @@ pub const TestContext = struct {
         defer zig_lib_directory.handle.close();
         defer std.testing.allocator.free(zig_lib_directory.path.?);
 
+        var thread_pool: ThreadPool = undefined;
+        try thread_pool.init(std.testing.allocator);
+        defer thread_pool.deinit();
+
         for (self.cases.items) |case| {
             if (build_options.skip_non_native and case.target.getCpuArch() != std.Target.current.cpu.arch)
                 continue;
@@ -480,7 +485,13 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            try self.runOneCase(std.testing.allocator, &prg_node, case, zig_lib_directory);
+            try self.runOneCase(
+                std.testing.allocator,
+                &prg_node,
+                case,
+                zig_lib_directory,
+                &thread_pool,
+            );
         }
     }
 
@@ -490,6 +501,7 @@ pub const TestContext = struct {
         root_node: *std.Progress.Node,
         case: Case,
         zig_lib_directory: Compilation.Directory,
+        thread_pool: *ThreadPool,
     ) !void {
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
@@ -539,6 +551,7 @@ pub const TestContext = struct {
             .local_cache_directory = zig_cache_directory,
             .global_cache_directory = zig_cache_directory,
             .zig_lib_directory = zig_lib_directory,
+            .thread_pool = thread_pool,
             .root_name = "test_case",
             .target = target,
             // TODO: support tests for object file building, and library builds
