@@ -377,28 +377,36 @@ __device__ static inline void *malloc(size_t __size) {
 // Out-of-line implementations from __clang_cuda_builtin_vars.h.  These need to
 // come after we've pulled in the definition of uint3 and dim3.
 
+__device__ inline __cuda_builtin_threadIdx_t::operator dim3() const {
+  return dim3(x, y, z);
+}
+
 __device__ inline __cuda_builtin_threadIdx_t::operator uint3() const {
-  uint3 ret;
-  ret.x = x;
-  ret.y = y;
-  ret.z = z;
-  return ret;
+  return {x, y, z};
+}
+
+__device__ inline __cuda_builtin_blockIdx_t::operator dim3() const {
+  return dim3(x, y, z);
 }
 
 __device__ inline __cuda_builtin_blockIdx_t::operator uint3() const {
-  uint3 ret;
-  ret.x = x;
-  ret.y = y;
-  ret.z = z;
-  return ret;
+  return {x, y, z};
 }
 
 __device__ inline __cuda_builtin_blockDim_t::operator dim3() const {
   return dim3(x, y, z);
 }
 
+__device__ inline __cuda_builtin_blockDim_t::operator uint3() const {
+  return {x, y, z};
+}
+
 __device__ inline __cuda_builtin_gridDim_t::operator dim3() const {
   return dim3(x, y, z);
+}
+
+__device__ inline __cuda_builtin_gridDim_t::operator uint3() const {
+  return {x, y, z};
 }
 
 #include <__clang_cuda_cmath.h>
