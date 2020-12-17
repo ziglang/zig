@@ -1249,3 +1249,40 @@ test "std.hash_map clone" {
         testing.expect(copy.get(i).? == i * 10);
     }
 }
+
+test "putAssumeCapacity with no available empty slots" {
+    // Identity mapping between the allocated slot index and the key.
+    const S = struct {
+        fn hash(key: u32) u64 {
+            return key;
+        }
+        fn eql(a: u32, b: u32) bool {
+            return a == b;
+        }
+    };
+    var map: HashMapUnmanaged(u32, u32, S.hash, S.eql, DefaultMaxLoadPercentage) = .{};
+    defer map.deinit(std.testing.allocator);
+
+    try map.ensureCapacity(std.testing.allocator, 5);
+    const avail = map.available;
+    // Fill all the available slots.
+    var i: usize = 0;
+    while (i < avail) : (i += 1) {
+        map.putAssumeCapacity(@intCast(u32, i), 0);
+    }
+    testing.expect(map.available == 0);
+    testing.expect(map.size == avail);
+    // Remove everything, all the usable slots are tombstones.
+    i = 0;
+    while (i < avail) : (i += 1) {
+        map.removeAssertDiscard(@intCast(u32, i));
+    }
+    testing.expect(map.available == 0);
+    testing.expect(map.size == 0);
+    // Try to fill the unused slots, since map.available is zero the insertion
+    // logic will recycle the next tombstoned entry that's available.
+    i = avail;
+    while (i < map.capacity()) : (i += 1) {
+        map.putAssumeCapacity(@intCast(u32, i), 0);
+    }
+}
