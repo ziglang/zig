@@ -315,6 +315,10 @@ pub fn HashMapUnmanaged(
                 return self.tombstone == 1;
             }
 
+            pub fn isEmpty(self: Metadata) bool {
+                return self.used == 0 and self.tombstone == 0;
+            }
+
             pub fn takeFingerprint(hash: Hash) FingerPrint {
                 const hash_bits = @typeInfo(Hash).Int.bits;
                 const fp_bits = @typeInfo(FingerPrint).Int.bits;
@@ -598,14 +602,21 @@ pub fn HashMapUnmanaged(
 
             var first_tombstone_idx: usize = self.capacity(); // invalid index
             var metadata = self.metadata.? + idx;
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+            while (true) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
+                    // Update an existing entry.
                     const entry = &self.entries()[idx];
                     if (eqlFn(entry.key, key)) {
                         return GetOrPutResult{ .entry = entry, .found_existing = true };
                     }
-                } else if (first_tombstone_idx == self.capacity() and metadata[0].isTombstone()) {
+                } else if (metadata[0].isTombstone()) {
+                    // Recycle a tombstoned entry.
                     first_tombstone_idx = idx;
+                    break;
+                } else if (metadata[0].isEmpty() and self.available > 0) {
+                    // Take an empty entry, but only if we're not above the
+                    // maximum load factor.
+                    break;
                 }
 
                 idx = (idx + 1) & mask;
