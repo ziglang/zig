@@ -622,11 +622,13 @@ fn buildOutputType(
                         i += 1;
                         const pkg_path = args[i];
 
-                        const new_cur_pkg = try Package.create(
+                        const new_cur_pkg = Package.create(
                             gpa,
                             fs.path.dirname(pkg_path),
                             fs.path.basename(pkg_path),
-                        );
+                        ) catch |err| {
+                            fatal("Failed to add package at path {}: {}", .{ pkg_path, @errorName(err) });
+                        };
                         new_cur_pkg.parent = cur_pkg;
                         try cur_pkg.add(gpa, pkg_name, new_cur_pkg);
                         cur_pkg = new_cur_pkg;
