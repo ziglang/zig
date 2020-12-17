@@ -110,7 +110,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
         );
         switch (rc) {
             .SUCCESS => {
-                if (options.io_mode == .evented) {
+                if (std.io.is_async and options.io_mode == .evented) {
                     _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
                 }
                 return result;
