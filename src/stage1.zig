@@ -103,7 +103,7 @@ pub const Module = extern struct {
     test_name_prefix_len: usize,
     userdata: usize,
     root_pkg: *Pkg,
-    main_progress_node: ?*std.Progress.Node,
+    main_progress_node: ?*ProgressNode,
     code_model: CodeModel,
     subsystem: TargetSubsystem,
     err_color: ErrColor,
@@ -273,54 +273,71 @@ export fn stage2_attach_segfault_handler() void {
     }
 }
 
+pub const Progress = opaque {
+    inline fn unwrap(self: *Progress) *std.Progress {
+        return @ptrCast(*std.Progress, @alignCast(@alignOf(std.Progress), self));
+    }
+};
+pub const ProgressNode = opaque {
+    inline fn unwrap(self: *ProgressNode) *std.Progress.Node {
+        return @ptrCast(*std.Progress.Node, @alignCast(@alignOf(std.Progress.Node), self));
+    }
+};
+
 // ABI warning
-export fn stage2_progress_create() *std.Progress {
+export fn stage2_progress_create() *Progress {
     const ptr = std.heap.c_allocator.create(std.Progress) catch @panic("out of memory");
     ptr.* = std.Progress{};
-    return ptr;
+    return @ptrCast(*Progress, ptr);
 }
 
 // ABI warning
-export fn stage2_progress_destroy(progress: *std.Progress) void {
+export fn stage2_progress_destroy(progress_: *Progress) void {
+    const progress = progress_.unwrap();
     std.heap.c_allocator.destroy(progress);
 }
 
 // ABI warning
 export fn stage2_progress_start_root(
-    progress: *std.Progress,
+    progress_: *Progress,
     name_ptr: [*]const u8,
     name_len: usize,
     estimated_total_items: usize,
-) *std.Progress.Node {
-    return progress.start(
+) *ProgressNode {
+    const progress = progress_.unwrap();
+    const node = progress.start(
         name_ptr[0..name_len],
         estimated_total_items,
     ) catch @panic("timer unsupported");
+    return @ptrCast(*ProgressNode, node);
 }
 
 // ABI warning
-export fn stage2_progress_disable_tty(progress: *std.Progress) void {
+export fn stage2_progress_disable_tty(progress_: *Progress) void {
+    const progress = progress_.unwrap();
     progress.terminal = null;
 }
 
 // ABI warning
 export fn stage2_progress_start(
-    node: *std.Progress.Node,
+    node_: *ProgressNode,
     name_ptr: [*]const u8,
     name_len: usize,
     estimated_total_items: usize,
-) *std.Progress.Node {
+) *ProgressNode {
+    const node = node_.unwrap();
     const child_node = std.heap.c_allocator.create(std.Progress.Node) catch @panic("out of memory");
     child_node.* = node.start(
         name_ptr[0..name_len],
         estimated_total_items,
     );
     child_node.activate();
-    return child_node;
+    return @ptrCast(*ProgressNode, child_node);
 }
 
 // ABI warning
-export fn stage2_progress_end(node: *std.Progress.Node) void {
+export fn stage2_progress_end(node_: *ProgressNode) void {
+    var node = node_.unwrap();
     node.end();
     if (&node.context.root != node) {
         std.heap.c_allocator.destroy(node);
@@ -328,12 +345,14 @@ export fn stage2_progress_end(node: *std.Progress.Node) void {
 }
 
 // ABI warning
-export fn stage2_progress_complete_one(node: *std.Progress.Node) void {
+export fn stage2_progress_complete_one(node_: *ProgressNode) void {
+    var node = node_.unwrap();
     node.completeOne();
 }
 
 // ABI warning
-export fn stage2_progress_update_node(node: *std.Progress.Node, done_count: usize, total_count: usize) void {
+export fn stage2_progress_update_node(node_: *ProgressNode, done_count: usize, total_count: usize) void {
+    var node = node_.unwrap();
     node.setCompletedItems(done_count);
     node.setEstimatedTotalItems(total_count);
     node.activate();

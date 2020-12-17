@@ -3153,7 +3153,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
-        .main_progress_node = main_progress_node,
+        .main_progress_node = @ptrCast(*stage1.ProgressNode, main_progress_node),
         .have_c_main = false,
         .have_winmain = false,
         .have_wwinmain = false,
