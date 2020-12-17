@@ -372,6 +372,13 @@ const SOName = union(enum) {
     yes: []const u8,
 };
 
+const EmitBin = union(enum) {
+    no,
+    yes_default_path,
+    yes: []const u8,
+    yes_a_out,
+};
+
 const Emit = union(enum) {
     no,
     yes_default_path,
@@ -471,7 +478,7 @@ fn buildOutputType(
     var time_report = false;
     var stack_report = false;
     var show_builtin = false;
-    var emit_bin: Emit = .yes_default_path;
+    var emit_bin: EmitBin = .yes_default_path;
     var emit_asm: Emit = .no;
     var emit_llvm_ir: Emit = .no;
     var emit_zir: Emit = .no;
@@ -1284,7 +1291,7 @@ fn buildOutputType(
             switch (c_out_mode) {
                 .link => {
                     output_mode = if (is_shared_lib) .Lib else .Exe;
-                    emit_bin = .{ .yes = out_path orelse "a.out" };
+                    emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
                     enable_cache = true;
                 },
                 .object => {
@@ -1498,6 +1505,11 @@ fn buildOutputType(
         },
     };
 
+    const a_out_basename = switch (object_format) {
+        .pe, .coff => "a.exe",
+        else => "a.out",
+    };
+
     const emit_bin_loc: ?Compilation.EmitLoc = switch (emit_bin) {
         .no => null,
         .yes_default_path => Compilation.EmitLoc{
@@ -1548,6 +1560,10 @@ fn buildOutputType(
                     .directory = .{ .path = null, .handle = fs.cwd() },
                 };
             }
+        },
+        .yes_a_out => Compilation.EmitLoc{
+            .directory = null,
+            .basename = a_out_basename,
         },
     };
 
@@ -1784,6 +1800,7 @@ fn buildOutputType(
                 .print = comp.bin_file.options.emit.?.directory.path orelse ".",
             },
             .yes => |full_path| break :blk .{ .update = full_path },
+            .yes_a_out => break :blk .{ .update = a_out_basename },
         }
     };
 
