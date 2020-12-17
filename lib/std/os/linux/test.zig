@@ -10,6 +10,7 @@ const mem = std.mem;
 const elf = std.elf;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const getauxval = linux.getauxval;
 const fs = std.fs;
 
 test "fallocate" {
