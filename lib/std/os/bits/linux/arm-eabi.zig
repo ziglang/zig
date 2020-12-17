@@ -411,6 +411,7 @@ pub const SYS = extern enum(usize) {
     openat2 = 437,
     pidfd_getfd = 438,
     faccessat2 = 439,
+    process_madvise = 440,
 
     breakpoint = 0x0f0001,
     cacheflush = 0x0f0002,
