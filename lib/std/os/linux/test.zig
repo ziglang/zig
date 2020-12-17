@@ -103,8 +103,8 @@ test "statx" {
 }
 
 test "user and group ids" {
-    expectEqual(getauxval(AT_UID), getuid());
-    expectEqual(getauxval(AT_GID), getgid());
-    expectEqual(getauxval(AT_EUID), geteuid());
-    expectEqual(getauxval(AT_EGID), getegid());
+    expectEqual(linux.getauxval(elf.AT_UID), linux.getuid());
+    expectEqual(linux.getauxval(elf.AT_GID), linux.getgid());
+    expectEqual(linux.getauxval(elf.AT_EUID), linux.geteuid());
+    expectEqual(linux.getauxval(elf.AT_EGID), linux.getegid());
 }
