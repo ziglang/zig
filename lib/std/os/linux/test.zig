@@ -9,6 +9,7 @@ const linux = std.os.linux;
 const mem = std.mem;
 const elf = std.elf;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const fs = std.fs;
 
 test "fallocate" {
@@ -98,4 +99,11 @@ test "statx" {
     expect(@bitCast(u64, @as(i64, stat_buf.size)) == statx_buf.size);
     expect(@bitCast(u64, @as(i64, stat_buf.blksize)) == statx_buf.blksize);
     expect(@bitCast(u64, @as(i64, stat_buf.blocks)) == statx_buf.blocks);
+}
+
+test "user and group ids" {
+    expectEqual(getauxval(AT_UID), getuid());
+    expectEqual(getauxval(AT_GID), getgid());
+    expectEqual(getauxval(AT_EUID), geteuid());
+    expectEqual(getauxval(AT_EGID), getegid());
 }
