@@ -1820,13 +1820,7 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, ExternPosition pos
             *result = !calling_convention_allows_zig_types(type_entry->data.fn.fn_type_id.cc);
             return ErrorNone;
         case ZigTypeIdPointer:
-            if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
-                return err;
-            bool has_bits;
-            if ((err = type_has_bits2(g, type_entry, &has_bits)))
-                return err;
-            *result = has_bits;
-            return ErrorNone;
+            return type_allowed_in_extern(g, type_entry->data.pointer.child_type, ExternPositionOther, result);
         case ZigTypeIdStruct:
             *result = type_entry->data.structure.layout == ContainerLayoutExtern ||
                 type_entry->data.structure.layout == ContainerLayoutPacked;
