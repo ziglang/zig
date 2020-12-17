@@ -2394,7 +2394,20 @@ fn renderTokenOffset(
     }
 
     var token_loc = tree.token_locs[token_index];
-    try ais.writer().writeAll(mem.trimRight(u8, tree.tokenSliceLoc(token_loc)[token_skip_bytes..], " "));
+    const token_id = tree.token_ids[token_index];
+
+    write_token: {
+        const slice = tree.tokenSliceLoc(token_loc)[token_skip_bytes..];
+        if (token_id == .MultilineStringLiteralLine) {
+            // Turn CRLF line endings to a single line feed in multi line string literal lines
+            if (slice[slice.len - 2] == '\r') {
+                try ais.writer().writeAll(mem.trimRight(u8, slice[0 .. slice.len - 2], " "));
+                try ais.writer().writeByte('\n');
+                break :write_token;
+            }
+        }
+        try ais.writer().writeAll(mem.trimRight(u8, slice, " "));
+    }
 
     if (space == Space.NoComment)
         return;

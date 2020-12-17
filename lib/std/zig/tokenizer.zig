@@ -841,7 +841,7 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    '\t' => {},
+                    '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
 
@@ -1705,6 +1705,14 @@ test "tokenizer - string identifier and builtin fns" {
 test "tokenizer - multiline string literal with literal tab" {
     testTokenize(
         \\\\foo	bar
+    , &[_]Token.Id{
+        .MultilineStringLiteralLine,
+    });
+}
+
+test "tokenizer - multiline string literal with CRLF line ending" {
+    testTokenize(
+        "\\\\foo bar" ++ [1]u8 { 0x0D } ++ "\n"
     , &[_]Token.Id{
         .MultilineStringLiteralLine,
     });

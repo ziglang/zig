@@ -1954,8 +1954,14 @@ fn multilineStrLiteral(mod: *Module, scope: *Scope, node: *ast.Node.MultilineStr
     // line lengths and new lines
     var len = lines.len - 1;
     for (lines) |line| {
-        // 2 for the '//' + 1 for '\n'
-        len += tree.tokenSlice(line).len - 3;
+        const slice = tree.tokenSlice(line);
+        // 2 for the '\\' + 1 for '\n'
+        len += slice.len - 3;
+        if (slice[slice.len - 2] == '\r') {
+            // If the line ending was '\r\n', we also
+            // remove the carriage return.
+            len -= 1;
+        }
     }
 
     const bytes = try scope.arena().alloc(u8, len);
@@ -1966,8 +1972,14 @@ fn multilineStrLiteral(mod: *Module, scope: *Scope, node: *ast.Node.MultilineStr
             i += 1;
         }
         const slice = tree.tokenSlice(line);
-        mem.copy(u8, bytes[i..], slice[2 .. slice.len - 1]);
-        i += slice.len - 3;
+        // Remove the whole line ending if it's '\r\n'
+        if (slice[slice.len - 2] == '\r') {
+            mem.copy(u8, bytes[i..], slice[2 .. slice.len - 2]);
+            i += slice.len - 4;
+        } else {
+            mem.copy(u8, bytes[i..], slice[2 .. slice.len - 1]);
+            i += slice.len - 3;
+        }
     }
 
     return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
