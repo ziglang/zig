@@ -1145,6 +1145,30 @@ pub fn GetFinalPathNameByHandle(
     }
 }
 
+test "GetFinalPathNameByHandle" {
+    if (comptime builtin.os.tag != .windows)
+        return;
+
+    //any file will do
+    const file = try std.fs.openSelfExe(.{});
+    defer file.close();
+    const handle = file.handle;
+    //make this large enough for the test runner exe path
+    var buffer = std.mem.zeroes([1 << 10]u16);
+
+    //check with sufficient size
+    const nt_length = (try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..])).len;
+    const dos_length = (try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..])).len;
+
+    //check with insufficient size
+    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. nt_length - 1]));
+    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. dos_length - 1]));
+
+    //check with exactly-sufficient size
+    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..nt_length]);
+    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..dos_length]);
+}
+
 pub const QueryInformationFileError = error{Unexpected};
 
 pub fn QueryInformationFile(
