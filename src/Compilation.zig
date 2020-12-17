@@ -2868,6 +2868,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
     man.hash.addOptionalEmitLoc(comp.emit_analysis);
     man.hash.addOptionalEmitLoc(comp.emit_docs);
+    man.hash.add(comp.test_evented_io);
     man.hash.addOptionalBytes(comp.test_filter);
     man.hash.addOptionalBytes(comp.test_name_prefix);
 
