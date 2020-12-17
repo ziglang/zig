@@ -1666,7 +1666,7 @@ fn analyzeInstCmp(
         return mod.cmpNumeric(scope, inst.base.src, lhs, rhs, op);
     } else if (lhs_ty_tag == .Type and rhs_ty_tag == .Type) {
         if (!is_equality_cmp) {
-            return mod.fail(scope, inst.base.src, "{} operator not allowed for errors", .{@tagName(op)});
+            return mod.fail(scope, inst.base.src, "{} operator not allowed for types", .{@tagName(op)});
         }
         return mod.constBool(scope, inst.base.src, lhs.value().?.eql(rhs.value().?) == (op == .eq));
     }
