@@ -2227,7 +2227,7 @@ fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCal
     const src = tree.token_locs[call.builtin_token].start;
     const params = call.params();
     if (params.len < 1) {
-        return mod.failTok(scope, call.builtin_token, "expected >=1 parameters, found 0", .{});
+        return mod.failTok(scope, call.builtin_token, "expected at least 1 argument, found 0", .{});
     }
     var items = try arena.alloc(*zir.Inst, params.len);
     for (params) |param, param_i|
