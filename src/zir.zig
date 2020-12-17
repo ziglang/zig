@@ -252,7 +252,7 @@ pub const Inst = struct {
         /// Returns the type of a value.
         typeof,
         /// Is the builtin @TypeOf which returns the type after peertype resolution of one or more params
-        builtintypeof,
+        typeof_peer,
         /// Asserts control-flow will not reach this instruction. Not safety checked - the compiler
         /// will assume the correctness of this instruction.
         unreach_nocheck,
@@ -405,7 +405,7 @@ pub const Inst = struct {
                 .error_set => ErrorSet,
                 .slice => Slice,
                 .switchbr => SwitchBr,
-                .builtintypeof => BuiltinTypeOf,
+                .typeof_peer => TypeOfPeer,
             };
         }
 
@@ -513,7 +513,7 @@ pub const Inst = struct {
                 .slice_start,
                 .import,
                 .switch_range,
-                .builtintypeof,
+                .typeof_peer,
                 => false,
 
                 .@"break",
@@ -1036,8 +1036,8 @@ pub const Inst = struct {
             body: Module.Body,
         };
     };
-    pub const BuiltinTypeOf = struct {
-        pub const base_tag = .builtintypeof;
+    pub const TypeOfPeer = struct {
+        pub const base_tag = .typeof_peer;
         base: Inst,
         positionals: struct {
             items: []*Inst,

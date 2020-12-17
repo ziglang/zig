@@ -118,7 +118,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .iserr => return analyzeInstIsErr(mod, scope, old_inst.castTag(.iserr).?),
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
-        .builtintypeof => return analyzeInstBuiltinTypeOf(mod, scope, old_inst.castTag(.builtintypeof).?),
+        .typeof_peer => return analyzeInstTypeOfPeer(mod, scope, old_inst.castTag(.typeof_peer).?),
         .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
         .unwrap_optional_safe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_safe).?, true),
         .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
@@ -1678,11 +1678,7 @@ fn analyzeInstTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErr
     return mod.constType(scope, inst.base.src, operand.ty);
 }
 
-fn analyzeInstBuiltinTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.BuiltinTypeOf) InnerError!*Inst {
-    // hot path for one param
-    if (inst.positionals.items.len == 1) {
-        return mod.constType(scope, inst.base.src, (try resolveInst(mod, scope, inst.positionals.items[0])).ty);
-    }
+fn analyzeInstTypeOfPeer(mod: *Module, scope: *Scope, inst: *zir.Inst.TypeOfPeer) InnerError!*Inst {
     var insts_to_res = try mod.gpa.alloc(*ir.Inst, inst.positionals.items.len);
     defer mod.gpa.free(insts_to_res);
     for (inst.positionals.items) |item, i| {

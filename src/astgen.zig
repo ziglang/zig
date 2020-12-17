@@ -2229,10 +2229,13 @@ fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCal
     if (params.len < 1) {
         return mod.failTok(scope, call.builtin_token, "expected at least 1 argument, found 0", .{});
     }
+    if (params.len == 1) {
+        return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .typeof, try expr(mod, scope, .none, params[0])));
+    }
     var items = try arena.alloc(*zir.Inst, params.len);
     for (params) |param, param_i|
         items[param_i] = try expr(mod, scope, .none, param);
-    return rlWrap(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.BuiltinTypeOf, .{ .items = items }, .{}));
+    return rlWrap(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.TypeOfPeer, .{ .items = items }, .{}));
 }
 
 fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
