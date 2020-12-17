@@ -43,3 +43,19 @@ pub fn detectRuntimeVersion() WindowsVersion {
 
     return @intToEnum(WindowsVersion, version);
 }
+
+/// Returns whether the target os versions are uniformly at least as new as the argument:
+/// true/false if this holds for the entire target range, null if it only holds for some.
+pub fn targetVersionIsAtLeast(requested_version: WindowsVersion) ?bool {
+    const requested = @enumToInt(requested_version);
+    const version_range = std.builtin.os.version_range.windows;
+    const target_min = @enumToInt(version_range.min);
+    const target_max = @enumToInt(version_range.max);
+    return if (target_max < requested) false else if (target_min >= requested) true else null;
+}
+
+/// Returns whether the runtime os version is at least as new as the argument.
+pub fn runtimeVersionIsAtLeast(requested_version: WindowsVersion) bool {
+    return targetVersionIsAtLeast(requested_version) orelse
+        (@enumToInt(detectRuntimeVersion()) >= @enumToInt(requested_version));
+}
