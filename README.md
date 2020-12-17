@@ -1,7 +1,12 @@
-![ZIG](https://ziglang.org/zig-logo.svg)
+<div align="center">
+  <a href="https://github.com/ziglang/zig" target="_blank">
+    <img src="https://ziglang.org/zig-logo.svg" alt="ZIG" style="max-width:100%; margin: 0 auto;" width="200">
+    <p><b>Z I G - P R O G R A M M I N G &nbsp;&nbsp; L A N G U A G E</b></p>
+  </a>
+  <p>A general-purpose programming language and toolchain for maintaining **robust**, **optimal**, and **reusable** software.</p>
+</div>
 
-A general-purpose programming language and toolchain for maintaining
-**robust**, **optimal**, and **reusable** software.
+# Zig
 
 ## Resources
 
