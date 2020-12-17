@@ -8,7 +8,6 @@
 #include "analyze.hpp"
 #include "ast_render.hpp"
 #include "codegen.hpp"
-#include "config.h"
 #include "errmsg.hpp"
 #include "error.hpp"
 #include "hash_map.hpp"
@@ -3343,7 +3342,7 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutableGen 
         LLVMValueRef expr_val = ir_llvm_value(g, instruction->operand);
         LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
         gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
-    } else if (ir_want_runtime_safety(g, &instruction->base)) {
+    } else if (ir_want_runtime_safety(g, &instruction->base) && ptr_index != SIZE_MAX) {
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
         gen_undef_init(g, slice_ptr_type, slice_ptr_type, ptr_field_ptr);
     }
@@ -3887,15 +3886,30 @@ static LLVMValueRef ir_render_vector_store_elem(CodeGen *g, IrExecutableGen *exe
 }
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenVarPtr *instruction) {
-    if (instruction->base.value->special != ConstValSpecialRuntime)
-        return ir_llvm_value(g, &instruction->base);
-    ZigVar *var = instruction->var;
-    if (type_has_bits(g, var->var_type)) {
-        assert(var->value_ref);
-        return var->value_ref;
-    } else {
+    Error err;
+
+    ZigType *ptr_type = instruction->base.value->type;
+    assert(ptr_type->id == ZigTypeIdPointer);
+    bool ptr_type_has_bits;
+    if ((err = type_has_bits2(g, ptr_type, &ptr_type_has_bits)))
+        codegen_report_errors_and_exit(g);
+
+    if (!ptr_type_has_bits) {
         return nullptr;
     }
+
+    // The extra bitcasts are needed in case the LLVM value is an unnamed
+    // struct, as it happens when rendering container types with extra alignment
+    // fields.
+    if (instruction->base.value->special != ConstValSpecialRuntime) {
+        return LLVMBuildBitCast(g->builder, ir_llvm_value(g, &instruction->base),
+                get_llvm_type(g, ptr_type), "");
+    }
+
+    ZigVar *var = instruction->var;
+    assert(var->value_ref);
+    return LLVMBuildBitCast(g->builder, var->value_ref,
+            get_llvm_type(g, ptr_type), "");
 }
 
 static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutableGen *executable,
@@ -5163,11 +5177,7 @@ static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutableGen *executable, IrIns
 
 static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutableGen *executable, IrInstGenErrName *instruction) {
     assert(g->generate_error_name_table);
-
-    if (g->errors_by_index.length == 1) {
-        LLVMBuildUnreachable(g->builder);
-        return nullptr;
-    }
+    assert(g->errors_by_index.length > 0);
 
     LLVMValueRef err_val = ir_llvm_value(g, instruction->value);
     if (ir_want_runtime_safety(g, &instruction->base)) {
@@ -7038,7 +7048,14 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ZigValue *struct_
         LLVMConstNull(get_llvm_type(g, u32)),
         LLVMConstInt(get_llvm_type(g, u32), field_index, false),
     };
-    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+
+    // The structure pointed by base_ptr may include trailing padding for
+    // alignment purposes and have the following LLVM type: <{ %T, [N x i8] }>.
+    // Add an extra bitcast as we're only interested in the %T part.
+    assert(handle_is_ptr(g, struct_const_val->type));
+    LLVMValueRef casted_base_ptr = LLVMConstBitCast(base_ptr,
+            LLVMPointerType(get_llvm_type(g, struct_const_val->type), 0));
+    return LLVMConstInBoundsGEP(casted_base_ptr, indices, 2);
 }
 
 static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ZigValue *err_union_const_val) {
@@ -7868,7 +7885,7 @@ static void render_const_val_global(CodeGen *g, ZigValue *const_val, const char 
 }
 
 static void generate_error_name_table(CodeGen *g) {
-    if (g->err_name_table != nullptr || !g->generate_error_name_table || g->errors_by_index.length == 1) {
+    if (g->err_name_table != nullptr || !g->generate_error_name_table) {
         return;
     }
 
@@ -8633,8 +8650,14 @@ static void define_builtin_types(CodeGen *g) {
         case ZigLLVM_ppc64le:
             add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
             break;
+        case ZigLLVM_sparcv9:
+            add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
+            break;
         case ZigLLVM_avr:
             // It's either a float or a double, depending on a toolchain switch
+            add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_msp430:
             add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
             break;
         default:
@@ -9030,7 +9053,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_append_str(contents, "/// Deprecated: use `std.Target.current.cpu.arch.endian()`\n");
     buf_append_str(contents, "pub const endian = Target.current.cpu.arch.endian();\n");
     buf_appendf(contents, "pub const output_mode = OutputMode.Obj;\n");
-    buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", ZIG_LINK_MODE);
+    buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", ZIG_QUOTE(ZIG_LINK_MODE));
     buf_appendf(contents, "pub const is_test = false;\n");
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
@@ -9230,9 +9253,9 @@ static void init(CodeGen *g) {
     g->builder = LLVMCreateBuilder();
     g->dbuilder = ZigLLVMCreateDIBuilder(g->module, true);
 
-    // Don't use ZIG_VERSION_STRING here, llvm misparses it when it includes
-    // the git revision.
-    Buf *producer = buf_sprintf("zig %d.%d.%d", ZIG_VERSION_MAJOR, ZIG_VERSION_MINOR, ZIG_VERSION_PATCH);
+    // Don't use the version string here, llvm misparses it when it includes the git revision.
+    Stage2SemVer semver = stage2_version();
+    Buf *producer = buf_sprintf("zig %d.%d.%d", semver.major, semver.minor, semver.patch);
     const char *flags = "";
     unsigned runtime_version = 0;
 
@@ -9530,9 +9553,9 @@ void codegen_build_object(CodeGen *g) {
     }
 
     do_code_gen(g);
-    codegen_add_time_event(g, "LLVM Emit Output");
+    codegen_add_time_event(g, "LLVM Emit Object");
     {
-        const char *progress_name = "LLVM Emit Output";
+        const char *progress_name = "LLVM Emit Object";
         codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
                 progress_name, strlen(progress_name), 0));
     }

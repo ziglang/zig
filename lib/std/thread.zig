@@ -40,7 +40,7 @@ pub const Thread = struct {
     pub const Data = if (use_pthreads)
         struct {
             handle: Thread.Handle,
-            memory: []align(mem.page_size) u8,
+            memory: []u8,
         }
     else switch (std.Target.current.os.tag) {
         .linux => struct {
@@ -63,10 +63,10 @@ pub const Thread = struct {
             return c.pthread_self();
         } else
             return switch (std.Target.current.os.tag) {
-            .linux => os.linux.gettid(),
-            .windows => windows.kernel32.GetCurrentThreadId(),
-            else => @compileError("Unsupported OS"),
-        };
+                .linux => os.linux.gettid(),
+                .windows => windows.kernel32.GetCurrentThreadId(),
+                else => @compileError("Unsupported OS"),
+            };
     }
 
     /// Returns the handle of this thread.
@@ -79,7 +79,7 @@ pub const Thread = struct {
         return self.data.handle;
     }
 
-    pub fn wait(self: *const Thread) void {
+    pub fn wait(self: *Thread) void {
         if (use_pthreads) {
             const err = c.pthread_join(self.data.handle, null);
             switch (err) {
@@ -89,7 +89,8 @@ pub const Thread = struct {
                 os.EDEADLK => unreachable,
                 else => unreachable,
             }
-            os.munmap(self.data.memory);
+            std.heap.c_allocator.free(self.data.memory);
+            std.heap.c_allocator.destroy(self);
         } else switch (std.Target.current.os.tag) {
             .linux => {
                 while (true) {
@@ -292,6 +293,47 @@ pub const Thread = struct {
             }
         };
 
+        if (Thread.use_pthreads) {
+            var attr: c.pthread_attr_t = undefined;
+            if (c.pthread_attr_init(&attr) != 0) return error.SystemResources;
+            defer assert(c.pthread_attr_destroy(&attr) == 0);
+
+            const thread_obj = try std.heap.c_allocator.create(Thread);
+            errdefer std.heap.c_allocator.destroy(thread_obj);
+            if (@sizeOf(Context) > 0) {
+                thread_obj.data.memory = try std.heap.c_allocator.allocAdvanced(
+                    u8,
+                    @alignOf(Context),
+                    @sizeOf(Context),
+                    .at_least,
+                );
+                errdefer std.heap.c_allocator.free(thread_obj.data.memory);
+                mem.copy(u8, thread_obj.data.memory, mem.asBytes(&context));
+            } else {
+                thread_obj.data.memory = @as([*]u8, undefined)[0..0];
+            }
+
+            // Use the same set of parameters used by the libc-less impl.
+            assert(c.pthread_attr_setstacksize(&attr, default_stack_size) == 0);
+            assert(c.pthread_attr_setguardsize(&attr, mem.page_size) == 0);
+
+            const err = c.pthread_create(
+                &thread_obj.data.handle,
+                &attr,
+                MainFuncs.posixThreadMain,
+                thread_obj.data.memory.ptr,
+            );
+            switch (err) {
+                0 => return thread_obj,
+                os.EAGAIN => return error.SystemResources,
+                os.EPERM => unreachable,
+                os.EINVAL => unreachable,
+                else => return os.unexpectedErrno(@intCast(usize, err)),
+            }
+
+            return thread_obj;
+        }
+
         var guard_end_offset: usize = undefined;
         var stack_end_offset: usize = undefined;
         var thread_start_offset: usize = undefined;
@@ -315,74 +357,41 @@ pub const Thread = struct {
                 l += @sizeOf(Context);
             }
             // Finally, the Thread Local Storage, if any.
-            if (!Thread.use_pthreads) {
-                l = mem.alignForward(l, os.linux.tls.tls_image.alloc_align);
-                tls_start_offset = l;
-                l += os.linux.tls.tls_image.alloc_size;
-            }
+            l = mem.alignForward(l, os.linux.tls.tls_image.alloc_align);
+            tls_start_offset = l;
+            l += os.linux.tls.tls_image.alloc_size;
             // Round the size to the page size.
             break :blk mem.alignForward(l, mem.page_size);
         };
 
         const mmap_slice = mem: {
-            if (std.Target.current.os.tag != .netbsd) {
-                // Map the whole stack with no rw permissions to avoid
-                // committing the whole region right away
-                const mmap_slice = os.mmap(
-                    null,
-                    mmap_len,
-                    os.PROT_NONE,
-                    os.MAP_PRIVATE | os.MAP_ANONYMOUS,
-                    -1,
-                    0,
-                ) catch |err| switch (err) {
-                    error.MemoryMappingNotSupported => unreachable,
-                    error.AccessDenied => unreachable,
-                    error.PermissionDenied => unreachable,
-                    else => |e| return e,
-                };
-                errdefer os.munmap(mmap_slice);
+            // Map the whole stack with no rw permissions to avoid
+            // committing the whole region right away
+            const mmap_slice = os.mmap(
+                null,
+                mmap_len,
+                os.PROT_NONE,
+                os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                -1,
+                0,
+            ) catch |err| switch (err) {
+                error.MemoryMappingNotSupported => unreachable,
+                error.AccessDenied => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
+            errdefer os.munmap(mmap_slice);
 
-                // Map everything but the guard page as rw
-                os.mprotect(
-                    mmap_slice[guard_end_offset..],
-                    os.PROT_READ | os.PROT_WRITE,
-                ) catch |err| switch (err) {
-                    error.AccessDenied => unreachable,
-                    else => |e| return e,
-                };
+            // Map everything but the guard page as rw
+            os.mprotect(
+                mmap_slice[guard_end_offset..],
+                os.PROT_READ | os.PROT_WRITE,
+            ) catch |err| switch (err) {
+                error.AccessDenied => unreachable,
+                else => |e| return e,
+            };
 
-                break :mem mmap_slice;
-            } else {
-                // NetBSD mprotect is very strict and doesn't allow to "upgrade"
-                // a PROT_NONE mapping to a RW one so let's allocate everything
-                // right away
-                const mmap_slice = os.mmap(
-                    null,
-                    mmap_len,
-                    os.PROT_READ | os.PROT_WRITE,
-                    os.MAP_PRIVATE | os.MAP_ANONYMOUS,
-                    -1,
-                    0,
-                ) catch |err| switch (err) {
-                    error.MemoryMappingNotSupported => unreachable,
-                    error.AccessDenied => unreachable,
-                    error.PermissionDenied => unreachable,
-                    else => |e| return e,
-                };
-                errdefer os.munmap(mmap_slice);
-
-                // Remap the guard page with no permissions
-                os.mprotect(
-                    mmap_slice[0..guard_end_offset],
-                    os.PROT_NONE,
-                ) catch |err| switch (err) {
-                    error.AccessDenied => unreachable,
-                    else => |e| return e,
-                };
-
-                break :mem mmap_slice;
-            }
+            break :mem mmap_slice;
         };
 
         const mmap_addr = @ptrToInt(mmap_slice.ptr);
@@ -397,33 +406,7 @@ pub const Thread = struct {
             context_ptr.* = context;
         }
 
-        if (Thread.use_pthreads) {
-            // use pthreads
-            var attr: c.pthread_attr_t = undefined;
-            if (c.pthread_attr_init(&attr) != 0) return error.SystemResources;
-            defer assert(c.pthread_attr_destroy(&attr) == 0);
-
-            // Tell pthread where the effective stack start is and its size
-            assert(c.pthread_attr_setstack(
-                &attr,
-                mmap_slice.ptr + guard_end_offset,
-                stack_end_offset - guard_end_offset,
-            ) == 0);
-            // Even though pthread's man pages state that the guard size is
-            // ignored when the stack address is explicitly given, on some
-            // plaforms such as NetBSD we still have to zero it to prevent
-            // random crashes in pthread_join calls
-            assert(c.pthread_attr_setguardsize(&attr, 0) == 0);
-
-            const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
-            switch (err) {
-                0 => return thread_ptr,
-                os.EAGAIN => return error.SystemResources,
-                os.EPERM => unreachable,
-                os.EINVAL => unreachable,
-                else => return os.unexpectedErrno(@intCast(usize, err)),
-            }
-        } else if (std.Target.current.os.tag == .linux) {
+        if (std.Target.current.os.tag == .linux) {
             const flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES |
                 os.CLONE_SIGHAND | os.CLONE_THREAD | os.CLONE_SYSVSEM |
                 os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |

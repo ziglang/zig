@@ -8,6 +8,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
+const meta = std.meta;
 const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
@@ -26,18 +27,6 @@ pub const FormatOptions = struct {
     alignment: Alignment = .Right,
     fill: u8 = ' ',
 };
-
-fn peekIsAlign(comptime fmt: []const u8) bool {
-    // Should only be called during a state transition to the format segment.
-    comptime assert(fmt[0] == ':');
-
-    inline for (([_]u8{ 1, 2 })[0..]) |i| {
-        if (fmt.len > i and (fmt[i] == '<' or fmt[i] == '^' or fmt[i] == '>')) {
-            return true;
-        }
-    }
-    return false;
-}
 
 /// Renders fmt string with args, calling output with slices of bytes.
 /// If `output` returns an error, the error is returned from `format` and
@@ -96,232 +85,285 @@ pub fn format(
     args: anytype,
 ) !void {
     const ArgSetType = u32;
-    if (@typeInfo(@TypeOf(args)) != .Struct) {
-        @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
+
+    const ArgsType = @TypeOf(args);
+    // XXX: meta.trait.is(.Struct)(ArgsType) doesn't seem to work...
+    if (@typeInfo(ArgsType) != .Struct) {
+        @compileError("Expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
-    if (args.len > @typeInfo(ArgSetType).Int.bits) {
+
+    const fields_info = meta.fields(ArgsType);
+    if (fields_info.len > @typeInfo(ArgSetType).Int.bits) {
         @compileError("32 arguments max are supported per format call");
     }
 
-    const State = enum {
-        Start,
-        Positional,
-        CloseBrace,
-        Specifier,
-        FormatFillAndAlign,
-        FormatWidth,
-        FormatPrecision,
-    };
-
-    comptime var start_index = 0;
-    comptime var state = State.Start;
-    comptime var maybe_pos_arg: ?comptime_int = null;
-    comptime var specifier_start = 0;
-    comptime var specifier_end = 0;
-    comptime var options = FormatOptions{};
     comptime var arg_state: struct {
         next_arg: usize = 0,
-        used_args: ArgSetType = 0,
-        args_len: usize = args.len,
+        used_args: usize = 0,
+        args_len: usize = fields_info.len,
 
         fn hasUnusedArgs(comptime self: *@This()) bool {
-            return (@popCount(ArgSetType, self.used_args) != self.args_len);
+            return @popCount(ArgSetType, self.used_args) != self.args_len;
         }
 
-        fn nextArg(comptime self: *@This(), comptime pos_arg: ?comptime_int) comptime_int {
-            const next_idx = pos_arg orelse blk: {
+        fn nextArg(comptime self: *@This(), comptime arg_index: ?usize) comptime_int {
+            const next_index = arg_index orelse init: {
                 const arg = self.next_arg;
                 self.next_arg += 1;
-                break :blk arg;
+                break :init arg;
             };
 
-            if (next_idx >= self.args_len) {
+            if (next_index >= self.args_len) {
                 @compileError("Too few arguments");
             }
 
             // Mark this argument as used
-            self.used_args |= 1 << next_idx;
+            self.used_args |= 1 << next_index;
 
-            return next_idx;
+            return next_index;
         }
     } = .{};
 
-    inline for (fmt) |c, i| {
-        switch (state) {
-            .Start => switch (c) {
-                '{' => {
-                    if (start_index < i) {
-                        try writer.writeAll(fmt[start_index..i]);
-                    }
+    comptime var parser: struct {
+        buf: []const u8 = undefined,
+        pos: comptime_int = 0,
 
-                    start_index = i;
-                    specifier_start = i + 1;
-                    specifier_end = i + 1;
-                    maybe_pos_arg = null;
-                    state = .Positional;
-                    options = FormatOptions{};
-                },
-                '}' => {
-                    if (start_index < i) {
-                        try writer.writeAll(fmt[start_index..i]);
-                    }
-                    state = .CloseBrace;
-                },
+        // Returns a decimal number or null if the current character is not a
+        // digit
+        fn number(comptime self: *@This()) ?usize {
+            var r: ?usize = null;
+
+            while (self.pos < self.buf.len) : (self.pos += 1) {
+                switch (self.buf[self.pos]) {
+                    '0'...'9' => {
+                        if (r == null) r = 0;
+                        r.? *= 10;
+                        r.? += self.buf[self.pos] - '0';
+                    },
+                    else => break,
+                }
+            }
+
+            return r;
+        }
+
+        // Returns a substring of the input starting from the current position
+        // and ending where `ch` is found or until the end if not found
+        fn until(comptime self: *@This(), comptime ch: u8) []const u8 {
+            const start = self.pos;
+
+            if (start >= self.buf.len)
+                return &[_]u8{};
+
+            while (self.pos < self.buf.len) : (self.pos += 1) {
+                if (self.buf[self.pos] == ch) break;
+            }
+            return self.buf[start..self.pos];
+        }
+
+        // Returns one character, if available
+        fn char(comptime self: *@This()) ?u8 {
+            if (self.pos < self.buf.len) {
+                const ch = self.buf[self.pos];
+                self.pos += 1;
+                return ch;
+            }
+            return null;
+        }
+
+        fn maybe(comptime self: *@This(), comptime val: u8) bool {
+            if (self.pos < self.buf.len and self.buf[self.pos] == val) {
+                self.pos += 1;
+                return true;
+            }
+            return false;
+        }
+
+        // Returns the n-th next character or null if that's past the end
+        fn peek(comptime self: *@This(), comptime n: usize) ?u8 {
+            return if (self.pos + n < self.buf.len) self.buf[self.pos + n] else null;
+        }
+    } = .{};
+
+    var options: FormatOptions = .{};
+
+    @setEvalBranchQuota(2000000);
+
+    comptime var i = 0;
+    inline while (i < fmt.len) {
+        comptime const start_index = i;
+
+        inline while (i < fmt.len) : (i += 1) {
+            switch (fmt[i]) {
+                '{', '}' => break,
                 else => {},
-            },
-            .Positional => switch (c) {
-                '{' => {
-                    state = .Start;
-                    start_index = i;
-                },
-                ':' => {
-                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
-                    specifier_end = i;
-                },
-                '0'...'9' => {
-                    if (maybe_pos_arg == null) {
-                        maybe_pos_arg = 0;
-                    }
+            }
+        }
 
-                    maybe_pos_arg.? *= 10;
-                    maybe_pos_arg.? += c - '0';
-                    specifier_start = i + 1;
+        comptime var end_index = i;
+        comptime var unescape_brace = false;
 
-                    if (maybe_pos_arg.? >= args.len) {
-                        @compileError("Positional value refers to non-existent argument");
-                    }
-                },
-                '}' => {
-                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
+        // Handle {{ and }}, those are un-escaped as single braces
+        if (i + 1 < fmt.len and fmt[i + 1] == fmt[i]) {
+            unescape_brace = true;
+            // Make the first brace part of the literal...
+            end_index += 1;
+            // ...and skip both
+            i += 2;
+        }
 
-                    try formatType(
-                        args[arg_to_print],
-                        fmt[0..0],
-                        options,
-                        writer,
-                        default_max_depth,
-                    );
+        // Write out the literal
+        if (start_index != end_index) {
+            try writer.writeAll(fmt[start_index..end_index]);
+        }
 
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => {
-                    state = .Specifier;
-                    specifier_start = i;
-                },
-            },
-            .CloseBrace => switch (c) {
-                '}' => {
-                    state = .Start;
-                    start_index = i;
-                },
-                else => @compileError("Single '}' encountered in format string"),
-            },
-            .Specifier => switch (c) {
-                ':' => {
-                    specifier_end = i;
-                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
-                },
-                '}' => {
-                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
+        // We've already skipped the other brace, restart the loop
+        if (unescape_brace) continue;
 
-                    try formatType(
-                        args[arg_to_print],
-                        fmt[specifier_start..i],
-                        options,
-                        writer,
-                        default_max_depth,
-                    );
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => {},
-            },
-            // Only entered if the format string contains a fill/align segment.
-            .FormatFillAndAlign => switch (c) {
+        if (i >= fmt.len) break;
+
+        if (fmt[i] == '}') {
+            @compileError("Missing opening {");
+        }
+
+        // Get past the {
+        comptime assert(fmt[i] == '{');
+        i += 1;
+
+        comptime const fmt_begin = i;
+        // Find the closing brace
+        inline while (i < fmt.len and fmt[i] != '}') : (i += 1) {}
+        comptime const fmt_end = i;
+
+        if (i >= fmt.len) {
+            @compileError("Missing closing }");
+        }
+
+        // Get past the }
+        comptime assert(fmt[i] == '}');
+        i += 1;
+
+        options = .{};
+
+        // Parse the format fragment between braces
+        parser.buf = fmt[fmt_begin..fmt_end];
+        parser.pos = 0;
+
+        // Parse the positional argument number
+        comptime const opt_pos_arg = init: {
+            if (comptime parser.maybe('[')) {
+                comptime const arg_name = parser.until(']');
+
+                if (!comptime parser.maybe(']')) {
+                    @compileError("Expected closing ]");
+                }
+
+                break :init comptime meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("No argument with name '" ++ arg_name ++ "'");
+            } else {
+                break :init comptime parser.number();
+            }
+        };
+
+        // Parse the format specifier
+        comptime const specifier_arg = comptime parser.until(':');
+
+        // Skip the colon, if present
+        if (comptime parser.char()) |ch| {
+            if (ch != ':') {
+                @compileError("Expected : or }, found '" ++ [1]u8{ch} ++ "'");
+            }
+        }
+
+        // Parse the fill character
+        // The fill parameter requires the alignment parameter to be specified
+        // too
+        if (comptime parser.peek(1)) |ch| {
+            if (comptime mem.indexOfScalar(u8, "<^>", ch) != null) {
+                options.fill = comptime parser.char().?;
+            }
+        }
+
+        // Parse the alignment parameter
+        if (comptime parser.peek(0)) |ch| {
+            switch (ch) {
                 '<' => {
-                    options.alignment = Alignment.Left;
-                    state = .FormatWidth;
+                    options.alignment = .Left;
+                    _ = comptime parser.char();
                 },
                 '^' => {
-                    options.alignment = Alignment.Center;
-                    state = .FormatWidth;
+                    options.alignment = .Center;
+                    _ = comptime parser.char();
                 },
                 '>' => {
-                    options.alignment = Alignment.Right;
-                    state = .FormatWidth;
+                    options.alignment = .Right;
+                    _ = comptime parser.char();
                 },
-                else => {
-                    options.fill = c;
-                },
-            },
-            .FormatWidth => switch (c) {
-                '0'...'9' => {
-                    if (options.width == null) {
-                        options.width = 0;
-                    }
-
-                    options.width.? *= 10;
-                    options.width.? += c - '0';
-                },
-                '.' => {
-                    state = .FormatPrecision;
-                },
-                '}' => {
-                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
-
-                    try formatType(
-                        args[arg_to_print],
-                        fmt[specifier_start..specifier_end],
-                        options,
-                        writer,
-                        default_max_depth,
-                    );
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => {
-                    @compileError("Unexpected character in width value: " ++ [_]u8{c});
-                },
-            },
-            .FormatPrecision => switch (c) {
-                '0'...'9' => {
-                    if (options.precision == null) {
-                        options.precision = 0;
-                    }
-
-                    options.precision.? *= 10;
-                    options.precision.? += c - '0';
-                },
-                '}' => {
-                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
-
-                    try formatType(
-                        args[arg_to_print],
-                        fmt[specifier_start..specifier_end],
-                        options,
-                        writer,
-                        default_max_depth,
-                    );
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => {
-                    @compileError("Unexpected character in precision value: " ++ [_]u8{c});
-                },
-            },
+                else => {},
+            }
         }
+
+        // Parse the width parameter
+        options.width = init: {
+            if (comptime parser.maybe('[')) {
+                comptime const arg_name = parser.until(']');
+
+                if (!comptime parser.maybe(']')) {
+                    @compileError("Expected closing ]");
+                }
+
+                comptime const index = meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("No argument with name '" ++ arg_name ++ "'");
+                const arg_index = comptime arg_state.nextArg(index);
+
+                break :init @field(args, fields_info[arg_index].name);
+            } else {
+                break :init comptime parser.number();
+            }
+        };
+
+        // Skip the dot, if present
+        if (comptime parser.char()) |ch| {
+            if (ch != '.') {
+                @compileError("Expected . or }, found '" ++ [1]u8{ch} ++ "'");
+            }
+        }
+
+        // Parse the precision parameter
+        options.precision = init: {
+            if (comptime parser.maybe('[')) {
+                comptime const arg_name = parser.until(']');
+
+                if (!comptime parser.maybe(']')) {
+                    @compileError("Expected closing ]");
+                }
+
+                comptime const arg_i = meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("No argument with name '" ++ arg_name ++ "'");
+                const arg_to_use = comptime arg_state.nextArg(arg_i);
+
+                break :init @field(args, fields_info[arg_to_use].name);
+            } else {
+                break :init comptime parser.number();
+            }
+        };
+
+        if (comptime parser.char()) |ch| {
+            @compileError("Extraneous trailing character '" ++ [1]u8{ch} ++ "'");
+        }
+
+        const arg_to_print = comptime arg_state.nextArg(opt_pos_arg);
+        try formatType(
+            @field(args, fields_info[arg_to_print].name),
+            specifier_arg,
+            options,
+            writer,
+            default_max_depth,
+        );
     }
-    comptime {
-        if (comptime arg_state.hasUnusedArgs()) {
-            @compileError("Unused arguments");
-        }
-        if (state != State.Start) {
-            @compileError("Incomplete format string: " ++ fmt);
-        }
-    }
-    if (start_index < fmt.len) {
-        try writer.writeAll(fmt[start_index..]);
+
+    if (comptime arg_state.hasUnusedArgs()) {
+        @compileError("Unused arguments");
     }
 }
 
@@ -495,7 +537,7 @@ pub fn formatType(
         .Fn => {
             return format(writer, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
-        .Type => return writer.writeAll(@typeName(T)),
+        .Type => return formatBuf(@typeName(value), options, writer),
         .EnumLiteral => {
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatType(buffer, fmt, options, writer, max_depth);
@@ -1371,6 +1413,11 @@ test "parse unsigned comptime" {
     }
 }
 
+test "escaped braces" {
+    try testFmt("escaped: {{foo}}\n", "escaped: {{{{foo}}}}\n", .{});
+    try testFmt("escaped: {foo}\n", "escaped: {{foo}}\n", .{});
+}
+
 test "optional" {
     {
         const value: ?i32 = 1234;
@@ -2003,4 +2050,29 @@ test "sci float padding" {
 test "null" {
     const inst = null;
     try testFmt("null", "{}", .{inst});
+}
+
+test "type" {
+    try testFmt("u8", "{}", .{u8});
+    try testFmt("?f32", "{}", .{?f32});
+    try testFmt("[]const u8", "{}", .{[]const u8});
+}
+
+test "named arguments" {
+    try testFmt("hello world!", "{} world{c}", .{ "hello", '!' });
+    try testFmt("hello world!", "{[greeting]} world{[punctuation]c}", .{ .punctuation = '!', .greeting = "hello" });
+    try testFmt("hello world!", "{[1]} world{[0]c}", .{ '!', "hello" });
+}
+
+test "runtime width specifier" {
+    var width: usize = 9;
+    try testFmt("~~hello~~", "{:~^[1]}", .{ "hello", width });
+    try testFmt("~~hello~~", "{:~^[width]}", .{ .string = "hello", .width = width });
+}
+
+test "runtime precision specifier" {
+    var number: f32 = 3.1415;
+    var precision: usize = 2;
+    try testFmt("3.14e+00", "{:1.[1]}", .{ number, precision });
+    try testFmt("3.14e+00", "{:1.[precision]}", .{ .number = number, .precision = precision });
 }

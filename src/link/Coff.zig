@@ -907,11 +907,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(self.base.allocator);
         defer argv.deinit();
-        // The first argument is ignored as LLD is called as a library, set it
-        // anyway to the correct LLD driver name for this target so that it's
-        // correctly printed when `verbose_link` is true. This is needed for some
-        // tools such as CMake when Zig is used as C compiler.
-        try argv.append("lld-link");
+        // We will invoke ourselves as a child process to gain access to LLD.
+        // This is necessary because LLD does not behave properly as a library -
+        // it calls exit() and does not reset all global data between invocations.
+        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "lld-link" });
 
         try argv.append("-ERRORLIMIT:0");
         try argv.append("-NOLOGO");
@@ -1149,45 +1148,65 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         }
 
         if (self.base.options.verbose_link) {
-            Compilation.dump_argv(argv.items);
+            // Skip over our own name so that the LLD linker name is the first argv item.
+            Compilation.dump_argv(argv.items[1..]);
         }
 
-        const new_argv = try arena.allocSentinel(?[*:0]const u8, argv.items.len, null);
-        for (argv.items) |arg, i| {
-            new_argv[i] = try arena.dupeZ(u8, arg);
-        }
+        // Sadly, we must run LLD as a child process because it does not behave
+        // properly as a library.
+        const child = try std.ChildProcess.init(argv.items, arena);
+        defer child.deinit();
 
-        var stderr_context: LLDContext = .{
-            .coff = self,
-            .data = std.ArrayList(u8).init(self.base.allocator),
-        };
-        defer stderr_context.data.deinit();
-        var stdout_context: LLDContext = .{
-            .coff = self,
-            .data = std.ArrayList(u8).init(self.base.allocator),
-        };
-        defer stdout_context.data.deinit();
-        const llvm = @import("../llvm.zig");
-        const ok = llvm.Link(
-            .COFF,
-            new_argv.ptr,
-            new_argv.len,
-            append_diagnostic,
-            @ptrToInt(&stdout_context),
-            @ptrToInt(&stderr_context),
-        );
-        if (stderr_context.oom or stdout_context.oom) return error.OutOfMemory;
-        if (stdout_context.data.items.len != 0) {
-            std.log.warn("unexpected LLD stdout: {}", .{stdout_context.data.items});
-        }
-        if (!ok) {
-            // TODO parse this output and surface with the Compilation API rather than
-            // directly outputting to stderr here.
-            std.debug.print("{}", .{stderr_context.data.items});
-            return error.LLDReportedFailure;
-        }
-        if (stderr_context.data.items.len != 0) {
-            std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
+        if (comp.clang_passthrough_mode) {
+            child.stdin_behavior = .Inherit;
+            child.stdout_behavior = .Inherit;
+            child.stderr_behavior = .Inherit;
+
+            const term = child.spawnAndWait() catch |err| {
+                log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                return error.UnableToSpawnSelf;
+            };
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        // TODO https://github.com/ziglang/zig/issues/6342
+                        std.process.exit(1);
+                    }
+                },
+                else => std.process.abort(),
+            }
+        } else {
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Ignore;
+            child.stderr_behavior = .Pipe;
+
+            try child.spawn();
+
+            const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
+
+            const term = child.wait() catch |err| {
+                log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                return error.UnableToSpawnSelf;
+            };
+
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        // TODO parse this output and surface with the Compilation API rather than
+                        // directly outputting to stderr here.
+                        std.debug.print("{s}", .{stderr});
+                        return error.LLDReportedFailure;
+                    }
+                },
+                else => {
+                    log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
+                    return error.LLDCrashed;
+                },
+            }
+
+            if (stderr.len != 0) {
+                log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+            }
         }
     }
 
@@ -1195,30 +1214,16 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            std.log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            std.log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
         self.base.lock = man.toOwnedLock();
     }
-}
-
-const LLDContext = struct {
-    data: std.ArrayList(u8),
-    coff: *Coff,
-    oom: bool = false,
-};
-
-fn append_diagnostic(context: usize, ptr: [*]const u8, len: usize) callconv(.C) void {
-    const lld_context = @intToPtr(*LLDContext, context);
-    const msg = ptr[0..len];
-    lld_context.data.appendSlice(msg) catch |err| switch (err) {
-        error.OutOfMemory => lld_context.oom = true,
-    };
 }
 
 pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl) u64 {

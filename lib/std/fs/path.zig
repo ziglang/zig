@@ -28,6 +28,7 @@ pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
 pub const delimiter = if (builtin.os.tag == .windows) delimiter_windows else delimiter_posix;
 
+/// Returns if the given byte is a valid path separator
 pub fn isSep(byte: u8) bool {
     if (builtin.os.tag == .windows) {
         return byte == '/' or byte == '\\';
@@ -1187,4 +1188,69 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
     const result = try relativeWindows(testing.allocator, from, to);
     defer testing.allocator.free(result);
     testing.expectEqualSlices(u8, expected_output, result);
+}
+
+/// Returns the extension of the file name (if any).
+/// This function will search for the file extension (separated by a `.`) and will return the text after the `.`.
+/// Files that end with `.` are considered to have no extension, files that start with `.`
+/// Examples:
+/// - `"main.zig"`     ⇒ `".zig"`
+/// - `"src/main.zig"` ⇒ `".zig"`
+/// - `".gitignore"`   ⇒ `""`
+/// - `"keep."`        ⇒ `"."`
+/// - `"src.keep.me"`  ⇒ `".me"`
+/// - `"/src/keep.me"`  ⇒ `".me"`
+/// - `"/src/keep.me/"`  ⇒ `".me"`
+/// The returned slice is guaranteed to have its pointer within the start and end
+/// pointer address range of `path`, even if it is length zero.
+pub fn extension(path: []const u8) []const u8 {
+    const filename = basename(path);
+    const index = mem.lastIndexOf(u8, filename, ".") orelse return path[path.len..];
+    if (index == 0) return path[path.len..];
+    return filename[index..];
+}
+
+fn testExtension(path: []const u8, expected: []const u8) void {
+    std.testing.expectEqualStrings(expected, extension(path));
+}
+
+test "extension" {
+    testExtension("", "");
+    testExtension(".", "");
+    testExtension("a.", ".");
+    testExtension("abc.", ".");
+    testExtension(".a", "");
+    testExtension(".file", "");
+    testExtension(".gitignore", "");
+    testExtension("file.ext", ".ext");
+    testExtension("file.ext.", ".");
+    testExtension("very-long-file.bruh", ".bruh");
+    testExtension("a.b.c", ".c");
+    testExtension("a.b.c/", ".c");
+
+    testExtension("/", "");
+    testExtension("/.", "");
+    testExtension("/a.", ".");
+    testExtension("/abc.", ".");
+    testExtension("/.a", "");
+    testExtension("/.file", "");
+    testExtension("/.gitignore", "");
+    testExtension("/file.ext", ".ext");
+    testExtension("/file.ext.", ".");
+    testExtension("/very-long-file.bruh", ".bruh");
+    testExtension("/a.b.c", ".c");
+    testExtension("/a.b.c/", ".c");
+
+    testExtension("/foo/bar/bam/", "");
+    testExtension("/foo/bar/bam/.", "");
+    testExtension("/foo/bar/bam/a.", ".");
+    testExtension("/foo/bar/bam/abc.", ".");
+    testExtension("/foo/bar/bam/.a", "");
+    testExtension("/foo/bar/bam/.file", "");
+    testExtension("/foo/bar/bam/.gitignore", "");
+    testExtension("/foo/bar/bam/file.ext", ".ext");
+    testExtension("/foo/bar/bam/file.ext.", ".");
+    testExtension("/foo/bar/bam/very-long-file.bruh", ".bruh");
+    testExtension("/foo/bar/bam/a.b.c", ".c");
+    testExtension("/foo/bar/bam/a.b.c/", ".c");
 }

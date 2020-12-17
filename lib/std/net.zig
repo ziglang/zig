@@ -19,9 +19,6 @@ pub const Address = extern union {
     in6: Ip6Address,
     un: if (has_unix_sockets) os.sockaddr_un else void,
 
-    // TODO this crashed the compiler. https://github.com/ziglang/zig/issues/3512
-    //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
-
     /// Parse the given IP address string into an Address value.
     /// It is recommended to use `resolveIp` instead, to handle
     /// IPv6 link-local unix addresses.
@@ -178,7 +175,7 @@ pub const Address = extern union {
                     unreachable;
                 }
 
-                const path_len = std.mem.len(@ptrCast([*:0]const u8, &self.un.path));
+                const path_len = std.mem.len(std.meta.assumeSentinel(&self.un.path, 0));
                 return @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
             },
             else => unreachable,
@@ -196,7 +193,7 @@ pub const Ip4Address = extern struct {
                 .addr = undefined,
             },
         };
-        const out_ptr = mem.sliceAsBytes(@as(*[1]u32, &result.sa.addr)[0..]);
+        const out_ptr = mem.asBytes(&result.sa.addr);
 
         var x: u8 = 0;
         var index: u8 = 0;
@@ -721,7 +718,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .next = null,
         };
         var res: *os.addrinfo = undefined;
-        const rc = sys.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res);
+        const rc = sys.getaddrinfo(name_c.ptr, std.meta.assumeSentinel(port_c.ptr, 0), &hints, &res);
         if (builtin.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
             @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
             .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
@@ -838,6 +835,20 @@ fn linuxLookupName(
             try linuxLookupNameFromHosts(addrs, canon, name, family, port);
             if (addrs.items.len == 0) {
                 try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
+            }
+            if (addrs.items.len == 0) {
+                // RFC 6761 Section 6.3
+                // Name resolution APIs and libraries SHOULD recognize localhost
+                // names as special and SHOULD always return the IP loopback address
+                // for address queries and negative responses for all other query
+                // types.
+
+                // Check for equal to "localhost" or ends in ".localhost"
+                if (mem.endsWith(u8, name, "localhost") and (name.len == "localhost".len or name[name.len - "localhost".len] == '.')) {
+                    try addrs.append(LookupAddr{ .addr = .{ .in = Ip4Address.parse("127.0.0.1", port) catch unreachable } });
+                    try addrs.append(LookupAddr{ .addr = .{ .in6 = Ip6Address.parse("::1", port) catch unreachable } });
+                    return;
+                }
             }
         }
     } else {
@@ -1556,7 +1567,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             var tmp: [256]u8 = undefined;
             // Returns len of compressed name. strlen to get canon name.
             _ = try os.dn_expand(packet, data, &tmp);
-            const canon_name = mem.spanZ(@ptrCast([*:0]const u8, &tmp));
+            const canon_name = mem.spanZ(std.meta.assumeSentinel(&tmp, 0));
             if (isValidHostName(canon_name)) {
                 try ctx.canon.replaceContents(canon_name);
             }
@@ -1660,10 +1671,6 @@ pub const StreamServer = struct {
 
         /// Firewall rules forbid connection.
         BlockedByFirewall,
-
-        /// Permission to create a socket of the specified type and/or
-        /// protocol is denied.
-        PermissionDenied,
 
         FileDescriptorNotASocket,
 

@@ -1020,6 +1020,8 @@ pub const OpenError = error{
 
     BadPathName,
     InvalidUtf8,
+
+    WouldBlock,
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -1201,6 +1203,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             EEXIST => return error.PathAlreadyExists,
             EBUSY => return error.DeviceBusy,
             EOPNOTSUPP => return error.FileLocksNotSupported,
+            EWOULDBLOCK => return error.WouldBlock,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1554,7 +1557,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        0 => return mem.spanZ(@ptrCast([*:0]u8, out_buffer.ptr)),
+        0 => return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0)),
         EFAULT => unreachable,
         EINVAL => unreachable,
         ENOENT => return error.CurrentWorkingDirectoryUnlinked,
@@ -2703,6 +2706,60 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     }
 }
 
+pub const ShutdownError = error{
+    ConnectionAborted,
+
+    /// Connection was reset by peer, application should close socket as it is no longer usable.
+    ConnectionResetByPeer,
+    BlockingOperationInProgress,
+
+    /// The network subsystem has failed.
+    NetworkSubsystemFailed,
+
+    /// The socket is not connected (connection-oriented sockets only).
+    SocketNotConnected,
+    SystemResources,
+} || UnexpectedError;
+
+pub const ShutdownHow = enum { recv, send, both };
+
+/// Shutdown socket send/receive operations
+pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
+    if (builtin.os.tag == .windows) {
+        const result = windows.ws2_32.shutdown(sock, switch (how) {
+            .recv => windows.SD_RECEIVE,
+            .send => windows.SD_SEND,
+            .both => windows.SD_BOTH,
+        });
+        if (0 != result) switch (windows.ws2_32.WSAGetLastError()) {
+            .WSAECONNABORTED => return error.ConnectionAborted,
+            .WSAECONNRESET => return error.ConnectionResetByPeer,
+            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
+            .WSAEINVAL => unreachable,
+            .WSAENETDOWN => return error.NetworkSubsystemFailed,
+            .WSAENOTCONN => return error.SocketNotConnected,
+            .WSAENOTSOCK => unreachable,
+            .WSANOTINITIALISED => unreachable,
+            else => |err| return windows.unexpectedWSAError(err),
+        };
+    } else {
+        const rc = system.shutdown(sock, switch (how) {
+            .recv => SHUT_RD,
+            .send => SHUT_WR,
+            .both => SHUT_RDWR,
+        });
+        switch (errno(rc)) {
+            0 => return,
+            EBADF => unreachable,
+            EINVAL => unreachable,
+            ENOTCONN => return error.SocketNotConnected,
+            ENOTSOCK => unreachable,
+            ENOBUFS => return error.SystemResources,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 pub fn closeSocket(sock: socket_t) void {
     if (builtin.os.tag == .windows) {
         windows.closesocket(sock) catch unreachable;
@@ -2882,10 +2939,6 @@ pub const AcceptError = error{
     /// This error occurs when no global event loop is configured,
     /// and accepting from the socket would block.
     WouldBlock,
-
-    /// Permission to create a socket of the specified type and/or
-    /// protocol is denied.
-    PermissionDenied,
 
     /// An incoming connection was indicated, but was subsequently terminated by the
     /// remote peer prior to accepting the call.
@@ -3750,6 +3803,7 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
         .SUCCESS => return,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_NAME_INVALID => unreachable,
         .INVALID_PARAMETER => unreachable,
         .ACCESS_DENIED => return error.PermissionDenied,
         .OBJECT_PATH_SYNTAX_BAD => unreachable,
@@ -4070,12 +4124,14 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
             var fd_flags = fcntl(sock, F_GETFD, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fd_flags |= FD_CLOEXEC;
             _ = fcntl(sock, F_SETFD, fd_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
         }
@@ -4096,12 +4152,14 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
             var fl_flags = fcntl(sock, F_GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
             fl_flags |= O_NONBLOCK;
             _ = fcntl(sock, F_SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
                 else => |e| return e,
             };
         }
@@ -4187,6 +4245,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         const flags = if (builtin.os.tag == .linux) O_PATH | O_NONBLOCK | O_CLOEXEC else O_NONBLOCK | O_CLOEXEC;
         const fd = openZ(pathname, flags, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
+            error.WouldBlock => unreachable,
             else => |e| return e,
         };
         defer close(fd);
@@ -4278,7 +4337,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
             const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
 
-            const target = readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer) catch |err| {
+            const target = readlinkZ(std.meta.assumeSentinel(proc_path.ptr, 0), out_buffer) catch |err| {
                 switch (err) {
                     error.UnsupportedReparsePointType => unreachable, // Windows only,
                     else => |e| return e,
@@ -4533,7 +4592,7 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
 }
 
 /// Examine and change a signal action.
-pub fn sigaction(sig: u6, act: *const Sigaction, oact: ?*Sigaction) void {
+pub fn sigaction(sig: u6, act: ?*const Sigaction, oact: ?*Sigaction) void {
     switch (errno(system.sigaction(sig, act, oact))) {
         0 => return,
         EFAULT => unreachable,
@@ -4602,7 +4661,7 @@ pub const GetHostNameError = error{PermissionDenied} || UnexpectedError;
 pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.link_libc) {
         switch (errno(system.gethostname(name_buffer, name_buffer.len))) {
-            0 => return mem.spanZ(@ptrCast([*:0]u8, name_buffer)),
+            0 => return mem.spanZ(std.meta.assumeSentinel(name_buffer, 0)),
             EFAULT => unreachable,
             ENAMETOOLONG => unreachable, // HOST_NAME_MAX prevents this
             EPERM => return error.PermissionDenied,
@@ -4611,7 +4670,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     }
     if (builtin.os.tag == .linux) {
         const uts = uname();
-        const hostname = mem.spanZ(@ptrCast([*:0]const u8, &uts.nodename));
+        const hostname = mem.spanZ(std.meta.assumeSentinel(&uts.nodename, 0));
         mem.copy(u8, name_buffer, hostname);
         return name_buffer[0..hostname.len];
     }
@@ -4717,6 +4776,32 @@ pub const SendError = error{
     FileDescriptorNotASocket,
 } || UnexpectedError;
 
+pub const SendToError = SendError || error{
+    /// The passed address didn't have the correct address family in its sa_family field.
+    AddressFamilyNotSupported,
+
+    /// Returned when socket is AF_UNIX and the given path has a symlink loop.
+    SymLinkLoop,
+
+    /// Returned when socket is AF_UNIX and the given path length exceeds `MAX_PATH_BYTES` bytes.
+    NameTooLong,
+
+    /// Returned when socket is AF_UNIX and the given path does not point to an existing file.
+    FileNotFound,
+    NotDir,
+
+    /// Network is unreachable.
+    NetworkUnreachable,
+
+    /// Insufficient memory was available to fulfill the request.
+    SystemResources,
+
+    /// The socket is not connected (connection-oriented sockets only).
+    SocketNotConnected,
+    WouldBlock,
+    AddressNotAvailable,
+};
+
 /// Transmit a message to another socket.
 ///
 /// The `sendto` call may be used only when the socket is in a connected state (so that the intended
@@ -4750,18 +4835,31 @@ pub fn sendto(
     flags: u32,
     dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
-) SendError!usize {
+) SendToError!usize {
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSAEACCES => return error.AccessDenied,
+                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAENOBUFS => return error.SystemResources,
                     .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                    // TODO: handle more errors
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                    // TODO: WSAEINPROGRESS, WSAEINTR
+                    .WSAEINVAL => unreachable,
+                    .WSAENETDOWN => return error.NetworkUnreachable,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENETUNREACH => return error.NetworkUnreachable,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
@@ -4788,6 +4886,12 @@ pub fn sendto(
                 ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
                 EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
                 EPIPE => return error.BrokenPipe,
+                EAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                ELOOP => return error.SymLinkLoop,
+                ENAMETOOLONG => return error.NameTooLong,
+                ENOENT => return error.FileNotFound,
+                ENOTDIR => return error.NotDir,
+                EHOSTUNREACH => return error.NetworkUnreachable,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -5152,7 +5256,7 @@ pub const CopyFileRangeError = error{
 
 var has_copy_file_range_syscall = init: {
     const kernel_has_syscall = std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
-    break :init std.atomic.Int(bool).init(kernel_has_syscall);
+    break :init std.atomic.Bool.init(kernel_has_syscall);
 };
 
 /// Transfer data between file descriptors at specified offsets.
@@ -5184,7 +5288,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
 
     if (std.Target.current.os.tag == .linux and
-        (use_c or has_copy_file_range_syscall.get()))
+        (use_c or has_copy_file_range_syscall.load(.Monotonic)))
     {
         const sys = if (use_c) std.c else linux;
 
@@ -5209,7 +5313,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             EXDEV => {},
             // syscall added in Linux 4.5, use fallback
             ENOSYS => {
-                has_copy_file_range_syscall.set(false);
+                has_copy_file_range_syscall.store(true, .Monotonic);
             },
             else => |err| return unexpectedErrno(err),
         }

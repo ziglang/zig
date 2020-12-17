@@ -14186,6 +14186,18 @@ static ZigType *ir_resolve_union_tag_type(IrAnalyze *ira, AstNode *source_node, 
     }
 }
 
+static bool can_fold_enum_type(ZigType *ty) {
+    assert(ty->id == ZigTypeIdEnum);
+    // We can fold the enum type (and avoid any check, be it at runtime or at
+    // compile time) iff it has only a single element and its tag type is
+    // zero-sized.
+    ZigType *tag_int_type = ty->data.enumeration.tag_int_type;
+    return ty->data.enumeration.layout == ContainerLayoutAuto &&
+            ty->data.enumeration.src_field_count == 1 &&
+            !ty->data.enumeration.non_exhaustive &&
+            (tag_int_type->id == ZigTypeIdInt && tag_int_type->data.integral.bit_count == 0);
+}
+
 static IrInstGen *ir_analyze_enum_to_int(IrAnalyze *ira, IrInst *source_instr, IrInstGen *target) {
     Error err;
 
@@ -14214,10 +14226,7 @@ static IrInstGen *ir_analyze_enum_to_int(IrAnalyze *ira, IrInst *source_instr, I
     assert(tag_type->id == ZigTypeIdInt || tag_type->id == ZigTypeIdComptimeInt);
 
     // If there is only one possible tag, then we know at comptime what it is.
-    if (enum_type->data.enumeration.layout == ContainerLayoutAuto &&
-        enum_type->data.enumeration.src_field_count == 1 &&
-        !enum_type->data.enumeration.non_exhaustive)
-    {
+    if (can_fold_enum_type(enum_type)) {
         IrInstGen *result = ir_const(ira, source_instr, tag_type);
         init_const_bigint(result->value, tag_type,
                 &enum_type->data.enumeration.fields[0].value);
@@ -14255,10 +14264,7 @@ static IrInstGen *ir_analyze_union_to_tag(IrAnalyze *ira, IrInst* source_instr,
     }
 
     // If there is only 1 possible tag, then we know at comptime what it is.
-    if (wanted_type->data.enumeration.layout == ContainerLayoutAuto &&
-        wanted_type->data.enumeration.src_field_count == 1 &&
-        !wanted_type->data.enumeration.non_exhaustive)
-    {
+    if (can_fold_enum_type(wanted_type)) {
         IrInstGen *result = ir_const(ira, source_instr, wanted_type);
         result->value->special = ConstValSpecialStatic;
         result->value->type = wanted_type;
@@ -17841,7 +17847,7 @@ static bool is_pointer_arithmetic_allowed(ZigType *lhs_type, IrBinOp op) {
         return false;
     switch (lhs_type->data.pointer.ptr_len) {
         case PtrLenSingle:
-            return lhs_type->data.pointer.child_type->id == ZigTypeIdArray;
+            return false;
         case PtrLenUnknown:
         case PtrLenC:
             return true;
@@ -24039,7 +24045,8 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 bigint_init_bigint(&result->value->data.x_enum_tag, &pointee_val->data.x_union.tag);
                 return result;
             }
-            if (tag_type->data.enumeration.src_field_count == 1 && !tag_type->data.enumeration.non_exhaustive) {
+
+            if (can_fold_enum_type(tag_type)) {
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, tag_type);
                 TypeEnumField *only_field = &tag_type->data.enumeration.fields[0];
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
@@ -24054,7 +24061,8 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdEnum: {
             if ((err = type_resolve(ira->codegen, target_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->invalid_inst_gen;
-            if (target_type->data.enumeration.src_field_count == 1 && !target_type->data.enumeration.non_exhaustive) {
+
+            if (can_fold_enum_type(target_type)) {
                 TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, target_type);
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
@@ -24789,7 +24797,9 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
     if (type_is_invalid(target->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    if (target->value->type->id == ZigTypeIdEnumLiteral) {
+    ZigType *target_type = target->value->type;
+
+    if (target_type->id == ZigTypeIdEnumLiteral) {
         IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
         Buf *field_name = target->value->data.x_enum_literal;
         ZigValue *array_val = create_const_str_lit(ira->codegen, field_name)->data.x_ptr.data.ref.pointee;
@@ -24797,21 +24807,21 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
         return result;
     }
 
-    if (target->value->type->id == ZigTypeIdUnion) {
+    if (target_type->id == ZigTypeIdUnion) {
         target = ir_analyze_union_tag(ira, &instruction->base.base, target, instruction->base.is_gen);
         if (type_is_invalid(target->value->type))
             return ira->codegen->invalid_inst_gen;
+        target_type = target->value->type;
     }
 
-    if (target->value->type->id != ZigTypeIdEnum) {
+    if (target_type->id != ZigTypeIdEnum) {
         ir_add_error(ira, &target->base,
-            buf_sprintf("expected enum tag, found '%s'", buf_ptr(&target->value->type->name)));
+            buf_sprintf("expected enum tag, found '%s'", buf_ptr(&target_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
 
-    if (target->value->type->data.enumeration.src_field_count == 1 &&
-        !target->value->type->data.enumeration.non_exhaustive) {
-        TypeEnumField *only_field = &target->value->type->data.enumeration.fields[0];
+    if (can_fold_enum_type(target_type)) {
+        TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
         ZigValue *array_val = create_const_str_lit(ira->codegen, only_field->name)->data.x_ptr.data.ref.pointee;
         IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
         init_const_slice(ira->codegen, result->value, array_val, 0, buf_len(only_field->name), true);
@@ -24819,9 +24829,9 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
     }
 
     if (instr_is_comptime(target)) {
-        if ((err = type_resolve(ira->codegen, target->value->type, ResolveStatusZeroBitsKnown)))
+        if ((err = type_resolve(ira->codegen, target_type, ResolveStatusZeroBitsKnown)))
             return ira->codegen->invalid_inst_gen;
-        TypeEnumField *field = find_enum_field_by_tag(target->value->type, &target->value->data.x_bigint);
+        TypeEnumField *field = find_enum_field_by_tag(target_type, &target->value->data.x_bigint);
         if (field == nullptr) {
             Buf *int_buf = buf_alloc();
             bigint_append_buf(int_buf, &target->value->data.x_bigint, 10);
@@ -25264,12 +25274,12 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                         0, 0, 0, false);
                     fn_decl_fields[5]->type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
                     if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
-                        fn_decl_fields[5]->data.x_optional = ira->codegen->pass1_arena->create<ZigValue>();
+                        ZigValue *slice_val = ira->codegen->pass1_arena->create<ZigValue>();
                         ZigValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name)->data.x_ptr.data.ref.pointee;
-                        init_const_slice(ira->codegen, fn_decl_fields[5]->data.x_optional, lib_name, 0,
-                                buf_len(fn_node->lib_name), true);
+                        init_const_slice(ira->codegen, slice_val, lib_name, 0, buf_len(fn_node->lib_name), true);
+                        set_optional_payload(fn_decl_fields[5], slice_val);
                     } else {
-                        fn_decl_fields[5]->data.x_optional = nullptr;
+                        set_optional_payload(fn_decl_fields[5], nullptr);
                     }
                     // return_type: type
                     ensure_field_index(fn_decl_val->type, "return_type", 6);
@@ -25300,24 +25310,6 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                     }
 
                     inner_fields[2]->data.x_union.payload = fn_decl_val;
-                    break;
-                }
-            case TldIdContainer:
-                {
-                    ZigType *type_entry = ((TldContainer *)curr_entry->value)->type_entry;
-                    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
-                        return ErrorSemanticAnalyzeFail;
-
-                    // This is a type.
-                    bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 0);
-
-                    ZigValue *payload = ira->codegen->pass1_arena->create<ZigValue>();
-                    payload->special = ConstValSpecialStatic;
-                    payload->type = ira->codegen->builtin_types.entry_type;
-                    payload->data.x_type = type_entry;
-
-                    inner_fields[2]->data.x_union.payload = payload;
-
                     break;
                 }
             default:
@@ -25549,8 +25541,12 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 fields[1]->data.x_type = type_entry->data.array.child_type;
                 // sentinel: anytype
                 fields[2]->special = ConstValSpecialStatic;
-                fields[2]->type = get_optional_type(ira->codegen, type_entry->data.array.child_type);
-                fields[2]->data.x_optional = type_entry->data.array.sentinel;
+                if (type_entry->data.array.child_type != nullptr) {
+                    fields[2]->type = get_optional_type(ira->codegen, type_entry->data.array.child_type);
+                    set_optional_payload(fields[2], type_entry->data.array.sentinel);
+                } else {
+                    fields[2]->type = ira->codegen->builtin_types.entry_null;
+                }
                 break;
             }
         case ZigTypeIdVector: {
@@ -26887,7 +26883,7 @@ static IrInstGen *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ira,
         IrInstSrcSetEvalBranchQuota *instruction)
 {
     uint64_t new_quota;
-    if (!ir_resolve_usize(ira, instruction->new_quota->child, &new_quota))
+    if (!ir_resolve_unsigned(ira, instruction->new_quota->child, ira->codegen->builtin_types.entry_u32, &new_quota))
         return ira->codegen->invalid_inst_gen;
 
     if (new_quota > *ira->new_irb.exec->backward_branch_quota) {
@@ -32781,6 +32777,11 @@ static ZigType *ir_resolve_lazy_fn_type(IrAnalyze *ira, AstNode *source_node, La
 
     FnTypeId fn_type_id = {0};
     init_fn_type_id(&fn_type_id, proto_node, lazy_fn_type->cc, proto_node->data.fn_proto.params.length);
+
+    if (proto_node->data.fn_proto.callconv_expr != nullptr) {
+        if ((err = emit_error_unless_callconv_allowed_for_target(ira->codegen, proto_node->data.fn_proto.callconv_expr, lazy_fn_type->cc)))
+            return nullptr;
+    }
 
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(fn_type_id.next_param_index);

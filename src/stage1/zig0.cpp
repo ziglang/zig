@@ -18,6 +18,11 @@
 #include "buffer.hpp"
 #include "os.hpp"
 
+// This is the only file allowed to include config.h because config.h is
+// only produced when building with cmake. When using the zig build system,
+// zig0.cpp is never touched.
+#include "config.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -536,4 +541,12 @@ const char *stage2_add_link_lib(struct ZigStage1 *stage1,
         const char *symbol_name_ptr, size_t symbol_name_len)
 {
     return nullptr;
+}
+
+const char *stage2_version_string(void) {
+    return ZIG_VERSION_STRING;
+}
+
+struct Stage2SemVer stage2_version(void) {
+    return {ZIG_VERSION_MAJOR, ZIG_VERSION_MINOR, ZIG_VERSION_PATCH};
 }

@@ -42,7 +42,6 @@ pub const uuid_command = extern struct {
     uuid: [16]u8,
 };
 
-
 /// The version_min_command contains the min OS version on which this
 /// binary was built to run.
 pub const version_min_command = extern struct {
@@ -1334,6 +1333,15 @@ pub const N_WEAK_DEF: u16 = 0x80;
 /// This bit is only available in .o files (MH_OBJECT filetype)
 pub const N_SYMBOL_RESOLVER: u16 = 0x100;
 
+// The following are used on the flags byte of a terminal node // in the export information.
+pub const EXPORT_SYMBOL_FLAGS_KIND_MASK: u8 = 0x03;
+pub const EXPORT_SYMBOL_FLAGS_KIND_REGULAR: u8 = 0x00;
+pub const EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL: u8 = 0x01;
+pub const EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE: u8 = 0x02;
+pub const EXPORT_SYMBOL_FLAGS_KIND_WEAK_DEFINITION: u8 = 0x04;
+pub const EXPORT_SYMBOL_FLAGS_REEXPORT: u8 = 0x08;
+pub const EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER: u8 = 0x10;
+
 // Codesign consts and structs taken from:
 // https://opensource.apple.com/source/xnu/xnu-6153.81.5/osfmk/kern/cs_blobs.h.auto.html
 
@@ -1384,10 +1392,10 @@ pub const CSTYPE_INDEX_REQUIREMENTS: u32 = 0x00000002;
 /// Compat with amfi
 pub const CSTYPE_INDEX_ENTITLEMENTS: u32 = 0x00000005;
 
-pub const CS_HASHTYPE_SHA1: u32 = 1;
-pub const CS_HASHTYPE_SHA256: u32 = 2;
-pub const CS_HASHTYPE_SHA256_TRUNCATED: u32 = 3;
-pub const CS_HASHTYPE_SHA384: u32 = 4;
+pub const CS_HASHTYPE_SHA1: u8 = 1;
+pub const CS_HASHTYPE_SHA256: u8 = 2;
+pub const CS_HASHTYPE_SHA256_TRUNCATED: u8 = 3;
+pub const CS_HASHTYPE_SHA384: u8 = 4;
 
 pub const CS_SHA1_LEN: u32 = 20;
 pub const CS_SHA256_LEN: u32 = 32;
@@ -1401,6 +1409,10 @@ pub const CS_HASH_MAX_SIZE: u32 = 48;
 pub const CS_SIGNER_TYPE_UNKNOWN: u32 = 0;
 pub const CS_SIGNER_TYPE_LEGACYVPN: u32 = 5;
 pub const CS_SIGNER_TYPE_MAC_APP_STORE: u32 = 6;
+
+pub const CS_ADHOC: u32 = 0x2;
+
+pub const CS_EXECSEG_MAIN_BINARY: u32 = 0x1;
 
 /// This CodeDirectory is tailored specfically at version 0x20400.
 pub const CodeDirectory = extern struct {
@@ -1446,6 +1458,18 @@ pub const CodeDirectory = extern struct {
     /// Unused (must be zero)
     spare2: u32,
 
+    ///
+    scatterOffset: u32,
+
+    ///
+    teamOffset: u32,
+
+    ///
+    spare3: u32,
+
+    ///
+    codeLimit64: u64,
+
     /// Offset of executable segment
     execSegBase: u64,
 
@@ -1453,9 +1477,7 @@ pub const CodeDirectory = extern struct {
     execSegLimit: u64,
 
     /// Executable segment flags
-    execSegFlags,
-
-    // end_withExecSeg: [*]u8,
+    execSegFlags: u64,
 };
 
 /// Structure of an embedded-signature SuperBlob
@@ -1478,8 +1500,6 @@ pub const SuperBlob = extern struct {
 
     /// Number of index BlobIndex entries following this struct
     count: u32,
-
-    // index: []const BlobIndex,
 };
 
 pub const GenericBlob = extern struct {
@@ -1488,6 +1508,4 @@ pub const GenericBlob = extern struct {
 
     /// Total length of blob
     length: u32,
-
-    // data: []const u8,
 };

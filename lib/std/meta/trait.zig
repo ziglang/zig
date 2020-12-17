@@ -312,6 +312,38 @@ test "std.meta.trait.isNumber" {
     testing.expect(!isNumber(NotANumber));
 }
 
+pub fn isIntegral(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .Int, .ComptimeInt => true,
+        else => false,
+    };
+}
+
+test "isIntegral" {
+    testing.expect(isIntegral(u32));
+    testing.expect(!isIntegral(f32));
+    testing.expect(isIntegral(@TypeOf(102)));
+    testing.expect(!isIntegral(@TypeOf(102.123)));
+    testing.expect(!isIntegral(*u8));
+    testing.expect(!isIntegral([]u8));
+}
+
+pub fn isFloat(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat => true,
+        else => false,
+    };
+}
+
+test "isFloat" {
+    testing.expect(!isFloat(u32));
+    testing.expect(isFloat(f32));
+    testing.expect(!isFloat(@TypeOf(102)));
+    testing.expect(isFloat(@TypeOf(102.123)));
+    testing.expect(!isFloat(*f64));
+    testing.expect(!isFloat([]f32));
+}
+
 pub fn isConstPtr(comptime T: type) bool {
     if (!comptime is(.Pointer)(T)) return false;
     return @typeInfo(T).Pointer.is_const;

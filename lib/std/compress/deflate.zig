@@ -316,7 +316,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
             comptime {
                 @setEvalBranchQuota(100000);
 
-                const len_lengths = //
+                const len_lengths =
                     [_]u16{8} ** 144 ++
                     [_]u16{9} ** 112 ++
                     [_]u16{7} ** 24 ++

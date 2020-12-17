@@ -530,12 +530,16 @@ pub const sigset_t = extern struct {
 };
 pub const sig_atomic_t = c_int;
 pub const Sigaction = extern struct {
-    __sigaction_u: extern union {
-        __sa_handler: ?fn (c_int) callconv(.C) void,
-        __sa_sigaction: ?fn (c_int, [*c]siginfo_t, ?*c_void) callconv(.C) void,
+    pub const handler_fn = fn (c_int) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+
+    /// signal handler
+    handler: extern union {
+        handler: ?handler_fn,
+        sigaction: ?sigaction_fn,
     },
-    sa_flags: c_int,
-    sa_mask: sigset_t,
+    flags: c_uint,
+    mask: sigset_t,
 };
 pub const sig_t = [*c]fn (c_int) callconv(.C) void;
 

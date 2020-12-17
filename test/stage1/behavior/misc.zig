@@ -752,3 +752,10 @@ test "extern variable with non-pointer opaque type" {
     @export(var_to_export, .{ .name = "opaque_extern_var" });
     expect(@ptrCast(*align(1) u32, &opaque_extern_var).* == 42);
 }
+
+test "lazy typeInfo value as generic parameter" {
+    const S = struct {
+        fn foo(args: anytype) void {}
+    };
+    S.foo(@typeInfo(@TypeOf(.{})));
+}

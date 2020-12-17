@@ -691,9 +691,6 @@ test "realpath" {
 test "open file with exclusive nonblocking lock twice" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
-
     const filename = "file_nonblocking_lock_test.txt";
 
     var tmp = tmpDir(.{});
@@ -709,9 +706,6 @@ test "open file with exclusive nonblocking lock twice" {
 test "open file with shared and exclusive nonblocking lock" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
-
     const filename = "file_nonblocking_lock_test.txt";
 
     var tmp = tmpDir(.{});
@@ -726,9 +720,6 @@ test "open file with shared and exclusive nonblocking lock" {
 
 test "open file with exclusive and shared nonblocking lock" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
 
     const filename = "file_nonblocking_lock_test.txt";
 
@@ -747,11 +738,6 @@ test "open file with exclusive lock twice, make sure it waits" {
 
     if (std.io.is_async) {
         // This test starts its own threads and is not compatible with async I/O.
-        return error.SkipZigTest;
-    }
-
-    if (std.Target.current.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/7010
         return error.SkipZigTest;
     }
 
@@ -779,20 +765,21 @@ test "open file with exclusive lock twice, make sure it waits" {
     defer t.wait();
 
     const SLEEP_TIMEOUT_NS = 10 * std.time.ns_per_ms;
-
-    std.time.sleep(SLEEP_TIMEOUT_NS);
+    // Make sure we've slept enough.
+    var timer = try std.time.Timer.start();
+    while (true) {
+        std.time.sleep(SLEEP_TIMEOUT_NS);
+        if (timer.read() >= SLEEP_TIMEOUT_NS) break;
+    }
     // Check that createFile is still waiting for the lock to be released.
     testing.expect(!evt.isSet());
     file.close();
-    // Generous timeout to avoid failures on heavily loaded systems.
-    try evt.timedWait(SLEEP_TIMEOUT_NS);
+    // No timeout to avoid failures on heavily loaded systems.
+    evt.wait();
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
 
     const allocator = testing.allocator;
 

@@ -26,7 +26,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 7)
-set(ZIG_VERSION_PATCH 0)
+set(ZIG_VERSION_PATCH 1)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
 if("${ZIG_VERSION}" STREQUAL "")
@@ -63,9 +63,6 @@ endif()
 
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM "on")
-    set(ZIG_LINK_MODE "Static")
-else()
-    set(ZIG_LINK_MODE "Dynamic")
 endif()
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
@@ -593,6 +590,12 @@ if(MSVC)
 else(MSVC)
   set(EXE_CFLAGS "-std=c++14")
 endif(MSVC)
+
+if(ZIG_STATIC)
+    set(EXE_CFLAGS "${EXE_CFLAGS} -DZIG_LINK_MODE=Static")
+else()
+    set(EXE_CFLAGS "${EXE_CFLAGS} -DZIG_LINK_MODE=Dynamic")
+endif()
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     if(MSVC)

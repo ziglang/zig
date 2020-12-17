@@ -247,6 +247,7 @@ test "expectWithinEpsilon" {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then aborts.
+/// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) void {
     // TODO better printing of the difference
     // If the arrays are small enough we could print the whole thing
@@ -366,6 +367,26 @@ pub fn expectEqualStrings(expected: []const u8, actual: []const u8) void {
 
         @panic("test failure");
     }
+}
+
+pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) void {
+    if (std.mem.endsWith(u8, actual, expected_ends_with))
+        return;
+
+    const shortened_actual = if (actual.len >= expected_ends_with.len)
+        actual[0..expected_ends_with.len]
+    else
+        actual;
+
+    print("\n====== expected to end with: =========\n", .{});
+    printWithVisibleNewlines(expected_ends_with);
+    print("\n====== instead ended with: ===========\n", .{});
+    printWithVisibleNewlines(shortened_actual);
+    print("\n========= full output: ==============\n", .{});
+    printWithVisibleNewlines(actual);
+    print("\n======================================\n", .{});
+
+    @panic("test failure");
 }
 
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {

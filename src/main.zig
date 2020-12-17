@@ -176,6 +176,12 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
         return punt_to_clang(arena, args);
+    } else if (mem.eql(u8, cmd, "ld.lld") or
+        mem.eql(u8, cmd, "ld64.lld") or
+        mem.eql(u8, cmd, "lld-link") or
+        mem.eql(u8, cmd, "wasm-ld"))
+    {
+        return punt_to_lld(arena, args);
     } else if (mem.eql(u8, cmd, "build")) {
         return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
@@ -280,6 +286,10 @@ const usage_build_generic =
     \\  -fno-valgrind             Omit valgrind client requests in debug builds
     \\  -fdll-export-fns          Mark exported functions as DLL exports (Windows)
     \\  -fno-dll-export-fns       Force-disable marking exported functions as DLL exports
+    \\  -fLLVM                    Force using LLVM as the codegen backend
+    \\  -fno-LLVM                 Prevent using LLVM as a codegen backend
+    \\  -fClang                   Force using Clang as the C/C++ compilation backend
+    \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
     \\  --strip                   Omit debug symbols
     \\  --single-threaded         Code assumes it is only used single-threaded
     \\  -ofmt=[mode]              Override target object format
@@ -306,6 +316,12 @@ const usage_build_generic =
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --version [ver]                Dynamic library semver
+    \\  -fsoname[=name]                (Linux) Override the default SONAME value
+    \\  -fno-soname                    (Linux) Disable emitting a SONAME
+    \\  -fLLD                          Force using LLD as the linker
+    \\  -fno-LLD                       Prevent using LLD as the linker
+    \\  -fcompiler-rt                  Always include compiler-rt symbols in output
+    \\  -fno-compiler-rt               Prevent including compiler-rt symbols in output
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
@@ -315,11 +331,11 @@ const usage_build_generic =
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
-    \\  --subsystem [subsystem]        (windows) /SUBSYSTEM:<subsystem> to the linker\n"
+    \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker\n"
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
-    \\  -framework [name]              (darwin) link against framework
-    \\  -F[dir]                        (darwin) add search path for frameworks
+    \\  -framework [name]              (Darwin) link against framework
+    \\  -F[dir]                        (Darwin) add search path for frameworks
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -349,6 +365,19 @@ const repl_help =
     \\    exit   Quit this repl
     \\
 ;
+
+const SOName = union(enum) {
+    no,
+    yes_default_value,
+    yes: []const u8,
+};
+
+const EmitBin = union(enum) {
+    no,
+    yes_default_path,
+    yes: []const u8,
+    yes_a_out,
+};
 
 const Emit = union(enum) {
     no,
@@ -404,6 +433,15 @@ const Emit = union(enum) {
     }
 };
 
+fn optionalStringEnvVar(arena: *Allocator, name: []const u8) !?[]const u8 {
+    if (std.process.getEnvVarOwned(arena, name)) |value| {
+        return value;
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => return null,
+        else => |e| return e,
+    }
+}
+
 fn buildOutputType(
     gpa: *Allocator,
     arena: *Allocator,
@@ -440,7 +478,7 @@ fn buildOutputType(
     var time_report = false;
     var stack_report = false;
     var show_builtin = false;
-    var emit_bin: Emit = .yes_default_path;
+    var emit_bin: EmitBin = .yes_default_path;
     var emit_asm: Emit = .no;
     var emit_llvm_ir: Emit = .no;
     var emit_zir: Emit = .no;
@@ -452,6 +490,7 @@ fn buildOutputType(
     var target_ofmt: ?[]const u8 = null;
     var output_mode: std.builtin.OutputMode = undefined;
     var emit_h: Emit = undefined;
+    var soname: SOName = undefined;
     var ensure_libc_on_non_freestanding = false;
     var ensure_libcpp_on_non_freestanding = false;
     var link_libc = false;
@@ -463,11 +502,11 @@ fn buildOutputType(
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
     var want_valgrind: ?bool = null;
+    var want_compiler_rt: ?bool = null;
     var rdynamic: bool = false;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
-    var override_soname: ?[]const u8 = null;
     var linker_gc_sections: ?bool = null;
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
@@ -482,17 +521,14 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
-    var libc_paths_file: ?[]const u8 = std.process.getEnvVarOwned(arena, "ZIG_LIBC") catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => null,
-        else => |e| return e,
-    };
+    var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
     var test_name_prefix: ?[]const u8 = null;
-    var override_local_cache_dir: ?[]const u8 = null;
-    var override_global_cache_dir: ?[]const u8 = null;
-    var override_lib_dir: ?[]const u8 = null;
+    var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
+    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+    var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
@@ -564,6 +600,8 @@ fn buildOutputType(
             //    .translate_c, .zig_test, .run => emit_h = .no,
             //    else => unreachable,
             //}
+
+            soname = .yes_default_value;
             const args = all_args[2..];
             var i: usize = 0;
             args_loop: while (i < args.len) : (i += 1) {
@@ -669,11 +707,15 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--stack")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
-                        stack_size_override = parseAnyBaseInt(args[i]);
+                        stack_size_override = std.fmt.parseUnsigned(u64, args[i], 0) catch |err| {
+                            fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "--image-base")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
-                        image_base_override = parseAnyBaseInt(args[i]);
+                        image_base_override = std.fmt.parseUnsigned(u64, args[i], 0) catch |err| {
+                            fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "--name")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -778,6 +820,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
+                    } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
+                        want_compiler_rt = true;
+                    } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
+                        want_compiler_rt = false;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
                         each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
@@ -828,6 +874,12 @@ fn buildOutputType(
                         use_clang = false;
                     } else if (mem.eql(u8, arg, "-rdynamic")) {
                         rdynamic = true;
+                    } else if (mem.eql(u8, arg, "-fsoname")) {
+                        soname = .yes_default_value;
+                    } else if (mem.startsWith(u8, arg, "-fsoname=")) {
+                        soname = .{ .yes = arg["-fsoname=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-soname")) {
+                        soname = .no;
                     } else if (mem.eql(u8, arg, "-femit-bin")) {
                         emit_bin = .yes_default_path;
                     } else if (mem.startsWith(u8, arg, "-femit-bin=")) {
@@ -955,6 +1007,7 @@ fn buildOutputType(
         },
         .cc, .cpp => {
             emit_h = .no;
+            soname = .no;
             strip = true;
             ensure_libc_on_non_freestanding = true;
             ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
@@ -1108,33 +1161,33 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    const soname = linker_args.items[i];
-                    override_soname = soname;
+                    const name = linker_args.items[i];
+                    soname = .{ .yes = name };
                     // Use it as --name.
                     // Example: libsoundio.so.2
                     var prefix: usize = 0;
-                    if (mem.startsWith(u8, soname, "lib")) {
+                    if (mem.startsWith(u8, name, "lib")) {
                         prefix = 3;
                     }
-                    var end: usize = soname.len;
-                    if (mem.endsWith(u8, soname, ".so")) {
+                    var end: usize = name.len;
+                    if (mem.endsWith(u8, name, ".so")) {
                         end -= 3;
                     } else {
                         var found_digit = false;
-                        while (end > 0 and std.ascii.isDigit(soname[end - 1])) {
+                        while (end > 0 and std.ascii.isDigit(name[end - 1])) {
                             found_digit = true;
                             end -= 1;
                         }
-                        if (found_digit and end > 0 and soname[end - 1] == '.') {
+                        if (found_digit and end > 0 and name[end - 1] == '.') {
                             end -= 1;
                         } else {
-                            end = soname.len;
+                            end = name.len;
                         }
-                        if (mem.endsWith(u8, soname[prefix..end], ".so")) {
+                        if (mem.endsWith(u8, name[prefix..end], ".so")) {
                             end -= 3;
                         }
                     }
-                    provided_name = soname[prefix..end];
+                    provided_name = name[prefix..end];
                 } else if (mem.eql(u8, arg, "-rpath")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -1195,7 +1248,7 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    version.major = std.fmt.parseInt(u32, linker_args.items[i], 10) catch |err| {
+                    version.major = std.fmt.parseUnsigned(u32, linker_args.items[i], 10) catch |err| {
                         fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
@@ -1204,7 +1257,7 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    version.minor = std.fmt.parseInt(u32, linker_args.items[i], 10) catch |err| {
+                    version.minor = std.fmt.parseUnsigned(u32, linker_args.items[i], 10) catch |err| {
                         fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
@@ -1213,13 +1266,17 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    stack_size_override = parseAnyBaseInt(linker_args.items[i]);
+                    stack_size_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
+                        fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                    };
                 } else if (mem.eql(u8, arg, "--image-base")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    image_base_override = parseAnyBaseInt(linker_args.items[i]);
+                    image_base_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
+                        fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                    };
                 } else {
                     warn("unsupported linker arg: {}", .{arg});
                 }
@@ -1234,7 +1291,7 @@ fn buildOutputType(
             switch (c_out_mode) {
                 .link => {
                     output_mode = if (is_shared_lib) .Lib else .Exe;
-                    emit_bin = .{ .yes = out_path orelse "a.out" };
+                    emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
                     enable_cache = true;
                 },
                 .object => {
@@ -1289,16 +1346,16 @@ fn buildOutputType(
             break :blk "test";
         } else if (root_src_file) |file| {
             const basename = fs.path.basename(file);
-            break :blk mem.split(basename, ".").next().?;
-        } else if (c_source_files.items.len == 1) {
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
+        } else if (c_source_files.items.len >= 1) {
             const basename = fs.path.basename(c_source_files.items[0].src_path);
-            break :blk mem.split(basename, ".").next().?;
-        } else if (link_objects.items.len == 1) {
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
+        } else if (link_objects.items.len >= 1) {
             const basename = fs.path.basename(link_objects.items[0]);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (emit_bin == .yes) {
             const basename = fs.path.basename(emit_bin.yes);
-            break :blk mem.split(basename, ".").next().?;
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (show_builtin) {
             break :blk "builtin";
         } else if (arg_mode == .run) {
@@ -1371,6 +1428,9 @@ fn buildOutputType(
                 _ = system_libs.orderedRemove(i);
                 continue;
             }
+            if (std.fs.path.isAbsolute(lib_name)) {
+                fatal("cannot use absolute path as a system library: {s}", .{lib_name});
+            }
             i += 1;
         }
     }
@@ -1433,6 +1493,23 @@ fn buildOutputType(
     const have_enable_cache = enable_cache orelse false;
     const optional_version = if (have_version) version else null;
 
+    const resolved_soname: ?[]const u8 = switch (soname) {
+        .yes => |explicit| explicit,
+        .no => null,
+        .yes_default_value => switch (object_format) {
+            .elf => if (have_version)
+                try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ root_name, version.major })
+            else
+                try std.fmt.allocPrint(arena, "lib{s}.so", .{root_name}),
+            else => null,
+        },
+    };
+
+    const a_out_basename = switch (object_format) {
+        .pe, .coff => "a.exe",
+        else => "a.out",
+    };
+
     const emit_bin_loc: ?Compilation.EmitLoc = switch (emit_bin) {
         .no => null,
         .yes_default_path => Compilation.EmitLoc{
@@ -1483,6 +1560,10 @@ fn buildOutputType(
                     .directory = .{ .path = null, .handle = fs.cwd() },
                 };
             }
+        },
+        .yes_a_out => Compilation.EmitLoc{
+            .directory = null,
+            .basename = a_out_basename,
         },
     };
 
@@ -1591,21 +1672,18 @@ fn buildOutputType(
         if (arg_mode == .run) {
             break :l global_cache_directory;
         }
-        const cache_dir_path = blk: {
-            if (root_pkg) |pkg| {
-                if (pkg.root_src_directory.path) |p| {
-                    break :blk try fs.path.join(arena, &[_][]const u8{ p, "zig-cache" });
-                }
-            }
-            break :blk "zig-cache";
-        };
-        const cache_parent_dir = if (root_pkg) |pkg| pkg.root_src_directory.handle else fs.cwd();
-        const dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
-        cleanup_local_cache_dir = dir;
-        break :l .{
-            .handle = dir,
-            .path = cache_dir_path,
-        };
+        if (root_pkg) |pkg| {
+            const cache_dir_path = try pkg.root_src_directory.join(arena, &[_][]const u8{"zig-cache"});
+            const dir = try pkg.root_src_directory.handle.makeOpenPath("zig-cache", .{});
+            cleanup_local_cache_dir = dir;
+            break :l .{
+                .handle = dir,
+                .path = cache_dir_path,
+            };
+        }
+        // Otherwise we really don't have a reasonable place to put the local cache directory,
+        // so we utilize the global one.
+        break :l global_cache_directory;
     };
 
     if (build_options.have_llvm and emit_asm != .no) {
@@ -1623,6 +1701,7 @@ fn buildOutputType(
         .root_name = root_name,
         .target = target_info.target,
         .is_native_os = cross_target.isNativeOs(),
+        .is_native_abi = cross_target.isNativeAbi(),
         .dynamic_linker = target_info.dynamic_linker.get(),
         .output_mode = output_mode,
         .root_pkg = root_pkg,
@@ -1653,6 +1732,7 @@ fn buildOutputType(
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
         .want_valgrind = want_valgrind,
+        .want_compiler_rt = want_compiler_rt,
         .use_llvm = use_llvm,
         .use_lld = use_lld,
         .use_clang = use_clang,
@@ -1660,7 +1740,7 @@ fn buildOutputType(
         .linker_script = linker_script,
         .version_script = version_script,
         .disable_c_depfile = disable_c_depfile,
-        .override_soname = override_soname,
+        .soname = resolved_soname,
         .linker_gc_sections = linker_gc_sections,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
@@ -1720,6 +1800,7 @@ fn buildOutputType(
                 .print = comp.bin_file.options.emit.?.directory.path orelse ".",
             },
             .yes => |full_path| break :blk .{ .update = full_path },
+            .yes_a_out => break :blk .{ .update = a_out_basename },
         }
     };
 
@@ -1727,6 +1808,7 @@ fn buildOutputType(
         error.SemanticAnalyzeFail => process.exit(1),
         else => |e| return e,
     };
+    try comp.makeBinFileExecutable();
 
     if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
         warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
@@ -1825,9 +1907,7 @@ fn buildOutputType(
 
     while (watch) {
         try stderr.print("(zig) ", .{});
-        if (output_mode == .Exe) {
-            try comp.makeBinFileExecutable();
-        }
+        try comp.makeBinFileExecutable();
         if (stdin.readUntilDelimiterOrEof(&repl_buf, '\n') catch |err| {
             try stderr.print("\nUnable to parse command: {}\n", .{@errorName(err)});
             continue;
@@ -2175,7 +2255,7 @@ pub const usage_build =
 pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
-    const lock_and_argv = lock_and_argv: {
+    const child_argv = argv: {
         const self_exe_path = try fs.selfExePathAlloc(arena);
 
         var build_file: ?[]const u8 = null;
@@ -2193,6 +2273,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         _ = try child_argv.addOne();
 
         const argv_index_cache_dir = child_argv.items.len;
+        _ = try child_argv.addOne();
+
+        const argv_index_global_cache_dir = child_argv.items.len;
         _ = try child_argv.addOne();
 
         {
@@ -2215,13 +2298,11 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
                         i += 1;
                         override_local_cache_dir = args[i];
-                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
                         continue;
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
                         i += 1;
                         override_global_cache_dir = args[i];
-                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
                         continue;
                     }
                 }
@@ -2306,6 +2387,8 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         };
         defer global_cache_directory.handle.close();
 
+        child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
+
         var local_cache_directory: Compilation.Directory = l: {
             if (override_local_cache_dir) |local_cache_dir_path| {
                 break :l .{
@@ -2350,6 +2433,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .root_name = "build",
             .target = target_info.target,
             .is_native_os = cross_target.isNativeOs(),
+            .is_native_abi = cross_target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .output_mode = .Exe,
             .root_pkg = &root_pkg,
@@ -2364,21 +2448,15 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         defer comp.destroy();
 
         try updateModule(gpa, comp, null, .none);
+        try comp.makeBinFileExecutable();
 
         child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(
             arena,
             &[_][]const u8{exe_basename},
         );
 
-        break :lock_and_argv .{
-            .child_argv = child_argv.items,
-            .lock = comp.bin_file.toOwnedLock(),
-        };
+        break :argv child_argv.items;
     };
-    const child_argv = lock_and_argv.child_argv;
-    var lock = lock_and_argv.lock;
-    defer lock.release();
-
     const child = try std.ChildProcess.init(child_argv, gpa);
     defer child.deinit();
 
@@ -2589,6 +2667,9 @@ fn fmtPathDir(
     var dir_it = dir.iterate();
     while (try dir_it.next()) |entry| {
         const is_dir = entry.kind == .Directory;
+
+        if (is_dir and std.mem.eql(u8, entry.name, "zig-cache")) continue;
+
         if (is_dir or mem.endsWith(u8, entry.name, ".zig")) {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
             defer fmt.gpa.free(full_path);
@@ -2756,6 +2837,39 @@ fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory}
     }
     argv[args.len] = null;
     const exit_code = ZigClang_main(@intCast(c_int, args.len), argv[0..args.len :null].ptr);
+    process.exit(@bitCast(u8, @truncate(i8, exit_code)));
+}
+
+/// The first argument determines which backend is invoked. The options are:
+/// * `ld.lld` - ELF
+/// * `ld64.lld` - Mach-O
+/// * `lld-link` - COFF
+/// * `wasm-ld` - WebAssembly
+/// TODO https://github.com/ziglang/zig/issues/3257
+pub fn punt_to_lld(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
+    if (!build_options.have_llvm)
+        fatal("`zig {s}` unavailable: compiler built without LLVM extensions", .{args[0]});
+    // Convert the args to the format LLD expects.
+    // We subtract 1 to shave off the zig binary from args[0].
+    const argv = try arena.allocSentinel(?[*:0]const u8, args.len - 1, null);
+    for (args[1..]) |arg, i| {
+        argv[i] = try arena.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
+    }
+    const exit_code = rc: {
+        const llvm = @import("llvm.zig");
+        const argc = @intCast(c_int, argv.len);
+        if (mem.eql(u8, args[1], "ld.lld")) {
+            break :rc llvm.LinkELF(argc, argv.ptr, true);
+        } else if (mem.eql(u8, args[1], "ld64.lld")) {
+            break :rc llvm.LinkMachO(argc, argv.ptr, true);
+        } else if (mem.eql(u8, args[1], "lld-link")) {
+            break :rc llvm.LinkCOFF(argc, argv.ptr, true);
+        } else if (mem.eql(u8, args[1], "wasm-ld")) {
+            break :rc llvm.LinkWasm(argc, argv.ptr, true);
+        } else {
+            unreachable;
+        }
+    };
     process.exit(@bitCast(u8, @truncate(i8, exit_code)));
 }
 
@@ -3141,19 +3255,4 @@ pub fn cleanExit() void {
     } else {
         process.exit(0);
     }
-}
-
-fn parseAnyBaseInt(prefixed_bytes: []const u8) u64 {
-    const base: u8 = if (mem.startsWith(u8, prefixed_bytes, "0x"))
-        16
-    else if (mem.startsWith(u8, prefixed_bytes, "0o"))
-        8
-    else if (mem.startsWith(u8, prefixed_bytes, "0b"))
-        2
-    else
-        @as(u8, 10);
-    const bytes = if (base == 10) prefixed_bytes else prefixed_bytes[2..];
-    return std.fmt.parseInt(u64, bytes, base) catch |err| {
-        fatal("unable to parse '{}': {}", .{ prefixed_bytes, @errorName(err) });
-    };
 }

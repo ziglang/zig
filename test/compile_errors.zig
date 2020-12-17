@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("pointer arithmetic on pointer-to-array",
+        \\export fn foo() void {
+        \\    var x: [10]u8 = undefined;
+        \\    var y = &x;
+        \\    var z = y + 1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:17: error: integer value 1 cannot be coerced to type '*[10]u8'",
+    });
+
     cases.add("@Type() union payload is undefined",
         \\const Foo = @Type(@import("std").builtin.TypeInfo{
         \\    .Struct = undefined,
@@ -76,6 +86,26 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\export fn entry() callconv(.Signal) void {}
         , &[_][]const u8{
             "tmp.zig:1:28: error: callconv 'Signal' is only available on AVR, not x86_64",
+        });
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        };
+        break :x tc;
+    });
+    cases.addCase(x: {
+        var tc = cases.create("callconv(.Stdcall, .Fastcall, .Thiscall) on unsupported platform",
+            \\const F1 = fn () callconv(.Stdcall) void;
+            \\const F2 = fn () callconv(.Fastcall) void;
+            \\const F3 = fn () callconv(.Thiscall) void;
+            \\export fn entry1() void { var a: F1 = undefined; }
+            \\export fn entry2() void { var a: F2 = undefined; }
+            \\export fn entry3() void { var a: F3 = undefined; }
+        , &[_][]const u8{
+            "tmp.zig:1:27: error: callconv 'Stdcall' is only available on x86, not x86_64",
+            "tmp.zig:2:27: error: callconv 'Fastcall' is only available on x86, not x86_64",
+            "tmp.zig:3:27: error: callconv 'Thiscall' is only available on x86, not x86_64",
         });
         tc.target = std.zig.CrossTarget{
             .cpu_arch = .x86_64,

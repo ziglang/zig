@@ -1127,7 +1127,7 @@ test "std.hash_map put" {
 test "std.hash_map putAssumeCapacity" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
-    
+
     try map.ensureCapacity(20);
     var i: u32 = 0;
     while (i < 20) : (i += 1) {

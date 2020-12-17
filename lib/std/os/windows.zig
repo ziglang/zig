@@ -570,13 +570,13 @@ pub fn SetCurrentDirectory(path_name: []const u16) SetCurrentDirectoryError!void
     const path_len_bytes = math.cast(u16, path_name.len * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
-    
+
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
         .Buffer = @intToPtr([*]u16, @ptrToInt(path_name.ptr)),
     };
-    
+
     const rc = ntdll.RtlSetCurrentDirectory_U(&nt_name);
     switch (rc) {
         .SUCCESS => {},
@@ -865,7 +865,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
 }
 
-pub const MoveFileError = error{ FileNotFound, Unexpected };
+pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
 
 pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
     const old_path_w = try sliceToPrefixedFileW(old_path);
@@ -877,6 +877,7 @@ pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DW
     if (kernel32.MoveFileExW(old_path, new_path, flags) == 0) {
         switch (kernel32.GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }

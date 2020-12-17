@@ -405,7 +405,7 @@ pub const Dir = struct {
                         else => false,
                     };
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or
-                            (skip_zero_fileno and bsd_entry.d_fileno == 0))
+                        (skip_zero_fileno and bsd_entry.d_fileno == 0))
                     {
                         continue :start_over;
                     }
@@ -694,7 +694,7 @@ pub const Dir = struct {
         return self.openFileZ(&path_c, flags);
     }
 
-    /// Save as `openFile` but WASI only.
+    /// Same as `openFile` but WASI only.
     pub fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
         const w = os.wasi;
         var fdflags: w.fdflags_t = 0x0;
@@ -729,14 +729,16 @@ pub const Dir = struct {
         }
 
         var os_flags: u32 = os.O_CLOEXEC;
-        // Use the O_ locking flags if the os supports them
-        // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
+        // Use the O_ locking flags if the os supports them to acquire the lock
+        // atomically.
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
         if (has_flock_open_flags) {
-            const nonblocking_lock_flag = if (flags.lock_nonblocking)
-                os.O_NONBLOCK | os.O_SYNC
+            // Note that the O_NONBLOCK flag is removed after the openat() call
+            // is successful.
+            const nonblocking_lock_flag: u32 = if (flags.lock_nonblocking)
+                os.O_NONBLOCK
             else
-                @as(u32, 0);
+                0;
             os_flags |= switch (flags.lock) {
                 .None => @as(u32, 0),
                 .Shared => os.O_SHLOCK | nonblocking_lock_flag,
@@ -769,6 +771,22 @@ pub const Dir = struct {
                 .Shared => os.LOCK_SH | lock_nonblocking,
                 .Exclusive => os.LOCK_EX | lock_nonblocking,
             });
+        }
+
+        if (has_flock_open_flags and flags.lock_nonblocking) {
+            var fl_flags = os.fcntl(fd, os.F_GETFL, 0) catch |err| switch (err) {
+                error.FileBusy => unreachable,
+                error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
+            fl_flags &= ~@as(usize, os.O_NONBLOCK);
+            _ = os.fcntl(fd, os.F_SETFL, fl_flags) catch |err| switch (err) {
+                error.FileBusy => unreachable,
+                error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
         }
 
         return File{
@@ -854,17 +872,19 @@ pub const Dir = struct {
             return self.createFileW(path_w.span(), flags);
         }
 
-        // Use the O_ locking flags if the os supports them
-        // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
+        // Use the O_ locking flags if the os supports them to acquire the lock
+        // atomically.
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        // Note that the O_NONBLOCK flag is removed after the openat() call
+        // is successful.
         const nonblocking_lock_flag: u32 = if (has_flock_open_flags and flags.lock_nonblocking)
-            os.O_NONBLOCK | os.O_SYNC
+            os.O_NONBLOCK
         else
             0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
-            .Shared => os.O_SHLOCK,
-            .Exclusive => os.O_EXLOCK,
+            .Shared => os.O_SHLOCK | nonblocking_lock_flag,
+            .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
@@ -876,6 +896,7 @@ pub const Dir = struct {
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, flags.mode)
         else
             try os.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
+        errdefer os.close(fd);
 
         if (!has_flock_open_flags and flags.lock != .None) {
             // TODO: integrate async I/O
@@ -885,6 +906,22 @@ pub const Dir = struct {
                 .Shared => os.LOCK_SH | lock_nonblocking,
                 .Exclusive => os.LOCK_EX | lock_nonblocking,
             });
+        }
+
+        if (has_flock_open_flags and flags.lock_nonblocking) {
+            var fl_flags = os.fcntl(fd, os.F_GETFL, 0) catch |err| switch (err) {
+                error.FileBusy => unreachable,
+                error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
+            fl_flags &= ~@as(usize, os.O_NONBLOCK);
+            _ = os.fcntl(fd, os.F_SETFL, fl_flags) catch |err| switch (err) {
+                error.FileBusy => unreachable,
+                error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
         }
 
         return File{
@@ -1178,6 +1215,7 @@ pub const Dir = struct {
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
             error.PathAlreadyExists => unreachable, // not providing O_CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
+            error.WouldBlock => unreachable, // can't happen for directories
             else => |e| return e,
         };
         return Dir{ .fd = fd };
@@ -1221,6 +1259,7 @@ pub const Dir = struct {
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
             error.PathAlreadyExists => unreachable, // not providing O_CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
+            error.WouldBlock => unreachable, // can't happen for directories
             else => |e| return e,
         };
         return Dir{ .fd = fd };
@@ -2291,14 +2330,14 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+            return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0));
         },
         .netbsd => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC_ARGS, -1, os.KERN_PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+            return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0));
         },
         .openbsd => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
@@ -2350,7 +2389,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
 /// The result is UTF16LE-encoded.
 pub fn selfExePathW() [:0]const u16 {
     const image_path_name = &os.windows.peb().ProcessParameters.ImagePathName;
-    return mem.spanZ(@ptrCast([*:0]const u16, image_path_name.Buffer));
+    return mem.spanZ(std.meta.assumeSentinel(image_path_name.Buffer, 0));
 }
 
 /// `selfExeDirPath` except allocates the result on the heap.

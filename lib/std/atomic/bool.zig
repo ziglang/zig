@@ -21,14 +21,26 @@ pub const Bool = extern struct {
     // xchg is only valid rmw operation for a bool
     /// Atomically modifies memory and then returns the previous value.
     pub fn xchg(self: *Self, operand: bool, comptime ordering: std.builtin.AtomicOrder) bool {
+        switch (ordering) {
+            .Monotonic, .Acquire, .Release, .AcqRel, .SeqCst => {},
+            else => @compileError("Invalid ordering '" ++ @tagName(ordering) ++ "' for a RMW operation"),
+        }
         return @atomicRmw(bool, &self.unprotected_value, .Xchg, operand, ordering);
     }
 
     pub fn load(self: *Self, comptime ordering: std.builtin.AtomicOrder) bool {
+        switch (ordering) {
+            .Unordered, .Monotonic, .Acquire, .SeqCst => {},
+            else => @compileError("Invalid ordering '" ++ @tagName(ordering) ++ "' for a load operation"),
+        }
         return @atomicLoad(bool, &self.unprotected_value, ordering);
     }
 
     pub fn store(self: *Self, value: bool, comptime ordering: std.builtin.AtomicOrder) void {
+        switch (ordering) {
+            .Unordered, .Monotonic, .Release, .SeqCst => {},
+            else => @compileError("Invalid ordering '" ++ @tagName(ordering) ++ "' for a store operation"),
+        }
         @atomicStore(bool, &self.unprotected_value, value, ordering);
     }
 };

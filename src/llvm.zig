@@ -1,15 +1,15 @@
 //! We do this instead of @cImport because the self-hosted compiler is easier
 //! to bootstrap if it does not depend on translate-c.
 
-pub const Link = ZigLLDLink;
-extern fn ZigLLDLink(
-    oformat: ObjectFormatType,
-    args: [*:null]const ?[*:0]const u8,
-    arg_count: usize,
-    append_diagnostic: fn (context: usize, ptr: [*]const u8, len: usize) callconv(.C) void,
-    context_stdout: usize,
-    context_stderr: usize,
-) bool;
+extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
+extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
+extern fn ZigLLDLinkMachO(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
+extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
+
+pub const LinkCOFF = ZigLLDLinkCOFF;
+pub const LinkELF = ZigLLDLinkELF;
+pub const LinkMachO = ZigLLDLinkMachO;
+pub const LinkWasm = ZigLLDLinkWasm;
 
 pub const ObjectFormatType = extern enum(c_int) {
     Unknown,

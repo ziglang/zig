@@ -59,8 +59,14 @@ const RDebug = extern struct {
     r_ldbase: usize,
 };
 
+/// TODO make it possible to reference this same external symbol 2x so we don't need this
+/// helper function.
+pub fn get_DYNAMIC() ?[*]elf.Dyn {
+    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .Weak });
+}
+
 pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
-    const _DYNAMIC = @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .Weak }) orelse {
+    const _DYNAMIC = get_DYNAMIC() orelse {
         // No PT_DYNAMIC means this is either a statically-linked program or a
         // badly corrupted dynamically-linked one.
         return LinkMap.Iterator{ .current = null };
@@ -332,9 +338,14 @@ pub const WindowsDynLib = struct {
     }
 
     pub fn openW(path_w: [*:0]const u16) !WindowsDynLib {
-        return WindowsDynLib{
+        var offset: usize = 0;
+        if (path_w[0] == '\\' and path_w[1] == '?' and path_w[2] == '?' and path_w[3] == '\\') {
             // + 4 to skip over the \??\
-            .dll = try windows.LoadLibraryW(path_w + 4),
+            offset = 4;
+        }
+
+        return WindowsDynLib{
+            .dll = try windows.LoadLibraryW(path_w + offset),
         };
     }
 

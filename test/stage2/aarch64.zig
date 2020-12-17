@@ -12,9 +12,7 @@ const linux_aarch64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    // TODO enable when we add codesigning to the self-hosted linker
-    // related to #6971
-    if (false) {
+    {
         var case = ctx.exe("hello world with updates", macos_aarch64);
 
         // Regular old hello world

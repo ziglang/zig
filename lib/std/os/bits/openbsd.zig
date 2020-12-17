@@ -61,18 +61,18 @@ pub const Flock = extern struct {
     l_start: off_t,
     l_len: off_t,
     l_pid: pid_t,
-    l_type: i16,
-    l_whence: i16,
+    l_type: c_short,
+    l_whence: c_short,
 };
 
 pub const addrinfo = extern struct {
-    flags: i32,
-    family: i32,
-    socktype: i32,
-    protocol: i32,
+    flags: c_int,
+    family: c_int,
+    socktype: c_int,
+    protocol: c_int,
     addrlen: socklen_t,
-    canonname: ?[*:0]u8,
     addr: ?*sockaddr,
+    canonname: ?[*:0]u8,
     next: ?*addrinfo,
 };
 
@@ -135,7 +135,7 @@ pub const msghdr = extern struct {
     msg_iov: [*]iovec,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    msg_iovlen: c_uint,
 
     /// ancillary data
     msg_control: ?*c_void,
@@ -144,7 +144,7 @@ pub const msghdr = extern struct {
     msg_controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    msg_flags: c_int,
 };
 
 pub const msghdr_const = extern struct {
@@ -158,7 +158,7 @@ pub const msghdr_const = extern struct {
     msg_iov: [*]iovec_const,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    msg_iovlen: c_uint,
 
     /// ancillary data
     msg_control: ?*c_void,
@@ -167,7 +167,7 @@ pub const msghdr_const = extern struct {
     msg_controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    msg_flags: c_int,
 };
 
 pub const libc_stat = extern struct {
@@ -739,10 +739,10 @@ pub fn WIFSIGNALED(s: u32) bool {
 }
 
 pub const winsize = extern struct {
-    ws_row: u16,
-    ws_col: u16,
-    ws_xpixel: u16,
-    ws_ypixel: u16,
+    ws_row: c_ushort,
+    ws_col: c_ushort,
+    ws_xpixel: c_ushort,
+    ws_ypixel: c_ushort,
 };
 
 const NSIG = 33;
@@ -750,16 +750,23 @@ const NSIG = 33;
 pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_CATCH = @intToPtr(?Sigaction.sigaction_fn, 2);
+pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 3);
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const sigaction_fn = fn (c_int, *siginfo_t, ?*c_void) callconv(.C) void;
+    pub const handler_fn = fn (c_int) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+
     /// signal handler
-    sigaction: ?sigaction_fn,
+    handler: extern union {
+        handler: ?handler_fn,
+        sigaction: ?sigaction_fn,
+    },
     /// signal mask to apply
     mask: sigset_t,
     /// signal options
-    flags: c_int,
+    flags: c_uint,
 };
 
 pub const sigval = extern union {
@@ -767,12 +774,7 @@ pub const sigval = extern union {
     ptr: ?*c_void,
 };
 
-pub const siginfo_t = extern union {
-    pad: [128]u8,
-    info: _ksiginfo,
-};
-
-pub const _ksiginfo = extern struct {
+pub const siginfo_t = extern struct {
     signo: c_int,
     code: c_int,
     errno: c_int,
@@ -789,11 +791,20 @@ pub const _ksiginfo = extern struct {
             addr: ?*c_void,
             trapno: c_int,
         },
-    } align(@sizeOf(usize)),
+        __pad: [128 - 3 * @sizeOf(c_int)]u8,
+    },
 };
 
+comptime {
+    if (@sizeOf(usize) == 4)
+        std.debug.assert(@sizeOf(siginfo_t) == 128)
+    else
+    // Take into account the padding between errno and data fields.
+        std.debug.assert(@sizeOf(siginfo_t) == 136);
+}
+
 pub const sigset_t = c_uint;
-pub const empty_sigset = sigset_t(0);
+pub const empty_sigset: sigset_t = 0;
 
 pub const EPERM = 1; // Operation not permitted
 pub const ENOENT = 2; // No such file or directory
@@ -1134,3 +1145,7 @@ pub const rlimit = extern struct {
     /// Hard limit
     max: rlim_t,
 };
+
+pub const SHUT_RD = 0;
+pub const SHUT_WR = 1;
+pub const SHUT_RDWR = 2;

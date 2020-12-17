@@ -38,7 +38,7 @@ pub const Mutex = if (builtin.single_threaded)
 else if (builtin.os.tag == .windows)
     WindowsMutex
 else if (builtin.link_libc or builtin.os.tag == .linux)
-// stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
+    // stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
     struct {
         state: usize = 0,
 

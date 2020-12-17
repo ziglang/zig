@@ -50,7 +50,7 @@ pub fn getauxval(index: usize) usize {
 
 // Some architectures (and some syscalls) require 64bit parameters to be passed
 // in a even-aligned register pair.
-const require_aligned_register_pair = //
+const require_aligned_register_pair =
     std.Target.current.cpu.arch.isMIPS() or
     std.Target.current.cpu.arch.isARM() or
     std.Target.current.cpu.arch.isThumb();
@@ -112,7 +112,9 @@ pub fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:
 }
 
 pub fn fork() usize {
-    if (@hasField(SYS, "fork")) {
+    if (comptime builtin.arch.isSPARC()) {
+        return syscall_fork();
+    } else if (@hasField(SYS, "fork")) {
         return syscall0(.fork);
     } else {
         return syscall2(.clone, SIGCHLD, 0);
@@ -855,35 +857,42 @@ pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*
     return syscall4(.rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG / 8);
 }
 
-pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigaction) usize {
+pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
     assert(sig >= 1);
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
 
-    const restorer_fn = if ((act.flags & SA_SIGINFO) != 0) restore_rt else restore;
-    var ksa = k_sigaction{
-        .sigaction = act.sigaction,
-        .flags = act.flags | SA_RESTORER,
-        .mask = undefined,
-        .restorer = @ptrCast(fn () callconv(.C) void, restorer_fn),
-    };
-    var ksa_old: k_sigaction = undefined;
-    const ksa_mask_size = @sizeOf(@TypeOf(ksa_old.mask));
-    @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), ksa_mask_size);
+    var ksa: k_sigaction = undefined;
+    var oldksa: k_sigaction = undefined;
+    const mask_size = @sizeOf(@TypeOf(ksa.mask));
+
+    if (act) |new| {
+        const restorer_fn = if ((new.flags & SA_SIGINFO) != 0) restore_rt else restore;
+        ksa = k_sigaction{
+            .handler = new.handler.handler,
+            .flags = new.flags | SA_RESTORER,
+            .mask = undefined,
+            .restorer = @ptrCast(fn () callconv(.C) void, restorer_fn),
+        };
+        @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &new.mask), mask_size);
+    }
+
+    const ksa_arg = if (act != null) @ptrToInt(&ksa) else 0;
+    const oldksa_arg = if (oact != null) @ptrToInt(&oldksa) else 0;
+
     const result = switch (builtin.arch) {
         // The sparc version of rt_sigaction needs the restorer function to be passed as an argument too.
-        .sparc, .sparcv9 => syscall5(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), @ptrToInt(ksa.restorer), ksa_mask_size),
-        else => syscall4(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size),
+        .sparc, .sparcv9 => syscall5(.rt_sigaction, sig, ksa_arg, oldksa_arg, @ptrToInt(ksa.restorer), mask_size),
+        else => syscall4(.rt_sigaction, sig, ksa_arg, oldksa_arg, mask_size),
     };
-    const err = getErrno(result);
-    if (err != 0) {
-        return result;
-    }
+    if (getErrno(result) != 0) return result;
+
     if (oact) |old| {
-        old.sigaction = ksa_old.sigaction;
-        old.flags = @truncate(u32, ksa_old.flags);
-        @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &ksa_old.mask), ksa_mask_size);
+        old.handler.handler = oldksa.handler;
+        old.flags = @truncate(c_uint, oldksa.flags);
+        @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &oldksa.mask), mask_size);
     }
+
     return 0;
 }
 

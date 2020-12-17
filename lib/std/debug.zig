@@ -743,7 +743,7 @@ fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInf
             for (present) |_| {
                 const name_offset = try pdb_stream.inStream().readIntLittle(u32);
                 const name_index = try pdb_stream.inStream().readIntLittle(u32);
-                const name = mem.spanZ(@ptrCast([*:0]u8, name_bytes.ptr + name_offset));
+                const name = mem.spanZ(std.meta.assumeSentinel(name_bytes.ptr + name_offset, 0));
                 if (mem.eql(u8, name, "/names")) {
                     break :str_tab_index name_index;
                 }
@@ -891,7 +891,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
         for (shdrs) |*shdr| {
             if (shdr.sh_type == elf.SHT_NULL) continue;
 
-            const name = std.mem.span(@ptrCast([*:0]const u8, header_strings[shdr.sh_name..].ptr));
+            const name = std.mem.span(std.meta.assumeSentinel(header_strings[shdr.sh_name..].ptr, 0));
             if (mem.eql(u8, name, ".debug_info")) {
                 opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_abbrev")) {
@@ -1430,7 +1430,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             return di;
         }
 
-        fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
             nosuspend {
                 // Translate the VA into an address into this object
                 const relocated_address = address - self.base_address;
@@ -1499,7 +1499,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             return self.coff.allocator;
         }
 
-        fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
@@ -1652,7 +1652,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
 
-        fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
@@ -1721,7 +1721,7 @@ pub fn attachSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .sigaction = handleSegfaultLinux,
+        .handler = .{ .sigaction = handleSegfaultLinux },
         .mask = os.empty_sigset,
         .flags = (os.SA_SIGINFO | os.SA_RESTART | os.SA_RESETHAND),
     };
@@ -1740,7 +1740,7 @@ fn resetSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .sigaction = os.SIG_DFL,
+        .handler = .{ .sigaction = os.SIG_DFL },
         .mask = os.empty_sigset,
         .flags = 0,
     };
@@ -1760,12 +1760,18 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
         else => unreachable,
     };
-    switch (sig) {
-        os.SIGSEGV => std.debug.warn("Segmentation fault at address 0x{x}\n", .{addr}),
-        os.SIGILL => std.debug.warn("Illegal instruction at address 0x{x}\n", .{addr}),
-        os.SIGBUS => std.debug.warn("Bus error at address 0x{x}\n", .{addr}),
-        else => unreachable,
+
+    // Don't use std.debug.print() as stderr_mutex may still be locked.
+    nosuspend {
+        const stderr = io.getStdErr().writer();
+        _ = switch (sig) {
+            os.SIGSEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
+            os.SIGILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
+            os.SIGBUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
+            else => unreachable,
+        } catch os.abort();
     }
+
     switch (builtin.arch) {
         .i386 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
@@ -1816,11 +1822,15 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
     const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     if (@hasDecl(windows, "CONTEXT")) {
         const regs = info.ContextRecord.getRegs();
-        switch (msg) {
-            0 => std.debug.warn("{}\n", .{format.?}),
-            1 => std.debug.warn("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
-            2 => std.debug.warn("Illegal instruction at address 0x{x}\n", .{regs.ip}),
-            else => unreachable,
+        // Don't use std.debug.print() as stderr_mutex may still be locked.
+        nosuspend {
+            const stderr = io.getStdErr().writer();
+            _ = switch (msg) {
+                0 => stderr.print("{s}\n", .{format.?}),
+                1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
+                2 => stderr.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
+                else => unreachable,
+            } catch os.abort();
         }
 
         dumpStackTraceFromBase(regs.bp, regs.ip);

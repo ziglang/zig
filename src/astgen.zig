@@ -489,7 +489,6 @@ fn varDecl(
     node: *ast.Node.VarDecl,
     block_arena: *Allocator,
 ) InnerError!*Scope {
-    // TODO implement detection of shadowing
     if (node.getComptimeToken()) |comptime_token| {
         return mod.failTok(scope, comptime_token, "TODO implement comptime locals", .{});
     }
@@ -499,6 +498,34 @@ fn varDecl(
     const tree = scope.tree();
     const name_src = tree.token_locs[node.name_token].start;
     const ident_name = try identifierTokenString(mod, scope, node.name_token);
+
+    // Local variables shadowing detection, including function parameters.
+    {
+        var s = scope;
+        while (true) switch (s.tag) {
+            .local_val => {
+                const local_val = s.cast(Scope.LocalVal).?;
+                if (mem.eql(u8, local_val.name, ident_name)) {
+                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                }
+                s = local_val.parent;
+            },
+            .local_ptr => {
+                const local_ptr = s.cast(Scope.LocalPtr).?;
+                if (mem.eql(u8, local_ptr.name, ident_name)) {
+                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                }
+                s = local_ptr.parent;
+            },
+            .gen_zir => s = s.cast(Scope.GenZIR).?.parent,
+            else => break,
+        };
+    }
+
+    // Namespace vars shadowing detection
+    if (mod.lookupDeclName(scope, ident_name)) |_| {
+        return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+    }
     const init_node = node.getInitNode() orelse
         return mod.fail(scope, name_src, "variables must be initialized", .{});
 

@@ -3,24 +3,46 @@
 set -x
 set -e
 
+# This parameters we wait at most 2mins, it should be enough to sort out any
+# transient error.
+CMD_MAX_RETRY=12
+CMD_WAIT_TIME=10s
+
+# Execute the given command and, in case of failure, try to execute it again
+# after sleeping for CMD_WAIT_TIME.
+# We give up after retrying CMD_MAX_RETRY times.
+retry() {
+  for i in $(seq 1 "$CMD_MAX_RETRY"); do
+    eval "$@" && return
+    echo "command \"$@\" failed, retrying..."
+    sleep ${CMD_WAIT_TIME}
+  done
+
+  echo "command \"$@\" failed, giving up..."
+  exit 1
+}
+
 BUILDDIR="$(pwd)"
 
 sudo sh -c 'echo "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-11 main" >> /etc/apt/sources.list'
-wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
-sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-sudo apt-get update -q
+retry 'wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -'
+retry sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 
 sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
-sudo apt-get install -y libxml2-dev libclang-11-dev llvm-11 llvm-11-dev liblld-11-dev cmake s3cmd gcc-7 g++-7 ninja-build tidy
 
-QEMUBASE="qemu-linux-x86_64-5.1.0"
-wget https://ziglang.org/deps/$QEMUBASE.tar.xz
+retry sudo apt-get update -q
+retry sudo apt-get install -y \
+    libxml2-dev libclang-11-dev llvm-11 llvm-11-dev liblld-11-dev cmake s3cmd \
+    gcc-7 g++-7 ninja-build tidy \
+
+QEMUBASE="qemu-linux-x86_64-5.2.0"
+wget -nv https://ziglang.org/deps/$QEMUBASE.tar.xz
 tar xf $QEMUBASE.tar.xz
 PATH=$PWD/$QEMUBASE/bin:$PATH
 
 WASMTIME="wasmtime-v0.20.0-x86_64-linux"
-wget https://github.com/bytecodealliance/wasmtime/releases/download/v0.20.0/$WASMTIME.tar.xz
+wget -nv https://github.com/bytecodealliance/wasmtime/releases/download/v0.20.0/$WASMTIME.tar.xz
 tar xf $WASMTIME.tar.xz
 PATH=$PWD/$WASMTIME:$PATH
 

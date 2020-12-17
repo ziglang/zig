@@ -1146,8 +1146,6 @@ bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
             return true;
         if (equal(name, "dl"))
             return true;
-        if (equal(name, "util"))
-            return true;
     }
 
     if (target_os_is_darwin(target->os) && equal(name, "System"))

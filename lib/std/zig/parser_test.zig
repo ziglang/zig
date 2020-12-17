@@ -274,6 +274,51 @@ test "recovery: missing block after for/while loops" {
     });
 }
 
+test "zig fmt: respect line breaks after var declarations" {
+    try testCanonical(
+        \\const crc =
+        \\    lookup_tables[0][p[7]] ^
+        \\    lookup_tables[1][p[6]] ^
+        \\    lookup_tables[2][p[5]] ^
+        \\    lookup_tables[3][p[4]] ^
+        \\    lookup_tables[4][@truncate(u8, self.crc >> 24)] ^
+        \\    lookup_tables[5][@truncate(u8, self.crc >> 16)] ^
+        \\    lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
+        \\    lookup_tables[7][@truncate(u8, self.crc >> 0)];
+        \\
+    );
+}
+
+test "zig fmt: multiline string mixed with comments" {
+    try testCanonical(
+        \\const s1 =
+        \\    //\\one
+        \\    \\two)
+        \\    \\three
+        \\;
+        \\const s2 =
+        \\    \\one
+        \\    \\two)
+        \\    //\\three
+        \\;
+        \\const s3 =
+        \\    \\one
+        \\    //\\two)
+        \\    \\three
+        \\;
+        \\const s4 =
+        \\    \\one
+        \\    //\\two
+        \\    \\three
+        \\    //\\four
+        \\    \\five
+        \\;
+        \\const a =
+        \\    1;
+        \\
+    );
+}
+
 test "zig fmt: empty file" {
     try testCanonical(
         \\
@@ -513,6 +558,24 @@ test "zig fmt: anon literal in array" {
         \\var arr: [2]Foo = .{
         \\    .{ .a = 2 },
         \\    .{ .b = 3 },
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: alignment in anonymous literal" {
+    try testTransform(
+        \\const a = .{
+        \\    "U",     "L",     "F",
+        \\    "U'",
+        \\    "L'",
+        \\    "F'",
+        \\};
+        \\
+    ,
+        \\const a = .{
+        \\    "U",  "L",  "F",
+        \\    "U'", "L'", "F'",
         \\};
         \\
     );
@@ -3224,7 +3287,8 @@ test "zig fmt: integer literals with underscore separators" {
         \\ 1_234_567
         \\ +(0b0_1-0o7_0+0xff_FF ) +  0_0;
     ,
-        \\const x = 1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 0_0;
+        \\const x =
+        \\    1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 0_0;
         \\
     );
 }

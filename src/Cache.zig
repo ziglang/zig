@@ -26,6 +26,7 @@ pub fn obtain(cache: *const Cache) Manifest {
 /// This is 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
 pub const bin_digest_len = 16;
 pub const hex_digest_len = bin_digest_len * 2;
+pub const BinDigest = [bin_digest_len]u8;
 
 const manifest_file_size_max = 50 * 1024 * 1024;
 
@@ -41,7 +42,7 @@ pub const File = struct {
     path: ?[]const u8,
     max_file_size: ?usize,
     stat: fs.File.Stat,
-    bin_digest: [bin_digest_len]u8,
+    bin_digest: BinDigest,
     contents: ?[]const u8,
 
     pub fn deinit(self: *File, allocator: *Allocator) void {
@@ -60,6 +61,8 @@ pub const File = struct {
 pub const HashHelper = struct {
     hasher: Hasher = hasher_init,
 
+    const EmitLoc = @import("Compilation.zig").EmitLoc;
+
     /// Record a slice of bytes as an dependency of the process being cached
     pub fn addBytes(hh: *HashHelper, bytes: []const u8) void {
         hh.hasher.update(mem.asBytes(&bytes.len));
@@ -69,6 +72,15 @@ pub const HashHelper = struct {
     pub fn addOptionalBytes(hh: *HashHelper, optional_bytes: ?[]const u8) void {
         hh.add(optional_bytes != null);
         hh.addBytes(optional_bytes orelse return);
+    }
+
+    pub fn addEmitLoc(hh: *HashHelper, emit_loc: EmitLoc) void {
+        hh.addBytes(emit_loc.basename);
+    }
+
+    pub fn addOptionalEmitLoc(hh: *HashHelper, optional_emit_loc: ?EmitLoc) void {
+        hh.add(optional_emit_loc != null);
+        hh.addEmitLoc(optional_emit_loc orelse return);
     }
 
     pub fn addListOfBytes(hh: *HashHelper, list_of_bytes: []const []const u8) void {
@@ -128,16 +140,16 @@ pub const HashHelper = struct {
         return copy.final();
     }
 
-    pub fn peekBin(hh: HashHelper) [bin_digest_len]u8 {
+    pub fn peekBin(hh: HashHelper) BinDigest {
         var copy = hh;
-        var bin_digest: [bin_digest_len]u8 = undefined;
+        var bin_digest: BinDigest = undefined;
         copy.hasher.final(&bin_digest);
         return bin_digest;
     }
 
     /// Returns a hex encoded hash of the inputs, mutating the state of the hasher.
     pub fn final(hh: *HashHelper) [hex_digest_len]u8 {
-        var bin_digest: [bin_digest_len]u8 = undefined;
+        var bin_digest: BinDigest = undefined;
         hh.hasher.final(&bin_digest);
 
         var out_digest: [hex_digest_len]u8 = undefined;
@@ -230,7 +242,7 @@ pub const Manifest = struct {
         const ext = ".txt";
         var manifest_file_path: [self.hex_digest.len + ext.len]u8 = undefined;
 
-        var bin_digest: [bin_digest_len]u8 = undefined;
+        var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
 
         _ = std.fmt.bufPrint(&self.hex_digest, "{x}", .{bin_digest}) catch unreachable;
@@ -336,7 +348,7 @@ pub const Manifest = struct {
                     cache_hash_file.stat.inode = 0;
                 }
 
-                var actual_digest: [bin_digest_len]u8 = undefined;
+                var actual_digest: BinDigest = undefined;
                 try hashFile(this_file, &actual_digest);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
@@ -370,7 +382,7 @@ pub const Manifest = struct {
         return true;
     }
 
-    pub fn unhit(self: *Manifest, bin_digest: [bin_digest_len]u8, input_file_count: usize) void {
+    pub fn unhit(self: *Manifest, bin_digest: BinDigest, input_file_count: usize) void {
         // Reset the hash.
         self.hash.hasher = hasher_init;
         self.hash.hasher.update(&bin_digest);
@@ -519,7 +531,7 @@ pub const Manifest = struct {
         // cache_release is called we still might be working on creating
         // the artifacts to cache.
 
-        var bin_digest: [bin_digest_len]u8 = undefined;
+        var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
 
         var out_digest: [hex_digest_len]u8 = undefined;

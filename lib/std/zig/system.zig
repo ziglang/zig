@@ -212,7 +212,7 @@ pub const NativeTargetInfo = struct {
                     const uts = std.os.uname();
                     const release = mem.spanZ(&uts.release);
                     // The release field sometimes has a weird format,
-                    // `Version.parse` will attempt to find some meaningful interpretation. 
+                    // `Version.parse` will attempt to find some meaningful interpretation.
                     if (std.builtin.Version.parse(release)) |ver| {
                         os.version_range.linux.range.min = ver;
                         os.version_range.linux.range.max = ver;
@@ -237,7 +237,7 @@ pub const NativeTargetInfo = struct {
                     //   `---` `` ``--> Sub-version (Starting from Windows 10 onwards)
                     //     \    `--> Service pack (Always zero in the constants defined)
                     //      `--> OS version (Major & minor)
-                    const os_ver: u16 = //
+                    const os_ver: u16 =
                         @intCast(u16, version_info.dwMajorVersion & 0xff) << 8 |
                         @intCast(u16, version_info.dwMinorVersion & 0xff);
                     const sp_ver: u8 = 0;
@@ -780,7 +780,7 @@ pub const NativeTargetInfo = struct {
                         );
                         const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
                         // TODO this pointer cast should not be necessary
-                        const sh_name = mem.spanZ(@ptrCast([*:0]u8, shstrtab[sh_name_off..].ptr));
+                        const sh_name = mem.spanZ(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0));
                         if (mem.eql(u8, sh_name, ".dynstr")) {
                             break :find_dyn_str .{
                                 .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
@@ -798,7 +798,7 @@ pub const NativeTargetInfo = struct {
                     const rpoff_usize = std.math.cast(usize, rpoff) catch |err| switch (err) {
                         error.Overflow => return error.InvalidElfFile,
                     };
-                    const rpath_list = mem.spanZ(@ptrCast([*:0]u8, strtab[rpoff_usize..].ptr));
+                    const rpath_list = mem.spanZ(std.meta.assumeSentinel(strtab[rpoff_usize..].ptr, 0));
                     var it = mem.tokenize(rpath_list, ":");
                     while (it.next()) |rpath| {
                         var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {

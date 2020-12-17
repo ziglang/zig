@@ -24,7 +24,7 @@ test "fallocate" {
         0 => {},
         linux.ENOSYS => return error.SkipZigTest,
         linux.EOPNOTSUPP => return error.SkipZigTest,
-        else => |errno| std.debug.panic("unhandled errno: {}", .{ errno }),
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
 
     expect((try file.stat()).size == len);

@@ -30,10 +30,8 @@ pub const AutoResetEvent = struct {
     //  std.ResetEvent.wait()   |
     //                          | std.ResetEvent.set()
     //                          | std.ResetEvent.set()
-    //  std.ResetEvent.reset()  | 
+    //  std.ResetEvent.reset()  |
     //  std.ResetEvent.wait()   | (missed the second .set() notification above)
-
-
     state: usize = UNSET,
 
     const UNSET = 0;
@@ -70,7 +68,7 @@ pub const AutoResetEvent = struct {
             if (state != UNSET) {
                 unreachable; // multiple waiting threads on the same AutoResetEvent
             }
-            
+
             // lazily initialize the ResetEvent if it hasn't been already
             if (!has_reset_event) {
                 has_reset_event = true;
@@ -78,7 +76,7 @@ pub const AutoResetEvent = struct {
             }
 
             // Since the AutoResetEvent currently isnt set,
-            // try to register our ResetEvent on it to wait 
+            // try to register our ResetEvent on it to wait
             // for a set() call from another thread.
             if (@cmpxchgWeak(
                 usize,
@@ -121,7 +119,7 @@ pub const AutoResetEvent = struct {
                 unreachable; // multiple waiting threads on the same AutoResetEvent observed when timing out
             }
 
-            // This menas a set() thread saw our ResetEvent pointer, acquired it, and is trying to wake it up.    
+            // This menas a set() thread saw our ResetEvent pointer, acquired it, and is trying to wake it up.
             // We need to wait for it to wake up our ResetEvent before we can return and invalidate it.
             // We don't return error.TimedOut here as it technically notified us while we were "timing out".
             reset_event.wait();
@@ -137,7 +135,7 @@ pub const AutoResetEvent = struct {
                 return;
             }
 
-            // If the AutoResetEvent isn't set, 
+            // If the AutoResetEvent isn't set,
             // then try to leave a notification for the wait() thread that we set() it.
             if (state == UNSET) {
                 state = @cmpxchgWeak(

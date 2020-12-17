@@ -18,7 +18,9 @@
 #include <math.h>
 
 #define __CUDA__
+#define __OPENMP_NVPTX__
 #include <__clang_cuda_complex_builtins.h>
+#undef __OPENMP_NVPTX__
 #endif
 
 // Grab the host header too.

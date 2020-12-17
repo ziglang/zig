@@ -31,7 +31,7 @@ pub const IO_Uring = struct {
     pub fn init(entries: u12, flags: u32) !IO_Uring {
         var params = mem.zeroInit(io_uring_params, .{
             .flags = flags,
-            .sq_thread_idle = 1000
+            .sq_thread_idle = 1000,
         });
         return try IO_Uring.init_params(entries, &params);
     }
@@ -69,7 +69,7 @@ pub const IO_Uring = struct {
             // or a container seccomp policy prohibits io_uring syscalls:
             linux.EPERM => return error.PermissionDenied,
             linux.ENOSYS => return error.SystemOutdated,
-            else => |errno| return os.unexpectedErrno(errno)
+            else => |errno| return os.unexpectedErrno(errno),
         }
         const fd = @intCast(os.fd_t, res);
         assert(fd >= 0);
@@ -117,12 +117,12 @@ pub const IO_Uring = struct {
         assert(cq.overflow.* == 0);
         assert(cq.cqes.len == p.cq_entries);
 
-        return IO_Uring {
+        return IO_Uring{
             .fd = fd,
             .sq = sq,
             .cq = cq,
             .flags = p.flags,
-            .features = p.features
+            .features = p.features,
         };
     }
 
@@ -207,7 +207,7 @@ pub const IO_Uring = struct {
             // The operation was interrupted by a delivery of a signal before it could complete.
             // This can happen while waiting for events with IORING_ENTER_GETEVENTS:
             linux.EINTR => return error.SignalInterrupt,
-            else => |errno| return os.unexpectedErrno(errno)
+            else => |errno| return os.unexpectedErrno(errno),
         }
         return @intCast(u32, res);
     }
@@ -369,7 +369,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         buffer: []u8,
-        offset: u64
+        offset: u64,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_read(sqe, fd, buffer, offset);
@@ -384,7 +384,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         buffer: []const u8,
-        offset: u64
+        offset: u64,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_write(sqe, fd, buffer, offset);
@@ -401,7 +401,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         iovecs: []const os.iovec,
-        offset: u64
+        offset: u64,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_readv(sqe, fd, iovecs, offset);
@@ -418,7 +418,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         iovecs: []const os.iovec_const,
-        offset: u64
+        offset: u64,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_writev(sqe, fd, iovecs, offset);
@@ -434,7 +434,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         addr: *os.sockaddr,
         addrlen: *os.socklen_t,
-        flags: u32
+        flags: u32,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_accept(sqe, fd, addr, addrlen, flags);
@@ -449,7 +449,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         addr: *const os.sockaddr,
-        addrlen: os.socklen_t
+        addrlen: os.socklen_t,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_connect(sqe, fd, addr, addrlen);
@@ -464,7 +464,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         buffer: []u8,
-        flags: u32
+        flags: u32,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_recv(sqe, fd, buffer, flags);
@@ -479,7 +479,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         buffer: []const u8,
-        flags: u32
+        flags: u32,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_send(sqe, fd, buffer, flags);
@@ -495,7 +495,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         path: [*:0]const u8,
         flags: u32,
-        mode: os.mode_t
+        mode: os.mode_t,
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_openat(sqe, fd, path, flags, mode);
@@ -508,6 +508,52 @@ pub const IO_Uring = struct {
     pub fn close(self: *IO_Uring, user_data: u64, fd: os.fd_t) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_close(sqe, fd);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    /// Queues (but does not submit) an SQE to register a timeout operation.
+    /// Returns a pointer to the SQE.
+    ///
+    /// The timeout will complete when either the timeout expires, or after the specified number of
+    /// events complete (if `count` is greater than `0`).
+    ///
+    /// `flags` may be `0` for a relative timeout, or `IORING_TIMEOUT_ABS` for an absolute timeout.
+    ///
+    /// The completion event result will be `-ETIME` if the timeout completed through expiration,
+    /// `0` if the timeout completed after the specified number of events, or `-ECANCELED` if the
+    /// timeout was removed before it expired.
+    ///
+    /// io_uring timeouts use the `CLOCK_MONOTONIC` clock source.
+    pub fn timeout(
+        self: *IO_Uring,
+        user_data: u64,
+        ts: *const os.timespec,
+        count: u32,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_timeout(sqe, ts, count, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    /// Queues (but does not submit) an SQE to remove an existing timeout operation.
+    /// Returns a pointer to the SQE.
+    ///
+    /// The timeout is identified by its `user_data`.
+    ///
+    /// The completion event result will be `0` if the timeout was found and cancelled successfully,
+    /// `-EBUSY` if the timeout was found but expiration was already in progress, or
+    /// `-ENOENT` if the timeout was not found.
+    pub fn timeout_remove(
+        self: *IO_Uring,
+        user_data: u64,
+        timeout_user_data: u64,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_timeout_remove(sqe, timeout_user_data, flags);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -529,7 +575,7 @@ pub const IO_Uring = struct {
             self.fd,
             .REGISTER_FILES,
             @ptrCast(*const c_void, fds.ptr),
-            @intCast(u32, fds.len)
+            @intCast(u32, fds.len),
         );
         switch (linux.getErrno(res)) {
             0 => {},
@@ -548,7 +594,7 @@ pub const IO_Uring = struct {
             linux.ENOMEM => return error.SystemResources,
             // Attempt to register files on a ring already registering files or being torn down:
             linux.ENXIO => return error.RingShuttingDownOrAlreadyRegisteringFiles,
-            else => |errno| return os.unexpectedErrno(errno)
+            else => |errno| return os.unexpectedErrno(errno),
         }
     }
 
@@ -559,7 +605,7 @@ pub const IO_Uring = struct {
         switch (linux.getErrno(res)) {
             0 => {},
             linux.ENXIO => return error.FilesNotRegistered,
-            else => |errno| return os.unexpectedErrno(errno)
+            else => |errno| return os.unexpectedErrno(errno),
         }
     }
 };
@@ -581,13 +627,13 @@ pub const SubmissionQueue = struct {
     // This allows us to amortize the cost of the @atomicStore to `tail` across multiple SQEs.
     sqe_head: u32 = 0,
     sqe_tail: u32 = 0,
-    
+
     pub fn init(fd: os.fd_t, p: io_uring_params) !SubmissionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const size = std.math.max(
             p.sq_off.array + p.sq_entries * @sizeOf(u32),
-            p.cq_off.cqes + p.cq_entries * @sizeOf(io_uring_cqe)
+            p.cq_off.cqes + p.cq_entries * @sizeOf(io_uring_cqe),
         );
         const mmap = try os.mmap(
             null,
@@ -620,9 +666,9 @@ pub const SubmissionQueue = struct {
         // see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7843-L7844.
         assert(
             p.sq_entries ==
-            @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_entries])).*
+                @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_entries])).*,
         );
-        return SubmissionQueue {
+        return SubmissionQueue{
             .head = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.head])),
             .tail = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.tail])),
             .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_mask])).*,
@@ -631,7 +677,7 @@ pub const SubmissionQueue = struct {
             .array = array[0..p.sq_entries],
             .sqes = sqes[0..p.sq_entries],
             .mmap = mmap,
-            .mmap_sqes = mmap_sqes
+            .mmap_sqes = mmap_sqes,
         };
     }
 
@@ -654,18 +700,16 @@ pub const CompletionQueue = struct {
         const mmap = sq.mmap;
         const cqes = @ptrCast(
             [*]io_uring_cqe,
-            @alignCast(@alignOf(io_uring_cqe), &mmap[p.cq_off.cqes])
+            @alignCast(@alignOf(io_uring_cqe), &mmap[p.cq_off.cqes]),
         );
-        assert(
-            p.cq_entries ==
-            @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_entries])).*
-        );
-        return CompletionQueue {
+        assert(p.cq_entries ==
+            @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_entries])).*);
+        return CompletionQueue{
             .head = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.head])),
             .tail = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.tail])),
             .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_mask])).*,
             .overflow = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.overflow])),
-            .cqes = cqes[0..p.cq_entries]
+            .cqes = cqes[0..p.cq_entries],
         };
     }
 
@@ -689,7 +733,7 @@ pub fn io_uring_prep_nop(sqe: *io_uring_sqe) void {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 }
+        .__pad2 = [2]u64{ 0, 0 },
     };
 }
 
@@ -707,7 +751,7 @@ pub fn io_uring_prep_fsync(sqe: *io_uring_sqe, fd: os.fd_t, flags: u32) void {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 }
+        .__pad2 = [2]u64{ 0, 0 },
     };
 }
 
@@ -717,7 +761,7 @@ pub fn io_uring_prep_rw(
     fd: os.fd_t,
     addr: anytype,
     len: usize,
-    offset: u64
+    offset: u64,
 ) void {
     sqe.* = .{
         .opcode = op,
@@ -732,7 +776,7 @@ pub fn io_uring_prep_rw(
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 }
+        .__pad2 = [2]u64{ 0, 0 },
     };
 }
 
@@ -748,7 +792,7 @@ pub fn io_uring_prep_readv(
     sqe: *io_uring_sqe,
     fd: os.fd_t,
     iovecs: []const os.iovec,
-    offset: u64
+    offset: u64,
 ) void {
     io_uring_prep_rw(.READV, sqe, fd, iovecs.ptr, iovecs.len, offset);
 }
@@ -757,7 +801,7 @@ pub fn io_uring_prep_writev(
     sqe: *io_uring_sqe,
     fd: os.fd_t,
     iovecs: []const os.iovec_const,
-    offset: u64
+    offset: u64,
 ) void {
     io_uring_prep_rw(.WRITEV, sqe, fd, iovecs.ptr, iovecs.len, offset);
 }
@@ -767,7 +811,7 @@ pub fn io_uring_prep_accept(
     fd: os.fd_t,
     addr: *os.sockaddr,
     addrlen: *os.socklen_t,
-    flags: u32
+    flags: u32,
 ) void {
     // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
     // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
@@ -779,7 +823,7 @@ pub fn io_uring_prep_connect(
     sqe: *io_uring_sqe,
     fd: os.fd_t,
     addr: *const os.sockaddr,
-    addrlen: os.socklen_t
+    addrlen: os.socklen_t,
 ) void {
     // `addrlen` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
     io_uring_prep_rw(.CONNECT, sqe, fd, addr, 0, addrlen);
@@ -800,7 +844,7 @@ pub fn io_uring_prep_openat(
     fd: os.fd_t,
     path: [*:0]const u8,
     flags: u32,
-    mode: os.mode_t
+    mode: os.mode_t,
 ) void {
     io_uring_prep_rw(.OPENAT, sqe, fd, path, mode, 0);
     sqe.rw_flags = flags;
@@ -820,7 +864,35 @@ pub fn io_uring_prep_close(sqe: *io_uring_sqe, fd: os.fd_t) void {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 }
+        .__pad2 = [2]u64{ 0, 0 },
+    };
+}
+
+pub fn io_uring_prep_timeout(
+    sqe: *io_uring_sqe,
+    ts: *const os.timespec,
+    count: u32,
+    flags: u32,
+) void {
+    io_uring_prep_rw(.TIMEOUT, sqe, -1, ts, 1, count);
+    sqe.rw_flags = flags;
+}
+
+pub fn io_uring_prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, flags: u32) void {
+    sqe.* = .{
+        .opcode = .TIMEOUT_REMOVE,
+        .flags = 0,
+        .ioprio = 0,
+        .fd = -1,
+        .off = 0,
+        .addr = timeout_user_data,
+        .len = 0,
+        .rw_flags = flags,
+        .user_data = 0,
+        .buf_index = 0,
+        .personality = 0,
+        .splice_fd_in = 0,
+        .__pad2 = [2]u64{ 0, 0 },
     };
 }
 
@@ -845,7 +917,7 @@ test "nop" {
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
-        else => return err
+        else => return err,
     };
     defer {
         ring.deinit();
@@ -853,7 +925,7 @@ test "nop" {
     }
 
     const sqe = try ring.nop(0xaaaaaaaa);
-    testing.expectEqual(io_uring_sqe {
+    testing.expectEqual(io_uring_sqe{
         .opcode = .NOP,
         .flags = 0,
         .ioprio = 0,
@@ -866,7 +938,7 @@ test "nop" {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 }
+        .__pad2 = [2]u64{ 0, 0 },
     }, sqe.*);
 
     testing.expectEqual(@as(u32, 0), ring.sq.sqe_head);
@@ -883,10 +955,10 @@ test "nop" {
     testing.expectEqual(@as(u32, 0), ring.cq.head.*);
     testing.expectEqual(@as(u32, 0), ring.sq_ready());
 
-    testing.expectEqual(io_uring_cqe {
+    testing.expectEqual(io_uring_cqe{
         .user_data = 0xaaaaaaaa,
         .res = 0,
-        .flags = 0
+        .flags = 0,
     }, try ring.copy_cqe());
     testing.expectEqual(@as(u32, 1), ring.cq.head.*);
     testing.expectEqual(@as(u32, 0), ring.cq_ready());
@@ -894,10 +966,10 @@ test "nop" {
     const sqe_barrier = try ring.nop(0xbbbbbbbb);
     sqe_barrier.flags |= linux.IOSQE_IO_DRAIN;
     testing.expectEqual(@as(u32, 1), try ring.submit());
-    testing.expectEqual(io_uring_cqe {
+    testing.expectEqual(io_uring_cqe{
         .user_data = 0xbbbbbbbb,
         .res = 0,
-        .flags = 0
+        .flags = 0,
     }, try ring.copy_cqe());
     testing.expectEqual(@as(u32, 2), ring.sq.sqe_head);
     testing.expectEqual(@as(u32, 2), ring.sq.sqe_tail);
@@ -911,7 +983,7 @@ test "readv" {
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
-        else => return err
+        else => return err,
     };
     defer ring.deinit();
 
@@ -930,14 +1002,14 @@ test "readv" {
     try ring.register_files(registered_fds[0..]);
 
     var buffer = [_]u8{42} ** 128;
-    var iovecs = [_]os.iovec{ os.iovec { .iov_base = &buffer, .iov_len = buffer.len } };
+    var iovecs = [_]os.iovec{os.iovec{ .iov_base = &buffer, .iov_len = buffer.len }};
     const sqe = try ring.readv(0xcccccccc, fd_index, iovecs[0..], 0);
     testing.expectEqual(linux.IORING_OP.READV, sqe.opcode);
     sqe.flags |= linux.IOSQE_FIXED_FILE;
 
     testing.expectError(error.SubmissionQueueFull, ring.nop(0));
     testing.expectEqual(@as(u32, 1), try ring.submit());
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xcccccccc,
         .res = buffer.len,
         .flags = 0,
@@ -953,10 +1025,10 @@ test "writev/fsync/readv" {
     var ring = IO_Uring.init(4, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
-        else => return err
+        else => return err,
     };
     defer ring.deinit();
-    
+
     const path = "test_io_uring_writev_fsync_readv";
     const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
@@ -964,19 +1036,19 @@ test "writev/fsync/readv" {
     const fd = file.handle;
 
     const buffer_write = [_]u8{42} ** 128;
-    const iovecs_write = [_]os.iovec_const {
-        os.iovec_const { .iov_base = &buffer_write, .iov_len = buffer_write.len }
+    const iovecs_write = [_]os.iovec_const{
+        os.iovec_const{ .iov_base = &buffer_write, .iov_len = buffer_write.len },
     };
     var buffer_read = [_]u8{0} ** 128;
-    var iovecs_read = [_]os.iovec {
-        os.iovec { .iov_base = &buffer_read, .iov_len = buffer_read.len }
+    var iovecs_read = [_]os.iovec{
+        os.iovec{ .iov_base = &buffer_read, .iov_len = buffer_read.len },
     };
 
     const sqe_writev = try ring.writev(0xdddddddd, fd, iovecs_write[0..], 17);
     testing.expectEqual(linux.IORING_OP.WRITEV, sqe_writev.opcode);
     testing.expectEqual(@as(u64, 17), sqe_writev.off);
     sqe_writev.flags |= linux.IOSQE_IO_LINK;
-    
+
     const sqe_fsync = try ring.fsync(0xeeeeeeee, fd, 0);
     testing.expectEqual(linux.IORING_OP.FSYNC, sqe_fsync.opcode);
     testing.expectEqual(fd, sqe_fsync.fd);
@@ -991,21 +1063,21 @@ test "writev/fsync/readv" {
     testing.expectEqual(@as(u32, 0), ring.sq_ready());
     testing.expectEqual(@as(u32, 3), ring.cq_ready());
 
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xdddddddd,
         .res = buffer_write.len,
         .flags = 0,
     }, try ring.copy_cqe());
     testing.expectEqual(@as(u32, 2), ring.cq_ready());
-    
-    testing.expectEqual(linux.io_uring_cqe {
+
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = 0,
         .flags = 0,
     }, try ring.copy_cqe());
     testing.expectEqual(@as(u32, 1), ring.cq_ready());
 
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_read.len,
         .flags = 0,
@@ -1021,10 +1093,10 @@ test "write/read" {
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
-        else => return err
+        else => return err,
     };
     defer ring.deinit();
-    
+
     const path = "test_io_uring_write_read";
     const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
@@ -1048,12 +1120,12 @@ test "write/read" {
     // https://lwn.net/Articles/809820/
     if (cqe_write.res == -linux.EINVAL) return error.SkipZigTest;
     if (cqe_read.res == -linux.EINVAL) return error.SkipZigTest;
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x11111111,
         .res = buffer_write.len,
         .flags = 0,
     }, cqe_write);
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x22222222,
         .res = buffer_read.len,
         .flags = 0,
@@ -1067,7 +1139,7 @@ test "openat" {
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
-        else => return err
+        else => return err,
     };
     defer ring.deinit();
 
@@ -1077,7 +1149,7 @@ test "openat" {
     const flags: u32 = os.O_CLOEXEC | os.O_RDWR | os.O_CREAT;
     const mode: os.mode_t = 0o666;
     const sqe_openat = try ring.openat(0x33333333, linux.AT_FDCWD, path, flags, mode);
-    testing.expectEqual(io_uring_sqe {
+    testing.expectEqual(io_uring_sqe{
         .opcode = .OPENAT,
         .flags = 0,
         .ioprio = 0,
@@ -1090,7 +1162,7 @@ test "openat" {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 }
+        .__pad2 = [2]u64{ 0, 0 },
     }, sqe_openat.*);
     testing.expectEqual(@as(u32, 1), try ring.submit());
 
@@ -1103,7 +1175,7 @@ test "openat" {
     if (cqe_openat.res == -linux.EBADF and (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0) {
         return error.SkipZigTest;
     }
-    if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{ cqe_openat.res });
+    if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{cqe_openat.res});
     testing.expect(cqe_openat.res > 0);
     testing.expectEqual(@as(u32, 0), cqe_openat.flags);
 
@@ -1112,14 +1184,14 @@ test "openat" {
 
 test "close" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    
+
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
-        else => return err
+        else => return err,
     };
     defer ring.deinit();
-    
+
     const path = "test_io_uring_close";
     const file = try std.fs.cwd().createFile(path, .{});
     errdefer file.close();
@@ -1132,7 +1204,7 @@ test "close" {
 
     const cqe_close = try ring.copy_cqe();
     if (cqe_close.res == -linux.EINVAL) return error.SkipZigTest;
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x44444444,
         .res = 0,
         .flags = 0,
@@ -1145,7 +1217,7 @@ test "accept/connect/send/recv" {
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
-        else => return err
+        else => return err,
     };
     defer ring.deinit();
 
@@ -1157,8 +1229,8 @@ test "accept/connect/send/recv" {
     try os.bind(server, &address.any, address.getOsSockLen());
     try os.listen(server, kernel_backlog);
 
-    const buffer_send = [_]u8{ 1,0,1,0,1,0,1,0,1,0 };
-    var buffer_recv = [_]u8{ 0,1,0,1,0 };
+    const buffer_send = [_]u8{ 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 };
+    var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
     var accept_addr: os.sockaddr = undefined;
     var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
@@ -1184,10 +1256,10 @@ test "accept/connect/send/recv" {
     }
 
     testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
-    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{ cqe_accept.res });
+    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{cqe_accept.res});
     testing.expect(cqe_accept.res > 0);
     testing.expectEqual(@as(u32, 0), cqe_accept.flags);
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xcccccccc,
         .res = 0,
         .flags = 0,
@@ -1200,7 +1272,7 @@ test "accept/connect/send/recv" {
 
     const cqe_send = try ring.copy_cqe();
     if (cqe_send.res == -linux.EINVAL) return error.SkipZigTest;
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = buffer_send.len,
         .flags = 0,
@@ -1208,11 +1280,121 @@ test "accept/connect/send/recv" {
 
     const cqe_recv = try ring.copy_cqe();
     if (cqe_recv.res == -linux.EINVAL) return error.SkipZigTest;
-    testing.expectEqual(linux.io_uring_cqe {
+    testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
         .flags = 0,
     }, cqe_recv);
 
     testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
+}
+
+test "timeout (after a relative time)" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const ms = 10;
+    const margin = 5;
+    const ts = os.timespec{ .tv_sec = 0, .tv_nsec = ms * 1000000 };
+
+    const started = std.time.milliTimestamp();
+    const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
+    testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe.opcode);
+    testing.expectEqual(@as(u32, 1), try ring.submit());
+    const cqe = try ring.copy_cqe();
+    const stopped = std.time.milliTimestamp();
+
+    testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x55555555,
+        .res = -linux.ETIME,
+        .flags = 0,
+    }, cqe);
+    testing.expectWithinMargin(@intToFloat(f64, ms), @intToFloat(f64, stopped - started), margin);
+}
+
+test "timeout (after a number of completions)" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const ts = os.timespec{ .tv_sec = 3, .tv_nsec = 0 };
+    const count_completions: u64 = 1;
+    const sqe_timeout = try ring.timeout(0x66666666, &ts, count_completions, 0);
+    testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
+    testing.expectEqual(count_completions, sqe_timeout.off);
+    _ = try ring.nop(0x77777777);
+    testing.expectEqual(@as(u32, 2), try ring.submit());
+
+    const cqe_nop = try ring.copy_cqe();
+    testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x77777777,
+        .res = 0,
+        .flags = 0,
+    }, cqe_nop);
+
+    const cqe_timeout = try ring.copy_cqe();
+    testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x66666666,
+        .res = 0,
+        .flags = 0,
+    }, cqe_timeout);
+}
+
+test "timeout_remove" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const ts = os.timespec{ .tv_sec = 3, .tv_nsec = 0 };
+    const sqe_timeout = try ring.timeout(0x88888888, &ts, 0, 0);
+    testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
+    testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
+
+    const sqe_timeout_remove = try ring.timeout_remove(0x99999999, 0x88888888, 0);
+    testing.expectEqual(linux.IORING_OP.TIMEOUT_REMOVE, sqe_timeout_remove.opcode);
+    testing.expectEqual(@as(u64, 0x88888888), sqe_timeout_remove.addr);
+    testing.expectEqual(@as(u64, 0x99999999), sqe_timeout_remove.user_data);
+
+    testing.expectEqual(@as(u32, 2), try ring.submit());
+
+    const cqe_timeout = try ring.copy_cqe();
+    // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
+    // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
+    // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
+    // We don't want to skip this test for newer kernels.
+    if (
+        cqe_timeout.user_data == 0x99999999 and
+        cqe_timeout.res == -linux.EBADF and
+        (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0
+    ) {
+        return error.SkipZigTest;
+    }
+    testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x88888888,
+        .res = -linux.ECANCELED,
+        .flags = 0,
+    }, cqe_timeout);
+
+    const cqe_timeout_remove = try ring.copy_cqe();
+    testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x99999999,
+        .res = 0,
+        .flags = 0,
+    }, cqe_timeout_remove);
 }

@@ -187,9 +187,8 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
 
 // TODO https://github.com/ziglang/zig/issues/265
 fn posixCallMainAndExit() noreturn {
-    if (builtin.os.tag == .freebsd) {
-        @setAlignStack(16);
-    }
+    @setAlignStack(16);
+
     const argc = argc_argv_ptr[0];
     const argv = @ptrCast([*][*:0]u8, argc_argv_ptr + 1);
 
@@ -208,8 +207,13 @@ fn posixCallMainAndExit() noreturn {
             @import("os/linux/start_pie.zig").apply_relocations();
         }
 
-        // Initialize the TLS area
-        std.os.linux.tls.initStaticTLS();
+        // Initialize the TLS area. We do a runtime check here to make sure
+        // this code is truly being statically executed and not inside a dynamic
+        // loader, otherwise this would clobber the thread ID register.
+        const is_dynamic = @import("dynamic_library.zig").get_DYNAMIC() != null;
+        if (!is_dynamic) {
+            std.os.linux.tls.initStaticTLS();
+        }
 
         // TODO This is disabled because what should we do when linking libc and this code
         // does not execute? And also it's causing a test failure in stack traces in release modes.
