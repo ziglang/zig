@@ -18,7 +18,7 @@
 		<polygon points="125,95 130,110 106,117"/>
 	</g>
 </g>
-<g fill="white" stroke="#121212" stroke-width="4">
+<g fill="white" stroke="#121212" stroke-width="3">
 	<g>
 		<polygon points="260,22 260,37 229,40 177,40 177,22" shape-rendering="crispEdges" />
 		<polygon points="260,37 207,99 207,103 176,103 229,40 229,37"/>
