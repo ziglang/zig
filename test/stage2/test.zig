@@ -1118,10 +1118,14 @@ pub fn addCases(ctx: *TestContext) !void {
         \\  const b = true;
         \\  var f: u32 = 1;
         \\  @compileLog(b, 20, f, x);
+        \\  var y: u32 = true;
         \\  unreachable;
         \\}
         \\fn x() void {}
-    , &[_][]const u8{":4:3: error: found compile log statement"});
+    , &[_][]const u8{
+        ":4:3: error: found compile log statement", ":5:16: error: expected u32, found bool",
+    });
+
     // "| true, 20, (runtime value), (function)" // TODO if this is here it invalidates the compile error checker. Need a way to check though.
 
     {

@@ -2950,8 +2950,7 @@ pub fn failNode(
 }
 
 pub fn addDeclErr(self: *Module, decl: *Decl, err: *Compilation.ErrorMsg) error{OutOfMemory}!void {
-    var res = self.failed_decls.get(decl);
-    if (res) |value| {
+    if (self.failed_decls.get(decl)) |value| {
         try value.append(self.gpa, err);
     } else {
         var new_list = try self.gpa.create(ArrayListUnmanaged(*Compilation.ErrorMsg));
