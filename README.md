@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://github.com/ziglang/zig" target="_blank">
-    <img src="https://ziglang.org/zig-logo.svg" alt="ZIG" style="max-width:100%; margin: 0 auto;" width="200">
+    <img src="logo.svg" alt="ZIG" style="max-width:100%; margin: 0 auto;" width="200">
     <p><b>Z I G &nbsp; L A N G U A G E</b></p>
   </a>
   <p>A general-purpose programming language and toolchain for maintaining <b>robust</b>, <b>optimal</b>, and <b>reusable</b> software.</p>
