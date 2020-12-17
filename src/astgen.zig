@@ -2469,7 +2469,7 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
                     .{ "@addWithOverflow", false },
                     .{ "@alignCast", false },
                     .{ "@alignOf", false },
-                    .{ "@as", false },
+                    .{ "@as", true },
                     .{ "@asyncCall", false },
                     .{ "@atomicLoad", false },
                     .{ "@atomicRmw", false },
@@ -2544,7 +2544,7 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
                     .{ "@shuffle", false },
                     .{ "@sizeOf", false },
                     .{ "@splat", true },
-                    .{ "@reduce", true },
+                    .{ "@reduce", false },
                     .{ "@src", true },
                     .{ "@sqrt", false },
                     .{ "@sin", false },
@@ -2568,7 +2568,7 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
                     .{ "@typeInfo", false },
                     .{ "@typeName", false },
                     .{ "@TypeOf", false },
-                    .{ "@unionInit", false },
+                    .{ "@unionInit", true },
                 });
                 const name = scope.tree().tokenSlice(node.castTag(.BuiltinCall).?.builtin_token);
                 return builtin_needs_mem_loc.get(name).?;
