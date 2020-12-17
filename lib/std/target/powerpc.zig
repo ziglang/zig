@@ -62,6 +62,7 @@ pub const Feature = enum {
     ppc6xx,
     predictable_select_expensive,
     prefix_instrs,
+    qpx,
     recipprec,
     secure_plt,
     slow_popcntd,
@@ -75,7 +76,6 @@ pub const Feature = enum {
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
-    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
@@ -417,6 +417,13 @@ pub const all_features = blk: {
             .power9_altivec,
         }),
     };
+    result[@enumToInt(Feature.qpx)] = .{
+        .llvm_name = null,
+        .description = "Enable QPX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
     result[@enumToInt(Feature.recipprec)] = .{
         .llvm_name = "recipprec",
         .description = "Assume higher precision reciprocal estimates",
@@ -472,8 +479,8 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const @"440" = CpuModel{
-        .name = "440",
+    pub const @"ppc440" = CpuModel{
+        .name = "ppc440",
         .llvm_name = "440",
         .features = featureSet(&[_]Feature{
             .booke,
@@ -484,8 +491,8 @@ pub const cpu = struct {
             .msync,
         }),
     };
-    pub const @"450" = CpuModel{
-        .name = "450",
+    pub const @"ppc450" = CpuModel{
+        .name = "ppc450",
         .llvm_name = "450",
         .features = featureSet(&[_]Feature{
             .booke,
@@ -496,70 +503,70 @@ pub const cpu = struct {
             .msync,
         }),
     };
-    pub const @"601" = CpuModel{
-        .name = "601",
+    pub const @"ppc601" = CpuModel{
+        .name = "ppc601",
         .llvm_name = "601",
         .features = featureSet(&[_]Feature{
             .fpu,
         }),
     };
-    pub const @"602" = CpuModel{
-        .name = "602",
+    pub const @"ppc602" = CpuModel{
+        .name = "ppc602",
         .llvm_name = "602",
         .features = featureSet(&[_]Feature{
             .fpu,
         }),
     };
-    pub const @"603" = CpuModel{
-        .name = "603",
+    pub const @"ppc603" = CpuModel{
+        .name = "ppc603",
         .llvm_name = "603",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"603e" = CpuModel{
-        .name = "603e",
+    pub const @"ppc603e" = CpuModel{
+        .name = "ppc603e",
         .llvm_name = "603e",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"603ev" = CpuModel{
-        .name = "603ev",
+    pub const @"ppc603ev" = CpuModel{
+        .name = "ppc603ev",
         .llvm_name = "603ev",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"604" = CpuModel{
-        .name = "604",
+    pub const @"ppc604" = CpuModel{
+        .name = "ppc604",
         .llvm_name = "604",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"604e" = CpuModel{
-        .name = "604e",
+    pub const @"ppc604e" = CpuModel{
+        .name = "ppc604e",
         .llvm_name = "604e",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"620" = CpuModel{
-        .name = "620",
+    pub const @"ppc620" = CpuModel{
+        .name = "ppc620",
         .llvm_name = "620",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"7400" = CpuModel{
-        .name = "7400",
+    pub const @"ppc7400" = CpuModel{
+        .name = "ppc7400",
         .llvm_name = "7400",
         .features = featureSet(&[_]Feature{
             .altivec,
@@ -567,8 +574,8 @@ pub const cpu = struct {
             .frsqrte,
         }),
     };
-    pub const @"7450" = CpuModel{
-        .name = "7450",
+    pub const @"ppc7450" = CpuModel{
+        .name = "ppc7450",
         .llvm_name = "7450",
         .features = featureSet(&[_]Feature{
             .altivec,
@@ -576,16 +583,16 @@ pub const cpu = struct {
             .frsqrte,
         }),
     };
-    pub const @"750" = CpuModel{
-        .name = "750",
+    pub const @"ppc750" = CpuModel{
+        .name = "ppc750",
         .llvm_name = "750",
         .features = featureSet(&[_]Feature{
             .fres,
             .frsqrte,
         }),
     };
-    pub const @"970" = CpuModel{
-        .name = "970",
+    pub const @"ppc970" = CpuModel{
+        .name = "ppc970",
         .llvm_name = "970",
         .features = featureSet(&[_]Feature{
             .@"64bit",
@@ -617,6 +624,32 @@ pub const cpu = struct {
             .ldbrx,
             .lfiwax,
             .mfocrf,
+            .recipprec,
+            .slow_popcntd,
+            .stfiwx,
+        }),
+    };
+    pub const a2q = CpuModel{
+        .name = "a2q",
+        .llvm_name = "a2q",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .booke,
+            .cmpb,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .icbt,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .qpx,
             .recipprec,
             .slow_popcntd,
             .stfiwx,

@@ -8,12 +8,9 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
-    @"16bit_mode",
-    @"32bit_mode",
     @"3dnow",
     @"3dnowa",
     @"64bit",
-    @"64bit_mode",
     adx,
     aes,
     amx_bf16,
@@ -154,20 +151,9 @@ pub const Feature = enum {
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
-    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@enumToInt(Feature.@"16bit_mode")] = .{
-        .llvm_name = "16bit-mode",
-        .description = "16-bit mode (i8086)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.@"32bit_mode")] = .{
-        .llvm_name = "32bit-mode",
-        .description = "32-bit mode (80386)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@enumToInt(Feature.@"3dnow")] = .{
         .llvm_name = "3dnow",
         .description = "Enable 3DNow! instructions",
@@ -185,11 +171,6 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.@"64bit")] = .{
         .llvm_name = "64bit",
         .description = "Support 64-bit instructions",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.@"64bit_mode")] = .{
-        .llvm_name = "64bit-mode",
-        .description = "64-bit mode (x86_64)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.adx)] = .{
@@ -1680,7 +1661,6 @@ pub const cpu = struct {
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
-            .@"64bit",
             .cx8,
             .x87,
         }),

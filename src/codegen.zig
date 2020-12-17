@@ -1689,7 +1689,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                                 // TODO: add Instruction.supportedOn
                                 // function for ARM
-                                if (Target.arm.featureSetHas(self.target.cpu.features, .armv5t)) {
+                                if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
                                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.blx(.al, .lr).toU32());
                                 } else {
                                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .lr, Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none)).toU32());
@@ -2625,7 +2625,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         } else if (Instruction.Operand.fromU32(~@intCast(u32, x))) |op| {
                             writeInt(u32, try self.code.addManyAsArray(4), Instruction.mvn(.al, reg, op).toU32());
                         } else if (x <= math.maxInt(u16)) {
-                            if (Target.arm.featureSetHas(self.target.cpu.features, .armv7_a)) {
+                            if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.movw(.al, reg, @intCast(u16, x)).toU32());
                             } else {
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
@@ -2634,7 +2634,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         } else {
                             // TODO write constant to code and load
                             // relative to pc
-                            if (Target.arm.featureSetHas(self.target.cpu.features, .armv7_a)) {
+                            if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
                                 // immediate: 0xaaaabbbb
                                 // movw reg, #0xbbbb
                                 // movt reg, #0xaaaa

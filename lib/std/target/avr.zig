@@ -47,7 +47,6 @@ pub const Feature = enum {
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
-    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
@@ -164,6 +163,7 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .avr0,
             .@"break",
+            .memmappedregs,
             .sram,
             .tinyencoding,
         }),
@@ -1859,7 +1859,7 @@ pub const cpu = struct {
         .name = "atxmega16e5",
         .llvm_name = "atxmega16e5",
         .features = featureSet(&[_]Feature{
-            .xmegau,
+            .xmega,
         }),
     };
     pub const atxmega192a3 = CpuModel{

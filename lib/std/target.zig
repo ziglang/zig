@@ -551,7 +551,7 @@ pub const Target = struct {
             pub const Set = struct {
                 ints: [usize_count]usize,
 
-                pub const needed_bit_count = 192;
+                pub const needed_bit_count = 172;
                 pub const byte_count = (needed_bit_count + 7) / 8;
                 pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
                 pub const Index = std.math.Log2Int(std.meta.Int(.unsigned, usize_count * @bitSizeOf(usize)));
@@ -1149,9 +1149,9 @@ pub const Target = struct {
 
             pub fn baseline(arch: Arch) *const Model {
                 return switch (arch) {
-                    // .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline, // TODO removed in LLVM 12
-                    // .riscv32 => &riscv.cpu.baseline_rv32, // TODO removed in LLVM 12
-                    // .riscv64 => &riscv.cpu.baseline_rv64, // TODO removed in LLVM 12
+                    .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                    .riscv32 => &riscv.cpu.baseline_rv32,
+                    .riscv64 => &riscv.cpu.baseline_rv64,
                     .i386 => &x86.cpu.pentium4,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
 

@@ -9,7 +9,6 @@ const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
     @"16_bit_insts",
-    DumpCode,
     a16,
     add_no_carry_insts,
     aperture_regs,
@@ -27,7 +26,7 @@ pub const Feature = enum {
     dpp,
     dpp8,
     ds_src2_insts,
-    dumpcode,
+    dump_code,
     enable_ds128,
     enable_prt_strict_null,
     fast_denormal_f32,
@@ -128,18 +127,12 @@ pub const Feature = enum {
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
-    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@enumToInt(Feature.@"16_bit_insts")] = .{
         .llvm_name = "16-bit-insts",
         .description = "Has i16/f16 instructions",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.DumpCode)] = .{
-        .llvm_name = "DumpCode",
-        .description = "Dump MachineInstrs in the CodeEmitter",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.a16)] = .{
@@ -229,7 +222,7 @@ pub const all_features = blk: {
         .description = "Has ds_*_src2 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.dumpcode)] = .{
+    result[@enumToInt(Feature.dump_code)] = .{
         .llvm_name = "dumpcode",
         .description = "Dump MachineInstrs in the CodeEmitter",
         .dependencies = featureSet(&[_]Feature{}),
