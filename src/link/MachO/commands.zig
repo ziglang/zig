@@ -26,9 +26,9 @@ pub const LoadCommand = union(enum) {
         const header = try reader.readStruct(macho.load_command);
         var buffer = try allocator.alloc(u8, header.cmdsize);
         defer allocator.free(buffer);
-        mem.copy(u8, buffer[0..], mem.asBytes(&header));
+        mem.copy(u8, buffer, mem.asBytes(&header));
         try reader.readNoEof(buffer[@sizeOf(macho.load_command)..]);
-        var stream = io.fixedBufferStream(buffer[0..]);
+        var stream = io.fixedBufferStream(buffer);
 
         return switch (header.cmd) {
             macho.LC_SEGMENT_64 => LoadCommand{
@@ -216,7 +216,7 @@ pub fn GenericCommandWithData(comptime Cmd: type) type {
             const inner = try reader.readStruct(Cmd);
             var data = try allocator.alloc(u8, inner.cmdsize - @sizeOf(Cmd));
             errdefer allocator.free(data);
-            try reader.readNoEof(data[0..]);
+            try reader.readNoEof(data);
             return Self{
                 .inner = inner,
                 .data = data,
@@ -309,10 +309,10 @@ test "read-write segment command" {
         .reserved3 = 0,
     });
     defer cmd.deinit(gpa);
-    try testRead(gpa, in_buffer[0..], LoadCommand{ .Segment = cmd });
+    try testRead(gpa, in_buffer, LoadCommand{ .Segment = cmd });
 
     var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(out_buffer[0..], LoadCommand{ .Segment = cmd }, in_buffer[0..]);
+    try testWrite(&out_buffer, LoadCommand{ .Segment = cmd }, in_buffer);
 }
 
 test "read-write generic command with data" {
@@ -348,10 +348,10 @@ test "read-write generic command with data" {
     cmd.data[5] = 0x0;
     cmd.data[6] = 0x0;
     cmd.data[7] = 0x0;
-    try testRead(gpa, in_buffer[0..], LoadCommand{ .Dylib = cmd });
+    try testRead(gpa, in_buffer, LoadCommand{ .Dylib = cmd });
 
     var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(out_buffer[0..], LoadCommand{ .Dylib = cmd }, in_buffer[0..]);
+    try testWrite(&out_buffer, LoadCommand{ .Dylib = cmd }, in_buffer);
 }
 
 test "read-write C struct command" {
@@ -368,8 +368,8 @@ test "read-write C struct command" {
         .entryoff = 16644,
         .stacksize = 0,
     };
-    try testRead(gpa, in_buffer[0..], LoadCommand{ .Main = cmd });
+    try testRead(gpa, in_buffer, LoadCommand{ .Main = cmd });
 
     var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(out_buffer[0..], LoadCommand{ .Main = cmd }, in_buffer[0..]);
+    try testWrite(&out_buffer, LoadCommand{ .Main = cmd }, in_buffer);
 }

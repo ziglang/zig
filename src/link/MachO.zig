@@ -1674,7 +1674,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
 pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
     var buf = [_]u8{0} ** 16;
     if (bytes.len > buf.len) @compileError("string too long; max 16 bytes");
-    mem.copy(u8, buf[0..], bytes);
+    mem.copy(u8, &buf, bytes);
     return buf;
 }
 
@@ -2048,18 +2048,18 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
         switch (cmd.cmd()) {
             macho.LC_SEGMENT_64 => {
                 const x = cmd.Segment;
-                if (parseAndCmpName(x.inner.segname[0..], "__PAGEZERO")) {
+                if (parseAndCmpName(&x.inner.segname, "__PAGEZERO")) {
                     self.pagezero_segment_cmd_index = i;
-                } else if (parseAndCmpName(x.inner.segname[0..], "__LINKEDIT")) {
+                } else if (parseAndCmpName(&x.inner.segname, "__LINKEDIT")) {
                     self.linkedit_segment_cmd_index = i;
-                } else if (parseAndCmpName(x.inner.segname[0..], "__TEXT")) {
+                } else if (parseAndCmpName(&x.inner.segname, "__TEXT")) {
                     self.text_segment_cmd_index = i;
                     for (x.sections.items) |sect, j| {
-                        if (parseAndCmpName(sect.sectname[0..], "__text")) {
+                        if (parseAndCmpName(&sect.sectname, "__text")) {
                             self.text_section_index = @intCast(u16, j);
                         }
                     }
-                } else if (parseAndCmpName(x.inner.segname[0..], "__DATA")) {
+                } else if (parseAndCmpName(&x.inner.segname, "__DATA")) {
                     self.data_segment_cmd_index = i;
                 }
             },
@@ -2109,7 +2109,7 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
 }
 
 fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
-    const len = mem.indexOfScalar(u8, name[0..], @as(u8, 0)) orelse name.len;
+    const len = mem.indexOfScalar(u8, name, @as(u8, 0)) orelse name.len;
     return mem.eql(u8, name[0..len], needle);
 }
 
