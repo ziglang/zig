@@ -9,15 +9,7 @@ pub fn main() !void {
 
     try stdout.print("Welcome to the Guess Number Game in Zig.\n", .{});
 
-    var seed_bytes: [@sizeOf(u64)]u8 = undefined;
-    std.crypto.randomBytes(seed_bytes[0..]) catch |err| {
-        std.debug.warn("unable to seed random number generator: {}", .{err});
-        return err;
-    };
-    const seed = std.mem.readIntNative(u64, &seed_bytes);
-    var prng = std.rand.DefaultPrng.init(seed);
-
-    const answer = prng.random.intRangeLessThan(u8, 0, 100) + 1;
+    const answer = std.crypto.random.intRangeLessThan(u8, 0, 100) + 1;
 
     while (true) {
         try stdout.print("\nGuess a number between 1 and 100: ", .{});
