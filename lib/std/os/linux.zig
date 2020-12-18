@@ -747,7 +747,7 @@ pub fn getuid() uid_t {
     if (@hasField(SYS, "getuid32")) {
         return @as(uid_t, syscall0(.getuid32));
     } else {
-        return @as(uid_t, syscall0(.getuid));
+        return @truncate(uid_t, syscall0(.getuid));
     }
 }
 
@@ -755,7 +755,7 @@ pub fn getgid() gid_t {
     if (@hasField(SYS, "getgid32")) {
         return @as(gid_t, syscall0(.getgid32));
     } else {
-        return @as(gid_t, syscall0(.getgid));
+        return @truncate(gid_t, syscall0(.getgid));
     }
 }
 
@@ -763,7 +763,7 @@ pub fn geteuid() uid_t {
     if (@hasField(SYS, "geteuid32")) {
         return @as(uid_t, syscall0(.geteuid32));
     } else {
-        return @as(uid_t, syscall0(.geteuid));
+        return @truncate(uid_t, syscall0(.geteuid));
     }
 }
 
@@ -771,7 +771,7 @@ pub fn getegid() gid_t {
     if (@hasField(SYS, "getegid32")) {
         return @as(gid_t, syscall0(.getegid32));
     } else {
-        return @as(gid_t, syscall0(.getegid));
+        return @truncate(gid_t, syscall0(.getegid));
     }
 }
 
