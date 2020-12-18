@@ -16,47 +16,141 @@ const mem = std.mem;
 /// We use this as a layer of indirection because global const pointers cannot
 /// point to thread-local variables.
 pub var interface = std.rand.Random{ .fillFn = tlsCsprngFill };
-pub threadlocal var csprng_state: std.crypto.core.Gimli = undefined;
-pub threadlocal var csprng_state_initialized = false;
-fn tlsCsprngFill(r: *const std.rand.Random, buf: []u8) void {
+
+const os_has_fork = switch (std.Target.current.os.tag) {
+    .dragonfly,
+    .freebsd,
+    .ios,
+    .kfreebsd,
+    .linux,
+    .macos,
+    .netbsd,
+    .openbsd,
+    .solaris,
+    .tvos,
+    .watchos,
+    => true,
+
+    else => false,
+};
+const os_has_arc4random = std.builtin.link_libc and @hasDecl(std.c, "arc4random_buf");
+const want_fork_safety = os_has_fork and !os_has_arc4random and
+    (std.meta.globalOption("crypto_fork_safety", bool) orelse true);
+const maybe_have_wipe_on_fork = std.Target.current.os.isAtLeast(.linux, .{
+    .major = 4,
+    .minor = 14,
+}) orelse true;
+
+const WipeMe = struct {
+    init_state: enum { uninitialized, initialized, failed },
+    gimli: std.crypto.core.Gimli,
+};
+const wipe_align = if (maybe_have_wipe_on_fork) mem.page_size else @alignOf(WipeMe);
+
+threadlocal var wipe_me: WipeMe align(wipe_align) = .{
+    .gimli = undefined,
+    .init_state = .uninitialized,
+};
+
+fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
     if (std.builtin.link_libc and @hasDecl(std.c, "arc4random_buf")) {
         // arc4random is already a thread-local CSPRNG.
-        return std.c.arc4random_buf(buf.ptr, buf.len);
+        return std.c.arc4random_buf(buffer.ptr, buffer.len);
     }
-    if (!csprng_state_initialized) {
-        var seed: [seed_len]u8 = undefined;
-        // Because we panic on getrandom() failing, we provide the opportunity
-        // to override the default seed function. This also makes
-        // `std.crypto.random` available on freestanding targets, provided that
-        // the `cryptoRandomSeed` function is provided.
-        if (@hasDecl(root, "cryptoRandomSeed")) {
-            root.cryptoRandomSeed(&seed);
-        } else {
-            defaultSeed(&seed);
-        }
-        init(seed);
+    // Allow applications to decide they would prefer to have every call to
+    // std.crypto.random always make an OS syscall, rather than rely on an
+    // application implementation of a CSPRNG.
+    if (comptime std.meta.globalOption("crypto_always_getrandom", bool) orelse false) {
+        return fillWithOsEntropy(buffer);
     }
-    if (buf.len != 0) {
-        csprng_state.squeeze(buf);
+    switch (wipe_me.init_state) {
+        .uninitialized => {
+            if (want_fork_safety) {
+                if (maybe_have_wipe_on_fork) {
+                    if (std.os.madvise(
+                        @ptrCast([*]align(mem.page_size) u8, &wipe_me),
+                        @sizeOf(@TypeOf(wipe_me)),
+                        std.os.MADV_WIPEONFORK,
+                    )) |_| {
+                        return initAndFill(buffer);
+                    } else |_| if (std.Thread.use_pthreads) {
+                        return setupPthreadAtforkAndFill(buffer);
+                    } else {
+                        // Since we failed to set up fork safety, we fall back to always
+                        // calling getrandom every time.
+                        wipe_me.init_state = .failed;
+                        return fillWithOsEntropy(buffer);
+                    }
+                } else if (std.Thread.use_pthreads) {
+                    return setupPthreadAtforkAndFill(buffer);
+                } else {
+                    // We have no mechanism to provide fork safety, but we want fork safety,
+                    // so we fall back to calling getrandom every time.
+                    wipe_me.init_state = .failed;
+                    return fillWithOsEntropy(buffer);
+                }
+            } else {
+                return initAndFill(buffer);
+            }
+        },
+        .initialized => {
+            return fillWithCsprng(buffer);
+        },
+        .failed => {
+            if (want_fork_safety) {
+                return fillWithOsEntropy(buffer);
+            } else {
+                unreachable;
+            }
+        },
+    }
+}
+
+fn setupPthreadAtforkAndFill(buffer: []u8) void {
+    const failed = std.c.pthread_atfork(null, null, childAtForkHandler) != 0;
+    if (failed) {
+        wipe_me.init_state = .failed;
+        return fillWithOsEntropy(buffer);
     } else {
-        csprng_state.permute();
+        return initAndFill(buffer);
     }
-    mem.set(u8, csprng_state.toSlice()[0..std.crypto.core.Gimli.RATE], 0);
 }
 
-fn defaultSeed(buffer: *[seed_len]u8) void {
-    std.os.getrandom(buffer) catch @panic("getrandom() failed to seed thread-local CSPRNG");
+fn childAtForkHandler() callconv(.C) void {
+    const wipe_slice = @ptrCast([*]u8, &wipe_me)[0..@sizeOf(@TypeOf(wipe_me))];
+    std.crypto.utils.secureZero(u8, wipe_slice);
 }
 
-pub const seed_len = 16;
+fn fillWithCsprng(buffer: []u8) void {
+    if (buffer.len != 0) {
+        wipe_me.gimli.squeeze(buffer);
+    } else {
+        wipe_me.gimli.permute();
+    }
+    mem.set(u8, wipe_me.gimli.toSlice()[0..std.crypto.core.Gimli.RATE], 0);
+}
 
-pub fn init(seed: [seed_len]u8) void {
-    var initial_state: [std.crypto.core.Gimli.BLOCKBYTES]u8 = undefined;
-    mem.copy(u8, initial_state[0..seed_len], &seed);
-    mem.set(u8, initial_state[seed_len..], 0);
-    csprng_state = std.crypto.core.Gimli.init(initial_state);
+fn fillWithOsEntropy(buffer: []u8) void {
+    std.os.getrandom(buffer) catch @panic("getrandom() failed to provide entropy");
+}
+
+fn initAndFill(buffer: []u8) void {
+    var seed: [std.crypto.core.Gimli.BLOCKBYTES]u8 = undefined;
+    // Because we panic on getrandom() failing, we provide the opportunity
+    // to override the default seed function. This also makes
+    // `std.crypto.random` available on freestanding targets, provided that
+    // the `cryptoRandomSeed` function is provided.
+    if (@hasDecl(root, "cryptoRandomSeed")) {
+        root.cryptoRandomSeed(&seed);
+    } else {
+        fillWithOsEntropy(&seed);
+    }
+
+    wipe_me.gimli = std.crypto.core.Gimli.init(seed);
 
     // This is at the end so that accidental recursive dependencies result
     // in stack overflows instead of invalid random data.
-    csprng_state_initialized = true;
+    wipe_me.init_state = .initialized;
+
+    return fillWithCsprng(buffer);
 }

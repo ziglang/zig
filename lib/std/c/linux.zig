@@ -106,6 +106,12 @@ pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *con
 pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const c_void) usize;
 
+pub extern "c" fn madvise(
+    addr: *align(std.mem.page_size) c_void,
+    length: usize,
+    advice: c_uint,
+) c_int;
+
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,
