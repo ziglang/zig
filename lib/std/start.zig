@@ -206,7 +206,6 @@ fn posixCallMainAndExit() noreturn {
         // Do this as early as possible, the aux vector is needed
         if (builtin.position_independent_executable) {
             @import("os/linux/start_pie.zig").apply_relocations();
-            @fence(.SeqCst);
         }
 
         // Initialize the TLS area. We do a runtime check here to make sure
@@ -215,10 +214,9 @@ fn posixCallMainAndExit() noreturn {
         const is_dynamic = @import("dynamic_library.zig").get_DYNAMIC() != null;
         if (!is_dynamic) {
             std.os.linux.tls.initStaticTLS();
-            @fence(.SeqCst);
         }
 
-        {
+        if (!@hasDecl(root, "use_AT_RANDOM_auxval") or root.use_AT_RANDOM_auxval) {
             // Initialize the per-thread CSPRNG since Linux gave us the handy-dandy
             // AT_RANDOM. This depends on the TLS initialization above.
             var i: usize = 0;
@@ -226,19 +224,7 @@ fn posixCallMainAndExit() noreturn {
                 switch (auxv[i].a_type) {
                     std.elf.AT_RANDOM => {
                         // "The address of sixteen bytes containing a random value."
-                        const addr = auxv[i].a_un.a_val;
-                        if (addr == 0) break;
-                        const ptr = @intToPtr(*[16]u8, addr);
-                        var seed: [32]u8 = undefined;
-                        seed[0..16].* = ptr.*;
-                        seed[16..].* = ptr.*;
-                        tlcsprng.init(seed);
-                        // Overwrite AT_RANDOM after we use it, otherwise our secure
-                        // seed is sitting in memory ready for some other code in the
-                        // program to reuse, and hence break our security.
-                        // We play nice by refreshing it with fresh random bytes
-                        // rather than clearing it.
-                        std.crypto.random.bytes(ptr);
+                        initCryptoSeedFromAuxVal(auxv[i].a_un.a_val);
                         break;
                     },
                     else => continue,
@@ -281,13 +267,29 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 }
 
 fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) i32 {
-    // We do not attempt to initialize tlcsprng from AT_RANDOM here because
-    // libc owns the start code, not us, and therefore libc ows the random bytes
+    // By default, we do not attempt to initialize tlcsprng from AT_RANDOM here because
+    // libc owns the start code, not us, and therefore libc owns the random bytes
     // from AT_RANDOM.
+    if (builtin.os.tag == .linux and
+        @hasDecl(root, "use_AT_RANDOM_auxval") and
+        root.use_AT_RANDOM_auxval)
+    {
+        initCryptoSeedFromAuxVal(std.c.getauxval(std.elf.AT_RANDOM));
+    }
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
     return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
+}
+
+fn initCryptoSeedFromAuxVal(addr: usize) void {
+    if (addr == 0) return;
+    const ptr = @intToPtr(*[16]u8, addr);
+    tlcsprng.init(ptr.*);
+    // Clear AT_RANDOM after we use it, otherwise our secure
+    // seed is sitting in memory ready for some other code in the
+    // program to reuse, and hence break our security.
+    std.crypto.utils.secureZero(u8, ptr);
 }
 
 // General error message for a malformed return type

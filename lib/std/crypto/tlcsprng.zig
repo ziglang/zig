@@ -18,7 +18,7 @@ const mem = std.mem;
 pub var interface = std.rand.Random{ .fillFn = tlsCsprngFill };
 pub threadlocal var csprng_state: std.crypto.core.Gimli = undefined;
 pub threadlocal var csprng_state_initialized = false;
-fn tlsCsprngFill(r: *std.rand.Random, buf: []u8) void {
+fn tlsCsprngFill(r: *const std.rand.Random, buf: []u8) void {
     if (std.builtin.link_libc and @hasDecl(std.c, "arc4random_buf")) {
         // arc4random is already a thread-local CSPRNG.
         return std.c.arc4random_buf(buf.ptr, buf.len);
@@ -48,7 +48,7 @@ fn defaultSeed(buffer: *[seed_len]u8) void {
     std.os.getrandom(buffer) catch @panic("getrandom() failed to seed thread-local CSPRNG");
 }
 
-pub const seed_len = 32;
+pub const seed_len = 16;
 
 pub fn init(seed: [seed_len]u8) void {
     var initial_state: [std.crypto.core.Gimli.BLOCKBYTES]u8 = undefined;
