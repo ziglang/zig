@@ -262,7 +262,7 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
 /// and then use the resulting hash as the password parameter for bcrypt.
 pub fn strHash(password: []const u8, rounds_log: u6) ![hash_length]u8 {
     var salt: [salt_length]u8 = undefined;
-    try crypto.randomBytes(&salt);
+    crypto.random.bytes(&salt);
     return strHashInternal(password, rounds_log, salt);
 }
 
@@ -283,7 +283,7 @@ pub fn strVerify(h: [hash_length]u8, password: []const u8) BcryptError!void {
 
 test "bcrypt codec" {
     var salt: [salt_length]u8 = undefined;
-    try crypto.randomBytes(&salt);
+    crypto.random.bytes(&salt);
     var salt_str: [salt_str_length]u8 = undefined;
     Codec.encode(salt_str[0..], salt[0..]);
     var salt2: [salt_length]u8 = undefined;

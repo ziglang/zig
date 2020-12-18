@@ -303,8 +303,7 @@ fn getCwdOrWasiPreopen() std.fs.Dir {
 
 pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
-    std.crypto.randomBytes(&random_bytes) catch
-        @panic("unable to make tmp dir for testing: unable to get random bytes");
+    std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
     std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 

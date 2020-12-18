@@ -10,6 +10,7 @@ const std = @import("std.zig");
 const builtin = std.builtin;
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
+const tlcsprng = @import("crypto/tlcsprng.zig");
 
 var argc_argv_ptr: [*]usize = undefined;
 
@@ -215,6 +216,28 @@ fn posixCallMainAndExit() noreturn {
             std.os.linux.tls.initStaticTLS();
         }
 
+        {
+            // Initialize the per-thread CSPRNG since Linux gave us the handy-dandy
+            // AT_RANDOM. This depends on the TLS initialization above.
+            var i: usize = 0;
+            while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+                switch (auxv[i].a_type) {
+                    std.elf.AT_RANDOM => {
+                        // "The address of sixteen bytes containing a random value."
+                        const addr = auxv[i].a_un.a_val;
+                        if (addr == 0) break;
+                        const ptr = @intToPtr(*const [16]u8, addr);
+                        var seed: [32]u8 = undefined;
+                        seed[0..16].* = ptr.*;
+                        seed[16..].* = ptr.*;
+                        tlcsprng.init(seed);
+                        break;
+                    },
+                    else => continue,
+                }
+            }
+        }
+
         // TODO This is disabled because what should we do when linking libc and this code
         // does not execute? And also it's causing a test failure in stack traces in release modes.
 
@@ -250,6 +273,9 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 }
 
 fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) i32 {
+    // We do not attempt to initialize tlcsprng from AT_RANDOM here because
+    // libc owns the start code, not us, and therefore libc ows the random bytes
+    // from AT_RANDOM.
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];

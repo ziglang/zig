@@ -200,7 +200,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .root_pkg = null,
                 .output_mode = .Lib,
                 .link_mode = .Dynamic,
-                .rand = comp.rand,
                 .libc_installation = comp.bin_file.options.libc_installation,
                 .emit_bin = Compilation.EmitLoc{ .directory = null, .basename = "libc.so" },
                 .optimize_mode = comp.bin_file.options.optimize_mode,

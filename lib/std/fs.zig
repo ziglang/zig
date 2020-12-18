@@ -82,7 +82,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     mem.copy(u8, tmp_path[0..], dirname);
     tmp_path[dirname.len] = path.sep;
     while (true) {
-        try crypto.randomBytes(rand_buf[0..]);
+        crypto.random.bytes(rand_buf[0..]);
         base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
         if (cwd().symLink(existing_path, tmp_path, .{})) {
@@ -157,7 +157,7 @@ pub const AtomicFile = struct {
         tmp_path_buf[base64.Base64Encoder.calcSize(RANDOM_BYTES)] = 0;
 
         while (true) {
-            try crypto.randomBytes(rand_buf[0..]);
+            crypto.random.bytes(rand_buf[0..]);
             base64_encoder.encode(&tmp_path_buf, &rand_buf);
 
             const file = dir.createFile(
