@@ -327,7 +327,7 @@ pub fn prepareTLS(area: []u8) usize {
         if (tls_tp_points_past_tcb) tls_image.data_offset else tls_image.tcb_offset;
 }
 
-var main_thread_tls_buffer: [256]u8 align(16) = undefined;
+var main_thread_tls_buffer: [256]u8 = undefined;
 
 pub fn initStaticTLS() void {
     initTLS();
@@ -351,7 +351,9 @@ pub fn initStaticTLS() void {
     };
 
     // Make sure the slice is correctly aligned
-    const start = @ptrToInt(alloc_tls_area.ptr) & (tls_image.alloc_align - 1);
+    const begin_addr = @ptrToInt(alloc_tls_area.ptr);
+    const begin_aligned_addr = mem.alignForward(begin_addr, tls_image.alloc_align);
+    const start = begin_aligned_addr - begin_addr;
     const tls_area = alloc_tls_area[start .. start + tls_image.alloc_size];
 
     const tp_value = prepareTLS(tls_area);
