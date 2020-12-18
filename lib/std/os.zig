@@ -4798,7 +4798,6 @@ pub const SendToError = SendError || error{
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
-    WouldBlock,
     AddressNotAvailable,
 };
 
@@ -4924,7 +4923,15 @@ pub fn send(
     flags: u32,
 ) SendError!usize {
     return sendto(sockfd, buf, flags, null, 0) catch |err| switch (err) {
-        error.AddressFamilyNotSupported, error.SymLinkLoop, error.NameTooLong, error.FileNotFound, error.NotDir, error.NetworkUnreachable, error.SystemResources, error.SocketNotConnected, error.WouldBlock, error.AddressNotAvailable => unreachable,
+        error.AddressFamilyNotSupported => unreachable,
+        error.SymLinkLoop => unreachable,
+        error.NameTooLong => unreachable,
+        error.FileNotFound => unreachable,
+        error.NotDir => unreachable,
+        error.NetworkUnreachable => unreachable,
+        error.SystemResources => unreachable,
+        error.SocketNotConnected => unreachable,
+        error.AddressNotAvailable => unreachable,
         else => return @errSetCast(SendError, err),
     };
 }
