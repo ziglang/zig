@@ -11,7 +11,6 @@ const MachO = @import("../MachO.zig");
 const makeName = MachO.makeStaticString;
 const alloc_num = MachO.alloc_num;
 const alloc_den = MachO.alloc_den;
-const parseAndCmpName = MachO.parseAndCmpName;
 const satMul = MachO.satMul;
 
 pub const LoadCommand = union(enum) {
@@ -154,6 +153,7 @@ pub const LoadCommand = union(enum) {
 
 pub const SegmentCommand = struct {
     inner: macho.segment_command_64,
+    header_pad: ?u64 = null,
     sections: std.ArrayListUnmanaged(macho.section_64) = .{},
 
     pub fn empty(inner: macho.segment_command_64) SegmentCommand {
@@ -179,14 +179,7 @@ pub const SegmentCommand = struct {
     }
 
     pub fn findFreeSpace(self: SegmentCommand, object_size: u64, min_alignment: u16) u32 {
-        var start: u64 = blk: {
-            if (parseAndCmpName(self.inner.segname[0..], "__TEXT")) {
-                if (self.sections.items.len > 0) {
-                    break :blk self.sections.items[0].offset;
-                }
-            }
-            break :blk 0;
-        };
+        var start: u64 = if (self.header_pad) |pad| pad else 0;
         while (self.detectAllocCollision(start, object_size)) |item_end| {
             start = mem.alignForwardGeneric(u64, item_end, min_alignment);
         }
