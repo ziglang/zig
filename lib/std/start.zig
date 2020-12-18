@@ -219,17 +219,7 @@ fn posixCallMainAndExit() noreturn {
         if (!@hasDecl(root, "use_AT_RANDOM_auxval") or root.use_AT_RANDOM_auxval) {
             // Initialize the per-thread CSPRNG since Linux gave us the handy-dandy
             // AT_RANDOM. This depends on the TLS initialization above.
-            var i: usize = 0;
-            while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
-                switch (auxv[i].a_type) {
-                    std.elf.AT_RANDOM => {
-                        // "The address of sixteen bytes containing a random value."
-                        initCryptoSeedFromAuxVal(auxv[i].a_un.a_val);
-                        break;
-                    },
-                    else => continue,
-                }
-            }
+            initCryptoSeedFromAuxVal(std.os.linux.getauxval(std.elf.AT_RANDOM));
         }
 
         // TODO This is disabled because what should we do when linking libc and this code
@@ -284,6 +274,7 @@ fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) 
 
 fn initCryptoSeedFromAuxVal(addr: usize) void {
     if (addr == 0) return;
+    // "The address of sixteen bytes containing a random value."
     const ptr = @intToPtr(*[16]u8, addr);
     tlcsprng.init(ptr.*);
     // Clear AT_RANDOM after we use it, otherwise our secure
