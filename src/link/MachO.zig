@@ -1537,6 +1537,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .sdk = version,
             },
         });
+        self.cmd_table_dirty = true;
     }
     if (self.source_version_cmd_index == null) {
         self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1547,6 +1548,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .version = 0x0,
             },
         });
+        self.cmd_table_dirty = true;
     }
     if (self.code_signature_cmd_index == null) {
         self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1558,6 +1560,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .datasize = 0,
             },
         });
+        self.cmd_table_dirty = true;
     }
     if (self.dyld_stub_binder_index == null) {
         self.dyld_stub_binder_index = @intCast(u16, self.undef_symbols.items.len);
