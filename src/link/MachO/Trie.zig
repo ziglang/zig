@@ -531,14 +531,14 @@ test "write Trie to a byte stream" {
     {
         const nwritten = try trie.write(stream.writer());
         testing.expect(nwritten == trie.size);
-        testing.expect(mem.eql(u8, buffer, exp_buffer[0..]));
+        testing.expect(mem.eql(u8, buffer, &exp_buffer));
     }
     {
         // Writing finalized trie again should yield the same result.
         try stream.seekTo(0);
         const nwritten = try trie.write(stream.writer());
         testing.expect(nwritten == trie.size);
-        testing.expect(mem.eql(u8, buffer, exp_buffer[0..]));
+        testing.expect(mem.eql(u8, buffer, &exp_buffer));
     }
 }
 
@@ -556,7 +556,7 @@ test "parse Trie from byte stream" {
         0x3, 0x0, 0x80, 0x20, 0x0, // terminal node
     };
 
-    var in_stream = std.io.fixedBufferStream(in_buffer[0..]);
+    var in_stream = std.io.fixedBufferStream(&in_buffer);
     var trie = Trie.init(gpa);
     defer trie.deinit();
     const nread = try trie.read(in_stream.reader());
@@ -571,5 +571,5 @@ test "parse Trie from byte stream" {
     const nwritten = try trie.write(out_stream.writer());
 
     testing.expect(nwritten == trie.size);
-    testing.expect(mem.eql(u8, in_buffer[0..], out_buffer));
+    testing.expect(mem.eql(u8, &in_buffer, out_buffer));
 }
