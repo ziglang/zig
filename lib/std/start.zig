@@ -206,6 +206,7 @@ fn posixCallMainAndExit() noreturn {
         // Do this as early as possible, the aux vector is needed
         if (builtin.position_independent_executable) {
             @import("os/linux/start_pie.zig").apply_relocations();
+            @fence(.SeqCst);
         }
 
         // Initialize the TLS area. We do a runtime check here to make sure
@@ -214,6 +215,7 @@ fn posixCallMainAndExit() noreturn {
         const is_dynamic = @import("dynamic_library.zig").get_DYNAMIC() != null;
         if (!is_dynamic) {
             std.os.linux.tls.initStaticTLS();
+            @fence(.SeqCst);
         }
 
         {
