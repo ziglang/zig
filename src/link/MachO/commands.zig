@@ -7,7 +7,12 @@ const macho = std.macho;
 const testing = std.testing;
 
 const Allocator = std.mem.Allocator;
-const makeName = @import("../MachO.zig").makeStaticString;
+const MachO = @import("../MachO.zig");
+const makeName = MachO.makeStaticString;
+const alloc_num = MachO.alloc_num;
+const alloc_den = MachO.alloc_den;
+const parseAndCmpName = MachO.parseAndCmpName;
+const satMul = MachO.satMul;
 
 pub const LoadCommand = union(enum) {
     Segment: SegmentCommand,
@@ -153,6 +158,39 @@ pub const SegmentCommand = struct {
 
     pub fn empty(inner: macho.segment_command_64) SegmentCommand {
         return .{ .inner = inner };
+    }
+
+    pub fn addSection(self: *SegmentCommand, alloc: *Allocator, section: macho.section_64) !void {
+        try self.sections.append(alloc, section);
+        self.inner.cmdsize += @sizeOf(macho.section_64);
+        self.inner.nsects += 1;
+    }
+
+    fn detectAllocCollision(self: SegmentCommand, start: u64, size: u64) ?u64 {
+        const end = start + satMul(size, alloc_num) / alloc_den;
+        for (self.sections.items) |section| {
+            const increased_size = satMul(section.size, alloc_num) / alloc_den;
+            const test_end = section.offset + increased_size;
+            if (end > section.offset and start < test_end) {
+                return test_end;
+            }
+        }
+        return null;
+    }
+
+    pub fn findFreeSpace(self: SegmentCommand, object_size: u64, min_alignment: u16) u32 {
+        var start: u64 = blk: {
+            if (parseAndCmpName(self.inner.segname[0..], "__TEXT")) {
+                if (self.sections.items.len > 0) {
+                    break :blk self.sections.items[0].offset;
+                }
+            }
+            break :blk 0;
+        };
+        while (self.detectAllocCollision(start, object_size)) |item_end| {
+            start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        }
+        return @intCast(u32, start);
     }
 
     pub fn read(alloc: *Allocator, reader: anytype) !SegmentCommand {
