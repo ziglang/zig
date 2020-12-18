@@ -4793,9 +4793,6 @@ pub const SendToError = SendError || error{
     /// Network is unreachable.
     NetworkUnreachable,
 
-    /// Insufficient memory was available to fulfill the request.
-    SystemResources,
-
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
     AddressNotAvailable,
@@ -4930,7 +4927,6 @@ pub fn send(
         error.FileNotFound => unreachable,
         error.NotDir => unreachable,
         error.NetworkUnreachable => unreachable,
-        error.SystemResources => unreachable,
         error.AddressNotAvailable => unreachable,
         else => return @errSetCast(SendError, err),
     };
