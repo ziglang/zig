@@ -781,11 +781,17 @@ pub const siginfo_t = extern struct {
     data: extern union {
         proc: extern struct {
             pid: pid_t,
-            uid: uid_t,
-            value: sigval,
-            utime: clock_t,
-            stime: clock_t,
-            status: c_int,
+            pdata: extern union {
+                kill: extern struct {
+                    uid: uid_t,
+                    value: sigval,
+                },
+                cld: extern struct {
+                    utime: clock_t,
+                    stime: clock_t,
+                    status: c_int,
+                },
+            },
         },
         fault: extern struct {
             addr: ?*c_void,
