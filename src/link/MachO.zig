@@ -37,6 +37,10 @@ page_size: u16,
 
 /// Mach-O header
 header: ?macho.mach_header_64 = null,
+/// We commit 0x1000 = 4096 bytes of space to the header and
+/// the table of load commands. This should be plenty for any
+/// potential future extensions.
+header_pad: u16 = 0x1000,
 
 /// Table of all load commands
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
@@ -75,7 +79,7 @@ code_signature_cmd_index: ?u16 = null,
 
 /// Index into __TEXT,__text section.
 text_section_index: ?u16 = null,
-/// Index into __TEXT,__got section.
+/// Index into __TEXT,__ziggot section.
 got_section_index: ?u16 = null,
 /// The absolute address of the entry point.
 entry_addr: ?u64 = null,
@@ -150,8 +154,8 @@ pub const PieFixup = struct {
 };
 
 /// `alloc_num / alloc_den` is the factor of padding when allocating.
-const alloc_num = 4;
-const alloc_den = 3;
+pub const alloc_num = 4;
+pub const alloc_den = 3;
 
 /// Default path to dyld
 /// TODO instead of hardcoding it, we should probably look through some env vars and search paths
@@ -1295,15 +1299,23 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.text_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
         const initprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE;
+
+        const program_code_size_hint = self.base.options.program_code_size_hint;
+        const offset_table_size_hint = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const ideal_size = self.header_pad + program_code_size_hint + offset_table_size_hint;
+        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+
+        log.debug("found __TEXT segment free space 0x{x} to 0x{x}\n", .{ 0, needed_size });
+
         try self.load_commands.append(self.base.allocator, .{
             .Segment = SegmentCommand.empty(.{
                 .cmd = macho.LC_SEGMENT_64,
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__TEXT"),
                 .vmaddr = 0x100000000, // always starts at 4GB
-                .vmsize = 0,
+                .vmsize = needed_size,
                 .fileoff = 0,
-                .filesize = 0,
+                .filesize = needed_size,
                 .maxprot = maxprot,
                 .initprot = initprot,
                 .nsects = 0,
@@ -1316,31 +1328,31 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         self.text_section_index = @intCast(u16, text_segment.sections.items.len);
 
-        const program_code_size_hint = self.base.options.program_code_size_hint;
-        const file_size = mem.alignForwardGeneric(u64, program_code_size_hint, self.page_size);
-        const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size)); // TODO maybe findFreeSpace should return u32 directly?
+        const alignment: u32 = switch (self.base.options.target.cpu.arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => unreachable, // unhandled architecture type
+        };
+        const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
+        const needed_size = self.base.options.program_code_size_hint;
+        const off = self.header_pad;
 
-        log.debug("found __text section free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        log.debug("found __text section free space 0x{x} to 0x{x}\n", .{ off, off + needed_size });
 
-        try text_segment.sections.append(self.base.allocator, .{
+        try text_segment.addSection(self.base.allocator, .{
             .sectname = makeStaticString("__text"),
             .segname = makeStaticString("__TEXT"),
             .addr = text_segment.inner.vmaddr + off,
-            .size = file_size,
+            .size = @intCast(u32, needed_size),
             .offset = off,
-            .@"align" = if (self.base.options.target.cpu.arch == .aarch64) 2 else 0, // 2^2 for aarch64, 2^0 for x86_64
+            .@"align" = alignment,
             .reloff = 0,
             .nreloc = 0,
-            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+            .flags = flags,
             .reserved1 = 0,
             .reserved2 = 0,
             .reserved3 = 0,
         });
-
-        text_segment.inner.vmsize = file_size + off; // We add off here since __TEXT segment includes everything prior to __text section.
-        text_segment.inner.filesize = file_size + off;
-        text_segment.inner.cmdsize += @sizeOf(macho.section_64);
-        text_segment.inner.nsects += 1;
         self.cmd_table_dirty = true;
     }
     if (self.got_section_index == null) {
@@ -1348,48 +1360,48 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const text_section = &text_segment.sections.items[self.text_section_index.?];
         self.got_section_index = @intCast(u16, text_segment.sections.items.len);
 
-        const file_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        // TODO looking for free space should be done *within* a segment it belongs to
-        const off = @intCast(u32, text_section.offset + text_section.size);
+        const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = text_segment.findFreeSpace(needed_size, @sizeOf(u64));
 
-        log.debug("found __got section free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        // TODO Audit this. Is it possible to not find free space? We need to grow __TEXT then.
+        assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize);
 
-        try text_segment.sections.append(self.base.allocator, .{
-            .sectname = makeStaticString("__got"),
+        log.debug("found __ziggot section free space 0x{x} to 0x{x}\n", .{ off, off + needed_size });
+
+        try text_segment.addSection(self.base.allocator, .{
+            .sectname = makeStaticString("__ziggot"),
             .segname = makeStaticString("__TEXT"),
-            .addr = text_section.addr + text_section.size,
-            .size = file_size,
+            .addr = text_segment.inner.vmaddr + off,
+            .size = needed_size,
             .offset = off,
-            .@"align" = if (self.base.options.target.cpu.arch == .aarch64) 2 else 0,
+            .@"align" = @sizeOf(u64),
             .reloff = 0,
             .nreloc = 0,
-            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+            .flags = flags,
             .reserved1 = 0,
             .reserved2 = 0,
             .reserved3 = 0,
         });
-
-        const added_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-        text_segment.inner.vmsize += added_size;
-        text_segment.inner.filesize += added_size;
-        text_segment.inner.cmdsize += @sizeOf(macho.section_64);
-        text_segment.inner.nsects += 1;
         self.cmd_table_dirty = true;
     }
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+
         const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
         const initprot = macho.VM_PROT_READ;
-        const off = text_segment.inner.fileoff + text_segment.inner.filesize;
+        const address_and_offset = self.nextSegmentAddressAndOffset();
+
+        log.debug("found __LINKEDIT segment free space at 0x{x}\n", .{address_and_offset.offset});
+
         try self.load_commands.append(self.base.allocator, .{
             .Segment = SegmentCommand.empty(.{
                 .cmd = macho.LC_SEGMENT_64,
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__LINKEDIT"),
-                .vmaddr = text_segment.inner.vmaddr + text_segment.inner.vmsize,
+                .vmaddr = address_and_offset.address,
                 .vmsize = 0,
-                .fileoff = off,
+                .fileoff = address_and_offset.offset,
                 .filesize = 0,
                 .maxprot = maxprot,
                 .initprot = initprot,
@@ -1397,7 +1409,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .flags = 0,
             }),
         });
-        self.linkedit_segment_next_offset = @intCast(u32, off);
+        self.linkedit_segment_next_offset = @intCast(u32, address_and_offset.offset);
         self.cmd_table_dirty = true;
     }
     if (self.dyld_info_cmd_index == null) {
@@ -1631,9 +1643,8 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
 
     const expand_text_section = block_placement == null or block_placement.?.next == null;
     if (expand_text_section) {
-        const text_capacity = self.allocatedSize(text_section.offset);
         const needed_size = (vaddr + new_block_size) - text_section.addr;
-        assert(needed_size <= text_capacity); // TODO must move the entire text section.
+        assert(needed_size <= text_segment.inner.filesize); // TODO must move the entire text section.
 
         self.last_text_block = text_block;
         text_section.size = needed_size;
@@ -1692,95 +1703,28 @@ fn updateString(self: *MachO, old_str_off: u32, new_name: []const u8) !u32 {
     return self.makeString(new_name);
 }
 
-fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
-    const hdr_size: u64 = @sizeOf(macho.mach_header_64);
-    if (start < hdr_size) return hdr_size;
-    const end = start + satMul(size, alloc_num) / alloc_den;
-    {
-        const off = @sizeOf(macho.mach_header_64);
-        var tight_size: u64 = 0;
-        for (self.load_commands.items) |cmd| {
-            tight_size += cmd.cmdsize();
-        }
-        const increased_size = satMul(tight_size, alloc_num) / alloc_den;
-        const test_end = off + increased_size;
-        if (end > off and start < test_end) {
-            return test_end;
-        }
-    }
-    if (self.text_segment_cmd_index) |text_index| {
-        const text_segment = self.load_commands.items[text_index].Segment;
-        for (text_segment.sections.items) |section| {
-            const increased_size = satMul(section.size, alloc_num) / alloc_den;
-            const test_end = section.offset + increased_size;
-            if (end > section.offset and start < test_end) {
-                return test_end;
-            }
-        }
-    }
-    if (self.dyld_info_cmd_index) |dyld_info_index| {
-        const dyld_info = self.load_commands.items[dyld_info_index].DyldInfoOnly;
-        const tight_size = dyld_info.export_size;
-        const increased_size = satMul(tight_size, alloc_num) / alloc_den;
-        const test_end = dyld_info.export_off + increased_size;
-        if (end > dyld_info.export_off and start < test_end) {
-            return test_end;
-        }
-    }
-    if (self.symtab_cmd_index) |symtab_index| {
-        const symtab = self.load_commands.items[symtab_index].Symtab;
-        {
-            const tight_size = @sizeOf(macho.nlist_64) * symtab.nsyms;
-            const increased_size = satMul(tight_size, alloc_num) / alloc_den;
-            const test_end = symtab.symoff + increased_size;
-            if (end > symtab.symoff and start < test_end) {
-                return test_end;
-            }
-        }
-        {
-            const increased_size = satMul(symtab.strsize, alloc_num) / alloc_den;
-            const test_end = symtab.stroff + increased_size;
-            if (end > symtab.stroff and start < test_end) {
-                return test_end;
-            }
-        }
-    }
-    return null;
-}
+const NextSegmentAddressAndOffset = struct {
+    address: u64,
+    offset: u64,
+};
 
-fn allocatedSize(self: *MachO, start: u64) u64 {
-    if (start == 0)
-        return 0;
-    var min_pos: u64 = std.math.maxInt(u64);
-    {
-        const off = @sizeOf(macho.mach_header_64);
-        if (off > start and off < min_pos) min_pos = off;
-    }
-    if (self.text_segment_cmd_index) |text_index| {
-        const text_segment = self.load_commands.items[text_index].Segment;
-        for (text_segment.sections.items) |section| {
-            if (section.offset <= start) continue;
-            if (section.offset < min_pos) min_pos = section.offset;
+fn nextSegmentAddressAndOffset(self: *MachO) NextSegmentAddressAndOffset {
+    const prev_segment_idx = blk: {
+        if (self.data_segment_cmd_index) |idx| {
+            break :blk idx;
+        } else if (self.text_segment_cmd_index) |idx| {
+            break :blk idx;
+        } else {
+            unreachable; // unhandled LC_SEGMENT_64 load command before __TEXT
         }
-    }
-    if (self.dyld_info_cmd_index) |dyld_info_index| {
-        const dyld_info = self.load_commands.items[dyld_info_index].DyldInfoOnly;
-        if (dyld_info.export_off > start and dyld_info.export_off < min_pos) min_pos = dyld_info.export_off;
-    }
-    if (self.symtab_cmd_index) |symtab_index| {
-        const symtab = self.load_commands.items[symtab_index].Symtab;
-        if (symtab.symoff > start and symtab.symoff < min_pos) min_pos = symtab.symoff;
-        if (symtab.stroff > start and symtab.stroff < min_pos) min_pos = symtab.stroff;
-    }
-    return min_pos - start;
-}
-
-fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u16) u64 {
-    var start: u64 = 0;
-    while (self.detectAllocCollision(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
-    }
-    return start;
+    };
+    const prev_segment = self.load_commands.items[prev_segment_idx].Segment;
+    const address = prev_segment.inner.vmaddr + prev_segment.inner.vmsize;
+    const offset = prev_segment.inner.fileoff + prev_segment.inner.filesize;
+    return .{
+        .address = address,
+        .offset = offset,
+    };
 }
 
 fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
@@ -2068,12 +2012,6 @@ fn writeHeader(self: *MachO) !void {
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(slice[0..1]), 0);
 }
 
-/// Saturating multiplication
-fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
-    const T = @TypeOf(a, b);
-    return std.math.mul(T, a, b) catch std.math.maxInt(T);
-}
-
 /// Parse MachO contents from existing binary file.
 /// TODO This method is incomplete and currently parses only the header
 /// plus the load commands.
@@ -2148,7 +2086,7 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
     self.header = header;
 }
 
-fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
+pub fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
     const len = mem.indexOfScalar(u8, name[0..], @as(u8, 0)) orelse name.len;
     return mem.eql(u8, name[0..len], needle);
 }
@@ -2203,4 +2141,10 @@ fn parseLazyBindingInfoTable(self: *MachO) !void {
 
     var stream = std.io.fixedBufferStream(buffer);
     try self.lazy_binding_info_table.read(stream.reader(), self.base.allocator);
+}
+
+/// Saturating multiplication
+pub fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
+    const T = @TypeOf(a, b);
+    return std.math.mul(T, a, b) catch std.math.maxInt(T);
 }
