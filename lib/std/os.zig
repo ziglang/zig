@@ -4777,6 +4777,9 @@ pub const SendError = error{
 
     /// Network is unreachable.
     NetworkUnreachable,
+
+    /// The local network interface used to reach the destination is down.
+    NetworkSubsystemFailed,
 } || UnexpectedError;
 
 pub const SendToError = SendError || error{
@@ -4849,7 +4852,7 @@ pub fn sendto(
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
                     // TODO: WSAEINPROGRESS, WSAEINTR
                     .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkUnreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENETUNREACH => return error.NetworkUnreachable,
                     .WSAENOTCONN => return error.SocketNotConnected,
@@ -4878,7 +4881,6 @@ pub fn sendto(
                 EMSGSIZE => return error.MessageTooBig,
                 ENOBUFS => return error.SystemResources,
                 ENOMEM => return error.SystemResources,
-                ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
                 ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
                 EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
                 EPIPE => return error.BrokenPipe,
@@ -4890,6 +4892,7 @@ pub fn sendto(
                 EHOSTUNREACH => return error.NetworkUnreachable,
                 ENETUNREACH => return error.NetworkUnreachable,
                 ENOTCONN => return error.SocketNotConnected,
+                ENETDOWN => return error.NetworkSubsystemFailed,
                 else => |err| return unexpectedErrno(err),
             }
         }
