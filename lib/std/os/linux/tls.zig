@@ -327,7 +327,7 @@ pub fn prepareTLS(area: []u8) usize {
         if (tls_tp_points_past_tcb) tls_image.data_offset else tls_image.tcb_offset;
 }
 
-var main_thread_tls_buffer: [256]u8 = undefined;
+var main_thread_tls_buffer: [256]u8 align(16) = undefined;
 
 pub fn initStaticTLS() void {
     initTLS();
