@@ -4891,6 +4891,7 @@ pub fn sendto(
                 ENOENT => return error.FileNotFound,
                 ENOTDIR => return error.NotDir,
                 EHOSTUNREACH => return error.NetworkUnreachable,
+                ENOTCONN => return error.SocketNotConnected,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -4930,7 +4931,6 @@ pub fn send(
         error.NotDir => unreachable,
         error.NetworkUnreachable => unreachable,
         error.SystemResources => unreachable,
-        error.SocketNotConnected => unreachable,
         error.AddressNotAvailable => unreachable,
         else => return @errSetCast(SendError, err),
     };
