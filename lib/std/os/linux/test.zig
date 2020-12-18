@@ -34,6 +34,22 @@ test "getpid" {
     expect(linux.getpid() != 0);
 }
 
+test "getuid" {
+    _ = linux.getuid();
+}
+
+test "getgid" {
+    _ = linux.getgid();
+}
+
+test "geteuid" {
+    _ = linux.geteuid();
+}
+
+test "getegid" {
+    _ = linux.getegid();
+}
+
 test "timer" {
     const epoll_fd = linux.epoll_create();
     var err: usize = linux.getErrno(epoll_fd);
