@@ -480,7 +480,6 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         .Enum,
         .ErrorSet,
         .Fn,
-        .Pointer,
         => return true,
 
         .Bool => return false,
@@ -488,6 +487,8 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         // The padding bits are undefined.
         .Int => |info| return (info.bits % 8) == 0 and
             (info.bits == 0 or std.math.isPowerOfTwo(info.bits)),
+
+        .Pointer => |info| return info.size != .Slice,
 
         .Array => |info| return comptime hasUniqueRepresentation(info.child),
 
