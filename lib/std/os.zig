@@ -4923,7 +4923,10 @@ pub fn send(
     buf: []const u8,
     flags: u32,
 ) SendError!usize {
-    return sendto(sockfd, buf, flags, null, 0);
+    return sendto(sockfd, buf, flags, null, 0) catch |err| switch (err) {
+        error.AddressFamilyNotSupported, error.SymLinkLoop, error.NameTooLong, error.FileNotFound, error.NotDir, error.NetworkUnreachable, error.SystemResources, error.SocketNotConnected, error.WouldBlock, error.AddressNotAvailable => unreachable,
+        else => return @errSetCast(SendError, err),
+    };
 }
 
 pub const SendFileError = PReadError || WriteError || SendError;
