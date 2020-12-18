@@ -104,9 +104,7 @@ dyld_stub_binder_index: ?u16 = null,
 /// Table of symbol names aka the string table.
 string_table: std.ArrayListUnmanaged(u8) = .{},
 
-/// Table of symbol vaddr values. The values is the absolute vaddr value.
-/// If the vaddr of the executable __TEXT segment vaddr changes, the entire offset
-/// table needs to be rewritten.
+/// Table of trampolines to the actual symbols in __text section.
 offset_table: std.ArrayListUnmanaged(u64) = .{},
 
 /// Table of binding info entries.
@@ -1307,35 +1305,35 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}\n", .{ 0, needed_size });
 
-        try self.load_commands.append(self.base.allocator, .{
-            .Segment = SegmentCommand.empty(.{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__TEXT"),
-                .vmaddr = 0x100000000, // always starts at 4GB
-                .vmsize = needed_size,
-                .fileoff = 0,
-                .filesize = needed_size,
-                .maxprot = maxprot,
-                .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
-            }),
+        var segment = SegmentCommand.empty(.{
+            .cmd = macho.LC_SEGMENT_64,
+            .cmdsize = @sizeOf(macho.segment_command_64),
+            .segname = makeStaticString("__TEXT"),
+            .vmaddr = 0x100000000, // always starts at 4GB
+            .vmsize = needed_size,
+            .fileoff = 0,
+            .filesize = needed_size,
+            .maxprot = maxprot,
+            .initprot = initprot,
+            .nsects = 0,
+            .flags = 0,
         });
+        segment.header_pad = self.header_pad;
+        try self.load_commands.append(self.base.allocator, .{ .Segment = segment });
         self.cmd_table_dirty = true;
     }
     if (self.text_section_index == null) {
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         self.text_section_index = @intCast(u16, text_segment.sections.items.len);
 
-        const alignment: u32 = switch (self.base.options.target.cpu.arch) {
+        const alignment: u2 = switch (self.base.options.target.cpu.arch) {
             .x86_64 => 0,
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
         const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
         const needed_size = self.base.options.program_code_size_hint;
-        const off = self.header_pad;
+        const off = text_segment.findFreeSpace(needed_size, @as(u16, 1) << alignment);
 
         log.debug("found __text section free space 0x{x} to 0x{x}\n", .{ off, off + needed_size });
 
@@ -2086,7 +2084,7 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
     self.header = header;
 }
 
-pub fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
+fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
     const len = mem.indexOfScalar(u8, name[0..], @as(u8, 0)) orelse name.len;
     return mem.eql(u8, name[0..len], needle);
 }
