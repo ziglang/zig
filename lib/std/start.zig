@@ -226,11 +226,17 @@ fn posixCallMainAndExit() noreturn {
                         // "The address of sixteen bytes containing a random value."
                         const addr = auxv[i].a_un.a_val;
                         if (addr == 0) break;
-                        const ptr = @intToPtr(*const [16]u8, addr);
+                        const ptr = @intToPtr(*[16]u8, addr);
                         var seed: [32]u8 = undefined;
                         seed[0..16].* = ptr.*;
                         seed[16..].* = ptr.*;
                         tlcsprng.init(seed);
+                        // Overwrite AT_RANDOM after we use it, otherwise our secure
+                        // seed is sitting in memory ready for some other code in the
+                        // program to reuse, and hence break our security.
+                        // We play nice by refreshing it with fresh random bytes
+                        // rather than clearing it.
+                        std.crypto.random.bytes(ptr);
                         break;
                     },
                     else => continue,
