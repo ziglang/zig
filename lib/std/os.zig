@@ -4774,6 +4774,9 @@ pub const SendError = error{
     BrokenPipe,
 
     FileDescriptorNotASocket,
+
+    /// Network is unreachable.
+    NetworkUnreachable,
 } || UnexpectedError;
 
 pub const SendToError = SendError || error{
@@ -4789,9 +4792,6 @@ pub const SendToError = SendError || error{
     /// Returned when socket is AF_UNIX and the given path does not point to an existing file.
     FileNotFound,
     NotDir,
-
-    /// Network is unreachable.
-    NetworkUnreachable,
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
@@ -4888,6 +4888,7 @@ pub fn sendto(
                 ENOENT => return error.FileNotFound,
                 ENOTDIR => return error.NotDir,
                 EHOSTUNREACH => return error.NetworkUnreachable,
+                ENETUNREACH => return error.NetworkUnreachable,
                 ENOTCONN => return error.SocketNotConnected,
                 else => |err| return unexpectedErrno(err),
             }
