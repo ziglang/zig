@@ -1757,6 +1757,58 @@ fn nextSegmentAddressAndOffset(self: *MachO) NextSegmentAddressAndOffset {
     };
 }
 
+fn allocatedSize(self: *MachO, segment: *const SegmentCommand, start: u64) u64 {
+    assert(start > 0);
+    var min_pos: u64 = std.math.maxInt(u64);
+
+    if (parseAndCmpName(&segment.inner.segname, "__LINKEDIT")) {
+        assert(segment.sections.items.len == 0);
+        // __LINKEDIT is a weird segment where sections get their own load commands so we
+        // special-case it.
+        if (self.dyld_info_cmd_index) |idx| {
+            const dyld_info = self.load_commands.items[idx].DyldInfoOnly;
+            if (dyld_info.rebase_off > start and dyld_info.rebase_off < min_pos) min_pos = off;
+            if (dyld_info.bind_off > start and dyld_info.bind_off < min_pos) min_pos = off;
+            if (dyld_info.weak_bind_off > start and dyld_info.weak_bind_off < min_pos) min_pos = off;
+            if (dyld_info.lazy_bind_off > start and dyld_info.lazy_bind_off < min_pos) min_pos = off;
+            if (dyld_info.export_off > start and dyld_info.export_off < min_pos) min_pos = off;
+        }
+
+        if (self.function_starts_cmd_index) |idx| {
+            const fstart = self.load_commands.items[idx].LinkeditData;
+            if (fstart.dataoff > start and fstart.dataoff < min_pos) min_pos = off;
+        }
+
+        if (self.data_in_code_cmd_index) |idx| {
+            const dic = self.load_commands.items[idx].LinkeditData;
+            if (dic.dataoff > start and dic.dataoff < min_pos) min_pos = off;
+        }
+
+        if (self.dysymtab_cmd_index) |idx| {
+            const dysymtab = self.load_commands.items[idx].Dysymtab;
+            if (dysymtab.indirectsymoff > start and dysymtab.indirectsymoff < min_pos) min_pos = off;
+            // TODO Handle more dynamic symbol table sections.
+        }
+
+        if (self.symtab_cmd_index) |idx| {
+            const symtab = self.load_commands.items[idx].Symtab;
+            if (symtab.symoff > start and symtab.symoff < min_pos) min_pos = off;
+            if (symtab.stroff > start and symtab.stroff < min_pos) min_pos = off;
+        }
+
+        if (self.code_signature_cmd_index) |idx| {
+            const codesig = self.load_commands.items[idx].LinkeditData;
+            if (codesig.dataoff > start and codesig.dataoff < min_pos) min_pos = off;
+        }
+    } else {
+        for (segment.sections.items) |section| {
+            if (section.offset > start and sections.offset < min_pos) min_pos = off;
+        }
+    }
+
+    return min_pos - start;
+}
+
 inline fn checkForCollision(start: u64, end: u64, off: u64, size: u64) ?u64 {
     const increased_size = satMul(size, alloc_num) / alloc_den;
     const test_end = off + increased_size;
@@ -1770,6 +1822,7 @@ fn detectAllocCollision(self: *MachO, segment: *const SegmentCommand, start: u64
     const end = start + satMul(size, alloc_num) / alloc_den;
 
     if (parseAndCmpName(&segment.inner.segname, "__LINKEDIT")) {
+        assert(segment.sections.items.len == 0);
         // __LINKEDIT is a weird segment where sections get their own load commands so we
         // special-case it.
         if (self.dyld_info_cmd_index) |idx| outer: {
