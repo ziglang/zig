@@ -410,7 +410,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/os/windows/win32error.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/pdb.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/process.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/progress.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Progress.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/rand.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/reset_event.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sort.zig"

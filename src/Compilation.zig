@@ -1378,7 +1378,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
 
 pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
     var progress: std.Progress = .{};
-    var main_progress_node = try progress.start("", null);
+    var main_progress_node = try progress.start("", 0);
     defer main_progress_node.end();
     if (self.color == .off) progress.terminal = null;
 
@@ -1811,7 +1811,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
     const c_source_basename = std.fs.path.basename(c_object.src.src_path);
 
     c_comp_progress_node.activate();
-    var child_progress_node = c_comp_progress_node.start(c_source_basename, null);
+    var child_progress_node = c_comp_progress_node.start(c_source_basename, 0);
     child_progress_node.activate();
     defer child_progress_node.end();
 
