@@ -25,6 +25,7 @@ const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 
 usingnamespace @import("MachO/commands.zig");
+usingnamespace @import("MachO/imports.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
@@ -103,6 +104,11 @@ string_table: std.ArrayListUnmanaged(u8) = .{},
 /// If the vaddr of the executable __TEXT segment vaddr changes, the entire offset
 /// table needs to be rewritten.
 offset_table: std.ArrayListUnmanaged(u64) = .{},
+
+/// Table of binding info entries.
+binding_info_table: BindingInfoTable = .{},
+/// Table of lazy binding info entries.
+lazy_binding_info_table: LazyBindingInfoTable = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
@@ -752,44 +758,137 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
             // At this stage, LLD has done its job. It is time to patch the resultant
             // binaries up!
-            // This is currently needed only for aarch64 targets.
-            if (target.cpu.arch == .aarch64) {
-                const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
-                try self.parseFromFile(out_file);
-                if (self.code_signature_cmd_index == null) {
-                    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                    const text_section = text_segment.sections.items[self.text_section_index.?];
-                    const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                    const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+            const out_file = try directory.handle.openFile(self.base.options.emit.?.sub_path, .{ .write = true });
+            try self.parseFromFile(out_file);
 
-                    if (needed_size + after_last_cmd_offset > text_section.offset) {
-                        std.log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
-                        std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size});
-                        std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
-                        return error.NotEnoughPadding;
-                    }
+            if (self.libsystem_cmd_index == null and self.header.?.filetype == macho.MH_EXECUTE) {
+                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                const text_section = text_segment.sections.items[self.text_section_index.?];
+                const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
+                const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
 
-                    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-                    // TODO This is clunky.
-                    self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
-                    // Add code signature load command
-                    self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
-                    try self.load_commands.append(self.base.allocator, .{
-                        .LinkeditData = .{
-                            .cmd = macho.LC_CODE_SIGNATURE,
-                            .cmdsize = @sizeOf(macho.linkedit_data_command),
-                            .dataoff = 0,
-                            .datasize = 0,
-                        },
-                    });
-                    // Pad out space for code signature
-                    try self.writeCodeSignaturePadding();
-                    // Write updated load commands and the header
-                    try self.writeLoadCommands();
-                    try self.writeHeader();
-                    // Generate adhoc code signature
-                    try self.writeCodeSignature();
+                if (needed_size + after_last_cmd_offset > text_section.offset) {
+                    std.log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
+                    std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size});
+                    std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
+                    return error.NotEnoughPadding;
                 }
+
+                // Calculate next available dylib ordinal.
+                const next_ordinal = blk: {
+                    var ordinal: u32 = 1;
+                    for (self.load_commands.items) |cmd| {
+                        switch (cmd) {
+                            .Dylib => ordinal += 1,
+                            else => {},
+                        }
+                    }
+                    break :blk ordinal;
+                };
+
+                // Add load dylib load command
+                self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
+                const cmdsize = mem.alignForwardGeneric(u64, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH), @sizeOf(u64));
+                // TODO Find a way to work out runtime version from the OS version triple stored in std.Target.
+                // In the meantime, we're gonna hardcode to the minimum compatibility version of 0.0.0.
+                const min_version = 0x0;
+                var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
+                    .cmd = macho.LC_LOAD_DYLIB,
+                    .cmdsize = @intCast(u32, cmdsize),
+                    .dylib = .{
+                        .name = @sizeOf(macho.dylib_command),
+                        .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
+                        .current_version = min_version,
+                        .compatibility_version = min_version,
+                    },
+                });
+                dylib_cmd.data = try self.base.allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
+                mem.set(u8, dylib_cmd.data, 0);
+                mem.copy(u8, dylib_cmd.data, mem.spanZ(LIB_SYSTEM_PATH));
+                try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
+
+                if (self.symtab_cmd_index == null or self.dysymtab_cmd_index == null) {
+                    std.log.err("Incomplete Mach-O binary: no LC_SYMTAB or LC_DYSYMTAB load command found!", .{});
+                    std.log.err("Without the symbol table, it is not possible to patch up the binary for cross-compilation.", .{});
+                    return error.NoSymbolTableFound;
+                }
+
+                // Parse dyld info
+                try self.parseBindingInfoTable();
+                try self.parseLazyBindingInfoTable();
+
+                // Update the dylib ordinals.
+                self.binding_info_table.dylib_ordinal = next_ordinal;
+                for (self.lazy_binding_info_table.symbols.items) |*symbol| {
+                    symbol.dylib_ordinal = next_ordinal;
+                }
+
+                // Write update dyld info
+                const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+                {
+                    const size = try self.binding_info_table.calcSize();
+                    assert(dyld_info.bind_size >= size);
+
+                    var buffer = try self.base.allocator.alloc(u8, size);
+                    defer self.base.allocator.free(buffer);
+
+                    var stream = std.io.fixedBufferStream(buffer);
+                    try self.binding_info_table.write(stream.writer());
+
+                    try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
+                }
+                {
+                    const size = try self.lazy_binding_info_table.calcSize();
+                    assert(dyld_info.lazy_bind_size >= size);
+
+                    var buffer = try self.base.allocator.alloc(u8, size);
+                    defer self.base.allocator.free(buffer);
+
+                    var stream = std.io.fixedBufferStream(buffer);
+                    try self.lazy_binding_info_table.write(stream.writer());
+
+                    try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
+                }
+
+                // Write updated load commands and the header
+                try self.writeLoadCommands();
+                try self.writeHeader();
+            }
+            if (self.code_signature_cmd_index == null) outer: {
+                if (target.cpu.arch != .aarch64) break :outer; // This is currently needed only for aarch64 targets.
+                const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                const text_section = text_segment.sections.items[self.text_section_index.?];
+                const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
+                const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+
+                if (needed_size + after_last_cmd_offset > text_section.offset) {
+                    std.log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
+                    std.log.err("Re-run the linker with '-headerpad 0x{x}' option if available, or", .{needed_size});
+                    std.log.err("fall back to the system linker by exporting 'ZIG_SYSTEM_LINKER_HACK=1'.", .{});
+                    return error.NotEnoughPadding;
+                }
+
+                const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+                // TODO This is clunky.
+                self.linkedit_segment_next_offset = @intCast(u32, mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, @sizeOf(u64)));
+                // Add code signature load command
+                self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
+                try self.load_commands.append(self.base.allocator, .{
+                    .LinkeditData = .{
+                        .cmd = macho.LC_CODE_SIGNATURE,
+                        .cmdsize = @sizeOf(macho.linkedit_data_command),
+                        .dataoff = 0,
+                        .datasize = 0,
+                    },
+                });
+
+                // Pad out space for code signature
+                try self.writeCodeSignaturePadding();
+                // Write updated load commands and the header
+                try self.writeLoadCommands();
+                try self.writeHeader();
+                // Generate adhoc code signature
+                try self.writeCodeSignature();
             }
         }
     }
@@ -823,6 +922,8 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 }
 
 pub fn deinit(self: *MachO) void {
+    self.binding_info_table.deinit(self.base.allocator);
+    self.lazy_binding_info_table.deinit(self.base.allocator);
     self.pie_fixups.deinit(self.base.allocator);
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
@@ -1850,6 +1951,68 @@ fn writeExportTrie(self: *MachO) !void {
     self.cmd_table_dirty = true;
 }
 
+fn writeBindingInfoTable(self: *MachO) !void {
+    const size = self.binding_info_table.calcSize();
+    var buffer = try self.base.allocator.alloc(u8, size);
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try self.binding_info_table.write(stream.writer());
+
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    const bind_size = @intCast(u32, mem.alignForward(buffer.len, @sizeOf(u64)));
+    dyld_info.bind_off = self.linkedit_segment_next_offset.?;
+    dyld_info.bind_size = bind_size;
+
+    log.debug("writing binding info table from 0x{x} to 0x{x}\n", .{ dyld_info.bind_off, dyld_info.bind_off + bind_size });
+
+    if (bind_size > buffer.len) {
+        // Pad out to align(8).
+        try self.base.file.?.pwriteAll(&[_]u8{0}, dyld_info.bind_off + bind_size);
+    }
+    try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
+
+    self.linkedit_segment_next_offset = dyld_info.bind_off + dyld_info.bind_size;
+    // Advance size of __LINKEDIT segment
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.inner.filesize += dyld_info.bind_size;
+    if (linkedit.inner.vmsize < linkedit.inner.filesize) {
+        linkedit.inner.vmsize = mem.alignForwardGeneric(u64, linkedit.inner.filesize, self.page_size);
+    }
+    self.cmd_table_dirty = true;
+}
+
+fn writeLazyBindingInfoTable(self: *MachO) !void {
+    const size = self.lazy_binding_info_table.calcSize();
+    var buffer = try self.base.allocator.alloc(u8, size);
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try self.lazy_binding_info_table.write(stream.writer());
+
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    const bind_size = @intCast(u32, mem.alignForward(buffer.len, @sizeOf(u64)));
+    dyld_info.lazy_bind_off = self.linkedit_segment_next_offset.?;
+    dyld_info.lazy_bind_size = bind_size;
+
+    log.debug("writing lazy binding info table from 0x{x} to 0x{x}\n", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + bind_size });
+
+    if (bind_size > buffer.len) {
+        // Pad out to align(8).
+        try self.base.file.?.pwriteAll(&[_]u8{0}, dyld_info.lazy_bind_off + bind_size);
+    }
+    try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
+
+    self.linkedit_segment_next_offset = dyld_info.lazy_bind_off + dyld_info.lazy_bind_size;
+    // Advance size of __LINKEDIT segment
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.inner.filesize += dyld_info.lazy_bind_size;
+    if (linkedit.inner.vmsize < linkedit.inner.filesize) {
+        linkedit.inner.vmsize = mem.alignForwardGeneric(u64, linkedit.inner.filesize, self.page_size);
+    }
+    self.cmd_table_dirty = true;
+}
+
 fn writeStringTable(self: *MachO) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const needed_size = self.string_table.items.len;
@@ -1925,18 +2088,18 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
         switch (cmd.cmd()) {
             macho.LC_SEGMENT_64 => {
                 const x = cmd.Segment;
-                if (isSegmentOrSection(&x.inner.segname, "__PAGEZERO")) {
+                if (parseAndCmpName(x.inner.segname[0..], "__PAGEZERO")) {
                     self.pagezero_segment_cmd_index = i;
-                } else if (isSegmentOrSection(&x.inner.segname, "__LINKEDIT")) {
+                } else if (parseAndCmpName(x.inner.segname[0..], "__LINKEDIT")) {
                     self.linkedit_segment_cmd_index = i;
-                } else if (isSegmentOrSection(&x.inner.segname, "__TEXT")) {
+                } else if (parseAndCmpName(x.inner.segname[0..], "__TEXT")) {
                     self.text_segment_cmd_index = i;
                     for (x.sections.items) |sect, j| {
-                        if (isSegmentOrSection(&sect.sectname, "__text")) {
+                        if (parseAndCmpName(sect.sectname[0..], "__text")) {
                             self.text_section_index = @intCast(u16, j);
                         }
                     }
-                } else if (isSegmentOrSection(&x.inner.segname, "__DATA")) {
+                } else if (parseAndCmpName(x.inner.segname[0..], "__DATA")) {
                     self.data_segment_cmd_index = i;
                 }
             },
@@ -1962,7 +2125,10 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
                 self.main_cmd_index = i;
             },
             macho.LC_LOAD_DYLIB => {
-                self.libsystem_cmd_index = i; // TODO This is incorrect, but we'll fixup later.
+                const x = cmd.Dylib;
+                if (parseAndCmpName(x.data, mem.spanZ(LIB_SYSTEM_PATH))) {
+                    self.libsystem_cmd_index = i;
+                }
             },
             macho.LC_FUNCTION_STARTS => {
                 self.function_starts_cmd_index = i;
@@ -1973,19 +2139,68 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
             macho.LC_CODE_SIGNATURE => {
                 self.code_signature_cmd_index = i;
             },
-            // TODO populate more MachO fields
             else => {
-                std.log.err("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
-                return error.UnknownLoadCommand;
+                std.log.warn("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);
     }
     self.header = header;
-
-    // TODO parse memory mapped segments
 }
 
-fn isSegmentOrSection(name: *const [16]u8, needle: []const u8) bool {
-    return mem.eql(u8, mem.trimRight(u8, name.*[0..], &[_]u8{0}), needle);
+fn parseAndCmpName(name: []const u8, needle: []const u8) bool {
+    const len = mem.indexOfScalar(u8, name[0..], @as(u8, 0)) orelse name.len;
+    return mem.eql(u8, name[0..len], needle);
+}
+
+fn parseSymbolTable(self: *MachO) !void {
+    const symtab = self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+    const dysymtab = self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+
+    var buffer = try self.base.allocator.alloc(macho.nlist_64, symtab.nsyms);
+    defer self.base.allocator.free(buffer);
+    const nread = try self.base.file.?.preadAll(@ptrCast([*]u8, buffer)[0 .. symtab.nsyms * @sizeOf(macho.nlist_64)], symtab.symoff);
+    assert(@divExact(nread, @sizeOf(macho.nlist_64)) == buffer.len);
+
+    try self.local_symbols.ensureCapacity(self.base.allocator, dysymtab.nlocalsym);
+    try self.global_symbols.ensureCapacity(self.base.allocator, dysymtab.nextdefsym);
+    try self.undef_symbols.ensureCapacity(self.base.allocator, dysymtab.nundefsym);
+
+    self.local_symbols.appendSliceAssumeCapacity(buffer[dysymtab.ilocalsym .. dysymtab.ilocalsym + dysymtab.nlocalsym]);
+    self.global_symbols.appendSliceAssumeCapacity(buffer[dysymtab.iextdefsym .. dysymtab.iextdefsym + dysymtab.nextdefsym]);
+    self.undef_symbols.appendSliceAssumeCapacity(buffer[dysymtab.iundefsym .. dysymtab.iundefsym + dysymtab.nundefsym]);
+}
+
+fn parseStringTable(self: *MachO) !void {
+    const symtab = self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+
+    var buffer = try self.base.allocator.alloc(u8, symtab.strsize);
+    defer self.base.allocator.free(buffer);
+    const nread = try self.base.file.?.preadAll(buffer, symtab.stroff);
+    assert(nread == buffer.len);
+
+    try self.string_table.ensureCapacity(self.base.allocator, symtab.strsize);
+    self.string_table.appendSliceAssumeCapacity(buffer);
+}
+
+fn parseBindingInfoTable(self: *MachO) !void {
+    const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    var buffer = try self.base.allocator.alloc(u8, dyld_info.bind_size);
+    defer self.base.allocator.free(buffer);
+    const nread = try self.base.file.?.preadAll(buffer, dyld_info.bind_off);
+    assert(nread == buffer.len);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try self.binding_info_table.read(stream.reader(), self.base.allocator);
+}
+
+fn parseLazyBindingInfoTable(self: *MachO) !void {
+    const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    var buffer = try self.base.allocator.alloc(u8, dyld_info.lazy_bind_size);
+    defer self.base.allocator.free(buffer);
+    const nread = try self.base.file.?.preadAll(buffer, dyld_info.lazy_bind_off);
+    assert(nread == buffer.len);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try self.lazy_binding_info_table.read(stream.reader(), self.base.allocator);
 }
