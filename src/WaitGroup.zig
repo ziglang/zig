@@ -9,7 +9,7 @@ const Event = @import("Event.zig");
 
 lock: std.Mutex = .{},
 counter: usize = 0,
-event: Event = .{},
+event: ?*Event = null,
 
 pub fn start(self: *WaitGroup) void {
     const held = self.lock.acquire();
@@ -19,24 +19,28 @@ pub fn start(self: *WaitGroup) void {
 }
 
 pub fn stop(self: *WaitGroup) void {
+    var event: ?*Event = null;
+    defer if (event) |waiter|
+        waiter.set();
+
     const held = self.lock.acquire();
     defer held.release();
 
     self.counter -= 1;
     if (self.counter == 0)
-        self.event.set();
+        std.mem.swap(?*Event, &self.event, &event);
 }
 
 pub fn wait(self: *WaitGroup) void {
-    while (true) {
-        {
-            const held = self.lock.acquire();
-            defer held.release();
+    var event = Event{};
+    var has_event = false;
+    defer if (has_event)
+        event.wait();
 
-            if (self.counter == 0)
-                return;
-        }
+    const held = self.lock.acquire();
+    defer held.release();
 
-        self.event.wait();
-    }
+    has_event = self.counter != 0;
+    if (has_event)
+        self.event = &event;
 }
