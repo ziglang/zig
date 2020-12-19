@@ -111,7 +111,7 @@ pub const Node = struct {
     /// Tell the parent node that this node is actively being worked on. Thread-safe.
     pub fn activate(self: *Node) void {
         if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .Monotonic);
+            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
         }
     }
 
@@ -251,7 +251,7 @@ fn refreshWithHeldLock(self: *Progress) void {
                     need_ellipse = false;
                 }
             }
-            maybe_node = @atomicLoad(?*Node, &node.recently_updated_child, .Monotonic);
+            maybe_node = @atomicLoad(?*Node, &node.recently_updated_child, .Acquire);
         }
         if (need_ellipse) {
             self.bufWrite(&end, "... ", .{});
