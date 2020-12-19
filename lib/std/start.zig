@@ -10,6 +10,7 @@ const std = @import("std.zig");
 const builtin = std.builtin;
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
+const tlcsprng = @import("crypto/tlcsprng.zig");
 
 var argc_argv_ptr: [*]usize = undefined;
 

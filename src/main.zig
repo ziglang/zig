@@ -1632,13 +1632,6 @@ fn buildOutputType(
         };
     defer zig_lib_directory.handle.close();
 
-    const random_seed = blk: {
-        var random_seed: u64 = undefined;
-        try std.crypto.randomBytes(mem.asBytes(&random_seed));
-        break :blk random_seed;
-    };
-    var default_prng = std.rand.DefaultPrng.init(random_seed);
-
     var libc_installation: ?LibCInstallation = null;
     defer if (libc_installation) |*l| l.deinit(gpa);
 
@@ -1754,7 +1747,6 @@ fn buildOutputType(
         .single_threaded = single_threaded,
         .function_sections = function_sections,
         .self_exe_path = self_exe_path,
-        .rand = &default_prng.random,
         .clang_passthrough_mode = arg_mode != .build,
         .clang_preprocessor_mode = clang_preprocessor_mode,
         .version = optional_version,
@@ -2420,12 +2412,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .directory = null, // Use the local zig-cache.
             .basename = exe_basename,
         };
-        const random_seed = blk: {
-            var random_seed: u64 = undefined;
-            try std.crypto.randomBytes(mem.asBytes(&random_seed));
-            break :blk random_seed;
-        };
-        var default_prng = std.rand.DefaultPrng.init(random_seed);
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = local_cache_directory,
@@ -2441,7 +2427,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .emit_h = null,
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
-            .rand = &default_prng.random,
         }) catch |err| {
             fatal("unable to create compilation: {}", .{@errorName(err)});
         };

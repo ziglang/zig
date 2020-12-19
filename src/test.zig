@@ -467,13 +467,6 @@ pub const TestContext = struct {
         defer zig_lib_directory.handle.close();
         defer std.testing.allocator.free(zig_lib_directory.path.?);
 
-        const random_seed = blk: {
-            var random_seed: u64 = undefined;
-            try std.crypto.randomBytes(std.mem.asBytes(&random_seed));
-            break :blk random_seed;
-        };
-        var default_prng = std.rand.DefaultPrng.init(random_seed);
-
         for (self.cases.items) |case| {
             if (build_options.skip_non_native and case.target.getCpuArch() != std.Target.current.cpu.arch)
                 continue;
@@ -487,7 +480,7 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            try self.runOneCase(std.testing.allocator, &prg_node, case, zig_lib_directory, &default_prng.random);
+            try self.runOneCase(std.testing.allocator, &prg_node, case, zig_lib_directory);
         }
     }
 
@@ -497,7 +490,6 @@ pub const TestContext = struct {
         root_node: *std.Progress.Node,
         case: Case,
         zig_lib_directory: Compilation.Directory,
-        rand: *std.rand.Random,
     ) !void {
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
@@ -547,7 +539,6 @@ pub const TestContext = struct {
             .local_cache_directory = zig_cache_directory,
             .global_cache_directory = zig_cache_directory,
             .zig_lib_directory = zig_lib_directory,
-            .rand = rand,
             .root_name = "test_case",
             .target = target,
             // TODO: support tests for object file building, and library builds

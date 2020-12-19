@@ -74,7 +74,6 @@ zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
-rand: *std.rand.Random,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
@@ -331,7 +330,6 @@ pub const InitOptions = struct {
     root_name: []const u8,
     root_pkg: ?*Package,
     output_mode: std.builtin.OutputMode,
-    rand: *std.rand.Random,
     dynamic_linker: ?[]const u8 = null,
     /// `null` means to not emit a binary file.
     emit_bin: ?EmitLoc,
@@ -981,7 +979,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .self_exe_path = options.self_exe_path,
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
             .sanitize_c = sanitize_c,
-            .rand = options.rand,
             .clang_passthrough_mode = options.clang_passthrough_mode,
             .clang_preprocessor_mode = options.clang_preprocessor_mode,
             .verbose_cc = options.verbose_cc,
@@ -1909,7 +1906,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
 
 pub fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
     const s = std.fs.path.sep_str;
-    const rand_int = comp.rand.int(u64);
+    const rand_int = std.crypto.random.int(u64);
     if (comp.local_cache_directory.path) |p| {
         return std.fmt.allocPrint(arena, "{}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
     } else {
@@ -2778,7 +2775,6 @@ fn buildOutputFromZig(
         .root_name = root_name,
         .root_pkg = &root_pkg,
         .output_mode = fixed_output_mode,
-        .rand = comp.rand,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
         .optimize_mode = optimize_mode,
@@ -3152,7 +3148,6 @@ pub fn build_crt_file(
         .root_name = root_name,
         .root_pkg = null,
         .output_mode = output_mode,
-        .rand = comp.rand,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
         .optimize_mode = comp.bin_file.options.optimize_mode,

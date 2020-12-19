@@ -134,8 +134,10 @@ pub const nacl = struct {
 
 pub const utils = @import("crypto/utils.zig");
 
+/// This is a thread-local, cryptographically secure pseudo random number generator.
+pub const random = &@import("crypto/tlcsprng.zig").interface;
+
 const std = @import("std.zig");
-pub const randomBytes = std.os.getrandom;
 
 test "crypto" {
     inline for (std.meta.declarations(@This())) |decl| {
@@ -176,6 +178,13 @@ test "crypto" {
     _ = @import("crypto/25519/scalar.zig");
     _ = @import("crypto/25519/x25519.zig");
     _ = @import("crypto/25519/ristretto255.zig");
+}
+
+test "CSPRNG" {
+    const a = random.int(u64);
+    const b = random.int(u64);
+    const c = random.int(u64);
+    std.testing.expect(a ^ b ^ c != 0);
 }
 
 test "issue #4532: no index out of bounds" {

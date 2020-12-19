@@ -43,7 +43,7 @@ pub const Ed25519 = struct {
         pub fn create(seed: ?[seed_length]u8) !KeyPair {
             const ss = seed orelse ss: {
                 var random_seed: [seed_length]u8 = undefined;
-                try crypto.randomBytes(&random_seed);
+                crypto.random.bytes(&random_seed);
                 break :ss random_seed;
             };
             var az: [Sha512.digest_length]u8 = undefined;
@@ -179,7 +179,7 @@ pub const Ed25519 = struct {
 
         var z_batch: [count]Curve.scalar.CompressedScalar = undefined;
         for (z_batch) |*z| {
-            try std.crypto.randomBytes(z[0..16]);
+            std.crypto.random.bytes(z[0..16]);
             mem.set(u8, z[16..], 0);
         }
 
@@ -232,8 +232,8 @@ test "ed25519 batch verification" {
         const key_pair = try Ed25519.KeyPair.create(null);
         var msg1: [32]u8 = undefined;
         var msg2: [32]u8 = undefined;
-        try std.crypto.randomBytes(&msg1);
-        try std.crypto.randomBytes(&msg2);
+        std.crypto.random.bytes(&msg1);
+        std.crypto.random.bytes(&msg2);
         const sig1 = try Ed25519.sign(&msg1, key_pair, null);
         const sig2 = try Ed25519.sign(&msg2, key_pair, null);
         var signature_batch = [_]Ed25519.BatchElement{

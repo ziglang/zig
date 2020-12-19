@@ -9,6 +9,7 @@ const debug = std.debug;
 const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
+const root = @import("root");
 
 pub const trait = @import("meta/trait.zig");
 pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
@@ -1084,4 +1085,11 @@ test "Tuple" {
     TupleTester.assertTuple(.{u32}, Tuple(&[_]type{u32}));
     TupleTester.assertTuple(.{ u32, f16 }, Tuple(&[_]type{ u32, f16 }));
     TupleTester.assertTuple(.{ u32, f16, []const u8, void }, Tuple(&[_]type{ u32, f16, []const u8, void }));
+}
+
+/// TODO: https://github.com/ziglang/zig/issues/425
+pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
+    if (!@hasDecl(root, name))
+        return null;
+    return @as(T, @field(root, name));
 }

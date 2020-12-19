@@ -5845,3 +5845,51 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
         else => |err| return unexpectedErrno(err),
     }
 }
+
+pub const MadviseError = error{
+    /// advice is MADV_REMOVE, but the specified address range is not a shared writable mapping.
+    AccessDenied,
+    /// advice is MADV_HWPOISON, but the caller does not have the CAP_SYS_ADMIN capability.
+    PermissionDenied,
+    /// A kernel resource was temporarily unavailable.
+    SystemResources,
+    /// One of the following:
+    /// * addr is not page-aligned or length is negative
+    /// * advice is not valid
+    /// * advice is MADV_DONTNEED or MADV_REMOVE and the specified address range
+    ///   includes locked, Huge TLB pages, or VM_PFNMAP pages.
+    /// * advice is MADV_MERGEABLE or MADV_UNMERGEABLE, but the kernel was not
+    ///   configured with CONFIG_KSM.
+    /// * advice is MADV_FREE or MADV_WIPEONFORK but the specified address range
+    ///   includes file, Huge TLB, MAP_SHARED, or VM_PFNMAP ranges.
+    InvalidSyscall,
+    /// (for MADV_WILLNEED) Paging in this area would exceed the process's
+    /// maximum resident set size.
+    WouldExceedMaximumResidentSetSize,
+    /// One of the following:
+    /// * (for MADV_WILLNEED) Not enough memory: paging in failed.
+    /// * Addresses in the specified range are not currently mapped, or
+    ///   are outside the address space of the process.
+    OutOfMemory,
+    /// The madvise syscall is not available on this version and configuration
+    /// of the Linux kernel.
+    MadviseUnavailable,
+    /// The operating system returned an undocumented error code.
+    Unexpected,
+};
+
+/// Give advice about use of memory.
+/// This syscall is optional and is sometimes configured to be disabled.
+pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
+    switch (errno(system.madvise(ptr, length, advice))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EAGAIN => return error.SystemResources,
+        EBADF => unreachable, // The map exists, but the area maps something that isn't a file.
+        EINVAL => return error.InvalidSyscall,
+        EIO => return error.WouldExceedMaximumResidentSetSize,
+        ENOMEM => return error.OutOfMemory,
+        ENOSYS => return error.MadviseUnavailable,
+        else => |err| return unexpectedErrno(err),
+    }
+}

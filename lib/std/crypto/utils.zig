@@ -51,8 +51,8 @@ pub fn secureZero(comptime T: type, s: []T) void {
 test "crypto.utils.timingSafeEql" {
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
-    try std.crypto.randomBytes(a[0..]);
-    try std.crypto.randomBytes(b[0..]);
+    std.crypto.random.bytes(a[0..]);
+    std.crypto.random.bytes(b[0..]);
     testing.expect(!timingSafeEql([100]u8, a, b));
     mem.copy(u8, a[0..], b[0..]);
     testing.expect(timingSafeEql([100]u8, a, b));
@@ -61,8 +61,8 @@ test "crypto.utils.timingSafeEql" {
 test "crypto.utils.timingSafeEql (vectors)" {
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
-    try std.crypto.randomBytes(a[0..]);
-    try std.crypto.randomBytes(b[0..]);
+    std.crypto.random.bytes(a[0..]);
+    std.crypto.random.bytes(b[0..]);
     const v1: std.meta.Vector(100, u8) = a;
     const v2: std.meta.Vector(100, u8) = b;
     testing.expect(!timingSafeEql(std.meta.Vector(100, u8), v1, v2));
