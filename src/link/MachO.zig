@@ -854,8 +854,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try self.writeLoadCommands();
                 try self.writeHeader();
             }
-            if (self.code_signature_cmd_index == null) {
-                if (target.cpu.arch != .aarch64) return; // This is currently needed only for aarch64 targets.
+            if (self.code_signature_cmd_index == null) outer: {
+                if (target.cpu.arch != .aarch64) break :outer; // This is currently needed only for aarch64 targets.
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const text_section = text_segment.sections.items[self.text_section_index.?];
                 const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
