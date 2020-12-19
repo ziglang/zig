@@ -16,6 +16,7 @@ const link = @import("../link.zig");
 const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
 const mingw = @import("../mingw.zig");
+const llvm_backend = @import("../llvm_backend.zig");
 
 const allocation_padding = 4 / 3;
 const minimum_text_block_size = 64 * allocation_padding;
@@ -31,6 +32,9 @@ comptime {
 pub const base_tag: link.File.Tag = .coff;
 
 const msdos_stub = @embedFile("msdos-stub.bin");
+
+/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+llvm_ir_module: ?*llvm_backend.LLVMIRModule = null,
 
 base: link.File,
 ptr_width: PtrWidth,
@@ -121,8 +125,13 @@ pub const SrcFn = void;
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Coff {
     assert(options.object_format == .coff);
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForCoff; // TODO
-    if (options.use_lld) return error.LLD_LinkingIsTODO_ForCoff; // TODO
+    if (options.use_llvm) {
+        const self = try createEmpty(allocator, options);
+        errdefer self.base.destroy();
+
+        self.llvm_ir_module = try llvm_backend.LLVMIRModule.create(allocator, sub_path, options);
+        return self;
+    }
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
@@ -648,6 +657,11 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (self.llvm_ir_module) |llvm_ir_module| {
+        try llvm_ir_module.updateDecl(module, decl);
+        return;
+    }
+
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
@@ -704,6 +718,8 @@ pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
 }
 
 pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl, exports: []const *Module.Export) !void {
+    if (self.llvm_ir_module) |_| return;
+
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
@@ -743,6 +759,11 @@ pub fn flush(self: *Coff, comp: *Compilation) !void {
 pub fn flushModule(self: *Coff, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (self.llvm_ir_module) |llvm_ir_module| {
+        try llvm_ir_module.flushModule(comp);
+        return;
+    }
 
     if (self.text_section_size_dirty) {
         // Write the new raw size in the .text header
@@ -1124,8 +1145,9 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
+        // TODO: remove when stage2 can build compiler_rt.zig, c.zig and ssp.zig
         // compiler-rt, libc and libssp
-        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies) {
+        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies and build_options.is_stage1) {
             if (!self.base.options.link_libc) {
                 try argv.append(comp.libc_static_lib.?.full_object_path);
             }
@@ -1235,6 +1257,7 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
 }
 
 pub fn deinit(self: *Coff) void {
+    if (self.llvm_ir_module) |ir_module| ir_module.deinit(self.base.allocator);
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
