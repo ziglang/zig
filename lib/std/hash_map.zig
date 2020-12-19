@@ -539,9 +539,10 @@ pub fn HashMapUnmanaged(
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var idx = @truncate(usize, hash & mask);
+            var probe_length = self.capacity();
 
             var metadata = self.metadata.? + idx;
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+            while (probe_length > 0) : (probe_length -= 1) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const entry = &self.entries()[idx];
                     if (eqlFn(entry.key, key)) {
@@ -572,9 +573,11 @@ pub fn HashMapUnmanaged(
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var idx = @truncate(usize, hash & mask);
+            var probe_length = self.capacity();
 
             var metadata = self.metadata.? + idx;
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+
+            while (probe_length > 0) : (probe_length -= 1) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const entry = &self.entries()[idx];
                     if (eqlFn(entry.key, key)) {
@@ -599,20 +602,22 @@ pub fn HashMapUnmanaged(
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var idx = @truncate(usize, hash & mask);
+            var probe_length = self.capacity();
 
             var first_tombstone_idx: usize = self.capacity(); // invalid index
             var metadata = self.metadata.? + idx;
-            while (true) {
+
+            // Stop the probing if we wrap around.
+            while (probe_length > 0) : (probe_length -= 1) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     // Update an existing entry.
                     const entry = &self.entries()[idx];
                     if (eqlFn(entry.key, key)) {
                         return GetOrPutResult{ .entry = entry, .found_existing = true };
                     }
-                } else if (metadata[0].isTombstone()) {
-                    // Recycle a tombstoned entry.
+                } else if (metadata[0].isTombstone() and first_tombstone_idx == self.capacity()) {
+                    // Recycle a tombstoned entry if no better slot is found.
                     first_tombstone_idx = idx;
-                    break;
                 } else if (metadata[0].isEmpty() and self.available > 0) {
                     // Take an empty entry, but only if we're not above the
                     // maximum load factor.
@@ -631,6 +636,8 @@ pub fn HashMapUnmanaged(
                 // We're using a slot previously free.
                 self.available -= 1;
             }
+
+            assert(!metadata[0].isUsed());
 
             metadata[0].fill(fingerprint);
             const entry = &self.entries()[idx];
@@ -660,9 +667,10 @@ pub fn HashMapUnmanaged(
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var idx = @truncate(usize, hash & mask);
+            var probe_length = self.capacity();
 
             var metadata = self.metadata.? + idx;
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+            while (probe_length > 0) : (probe_length -= 1) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const entry = &self.entries()[idx];
                     if (eqlFn(entry.key, key)) {
@@ -689,9 +697,10 @@ pub fn HashMapUnmanaged(
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var idx = @truncate(usize, hash & mask);
+            var probe_length = self.capacity();
 
             var metadata = self.metadata.? + idx;
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+            while (probe_length > 0) : (probe_length -= 1) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const entry = &self.entries()[idx];
                     if (eqlFn(entry.key, key)) {
@@ -1081,9 +1090,9 @@ test "std.hash_map put and remove loop in random order" {
     }
 }
 
-test "std.hash_map remove one million elements in random order" {
+test "std.hash_map remove a lot of elements in random order" {
     const Map = AutoHashMap(u32, u32);
-    const n = 1000 * 1000;
+    const n = 10 * 1000;
     var map = Map.init(std.heap.page_allocator);
     defer map.deinit();
 
