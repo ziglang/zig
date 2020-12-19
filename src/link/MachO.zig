@@ -1739,7 +1739,10 @@ fn detectAllocCollision(self: *MachO, segment: *const SegmentCommand, start: u64
 }
 
 fn findFreeSpace(self: *MachO, segment: *const SegmentCommand, object_size: u64, min_alignment: u16) u64 {
-    var start: u64 = if (parseAndCmpName(&segment.inner.segname, "__TEXT")) self.header_pad else 0;
+    var start: u64 = if (parseAndCmpName(&segment.inner.segname, "__TEXT"))
+        self.header_pad
+    else
+        segment.inner.fileoff;
     while (self.detectAllocCollision(segment, start, object_size)) |item_end| {
         start = mem.alignForwardGeneric(u64, item_end, min_alignment);
     }
