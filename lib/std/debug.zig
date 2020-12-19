@@ -1696,6 +1696,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 pub const have_segfault_handling_support = switch (builtin.os.tag) {
     .linux, .netbsd => true,
     .windows => true,
+    .freebsd => @hasDecl(os, "ucontext_t"),
     else => false,
 };
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
@@ -1757,6 +1758,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
 
     const addr = switch (builtin.os.tag) {
         .linux => @ptrToInt(info.fields.sigfault.addr),
+        .freebsd => @ptrToInt(info.addr),
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
         else => unreachable,
     };
@@ -1781,8 +1783,16 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         },
         .x86_64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]);
-            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]);
+            const ip = switch (builtin.os.tag) {
+                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]),
+                .freebsd => @intCast(usize, ctx.mcontext.rip),
+                else => unreachable,
+            };
+            const bp = switch (builtin.os.tag) {
+                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]),
+                .freebsd => @intCast(usize, ctx.mcontext.rbp),
+                else => unreachable,
+            };
             dumpStackTraceFromBase(bp, ip);
         },
         .arm => {
