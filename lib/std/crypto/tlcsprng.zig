@@ -117,7 +117,9 @@ fn setupPthreadAtforkAndFill(buffer: []u8) void {
 }
 
 fn childAtForkHandler() callconv(.C) void {
-    const wipe_slice = @ptrCast([*]u8, &wipe_me)[0..@sizeOf(@TypeOf(wipe_me))];
+    // TODO this is a workaround for https://github.com/ziglang/zig/issues/7495
+    var wipe_slice: []u8 = undefined;
+    wipe_slice = @ptrCast([*]u8, &wipe_me)[0..@sizeOf(@TypeOf(wipe_me))];
     std.crypto.utils.secureZero(u8, wipe_slice);
 }
 
