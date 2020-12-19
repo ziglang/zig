@@ -578,12 +578,12 @@ pub const TestContext = struct {
             update_node.activate();
             defer update_node.end();
 
-            var sync_node = update_node.start("write", null);
+            var sync_node = update_node.start("write", 0);
             sync_node.activate();
             try tmp.dir.writeFile(tmp_src_path, update.src);
             sync_node.end();
 
-            var module_node = update_node.start("parse/analysis/codegen", null);
+            var module_node = update_node.start("parse/analysis/codegen", 0);
             module_node.activate();
             try comp.makeBinFileWritable();
             try comp.update();
@@ -635,21 +635,21 @@ pub const TestContext = struct {
                             }
                         }
                     } else {
-                        update_node.estimated_total_items = 5;
-                        var emit_node = update_node.start("emit", null);
+                        update_node.setEstimatedTotalItems(5);
+                        var emit_node = update_node.start("emit", 0);
                         emit_node.activate();
                         var new_zir_module = try zir.emit(allocator, comp.bin_file.options.module.?);
                         defer new_zir_module.deinit(allocator);
                         emit_node.end();
 
-                        var write_node = update_node.start("write", null);
+                        var write_node = update_node.start("write", 0);
                         write_node.activate();
                         var out_zir = std.ArrayList(u8).init(allocator);
                         defer out_zir.deinit();
                         try new_zir_module.writeToStream(allocator, out_zir.outStream());
                         write_node.end();
 
-                        var test_node = update_node.start("assert", null);
+                        var test_node = update_node.start("assert", 0);
                         test_node.activate();
                         defer test_node.end();
 
@@ -666,7 +666,7 @@ pub const TestContext = struct {
                     }
                 },
                 .Error => |e| {
-                    var test_node = update_node.start("assert", null);
+                    var test_node = update_node.start("assert", 0);
                     test_node.activate();
                     defer test_node.end();
                     var handled_errors = try arena.alloc(bool, e.len);
@@ -723,9 +723,9 @@ pub const TestContext = struct {
                 .Execution => |expected_stdout| {
                     std.debug.assert(!case.cbe);
 
-                    update_node.estimated_total_items = 4;
+                    update_node.setEstimatedTotalItems(4);
                     var exec_result = x: {
-                        var exec_node = update_node.start("execute", null);
+                        var exec_node = update_node.start("execute", 0);
                         exec_node.activate();
                         defer exec_node.end();
 
@@ -788,7 +788,7 @@ pub const TestContext = struct {
                             .cwd_dir = tmp.dir,
                         });
                     };
-                    var test_node = update_node.start("test", null);
+                    var test_node = update_node.start("test", 0);
                     test_node.activate();
                     defer test_node.end();
                     defer allocator.free(exec_result.stdout);
@@ -867,7 +867,7 @@ pub const TestContext = struct {
         };
 
         {
-            var load_node = update_node.start("load", null);
+            var load_node = update_node.start("load", 0);
             load_node.activate();
             defer load_node.end();
 
@@ -905,7 +905,7 @@ pub const TestContext = struct {
             }
         }
 
-        var exec_node = update_node.start("execute", null);
+        var exec_node = update_node.start("execute", 0);
         exec_node.activate();
         defer exec_node.end();
 
