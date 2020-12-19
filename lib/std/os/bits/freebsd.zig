@@ -4,6 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../../std.zig");
+const builtin = std.builtin;
 const maxInt = std.math.maxInt;
 
 // See https://svnweb.freebsd.org/base/head/sys/sys/_types.h?view=co
@@ -814,6 +815,53 @@ pub const sigset_t = extern struct {
 };
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
+
+pub usingnamespace switch (builtin.arch) {
+    .x86_64 => struct {
+        pub const ucontext_t = extern struct {
+            sigmask: sigset_t,
+            mcontext: mcontext_t,
+            link: ?*ucontext_t,
+            stack: stack_t,
+            flags: c_int,
+            __spare__: [4]c_int,
+        };
+
+        /// XXX x86_64 specific
+        pub const mcontext_t = extern struct {
+            onstack: u64,
+            rdi: u64,
+            rsi: u64,
+            rdx: u64,
+            rcx: u64,
+            r8: u64,
+            r9: u64,
+            rax: u64,
+            rbx: u64,
+            rbp: u64,
+            r10: u64,
+            r11: u64,
+            r12: u64,
+            r13: u64,
+            r14: u64,
+            r15: u64,
+            trapno: u32,
+            fs: u16,
+            gs: u16,
+            addr: u64,
+            flags: u32,
+            es: u16,
+            ds: u16,
+            err: u64,
+            rip: u64,
+            cs: u64,
+            rflags: u64,
+            rsp: u64,
+            ss: u64,
+        };
+    },
+    else => struct {},
+};
 
 pub const EPERM = 1; // Operation not permitted
 pub const ENOENT = 2; // No such file or directory
