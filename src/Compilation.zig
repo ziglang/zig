@@ -2956,6 +2956,9 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.add(comp.bin_file.options.is_test);
     man.hash.add(comp.bin_file.options.emit != null);
     man.hash.add(comp.c_header != null);
+    if (comp.c_header) |header| {
+        man.hash.addEmitLoc(header.emit_loc.?);
+    }
     man.hash.addOptionalEmitLoc(comp.emit_asm);
     man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
     man.hash.addOptionalEmitLoc(comp.emit_analysis);
