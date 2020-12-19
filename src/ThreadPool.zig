@@ -77,7 +77,6 @@ pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
     };
 
     const closure = try self.allocator.create(Closure);
-    errdefer self.allocator.destroy(closure);
     closure.* = .{
         .arguments = args,
         .pool = self,
