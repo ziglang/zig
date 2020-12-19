@@ -11,33 +11,33 @@ const assert = std.debug.assert;
 /// Similar to std.ResetEvent but on `set()` it also (atomically) does `reset()`.
 /// Unlike std.ResetEvent, `wait()` can only be called by one thread (MPSC-like).
 pub const AutoResetEvent = struct {
-    // AutoResetEvent has 3 possible states:
-    // - UNSET: the AutoResetEvent is currently unset
-    // - SET: the AutoResetEvent was notified before a wait() was called
-    // - <std.ResetEvent pointer>: there is an active waiter waiting for a notification.
-    //
-    // When attempting to wait:
-    //  if the event is unset, it registers a ResetEvent pointer to be notified when the event is set
-    //  if the event is already set, then it consumes the notification and resets the event.
-    //
-    // When attempting to notify:
-    //  if the event is unset, then we set the event
-    //  if theres a waiting ResetEvent, then we unset the event and notify the ResetEvent
-    //
-    // This ensures that the event is automatically reset after a wait() has been issued
-    // and avoids the race condition when using std.ResetEvent in the following scenario:
-    //  thread 1                | thread 2
-    //  std.ResetEvent.wait()   |
-    //                          | std.ResetEvent.set()
-    //                          | std.ResetEvent.set()
-    //  std.ResetEvent.reset()  |
-    //  std.ResetEvent.wait()   | (missed the second .set() notification above)
+    /// AutoResetEvent has 3 possible states:
+    /// - UNSET: the AutoResetEvent is currently unset
+    /// - SET: the AutoResetEvent was notified before a wait() was called
+    /// - <std.ResetEvent pointer>: there is an active waiter waiting for a notification.
+    ///
+    /// When attempting to wait:
+    ///  if the event is unset, it registers a ResetEvent pointer to be notified when the event is set
+    ///  if the event is already set, then it consumes the notification and resets the event.
+    ///
+    /// When attempting to notify:
+    ///  if the event is unset, then we set the event
+    ///  if theres a waiting ResetEvent, then we unset the event and notify the ResetEvent
+    ///
+    /// This ensures that the event is automatically reset after a wait() has been issued
+    /// and avoids the race condition when using std.ResetEvent in the following scenario:
+    ///  thread 1                | thread 2
+    ///  std.ResetEvent.wait()   |
+    ///                          | std.ResetEvent.set()
+    ///                          | std.ResetEvent.set()
+    ///  std.ResetEvent.reset()  |
+    ///  std.ResetEvent.wait()   | (missed the second .set() notification above)
     state: usize = UNSET,
 
     const UNSET = 0;
     const SET = 1;
 
-    // the minimum alignment for the `*std.ResetEvent` created by wait*()
+    /// the minimum alignment for the `*std.ResetEvent` created by wait*()
     const event_align = std.math.max(@alignOf(std.ResetEvent), 2);
 
     pub fn wait(self: *AutoResetEvent) void {
