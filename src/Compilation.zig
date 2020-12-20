@@ -2888,7 +2888,6 @@ fn buildOutputFromZig(
         .directory = null, // Put it in the cache directory.
         .basename = bin_basename,
     };
-
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
