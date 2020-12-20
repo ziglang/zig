@@ -178,14 +178,6 @@ pub const changeDetectionStream = @import("io/change_detection_stream.zig").chan
 pub const FindByteOutStream = @import("io/find_byte_out_stream.zig").FindByteOutStream;
 pub const findByteOutStream = @import("io/find_byte_out_stream.zig").findByteOutStream;
 
-pub const Packing = @import("io/serialization.zig").Packing;
-
-pub const Serializer = @import("io/serialization.zig").Serializer;
-pub const serializer = @import("io/serialization.zig").serializer;
-
-pub const Deserializer = @import("io/serialization.zig").Deserializer;
-pub const deserializer = @import("io/serialization.zig").deserializer;
-
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
@@ -220,7 +212,6 @@ test "" {
     _ = @import("io/writer.zig");
     _ = @import("io/peek_stream.zig");
     _ = @import("io/seekable_stream.zig");
-    _ = @import("io/serialization.zig");
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
 }
