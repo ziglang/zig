@@ -4,7 +4,7 @@ const introspect = @import("introspect.zig");
 const Allocator = std.mem.Allocator;
 const fatal = @import("main.zig").fatal;
 
-pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: anytype) !void {
+pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
     const self_exe_path = try std.fs.selfExePathAlloc(gpa);
     defer gpa.free(self_exe_path);
 
