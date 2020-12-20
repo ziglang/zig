@@ -282,6 +282,7 @@ const usage_build_generic =
     \\  -fno-PIE                  Force-disable Position Independent Executable
     \\  -fstack-check             Enable stack probing in unsafe builds
     \\  -fno-stack-check          Disable stack probing in safe builds
+    \\  -fno-red-zone             Disable the "red-zone"
     \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
@@ -505,6 +506,7 @@ fn buildOutputType(
     var want_pie: ?bool = null;
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
+    var no_red_zone: bool = false;
     var want_valgrind: ?bool = null;
     var want_tsan: ?bool = null;
     var want_compiler_rt: ?bool = null;
@@ -843,6 +845,8 @@ fn buildOutputType(
                         want_stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
                         want_stack_check = false;
+                    } else if (mem.eql(u8, arg, "-fno-red-zone")) {
+                        no_red_zone = true;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
                         want_sanitize_c = true;
                     } else if (mem.eql(u8, arg, "-fno-sanitize-c")) {
@@ -1760,6 +1764,7 @@ fn buildOutputType(
         .want_pie = want_pie,
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
+        .no_red_zone = no_red_zone,
         .want_valgrind = want_valgrind,
         .want_tsan = want_tsan,
         .want_compiler_rt = want_compiler_rt,
