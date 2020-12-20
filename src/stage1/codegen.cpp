@@ -513,6 +513,10 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     } else {
         maybe_import_dll(g, llvm_fn, linkage);
     }
+    
+    if (g->no_red_zone) {
+        addLLVMFnAttr(llvm_fn, "noredzone");
+    }
 
     if (fn->alignstack_value != 0) {
         addLLVMFnAttrInt(llvm_fn, "alignstack", fn->alignstack_value);

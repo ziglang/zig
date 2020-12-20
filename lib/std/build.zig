@@ -1262,6 +1262,7 @@ pub const LibExeObjStep = struct {
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
     sanitize_thread: bool,
+    no_red_zone: bool = false,
     rdynamic: bool,
     c_std: Builder.CStd,
     override_lib_dir: ?[]const u8,
@@ -2259,6 +2260,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_stack_probing) {
             try zig_args.append("-fno-stack-check");
+        }
+        if (self.no_red_zone) {
+            try zig_args.append("-fno-red-zone");
         }
         if (self.disable_sanitize_c) {
             try zig_args.append("-fno-sanitize-c");
