@@ -8660,6 +8660,10 @@ static void define_builtin_types(CodeGen *g) {
         case ZigLLVM_msp430:
             add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
             break;
+        case ZigLLVM_bpfel:
+        case ZigLLVM_bpfeb:
+            // eBPF does not have floating point numbers
+            break;
         default:
             zig_panic("TODO implement mapping for c_longdouble");
     }
