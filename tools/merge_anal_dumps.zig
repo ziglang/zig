@@ -17,13 +17,13 @@ pub fn main() anyerror!void {
     var dump = Dump.init(allocator);
     for (args[1..]) |arg| {
         parser = json.Parser.init(allocator, false);
-        const json_text = try std.io.readFileAlloc(allocator, arg);
+        const json_text = try std.fs.cwd().readFileAlloc(allocator, arg, std.math.maxInt(usize));
         const tree = try parser.parse(json_text);
         try dump.mergeJson(tree.root);
     }
 
     const stdout = try std.io.getStdOut();
-    try dump.render(stdout.outStream());
+    try dump.render(stdout.writer());
 }
 
 /// AST source node
@@ -33,12 +33,12 @@ const Node = struct {
     col: usize,
     fields: []usize,
 
-    fn hash(n: Node) u32 {
+    fn hash(n: Node) u64 {
         var hasher = std.hash.Wyhash.init(0);
         std.hash.autoHash(&hasher, n.file);
         std.hash.autoHash(&hasher, n.line);
         std.hash.autoHash(&hasher, n.col);
-        return @truncate(u32, hasher.final());
+        return hasher.final();
     }
 
     fn eql(a: Node, b: Node) bool {
@@ -52,10 +52,10 @@ const Error = struct {
     src: usize,
     name: []const u8,
 
-    fn hash(n: Error) u32 {
+    fn hash(n: Error) u64 {
         var hasher = std.hash.Wyhash.init(0);
         std.hash.autoHash(&hasher, n.src);
-        return @truncate(u32, hasher.final());
+        return hasher.final();
     }
 
     fn eql(a: Error, b: Error) bool {
@@ -103,7 +103,6 @@ const Type = union(builtin.TypeId) {
     Union, // TODO
     Fn, // TODO
     BoundFn, // TODO
-    ArgTuple, // TODO
     Opaque, // TODO
     Frame, // TODO
 
@@ -127,10 +126,10 @@ const Type = union(builtin.TypeId) {
         len: usize,
     };
 
-    fn hash(t: Type) u32 {
+    fn hash(t: Type) u64 {
         var hasher = std.hash.Wyhash.init(0);
-        std.hash.autoHash(&hasher, builtin.TypeId(t));
-        return @truncate(u32, hasher.final());
+        std.hash.autoHash(&hasher, t);
+        return hasher.final();
     }
 
     fn eql(a: Type, b: Type) bool {
@@ -144,21 +143,22 @@ const Dump = struct {
     root_name: ?[]const u8 = null,
     targets: std.ArrayList([]const u8),
 
-    const FileMap = std.StringHashMap(usize);
     file_list: std.ArrayList([]const u8),
     file_map: FileMap,
 
-    const NodeMap = std.HashMap(Node, usize, Node.hash, Node.eql);
     node_list: std.ArrayList(Node),
     node_map: NodeMap,
 
-    const ErrorMap = std.HashMap(Error, usize, Error.hash, Error.eql);
     error_list: std.ArrayList(Error),
     error_map: ErrorMap,
 
-    const TypeMap = std.HashMap(Type, usize, Type.hash, Type.eql);
     type_list: std.ArrayList(Type),
     type_map: TypeMap,
+
+    const FileMap = std.StringHashMap(usize);
+    const NodeMap = std.HashMap(Node, usize, Node.hash, Node.eql, 80);
+    const ErrorMap = std.HashMap(Error, usize, Error.hash, Error.eql, 80);
+    const TypeMap = std.HashMap(Type, usize, Type.hash, Type.eql, 80);
 
     fn init(allocator: *mem.Allocator) Dump {
         return Dump{
@@ -310,7 +310,7 @@ const Dump = struct {
         try other_types_to_mine.putNoClobber(other_type_index, gop.kv.value);
     }
 
-    fn render(self: *Dump, stream: var) !void {
+    fn render(self: *Dump, stream: anytype) !void {
         var jw = json.WriteStream(@TypeOf(stream).Child, 10).init(stream);
         try jw.beginObject();
 
