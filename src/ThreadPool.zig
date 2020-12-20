@@ -25,6 +25,8 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
         .allocator = allocator,
         .threads = &[_]*std.Thread{},
     };
+    if (std.builtin.single_threaded)
+        return;
 
     errdefer self.deinit();
 
@@ -67,6 +69,10 @@ pub fn shutdown(self: *ThreadPool) void {
 }
 
 pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
+    if (std.builtin.single_threaded) {
+        @call(.{}, func, args);
+        return;
+    }
     const Args = @TypeOf(args);
     const Closure = struct {
         arguments: Args,

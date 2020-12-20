@@ -1728,7 +1728,7 @@ fn workerUpdateCObject(
         error.AnalysisFail => return,
         else => {
             {
-                var lock = comp.mutex.acquire();
+                const lock = comp.mutex.acquire();
                 defer lock.release();
                 comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.items().len + 1) catch {
                     fatal("TODO handle this by setting c_object.status = oom failure", .{});
@@ -1759,7 +1759,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
 
     if (c_object.clearStatus(comp.gpa)) {
         // There was previous failure.
-        var lock = comp.mutex.acquire();
+        const lock = comp.mutex.acquire();
         defer lock.release();
         comp.failed_c_objects.removeAssertDiscard(c_object);
     }
@@ -1789,10 +1789,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
 
     {
         const is_collision = blk: {
-            var lock = comp.mutex.acquire();
+            const bin_digest = man.hash.peekBin();
+
+            const lock = comp.mutex.acquire();
             defer lock.release();
 
-            const gop = try comp.c_object_cache_digest_set.getOrPut(comp.gpa, man.hash.peekBin());
+            const gop = try comp.c_object_cache_digest_set.getOrPut(comp.gpa, bin_digest);
             break :blk gop.found_existing;
         };
         if (is_collision) {
@@ -2211,7 +2213,7 @@ fn failCObj(comp: *Compilation, c_object: *CObject, comptime format: []const u8,
 
 fn failCObjWithOwnedErrorMsg(comp: *Compilation, c_object: *CObject, err_msg: *ErrorMsg) InnerError {
     {
-        var lock = comp.mutex.acquire();
+        const lock = comp.mutex.acquire();
         defer lock.release();
         {
             errdefer err_msg.destroy(comp.gpa);
