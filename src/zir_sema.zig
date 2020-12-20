@@ -1458,7 +1458,66 @@ fn analyzeInstShr(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError
 }
 
 fn analyzeInstBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitwise", .{});
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const lhs = try resolveInst(mod, scope, inst.positionals.lhs);
+    const rhs = try resolveInst(mod, scope, inst.positionals.rhs);
+
+    const instructions = &[_]*Inst{ lhs, rhs };
+    const resolved_type = try mod.resolvePeerTypes(scope, instructions);
+    const casted_lhs = try mod.coerce(scope, resolved_type, lhs);
+    const casted_rhs = try mod.coerce(scope, resolved_type, rhs);
+
+    const scalar_type = if (resolved_type.zigTypeTag() == .Vector)
+        resolved_type.elemType()
+    else
+        resolved_type;
+
+    const scalar_tag = scalar_type.zigTypeTag();
+
+    if (lhs.ty.zigTypeTag() == .Vector and rhs.ty.zigTypeTag() == .Vector) {
+        if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
+            return mod.fail(scope, inst.base.src, "vector length mismatch: {} and {}", .{
+                lhs.ty.arrayLen(),
+                rhs.ty.arrayLen(),
+            });
+        }
+        return mod.fail(scope, inst.base.src, "TODO implement support for vectors in analyzeInstBitwise", .{});
+    } else if (lhs.ty.zigTypeTag() == .Vector or rhs.ty.zigTypeTag() == .Vector) {
+        return mod.fail(scope, inst.base.src, "mixed scalar and vector operands to binary expression: '{}' and '{}'", .{
+            lhs.ty,
+            rhs.ty,
+        });
+    }
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    if (!is_int) {
+        return mod.fail(scope, inst.base.src, "invalid operands to binary bitwise expression: '{}' and '{}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
+    }
+
+    if (casted_lhs.value()) |lhs_val| {
+        if (casted_rhs.value()) |rhs_val| {
+            if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                return mod.constInst(scope, inst.base.src, .{
+                    .ty = resolved_type,
+                    .val = Value.initTag(.undef),
+                });
+            }
+            return mod.fail(scope, inst.base.src, "TODO implement comptime bitwise operations", .{});
+        }
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const ir_tag = switch (inst.base.tag) {
+        .bitand => Inst.Tag.bitand,
+        .bitor => Inst.Tag.bitor,
+        .xor => Inst.Tag.xor,
+        else => unreachable,
+    };
+
+    return mod.addBinOp(b, inst.base.src, scalar_type, ir_tag, casted_lhs, casted_rhs);
 }
 
 fn analyzeInstBitNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
@@ -1501,7 +1560,7 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
         }
         return mod.fail(scope, inst.base.src, "TODO implement support for vectors in analyzeInstBinOp", .{});
     } else if (lhs.ty.zigTypeTag() == .Vector or rhs.ty.zigTypeTag() == .Vector) {
-        return mod.fail(scope, inst.base.src, "mixed scalar and vector operands to comparison operator: '{}' and '{}'", .{
+        return mod.fail(scope, inst.base.src, "mixed scalar and vector operands to binary expression: '{}' and '{}'", .{
             lhs.ty,
             rhs.ty,
         });
