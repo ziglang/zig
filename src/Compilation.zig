@@ -2079,12 +2079,6 @@ pub fn addCCArgs(
         try argv.append("-ffunction-sections");
     }
 
-    try argv.ensureCapacity(argv.items.len + comp.bin_file.options.framework_dirs.len * 2);
-    for (comp.bin_file.options.framework_dirs) |framework_dir| {
-        argv.appendAssumeCapacity("-iframework");
-        argv.appendAssumeCapacity(framework_dir);
-    }
-
     if (comp.bin_file.options.link_libcpp) {
         const libcxx_include_path = try std.fs.path.join(arena, &[_][]const u8{
             comp.zig_lib_directory.path.?, "libcxx", "include",
@@ -2894,6 +2888,7 @@ fn buildOutputFromZig(
         .directory = null, // Put it in the cache directory.
         .basename = bin_basename,
     };
+
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
