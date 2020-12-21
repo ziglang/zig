@@ -1940,10 +1940,7 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     try self.base.file.?.pwriteAll(&code, off);
 }
 
-fn writeLocalSymbol(self: *MachO, index: usize) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
+fn relocateSymbolTable(self: *MachO) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const nlocals = self.local_symbols.items.len;
     const nglobals = self.global_symbols.items.len;
@@ -1972,7 +1969,13 @@ fn writeLocalSymbol(self: *MachO, index: usize) !void {
         symtab.nsyms = @intCast(u32, nsyms);
         self.cmd_table_dirty = true;
     }
+}
 
+fn writeLocalSymbol(self: *MachO, index: usize) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    try self.relocateSymbolTable();
+    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const off = symtab.symoff + @sizeOf(macho.nlist_64) * index;
     log.debug("writing local symbol {} at 0x{x}", .{ index, off });
     try self.base.file.?.pwriteAll(mem.asBytes(&self.local_symbols.items[index]), off);
@@ -1982,45 +1985,22 @@ fn writeAllGlobalAndUndefSymbols(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    try self.relocateSymbolTable();
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const nlocals = self.local_symbols.items.len;
     const nglobals = self.global_symbols.items.len;
     const nundefs = self.undef_symbols.items.len;
-    const nsyms = nlocals + nglobals + nundefs;
-
-    if (symtab.nsyms < nsyms) {
-        const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-        const needed_size = nsyms * @sizeOf(macho.nlist_64);
-        if (needed_size > self.allocatedSize(&linkedit_segment, symtab.symoff)) {
-            // Move the entire symbol table to a new location
-            const new_symoff = self.findFreeSpace(&linkedit_segment, needed_size, @alignOf(macho.nlist_64));
-            const existing_size = symtab.nsyms * @sizeOf(macho.nlist_64);
-
-            log.debug("relocating symbol table from 0x{x}-0x{x} to 0x{x}-0x{x}", .{
-                symtab.symoff,
-                symtab.symoff + existing_size,
-                new_symoff,
-                new_symoff + existing_size,
-            });
-
-            const amt = try self.base.file.?.copyRangeAll(symtab.symoff, self.base.file.?, new_symoff, existing_size);
-            if (amt != existing_size) return error.InputOutput;
-            symtab.symoff = @intCast(u32, new_symoff);
-        }
-        symtab.nsyms = @intCast(u32, nsyms);
-        self.cmd_table_dirty = true;
-    }
 
     const locals_off = symtab.symoff;
-    const locals_size = self.local_symbols.items.len * @sizeOf(macho.nlist_64);
+    const locals_size = nlocals * @sizeOf(macho.nlist_64);
 
     const globals_off = locals_off + locals_size;
-    const globals_size = self.global_symbols.items.len * @sizeOf(macho.nlist_64);
+    const globals_size = nglobals * @sizeOf(macho.nlist_64);
     log.debug("writing global symbols from 0x{x} to 0x{x}\n", .{ globals_off, globals_size + globals_off });
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.global_symbols.items), globals_off);
 
     const undefs_off = globals_off + globals_size;
-    const undefs_size = self.undef_symbols.items.len * @sizeOf(macho.nlist_64);
+    const undefs_size = nundefs * @sizeOf(macho.nlist_64);
     log.debug("writing undef symbols from 0x{x} to 0x{x}\n", .{ undefs_off, undefs_size + undefs_off });
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undef_symbols.items), undefs_off);
 
