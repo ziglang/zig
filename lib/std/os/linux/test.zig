@@ -102,6 +102,7 @@ test "statx" {
 }
 
 test "user and group ids" {
+    if (builtin.link_libc) return error.SkipZigTest;
     expectEqual(linux.getauxval(elf.AT_UID), linux.getuid());
     expectEqual(linux.getauxval(elf.AT_GID), linux.getgid());
     expectEqual(linux.getauxval(elf.AT_EUID), linux.geteuid());
