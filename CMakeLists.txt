@@ -75,6 +75,7 @@ set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for"
 set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries for")
 set(ZIG_EXECUTABLE "" CACHE STRING "(when cross compiling) path to already-built zig binary")
 set(ZIG_PREFER_LLVM_CONFIG off CACHE BOOL "(when cross compiling) use llvm-config to find target llvm dependencies if needed")
+set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
 
 find_package(llvm)
 find_package(clang)
@@ -410,7 +411,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/os/windows/win32error.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/pdb.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/process.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/progress.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Progress.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/rand.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/reset_event.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sort.zig"
@@ -510,10 +511,13 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/Cache.zig"
     "${CMAKE_SOURCE_DIR}/src/Compilation.zig"
     "${CMAKE_SOURCE_DIR}/src/DepTokenizer.zig"
+    "${CMAKE_SOURCE_DIR}/src/Event.zig"
     "${CMAKE_SOURCE_DIR}/src/Module.zig"
     "${CMAKE_SOURCE_DIR}/src/Package.zig"
     "${CMAKE_SOURCE_DIR}/src/RangeSet.zig"
+    "${CMAKE_SOURCE_DIR}/src/ThreadPool.zig"
     "${CMAKE_SOURCE_DIR}/src/TypedValue.zig"
+    "${CMAKE_SOURCE_DIR}/src/WaitGroup.zig"
     "${CMAKE_SOURCE_DIR}/src/astgen.zig"
     "${CMAKE_SOURCE_DIR}/src/clang.zig"
     "${CMAKE_SOURCE_DIR}/src/clang_options.zig"
@@ -713,6 +717,11 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 else()
     set(ZIG1_RELEASE_ARG -OReleaseFast --strip)
 endif()
+if(ZIG_SINGLE_THREADED)
+  set(ZIG1_SINGLE_THREADED_ARG "--single-threaded")
+else()
+  set(ZIG1_SINGLE_THREADED_ARG "")
+endif()
 
 set(BUILD_ZIG1_ARGS
     "src/stage1.zig"
@@ -722,6 +731,7 @@ set(BUILD_ZIG1_ARGS
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     "-femit-bin=${ZIG1_OBJECT}"
     "${ZIG1_RELEASE_ARG}"
+    "${ZIG1_SINGLE_THREADED_ARG}"
     -lc
     --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
     --pkg-end

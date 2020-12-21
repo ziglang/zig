@@ -36,7 +36,7 @@ pub fn main() anyerror!void {
         }
         std.testing.log_level = .warn;
 
-        var test_node = root_node.start(test_fn.name, null);
+        var test_node = root_node.start(test_fn.name, 0);
         test_node.activate();
         progress.refresh();
         if (progress.terminal == null) {
