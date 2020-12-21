@@ -21,7 +21,7 @@ pub const ResetEvent = struct {
 
     pub const OsEvent = if (builtin.single_threaded)
         DebugEvent
-    else if (builtin.link_libc and builtin.os.tag != .windows and builtin.os.tag != .linux)
+    else if (std.Thread.use_pthreads)
         PosixEvent
     else
         AtomicEvent;
@@ -34,11 +34,6 @@ pub const ResetEvent = struct {
         self.os_event.deinit();
     }
 
-    /// Returns whether or not the event is currenetly set
-    pub fn isSet(self: *ResetEvent) bool {
-        return self.os_event.isSet();
-    }
-
     /// Sets the event if not already set and
     /// wakes up all the threads waiting on the event.
     pub fn set(self: *ResetEvent) void {
@@ -46,20 +41,28 @@ pub const ResetEvent = struct {
     }
 
     /// Resets the event to its original, unset state.
+    /// TODO improve these docs:
+    ///  * under what circumstances does it make sense to call this function?
     pub fn reset(self: *ResetEvent) void {
         return self.os_event.reset();
     }
 
     /// Wait for the event to be set by blocking the current thread.
+    /// TODO improve these docs:
+    ///  * is the function thread-safe?
+    ///  * does it have suprious wakeups?
     pub fn wait(self: *ResetEvent) void {
-        return self.os_event.wait(null) catch unreachable;
+        return self.os_event.wait();
     }
 
     /// Wait for the event to be set by blocking the current thread.
     /// A timeout in nanoseconds can be provided as a hint for how
     /// long the thread should block on the unset event before throwing error.TimedOut.
+    /// TODO improve these docs:
+    ///  * is the function thread-safe?
+    ///  * does it have suprious wakeups?
     pub fn timedWait(self: *ResetEvent, timeout_ns: u64) !void {
-        return self.os_event.wait(timeout_ns);
+        return self.os_event.timedWait(timeout_ns);
     }
 };
 
@@ -74,10 +77,6 @@ const DebugEvent = struct {
         self.* = undefined;
     }
 
-    fn isSet(self: *DebugEvent) bool {
-        return self.is_set;
-    }
-
     fn reset(self: *DebugEvent) void {
         self.is_set = false;
     }
@@ -86,101 +85,75 @@ const DebugEvent = struct {
         self.is_set = true;
     }
 
-    fn wait(self: *DebugEvent, timeout: ?u64) !void {
+    fn wait(self: *DebugEvent) void {
         if (self.is_set)
             return;
-        if (timeout != null)
-            return error.TimedOut;
+
         @panic("deadlock detected");
+    }
+
+    fn timedWait(self: *DebugEvent, timeout: u64) !void {
+        if (self.is_set)
+            return;
+
+        return error.TimedOut;
     }
 };
 
 const PosixEvent = struct {
-    is_set: bool,
-    cond: c.pthread_cond_t,
-    mutex: c.pthread_mutex_t,
+    sem: c.sem_t,
 
     fn init() PosixEvent {
         return PosixEvent{
-            .is_set = false,
-            .cond = c.PTHREAD_COND_INITIALIZER,
-            .mutex = c.PTHREAD_MUTEX_INITIALIZER,
+            .sem = c.sem_t.init(0, 0),
         };
     }
 
     fn deinit(self: *PosixEvent) void {
-        // on dragonfly or openbsd, *destroy() functions can return EINVAL
-        // for statically initialized pthread structures
-        const err = if (builtin.os.tag == .dragonfly or builtin.os.tag == .openbsd)
-            os.EINVAL
-        else
-            0;
-
-        const retm = c.pthread_mutex_destroy(&self.mutex);
-        assert(retm == 0 or retm == err);
-        const retc = c.pthread_cond_destroy(&self.cond);
-        assert(retc == 0 or retc == err);
-    }
-
-    fn isSet(self: *PosixEvent) bool {
-        assert(c.pthread_mutex_lock(&self.mutex) == 0);
-        defer assert(c.pthread_mutex_unlock(&self.mutex) == 0);
-
-        return self.is_set;
+        assert(c.sem_destroy(&self.sem) == 0);
     }
 
     fn reset(self: *PosixEvent) void {
-        assert(c.pthread_mutex_lock(&self.mutex) == 0);
-        defer assert(c.pthread_mutex_unlock(&self.mutex) == 0);
-
-        self.is_set = false;
+        self.deinit();
+        assert(c.sem_init(&self.sem, 0, 0) == 0);
     }
 
     fn set(self: *PosixEvent) void {
-        assert(c.pthread_mutex_lock(&self.mutex) == 0);
-        defer assert(c.pthread_mutex_unlock(&self.mutex) == 0);
+        assert(c.sem_post(&self.sem) == 0);
+    }
 
-        if (!self.is_set) {
-            self.is_set = true;
-            assert(c.pthread_cond_broadcast(&self.cond) == 0);
+    fn wait(self: *PosixEvent) void {
+        while (true) {
+            switch (c.getErrno(c.sem_wait(&self.sem))) {
+                0 => return,
+                c.EINTR => continue,
+                c.EINVAL => unreachable,
+                else => unreachable,
+            }
         }
     }
 
-    fn wait(self: *PosixEvent, timeout: ?u64) !void {
-        assert(c.pthread_mutex_lock(&self.mutex) == 0);
-        defer assert(c.pthread_mutex_unlock(&self.mutex) == 0);
-
-        // quick guard before possibly calling time syscalls below
-        if (self.is_set)
-            return;
-
+    fn timedWait(self: *PosixEvent, timeout_ns: u64) !void {
         var ts: os.timespec = undefined;
-        if (timeout) |timeout_ns| {
-            var timeout_abs = timeout_ns;
-            if (comptime std.Target.current.isDarwin()) {
-                var tv: os.darwin.timeval = undefined;
-                assert(os.darwin.gettimeofday(&tv, null) == 0);
-                timeout_abs += @intCast(u64, tv.tv_sec) * time.ns_per_s;
-                timeout_abs += @intCast(u64, tv.tv_usec) * time.ns_per_us;
-            } else {
-                os.clock_gettime(os.CLOCK_REALTIME, &ts) catch unreachable;
-                timeout_abs += @intCast(u64, ts.tv_sec) * time.ns_per_s;
-                timeout_abs += @intCast(u64, ts.tv_nsec);
-            }
-            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_abs, time.ns_per_s));
-            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_abs, time.ns_per_s));
+        var timeout_abs = timeout_ns;
+        if (comptime std.Target.current.isDarwin()) {
+            var tv: os.darwin.timeval = undefined;
+            assert(os.darwin.gettimeofday(&tv, null) == 0);
+            timeout_abs += @intCast(u64, tv.tv_sec) * time.ns_per_s;
+            timeout_abs += @intCast(u64, tv.tv_usec) * time.ns_per_us;
+        } else {
+            os.clock_gettime(os.CLOCK_REALTIME, &ts) catch return error.TimedOut;
+            timeout_abs += @intCast(u64, ts.tv_sec) * time.ns_per_s;
+            timeout_abs += @intCast(u64, ts.tv_nsec);
         }
-
-        while (!self.is_set) {
-            const rc = switch (timeout == null) {
-                true => c.pthread_cond_wait(&self.cond, &self.mutex),
-                else => c.pthread_cond_timedwait(&self.cond, &self.mutex, &ts),
-            };
-            switch (rc) {
-                0 => {},
-                os.ETIMEDOUT => return error.TimedOut,
-                os.EINVAL => unreachable,
-                os.EPERM => unreachable,
+        ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_abs, time.ns_per_s));
+        ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_abs, time.ns_per_s));
+        while (true) {
+            switch (c.getErrno(c.sem_timedwait(&self.sem, &ts))) {
+                0 => return,
+                c.EINTR => continue,
+                c.EINVAL => unreachable,
+                c.ETIMEDOUT => return error.TimedOut,
                 else => unreachable,
             }
         }
@@ -201,10 +174,6 @@ const AtomicEvent = struct {
         self.* = undefined;
     }
 
-    fn isSet(self: *const AtomicEvent) bool {
-        return @atomicLoad(u32, &self.waiters, .Acquire) == WAKE;
-    }
-
     fn reset(self: *AtomicEvent) void {
         @atomicStore(u32, &self.waiters, 0, .Monotonic);
     }
@@ -216,7 +185,11 @@ const AtomicEvent = struct {
         }
     }
 
-    fn wait(self: *AtomicEvent, timeout: ?u64) !void {
+    fn wait(self: *AtomicEvent) void {
+        return self.timedWait(null) catch unreachable;
+    }
+
+    fn timedWait(self: *AtomicEvent, timeout: ?u64) !void {
         var waiters = @atomicLoad(u32, &self.waiters, .Acquire);
         while (waiters != WAKE) {
             waiters = @cmpxchgWeak(u32, &self.waiters, waiters, waiters + WAIT, .Acquire, .Acquire) orelse return Futex.wait(&self.waiters, timeout);
@@ -367,17 +340,17 @@ test "ResetEvent" {
     defer event.deinit();
 
     // test event setting
-    testing.expect(event.isSet() == false);
     event.set();
-    testing.expect(event.isSet() == true);
 
     // test event resetting
     event.reset();
-    testing.expect(event.isSet() == false);
 
     // test event waiting (non-blocking)
     event.set();
     event.wait();
+    event.reset();
+
+    event.set();
     try event.timedWait(1);
 
     // test cross-thread signaling

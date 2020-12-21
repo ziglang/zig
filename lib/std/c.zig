@@ -270,6 +270,12 @@ pub extern "c" fn pthread_atfork(
     parent: ?fn () callconv(.C) void,
     child: ?fn () callconv(.C) void,
 ) c_int;
+pub extern "c" fn sem_init(sem: *sem_t, pshared: c_int, value: c_uint) c_int;
+pub extern "c" fn sem_destroy(sem: *sem_t) c_int;
+pub extern "c" fn sem_post(sem: *sem_t) c_int;
+pub extern "c" fn sem_wait(sem: *sem_t) c_int;
+pub extern "c" fn sem_trywait(sem: *sem_t) c_int;
+pub extern "c" fn sem_timedwait(sem: *sem_t, abs_timeout: *const timespec) c_int;
 
 pub extern "c" fn kqueue() c_int;
 pub extern "c" fn kevent(
