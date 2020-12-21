@@ -101,30 +101,48 @@ const DebugEvent = struct {
 };
 
 const PosixEvent = struct {
-    sem: c.sem_t,
+    sem: c.sem_t = undefined,
+    /// Sadly this is needed because pthreads semaphore API does not
+    /// support static initialization.
+    init_mutex: std.mutex.PthreadMutex = .{},
+    state: enum { uninit, init } = .uninit,
 
     fn init() PosixEvent {
-        return PosixEvent{
-            .sem = c.sem_t.init(0, 0),
-        };
+        return .{};
     }
 
+    /// Not thread-safe.
     fn deinit(self: *PosixEvent) void {
-        assert(c.sem_destroy(&self.sem) == 0);
+        switch (self.state) {
+            .uninit => {},
+            .init => {
+                assert(c.sem_destroy(&self.sem) == 0);
+            },
+        }
+        self.* = undefined;
     }
 
     fn reset(self: *PosixEvent) void {
-        self.deinit();
-        assert(c.sem_init(&self.sem, 0, 0) == 0);
+        const sem = self.getInitializedSem();
+        while (true) {
+            switch (c.getErrno(c.sem_trywait(sem))) {
+                0 => continue, // Need to make it go to zero.
+                c.EINTR => continue,
+                c.EINVAL => unreachable,
+                c.EAGAIN => return, // The semaphore currently has the value zero.
+                else => unreachable,
+            }
+        }
     }
 
     fn set(self: *PosixEvent) void {
-        assert(c.sem_post(&self.sem) == 0);
+        assert(c.sem_post(self.getInitializedSem()) == 0);
     }
 
     fn wait(self: *PosixEvent) void {
+        const sem = self.getInitializedSem();
         while (true) {
-            switch (c.getErrno(c.sem_wait(&self.sem))) {
+            switch (c.getErrno(c.sem_wait(sem))) {
                 0 => return,
                 c.EINTR => continue,
                 c.EINVAL => unreachable,
@@ -148,6 +166,7 @@ const PosixEvent = struct {
         }
         ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_abs, time.ns_per_s));
         ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_abs, time.ns_per_s));
+        const sem = self.getInitializedSem();
         while (true) {
             switch (c.getErrno(c.sem_timedwait(&self.sem, &ts))) {
                 0 => return,
@@ -156,6 +175,20 @@ const PosixEvent = struct {
                 c.ETIMEDOUT => return error.TimedOut,
                 else => unreachable,
             }
+        }
+    }
+
+    fn getInitializedSem(self: *PosixEvent) *c.sem_t {
+        const held = self.init_mutex.acquire();
+        defer held.release();
+
+        switch (self.state) {
+            .init => return &self.sem,
+            .uninit => {
+                self.state = .init;
+                assert(c.sem_init(&self.sem, 0, 0) == 0);
+                return &self.sem;
+            },
         }
     }
 };

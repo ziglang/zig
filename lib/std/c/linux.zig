@@ -123,6 +123,10 @@ pub const pthread_mutex_t = extern struct {
 pub const pthread_cond_t = extern struct {
     size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
 };
+pub const sem_t = extern struct {
+    __size: [__SIZEOF_SEM_T]u8 align(@alignOf(usize)),
+};
+
 const __SIZEOF_PTHREAD_COND_T = 48;
 const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os.tag == .fuchsia) 40 else switch (builtin.abi) {
     .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
@@ -134,38 +138,7 @@ const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os.tag == .fuchsia) 40 else switch 
     },
     else => unreachable,
 };
-
-pub const sem_t = switch (builtin.abi) {
-    .musl, .musleabi, .musleabihf => extern struct {
-        __val: [4 * @sizeOf(c_long) / @sizeOf(c_int)]c_int,
-
-        pub fn init(pshared: c_int, value: c_uint) @This() {
-            var result: @This() = undefined;
-            result.__val[0] = @bitCast(c_int, value);
-            result.__val[1] = 0;
-            result.__val[2] = if (pshared != 0) 0 else 128;
-            return result;
-        }
-    },
-    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => extern struct {
-        __lock: c_int,
-        __queue: ?*pthread_t,
-        __pshared: c_int,
-        __value: c_int,
-        __data: ?*c_void,
-
-        pub fn init(pshared: c_int, value: c_uint) @This() {
-            return .{
-                .__lock = 0,
-                .__queue = null,
-                .__pshared = pshared,
-                .__value = @bitCast(c_int, value),
-                .__data = null,
-            };
-        }
-    },
-    else => unreachable,
-};
+const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 
 pub const RTLD_LAZY = 1;
 pub const RTLD_NOW = 2;
