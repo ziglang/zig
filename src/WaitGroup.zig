@@ -5,11 +5,10 @@
 // and substantial portions of the software.
 const std = @import("std");
 const WaitGroup = @This();
-const Event = @import("Event.zig");
 
 lock: std.Mutex = .{},
 counter: usize = 0,
-event: ?*Event = null,
+event: ?*std.ResetEvent = null,
 
 pub fn start(self: *WaitGroup) void {
     const held = self.lock.acquire();
@@ -19,28 +18,33 @@ pub fn start(self: *WaitGroup) void {
 }
 
 pub fn stop(self: *WaitGroup) void {
-    var event: ?*Event = null;
-    defer if (event) |waiter|
-        waiter.set();
-
     const held = self.lock.acquire();
     defer held.release();
 
     self.counter -= 1;
-    if (self.counter == 0)
-        std.mem.swap(?*Event, &self.event, &event);
+
+    if (self.counter == 0) {
+        if (self.event) |event| {
+            self.event = null;
+            event.set();
+        }
+    }
 }
 
 pub fn wait(self: *WaitGroup) void {
-    var event = Event{};
-    var has_event = false;
-    defer if (has_event)
-        event.wait();
-
     const held = self.lock.acquire();
-    defer held.release();
 
-    has_event = self.counter != 0;
-    if (has_event)
-        self.event = &event;
+    if (self.counter == 0) {
+        held.release();
+        return;
+    }
+
+    var event = std.ResetEvent.init();
+    defer event.deinit();
+
+    std.debug.assert(self.event == null);
+    self.event = &event;
+
+    held.release();
+    event.wait();
 }
