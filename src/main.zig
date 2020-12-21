@@ -282,6 +282,7 @@ const usage_build_generic =
     \\  -fno-PIE                  Force-disable Position Independent Executable
     \\  -fstack-check             Enable stack probing in unsafe builds
     \\  -fno-stack-check          Disable stack probing in safe builds
+    \\  -fred-zone                Enable the "red-zone"
     \\  -fno-red-zone             Disable the "red-zone"
     \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
@@ -845,6 +846,8 @@ fn buildOutputType(
                         want_stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
                         want_stack_check = false;
+                    } else if (mem.eql(u8, arg, "-fred-zone")) {
+                        no_red_zone = false;
                     } else if (mem.eql(u8, arg, "-fno-red-zone")) {
                         no_red_zone = true;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
