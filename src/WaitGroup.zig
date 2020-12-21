@@ -21,6 +21,7 @@ pub fn stop(self: *WaitGroup) void {
     const held = self.lock.acquire();
     defer held.release();
 
+    std.debug.assert(self.counter > 0);
     self.counter -= 1;
 
     if (self.counter == 0) {
@@ -32,19 +33,21 @@ pub fn stop(self: *WaitGroup) void {
 }
 
 pub fn wait(self: *WaitGroup) void {
-    const held = self.lock.acquire();
+    while (true) {
+        const held = self.lock.acquire();
 
-    if (self.counter == 0) {
+        if (self.counter == 0) {
+            held.release();
+            return;
+        }
+
+        var event = std.ResetEvent.init();
+        defer event.deinit();
+
+        std.debug.assert(self.event == null);
+        self.event = &event;
+        
         held.release();
-        return;
+        event.wait();
     }
-
-    var event = std.ResetEvent.init();
-    defer event.deinit();
-
-    std.debug.assert(self.event == null);
-    self.event = &event;
-    
-    held.release();
-    event.wait();
 }
