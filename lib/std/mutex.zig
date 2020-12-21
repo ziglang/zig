@@ -37,6 +37,8 @@ pub const Mutex = if (builtin.single_threaded)
     Dummy
 else if (builtin.os.tag == .windows)
     WindowsMutex
+else if (std.Thread.use_pthreads)
+    PthreadMutex
 else if (builtin.link_libc or builtin.os.tag == .linux)
     // stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
     struct {
@@ -165,6 +167,52 @@ else if (builtin.link_libc or builtin.os.tag == .linux)
     // primitive, default to SpinLock for correctness
 else
     SpinLock;
+
+pub const PthreadMutex = struct {
+    pthread_mutex: std.c.pthread_mutex_t = init,
+
+    pub const Held = struct {
+        mutex: *PthreadMutex,
+
+        pub fn release(self: Held) void {
+            switch (std.c.pthread_mutex_unlock(&self.mutex.pthread_mutex)) {
+                0 => return,
+                std.c.EINVAL => unreachable,
+                std.c.EAGAIN => unreachable,
+                std.c.EPERM => unreachable,
+                else => unreachable,
+            }
+        }
+    };
+
+    /// Create a new mutex in unlocked state.
+    pub const init = std.c.PTHREAD_MUTEX_INITIALIZER;
+
+    /// Try to acquire the mutex without blocking. Returns null if
+    /// the mutex is unavailable. Otherwise returns Held. Call
+    /// release on Held.
+    pub fn tryAcquire(self: *PthreadMutex) ?Held {
+        if (std.c.pthread_mutex_trylock(&self.pthread_mutex) == 0) {
+            return Held{ .mutex = self };
+        } else {
+            return null;
+        }
+    }
+
+    /// Acquire the mutex. Will deadlock if the mutex is already
+    /// held by the calling thread.
+    pub fn acquire(self: *PthreadMutex) Held {
+        switch (std.c.pthread_mutex_lock(&self.pthread_mutex)) {
+            0 => return Held{ .mutex = self },
+            std.c.EINVAL => unreachable,
+            std.c.EBUSY => unreachable,
+            std.c.EAGAIN => unreachable,
+            std.c.EDEADLK => unreachable,
+            std.c.EPERM => unreachable,
+            else => unreachable,
+        }
+    }
+};
 
 /// This has the sematics as `Mutex`, however it does not actually do any
 /// synchronization. Operations are safety-checked no-ops.

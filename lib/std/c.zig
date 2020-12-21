@@ -316,6 +316,7 @@ pub extern "c" fn dn_expand(
 pub const PTHREAD_MUTEX_INITIALIZER = pthread_mutex_t{};
 pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) c_int;
 pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_mutex_trylock(mutex: *pthread_mutex_t) c_int;
 pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) c_int;
 
 pub const PTHREAD_COND_INITIALIZER = pthread_cond_t{};
