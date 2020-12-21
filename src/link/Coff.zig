@@ -125,7 +125,7 @@ pub const SrcFn = void;
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Coff {
     assert(options.object_format == .coff);
 
-    if (options.use_llvm) {
+    if (build_options.have_llvm and options.use_llvm) {
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
@@ -657,10 +657,8 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.llvm_ir_module) |llvm_ir_module| {
-        try llvm_ir_module.updateDecl(module, decl);
-        return;
-    }
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.updateDecl(module, decl);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -760,10 +758,8 @@ pub fn flushModule(self: *Coff, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.llvm_ir_module) |llvm_ir_module| {
-        try llvm_ir_module.flushModule(comp);
-        return;
-    }
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.flushModule(comp);
 
     if (self.text_section_size_dirty) {
         // Write the new raw size in the .text header
@@ -1257,7 +1253,9 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
 }
 
 pub fn deinit(self: *Coff) void {
-    if (self.llvm_ir_module) |ir_module| ir_module.deinit(self.base.allocator);
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |ir_module| ir_module.deinit(self.base.allocator);
+
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);

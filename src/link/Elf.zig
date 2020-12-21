@@ -228,7 +228,7 @@ pub const SrcFn = struct {
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Elf {
     assert(options.object_format == .elf);
 
-    if (options.use_llvm) {
+    if (build_options.have_llvm and options.use_llvm) {
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
@@ -298,7 +298,10 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Elf {
 }
 
 pub fn deinit(self: *Elf) void {
-    if (self.llvm_ir_module) |ir_module| ir_module.deinit(self.base.allocator);
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |ir_module|
+            ir_module.deinit(self.base.allocator);
+
     self.sections.deinit(self.base.allocator);
     self.program_headers.deinit(self.base.allocator);
     self.shstrtab.deinit(self.base.allocator);
@@ -740,10 +743,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.llvm_ir_module) |llvm_ir_module| {
-        try llvm_ir_module.flushModule(comp);
-        return;
-    }
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.flushModule(comp);
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
     // Zig source code.
@@ -2149,10 +2150,8 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.llvm_ir_module) |llvm_ir_module| {
-        try llvm_ir_module.updateDecl(module, decl);
-        return;
-    }
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.updateDecl(module, decl);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
