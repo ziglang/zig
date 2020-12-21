@@ -114,6 +114,8 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 offset_table_count_dirty: bool = false,
 header_dirty: bool = false,
 load_commands_dirty: bool = false,
+binding_info_dirty: bool = false,
+lazy_binding_info_dirty: bool = false,
 export_info_dirty: bool = false,
 string_table_dirty: bool = false,
 
@@ -322,6 +324,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 main_cmd.entryoff = addr - text_segment.inner.vmaddr;
                 self.load_commands_dirty = true;
             }
+            try self.writeBindingInfoTable();
+            try self.writeLazyBindingInfoTable();
             try self.writeExportTrie();
             try self.writeAllGlobalAndUndefSymbols();
             try self.writeStringTable();
@@ -354,6 +358,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     assert(!self.offset_table_count_dirty);
     assert(!self.header_dirty);
     assert(!self.load_commands_dirty);
+    assert(!self.binding_info_dirty);
+    assert(!self.lazy_binding_info_dirty);
     assert(!self.export_info_dirty);
     assert(!self.string_table_dirty);
 
@@ -831,7 +837,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     symbol.dylib_ordinal = next_ordinal;
                 }
 
-                // Write update dyld info
+                // Write updated dyld info.
                 const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
                 {
                     const size = try self.binding_info_table.calcSize();
@@ -861,6 +867,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 // Write updated load commands and the header
                 try self.writeLoadCommands();
                 try self.writeHeader();
+
+                assert(!self.header_dirty);
+                assert(!self.load_commands_dirty);
             }
             if (self.code_signature_cmd_index == null) outer: {
                 if (target.cpu.arch != .aarch64) break :outer; // This is currently needed only for aarch64 targets.
@@ -896,6 +905,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try self.writeHeader();
                 // Generate adhoc code signature
                 try self.writeCodeSignature();
+
+                assert(!self.header_dirty);
+                assert(!self.load_commands_dirty);
             }
         }
     }
@@ -2136,7 +2148,7 @@ fn writeExportTrie(self: *MachO) !void {
         dyld_info.export_off = @intCast(u32, self.findFreeSpace(&linkedit_segment, needed_size, 1));
     }
     dyld_info.export_size = @intCast(u32, needed_size);
-    log.debug("writing export trie from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
+    log.debug("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
 
     try self.base.file.?.pwriteAll(buffer, dyld_info.export_off);
     self.load_commands_dirty = true;
@@ -2144,65 +2156,62 @@ fn writeExportTrie(self: *MachO) !void {
 }
 
 fn writeBindingInfoTable(self: *MachO) !void {
-    const size = self.binding_info_table.calcSize();
+    if (!self.binding_info_dirty) return;
+
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const size = try self.binding_info_table.calcSize();
     var buffer = try self.base.allocator.alloc(u8, size);
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
     try self.binding_info_table.write(stream.writer());
 
+    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const bind_size = @intCast(u32, mem.alignForward(buffer.len, @sizeOf(u64)));
-    dyld_info.bind_off = self.linkedit_segment_next_offset.?;
-    dyld_info.bind_size = bind_size;
+    const allocated_size = self.allocatedSize(&linkedit_segment, dyld_info.bind_off);
+    const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
 
-    log.debug("writing binding info table from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + bind_size });
-
-    if (bind_size > buffer.len) {
-        // Pad out to align(8).
-        try self.base.file.?.pwriteAll(&[_]u8{0}, dyld_info.bind_off + bind_size);
+    if (needed_size > allocated_size) {
+        dyld_info.bind_off = 0;
+        dyld_info.bind_off = @intCast(u32, self.findFreeSpace(&linkedit_segment, needed_size, 1));
     }
+
+    dyld_info.bind_size = @intCast(u32, needed_size);
+    log.debug("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
+
     try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
-
-    self.linkedit_segment_next_offset = dyld_info.bind_off + dyld_info.bind_size;
-    // Advance size of __LINKEDIT segment
-    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-    linkedit.inner.filesize += dyld_info.bind_size;
-    if (linkedit.inner.vmsize < linkedit.inner.filesize) {
-        linkedit.inner.vmsize = mem.alignForwardGeneric(u64, linkedit.inner.filesize, self.page_size);
-    }
-    self.cmd_table_dirty = true;
+    self.load_commands_dirty = true;
+    self.binding_info_dirty = false;
 }
 
 fn writeLazyBindingInfoTable(self: *MachO) !void {
-    const size = self.lazy_binding_info_table.calcSize();
+    if (!self.lazy_binding_info_dirty) return;
+
+    const size = try self.lazy_binding_info_table.calcSize();
     var buffer = try self.base.allocator.alloc(u8, size);
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
     try self.lazy_binding_info_table.write(stream.writer());
 
+    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const bind_size = @intCast(u32, mem.alignForward(buffer.len, @sizeOf(u64)));
-    dyld_info.lazy_bind_off = self.linkedit_segment_next_offset.?;
-    dyld_info.lazy_bind_size = bind_size;
+    const allocated_size = self.allocatedSize(&linkedit_segment, dyld_info.lazy_bind_off);
+    const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
 
-    log.debug("writing lazy binding info table from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + bind_size });
-
-    if (bind_size > buffer.len) {
-        // Pad out to align(8).
-        try self.base.file.?.pwriteAll(&[_]u8{0}, dyld_info.lazy_bind_off + bind_size);
+    if (needed_size > allocated_size) {
+        dyld_info.lazy_bind_off = 0;
+        dyld_info.lazy_bind_off = @intCast(u32, self.findFreeSpace(&linkedit_segment, needed_size, 1));
     }
+
+    dyld_info.lazy_bind_size = @intCast(u32, needed_size);
+    log.debug("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
+
     try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
-
-    self.linkedit_segment_next_offset = dyld_info.lazy_bind_off + dyld_info.lazy_bind_size;
-    // Advance size of __LINKEDIT segment
-    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-    linkedit.inner.filesize += dyld_info.lazy_bind_size;
-    if (linkedit.inner.vmsize < linkedit.inner.filesize) {
-        linkedit.inner.vmsize = mem.alignForwardGeneric(u64, linkedit.inner.filesize, self.page_size);
-    }
-    self.cmd_table_dirty = true;
+    self.load_commands_dirty = true;
+    self.lazy_binding_info_dirty = false;
 }
 
 fn writeStringTable(self: *MachO) !void {
