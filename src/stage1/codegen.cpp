@@ -3337,7 +3337,7 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutableGen 
     ZigType *array_type = actual_type->data.pointer.child_type;
     assert(array_type->id == ZigTypeIdArray);
 
-    if (type_has_bits(g, actual_type)) {
+    if (type_has_bits(g, array_type)) {
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
