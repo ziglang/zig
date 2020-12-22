@@ -105,12 +105,12 @@ fn runWorker(self: *ThreadPool) void {
 
         if (self.is_running) {
             var idle_node = IdleQueue.Node{ .data = std.ResetEvent.init() };
-            defer idle_node.data.deinit();
 
             self.idle_queue.prepend(&idle_node);
             held.release();
 
             idle_node.data.wait();
+            idle_node.data.deinit();
             continue;
         }
 

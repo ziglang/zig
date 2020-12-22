@@ -136,7 +136,8 @@ const PosixEvent = struct {
     }
 
     fn set(self: *PosixEvent) void {
-        assert(c.sem_post(self.getInitializedSem()) == 0);
+        const sem = self.getInitializedSem();
+        assert(c.sem_post(sem) == 0);
     }
 
     fn wait(self: *PosixEvent) void {
