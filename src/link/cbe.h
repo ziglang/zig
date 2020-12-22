@@ -1,3 +1,12 @@
+#if __STDC_VERSION__ >= 199901L
+// C99 or newer
+#include <stdbool.h>
+#else
+#define bool unsigned char
+#define true 1
+#define false 0
+#endif
+
 #if __STDC_VERSION__ >= 201112L
 #define zig_noreturn _Noreturn
 #elif __GNUC__
@@ -13,3 +22,4 @@
 #else
 #define zig_unreachable()
 #endif
+
