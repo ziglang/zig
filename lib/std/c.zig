@@ -342,6 +342,8 @@ pub extern "c" fn prctl(option: c_int, ...) c_int;
 pub extern "c" fn getrlimit(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn setrlimit(resource: rlimit_resource, rlim: *const rlimit) c_int;
 
+pub extern "c" fn fmemopen(noalias buf: ?*c_void, size: usize, noalias mode: [*:0]const u8) ?*FILE;
+
 pub const max_align_t = if (std.Target.current.abi == .msvc)
     f64
 else if (std.Target.current.isDarwin())
