@@ -4922,7 +4922,7 @@ pub fn send(
     sockfd: socket_t,
     buf: []const u8,
     flags: u32,
-) SendError!usize {
+) SendToError!usize {
     return sendto(sockfd, buf, flags, null, 0);
 }
 
