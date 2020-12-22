@@ -568,12 +568,15 @@ fn buildOutputType(
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
     defer test_exec_args.deinit();
 
-    var root_pkg_memory: Package = .{
-        .root_src_directory = undefined,
-        .root_src_path = undefined,
+    const pkg_tree_root = try gpa.create(Package);
+    // This package only exists to clean up the code parsing --pkg-begin and
+    // --pkg-end flags. Use dummy values that are safe for the destroy call.
+    pkg_tree_root.* = .{
+        .root_src_directory = .{ .path = null, .handle = fs.cwd() },
+        .root_src_path = &[0]u8{},
     };
-    defer root_pkg_memory.table.deinit(gpa);
-    var cur_pkg: *Package = &root_pkg_memory;
+    defer pkg_tree_root.destroy(gpa);
+    var cur_pkg: *Package = pkg_tree_root;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -627,22 +630,15 @@ fn buildOutputType(
                         i += 1;
                         const pkg_path = args[i];
 
-                        const new_cur_pkg = try arena.create(Package);
-                        new_cur_pkg.* = .{
-                            .root_src_directory = if (fs.path.dirname(pkg_path)) |dirname|
-                                .{
-                                    .path = dirname,
-                                    .handle = try fs.cwd().openDir(dirname, .{}), // TODO close this fd
-                                }
-                            else
-                                .{
-                                    .path = null,
-                                    .handle = fs.cwd(),
-                                },
-                            .root_src_path = fs.path.basename(pkg_path),
-                            .parent = cur_pkg,
+                        const new_cur_pkg = Package.create(
+                            gpa,
+                            fs.path.dirname(pkg_path),
+                            fs.path.basename(pkg_path),
+                        ) catch |err| {
+                            fatal("Failed to add package at path {}: {}", .{ pkg_path, @errorName(err) });
                         };
-                        try cur_pkg.table.put(gpa, pkg_name, new_cur_pkg);
+                        new_cur_pkg.parent = cur_pkg;
+                        try cur_pkg.add(gpa, pkg_name, new_cur_pkg);
                         cur_pkg = new_cur_pkg;
                     } else if (mem.eql(u8, arg, "--pkg-end")) {
                         cur_pkg = cur_pkg.parent orelse
@@ -1600,26 +1596,22 @@ fn buildOutputType(
         .yes => |p| p,
     };
 
-    var cleanup_root_dir: ?fs.Dir = null;
-    defer if (cleanup_root_dir) |*dir| dir.close();
-
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
-            const dir = try fs.cwd().openDir(p, .{});
-            cleanup_root_dir = dir;
-            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
-            root_pkg_memory.root_src_path = try fs.path.relative(arena, p, src_path);
-        } else if (fs.path.dirname(src_path)) |p| {
-            const dir = try fs.cwd().openDir(p, .{});
-            cleanup_root_dir = dir;
-            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
-            root_pkg_memory.root_src_path = fs.path.basename(src_path);
+            const rel_src_path = try fs.path.relative(gpa, p, src_path);
+            defer gpa.free(rel_src_path);
+            break :blk try Package.create(gpa, p, rel_src_path);
         } else {
-            root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
-            root_pkg_memory.root_src_path = src_path;
+            break :blk try Package.create(gpa, fs.path.dirname(src_path), fs.path.basename(src_path));
         }
-        break :blk &root_pkg_memory;
     } else null;
+    defer if (root_pkg) |p| p.destroy(gpa);
+
+    // Transfer packages added with --pkg-begin/--pkg-end to the root package
+    if (root_pkg) |pkg| {
+        pkg.table = pkg_tree_root.table;
+        pkg_tree_root.table = .{};
+    }
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
