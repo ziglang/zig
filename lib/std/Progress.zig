@@ -160,6 +160,9 @@ pub fn maybeRefresh(self: *Progress) void {
     if (now < self.initial_delay_ns) return;
     const held = self.update_lock.tryAcquire() orelse return;
     defer held.release();
+    // TODO I have observed this to happen sometimes. I think we need to follow Rust's
+    // lead and guarantee monotonically increasing times in the std lib itself.
+    if (now < self.prev_refresh_timestamp) return;
     if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
     return self.refreshWithHeldLock();
 }
