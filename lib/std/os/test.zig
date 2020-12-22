@@ -298,6 +298,8 @@ test "cpu count" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
+    // TODO https://github.com/ziglang/zig/issues/7527
+    if (std.Target.current.isDarwin() and builtin.arch == .aarch64) return error.SkipZigTest;
     const thread1 = try Thread.spawn({}, testTls);
     const thread2 = try Thread.spawn({}, testTls);
     testTls({});
