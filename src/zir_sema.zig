@@ -118,6 +118,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .iserr => return analyzeInstIsErr(mod, scope, old_inst.castTag(.iserr).?),
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
+        .typeof_peer => return analyzeInstTypeOfPeer(mod, scope, old_inst.castTag(.typeof_peer).?),
         .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
         .unwrap_optional_safe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_safe).?, true),
         .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
@@ -1663,6 +1664,11 @@ fn analyzeInstCmp(
         // signed-ness, comptime-ness, and bit-width. So peer type resolution is incorrect for
         // numeric types.
         return mod.cmpNumeric(scope, inst.base.src, lhs, rhs, op);
+    } else if (lhs_ty_tag == .Type and rhs_ty_tag == .Type) {
+        if (!is_equality_cmp) {
+            return mod.fail(scope, inst.base.src, "{} operator not allowed for types", .{@tagName(op)});
+        }
+        return mod.constBool(scope, inst.base.src, lhs.value().?.eql(rhs.value().?) == (op == .eq));
     }
     return mod.fail(scope, inst.base.src, "TODO implement more cmp analysis", .{});
 }
@@ -1670,6 +1676,16 @@ fn analyzeInstCmp(
 fn analyzeInstTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.constType(scope, inst.base.src, operand.ty);
+}
+
+fn analyzeInstTypeOfPeer(mod: *Module, scope: *Scope, inst: *zir.Inst.TypeOfPeer) InnerError!*Inst {
+    var insts_to_res = try mod.gpa.alloc(*ir.Inst, inst.positionals.items.len);
+    defer mod.gpa.free(insts_to_res);
+    for (inst.positionals.items) |item, i| {
+        insts_to_res[i] = try resolveInst(mod, scope, item);
+    }
+    const pt_res = try mod.resolvePeerTypes(scope, insts_to_res);
+    return mod.constType(scope, inst.base.src, pt_res);
 }
 
 fn analyzeInstBoolNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {

@@ -534,7 +534,7 @@ fn varDecl(
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
-            const result_loc = if (nodeMayNeedMemoryLocation(init_node)) r: {
+            const result_loc = if (nodeMayNeedMemoryLocation(init_node, scope)) r: {
                 if (node.getTypeNode()) |type_node| {
                     const type_inst = try typeExpr(mod, scope, type_node);
                     const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
@@ -1831,7 +1831,7 @@ fn ret(mod: *Module, scope: *Scope, cfe: *ast.Node.ControlFlowExpression) InnerE
     const tree = scope.tree();
     const src = tree.token_locs[cfe.ltoken].start;
     if (cfe.getRHS()) |rhs_node| {
-        if (nodeMayNeedMemoryLocation(rhs_node)) {
+        if (nodeMayNeedMemoryLocation(rhs_node, scope)) {
             const ret_ptr = try addZIRNoOp(mod, scope, src, .ret_ptr);
             const operand = try expr(mod, scope, .{ .ptr = ret_ptr }, rhs_node);
             return addZIRUnOp(mod, scope, src, .@"return", operand);
@@ -2248,6 +2248,23 @@ fn import(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError!*
     return addZIRUnOp(mod, scope, src, .import, target);
 }
 
+fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const arena = scope.arena();
+    const src = tree.token_locs[call.builtin_token].start;
+    const params = call.params();
+    if (params.len < 1) {
+        return mod.failTok(scope, call.builtin_token, "expected at least 1 argument, found 0", .{});
+    }
+    if (params.len == 1) {
+        return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .typeof, try expr(mod, scope, .none, params[0])));
+    }
+    var items = try arena.alloc(*zir.Inst, params.len);
+    for (params) |param, param_i|
+        items[param_i] = try expr(mod, scope, .none, param);
+    return rlWrap(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.TypeOfPeer, .{ .items = items }, .{}));
+}
+
 fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
     const tree = scope.tree();
     const builtin_name = tree.tokenSlice(call.builtin_token);
@@ -2267,6 +2284,8 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
         return simpleCast(mod, scope, rl, call, .intcast);
     } else if (mem.eql(u8, builtin_name, "@bitCast")) {
         return bitCast(mod, scope, rl, call);
+    } else if (mem.eql(u8, builtin_name, "@TypeOf")) {
+        return typeOf(mod, scope, rl, call);
     } else if (mem.eql(u8, builtin_name, "@breakpoint")) {
         const src = tree.token_locs[call.builtin_token].start;
         return rlWrap(mod, scope, rl, try addZIRNoOp(mod, scope, src, .breakpoint));
@@ -2344,7 +2363,7 @@ fn getSimplePrimitiveValue(name: []const u8) ?TypedValue {
     return null;
 }
 
-fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
+fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
     var node = start_node;
     while (true) {
         switch (node.tag) {
@@ -2468,9 +2487,119 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .For,
             .Switch,
             .Call,
-            .BuiltinCall, // TODO some of these can return false
             .LabeledBlock,
             => return true,
+
+            .BuiltinCall => {
+                @setEvalBranchQuota(5000);
+                const builtin_needs_mem_loc = std.ComptimeStringMap(bool, .{
+                    .{ "@addWithOverflow", false },
+                    .{ "@alignCast", false },
+                    .{ "@alignOf", false },
+                    .{ "@as", true },
+                    .{ "@asyncCall", false },
+                    .{ "@atomicLoad", false },
+                    .{ "@atomicRmw", false },
+                    .{ "@atomicStore", false },
+                    .{ "@bitCast", true },
+                    .{ "@bitOffsetOf", false },
+                    .{ "@boolToInt", false },
+                    .{ "@bitSizeOf", false },
+                    .{ "@breakpoint", false },
+                    .{ "@mulAdd", false },
+                    .{ "@byteSwap", false },
+                    .{ "@bitReverse", false },
+                    .{ "@byteOffsetOf", false },
+                    .{ "@call", true },
+                    .{ "@cDefine", false },
+                    .{ "@cImport", false },
+                    .{ "@cInclude", false },
+                    .{ "@clz", false },
+                    .{ "@cmpxchgStrong", false },
+                    .{ "@cmpxchgWeak", false },
+                    .{ "@compileError", false },
+                    .{ "@compileLog", false },
+                    .{ "@ctz", false },
+                    .{ "@cUndef", false },
+                    .{ "@divExact", false },
+                    .{ "@divFloor", false },
+                    .{ "@divTrunc", false },
+                    .{ "@embedFile", false },
+                    .{ "@enumToInt", false },
+                    .{ "@errorName", false },
+                    .{ "@errorReturnTrace", false },
+                    .{ "@errorToInt", false },
+                    .{ "@errSetCast", false },
+                    .{ "@export", false },
+                    .{ "@fence", false },
+                    .{ "@field", true },
+                    .{ "@fieldParentPtr", false },
+                    .{ "@floatCast", false },
+                    .{ "@floatToInt", false },
+                    .{ "@frame", false },
+                    .{ "@Frame", false },
+                    .{ "@frameAddress", false },
+                    .{ "@frameSize", false },
+                    .{ "@hasDecl", false },
+                    .{ "@hasField", false },
+                    .{ "@import", false },
+                    .{ "@intCast", false },
+                    .{ "@intToEnum", false },
+                    .{ "@intToError", false },
+                    .{ "@intToFloat", false },
+                    .{ "@intToPtr", false },
+                    .{ "@memcpy", false },
+                    .{ "@memset", false },
+                    .{ "@wasmMemorySize", false },
+                    .{ "@wasmMemoryGrow", false },
+                    .{ "@mod", false },
+                    .{ "@mulWithOverflow", false },
+                    .{ "@panic", false },
+                    .{ "@popCount", false },
+                    .{ "@ptrCast", false },
+                    .{ "@ptrToInt", false },
+                    .{ "@rem", false },
+                    .{ "@returnAddress", false },
+                    .{ "@setAlignStack", false },
+                    .{ "@setCold", false },
+                    .{ "@setEvalBranchQuota", false },
+                    .{ "@setFloatMode", false },
+                    .{ "@setRuntimeSafety", false },
+                    .{ "@shlExact", false },
+                    .{ "@shlWithOverflow", false },
+                    .{ "@shrExact", false },
+                    .{ "@shuffle", false },
+                    .{ "@sizeOf", false },
+                    .{ "@splat", true },
+                    .{ "@reduce", false },
+                    .{ "@src", true },
+                    .{ "@sqrt", false },
+                    .{ "@sin", false },
+                    .{ "@cos", false },
+                    .{ "@exp", false },
+                    .{ "@exp2", false },
+                    .{ "@log", false },
+                    .{ "@log2", false },
+                    .{ "@log10", false },
+                    .{ "@fabs", false },
+                    .{ "@floor", false },
+                    .{ "@ceil", false },
+                    .{ "@trunc", false },
+                    .{ "@round", false },
+                    .{ "@subWithOverflow", false },
+                    .{ "@tagName", false },
+                    .{ "@TagType", false },
+                    .{ "@This", false },
+                    .{ "@truncate", false },
+                    .{ "@Type", false },
+                    .{ "@typeInfo", false },
+                    .{ "@typeName", false },
+                    .{ "@TypeOf", false },
+                    .{ "@unionInit", true },
+                });
+                const name = scope.tree().tokenSlice(node.castTag(.BuiltinCall).?.builtin_token);
+                return builtin_needs_mem_loc.get(name).?;
+            },
 
             // Depending on AST properties, they may need memory locations.
             .If => return node.castTag(.If).?.@"else" != null,
