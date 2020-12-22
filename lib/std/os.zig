@@ -4932,7 +4932,7 @@ pub fn send(
         error.NotDir => unreachable,
         error.NetworkUnreachable => unreachable,
         error.AddressNotAvailable => unreachable,
-        else => return @errSetCast(SendError, err),
+        else => |e| return e,
     };
 }
 
