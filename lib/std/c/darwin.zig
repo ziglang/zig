@@ -177,6 +177,7 @@ pub const pthread_cond_t = extern struct {
     __sig: c_long = 0x3CB0B1BB,
     __opaque: [__PTHREAD_COND_SIZE__]u8 = [_]u8{0} ** __PTHREAD_COND_SIZE__,
 };
+pub const sem_t = c_int;
 const __PTHREAD_MUTEX_SIZE__ = if (@sizeOf(usize) == 8) 56 else 40;
 const __PTHREAD_COND_SIZE__ = if (@sizeOf(usize) == 8) 40 else 24;
 
