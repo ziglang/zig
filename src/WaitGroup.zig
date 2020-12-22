@@ -8,7 +8,7 @@ const WaitGroup = @This();
 
 lock: std.Mutex = .{},
 counter: usize = 0,
-event: ?*std.ResetEvent = null,
+event: std.ResetEvent = std.ResetEvent.init(),
 
 pub fn start(self: *WaitGroup) void {
     const held = self.lock.acquire();
@@ -25,29 +25,23 @@ pub fn stop(self: *WaitGroup) void {
     self.counter -= 1;
 
     if (self.counter == 0) {
-        if (self.event) |event| {
-            self.event = null;
-            event.set();
-        }
+        self.event.set();
     }
 }
 
 pub fn wait(self: *WaitGroup) void {
-    while (true) {
-        const held = self.lock.acquire();
+    var held = self.lock.acquire();
+    defer held.release();
 
+    while (true) {
         if (self.counter == 0) {
-            held.release();
             return;
         }
 
-        var event = std.ResetEvent.init();
-        defer event.deinit();
-
-        std.debug.assert(self.event == null);
-        self.event = &event;
-        
+        self.event.reset();
         held.release();
-        event.wait();
+
+        self.event.wait();
+        held = self.lock.acquire();
     }
 }

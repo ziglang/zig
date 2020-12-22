@@ -30,13 +30,11 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
 
     errdefer self.deinit();
 
-    var num_threads = std.math.max(1, std.Thread.cpuCount() catch 1);
+    const num_threads = std.math.max(1, std.Thread.cpuCount() catch 1);
     self.threads = try allocator.alloc(*std.Thread, num_threads);
 
-    while (num_threads > 0) : (num_threads -= 1) {
-        const thread = try std.Thread.spawn(self, runWorker);
-        self.threads[self.spawned] = thread;
-        self.spawned += 1;
+    while (self.spawned < num_threads) : (self.spawned += 1) {
+        self.threads[self.spawned] = try std.Thread.spawn(self, runWorker);
     }
 }
 

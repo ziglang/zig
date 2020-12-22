@@ -1385,14 +1385,16 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
     defer c_comp_progress_node.end();
 
-    var wg = WaitGroup{};
-    defer wg.wait();
+    {
+        var wg = WaitGroup{};
+        defer wg.wait();
 
-    while (self.c_object_work_queue.readItem()) |c_object| {
-        wg.start();
-        try self.thread_pool.spawn(workerUpdateCObject, .{
-            self, c_object, &c_comp_progress_node, &wg,
-        });
+        while (self.c_object_work_queue.readItem()) |c_object| {
+            wg.start();
+            try self.thread_pool.spawn(workerUpdateCObject, .{
+                self, c_object, &c_comp_progress_node, &wg,
+            });
+        }
     }
 
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
