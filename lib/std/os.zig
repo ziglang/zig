@@ -4774,6 +4774,12 @@ pub const SendError = error{
     BrokenPipe,
 
     FileDescriptorNotASocket,
+
+    /// Network is unreachable.
+    NetworkUnreachable,
+
+    /// The local network interface used to reach the destination is down.
+    NetworkSubsystemFailed,
 } || UnexpectedError;
 
 pub const SendToError = SendError || error{
@@ -4790,15 +4796,8 @@ pub const SendToError = SendError || error{
     FileNotFound,
     NotDir,
 
-    /// Network is unreachable.
-    NetworkUnreachable,
-
-    /// Insufficient memory was available to fulfill the request.
-    SystemResources,
-
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
-    WouldBlock,
     AddressNotAvailable,
 };
 
@@ -4853,7 +4852,7 @@ pub fn sendto(
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
                     // TODO: WSAEINPROGRESS, WSAEINTR
                     .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkUnreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENETUNREACH => return error.NetworkUnreachable,
                     .WSAENOTCONN => return error.SocketNotConnected,
@@ -4882,7 +4881,6 @@ pub fn sendto(
                 EMSGSIZE => return error.MessageTooBig,
                 ENOBUFS => return error.SystemResources,
                 ENOMEM => return error.SystemResources,
-                ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
                 ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
                 EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
                 EPIPE => return error.BrokenPipe,
@@ -4892,6 +4890,9 @@ pub fn sendto(
                 ENOENT => return error.FileNotFound,
                 ENOTDIR => return error.NotDir,
                 EHOSTUNREACH => return error.NetworkUnreachable,
+                ENETUNREACH => return error.NetworkUnreachable,
+                ENOTCONN => return error.SocketNotConnected,
+                ENETDOWN => return error.NetworkSubsystemFailed,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -4923,7 +4924,16 @@ pub fn send(
     buf: []const u8,
     flags: u32,
 ) SendError!usize {
-    return sendto(sockfd, buf, flags, null, 0);
+    return sendto(sockfd, buf, flags, null, 0) catch |err| switch (err) {
+        error.AddressFamilyNotSupported => unreachable,
+        error.SymLinkLoop => unreachable,
+        error.NameTooLong => unreachable,
+        error.FileNotFound => unreachable,
+        error.NotDir => unreachable,
+        error.NetworkUnreachable => unreachable,
+        error.AddressNotAvailable => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub const SendFileError = PReadError || WriteError || SendError;
