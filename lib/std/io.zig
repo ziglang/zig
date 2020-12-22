@@ -143,6 +143,8 @@ pub const cOutStream = cWriter;
 
 pub const CountingWriter = @import("io/counting_writer.zig").CountingWriter;
 pub const countingWriter = @import("io/counting_writer.zig").countingWriter;
+pub const CountingReader = @import("io/counting_reader.zig").CountingReader;
+pub const countingReader = @import("io/counting_reader.zig").countingReader;
 /// Deprecated: use `CountingWriter`
 pub const CountingOutStream = CountingWriter;
 /// Deprecated: use `countingWriter`
