@@ -2786,6 +2786,7 @@ pub const Type = extern union {
     pub fn isIndexable(self: Type) bool {
         const zig_tag = self.zigTypeTag();
         // TODO tuples are indexable
+        // TODO ints are indexable (from 0..N)
         return zig_tag == .Array or zig_tag == .Vector or self.isSlice() or
             (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
     }
