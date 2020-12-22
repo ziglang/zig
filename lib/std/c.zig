@@ -276,6 +276,7 @@ pub extern "c" fn sem_post(sem: *sem_t) c_int;
 pub extern "c" fn sem_wait(sem: *sem_t) c_int;
 pub extern "c" fn sem_trywait(sem: *sem_t) c_int;
 pub extern "c" fn sem_timedwait(sem: *sem_t, abs_timeout: *const timespec) c_int;
+pub extern "c" fn sem_getvalue(sem: *sem_t, sval: *c_int) c_int;
 
 pub extern "c" fn kqueue() c_int;
 pub extern "c" fn kevent(

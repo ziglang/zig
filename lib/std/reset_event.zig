@@ -34,6 +34,14 @@ pub const ResetEvent = struct {
         self.os_event.deinit();
     }
 
+    /// When `wait` would return without blocking, this returns `true`.
+    /// Note that the value may be immediately invalid upon this function's
+    /// return, because another thread may call `wait` in between, changing
+    /// the event's set/cleared status.
+    pub fn isSet(self: *ResetEvent) bool {
+        return self.os_event.isSet();
+    }
+
     /// Sets the event if not already set and
     /// wakes up all the threads waiting on the event.
     pub fn set(self: *ResetEvent) void {
@@ -75,6 +83,10 @@ const DebugEvent = struct {
 
     fn deinit(self: *DebugEvent) void {
         self.* = undefined;
+    }
+
+    fn isSet(self: *DebugEvent) bool {
+        return self.is_set;
     }
 
     fn reset(self: *DebugEvent) void {
@@ -120,6 +132,13 @@ const PosixEvent = struct {
             },
         }
         self.* = undefined;
+    }
+
+    fn isSet(self: *PosixEvent) bool {
+        const sem = self.getInitializedSem();
+        var val: c_int = undefined;
+        assert(c.sem_getvalue(sem, &val) == 0);
+        return val > 0;
     }
 
     fn reset(self: *PosixEvent) void {
@@ -206,6 +225,10 @@ const AtomicEvent = struct {
 
     fn deinit(self: *AtomicEvent) void {
         self.* = undefined;
+    }
+
+    fn isSet(self: *const AtomicEvent) bool {
+        return @atomicLoad(u32, &self.waiters, .Acquire) == WAKE;
     }
 
     fn reset(self: *AtomicEvent) void {
@@ -374,10 +397,13 @@ test "ResetEvent" {
     defer event.deinit();
 
     // test event setting
+    testing.expect(!event.isSet());
     event.set();
+    testing.expect(event.isSet());
 
     // test event resetting
     event.reset();
+    testing.expect(!event.isSet());
 
     // test event waiting (non-blocking)
     event.set();
