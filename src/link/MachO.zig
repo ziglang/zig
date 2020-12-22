@@ -2280,6 +2280,7 @@ fn updateLinkeditSegmentSizes(self: *MachO) !void {
     const filesize = final_offset - linkedit_segment.inner.fileoff;
     linkedit_segment.inner.filesize = filesize;
     linkedit_segment.inner.vmsize = mem.alignForwardGeneric(u64, filesize, self.page_size);
+    try self.base.file.?.pwriteAll(&[_]u8{ 0 }, final_offset);
     self.load_commands_dirty = true;
 }
 
@@ -2299,7 +2300,9 @@ fn writeLoadCommands(self: *MachO) !void {
         try lc.write(writer);
     }
 
-    try self.base.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
+    const off = @sizeOf(macho.mach_header_64);
+    log.debug("writing {} load commands from 0x{x} to 0x{x}", .{self.load_commands.items.len, off, off + sizeofcmds});
+    try self.base.file.?.pwriteAll(buffer, off);
     self.load_commands_dirty = false;
 }
 
