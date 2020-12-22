@@ -472,6 +472,10 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         ZigLLVMFunctionSetCallingConv(llvm_fn, get_llvm_cc(g, cc));
     }
 
+    if (g->tsan_enabled) {
+        addLLVMFnAttr(llvm_fn, "sanitize_thread");
+    }
+
     bool want_cold = fn->is_cold;
     if (want_cold) {
         ZigLLVMAddFunctionAttrCold(llvm_fn);

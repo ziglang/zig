@@ -285,6 +285,8 @@ const usage_build_generic =
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
     \\  -fno-valgrind             Omit valgrind client requests in debug builds
+    \\  -fsanitize-thread         Enable Thread Sanitizer
+    \\  -fno-sanitize-thread      Disable Thread Sanitizer
     \\  -fdll-export-fns          Mark exported functions as DLL exports (Windows)
     \\  -fno-dll-export-fns       Force-disable marking exported functions as DLL exports
     \\  -fLLVM                    Force using LLVM as the codegen backend
@@ -503,6 +505,7 @@ fn buildOutputType(
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
     var want_valgrind: ?bool = null;
+    var want_tsan: ?bool = null;
     var want_compiler_rt: ?bool = null;
     var rdynamic: bool = false;
     var linker_script: ?[]const u8 = null;
@@ -847,6 +850,10 @@ fn buildOutputType(
                         want_valgrind = true;
                     } else if (mem.eql(u8, arg, "-fno-valgrind")) {
                         want_valgrind = false;
+                    } else if (mem.eql(u8, arg, "-fsanitize-thread")) {
+                        want_tsan = true;
+                    } else if (mem.eql(u8, arg, "-fno-sanitize-thread")) {
+                        want_tsan = false;
                     } else if (mem.eql(u8, arg, "-fLLVM")) {
                         use_llvm = true;
                     } else if (mem.eql(u8, arg, "-fno-LLVM")) {
@@ -1106,6 +1113,8 @@ fn buildOutputType(
                     .sanitize => {
                         if (mem.eql(u8, it.only_arg, "undefined")) {
                             want_sanitize_c = true;
+                        } else if (mem.eql(u8, it.only_arg, "thread")) {
+                            want_tsan = true;
                         } else {
                             try clang_argv.appendSlice(it.other_args);
                         }
@@ -1712,6 +1721,7 @@ fn buildOutputType(
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
         .want_valgrind = want_valgrind,
+        .want_tsan = want_tsan,
         .want_compiler_rt = want_compiler_rt,
         .use_llvm = use_llvm,
         .use_lld = use_lld,

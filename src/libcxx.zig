@@ -139,7 +139,6 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         try cflags.append(cxxabi_include_path);
 
         try cflags.append("-O3");
-        try cflags.append("-DNDEBUG");
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
@@ -170,6 +169,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
+        .want_tsan = comp.bin_file.options.tsan,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
@@ -289,6 +289,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
+        .want_tsan = comp.bin_file.options.tsan,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,

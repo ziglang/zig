@@ -75,6 +75,7 @@ pub const Options = struct {
     pic: bool,
     pie: bool,
     valgrind: bool,
+    tsan: bool,
     stack_check: bool,
     single_threaded: bool,
     verbose_link: bool,

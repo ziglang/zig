@@ -93,6 +93,7 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     g->have_stack_probing = stage1->enable_stack_probing;
     g->is_single_threaded = stage1->is_single_threaded;
     g->valgrind_enabled = stage1->valgrind_enabled;
+    g->tsan_enabled = stage1->tsan_enabled;
     g->link_libc = stage1->link_libc;
     g->link_libcpp = stage1->link_libcpp;
     g->function_sections = stage1->function_sections;

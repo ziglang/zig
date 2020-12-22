@@ -207,6 +207,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .want_sanitize_c = false,
                 .want_stack_check = false,
                 .want_valgrind = false,
+                .want_tsan = false,
                 .emit_h = null,
                 .strip = comp.bin_file.options.strip,
                 .is_native_os = false,

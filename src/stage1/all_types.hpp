@@ -2199,6 +2199,7 @@ struct CodeGen {
     bool function_sections;
     bool test_is_evented;
     bool valgrind_enabled;
+    bool tsan_enabled;
 
     Buf *root_out_name;
     Buf *test_filter;

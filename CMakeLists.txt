@@ -537,6 +537,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ir.zig"
     "${CMAKE_SOURCE_DIR}/src/libc_installation.zig"
     "${CMAKE_SOURCE_DIR}/src/libcxx.zig"
+    "${CMAKE_SOURCE_DIR}/src/libtsan.zig"
     "${CMAKE_SOURCE_DIR}/src/libunwind.zig"
     "${CMAKE_SOURCE_DIR}/src/link.zig"
     "${CMAKE_SOURCE_DIR}/src/link/C.zig"
