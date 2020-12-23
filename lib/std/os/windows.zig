@@ -957,29 +957,29 @@ pub fn QueryObjectName(
     handle: HANDLE,
     out_buffer: []u16,
 ) ![]u16 {
-    var full_buffer: [@sizeOf(OBJECT_NAME_INFORMATION) + PATH_MAX_WIDE * 2]u8 align(@alignOf(OBJECT_NAME_INFORMATION)) = undefined;
-    var info = @ptrCast(*OBJECT_NAME_INFORMATION, &full_buffer);
+    const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
+
+    const info = @ptrCast(*OBJECT_NAME_INFORMATION, out_buffer_aligned);
     //buffer size is specified in bytes
+    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) catch |e| switch (e) {
+        error.Overflow => std.math.maxInt(ULONG),
+    };
     //last argument would return the length required for full_buffer, not exposed here
-    const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, &full_buffer, full_buffer.len, null);
+    const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null);
     switch (rc) {
         .SUCCESS => {
             // info.Name.Buffer from ObQueryNameString is documented to be null (and MaximumLength == 0)
             // if the object was "unnamed", not sure if this can happen for file handles
             if (info.Name.MaximumLength == 0) return error.Unexpected;
-            //resulting string length is specified in bytes
+            // resulting string length is specified in bytes
             const path_length_unterminated = @divExact(info.Name.Length, 2);
-            if (out_buffer.len < path_length_unterminated) {
-                return error.NameTooLong;
-            }
-            mem.copy(WCHAR, out_buffer[0..path_length_unterminated], info.Name.Buffer[0..path_length_unterminated]);
-            return out_buffer[0..path_length_unterminated];
+            return info.Name.Buffer[0..path_length_unterminated];
         },
         .ACCESS_DENIED => return error.AccessDenied,
         .INVALID_HANDLE => return error.InvalidHandle,
-        .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => return error.NameTooLong,
-        //name_buffer.len >= @sizeOf(OBJECT_NAME_INFORMATION) holds statically
-        .INFO_LENGTH_MISMATCH => unreachable,
+        // triggered when the buffer is too small for the OBJECT_NAME_INFORMATION object (.INFO_LENGTH_MISMATCH),
+        // or if the buffer is too small for the file path returned (.BUFFER_OVERFLOW, .BUFFER_TOO_SMALL)
+        .INFO_LENGTH_MISMATCH, .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => return error.NameTooLong,
         else => |e| return unexpectedStatus(e),
     }
 }
@@ -994,10 +994,11 @@ test "QueryObjectName" {
     var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
 
     var result_path = try QueryObjectName(handle, &out_buffer);
+    const required_len_in_u16 = result_path.len + @divExact(@ptrToInt(result_path.ptr) - @ptrToInt(&out_buffer), 2) + 1;
     //insufficient size
-    std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. result_path.len - 1]));
+    std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
     //exactly-sufficient size
-    _ = try QueryObjectName(handle, out_buffer[0..result_path.len]);
+    _ = try QueryObjectName(handle, out_buffer[0..required_len_in_u16]);
 }
 
 pub const GetFinalPathNameByHandleError = error{
@@ -1029,8 +1030,7 @@ pub fn GetFinalPathNameByHandle(
     fmt: GetFinalPathNameByHandleFormat,
     out_buffer: []u16,
 ) GetFinalPathNameByHandleError![]u16 {
-    var path_buffer: [math.max(@sizeOf(FILE_NAME_INFORMATION), @sizeOf(OBJECT_NAME_INFORMATION)) + PATH_MAX_WIDE * 2]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined;
-    const final_path = QueryObjectName(hFile, mem.bytesAsSlice(u16, &path_buffer)) catch |err| switch (err) {
+    const final_path = QueryObjectName(hFile, out_buffer) catch |err| switch (err) {
         // we assume InvalidHandle is close enough to FileNotFound in semantics
         // to not further complicate the error set
         error.InvalidHandle => return error.FileNotFound,
@@ -1040,11 +1040,7 @@ pub fn GetFinalPathNameByHandle(
     switch (fmt.volume_name) {
         .Nt => {
             // the returned path is already in .Nt format
-            if (out_buffer.len < final_path.len) {
-                return error.NameTooLong;
-            }
-            mem.copy(u16, out_buffer, final_path);
-            return out_buffer[0..final_path.len];
+            return final_path;
         },
         .Dos => {
             // parse the string to separate volume path from file path
@@ -1153,16 +1149,17 @@ test "GetFinalPathNameByHandle" {
     var buffer: [PATH_MAX_WIDE]u16 = undefined;
 
     //check with sufficient size
-    const nt_length = (try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, &buffer)).len;
-    const dos_length = (try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, &buffer)).len;
+    const nt_path = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, &buffer);
+    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, &buffer);
 
+    const required_len_in_u16 = nt_path.len + @divExact(@ptrToInt(nt_path.ptr) - @ptrToInt(&buffer), 2) + 1;
     //check with insufficient size
-    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. nt_length - 1]));
-    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. dos_length - 1]));
+    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
+    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
 
     //check with exactly-sufficient size
-    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..nt_length]);
-    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..dos_length]);
+    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..required_len_in_u16]);
+    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..required_len_in_u16]);
 }
 
 pub const QueryInformationFileError = error{Unexpected};
