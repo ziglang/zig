@@ -955,17 +955,16 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
         .err_single => 1,
         .multiple => |mul| mul.size,
         else => unreachable,
-    })); // TODO should we do this? only true when no overlapping
+    }));
 
     switch (lhs_fields) {
         .err_single => |name| {
-            const entry = try mod.getErrorValue(name);
-            payload.fields.putAssumeCapacity(entry.key, entry.value);
+            const entry = mod.global_error_set.get(name).?;
+            payload.fields.putAssumeCapacity(name, entry);
         },
         .multiple => |multiple| {
             var it = multiple.iterator();
-            while (it.next()) |name| {
-                const entry = try mod.getErrorValue(name.key);
+            while (it.next()) |entry| {
                 payload.fields.putAssumeCapacity(entry.key, entry.value);
             }
         },

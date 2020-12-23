@@ -264,8 +264,9 @@ pub const Type = extern union {
             .ErrorSet => {
                 if (a.tag() == .anyerror) {
                     if (b.tag() == .anyerror)
-                        return true;
-                    return false;
+                        return true
+                    else
+                        return false;
                 }
 
                 if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
@@ -295,15 +296,9 @@ pub const Type = extern union {
                             return false;
                         }
                     }
-                    var b_fields_it = b_fields.iterator();
-                    while (b_fields_it.next()) |entry| {
-                        if (!a_fields.contains(entry.key)) {
-                            return false;
-                        }
-                    }
                     return true;
                 }
-                return false;
+                unreachable;
             },
             .ErrorUnion => {
                 const a_casted = a.cast(Payload.ErrorUnion).?;

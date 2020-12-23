@@ -2863,10 +2863,6 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
         }
     }
 
-    // comptime known number to other number
-    if (try self.coerceNum(scope, dest_type, inst)) |some|
-        return some;
-
     // error set widening
     if (inst.ty.zigTypeTag() == .ErrorSet and dest_type.zigTypeTag() == .ErrorSet) {
         const gotten_err_set = inst.ty.getErrs();
@@ -2930,6 +2926,11 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
             else => unreachable,
         }
     }
+
+    // comptime known number to other number
+    if (try self.coerceNum(scope, dest_type, inst)) |some|
+        return some;
+
     // integer widening
     if (inst.ty.zigTypeTag() == .Int and dest_type.zigTypeTag() == .Int) {
         assert(inst.value() == null); // handled above
