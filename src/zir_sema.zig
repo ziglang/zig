@@ -944,14 +944,17 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
 
     const payload = try scope.arena().create(Value.Payload.ErrorSet);
     payload.* = .{
-        .fields = .{},
-        .decl = undefined, // populated below
+        .base = .{ .tag = .error_set },
+        .data = .{
+            .fields = .{},
+            .decl = undefined, // populated below
+        },
     };
-    try payload.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, switch (rhs_fields) {
+    try payload.data.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, switch (rhs_fields) {
         .err_single => 1,
         .multiple => |mul| mul.size,
         else => unreachable,
-    } + switch (rhs_fields) {
+    } + switch (lhs_fields) {
         .err_single => 1,
         .multiple => |mul| mul.size,
         else => unreachable,
@@ -959,13 +962,13 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
 
     switch (lhs_fields) {
         .err_single => |name| {
-            const entry = mod.global_error_set.get(name).?;
-            payload.fields.putAssumeCapacity(name, entry);
+            const num = mod.global_error_set.get(name).?;
+            payload.data.fields.putAssumeCapacity(name, num);
         },
         .multiple => |multiple| {
             var it = multiple.iterator();
             while (it.next()) |entry| {
-                payload.fields.putAssumeCapacity(entry.key, entry.value);
+                payload.data.fields.putAssumeCapacity(entry.key, entry.value);
             }
         },
         else => unreachable,
@@ -973,14 +976,14 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
 
     switch (rhs_fields) {
         .err_single => |name| {
-            const entry = try mod.getErrorValue(name);
-            payload.fields.putAssumeCapacity(entry.key, entry.value);
+            const num = mod.global_error_set.get(name).?;
+            payload.data.fields.putAssumeCapacity(name, num);
         },
         .multiple => |multiple| {
             var it = multiple.iterator();
             while (it.next()) |name| {
                 const entry = try mod.getErrorValue(name.key);
-                payload.fields.putAssumeCapacity(entry.key, entry.value);
+                payload.data.fields.putAssumeCapacity(entry.key, entry.value);
             }
         },
         else => unreachable,
@@ -989,7 +992,7 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
         .ty = Type.initTag(.type),
         .val = Value.initPayload(&payload.base),
     });
-    payload.decl = new_decl;
+    payload.data.decl = new_decl;
 
     return mod.constInst(scope, inst.base.src, .{
         .ty = Type.initTag(.type),
@@ -1463,7 +1466,7 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                 const resolved = try resolveInst(mod, scope, item);
                 const casted = try mod.coerce(scope, target.ty, resolved);
                 const val = try mod.resolveConstValue(scope, casted);
-                const err_name = val.cast(Value.Payload.Error).?.name;
+                const err_name = val.castTag(.@"error").?.data.name;
                 if (try seen_values.fetchPut(val, item.src)) |prev| {
                     return mod.fail(scope, item.src, "duplicate switch value", .{});
                 }
@@ -1876,13 +1879,10 @@ fn analyzeInstCmp(
         if (!is_equality_cmp) {
             return mod.fail(scope, inst.base.src, "{} operator not allowed for errors", .{@tagName(op)});
         }
-        const lhs_comptime = lhs.ty.cast(Type.Payload.ErrorSetSingle);
-        const rhs_comptime = rhs.ty.cast(Type.Payload.ErrorSetSingle);
-        if (lhs_comptime != null and rhs_comptime != null) {
-            if (op == .eq)
-                return mod.constBool(scope, inst.base.src, !std.mem.eql(u8, lhs_comptime.?.name, rhs_comptime.?.name))
-            else
-                return mod.constBool(scope, inst.base.src, std.mem.eql(u8, lhs_comptime.?.name, rhs_comptime.?.name));
+        const lhs_val = lhs.value();
+        const rhs_val = rhs.value();
+        if (lhs_val != null and rhs_val != null) {
+            return mod.constBool(scope, inst.base.src, (lhs_val.?.castTag(.@"error").?.data.value == rhs_val.?.castTag(.@"error").?.data.value) == (op == .eq));
         }
         return mod.fail(scope, inst.base.src, "TODO runtime error comparison", .{});
     } else if (lhs.ty.isNumeric() and rhs.ty.isNumeric()) {

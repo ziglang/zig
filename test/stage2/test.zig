@@ -362,7 +362,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\    unreachable; // because it will give error above
             \\}
-        , &[_][]const u8{":6:14: error: expected _start__anon_13, found error{Z}"});
+        , &[_][]const u8{":6:14: error: expected _start__anon_12, found error{Z}"});
         case.addError(
             \\export fn _start() noreturn {
             \\    const T = error{ A, B, C, D };
@@ -501,7 +501,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("comptime error equality", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
-            \\    if (error.V == error.T) {
+            \\    if (error.T == error.T) {
             \\        condPrint();
             \\    }
             \\

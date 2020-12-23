@@ -267,6 +267,8 @@ pub const Type = extern union {
                         return true
                     else
                         return false;
+                } else if (b.tag() == .anyerror) {
+                    return false;
                 }
 
                 if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
@@ -301,9 +303,9 @@ pub const Type = extern union {
                 unreachable;
             },
             .ErrorUnion => {
-                const a_casted = a.cast(Payload.ErrorUnion).?;
-                const b_casted = b.cast(Payload.ErrorUnion).?;
-                return a_casted.error_set.eql(b_casted.error_set) and a_casted.payload.eql(b_casted.payload);
+                const a_data = a.castTag(.error_union).?.data;
+                const b_data = b.castTag(.error_union).?.data;
+                return a_data.error_set.eql(b_data.error_set) and a_data.payload.eql(b_data.payload);
             },
             .Float,
             .Struct,
@@ -1705,11 +1707,55 @@ pub const Type = extern union {
             .const_slice_u8,
             .single_const_pointer_to_comptime_int,
             .pointer,
+            .inferred_alloc_mut,
+            .inferred_alloc_const,
             => unreachable,
             .anyerror => return .{ .anyerror = {} },
-            .error_set_single => return .{ .err_single = self.cast(Payload.ErrorSetSingle).?.name },
-            .error_set => return .{ .multiple = &self.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields },
+            .error_set_single => return .{ .err_single = self.castTag(.error_set_single).?.data },
+            .error_set => return .{ .multiple = &self.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields },
         };
+    }
+    /// Asserts the type is error_set or error_set_single or anyerror and that if it is error_set, it's decl has been analyzed.
+    /// Returns true if fitee can fit into fitter, and false if not.
+    pub fn errorSetFitsInAnother(fitter: Type, fitee: Type) bool {
+        if (fitter.eql(fitee)) return true;
+        switch (fitee.getErrs()) {
+            .multiple => |fitee_set| {
+                switch (fitter.getErrs()) {
+                    .multiple => |fitter_set| {
+                        // we can do < because if they were equal then Type.eql wouldn't have let control flow get this far
+                        if (fitee_set.size < fitter_set.size) {
+                            var it = fitter_set.iterator();
+                            while (it.next()) |entry| {
+                                // the smaller set has a key not in the larger set
+                                if (fitee_set.get(entry.key) == null) return false;
+                            }
+                            return true;
+                        } else return false;
+                    },
+                    // we return false, because if they were equal Type.eql would have caught and if not, then not coercible
+                    .err_single => return false,
+                    // any set can fit into anyerror
+                    .anyerror => return true,
+                }
+            },
+            .err_single => |fitee_name| {
+                switch (fitter.getErrs()) {
+                    .multiple => |fitter_set| {
+                        // the smaller set has a key not in the larger set
+                        if (fitter_set.get(fitee_name) == null) return false;
+                        return true;
+                    },
+                    // we return false, because if they were equal Type.eql would have caught and if not, then not coercible
+                    .err_single => return false,
+                    // any set can fit into anyerror
+                    .anyerror => return true,
+                }
+            },
+
+            // if they were both anyerror, then Type.eql would have caught it, and if not, then nothing else can fit into anyerorr
+            .anyerror => return false,
+        }
     }
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
