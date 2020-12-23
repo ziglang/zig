@@ -593,7 +593,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :outer opts;
         } else .{};
 
-        const link_libc = options.link_libc or target_util.osRequiresLibC(options.target);
+        const tsan = options.want_tsan orelse false;
+
+        const link_libc = options.link_libc or target_util.osRequiresLibC(options.target) or tsan;
 
         const must_dynamic_link = dl: {
             if (target_util.cannotDynamicLink(options.target))
@@ -653,8 +655,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             link_libc,
             options.libc_installation,
         );
-
-        const tsan = options.want_tsan orelse false;
 
         const must_pie = target_util.requiresPIE(options.target);
         const pie: bool = if (options.want_pie) |explicit| pie: {
