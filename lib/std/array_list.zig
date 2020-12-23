@@ -91,6 +91,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return result;
         }
 
+        /// The caller owns the returned memory. ArrayList becomes empty.
+        pub fn toOwnedSliceSentinel(self: *Self, comptime sentinel: T) ![:sentinel]T {
+            try self.append(sentinel);
+            const result = self.list.toOwnedSlice();
+            return result[0 .. result.len - 1 :sentinel];
+        }
+
         /// Insert `item` at index `n` by moving `list[n .. list.len]` to make room.
         /// This operation is O(N).
         pub fn insert(self: *Self, n: usize, item: T) !void {
@@ -387,6 +394,13 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             const result = allocator.shrink(self.allocatedSlice(), self.items.len);
             self.* = Self{};
             return result;
+        }
+
+        /// The caller owns the returned memory. ArrayList becomes empty.
+        pub fn toOwnedSliceSentinel(self: *Self, allocator: *Allocator, comptime sentinel: T) ![:sentinel]T {
+            try self.append(allocator, sentinel);
+            const result = self.list.toOwnedSlice(allocator);
+            return result[0 .. result.len - 1 :sentinel];
         }
 
         /// Insert `item` at index `n`. Moves `list[n .. list.len]`
