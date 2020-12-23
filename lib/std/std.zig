@@ -41,6 +41,7 @@ pub const StringArrayHashMapUnmanaged = array_hash_map.StringArrayHashMapUnmanag
 pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("thread.zig").Thread;
+pub const Uuid = @import("Uuid.zig");
 
 pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
@@ -82,7 +83,6 @@ pub const ascii = @import("ascii.zig");
 pub const testing = @import("testing.zig");
 pub const time = @import("time.zig");
 pub const unicode = @import("unicode.zig");
-pub const uuid = @import("uuid.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
