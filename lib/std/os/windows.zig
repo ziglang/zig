@@ -28,10 +28,6 @@ pub const gdi32 = @import("windows/gdi32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
-//version detection
-const version = std.zig.system.windows;
-const WindowsVersion = version.WindowsVersion;
-
 pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
 
 pub const OpenError = error{
@@ -1034,65 +1030,35 @@ pub fn GetFinalPathNameByHandle(
     out_buffer: []u16,
 ) GetFinalPathNameByHandleError![]u16 {
     var path_buffer: [math.max(@sizeOf(FILE_NAME_INFORMATION), @sizeOf(OBJECT_NAME_INFORMATION)) + PATH_MAX_WIDE * 2]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined;
-    var volume_buffer: [@sizeOf(FILE_NAME_INFORMATION) + MAX_PATH]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined; // MAX_PATH bytes should be enough since it's Windows-defined name
+    const final_path = QueryObjectName(hFile, mem.bytesAsSlice(u16, &path_buffer)) catch |err| switch (err) {
+        // we assume InvalidHandle is close enough to FileNotFound in semantics
+        // to not further complicate the error set
+        error.InvalidHandle => return error.FileNotFound,
+        else => |e| return e,
+    };
 
-    var file_name_u16: []const u16 = undefined;
-    var volume_name_u16: []const u16 = undefined;
-    if ((comptime (std.builtin.os.version_range.windows.isAtLeast(WindowsVersion.win10_rs4) != true)) and !version.detectRuntimeVersion().isAtLeast(WindowsVersion.win10_rs4)) {
-        const final_path = QueryObjectName(hFile, mem.bytesAsSlice(u16, &path_buffer)) catch |err| return switch (err) {
-            // we assume InvalidHandle is close enough to FileNotFound in semantics
-            // to not further complicate the error set
-            error.InvalidHandle => error.FileNotFound,
-            else => |e| e,
-        };
-
-        if (fmt.volume_name == .Nt) {
+    switch (fmt.volume_name) {
+        .Nt => {
+            // the returned path is already in .Nt format
             if (out_buffer.len < final_path.len) {
                 return error.NameTooLong;
             }
             mem.copy(u16, out_buffer, final_path);
             return out_buffer[0..final_path.len];
-        }
-
-        //otherwise we need to parse the string for volume path for the .Dos logic below to work
-        const expected_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
-
-        // TODO find out if a path can start with something besides `\Device\<volume name>`,
-        // and if we need to handle it differently
-        // (i.e. how to determine the start and end of the volume name in that case)
-        if (!mem.eql(u16, expected_prefix, final_path[0..expected_prefix.len])) return error.Unexpected;
-
-        const index = mem.indexOfPos(u16, final_path, expected_prefix.len, &[_]u16{'\\'}) orelse unreachable;
-        volume_name_u16 = final_path[0..index];
-        file_name_u16 = final_path[index..];
-
-        //fallthrough for fmt.volume_name != .Nt
-    } else {
-        // Get normalized path; doesn't include volume name though.
-        try QueryInformationFile(hFile, .FileNormalizedNameInformation, &path_buffer);
-        const file_name = @ptrCast(*const FILE_NAME_INFORMATION, &path_buffer);
-        file_name_u16 = @ptrCast([*]const u16, &file_name.FileName)[0..@divExact(file_name.FileNameLength, 2)];
-
-        // Get NT volume name.
-        try QueryInformationFile(hFile, .FileVolumeNameInformation, &volume_buffer);
-        const volume_name_info = @ptrCast(*const FILE_NAME_INFORMATION, &volume_buffer);
-        volume_name_u16 = @ptrCast([*]const u16, &volume_name_info.FileName)[0..@divExact(volume_name_info.FileNameLength, 2)];
-
-        if (fmt.volume_name == .Nt) {
-            // Nothing to do, we simply copy the bytes to the user-provided buffer.
-            if (out_buffer.len < volume_name_u16.len + file_name_u16.len) return error.NameTooLong;
-
-            mem.copy(u16, out_buffer, volume_name_u16);
-            mem.copy(u16, out_buffer[volume_name_u16.len..], file_name_u16);
-
-            return out_buffer[0 .. volume_name_u16.len + file_name_u16.len];
-        }
-        //fallthrough for fmt.volume_name != .Nt
-    }
-
-    switch (fmt.volume_name) {
-        .Nt => unreachable, //handled above
+        },
         .Dos => {
+            // parse the string to separate volume path from file path
+            const expected_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
+
+            // TODO find out if a path can start with something besides `\Device\<volume name>`,
+            // and if we need to handle it differently
+            // (i.e. how to determine the start and end of the volume name in that case)
+            if (!mem.eql(u16, expected_prefix, final_path[0..expected_prefix.len])) return error.Unexpected;
+
+            const file_path_begin_index = mem.indexOfPos(u16, final_path, expected_prefix.len, &[_]u16{'\\'}) orelse unreachable;
+            const volume_name_u16 = final_path[0..file_path_begin_index];
+            const file_name_u16 = final_path[file_path_begin_index..];
+
             // Get DOS volume name. DOS volume names are actually symbolic link objects to the
             // actual NT volume. For example:
             // (NT) \Device\HarddiskVolume4 => (DOS) \DosDevices\C: == (DOS) C:
