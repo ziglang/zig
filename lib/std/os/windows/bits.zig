@@ -65,7 +65,6 @@ pub const SIZE_T = usize;
 pub const TCHAR = if (UNICODE) WCHAR else u8;
 pub const UINT = c_uint;
 pub const ULONG_PTR = usize;
-pub const PULONG = *ULONG;
 pub const LONG_PTR = isize;
 pub const DWORD_PTR = ULONG_PTR;
 pub const UNICODE = false;

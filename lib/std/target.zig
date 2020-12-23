@@ -95,7 +95,7 @@ pub const Target = struct {
             win7 = 0x06010000,
             win8 = 0x06020000,
             win8_1 = 0x06030000,
-            win10 = 0x0A000000,
+            win10 = 0x0A000000, //aka win10_th1
             win10_th2 = 0x0A000001,
             win10_rs1 = 0x0A000002,
             win10_rs2 = 0x0A000003,
@@ -103,25 +103,34 @@ pub const Target = struct {
             win10_rs4 = 0x0A000005,
             win10_rs5 = 0x0A000006,
             win10_19h1 = 0x0A000007,
-            win10_20h1 = 0x0A000008,
+            win10_vb = 0x0A000008, //aka win10_19h2
+            win10_mn = 0x0A000009, //aka win10_20h1
+            win10_fe = 0x0A00000A, //aka win10_20h2
             _,
 
             /// Latest Windows version that the Zig Standard Library is aware of
-            pub const latest = WindowsVersion.win10_20h1;
+            pub const latest = WindowsVersion.win10_fe;
 
             /// Compared against build numbers reported by the runtime to distinguish win10 versions,
             /// where 0x0A000000 + index corresponds to the WindowsVersion u32 value.
             pub const known_win10_build_numbers = [_]u32{
-                10240, //win10
+                10240, //win10 aka win10_th1
                 10586, //win10_th2
-                14393, //win_rs1
-                15063, //win_rs2
-                16299, //win_rs3
-                17134, //win_rs4
-                17763, //win_rs5
-                18362, //win_19h1
-                19041, //win_20h1
+                14393, //win10_rs1
+                15063, //win10_rs2
+                16299, //win10_rs3
+                17134, //win10_rs4
+                17763, //win10_rs5
+                18362, //win10_19h1
+                18363, //win10_vb aka win10_19h2
+                19041, //win10_mn aka win10_20h1
+                19042, //win10_fe aka win10_20h2
             };
+
+            /// Returns whether the first version `self` is newer (greater) than or equal to the second version `ver`.
+            pub fn isAtLeast(self: WindowsVersion, ver: WindowsVersion) bool {
+                return @enumToInt(self) >= @enumToInt(ver);
+            }
 
             pub const Range = struct {
                 min: WindowsVersion,
