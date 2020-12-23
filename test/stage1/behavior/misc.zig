@@ -168,7 +168,7 @@ test "multiline string" {
 
 test "multiline string comments at start" {
     const s1 =
-        //\\one
+    //\\one
         \\two)
         \\three
     ;
@@ -180,7 +180,7 @@ test "multiline string comments at end" {
     const s1 =
         \\one
         \\two)
-        //\\three
+         //\\three
     ;
     const s2 = "one\ntwo)";
     expect(mem.eql(u8, s1, s2));
@@ -189,7 +189,7 @@ test "multiline string comments at end" {
 test "multiline string comments in middle" {
     const s1 =
         \\one
-        //\\two)
+         //\\two)
         \\three
     ;
     const s2 = "one\nthree";
@@ -199,9 +199,9 @@ test "multiline string comments in middle" {
 test "multiline string comments at multiple places" {
     const s1 =
         \\one
-        //\\two
+         //\\two
         \\three
-        //\\four
+         //\\four
         \\five
     ;
     const s2 = "one\nthree\nfive";
@@ -641,6 +641,9 @@ fn getNull() ?*i32 {
 }
 
 test "thread local variable" {
+    // TODO https://github.com/ziglang/zig/issues/7527
+    if (comptime std.Target.current.isDarwin() and builtin.arch == .aarch64) return error.SkipZigTest;
+
     const S = struct {
         threadlocal var t: i32 = 1234;
     };
@@ -728,6 +731,9 @@ test "result location is optional inside error union" {
 threadlocal var buffer: [11]u8 = undefined;
 
 test "pointer to thread local array" {
+    // TODO https://github.com/ziglang/zig/issues/7527
+    if (comptime std.Target.current.isDarwin() and builtin.arch == .aarch64) return error.SkipZigTest;
+
     const s = "Hello world";
     std.mem.copy(u8, buffer[0..], s);
     std.testing.expectEqualSlices(u8, buffer[0..], s);
