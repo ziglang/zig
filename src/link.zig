@@ -81,7 +81,7 @@ pub const Options = struct {
     verbose_link: bool,
     dll_export_fns: bool,
     error_return_tracing: bool,
-    is_compiler_rt_or_libc: bool,
+    skip_linker_dependencies: bool,
     parent_compilation_link_libc: bool,
     each_lib_rpath: bool,
     disable_lld_caching: bool,

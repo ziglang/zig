@@ -122,6 +122,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .link_libc = true,
+        .skip_linker_dependencies = true,
     });
     defer sub_compilation.destroy();
 

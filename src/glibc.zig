@@ -962,7 +962,7 @@ fn buildSharedLib(
         .version_script = map_file_path,
         .soname = soname,
         .c_source_files = &c_source_files,
-        .is_compiler_rt_or_libc = true,
+        .skip_linker_dependencies = true,
     });
     defer sub_compilation.destroy();
 

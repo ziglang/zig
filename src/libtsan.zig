@@ -34,7 +34,7 @@ pub fn buildTsan(comp: *Compilation) !void {
     };
 
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
-    try c_source_files.ensureCapacity(tsan_sources.len + sanitizer_common_sources.len);
+    try c_source_files.ensureCapacity(c_source_files.items.len + tsan_sources.len);
 
     const tsan_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"tsan"});
     for (tsan_sources) |tsan_src| {
@@ -48,6 +48,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         try cflags.append("-nostdinc++");
         try cflags.append("-fvisibility-inlines-hidden");
         try cflags.append("-std=c++14");
+        try cflags.append("-fno-rtti");
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", tsan_src }),
@@ -55,6 +56,51 @@ pub fn buildTsan(comp: *Compilation) !void {
         });
     }
 
+    const platform_tsan_sources = if (target.isDarwin())
+        &darwin_tsan_sources
+    else
+        &unix_tsan_sources;
+    try c_source_files.ensureCapacity(c_source_files.items.len + platform_tsan_sources.len);
+    for (platform_tsan_sources) |tsan_src| {
+        var cflags = std.ArrayList([]const u8).init(arena);
+
+        try cflags.append("-I");
+        try cflags.append(tsan_include_path);
+
+        try cflags.append("-O3");
+        try cflags.append("-DNDEBUG");
+        try cflags.append("-nostdinc++");
+        try cflags.append("-fvisibility-inlines-hidden");
+        try cflags.append("-std=c++14");
+        try cflags.append("-fno-rtti");
+
+        c_source_files.appendAssumeCapacity(.{
+            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", tsan_src }),
+            .extra_flags = cflags.items,
+        });
+    }
+    {
+        const asm_source = switch (target.cpu.arch) {
+            .aarch64 => "tsan_rtl_aarch64.S",
+            .x86_64 => "tsan_rtl_amd64.S",
+            .mips64 => "tsan_rtl_mips64.S",
+            .powerpc64 => "tsan_rtl_ppc64.S",
+            else => return error.TSANUnsupportedCPUArchitecture,
+        };
+        var cflags = std.ArrayList([]const u8).init(arena);
+
+        try cflags.append("-I");
+        try cflags.append(tsan_include_path);
+
+        try cflags.append("-DNDEBUG");
+
+        c_source_files.appendAssumeCapacity(.{
+            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", asm_source }),
+            .extra_flags = cflags.items,
+        });
+    }
+
+    try c_source_files.ensureCapacity(c_source_files.items.len + sanitizer_common_sources.len);
     const sanitizer_common_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
         "tsan", "sanitizer_common",
     });
@@ -69,6 +115,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         try cflags.append("-nostdinc++");
         try cflags.append("-fvisibility-inlines-hidden");
         try cflags.append("-std=c++14");
+        try cflags.append("-fno-rtti");
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -77,6 +124,88 @@ pub fn buildTsan(comp: *Compilation) !void {
             .extra_flags = cflags.items,
         });
     }
+
+    const to_c_or_not_to_c_sources = if (comp.bin_file.options.link_libc)
+        &sanitizer_libcdep_sources
+    else
+        &sanitizer_nolibc_sources;
+    try c_source_files.ensureCapacity(c_source_files.items.len + to_c_or_not_to_c_sources.len);
+    for (to_c_or_not_to_c_sources) |c_src| {
+        var cflags = std.ArrayList([]const u8).init(arena);
+
+        try cflags.append("-I");
+        try cflags.append(sanitizer_common_include_path);
+
+        try cflags.append("-O3");
+        try cflags.append("-DNDEBUG");
+        try cflags.append("-nostdinc++");
+        try cflags.append("-fvisibility-inlines-hidden");
+        try cflags.append("-std=c++14");
+        try cflags.append("-fno-rtti");
+
+        c_source_files.appendAssumeCapacity(.{
+            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                "tsan", "sanitizer_common", c_src,
+            }),
+            .extra_flags = cflags.items,
+        });
+    }
+
+    try c_source_files.ensureCapacity(c_source_files.items.len + sanitizer_symbolizer_sources.len);
+    for (sanitizer_symbolizer_sources) |c_src| {
+        var cflags = std.ArrayList([]const u8).init(arena);
+
+        try cflags.append("-I");
+        try cflags.append(tsan_include_path);
+
+        try cflags.append("-O3");
+        try cflags.append("-DNDEBUG");
+        try cflags.append("-nostdinc++");
+        try cflags.append("-fvisibility-inlines-hidden");
+        try cflags.append("-std=c++14");
+        try cflags.append("-fno-rtti");
+
+        c_source_files.appendAssumeCapacity(.{
+            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                "tsan", "sanitizer_common", c_src,
+            }),
+            .extra_flags = cflags.items,
+        });
+    }
+
+    const interception_include_path = try comp.zig_lib_directory.join(
+        arena,
+        &[_][]const u8{"interception"},
+    );
+
+    try c_source_files.ensureCapacity(c_source_files.items.len + interception_sources.len);
+    for (interception_sources) |c_src| {
+        var cflags = std.ArrayList([]const u8).init(arena);
+
+        try cflags.append("-I");
+        try cflags.append(interception_include_path);
+
+        try cflags.append("-I");
+        try cflags.append(tsan_include_path);
+
+        try cflags.append("-O3");
+        try cflags.append("-DNDEBUG");
+        try cflags.append("-nostdinc++");
+        try cflags.append("-fvisibility-inlines-hidden");
+        try cflags.append("-std=c++14");
+        try cflags.append("-fno-rtti");
+
+        c_source_files.appendAssumeCapacity(.{
+            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                "tsan", "interception", c_src,
+            }),
+            .extra_flags = cflags.items,
+        });
+    }
+
+    const common_flags = [_][]const u8{
+        "-DTSAN_CONTAINS_UBSAN=0",
+    };
 
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .local_cache_directory = comp.global_cache_directory,
@@ -113,6 +242,8 @@ pub fn buildTsan(comp: *Compilation) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .link_libc = true,
+        .skip_linker_dependencies = true,
+        .clang_argv = &common_flags,
     });
     defer sub_compilation.destroy();
 
@@ -159,6 +290,18 @@ const tsan_sources = [_][]const u8{
     "tsan_sync.cpp",
 };
 
+const darwin_tsan_sources = [_][]const u8{
+    "tsan_interceptors_mac.cpp",
+    "tsan_interceptors_mach_vm.cpp",
+    "tsan_platform_mac.cpp",
+    "tsan_platform_posix.cpp",
+};
+
+const unix_tsan_sources = [_][]const u8{
+    "tsan_platform_linux.cpp",
+    "tsan_platform_posix.cpp",
+};
+
 const sanitizer_common_sources = [_][]const u8{
     "sanitizer_allocator.cpp",
     "sanitizer_common.cpp",
@@ -203,17 +346,42 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_win.cpp",
 };
 
-// TODO This is next up
-//const sanitizer_nolibc_sources = [_][]const u8{
-//    "sanitizer_common_nolibc.cpp",
-//};
-//
-//const sanitizer_libcdep_sources = [_][]const u8{
-//    "sanitizer_common_libcdep.cpp",
-//    "sanitizer_allocator_checks.cpp",
-//    "sanitizer_linux_libcdep.cpp",
-//    "sanitizer_mac_libcdep.cpp",
-//    "sanitizer_posix_libcdep.cpp",
-//    "sanitizer_stoptheworld_linux_libcdep.cpp",
-//    "sanitizer_stoptheworld_netbsd_libcdep.cpp",
-//};
+const sanitizer_nolibc_sources = [_][]const u8{
+    "sanitizer_common_nolibc.cpp",
+};
+
+const sanitizer_libcdep_sources = [_][]const u8{
+    "sanitizer_common_libcdep.cpp",
+    "sanitizer_allocator_checks.cpp",
+    "sanitizer_linux_libcdep.cpp",
+    "sanitizer_mac_libcdep.cpp",
+    "sanitizer_posix_libcdep.cpp",
+    "sanitizer_stoptheworld_linux_libcdep.cpp",
+    "sanitizer_stoptheworld_netbsd_libcdep.cpp",
+};
+
+const sanitizer_symbolizer_sources = [_][]const u8{
+    "sanitizer_allocator_report.cpp",
+    "sanitizer_stackdepot.cpp",
+    "sanitizer_stacktrace.cpp",
+    "sanitizer_stacktrace_libcdep.cpp",
+    "sanitizer_stacktrace_printer.cpp",
+    "sanitizer_stacktrace_sparc.cpp",
+    "sanitizer_symbolizer.cpp",
+    "sanitizer_symbolizer_libbacktrace.cpp",
+    "sanitizer_symbolizer_libcdep.cpp",
+    "sanitizer_symbolizer_mac.cpp",
+    "sanitizer_symbolizer_markup.cpp",
+    "sanitizer_symbolizer_posix_libcdep.cpp",
+    "sanitizer_symbolizer_report.cpp",
+    "sanitizer_symbolizer_win.cpp",
+    "sanitizer_unwind_linux_libcdep.cpp",
+    "sanitizer_unwind_win.cpp",
+};
+
+const interception_sources = [_][]const u8{
+    "interception_linux.cpp",
+    "interception_mac.cpp",
+    "interception_win.cpp",
+    "interception_type_test.cpp",
+};

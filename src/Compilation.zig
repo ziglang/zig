@@ -429,7 +429,11 @@ pub const InitOptions = struct {
     verbose_llvm_cpu_features: bool = false,
     is_test: bool = false,
     test_evented_io: bool = false,
-    is_compiler_rt_or_libc: bool = false,
+    /// Normally when you create a `Compilation`, Zig will automatically build
+    /// and link in required dependencies, such as compiler-rt and libc. When
+    /// building such dependencies themselves, this flag must be set to avoid
+    /// infinite recursion.
+    skip_linker_dependencies: bool = false,
     parent_compilation_link_libc: bool = false,
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
@@ -499,7 +503,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         .Lib => is_dyn_lib,
         .Exe => true,
     };
-    const needs_c_symbols = !options.is_compiler_rt_or_libc and
+    const needs_c_symbols = !options.skip_linker_dependencies and
         (is_exe_or_dyn_lib or (options.target.isWasm() and options.output_mode != .Obj));
 
     const comp: *Compilation = comp: {
@@ -677,6 +681,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :pic explicit;
         } else pie or must_pic;
 
+        // TSAN is implemented in C++ so it requires linking libc++.
+        const link_libcpp = options.link_libcpp or tsan;
+
         // Make a decision on whether to use Clang for translate-c and compiling C files.
         const use_clang = if (options.use_clang) |explicit| explicit else blk: {
             if (build_options.have_llvm) {
@@ -765,7 +772,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.function_sections);
         cache.hash.add(strip);
         cache.hash.add(link_libc);
-        cache.hash.add(options.link_libcpp);
+        cache.hash.add(link_libcpp);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
         cache.hash.addOptionalEmitLoc(options.emit_bin);
@@ -793,7 +800,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             hash.add(single_threaded);
             hash.add(dll_export_fns);
             hash.add(options.is_test);
-            hash.add(options.is_compiler_rt_or_libc);
+            hash.add(options.skip_linker_dependencies);
             hash.add(options.parent_compilation_link_libc);
 
             const digest = hash.final();
@@ -930,7 +937,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .use_llvm = use_llvm,
             .system_linker_hack = darwin_options.system_linker_hack,
             .link_libc = link_libc,
-            .link_libcpp = options.link_libcpp,
+            .link_libcpp = link_libcpp,
             .objects = options.link_objects,
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
@@ -970,7 +977,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .dll_export_fns = dll_export_fns,
             .error_return_tracing = error_return_tracing,
             .llvm_cpu_features = llvm_cpu_features,
-            .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
+            .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
             .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
             .disable_lld_caching = options.disable_lld_caching,
@@ -1044,7 +1051,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
-    if (comp.bin_file.options.emit != null and !comp.bin_file.options.is_compiler_rt_or_libc) {
+    if (comp.bin_file.options.emit != null and !comp.bin_file.options.skip_linker_dependencies) {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
@@ -1097,9 +1104,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         if (comp.wantBuildLibUnwindFromSource()) {
             try comp.work_queue.writeItem(.{ .libunwind = {} });
         }
-        if (build_options.have_llvm and comp.bin_file.options.output_mode != .Obj and
-            comp.bin_file.options.link_libcpp)
-        {
+        if (build_options.have_llvm and is_exe_or_dyn_lib and comp.bin_file.options.link_libcpp) {
             try comp.work_queue.writeItem(.libcxx);
             try comp.work_queue.writeItem(.libcxxabi);
         }
@@ -2772,7 +2777,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
     // in. For example, compiler_rt will not export the __chkstk symbol if it
     // knows libc will provide it, and likewise c.zig will not export memcpy.
     const link_libc = comp.bin_file.options.link_libc or
-        (comp.bin_file.options.is_compiler_rt_or_libc and comp.bin_file.options.parent_compilation_link_libc);
+        (comp.bin_file.options.skip_linker_dependencies and comp.bin_file.options.parent_compilation_link_libc);
 
     try buffer.writer().print(
         \\pub const object_format = ObjectFormat.{};
@@ -2927,7 +2932,7 @@ fn buildOutputFromZig(
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .is_compiler_rt_or_libc = true,
+        .skip_linker_dependencies = true,
         .parent_compilation_link_libc = comp.bin_file.options.link_libc,
     });
     defer sub_compilation.destroy();
@@ -3305,7 +3310,7 @@ pub fn build_crt_file(
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .is_compiler_rt_or_libc = true,
+        .skip_linker_dependencies = true,
         .parent_compilation_link_libc = comp.bin_file.options.link_libc,
     });
     defer sub_compilation.destroy();
@@ -3326,7 +3331,7 @@ pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // Avoid deadlocking on building import libs such as kernel32.lib
     // This can happen when the user uses `build-exe foo.obj -lkernel32` and then
     // when we create a sub-Compilation for zig libc, it also tries to build kernel32.lib.
-    if (comp.bin_file.options.is_compiler_rt_or_libc) return;
+    if (comp.bin_file.options.skip_linker_dependencies) return;
 
     // This happens when an `extern "foo"` function is referenced by the stage1 backend.
     // If we haven't seen this library yet and we're targeting Windows, we need to queue up

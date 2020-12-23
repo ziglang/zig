@@ -438,7 +438,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         man.hash.addListOfBytes(self.base.options.framework_dirs);
         man.hash.addListOfBytes(self.base.options.frameworks);
         man.hash.addListOfBytes(self.base.options.rpath_list);
-        man.hash.add(self.base.options.is_compiler_rt_or_libc);
+        man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
         man.hash.add(self.base.options.z_defs);
         if (is_dyn_lib) {
@@ -633,7 +633,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         }
 
         // compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
-        if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
+        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies) {
             try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
         }
 

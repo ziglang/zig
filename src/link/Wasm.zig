@@ -387,7 +387,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
     }
 
     if (self.base.options.output_mode != .Obj and
-        !self.base.options.is_compiler_rt_or_libc and
+        !self.base.options.skip_linker_dependencies and
         !self.base.options.link_libc)
     {
         try argv.append(comp.libc_static_lib.?.full_object_path);

@@ -225,7 +225,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .c_source_files = &[_]Compilation.CSourceFile{
                     .{ .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "libc.s" }) },
                 },
-                .is_compiler_rt_or_libc = true,
+                .skip_linker_dependencies = true,
                 .soname = "libc.so",
             });
             defer sub_compilation.destroy();
