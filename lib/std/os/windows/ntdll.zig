@@ -119,5 +119,5 @@ pub extern "NtDll" fn NtQueryObject(
     ObjectInformationClass: OBJECT_INFORMATION_CLASS,
     ObjectInformation: PVOID,
     ObjectInformationLength: ULONG,
-    ReturnLength: ?PULONG,
+    ReturnLength: ?*ULONG,
 ) callconv(WINAPI) NTSTATUS;
