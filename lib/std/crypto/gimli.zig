@@ -229,18 +229,17 @@ pub const Hash = struct {
         const buf = self.state.toSlice();
         var in = data;
         while (in.len > 0) {
-            var left = State.RATE - self.buf_off;
-            if (left == 0) {
-                self.state.permute();
-                self.buf_off = 0;
-                left = State.RATE;
-            }
+            const left = State.RATE - self.buf_off;
             const ps = math.min(in.len, left);
             for (buf[self.buf_off .. self.buf_off + ps]) |*p, i| {
                 p.* ^= in[i];
             }
             self.buf_off += ps;
             in = in[ps..];
+            if (self.buf_off == State.RATE) {
+                self.state.permute();
+                self.buf_off = 0;
+            }
         }
     }
 
@@ -275,6 +274,22 @@ test "hash" {
     var md: [32]u8 = undefined;
     hash(&md, &msg, .{});
     htest.assertEqual("1C9A03DC6A5DDC5444CFC6F4B154CFF5CF081633B2CEA4D7D0AE7CCFED5AAA44", &md);
+}
+
+test "hash test vector 17" {
+    var msg: [32 / 2]u8 = undefined;
+    try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F");
+    var md: [32]u8 = undefined;
+    hash(&md, &msg, .{});
+    htest.assertEqual("404C130AF1B9023A7908200919F690FFBB756D5176E056FFDE320016A37C7282", &md);
+}
+
+test "hash test vector 33" {
+    var msg: [32]u8 = undefined;
+    try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
+    var md: [32]u8 = undefined;
+    hash(&md, &msg, .{});
+    htest.assertEqual("A8F4FA28708BDA7EFB4C1914CA4AFA9E475B82D588D36504F87DBB0ED9AB3C4B", &md);
 }
 
 pub const Aead = struct {
