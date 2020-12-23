@@ -748,9 +748,8 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
 
 /// Caller must dealloc.
 fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8) ![:0]u8 {
-    var buf = try ArrayList(u8).init(allocator);
+    var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
-    const buf_wi = buf.outStream();
 
     for (argv) |arg, arg_i| {
         if (arg_i != 0) try buf.append(' ');

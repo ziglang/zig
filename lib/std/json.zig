@@ -1553,7 +1553,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                     switch (stringToken.escapes) {
                         .None => mem.copy(u8, &r, source_slice),
-                        .Some => try unescapeString(&r, source_slice),
+                        .Some => try unescapeValidString(&r, source_slice),
                     }
                     return r;
                 },
@@ -1600,7 +1600,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                 .Some => |some_escapes| {
                                     const output = try allocator.alloc(u8, stringToken.decodedLength());
                                     errdefer allocator.free(output);
-                                    try unescapeString(output, source_slice);
+                                    try unescapeValidString(output, source_slice);
                                     return output;
                                 },
                             }
@@ -2084,7 +2084,7 @@ pub const Parser = struct {
             .Some => |some_escapes| {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);
-                try unescapeString(output, slice);
+                try unescapeValidString(output, slice);
                 return Value{ .String = output };
             },
         }
@@ -2098,10 +2098,10 @@ pub const Parser = struct {
     }
 };
 
-// Unescape a JSON string
-// Only to be used on strings already validated by the parser
-// (note the unreachable statements and lack of bounds checking)
-pub fn unescapeString(output: []u8, input: []const u8) !void {
+/// Unescape a JSON string
+/// Only to be used on strings already validated by the parser
+/// (note the unreachable statements and lack of bounds checking)
+pub fn unescapeValidString(output: []u8, input: []const u8) !void {
     var inIndex: usize = 0;
     var outIndex: usize = 0;
 

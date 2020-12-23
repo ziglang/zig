@@ -94,7 +94,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSliceSentinel(self: *Self, comptime sentinel: T) ![:sentinel]T {
             try self.append(sentinel);
-            const result = self.list.toOwnedSlice();
+            const result = self.toOwnedSlice();
             return result[0 .. result.len - 1 :sentinel];
         }
 
@@ -399,7 +399,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSliceSentinel(self: *Self, allocator: *Allocator, comptime sentinel: T) ![:sentinel]T {
             try self.append(allocator, sentinel);
-            const result = self.list.toOwnedSlice(allocator);
+            const result = self.toOwnedSlice(allocator);
             return result[0 .. result.len - 1 :sentinel];
         }
 
@@ -1133,5 +1133,29 @@ test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {
         list.addManyAsArrayAssumeCapacity(4).* = "asdf".*;
 
         testing.expectEqualSlices(u8, list.items, "aoeuasdf");
+    }
+}
+
+test "std.ArrayList/ArrayListUnmanaged.toOwnedSliceSentinel" {
+    const a = testing.allocator;
+    {
+        var list = ArrayList(u8).init(a);
+        defer list.deinit();
+
+        try list.appendSlice("foobar");
+
+        const result = try list.toOwnedSliceSentinel(0);
+        defer a.free(result);
+        testing.expectEqualStrings(result, mem.spanZ(result.ptr));
+    }
+    {
+        var list = ArrayListUnmanaged(u8){};
+        defer list.deinit(a);
+
+        try list.appendSlice(a, "foobar");
+
+        const result = try list.toOwnedSliceSentinel(a, 0);
+        defer a.free(result);
+        testing.expectEqualStrings(result, mem.spanZ(result.ptr));
     }
 }
