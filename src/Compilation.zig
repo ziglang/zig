@@ -2076,10 +2076,6 @@ pub fn addCCArgs(
         try argv.append("-ffunction-sections");
     }
 
-    if (comp.bin_file.options.tsan) {
-        try argv.append("-fsanitize=thread");
-    }
-
     try argv.ensureCapacity(argv.items.len + comp.bin_file.options.framework_dirs.len * 2);
     for (comp.bin_file.options.framework_dirs) |framework_dir| {
         argv.appendAssumeCapacity("-iframework");
@@ -2203,9 +2199,14 @@ pub fn addCCArgs(
                 try argv.append("-fomit-frame-pointer");
             }
 
-            if (comp.sanitize_c) {
+            if (comp.sanitize_c and !comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=undefined");
                 try argv.append("-fsanitize-trap=undefined");
+            } else if (comp.sanitize_c and comp.bin_file.options.tsan) {
+                try argv.append("-fsanitize=undefined,thread");
+                try argv.append("-fsanitize-trap=undefined");
+            } else if (!comp.sanitize_c and comp.bin_file.options.tsan) {
+                try argv.append("-fsanitize=thread");
             }
 
             switch (comp.bin_file.options.optimize_mode) {
