@@ -56,7 +56,9 @@ pub const Inst = struct {
         alloc,
         arg,
         assembly,
+        bitand,
         bitcast,
+        bitor,
         block,
         br,
         breakpoint,
@@ -93,6 +95,7 @@ pub const Inst = struct {
         intcast,
         unwrap_optional,
         wrap_optional,
+        xor,
         switchbr,
 
         pub fn Type(tag: Tag) type {
@@ -130,6 +133,9 @@ pub const Inst = struct {
                 .store,
                 .booland,
                 .boolor,
+                .bitand,
+                .bitor,
+                .xor,
                 => BinOp,
 
                 .arg => Arg,

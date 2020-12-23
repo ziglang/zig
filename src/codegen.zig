@@ -764,6 +764,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .arg => return self.genArg(inst.castTag(.arg).?),
                 .assembly => return self.genAsm(inst.castTag(.assembly).?),
                 .bitcast => return self.genBitCast(inst.castTag(.bitcast).?),
+                .bitand => return self.genBitAnd(inst.castTag(.bitand).?),
+                .bitor => return self.genBitOr(inst.castTag(.bitor).?),
                 .block => return self.genBlock(inst.castTag(.block).?),
                 .br => return self.genBr(inst.castTag(.br).?),
                 .breakpoint => return self.genBreakpoint(inst.src),
@@ -799,6 +801,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
                 .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
+                .xor => return self.genXor(inst.castTag(.xor).?),
             }
         }
 
@@ -1006,6 +1009,36 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .add),
                 else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genBitAnd(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .bitand),
+                else => return self.fail(inst.base.src, "TODO implement bitwise and for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genBitOr(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .bitor),
+                else => return self.fail(inst.base.src, "TODO implement bitwise or for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genXor(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .xor),
+                else => return self.fail(inst.base.src, "TODO implement xor for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -1251,13 +1284,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.rsb(.al, dst_reg, dst_reg, operand).toU32());
                     }
                 },
-                .booland => {
+                .booland, .bitand => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.@"and"(.al, dst_reg, dst_reg, operand).toU32());
                 },
-                .boolor => {
+                .boolor, .bitor => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, dst_reg, dst_reg, operand).toU32());
                 },
-                .not => {
+                .not, .xor => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.eor(.al, dst_reg, dst_reg, operand).toU32());
                 },
                 else => unreachable, // not a binary instruction
