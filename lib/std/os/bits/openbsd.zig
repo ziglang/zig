@@ -809,6 +809,60 @@ comptime {
         std.debug.assert(@sizeOf(siginfo_t) == 136);
 }
 
+pub usingnamespace switch (builtin.arch) {
+    .x86_64 => struct {
+        pub const ucontext_t = extern struct {
+            sc_rdi: c_long,
+            sc_rsi: c_long,
+            sc_rdx: c_long,
+            sc_rcx: c_long,
+            sc_r8: c_long,
+            sc_r9: c_long,
+            sc_r10: c_long,
+            sc_r11: c_long,
+            sc_r12: c_long,
+            sc_r13: c_long,
+            sc_r14: c_long,
+            sc_r15: c_long,
+            sc_rbp: c_long,
+            sc_rbx: c_long,
+            sc_rax: c_long,
+            sc_gs: c_long,
+            sc_fs: c_long,
+            sc_es: c_long,
+            sc_ds: c_long,
+            sc_trapno: c_long,
+            sc_err: c_long,
+            sc_rip: c_long,
+            sc_cs: c_long,
+            sc_rflags: c_long,
+            sc_rsp: c_long,
+            sc_ss: c_long,
+
+            sc_fpstate: fxsave64,
+            __sc_unused: c_int,
+            sc_mask: c_int,
+            sc_cookie: c_long,
+        };
+
+        pub const fxsave64 = packed struct {
+            fx_fcw: u16,
+            fx_fsw: u16,
+            fx_ftw: u8,
+            fx_unused1: u8,
+            fx_fop: u16,
+            fx_rip: u64,
+            fx_rdp: u64,
+            fx_mxcsr: u32,
+            fx_mxcsr_mask: u32,
+            fx_st: [8][2]u64,
+            fx_xmm: [16][2]u64,
+            fx_unused3: [96]u8,
+        };
+    },
+    else => struct {},
+};
+
 pub const sigset_t = c_uint;
 pub const empty_sigset: sigset_t = 0;
 
