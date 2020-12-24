@@ -105,7 +105,7 @@ pub const DebugEvent = struct {
         }
     }
 
-    fn timedWait(ev: *DebugEvent, timeout: u64) TimedWaitResult {
+    pub fn timedWait(ev: *DebugEvent, timeout: u64) TimedWaitResult {
         switch (ev.state) {
             .unset => return .timed_out,
             .set => return .event_set,

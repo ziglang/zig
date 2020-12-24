@@ -758,7 +758,8 @@ test "open file with exclusive lock twice, make sure it waits" {
         }
     };
 
-    var evt = std.ResetEvent.init();
+    var evt: std.ResetEvent = undefined;
+    try evt.init();
     defer evt.deinit();
 
     const t = try std.Thread.spawn(S.C{ .dir = &tmp.dir, .evt = &evt }, S.checkFn);
