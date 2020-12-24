@@ -19,16 +19,6 @@
 #define compilerrt_abort() __builtin_unreachable()
 
 #include <unwind.h>
-#if defined(__arm__) && !defined(__ARM_DWARF_EH__) &&                          \
-    !defined(__USING_SJLJ_EXCEPTIONS__)
-// When building with older compilers (e.g. clang <3.9), it is possible that we
-// have a version of unwind.h which does not provide the EHABI declarations
-// which are quired for the C personality to conform to the specification.  In
-// order to provide forward compatibility for such compilers, we re-declare the
-// necessary interfaces in the helper to permit a standalone compilation of the
-// builtins (which contains the C unwinding personality for historical reasons).
-#include "unwind-ehabi-helpers.h"
-#endif
 
 // Pointer encodings documented at:
 //   http://refspecs.freestandards.org/LSB_1.3.0/gLSB/gLSB/ehframehdr.html

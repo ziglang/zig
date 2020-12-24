@@ -81,7 +81,12 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         if (comp.bin_file.options.single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
+        if (target.cpu.arch.isARM() and target.abi.floatAbi() == .hard) {
+            try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
+        }
         try cflags.append("-Wno-bitwise-conditional-parentheses");
+        try cflags.append("-Wno-visibility");
+        try cflags.append("-Wno-incompatible-pointer-types");
 
         c_source_files[i] = .{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{unwind_src}),
