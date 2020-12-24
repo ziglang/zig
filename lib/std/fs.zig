@@ -1168,8 +1168,9 @@ pub const Dir = struct {
     /// Asserts that the path parameter has no null bytes.
     pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openDirW(sub_path_w.span().ptr, args);
+            const nt_path = try os.windows.NtPath.initA(sub_path);
+            defer nt_path.deinit();
+            return self.openDirWindows(std.fs.path.isAbsoluteWindows(sub_path), nt_path.str, args);
         } else if (builtin.os.tag == .wasi) {
             return self.openDirWasi(sub_path, args);
         } else {
@@ -1223,8 +1224,7 @@ pub const Dir = struct {
     /// Same as `openDir` except the parameter is null-terminated.
     pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.openDirW(sub_path_w.span().ptr, args);
+            return self.openDir(std.mem.spanZ(sub_path_c), args);
         }
         const symlink_flags: u32 = if (args.no_follow) os.O_NOFOLLOW else 0x0;
         if (!args.iterate) {
@@ -1235,15 +1235,13 @@ pub const Dir = struct {
         }
     }
 
-    /// Same as `openDir` except the path parameter is WTF-16 encoded, NT-prefixed.
+    /// Same as `openDir` except the path parameter is WTF-16 encoded.
     /// This function asserts the target OS is Windows.
     pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) OpenError!Dir {
         const w = os.windows;
-        // TODO remove some of these flags if args.access_sub_paths is false
-        const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
-            w.SYNCHRONIZE | w.FILE_TRAVERSE;
-        const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        return self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
+        const nt_path = try w.NtPath.init(sub_path_w);
+        defer nt_path.deinit();
+        return self.openDirWindows(std.fs.path.isAbsoluteWindowsW(sub_path_w), nt_path.str, args);
     }
 
     /// `flags` must contain `os.O_DIRECTORY`.
@@ -1264,37 +1262,28 @@ pub const Dir = struct {
         return Dir{ .fd = fd };
     }
 
-    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, no_follow: bool) OpenError!Dir {
+    fn openDirWindows(self: Dir, is_absolute: bool, nt_path: os.windows.UNICODE_STRING, args: OpenDirOptions) OpenError!Dir {
         const w = os.windows;
+
+        // TODO remove some of these flags if args.access_sub_paths is false
+        const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
+            w.SYNCHRONIZE | w.FILE_TRAVERSE;
+        const access_mask: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
 
         var result = Dir{
             .fd = undefined,
         };
 
-        const path_len_bytes = @intCast(u16, mem.lenZ(sub_path_w) * 2);
-        var nt_name = w.UNICODE_STRING{
-            .Length = path_len_bytes,
-            .MaximumLength = path_len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
-        };
+        var adjusted_nt_path = if (is_absolute) nt_path else try w.toRelativeNtPath(nt_path);
         var attr = w.OBJECT_ATTRIBUTES{
             .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-            .RootDirectory = if (path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
+            .RootDirectory = if (is_absolute) null else self.fd,
             .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-            .ObjectName = &nt_name,
+            .ObjectName = &adjusted_nt_path,
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-            // Windows does not recognize this, but it does work with empty string.
-            nt_name.Length = 0;
-        }
-        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-            // If you're looking to contribute to zig and fix this, see here for an example of how to
-            // implement this: https://git.midipix.org/ntapi/tree/src/fs/ntapi_tt_open_physical_parent_directory.c
-            @panic("TODO opening '..' with a relative directory handle is not yet implemented on Windows");
-        }
-        const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
+        const open_reparse_point: w.DWORD = if (args.no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,

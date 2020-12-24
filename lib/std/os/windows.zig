@@ -1569,6 +1569,54 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     return path_space;
 }
 
+/// Convert `dos_path` to an NT path that can be passed to Nt* functions like NtCreateFile.
+pub const NtPath = struct {
+    str: UNICODE_STRING,
+    pub fn initA(dos_path: []const u8) !NtPath {
+        var path_space : PathSpace = undefined;
+        path_space.len = try std.unicode.utf8ToUtf16Le(&path_space.data, dos_path);
+        path_space.data[path_space.len] = 0;
+        return init(path_space.span());
+    }
+    pub fn init(dos_path: [*:0]const u16) !NtPath {
+        var str : UNICODE_STRING = undefined;
+        const status = ntdll.RtlDosPathNameToNtPathName_U_WithStatus(dos_path, &str, null, null);
+        if (status != .SUCCESS) return unexpectedStatus(status);
+        return NtPath { .str = str };
+    }
+    // TODO: not sure if the path is guaranteed to be NULL-terminted
+    pub fn span(self: NtPath) []const u16 {
+        return self.str.Buffer[0 .. self.str.Length / 2];
+    }
+    pub fn deinit(self: NtPath) void {
+        if (TRUE != kernel32.HeapFree(kernel32.GetProcessHeap().?, 0, self.str.Buffer)) {
+            std.debug.panic("in NtPath, HeapFree failed with {}\n", .{kernel32.GetLastError()});
+        }
+    }
+};
+
+/// return the relative path of `nt_path` based on CWD
+pub fn toRelativeNtPath(nt_path: UNICODE_STRING) !UNICODE_STRING {
+    const cwd_nt_path = try NtPath.init(&[_:0]u16 {'.'});
+    defer cwd_nt_path.deinit();
+    const cwd_span = cwd_nt_path.span();
+    std.debug.assert(mem.startsWith(u16, unicodeSpan(nt_path), cwd_span));
+    std.debug.assert(nt_path.Buffer[cwd_span.len] == '\\');
+    return unicodeSubstring(nt_path, @intCast(c_ushort, cwd_span.len + 1));
+}
+
+pub fn unicodeSpan(str: UNICODE_STRING) []u16 {
+    return str.Buffer[0..str.Length/2];
+}
+pub fn unicodeSubstring(str: UNICODE_STRING, char_offset: c_ushort) UNICODE_STRING {
+    std.debug.assert(char_offset * 2 <= str.Length);
+    return .{
+        .Buffer = str.Buffer + char_offset,
+        .MaximumLength = str.MaximumLength - (char_offset*2),
+        .Length = str.Length - (char_offset*2),
+    };
+}
+
 /// Assumes an absolute path.
 pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
@@ -1636,4 +1684,10 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+test "" {
+    if (builtin.os.tag == .windows) {
+        _ = @import("windows/test.zig");
+    }
 }

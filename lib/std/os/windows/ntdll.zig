@@ -113,3 +113,10 @@ pub extern "NtDll" fn NtWaitForKeyedEvent(
 ) callconv(WINAPI) NTSTATUS;
 
 pub extern "NtDll" fn RtlSetCurrentDirectory_U(PathName: *UNICODE_STRING) callconv(WINAPI) NTSTATUS;
+
+pub extern "NtDll" fn RtlDosPathNameToNtPathName_U_WithStatus(
+  DosFileName: [*:0]const WCHAR,
+  NtFileName: *UNICODE_STRING,
+  FilePath: ?*[*:0]WCHAR,
+  cd: ?*CURDIR,
+) callconv(WINAPI) NTSTATUS;
