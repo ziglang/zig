@@ -2160,33 +2160,20 @@ fn transCCast(
     }
     if (qualTypeIsBoolean(src_type) and !qualTypeIsBoolean(dst_type)) {
         // @boolToInt returns either a comptime_int or a u1
+        // TODO: if dst_type is 1 bit & signed (bitfield) we need @bitCast
+        // instead of @as
+
         const builtin_node = try rp.c.createBuiltinCall("@boolToInt", 1);
         builtin_node.params()[0] = expr;
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
-        const inner_cast_node = try rp.c.createBuiltinCall("@intCast", 2);
-        inner_cast_node.params()[0] = try transCreateNodeIdentifier(rp.c, "u1");
+        const as_node = try rp.c.createBuiltinCall("@as", 2);
+        as_node.params()[0] = try transQualType(rp, dst_type, loc);
         _ = try appendToken(rp.c, .Comma, ",");
-        inner_cast_node.params()[1] = &builtin_node.base;
-        inner_cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        as_node.params()[1] = &builtin_node.base;
+        as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
-        const cast_node = try rp.c.createBuiltinCall("@intCast", 2);
-        cast_node.params()[0] = try transQualType(rp, dst_type, loc);
-        _ = try appendToken(rp.c, .Comma, ",");
-
-        if (cIsSignedInteger(dst_type)) {
-            const bitcast_node = try rp.c.createBuiltinCall("@bitCast", 2);
-            bitcast_node.params()[0] = try transCreateNodeIdentifier(rp.c, "i1");
-            _ = try appendToken(rp.c, .Comma, ",");
-            bitcast_node.params()[1] = &inner_cast_node.base;
-            bitcast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-            cast_node.params()[1] = &bitcast_node.base;
-        } else {
-            cast_node.params()[1] = &inner_cast_node.base;
-        }
-        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-
-        return &cast_node.base;
+        return &as_node.base;
     }
     if (cIsEnum(dst_type)) {
         const builtin_node = try rp.c.createBuiltinCall("@intToEnum", 2);
