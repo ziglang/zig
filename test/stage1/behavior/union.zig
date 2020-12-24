@@ -761,3 +761,18 @@ test "@unionInit on union w/ tag but no fields" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "union enum type gets a separate scope" {
+    const S = struct {
+        const U = union(enum) {
+            a: u8,
+            const foo = 1;
+        };
+
+        fn doTheTest() void {
+            expect(!@hasDecl(@TagType(U), "foo"));
+        }
+    };
+
+    S.doTheTest();
+}
