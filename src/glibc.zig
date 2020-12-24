@@ -936,7 +936,7 @@ fn buildSharedLib(
         .root_pkg = null,
         .output_mode = .Lib,
         .link_mode = .Dynamic,
-        .rand = comp.rand,
+        .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
         .optimize_mode = comp.bin_file.options.optimize_mode,

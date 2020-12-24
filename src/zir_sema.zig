@@ -119,6 +119,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .iserr => return analyzeInstIsErr(mod, scope, old_inst.castTag(.iserr).?),
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
+        .typeof_peer => return analyzeInstTypeOfPeer(mod, scope, old_inst.castTag(.typeof_peer).?),
         .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
         .unwrap_optional_safe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_safe).?, true),
         .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
@@ -1481,7 +1482,66 @@ fn analyzeInstShr(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError
 }
 
 fn analyzeInstBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitwise", .{});
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const lhs = try resolveInst(mod, scope, inst.positionals.lhs);
+    const rhs = try resolveInst(mod, scope, inst.positionals.rhs);
+
+    const instructions = &[_]*Inst{ lhs, rhs };
+    const resolved_type = try mod.resolvePeerTypes(scope, instructions);
+    const casted_lhs = try mod.coerce(scope, resolved_type, lhs);
+    const casted_rhs = try mod.coerce(scope, resolved_type, rhs);
+
+    const scalar_type = if (resolved_type.zigTypeTag() == .Vector)
+        resolved_type.elemType()
+    else
+        resolved_type;
+
+    const scalar_tag = scalar_type.zigTypeTag();
+
+    if (lhs.ty.zigTypeTag() == .Vector and rhs.ty.zigTypeTag() == .Vector) {
+        if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
+            return mod.fail(scope, inst.base.src, "vector length mismatch: {} and {}", .{
+                lhs.ty.arrayLen(),
+                rhs.ty.arrayLen(),
+            });
+        }
+        return mod.fail(scope, inst.base.src, "TODO implement support for vectors in analyzeInstBitwise", .{});
+    } else if (lhs.ty.zigTypeTag() == .Vector or rhs.ty.zigTypeTag() == .Vector) {
+        return mod.fail(scope, inst.base.src, "mixed scalar and vector operands to binary expression: '{}' and '{}'", .{
+            lhs.ty,
+            rhs.ty,
+        });
+    }
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    if (!is_int) {
+        return mod.fail(scope, inst.base.src, "invalid operands to binary bitwise expression: '{}' and '{}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
+    }
+
+    if (casted_lhs.value()) |lhs_val| {
+        if (casted_rhs.value()) |rhs_val| {
+            if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                return mod.constInst(scope, inst.base.src, .{
+                    .ty = resolved_type,
+                    .val = Value.initTag(.undef),
+                });
+            }
+            return mod.fail(scope, inst.base.src, "TODO implement comptime bitwise operations", .{});
+        }
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const ir_tag = switch (inst.base.tag) {
+        .bitand => Inst.Tag.bitand,
+        .bitor => Inst.Tag.bitor,
+        .xor => Inst.Tag.xor,
+        else => unreachable,
+    };
+
+    return mod.addBinOp(b, inst.base.src, scalar_type, ir_tag, casted_lhs, casted_rhs);
 }
 
 fn analyzeInstBitNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
@@ -1524,7 +1584,7 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
         }
         return mod.fail(scope, inst.base.src, "TODO implement support for vectors in analyzeInstBinOp", .{});
     } else if (lhs.ty.zigTypeTag() == .Vector or rhs.ty.zigTypeTag() == .Vector) {
-        return mod.fail(scope, inst.base.src, "mixed scalar and vector operands to comparison operator: '{}' and '{}'", .{
+        return mod.fail(scope, inst.base.src, "mixed scalar and vector operands to binary expression: '{}' and '{}'", .{
             lhs.ty,
             rhs.ty,
         });
@@ -1686,6 +1746,11 @@ fn analyzeInstCmp(
         // signed-ness, comptime-ness, and bit-width. So peer type resolution is incorrect for
         // numeric types.
         return mod.cmpNumeric(scope, inst.base.src, lhs, rhs, op);
+    } else if (lhs_ty_tag == .Type and rhs_ty_tag == .Type) {
+        if (!is_equality_cmp) {
+            return mod.fail(scope, inst.base.src, "{} operator not allowed for types", .{@tagName(op)});
+        }
+        return mod.constBool(scope, inst.base.src, lhs.value().?.eql(rhs.value().?) == (op == .eq));
     }
     return mod.fail(scope, inst.base.src, "TODO implement more cmp analysis", .{});
 }
@@ -1693,6 +1758,16 @@ fn analyzeInstCmp(
 fn analyzeInstTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.constType(scope, inst.base.src, operand.ty);
+}
+
+fn analyzeInstTypeOfPeer(mod: *Module, scope: *Scope, inst: *zir.Inst.TypeOfPeer) InnerError!*Inst {
+    var insts_to_res = try mod.gpa.alloc(*ir.Inst, inst.positionals.items.len);
+    defer mod.gpa.free(insts_to_res);
+    for (inst.positionals.items) |item, i| {
+        insts_to_res[i] = try resolveInst(mod, scope, item);
+    }
+    const pt_res = try mod.resolvePeerTypes(scope, insts_to_res);
+    return mod.constType(scope, inst.base.src, pt_res);
 }
 
 fn analyzeInstBoolNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {

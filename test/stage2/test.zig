@@ -370,6 +370,64 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+    {
+        var case = ctx.exe("@TypeOf", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var x: usize = 0;
+            \\    const z = @TypeOf(x, @as(u128, 5));
+            \\    assert(z == u128);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const z = @TypeOf(true);
+            \\    assert(z == bool);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const z = @TypeOf(true, 1);
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":2:29: error: incompatible types: 'bool' and 'comptime_int'"});
+    }
 
     {
         var case = ctx.exe("assert function", linux_x64);

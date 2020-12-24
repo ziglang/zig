@@ -745,33 +745,33 @@ pub fn setregid(rgid: gid_t, egid: gid_t) usize {
 
 pub fn getuid() uid_t {
     if (@hasField(SYS, "getuid32")) {
-        return @as(uid_t, syscall0(.getuid32));
+        return @intCast(uid_t, syscall0(.getuid32));
     } else {
-        return @as(uid_t, syscall0(.getuid));
+        return @intCast(uid_t, syscall0(.getuid));
     }
 }
 
 pub fn getgid() gid_t {
     if (@hasField(SYS, "getgid32")) {
-        return @as(gid_t, syscall0(.getgid32));
+        return @intCast(gid_t, syscall0(.getgid32));
     } else {
-        return @as(gid_t, syscall0(.getgid));
+        return @intCast(gid_t, syscall0(.getgid));
     }
 }
 
 pub fn geteuid() uid_t {
     if (@hasField(SYS, "geteuid32")) {
-        return @as(uid_t, syscall0(.geteuid32));
+        return @intCast(uid_t, syscall0(.geteuid32));
     } else {
-        return @as(uid_t, syscall0(.geteuid));
+        return @intCast(uid_t, syscall0(.geteuid));
     }
 }
 
 pub fn getegid() gid_t {
     if (@hasField(SYS, "getegid32")) {
-        return @as(gid_t, syscall0(.getegid32));
+        return @intCast(gid_t, syscall0(.getegid32));
     } else {
-        return @as(gid_t, syscall0(.getegid));
+        return @intCast(gid_t, syscall0(.getegid));
     }
 }
 
@@ -1349,6 +1349,10 @@ pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit,
         @ptrToInt(new_limit),
         @ptrToInt(old_limit),
     );
+}
+
+pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
+    return syscall3(.madvise, @ptrToInt(address), len, advice);
 }
 
 test "" {

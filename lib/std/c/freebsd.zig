@@ -47,6 +47,15 @@ pub const pthread_attr_t = extern struct {
     __align: c_long,
 };
 
+pub const sem_t = extern struct {
+    _magic: u32,
+    _kern: extern struct {
+        _count: u32,
+        _flags: u32,
+    },
+    _padding: u32,
+};
+
 pub const EAI = extern enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,

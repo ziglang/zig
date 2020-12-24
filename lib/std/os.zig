@@ -4774,6 +4774,12 @@ pub const SendError = error{
     BrokenPipe,
 
     FileDescriptorNotASocket,
+
+    /// Network is unreachable.
+    NetworkUnreachable,
+
+    /// The local network interface used to reach the destination is down.
+    NetworkSubsystemFailed,
 } || UnexpectedError;
 
 pub const SendToError = SendError || error{
@@ -4790,15 +4796,8 @@ pub const SendToError = SendError || error{
     FileNotFound,
     NotDir,
 
-    /// Network is unreachable.
-    NetworkUnreachable,
-
-    /// Insufficient memory was available to fulfill the request.
-    SystemResources,
-
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
-    WouldBlock,
     AddressNotAvailable,
 };
 
@@ -4853,7 +4852,7 @@ pub fn sendto(
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
                     // TODO: WSAEINPROGRESS, WSAEINTR
                     .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkUnreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENETUNREACH => return error.NetworkUnreachable,
                     .WSAENOTCONN => return error.SocketNotConnected,
@@ -4882,7 +4881,6 @@ pub fn sendto(
                 EMSGSIZE => return error.MessageTooBig,
                 ENOBUFS => return error.SystemResources,
                 ENOMEM => return error.SystemResources,
-                ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
                 ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
                 EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
                 EPIPE => return error.BrokenPipe,
@@ -4892,6 +4890,9 @@ pub fn sendto(
                 ENOENT => return error.FileNotFound,
                 ENOTDIR => return error.NotDir,
                 EHOSTUNREACH => return error.NetworkUnreachable,
+                ENETUNREACH => return error.NetworkUnreachable,
+                ENOTCONN => return error.SocketNotConnected,
+                ENETDOWN => return error.NetworkSubsystemFailed,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -4923,7 +4924,16 @@ pub fn send(
     buf: []const u8,
     flags: u32,
 ) SendError!usize {
-    return sendto(sockfd, buf, flags, null, 0);
+    return sendto(sockfd, buf, flags, null, 0) catch |err| switch (err) {
+        error.AddressFamilyNotSupported => unreachable,
+        error.SymLinkLoop => unreachable,
+        error.NameTooLong => unreachable,
+        error.FileNotFound => unreachable,
+        error.NotDir => unreachable,
+        error.NetworkUnreachable => unreachable,
+        error.AddressNotAvailable => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub const SendFileError = PReadError || WriteError || SendError;
@@ -5842,6 +5852,54 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
         EFAULT => unreachable, // bogus pointer
         EINVAL => unreachable,
         EPERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const MadviseError = error{
+    /// advice is MADV_REMOVE, but the specified address range is not a shared writable mapping.
+    AccessDenied,
+    /// advice is MADV_HWPOISON, but the caller does not have the CAP_SYS_ADMIN capability.
+    PermissionDenied,
+    /// A kernel resource was temporarily unavailable.
+    SystemResources,
+    /// One of the following:
+    /// * addr is not page-aligned or length is negative
+    /// * advice is not valid
+    /// * advice is MADV_DONTNEED or MADV_REMOVE and the specified address range
+    ///   includes locked, Huge TLB pages, or VM_PFNMAP pages.
+    /// * advice is MADV_MERGEABLE or MADV_UNMERGEABLE, but the kernel was not
+    ///   configured with CONFIG_KSM.
+    /// * advice is MADV_FREE or MADV_WIPEONFORK but the specified address range
+    ///   includes file, Huge TLB, MAP_SHARED, or VM_PFNMAP ranges.
+    InvalidSyscall,
+    /// (for MADV_WILLNEED) Paging in this area would exceed the process's
+    /// maximum resident set size.
+    WouldExceedMaximumResidentSetSize,
+    /// One of the following:
+    /// * (for MADV_WILLNEED) Not enough memory: paging in failed.
+    /// * Addresses in the specified range are not currently mapped, or
+    ///   are outside the address space of the process.
+    OutOfMemory,
+    /// The madvise syscall is not available on this version and configuration
+    /// of the Linux kernel.
+    MadviseUnavailable,
+    /// The operating system returned an undocumented error code.
+    Unexpected,
+};
+
+/// Give advice about use of memory.
+/// This syscall is optional and is sometimes configured to be disabled.
+pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
+    switch (errno(system.madvise(ptr, length, advice))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EAGAIN => return error.SystemResources,
+        EBADF => unreachable, // The map exists, but the area maps something that isn't a file.
+        EINVAL => return error.InvalidSyscall,
+        EIO => return error.WouldExceedMaximumResidentSetSize,
+        ENOMEM => return error.OutOfMemory,
+        ENOSYS => return error.MadviseUnavailable,
         else => |err| return unexpectedErrno(err),
     }
 }

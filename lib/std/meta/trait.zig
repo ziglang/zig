@@ -476,14 +476,18 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         else => return false, // TODO can we know if it's true for some of these types ?
 
         .AnyFrame,
-        .Bool,
         .BoundFn,
         .Enum,
         .ErrorSet,
         .Fn,
-        .Int, // TODO check that it is still true
         .Pointer,
         => return true,
+
+        .Bool => return false,
+
+        // The padding bits are undefined.
+        .Int => |info| return (info.bits % 8) == 0 and
+            (info.bits == 0 or std.math.isPowerOfTwo(info.bits)),
 
         .Array => |info| return comptime hasUniqueRepresentation(info.child),
 
@@ -525,14 +529,10 @@ test "std.meta.trait.hasUniqueRepresentation" {
 
     testing.expect(hasUniqueRepresentation(TestStruct3));
 
-    testing.expect(hasUniqueRepresentation(i1));
-    testing.expect(hasUniqueRepresentation(u2));
-    testing.expect(hasUniqueRepresentation(i3));
-    testing.expect(hasUniqueRepresentation(u4));
-    testing.expect(hasUniqueRepresentation(i5));
-    testing.expect(hasUniqueRepresentation(u6));
-    testing.expect(hasUniqueRepresentation(i7));
-    testing.expect(hasUniqueRepresentation(u8));
-    testing.expect(hasUniqueRepresentation(i9));
-    testing.expect(hasUniqueRepresentation(u10));
+    inline for ([_]type{ i0, u8, i16, u32, i64 }) |T| {
+        testing.expect(hasUniqueRepresentation(T));
+    }
+    inline for ([_]type{ i1, u9, i17, u33, i24 }) |T| {
+        testing.expect(!hasUniqueRepresentation(T));
+    }
 }

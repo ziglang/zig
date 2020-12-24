@@ -869,6 +869,15 @@ test "peer type resolve string lit with sentinel-terminated mutable slice" {
     comptime expect(@TypeOf("hi", slice) == [:0]const u8);
 }
 
+test "peer type unsigned int to signed" {
+    var w: u31 = 5;
+    var x: u8 = 7;
+    var y: i32 = -5;
+    var a = w + y + x;
+    comptime expect(@TypeOf(a) == i32);
+    expect(a == 7);
+}
+
 test "peer type resolve array pointers, one of them const" {
     var array1: [4]u8 = undefined;
     const array2: [5]u8 = undefined;

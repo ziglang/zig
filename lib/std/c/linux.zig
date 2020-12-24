@@ -106,6 +106,12 @@ pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *con
 pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const c_void) usize;
 
+pub extern "c" fn madvise(
+    addr: *align(std.mem.page_size) c_void,
+    length: usize,
+    advice: c_uint,
+) c_int;
+
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,
@@ -117,6 +123,10 @@ pub const pthread_mutex_t = extern struct {
 pub const pthread_cond_t = extern struct {
     size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
 };
+pub const sem_t = extern struct {
+    __size: [__SIZEOF_SEM_T]u8 align(@alignOf(usize)),
+};
+
 const __SIZEOF_PTHREAD_COND_T = 48;
 const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os.tag == .fuchsia) 40 else switch (builtin.abi) {
     .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
@@ -128,6 +138,7 @@ const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os.tag == .fuchsia) 40 else switch 
     },
     else => unreachable,
 };
+const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 
 pub const RTLD_LAZY = 1;
 pub const RTLD_NOW = 2;

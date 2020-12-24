@@ -17,6 +17,7 @@
 #include "util.hpp"
 #include "mem_list.hpp"
 #include "all_types.hpp"
+#include "zigendian.h"
 
 #include <errno.h>
 #include <math.h>
@@ -11403,7 +11404,7 @@ static void float_negate(ZigValue *out_val, ZigValue *op) {
     }
 }
 
-void float_write_ieee597(ZigValue *op, uint8_t *buf, bool is_big_endian) {
+void float_write_ieee597(ZigValue *op, uint8_t *buf, bool target_is_big_endian) {
     if (op->type->id != ZigTypeIdFloat)
         zig_unreachable();
 
@@ -11427,8 +11428,8 @@ void float_write_ieee597(ZigValue *op, uint8_t *buf, bool is_big_endian) {
             zig_unreachable();
     }
 
-    if (is_big_endian) {
-        // Byteswap in place if needed
+    // Byteswap if system endianness != target endianness
+    if (native_is_big_endian != target_is_big_endian) {
         for (size_t i = 0; i < n / 2; i++) {
             uint8_t u = buf[i];
             buf[i] = buf[n - 1 - i];
@@ -11437,7 +11438,7 @@ void float_write_ieee597(ZigValue *op, uint8_t *buf, bool is_big_endian) {
     }
 }
 
-void float_read_ieee597(ZigValue *val, uint8_t *buf, bool is_big_endian) {
+void float_read_ieee597(ZigValue *val, uint8_t *buf, bool target_is_big_endian) {
     if (val->type->id != ZigTypeIdFloat)
         zig_unreachable();
 
@@ -11447,10 +11448,9 @@ void float_read_ieee597(ZigValue *val, uint8_t *buf, bool is_big_endian) {
     uint8_t tmp[16];
     uint8_t *ptr = buf;
 
-    if (is_big_endian) {
+    // Byteswap if system endianness != target endianness
+    if (native_is_big_endian != target_is_big_endian) {
         memcpy(tmp, buf, n);
-
-        // Byteswap if needed
         for (size_t i = 0; i < n / 2; i++) {
             uint8_t u = tmp[i];
             tmp[i] = tmp[n - 1 - i];
@@ -12706,11 +12706,13 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         }
 
         if (prev_type->id == ZigTypeIdInt &&
-                   cur_type->id == ZigTypeIdInt &&
-                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
+                   cur_type->id == ZigTypeIdInt)
         {
-            if (cur_type->data.integral.bit_count > prev_type->data.integral.bit_count) {
-                prev_inst = cur_inst;
+            if ((prev_type->data.integral.is_signed == cur_type->data.integral.is_signed) ||
+                (cur_type->data.integral.is_signed && !prev_type->data.integral.is_signed)) {
+                if (cur_type->data.integral.bit_count > prev_type->data.integral.bit_count) {
+                    prev_inst = cur_inst;
+                }
             }
             continue;
         }
@@ -19980,6 +19982,9 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
 
         result_loc = ir_analyze_struct_field_ptr(ira, suspend_source_instr, field, casted_ptr,
                 isf->inferred_struct_type, true);
+        if (type_is_invalid(result_loc->value->type)) {
+            return result_loc;
+        }
         result_loc_pass1->resolved_loc = result_loc;
     }
 
@@ -20226,9 +20231,12 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     bool is_var_args = param_decl_node->data.param_decl.is_var_args;
     bool arg_part_of_generic_id = false;
     IrInstGen *casted_arg;
+
+    ZigType *param_info_type = nullptr;
     if (is_var_args) {
         arg_part_of_generic_id = true;
         casted_arg = arg;
+        param_info_type = arg->value->type;
     } else {
         if (param_decl_node->data.param_decl.anytype_token == nullptr) {
             AstNode *param_type_node = param_decl_node->data.param_decl.type;
@@ -20239,9 +20247,12 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
             casted_arg = ir_implicit_cast2(ira, arg_src, arg, param_type);
             if (type_is_invalid(casted_arg->value->type))
                 return false;
+
+            param_info_type = param_type;
         } else {
             arg_part_of_generic_id = true;
             casted_arg = arg;
+            param_info_type = arg->value->type;
         }
     }
 
@@ -20298,7 +20309,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     if (!comptime_arg) {
         casted_args[fn_type_id->param_count] = casted_arg;
         FnTypeParamInfo *param_info = &fn_type_id->param_info[fn_type_id->param_count];
-        param_info->type = casted_arg->value->type;
+        param_info->type = param_info_type;
         param_info->is_noalias = param_decl_node->data.param_decl.is_noalias;
         impl_fn->param_source_nodes[fn_type_id->param_count] = param_decl_node;
         fn_type_id->param_count += 1;

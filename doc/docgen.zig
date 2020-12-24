@@ -42,7 +42,7 @@ pub fn main() !void {
 
     const input_file_bytes = try in_file.inStream().readAllAlloc(allocator, max_doc_file_size);
 
-    var buffered_out_stream = io.bufferedOutStream(out_file.outStream());
+    var buffered_out_stream = io.bufferedOutStream(out_file.writer());
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
@@ -50,7 +50,7 @@ pub fn main() !void {
     try fs.cwd().makePath(tmp_dir_name);
     defer fs.cwd().deleteTree(tmp_dir_name) catch {};
 
-    try genHtml(allocator, &tokenizer, &toc, buffered_out_stream.outStream(), zig_exe);
+    try genHtml(allocator, &tokenizer, &toc, buffered_out_stream.writer(), zig_exe);
     try buffered_out_stream.flush();
 }
 
@@ -325,7 +325,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
     var toc_buf = std.ArrayList(u8).init(allocator);
     defer toc_buf.deinit();
 
-    var toc = toc_buf.outStream();
+    var toc = toc_buf.writer();
 
     var nodes = std.ArrayList(Node).init(allocator);
     defer nodes.deinit();
@@ -615,7 +615,7 @@ fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
-    const out = buf.outStream();
+    const out = buf.writer();
     for (input) |c| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_', '-', '0'...'9' => {
@@ -634,7 +634,7 @@ fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
-    const out = buf.outStream();
+    const out = buf.writer();
     try writeEscaped(out, input);
     return buf.toOwnedSlice();
 }
@@ -680,7 +680,7 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
-    var out = buf.outStream();
+    var out = buf.writer();
     var number_start_index: usize = undefined;
     var first_number: usize = undefined;
     var second_number: usize = undefined;

@@ -274,9 +274,8 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 // and call abort()
 
                 // Sleep forever without hammering the CPU
-                var event = std.ResetEvent.init();
+                var event: std.StaticResetEvent = .{};
                 event.wait();
-
                 unreachable;
             }
         },
@@ -1696,6 +1695,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 pub const have_segfault_handling_support = switch (builtin.os.tag) {
     .linux, .netbsd => true,
     .windows => true,
+    .freebsd, .openbsd => @hasDecl(os, "ucontext_t"),
     else => false,
 };
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
@@ -1757,7 +1757,9 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
 
     const addr = switch (builtin.os.tag) {
         .linux => @ptrToInt(info.fields.sigfault.addr),
+        .freebsd => @ptrToInt(info.addr),
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
+        .openbsd => @ptrToInt(info.data.fault.addr),
         else => unreachable,
     };
 
@@ -1781,8 +1783,18 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         },
         .x86_64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]);
-            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]);
+            const ip = switch (builtin.os.tag) {
+                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]),
+                .freebsd => @intCast(usize, ctx.mcontext.rip),
+                .openbsd => @intCast(usize, ctx.sc_rip),
+                else => unreachable,
+            };
+            const bp = switch (builtin.os.tag) {
+                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]),
+                .openbsd => @intCast(usize, ctx.sc_rbp),
+                .freebsd => @intCast(usize, ctx.mcontext.rbp),
+                else => unreachable,
+            };
             dumpStackTraceFromBase(bp, ip);
         },
         .arm => {

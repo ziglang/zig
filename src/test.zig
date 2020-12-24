@@ -10,6 +10,7 @@ const enable_qemu: bool = build_options.enable_qemu;
 const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
+const ThreadPool = @import("ThreadPool.zig");
 
 const cheader = @embedFile("link/cbe.h");
 
@@ -95,6 +96,10 @@ pub const TestContext = struct {
             /// stdout against the expected results
             /// This is a slice containing the expected message.
             Execution: []const u8,
+            /// A header update compiles the input with the equivalent of
+            /// `-femit-h` and tests the produced header against the
+            /// expected result
+            Header: []const u8,
         },
     };
 
@@ -134,6 +139,15 @@ pub const TestContext = struct {
             self.updates.append(.{
                 .src = src,
                 .case = .{ .Transformation = result },
+            }) catch unreachable;
+        }
+
+        /// Adds a subcase in which the module is updated with `src`, and a C
+        /// header is generated.
+        pub fn addHeader(self: *Case, src: [:0]const u8, result: [:0]const u8) void {
+            self.updates.append(.{
+                .src = src,
+                .case = .{ .Header = result },
             }) catch unreachable;
         }
 
@@ -266,6 +280,10 @@ pub const TestContext = struct {
 
     pub fn c(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, src: [:0]const u8, comptime out: [:0]const u8) void {
         ctx.addC(name, target, .Zig).addTransform(src, cheader ++ out);
+    }
+
+    pub fn h(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, src: [:0]const u8, comptime out: [:0]const u8) void {
+        ctx.addC(name, target, .Zig).addHeader(src, cheader ++ out);
     }
 
     pub fn addCompareOutput(
@@ -467,12 +485,9 @@ pub const TestContext = struct {
         defer zig_lib_directory.handle.close();
         defer std.testing.allocator.free(zig_lib_directory.path.?);
 
-        const random_seed = blk: {
-            var random_seed: u64 = undefined;
-            try std.crypto.randomBytes(std.mem.asBytes(&random_seed));
-            break :blk random_seed;
-        };
-        var default_prng = std.rand.DefaultPrng.init(random_seed);
+        var thread_pool: ThreadPool = undefined;
+        try thread_pool.init(std.testing.allocator);
+        defer thread_pool.deinit();
 
         for (self.cases.items) |case| {
             if (build_options.skip_non_native and case.target.getCpuArch() != std.Target.current.cpu.arch)
@@ -487,7 +502,13 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            try self.runOneCase(std.testing.allocator, &prg_node, case, zig_lib_directory, &default_prng.random);
+            try self.runOneCase(
+                std.testing.allocator,
+                &prg_node,
+                case,
+                zig_lib_directory,
+                &thread_pool,
+            );
         }
     }
 
@@ -497,7 +518,7 @@ pub const TestContext = struct {
         root_node: *std.Progress.Node,
         case: Case,
         zig_lib_directory: Compilation.Directory,
-        rand: *std.rand.Random,
+        thread_pool: *ThreadPool,
     ) !void {
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
@@ -543,11 +564,18 @@ pub const TestContext = struct {
             .directory = emit_directory,
             .basename = bin_name,
         };
+        const emit_h: ?Compilation.EmitLoc = if (case.cbe)
+            .{
+                .directory = emit_directory,
+                .basename = "test_case.h",
+            }
+        else
+            null;
         const comp = try Compilation.create(allocator, .{
             .local_cache_directory = zig_cache_directory,
             .global_cache_directory = zig_cache_directory,
             .zig_lib_directory = zig_lib_directory,
-            .rand = rand,
+            .thread_pool = thread_pool,
             .root_name = "test_case",
             .target = target,
             // TODO: support tests for object file building, and library builds
@@ -557,6 +585,7 @@ pub const TestContext = struct {
             // TODO: support testing optimizations
             .optimize_mode = .Debug,
             .emit_bin = emit_bin,
+            .emit_h = emit_h,
             .root_pkg = &root_pkg,
             .keep_source_files_loaded = true,
             .object_format = ofmt,
@@ -574,12 +603,12 @@ pub const TestContext = struct {
             update_node.activate();
             defer update_node.end();
 
-            var sync_node = update_node.start("write", null);
+            var sync_node = update_node.start("write", 0);
             sync_node.activate();
             try tmp.dir.writeFile(tmp_src_path, update.src);
             sync_node.end();
 
-            var module_node = update_node.start("parse/analysis/codegen", null);
+            var module_node = update_node.start("parse/analysis/codegen", 0);
             module_node.activate();
             try comp.makeBinFileWritable();
             try comp.update();
@@ -612,6 +641,22 @@ pub const TestContext = struct {
             }
 
             switch (update.case) {
+                .Header => |expected_output| {
+                    var file = try tmp.dir.openFile("test_case.h", .{ .read = true });
+                    defer file.close();
+                    var out = file.reader().readAllAlloc(arena, 1024 * 1024) catch @panic("Unable to read headeroutput!");
+
+                    if (expected_output.len != out.len) {
+                        std.debug.print("\nTransformed header length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
+                        std.process.exit(1);
+                    }
+                    for (expected_output) |e, i| {
+                        if (out[i] != e) {
+                            std.debug.print("\nTransformed header differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
+                            std.process.exit(1);
+                        }
+                    }
+                },
                 .Transformation => |expected_output| {
                     if (case.cbe) {
                         // The C file is always closed after an update, because we don't support
@@ -631,21 +676,21 @@ pub const TestContext = struct {
                             }
                         }
                     } else {
-                        update_node.estimated_total_items = 5;
-                        var emit_node = update_node.start("emit", null);
+                        update_node.setEstimatedTotalItems(5);
+                        var emit_node = update_node.start("emit", 0);
                         emit_node.activate();
                         var new_zir_module = try zir.emit(allocator, comp.bin_file.options.module.?);
                         defer new_zir_module.deinit(allocator);
                         emit_node.end();
 
-                        var write_node = update_node.start("write", null);
+                        var write_node = update_node.start("write", 0);
                         write_node.activate();
                         var out_zir = std.ArrayList(u8).init(allocator);
                         defer out_zir.deinit();
                         try new_zir_module.writeToStream(allocator, out_zir.outStream());
                         write_node.end();
 
-                        var test_node = update_node.start("assert", null);
+                        var test_node = update_node.start("assert", 0);
                         test_node.activate();
                         defer test_node.end();
 
@@ -662,12 +707,12 @@ pub const TestContext = struct {
                     }
                 },
                 .Error => |e| {
-                    var test_node = update_node.start("assert", null);
+                    var test_node = update_node.start("assert", 0);
                     test_node.activate();
                     defer test_node.end();
                     var handled_errors = try arena.alloc(bool, e.len);
-                    for (handled_errors) |*h| {
-                        h.* = false;
+                    for (handled_errors) |*handled| {
+                        handled.* = false;
                     }
                     var all_errors = try comp.getAllErrorsAlloc();
                     defer all_errors.deinit(allocator);
@@ -705,8 +750,8 @@ pub const TestContext = struct {
                         }
                     }
 
-                    for (handled_errors) |h, i| {
-                        if (!h) {
+                    for (handled_errors) |handled, i| {
+                        if (!handled) {
                             const er = e[i];
                             std.debug.print(
                                 "{s}\nDid not receive error:\n================\n{}\n================\nTest failed.\n",
@@ -719,9 +764,9 @@ pub const TestContext = struct {
                 .Execution => |expected_stdout| {
                     std.debug.assert(!case.cbe);
 
-                    update_node.estimated_total_items = 4;
+                    update_node.setEstimatedTotalItems(4);
                     var exec_result = x: {
-                        var exec_node = update_node.start("execute", null);
+                        var exec_node = update_node.start("execute", 0);
                         exec_node.activate();
                         defer exec_node.end();
 
@@ -784,7 +829,7 @@ pub const TestContext = struct {
                             .cwd_dir = tmp.dir,
                         });
                     };
-                    var test_node = update_node.start("test", null);
+                    var test_node = update_node.start("test", 0);
                     test_node.activate();
                     defer test_node.end();
                     defer allocator.free(exec_result.stdout);
@@ -863,7 +908,7 @@ pub const TestContext = struct {
         };
 
         {
-            var load_node = update_node.start("load", null);
+            var load_node = update_node.start("load", 0);
             load_node.activate();
             defer load_node.end();
 
@@ -901,7 +946,7 @@ pub const TestContext = struct {
             }
         }
 
-        var exec_node = update_node.start("execute", null);
+        var exec_node = update_node.start("execute", 0);
         exec_node.activate();
         defer exec_node.end();
 

@@ -82,8 +82,8 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     mem.copy(u8, tmp_path[0..], dirname);
     tmp_path[dirname.len] = path.sep;
     while (true) {
-        try crypto.randomBytes(rand_buf[0..]);
-        base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
+        crypto.random.bytes(rand_buf[0..]);
+        _ = base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
         if (cwd().symLink(existing_path, tmp_path, .{})) {
             return cwd().rename(tmp_path, new_path);
@@ -153,15 +153,14 @@ pub const AtomicFile = struct {
     ) InitError!AtomicFile {
         var rand_buf: [RANDOM_BYTES]u8 = undefined;
         var tmp_path_buf: [TMP_PATH_LEN:0]u8 = undefined;
-        // TODO: should be able to use TMP_PATH_LEN here.
-        tmp_path_buf[base64.Base64Encoder.calcSize(RANDOM_BYTES)] = 0;
 
         while (true) {
-            try crypto.randomBytes(rand_buf[0..]);
-            base64_encoder.encode(&tmp_path_buf, &rand_buf);
+            crypto.random.bytes(rand_buf[0..]);
+            const tmp_path = base64_encoder.encode(&tmp_path_buf, &rand_buf);
+            tmp_path_buf[tmp_path.len] = 0;
 
             const file = dir.createFile(
-                &tmp_path_buf,
+                tmp_path,
                 .{ .mode = mode, .exclusive = true },
             ) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,

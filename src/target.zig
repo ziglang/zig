@@ -14,6 +14,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
     .{ .arch = .aarch64, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
+    .{ .arch = .aarch64, .os = .macos, .abi = .gnu },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabi },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabi },

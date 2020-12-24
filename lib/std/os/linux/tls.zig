@@ -327,32 +327,43 @@ pub fn prepareTLS(area: []u8) usize {
         if (tls_tp_points_past_tcb) tls_image.data_offset else tls_image.tcb_offset;
 }
 
-var main_thread_tls_buffer: [256]u8 = undefined;
+// The main motivation for the size chosen here is this is how much ends up being
+// requested for the thread local variables of the std.crypto.random implementation.
+// I'm not sure why it ends up being so much; the struct itself is only 64 bytes.
+// I think it has to do with being page aligned and LLVM or LLD is not smart enough
+// to lay out the TLS data in a space conserving way. Anyway I think it's fine
+// because it's less than 3 pages of memory, and putting it in the ELF like this
+// is equivalent to moving the mmap call below into the kernel, avoiding syscall
+// overhead.
+var main_thread_tls_buffer: [0x2100]u8 align(mem.page_size) = undefined;
 
 pub fn initStaticTLS() void {
     initTLS();
 
-    const alloc_tls_area: []u8 = blk: {
-        const full_alloc_size = tls_image.alloc_size + tls_image.alloc_align - 1;
-
+    const tls_area = blk: {
         // Fast path for the common case where the TLS data is really small,
-        // avoid an allocation and use our local buffer
-        if (full_alloc_size < main_thread_tls_buffer.len)
-            break :blk main_thread_tls_buffer[0..];
+        // avoid an allocation and use our local buffer.
+        if (tls_image.alloc_align <= mem.page_size and
+            tls_image.alloc_size <= main_thread_tls_buffer.len)
+        {
+            break :blk main_thread_tls_buffer[0..tls_image.alloc_size];
+        }
 
-        break :blk os.mmap(
+        const alloc_tls_area = os.mmap(
             null,
-            full_alloc_size,
+            tls_image.alloc_size + tls_image.alloc_align - 1,
             os.PROT_READ | os.PROT_WRITE,
             os.MAP_PRIVATE | os.MAP_ANONYMOUS,
             -1,
             0,
         ) catch os.abort();
-    };
 
-    // Make sure the slice is correctly aligned
-    const start = @ptrToInt(alloc_tls_area.ptr) & (tls_image.alloc_align - 1);
-    const tls_area = alloc_tls_area[start .. start + tls_image.alloc_size];
+        // Make sure the slice is correctly aligned.
+        const begin_addr = @ptrToInt(alloc_tls_area.ptr);
+        const begin_aligned_addr = mem.alignForward(begin_addr, tls_image.alloc_align);
+        const start = begin_aligned_addr - begin_addr;
+        break :blk alloc_tls_area[start .. start + tls_image.alloc_size];
+    };
 
     const tp_value = prepareTLS(tls_area);
     setThreadPointer(tp_value);

@@ -698,6 +698,8 @@ pub const File = struct {
             error.FastOpenAlreadyInProgress,
             error.MessageTooBig,
             error.FileDescriptorNotASocket,
+            error.NetworkUnreachable,
+            error.NetworkSubsystemFailed,
             => return self.writeFileAllUnseekable(in_file, args),
 
             else => |e| return e,

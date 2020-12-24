@@ -19,6 +19,7 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const translate_c = @import("translate_c.zig");
 const Cache = @import("Cache.zig");
 const target_util = @import("target.zig");
+const ThreadPool = @import("ThreadPool.zig");
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -199,7 +200,7 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     } else if (mem.eql(u8, cmd, "version")) {
         try std.io.getStdOut().writeAll(build_options.version ++ "\n");
     } else if (mem.eql(u8, cmd, "env")) {
-        try @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().outStream());
+        try @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
     } else if (mem.eql(u8, cmd, "zen")) {
         try io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
@@ -489,7 +490,7 @@ fn buildOutputType(
     var target_dynamic_linker: ?[]const u8 = null;
     var target_ofmt: ?[]const u8 = null;
     var output_mode: std.builtin.OutputMode = undefined;
-    var emit_h: Emit = undefined;
+    var emit_h: Emit = .no;
     var soname: SOName = undefined;
     var ensure_libc_on_non_freestanding = false;
     var ensure_libcpp_on_non_freestanding = false;
@@ -567,12 +568,15 @@ fn buildOutputType(
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
     defer test_exec_args.deinit();
 
-    var root_pkg_memory: Package = .{
-        .root_src_directory = undefined,
-        .root_src_path = undefined,
+    const pkg_tree_root = try gpa.create(Package);
+    // This package only exists to clean up the code parsing --pkg-begin and
+    // --pkg-end flags. Use dummy values that are safe for the destroy call.
+    pkg_tree_root.* = .{
+        .root_src_directory = .{ .path = null, .handle = fs.cwd() },
+        .root_src_path = &[0]u8{},
     };
-    defer root_pkg_memory.table.deinit(gpa);
-    var cur_pkg: *Package = &root_pkg_memory;
+    defer pkg_tree_root.destroy(gpa);
+    var cur_pkg: *Package = pkg_tree_root;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -590,16 +594,6 @@ fn buildOutputType(
                 },
                 else => unreachable,
             }
-            // TODO finish self-hosted and add support for emitting C header files
-            emit_h = .no;
-            //switch (arg_mode) {
-            //    .build => switch (output_mode) {
-            //        .Exe => emit_h = .no,
-            //        .Obj, .Lib => emit_h = .yes_default_path,
-            //    },
-            //    .translate_c, .zig_test, .run => emit_h = .no,
-            //    else => unreachable,
-            //}
 
             soname = .yes_default_value;
             const args = all_args[2..];
@@ -626,22 +620,15 @@ fn buildOutputType(
                         i += 1;
                         const pkg_path = args[i];
 
-                        const new_cur_pkg = try arena.create(Package);
-                        new_cur_pkg.* = .{
-                            .root_src_directory = if (fs.path.dirname(pkg_path)) |dirname|
-                                .{
-                                    .path = dirname,
-                                    .handle = try fs.cwd().openDir(dirname, .{}), // TODO close this fd
-                                }
-                            else
-                                .{
-                                    .path = null,
-                                    .handle = fs.cwd(),
-                                },
-                            .root_src_path = fs.path.basename(pkg_path),
-                            .parent = cur_pkg,
+                        const new_cur_pkg = Package.create(
+                            gpa,
+                            fs.path.dirname(pkg_path),
+                            fs.path.basename(pkg_path),
+                        ) catch |err| {
+                            fatal("Failed to add package at path {}: {}", .{ pkg_path, @errorName(err) });
                         };
-                        try cur_pkg.table.put(gpa, pkg_name, new_cur_pkg);
+                        new_cur_pkg.parent = cur_pkg;
+                        try cur_pkg.add(gpa, pkg_name, new_cur_pkg);
                         cur_pkg = new_cur_pkg;
                     } else if (mem.eql(u8, arg, "--pkg-end")) {
                         cur_pkg = cur_pkg.parent orelse
@@ -1599,26 +1586,22 @@ fn buildOutputType(
         .yes => |p| p,
     };
 
-    var cleanup_root_dir: ?fs.Dir = null;
-    defer if (cleanup_root_dir) |*dir| dir.close();
-
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
-            const dir = try fs.cwd().openDir(p, .{});
-            cleanup_root_dir = dir;
-            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
-            root_pkg_memory.root_src_path = try fs.path.relative(arena, p, src_path);
-        } else if (fs.path.dirname(src_path)) |p| {
-            const dir = try fs.cwd().openDir(p, .{});
-            cleanup_root_dir = dir;
-            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
-            root_pkg_memory.root_src_path = fs.path.basename(src_path);
+            const rel_src_path = try fs.path.relative(gpa, p, src_path);
+            defer gpa.free(rel_src_path);
+            break :blk try Package.create(gpa, p, rel_src_path);
         } else {
-            root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
-            root_pkg_memory.root_src_path = src_path;
+            break :blk try Package.create(gpa, fs.path.dirname(src_path), fs.path.basename(src_path));
         }
-        break :blk &root_pkg_memory;
     } else null;
+    defer if (root_pkg) |p| p.destroy(gpa);
+
+    // Transfer packages added with --pkg-begin/--pkg-end to the root package
+    if (root_pkg) |pkg| {
+        pkg.table = pkg_tree_root.table;
+        pkg_tree_root.table = .{};
+    }
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
@@ -1632,12 +1615,9 @@ fn buildOutputType(
         };
     defer zig_lib_directory.handle.close();
 
-    const random_seed = blk: {
-        var random_seed: u64 = undefined;
-        try std.crypto.randomBytes(mem.asBytes(&random_seed));
-        break :blk random_seed;
-    };
-    var default_prng = std.rand.DefaultPrng.init(random_seed);
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(gpa);
+    defer thread_pool.deinit();
 
     var libc_installation: ?LibCInstallation = null;
     defer if (libc_installation) |*l| l.deinit(gpa);
@@ -1754,7 +1734,7 @@ fn buildOutputType(
         .single_threaded = single_threaded,
         .function_sections = function_sections,
         .self_exe_path = self_exe_path,
-        .rand = &default_prng.random,
+        .thread_pool = &thread_pool,
         .clang_passthrough_mode = arg_mode != .build,
         .clang_preprocessor_mode = clang_preprocessor_mode,
         .version = optional_version,
@@ -2420,12 +2400,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .directory = null, // Use the local zig-cache.
             .basename = exe_basename,
         };
-        const random_seed = blk: {
-            var random_seed: u64 = undefined;
-            try std.crypto.randomBytes(mem.asBytes(&random_seed));
-            break :blk random_seed;
-        };
-        var default_prng = std.rand.DefaultPrng.init(random_seed);
+        var thread_pool: ThreadPool = undefined;
+        try thread_pool.init(gpa);
+        defer thread_pool.deinit();
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = local_cache_directory,
@@ -2441,7 +2418,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .emit_h = null,
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
-            .rand = &default_prng.random,
+            .thread_pool = &thread_pool,
         }) catch |err| {
             fatal("unable to create compilation: {}", .{@errorName(err)});
         };
@@ -3079,8 +3056,15 @@ pub const ClangArgIterator = struct {
                     @panic("TODO");
                 }
             },
-            .multi_arg => if (clang_arg.matchEql(arg) > 0) {
-                @panic("TODO");
+            .multi_arg => |num_args| if (clang_arg.matchEql(arg) > 0) {
+                // Example `-sectcreate <arg1> <arg2> <arg3>`.
+                var i: usize = 0;
+                while (i < num_args) : (i += 1) {
+                    self.incrementArgIndex();
+                    self.other_args.len += 1;
+                }
+                self.zig_equivalent = clang_arg.zig_equivalent;
+                break :find_clang_arg;
             },
         }
         else {

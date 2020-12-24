@@ -99,7 +99,16 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
-        .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
+        .Int => {
+            if (comptime meta.trait.hasUniqueRepresentation(Key)) {
+                @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)});
+            } else {
+                // Take only the part containing the key value, the remaining
+                // bytes are undefined and must not be hashed!
+                const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
+                @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)[0..byte_size]});
+            }
+        },
 
         .Bool => hash(hasher, @boolToInt(key), strat),
         .Enum => hash(hasher, @enumToInt(key), strat),

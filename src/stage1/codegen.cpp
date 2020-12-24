@@ -8391,7 +8391,7 @@ static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
     if (buf_len(&g->global_asm) != 0) {
-        LLVMSetModuleInlineAsm(g->module, buf_ptr(&g->global_asm));
+        LLVMSetModuleInlineAsm2(g->module, buf_ptr(&g->global_asm), buf_len(&g->global_asm));
     }
 
     while (g->type_resolve_stack.length != 0) {
@@ -8658,6 +8658,10 @@ static void define_builtin_types(CodeGen *g) {
             add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
             break;
         case ZigLLVM_msp430:
+            add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_bpfel:
+        case ZigLLVM_bpfeb:
             add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
             break;
         default:

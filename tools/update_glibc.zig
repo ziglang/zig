@@ -239,8 +239,8 @@ pub fn main() !void {
         const vers_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "vers.txt" });
         const vers_txt_file = try fs.cwd().createFile(vers_txt_path, .{});
         defer vers_txt_file.close();
-        var buffered = std.io.bufferedOutStream(vers_txt_file.outStream());
-        const vers_txt = buffered.outStream();
+        var buffered = std.io.bufferedOutStream(vers_txt_file.writer());
+        const vers_txt = buffered.writer();
         for (global_ver_list) |name, i| {
             _ = global_ver_set.put(name, i) catch unreachable;
             try vers_txt.print("{}\n", .{name});
@@ -251,8 +251,8 @@ pub fn main() !void {
         const fns_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "fns.txt" });
         const fns_txt_file = try fs.cwd().createFile(fns_txt_path, .{});
         defer fns_txt_file.close();
-        var buffered = std.io.bufferedOutStream(fns_txt_file.outStream());
-        const fns_txt = buffered.outStream();
+        var buffered = std.io.bufferedOutStream(fns_txt_file.writer());
+        const fns_txt = buffered.writer();
         for (global_fn_list) |name, i| {
             const entry = global_fn_set.getEntry(name).?;
             entry.value.index = i;
@@ -282,8 +282,8 @@ pub fn main() !void {
         const abilist_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "abi.txt" });
         const abilist_txt_file = try fs.cwd().createFile(abilist_txt_path, .{});
         defer abilist_txt_file.close();
-        var buffered = std.io.bufferedOutStream(abilist_txt_file.outStream());
-        const abilist_txt = buffered.outStream();
+        var buffered = std.io.bufferedOutStream(abilist_txt_file.writer());
+        const abilist_txt = buffered.writer();
 
         // first iterate over the abi lists
         for (abi_lists) |*abi_list, abi_index| {

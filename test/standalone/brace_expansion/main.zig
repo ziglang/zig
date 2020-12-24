@@ -4,7 +4,6 @@ const mem = std.mem;
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
-const ArrayListSentineled = std.ArrayListSentineled;
 const ArrayList = std.ArrayList;
 const maxInt = std.math.maxInt;
 
@@ -16,7 +15,8 @@ const Token = union(enum) {
     Eof,
 };
 
-var global_allocator: *mem.Allocator = undefined;
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var global_allocator = &gpa.allocator;
 
 fn tokenize(input: []const u8) !ArrayList(Token) {
     const State = enum {
@@ -25,12 +25,13 @@ fn tokenize(input: []const u8) !ArrayList(Token) {
     };
 
     var token_list = ArrayList(Token).init(global_allocator);
+    errdefer token_list.deinit();
     var tok_begin: usize = undefined;
     var state = State.Start;
 
     for (input) |b, i| {
         switch (state) {
-            State.Start => switch (b) {
+            .Start => switch (b) {
                 'a'...'z', 'A'...'Z' => {
                     state = State.Word;
                     tok_begin = i;
@@ -40,7 +41,7 @@ fn tokenize(input: []const u8) !ArrayList(Token) {
                 ',' => try token_list.append(Token.Comma),
                 else => return error.InvalidInput,
             },
-            State.Word => switch (b) {
+            .Word => switch (b) {
                 'a'...'z', 'A'...'Z' => {},
                 '{', '}', ',' => {
                     try token_list.append(Token{ .Word = input[tok_begin..i] });
@@ -68,6 +69,23 @@ const Node = union(enum) {
     Scalar: []const u8,
     List: ArrayList(Node),
     Combine: []Node,
+
+    fn deinit(self: Node) void {
+        switch (self) {
+            .Scalar => {},
+            .Combine => |pair| {
+                pair[0].deinit();
+                pair[1].deinit();
+                global_allocator.free(pair);
+            },
+            .List => |list| {
+                for (list.items) |item| {
+                    item.deinit();
+                }
+                list.deinit();
+            },
+        }
+    }
 };
 
 const ParseError = error{
@@ -80,9 +98,13 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
     token_index.* += 1;
 
     const result_node = switch (first_token) {
-        Token.Word => |word| Node{ .Scalar = word },
-        Token.OpenBrace => blk: {
+        .Word => |word| Node{ .Scalar = word },
+        .OpenBrace => blk: {
             var list = ArrayList(Node).init(global_allocator);
+            errdefer {
+                for (list.items) |node| node.deinit();
+                list.deinit();
+            }
             while (true) {
                 try list.append(try parse(tokens, token_index));
 
@@ -90,8 +112,8 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
                 token_index.* += 1;
 
                 switch (token) {
-                    Token.CloseBrace => break,
-                    Token.Comma => continue,
+                    .CloseBrace => break,
+                    .Comma => continue,
                     else => return error.InvalidInput,
                 }
             }
@@ -101,8 +123,9 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
     };
 
     switch (tokens.items[token_index.*]) {
-        Token.Word, Token.OpenBrace => {
+        .Word, .OpenBrace => {
             const pair = try global_allocator.alloc(Node, 2);
+            errdefer global_allocator.free(pair);
             pair[0] = result_node;
             pair[1] = try parse(tokens, token_index);
             return Node{ .Combine = pair };
@@ -111,22 +134,27 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
     }
 }
 
-fn expandString(input: []const u8, output: *ArrayListSentineled(u8, 0)) !void {
+fn expandString(input: []const u8, output: *ArrayList(u8)) !void {
     const tokens = try tokenize(input);
+    defer tokens.deinit();
     if (tokens.items.len == 1) {
         return output.resize(0);
     }
 
     var token_index: usize = 0;
     const root = try parse(&tokens, &token_index);
+    defer root.deinit();
     const last_token = tokens.items[token_index];
     switch (last_token) {
         Token.Eof => {},
         else => return error.InvalidInput,
     }
 
-    var result_list = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
-    defer result_list.deinit();
+    var result_list = ArrayList(ArrayList(u8)).init(global_allocator);
+    defer {
+        for (result_list.items) |*buf| buf.deinit();
+        result_list.deinit();
+    }
 
     try expandNode(root, &result_list);
 
@@ -135,39 +163,56 @@ fn expandString(input: []const u8, output: *ArrayListSentineled(u8, 0)) !void {
         if (i != 0) {
             try output.append(' ');
         }
-        try output.appendSlice(buf.span());
+        try output.appendSlice(buf.items);
     }
 }
 
 const ExpandNodeError = error{OutOfMemory};
 
-fn expandNode(node: Node, output: *ArrayList(ArrayListSentineled(u8, 0))) ExpandNodeError!void {
+fn expandNode(node: Node, output: *ArrayList(ArrayList(u8))) ExpandNodeError!void {
     assert(output.items.len == 0);
     switch (node) {
-        Node.Scalar => |scalar| {
-            try output.append(try ArrayListSentineled(u8, 0).init(global_allocator, scalar));
+        .Scalar => |scalar| {
+            var list = ArrayList(u8).init(global_allocator);
+            errdefer list.deinit();
+            try list.appendSlice(scalar);
+            try output.append(list);
         },
-        Node.Combine => |pair| {
+        .Combine => |pair| {
             const a_node = pair[0];
             const b_node = pair[1];
 
-            var child_list_a = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
+            var child_list_a = ArrayList(ArrayList(u8)).init(global_allocator);
+            defer {
+                for (child_list_a.items) |*buf| buf.deinit();
+                child_list_a.deinit();
+            }
             try expandNode(a_node, &child_list_a);
 
-            var child_list_b = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
+            var child_list_b = ArrayList(ArrayList(u8)).init(global_allocator);
+            defer {
+                for (child_list_b.items) |*buf| buf.deinit();
+                child_list_b.deinit();
+            }
             try expandNode(b_node, &child_list_b);
 
             for (child_list_a.items) |buf_a| {
                 for (child_list_b.items) |buf_b| {
-                    var combined_buf = try ArrayListSentineled(u8, 0).initFromBuffer(buf_a);
-                    try combined_buf.appendSlice(buf_b.span());
+                    var combined_buf = ArrayList(u8).init(global_allocator);
+                    errdefer combined_buf.deinit();
+
+                    try combined_buf.appendSlice(buf_a.items);
+                    try combined_buf.appendSlice(buf_b.items);
                     try output.append(combined_buf);
                 }
             }
         },
-        Node.List => |list| {
+        .List => |list| {
             for (list.items) |child_node| {
-                var child_list = ArrayList(ArrayListSentineled(u8, 0)).init(global_allocator);
+                var child_list = ArrayList(ArrayList(u8)).init(global_allocator);
+                errdefer for (child_list.items) |*buf| buf.deinit();
+                defer child_list.deinit();
+
                 try expandNode(child_node, &child_list);
 
                 for (child_list.items) |buf| {
@@ -179,32 +224,22 @@ fn expandNode(node: Node, output: *ArrayList(ArrayListSentineled(u8, 0))) Expand
 }
 
 pub fn main() !void {
+    defer _ = gpa.deinit();
     const stdin_file = io.getStdIn();
     const stdout_file = io.getStdOut();
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+    const stdin = try stdin_file.reader().readAllAlloc(global_allocator, std.math.maxInt(usize));
+    defer global_allocator.free(stdin);
 
-    global_allocator = &arena.allocator;
-
-    var stdin_buf = try ArrayListSentineled(u8, 0).initSize(global_allocator, 0);
-    defer stdin_buf.deinit();
-
-    var stdin_adapter = stdin_file.inStream();
-    try stdin_adapter.stream.readAllBuffer(&stdin_buf, maxInt(usize));
-
-    var result_buf = try ArrayListSentineled(u8, 0).initSize(global_allocator, 0);
+    var result_buf = ArrayList(u8).init(global_allocator);
     defer result_buf.deinit();
 
-    try expandString(stdin_buf.span(), &result_buf);
-    try stdout_file.write(result_buf.span());
+    try expandString(stdin_buf.items, &result_buf);
+    try stdout_file.write(result_buf.items);
 }
 
 test "invalid inputs" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    global_allocator = &arena.allocator;
+    global_allocator = std.testing.allocator;
 
     expectError("}ABC", error.InvalidInput);
     expectError("{ABC", error.InvalidInput);
@@ -218,17 +253,14 @@ test "invalid inputs" {
 }
 
 fn expectError(test_input: []const u8, expected_err: anyerror) void {
-    var output_buf = ArrayListSentineled(u8, 0).initSize(global_allocator, 0) catch unreachable;
+    var output_buf = ArrayList(u8).init(global_allocator);
     defer output_buf.deinit();
 
     testing.expectError(expected_err, expandString(test_input, &output_buf));
 }
 
 test "valid inputs" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    global_allocator = &arena.allocator;
+    global_allocator = std.testing.allocator;
 
     expectExpansion("{x,y,z}", "x y z");
     expectExpansion("{A,B}{x,y}", "Ax Ay Bx By");
@@ -251,10 +283,10 @@ test "valid inputs" {
 }
 
 fn expectExpansion(test_input: []const u8, expected_result: []const u8) void {
-    var result = ArrayListSentineled(u8, 0).initSize(global_allocator, 0) catch unreachable;
+    var result = ArrayList(u8).init(global_allocator);
     defer result.deinit();
 
     expandString(test_input, &result) catch unreachable;
 
-    testing.expectEqualSlices(u8, expected_result, result.span());
+    testing.expectEqualSlices(u8, expected_result, result.items);
 }

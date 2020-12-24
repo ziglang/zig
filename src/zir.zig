@@ -253,6 +253,8 @@ pub const Inst = struct {
         subwrap,
         /// Returns the type of a value.
         typeof,
+        /// Is the builtin @TypeOf which returns the type after peertype resolution of one or more params
+        typeof_peer,
         /// Asserts control-flow will not reach this instruction. Not safety checked - the compiler
         /// will assume the correctness of this instruction.
         unreach_nocheck,
@@ -406,6 +408,7 @@ pub const Inst = struct {
                 .error_set => ErrorSet,
                 .slice => Slice,
                 .switchbr => SwitchBr,
+                .typeof_peer => TypeOfPeer,
             };
         }
 
@@ -514,6 +517,7 @@ pub const Inst = struct {
                 .import,
                 .switch_range,
                 .compilelog,
+                .typeof_peer,
                 => false,
 
                 .@"break",
@@ -1048,6 +1052,14 @@ pub const Inst = struct {
             item: *Inst,
             body: Module.Body,
         };
+    };
+    pub const TypeOfPeer = struct {
+        pub const base_tag = .typeof_peer;
+        base: Inst,
+        positionals: struct {
+            items: []*Inst,
+        },
+        kw_args: struct {},
     };
 };
 
@@ -2347,6 +2359,9 @@ const EmitZIR = struct {
                 .cmp_neq => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_neq).?, .cmp_neq),
                 .booland => try self.emitBinOp(inst.src, new_body, inst.castTag(.booland).?, .booland),
                 .boolor => try self.emitBinOp(inst.src, new_body, inst.castTag(.boolor).?, .boolor),
+                .bitand => try self.emitBinOp(inst.src, new_body, inst.castTag(.bitand).?, .bitand),
+                .bitor => try self.emitBinOp(inst.src, new_body, inst.castTag(.bitor).?, .bitor),
+                .xor => try self.emitBinOp(inst.src, new_body, inst.castTag(.xor).?, .xor),
 
                 .bitcast => try self.emitCast(inst.src, new_body, inst.castTag(.bitcast).?, .bitcast),
                 .intcast => try self.emitCast(inst.src, new_body, inst.castTag(.intcast).?, .intcast),

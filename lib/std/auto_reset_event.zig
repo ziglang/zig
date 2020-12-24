@@ -7,38 +7,39 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const testing = std.testing;
 const assert = std.debug.assert;
+const StaticResetEvent = std.StaticResetEvent;
 
-/// Similar to std.ResetEvent but on `set()` it also (atomically) does `reset()`.
-/// Unlike std.ResetEvent, `wait()` can only be called by one thread (MPSC-like).
+/// Similar to `StaticResetEvent` but on `set()` it also (atomically) does `reset()`.
+/// Unlike StaticResetEvent, `wait()` can only be called by one thread (MPSC-like).
 pub const AutoResetEvent = struct {
-    // AutoResetEvent has 3 possible states:
-    // - UNSET: the AutoResetEvent is currently unset
-    // - SET: the AutoResetEvent was notified before a wait() was called
-    // - <std.ResetEvent pointer>: there is an active waiter waiting for a notification.
-    //
-    // When attempting to wait:
-    //  if the event is unset, it registers a ResetEvent pointer to be notified when the event is set
-    //  if the event is already set, then it consumes the notification and resets the event.
-    //
-    // When attempting to notify:
-    //  if the event is unset, then we set the event
-    //  if theres a waiting ResetEvent, then we unset the event and notify the ResetEvent
-    //
-    // This ensures that the event is automatically reset after a wait() has been issued
-    // and avoids the race condition when using std.ResetEvent in the following scenario:
-    //  thread 1                | thread 2
-    //  std.ResetEvent.wait()   |
-    //                          | std.ResetEvent.set()
-    //                          | std.ResetEvent.set()
-    //  std.ResetEvent.reset()  |
-    //  std.ResetEvent.wait()   | (missed the second .set() notification above)
+    /// AutoResetEvent has 3 possible states:
+    /// - UNSET: the AutoResetEvent is currently unset
+    /// - SET: the AutoResetEvent was notified before a wait() was called
+    /// - <StaticResetEvent pointer>: there is an active waiter waiting for a notification.
+    ///
+    /// When attempting to wait:
+    ///  if the event is unset, it registers a ResetEvent pointer to be notified when the event is set
+    ///  if the event is already set, then it consumes the notification and resets the event.
+    ///
+    /// When attempting to notify:
+    ///  if the event is unset, then we set the event
+    ///  if theres a waiting ResetEvent, then we unset the event and notify the ResetEvent
+    ///
+    /// This ensures that the event is automatically reset after a wait() has been issued
+    /// and avoids the race condition when using StaticResetEvent in the following scenario:
+    ///  thread 1                  | thread 2
+    ///  StaticResetEvent.wait()   |
+    ///                            | StaticResetEvent.set()
+    ///                            | StaticResetEvent.set()
+    ///  StaticResetEvent.reset()  |
+    ///  StaticResetEvent.wait()   | (missed the second .set() notification above)
     state: usize = UNSET,
 
     const UNSET = 0;
     const SET = 1;
 
-    // the minimum alignment for the `*std.ResetEvent` created by wait*()
-    const event_align = std.math.max(@alignOf(std.ResetEvent), 2);
+    /// the minimum alignment for the `*StaticResetEvent` created by wait*()
+    const event_align = std.math.max(@alignOf(StaticResetEvent), 2);
 
     pub fn wait(self: *AutoResetEvent) void {
         self.waitFor(null) catch unreachable;
@@ -49,12 +50,9 @@ pub const AutoResetEvent = struct {
     }
 
     fn waitFor(self: *AutoResetEvent, timeout: ?u64) error{TimedOut}!void {
-        // lazily initialized std.ResetEvent
-        var reset_event: std.ResetEvent align(event_align) = undefined;
+        // lazily initialized StaticResetEvent
+        var reset_event: StaticResetEvent align(event_align) = undefined;
         var has_reset_event = false;
-        defer if (has_reset_event) {
-            reset_event.deinit();
-        };
 
         var state = @atomicLoad(usize, &self.state, .SeqCst);
         while (true) {
@@ -72,7 +70,7 @@ pub const AutoResetEvent = struct {
             // lazily initialize the ResetEvent if it hasn't been already
             if (!has_reset_event) {
                 has_reset_event = true;
-                reset_event = std.ResetEvent.init();
+                reset_event = .{};
             }
 
             // Since the AutoResetEvent currently isnt set,
@@ -97,9 +95,10 @@ pub const AutoResetEvent = struct {
             };
 
             // wait with a timeout and return if signalled via set()
-            if (reset_event.timedWait(timeout_ns)) |_| {
-                return;
-            } else |timed_out| {}
+            switch (reset_event.timedWait(timeout_ns)) {
+                .event_set => return,
+                .timed_out => {},
+            }
 
             // If we timed out, we need to transition the AutoResetEvent back to UNSET.
             // If we don't, then when we return, a set() thread could observe a pointer to an invalid ResetEvent.
@@ -164,7 +163,7 @@ pub const AutoResetEvent = struct {
                 continue;
             }
 
-            const reset_event = @intToPtr(*align(event_align) std.ResetEvent, state);
+            const reset_event = @intToPtr(*align(event_align) StaticResetEvent, state);
             reset_event.set();
             return;
         }

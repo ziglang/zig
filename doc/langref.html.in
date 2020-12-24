@@ -1300,10 +1300,10 @@ a /= b{#endsyntax#}</pre></td>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Can cause {#link|Division by Zero#} for integers.</li>
               <li>Can cause {#link|Division by Zero#} for floats in {#link|FloatMode.Optimized Mode|Floating Point Operations#}.</li>
-              <li>For non-compile-time-known signed integers, must use
+              <li>Signed integer operands must be comptime-known and positive. In other cases, use
                 {#link|@divTrunc#},
                 {#link|@divFloor#}, or
-                {#link|@divExact#} instead of {#syntax#}/{#endsyntax#}.
+                {#link|@divExact#} instead.
               </li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1325,9 +1325,9 @@ a %= b{#endsyntax#}</pre></td>
             <ul>
               <li>Can cause {#link|Division by Zero#} for integers.</li>
               <li>Can cause {#link|Division by Zero#} for floats in {#link|FloatMode.Optimized Mode|Floating Point Operations#}.</li>
-              <li>For non-compile-time-known signed integers, must use
+              <li>Signed or floating-point operands must be comptime-known and positive. In other cases, use
                 {#link|@rem#} or
-                {#link|@mod#} instead of {#syntax#}%{#endsyntax#}.
+                {#link|@mod#} instead.
               </li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>

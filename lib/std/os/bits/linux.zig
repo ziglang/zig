@@ -2045,3 +2045,25 @@ pub const rlimit = extern struct {
     /// Hard limit
     max: rlim_t,
 };
+
+pub const MADV_NORMAL = 0;
+pub const MADV_RANDOM = 1;
+pub const MADV_SEQUENTIAL = 2;
+pub const MADV_WILLNEED = 3;
+pub const MADV_DONTNEED = 4;
+pub const MADV_FREE = 8;
+pub const MADV_REMOVE = 9;
+pub const MADV_DONTFORK = 10;
+pub const MADV_DOFORK = 11;
+pub const MADV_MERGEABLE = 12;
+pub const MADV_UNMERGEABLE = 13;
+pub const MADV_HUGEPAGE = 14;
+pub const MADV_NOHUGEPAGE = 15;
+pub const MADV_DONTDUMP = 16;
+pub const MADV_DODUMP = 17;
+pub const MADV_WIPEONFORK = 18;
+pub const MADV_KEEPONFORK = 19;
+pub const MADV_COLD = 20;
+pub const MADV_PAGEOUT = 21;
+pub const MADV_HWPOISON = 100;
+pub const MADV_SOFT_OFFLINE = 101;

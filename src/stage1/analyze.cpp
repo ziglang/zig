@@ -3281,7 +3281,8 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         tag_type->data.enumeration.src_field_count = field_count;
         tag_type->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(field_count);
         tag_type->data.enumeration.fields_by_name.init(field_count);
-        tag_type->data.enumeration.decls_scope = union_type->data.unionation.decls_scope;
+        tag_type->data.enumeration.decls_scope = create_decls_scope(
+                g, nullptr, nullptr, tag_type, get_scope_import(scope), &tag_type->name);
     } else if (enum_type_node != nullptr) {
         tag_type = analyze_type_expr(g, scope, enum_type_node);
     } else {
