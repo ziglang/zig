@@ -885,7 +885,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     defer arena_allocator.deinit();
 
     var it: Tokenizer = .{ .bytes = input };
-    var buffer = try std.ArrayListSentineled(u8, 0).initSize(arena, 0);
+    var buffer = std.ArrayList(u8).init(arena);
     var resolve_buf = std.ArrayList(u8).init(arena);
     var i: usize = 0;
     while (it.next()) |token| {
@@ -916,9 +916,8 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
         }
         i += 1;
     }
-    const got: []const u8 = buffer.span();
 
-    if (std.mem.eql(u8, expect, got)) {
+    if (std.mem.eql(u8, expect, buffer.items)) {
         testing.expect(true);
         return;
     }

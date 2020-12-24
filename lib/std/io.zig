@@ -209,6 +209,7 @@ test "" {
     _ = @import("io/buffered_writer.zig");
     _ = @import("io/c_writer.zig");
     _ = @import("io/counting_writer.zig");
+    _ = @import("io/counting_reader.zig");
     _ = @import("io/fixed_buffer_stream.zig");
     _ = @import("io/reader.zig");
     _ = @import("io/writer.zig");

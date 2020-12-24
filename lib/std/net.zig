@@ -783,13 +783,13 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
         defer lookup_addrs.deinit();
 
-        var canon = std.ArrayListSentineled(u8, 0).initNull(arena);
+        var canon = std.ArrayList(u8).init(arena);
         defer canon.deinit();
 
         try linuxLookupName(&lookup_addrs, &canon, name, family, flags, port);
 
         result.addrs = try arena.alloc(Address, lookup_addrs.items.len);
-        if (!canon.isNull()) {
+        if (canon.items.len != 0) {
             result.canon_name = canon.toOwnedSlice();
         }
 
@@ -818,7 +818,7 @@ const DAS_ORDER_SHIFT = 0;
 
 fn linuxLookupName(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     opt_name: ?[]const u8,
     family: os.sa_family_t,
     flags: u32,
@@ -826,7 +826,8 @@ fn linuxLookupName(
 ) !void {
     if (opt_name) |name| {
         // reject empty name and check len so it fits into temp bufs
-        try canon.replaceContents(name);
+        canon.items.len = 0;
+        try canon.appendSlice(name);
         if (Address.parseExpectingFamily(name, family, port)) |addr| {
             try addrs.append(LookupAddr{ .addr = addr });
         } else |name_err| if ((flags & std.c.AI_NUMERICHOST) != 0) {
@@ -1091,7 +1092,7 @@ fn linuxLookupNameFromNull(
 
 fn linuxLookupNameFromHosts(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     name: []const u8,
     family: os.sa_family_t,
     port: u16,
@@ -1142,7 +1143,8 @@ fn linuxLookupNameFromHosts(
         // first name is canonical name
         const name_text = first_name_text.?;
         if (isValidHostName(name_text)) {
-            try canon.replaceContents(name_text);
+            canon.items.len = 0;
+            try canon.appendSlice(name_text);
         }
     }
 }
@@ -1161,7 +1163,7 @@ pub fn isValidHostName(hostname: []const u8) bool {
 
 fn linuxLookupNameFromDnsSearch(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     name: []const u8,
     family: os.sa_family_t,
     port: u16,
@@ -1177,10 +1179,10 @@ fn linuxLookupNameFromDnsSearch(
         if (byte == '.') dots += 1;
     }
 
-    const search = if (rc.search.isNull() or dots >= rc.ndots or mem.endsWith(u8, name, "."))
+    const search = if (dots >= rc.ndots or mem.endsWith(u8, name, "."))
         ""
     else
-        rc.search.span();
+        rc.search.items;
 
     var canon_name = name;
 
@@ -1193,14 +1195,14 @@ fn linuxLookupNameFromDnsSearch(
     // name is not a CNAME record) and serves as a buffer for passing
     // the full requested name to name_from_dns.
     try canon.resize(canon_name.len);
-    mem.copy(u8, canon.span(), canon_name);
+    mem.copy(u8, canon.items, canon_name);
     try canon.append('.');
 
     var tok_it = mem.tokenize(search, " \t");
     while (tok_it.next()) |tok| {
         canon.shrink(canon_name.len + 1);
         try canon.appendSlice(tok);
-        try linuxLookupNameFromDns(addrs, canon, canon.span(), family, rc, port);
+        try linuxLookupNameFromDns(addrs, canon, canon.items, family, rc, port);
         if (addrs.items.len != 0) return;
     }
 
@@ -1210,13 +1212,13 @@ fn linuxLookupNameFromDnsSearch(
 
 const dpc_ctx = struct {
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     port: u16,
 };
 
 fn linuxLookupNameFromDns(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     name: []const u8,
     family: os.sa_family_t,
     rc: ResolvConf,
@@ -1271,7 +1273,7 @@ const ResolvConf = struct {
     attempts: u32,
     ndots: u32,
     timeout: u32,
-    search: std.ArrayListSentineled(u8, 0),
+    search: std.ArrayList(u8),
     ns: std.ArrayList(LookupAddr),
 
     fn deinit(rc: *ResolvConf) void {
@@ -1286,7 +1288,7 @@ const ResolvConf = struct {
 fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
     rc.* = ResolvConf{
         .ns = std.ArrayList(LookupAddr).init(allocator),
-        .search = std.ArrayListSentineled(u8, 0).initNull(allocator),
+        .search = std.ArrayList(u8).init(allocator),
         .ndots = 1,
         .timeout = 5,
         .attempts = 2,
@@ -1338,7 +1340,8 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
             const ip_txt = line_it.next() orelse continue;
             try linuxLookupNameFromNumericUnspec(&rc.ns, ip_txt, 53);
         } else if (mem.eql(u8, token, "domain") or mem.eql(u8, token, "search")) {
-            try rc.search.replaceContents(line_it.rest());
+            rc.search.items.len = 0;
+            try rc.search.appendSlice(line_it.rest());
         }
     }
 
@@ -1569,7 +1572,8 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             _ = try os.dn_expand(packet, data, &tmp);
             const canon_name = mem.spanZ(std.meta.assumeSentinel(&tmp, 0));
             if (isValidHostName(canon_name)) {
-                try ctx.canon.replaceContents(canon_name);
+                ctx.canon.items.len = 0;
+                try ctx.canon.appendSlice(canon_name);
             }
         },
         else => return,
