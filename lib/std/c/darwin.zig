@@ -187,3 +187,15 @@ pub const pthread_attr_t = extern struct {
 };
 
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
+
+// Grand Central Dispatch is exposed by libSystem.
+pub const dispatch_semaphore_t = *opaque{};
+pub const dispatch_time_t = u64;
+pub const DISPATCH_TIME_NOW = @as(dispatch_time_t, 0);
+pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
+pub extern "c" fn dispatch_semaphore_create(value: isize) ?dispatch_semaphore_t;
+pub extern "c" fn dispatch_semaphore_wait(dsema: dispatch_semaphore_t, timeout: dispatch_time_t) isize;
+pub extern "c" fn dispatch_semaphore_signal(dsema: dispatch_semaphore_t) isize;
+
+pub extern "c" fn dispatch_release(object: *c_void) void;
+pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;

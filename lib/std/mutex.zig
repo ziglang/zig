@@ -284,7 +284,7 @@ const WindowsMutex = struct {
     fn acquireSlow(self: *WindowsMutex) Held {
         // try to use NT keyed events for blocking, falling back to spinlock if unavailable
         @setCold(true);
-        const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return self.acquireSpinning();
+        const handle = ResetEvent.Impl.Futex.getEventHandle() orelse return self.acquireSpinning();
         const key = @ptrCast(*const c_void, &self.state.waiters);
 
         while (true) : (SpinLock.loopHint(1)) {
@@ -312,7 +312,7 @@ const WindowsMutex = struct {
         pub fn release(self: Held) void {
             // unlock without a rmw/cmpxchg instruction
             @atomicStore(u8, @ptrCast(*u8, &self.mutex.state.locked), 0, .Release);
-            const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return;
+            const handle = ResetEvent.Impl.Futex.getEventHandle() orelse return;
             const key = @ptrCast(*const c_void, &self.mutex.state.waiters);
 
             while (true) : (SpinLock.loopHint(1)) {

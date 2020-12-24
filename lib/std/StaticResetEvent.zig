@@ -3,270 +3,184 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+
+//! A thread-safe resource which supports blocking until signaled.
+//! This API is for kernel threads, not evented I/O.
+//! This API is statically initializable. It cannot fail to be initialized
+//! and it requires no deinitialization. The downside is that it may not
+//! integrate as cleanly into other synchronization APIs, or, in a worst case,
+//! may be forced to fall back on spin locking. As a rule of thumb, prefer
+//! to use `std.ResetEvent` when possible, and use `StaticResetEvent` when
+//! the logic needs stronger API guarantees.
+
 const std = @import("std.zig");
-const builtin = @import("builtin");
-const testing = std.testing;
+const StaticResetEvent = @This();
 const SpinLock = std.SpinLock;
 const assert = std.debug.assert;
-const c = std.c;
 const os = std.os;
 const time = std.time;
-const linux = os.linux;
-const windows = os.windows;
+const linux = std.os.linux;
+const windows = std.os.windows;
+const testing = std.testing;
 
-/// A resource object which supports blocking until signaled.
-/// Once finished, the `deinit()` method should be called for correctness.
-pub const ResetEvent = struct {
-    os_event: OsEvent,
+impl: Impl = .{},
 
-    pub const OsEvent = if (builtin.single_threaded)
-        DebugEvent
-    else if (std.Thread.use_pthreads)
-        PosixEvent
-    else
-        AtomicEvent;
+pub const Impl = if (std.builtin.single_threaded)
+    DebugEvent
+else
+    AtomicEvent;
 
-    pub fn init() ResetEvent {
-        return ResetEvent{ .os_event = OsEvent.init() };
+/// Sets the event if not already set and wakes up all the threads waiting on
+/// the event. It is safe to call `set` multiple times before calling `wait`.
+/// However it is illegal to call `set` after `wait` is called until the event
+/// is `reset`. This function is thread-safe.
+pub fn set(ev: *StaticResetEvent) void {
+    return ev.impl.set();
+}
+
+/// Wait for the event to be set by blocking the current thread.
+/// Thread-safe. No spurious wakeups.
+/// Upon return from `wait`, the only function available to be called
+/// in `StaticResetEvent` is `reset`.
+pub fn wait(ev: *StaticResetEvent) void {
+    return ev.impl.wait();
+}
+
+/// Resets the event to its original, unset state.
+/// This function is *not* thread-safe. It is equivalent to calling
+/// `deinit` followed by `init` but without the possibility of failure.
+pub fn reset(ev: *StaticResetEvent) void {
+    return ev.impl.reset();
+}
+
+pub const TimedWaitResult = std.ResetEvent.TimedWaitResult;
+
+/// Wait for the event to be set by blocking the current thread.
+/// A timeout in nanoseconds can be provided as a hint for how
+/// long the thread should block on the unset event before returning
+/// `TimedWaitResult.timed_out`.
+/// Thread-safe. No precision of timing is guaranteed.
+/// Upon return from `timedWait`, the only function available to be called
+/// in `StaticResetEvent` is `reset`.
+pub fn timedWait(ev: *StaticResetEvent, timeout_ns: u64) TimedWaitResult {
+    return ev.impl.timedWait(timeout_ns);
+}
+
+/// For single-threaded builds, we use this to detect deadlocks.
+/// In unsafe modes this ends up being no-ops.
+pub const DebugEvent = struct {
+    state: State = State.unset,
+
+    const State = enum {
+        unset,
+        set,
+        waited,
+    };
+
+    /// This function is provided so that this type can be re-used inside
+    /// `std.ResetEvent`.
+    pub fn init(ev: *DebugEvent) void {
+        ev.* = .{};
     }
 
-    pub fn deinit(self: *ResetEvent) void {
-        self.os_event.deinit();
+    /// This function is provided so that this type can be re-used inside
+    /// `std.ResetEvent`.
+    pub fn deinit(ev: *DebugEvent) void {
+        ev.* = undefined;
     }
 
-    /// When `wait` would return without blocking, this returns `true`.
-    /// Note that the value may be immediately invalid upon this function's
-    /// return, because another thread may call `wait` in between, changing
-    /// the event's set/cleared status.
-    pub fn isSet(self: *ResetEvent) bool {
-        return self.os_event.isSet();
+    pub fn set(ev: *DebugEvent) void {
+        switch (ev.state) {
+            .unset => ev.state = .set,
+            .set => {},
+            .waited => unreachable, // Not allowed to call `set` until `reset`.
+        }
     }
 
-    /// Sets the event if not already set and
-    /// wakes up all the threads waiting on the event.
-    pub fn set(self: *ResetEvent) void {
-        return self.os_event.set();
+    pub fn wait(ev: *DebugEvent) void {
+        switch (ev.state) {
+            .unset => unreachable, // Deadlock detected.
+            .set => return,
+            .waited => unreachable, // Not allowed to call `wait` until `reset`.
+        }
     }
 
-    /// Resets the event to its original, unset state.
-    /// TODO improve these docs:
-    ///  * under what circumstances does it make sense to call this function?
-    pub fn reset(self: *ResetEvent) void {
-        return self.os_event.reset();
+    fn timedWait(ev: *DebugEvent, timeout: u64) TimedWaitResult {
+        switch (ev.state) {
+            .unset => return .timed_out,
+            .set => return .event_set,
+            .waited => unreachable, // Not allowed to call `wait` until `reset`.
+        }
     }
 
-    /// Wait for the event to be set by blocking the current thread.
-    /// TODO improve these docs:
-    ///  * is the function thread-safe?
-    ///  * does it have suprious wakeups?
-    pub fn wait(self: *ResetEvent) void {
-        return self.os_event.wait();
-    }
-
-    /// Wait for the event to be set by blocking the current thread.
-    /// A timeout in nanoseconds can be provided as a hint for how
-    /// long the thread should block on the unset event before throwing error.TimedOut.
-    /// TODO improve these docs:
-    ///  * is the function thread-safe?
-    ///  * does it have suprious wakeups?
-    pub fn timedWait(self: *ResetEvent, timeout_ns: u64) !void {
-        return self.os_event.timedWait(timeout_ns);
+    pub fn reset(ev: *DebugEvent) void {
+        ev.state = .unset;
     }
 };
 
-const DebugEvent = struct {
-    is_set: bool,
-
-    fn init() DebugEvent {
-        return DebugEvent{ .is_set = false };
-    }
-
-    fn deinit(self: *DebugEvent) void {
-        self.* = undefined;
-    }
-
-    fn isSet(self: *DebugEvent) bool {
-        return self.is_set;
-    }
-
-    fn reset(self: *DebugEvent) void {
-        self.is_set = false;
-    }
-
-    fn set(self: *DebugEvent) void {
-        self.is_set = true;
-    }
-
-    fn wait(self: *DebugEvent) void {
-        if (self.is_set)
-            return;
-
-        @panic("deadlock detected");
-    }
-
-    fn timedWait(self: *DebugEvent, timeout: u64) !void {
-        if (self.is_set)
-            return;
-
-        return error.TimedOut;
-    }
-};
-
-const PosixEvent = struct {
-    sem: c.sem_t = undefined,
-    /// Sadly this is needed because pthreads semaphore API does not
-    /// support static initialization.
-    init_mutex: std.mutex.PthreadMutex = .{},
-    state: enum { uninit, init } = .uninit,
-
-    fn init() PosixEvent {
-        return .{};
-    }
-
-    /// Not thread-safe.
-    fn deinit(self: *PosixEvent) void {
-        switch (self.state) {
-            .uninit => {},
-            .init => {
-                assert(c.sem_destroy(&self.sem) == 0);
-            },
-        }
-        self.* = undefined;
-    }
-
-    fn isSet(self: *PosixEvent) bool {
-        const sem = self.getInitializedSem();
-        var val: c_int = undefined;
-        assert(c.sem_getvalue(sem, &val) == 0);
-        return val > 0;
-    }
-
-    fn reset(self: *PosixEvent) void {
-        const sem = self.getInitializedSem();
-        while (true) {
-            switch (c.getErrno(c.sem_trywait(sem))) {
-                0 => continue, // Need to make it go to zero.
-                c.EINTR => continue,
-                c.EINVAL => unreachable,
-                c.EAGAIN => return, // The semaphore currently has the value zero.
-                else => unreachable,
-            }
-        }
-    }
-
-    fn set(self: *PosixEvent) void {
-        const sem = self.getInitializedSem();
-        assert(c.sem_post(sem) == 0);
-    }
-
-    fn wait(self: *PosixEvent) void {
-        const sem = self.getInitializedSem();
-        while (true) {
-            switch (c.getErrno(c.sem_wait(sem))) {
-                0 => return,
-                c.EINTR => continue,
-                c.EINVAL => unreachable,
-                else => unreachable,
-            }
-        }
-    }
-
-    fn timedWait(self: *PosixEvent, timeout_ns: u64) !void {
-        var ts: os.timespec = undefined;
-        var timeout_abs = timeout_ns;
-        if (comptime std.Target.current.isDarwin()) {
-            var tv: os.darwin.timeval = undefined;
-            assert(os.darwin.gettimeofday(&tv, null) == 0);
-            timeout_abs += @intCast(u64, tv.tv_sec) * time.ns_per_s;
-            timeout_abs += @intCast(u64, tv.tv_usec) * time.ns_per_us;
-        } else {
-            os.clock_gettime(os.CLOCK_REALTIME, &ts) catch return error.TimedOut;
-            timeout_abs += @intCast(u64, ts.tv_sec) * time.ns_per_s;
-            timeout_abs += @intCast(u64, ts.tv_nsec);
-        }
-        ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_abs, time.ns_per_s));
-        ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_abs, time.ns_per_s));
-        const sem = self.getInitializedSem();
-        while (true) {
-            switch (c.getErrno(c.sem_timedwait(&self.sem, &ts))) {
-                0 => return,
-                c.EINTR => continue,
-                c.EINVAL => unreachable,
-                c.ETIMEDOUT => return error.TimedOut,
-                else => unreachable,
-            }
-        }
-    }
-
-    fn getInitializedSem(self: *PosixEvent) *c.sem_t {
-        const held = self.init_mutex.acquire();
-        defer held.release();
-
-        switch (self.state) {
-            .init => return &self.sem,
-            .uninit => {
-                self.state = .init;
-                assert(c.sem_init(&self.sem, 0, 0) == 0);
-                return &self.sem;
-            },
-        }
-    }
-};
-
-const AtomicEvent = struct {
-    waiters: u32,
+pub const AtomicEvent = struct {
+    waiters: u32 = 0,
 
     const WAKE = 1 << 0;
     const WAIT = 1 << 1;
 
-    fn init() AtomicEvent {
-        return AtomicEvent{ .waiters = 0 };
+    /// This function is provided so that this type can be re-used inside
+    /// `std.ResetEvent`.
+    pub fn init(ev: *AtomicEvent) void {
+        ev.* = .{};
     }
 
-    fn deinit(self: *AtomicEvent) void {
-        self.* = undefined;
+    /// This function is provided so that this type can be re-used inside
+    /// `std.ResetEvent`.
+    pub fn deinit(ev: *AtomicEvent) void {
+        ev.* = undefined;
     }
 
-    fn isSet(self: *const AtomicEvent) bool {
-        return @atomicLoad(u32, &self.waiters, .Acquire) == WAKE;
-    }
-
-    fn reset(self: *AtomicEvent) void {
-        @atomicStore(u32, &self.waiters, 0, .Monotonic);
-    }
-
-    fn set(self: *AtomicEvent) void {
-        const waiters = @atomicRmw(u32, &self.waiters, .Xchg, WAKE, .Release);
+    pub fn set(ev: *AtomicEvent) void {
+        const waiters = @atomicRmw(u32, &ev.waiters, .Xchg, WAKE, .Release);
         if (waiters >= WAIT) {
-            return Futex.wake(&self.waiters, waiters >> 1);
+            return Futex.wake(&ev.waiters, waiters >> 1);
         }
     }
 
-    fn wait(self: *AtomicEvent) void {
-        return self.timedWait(null) catch unreachable;
+    pub fn wait(ev: *AtomicEvent) void {
+        switch (ev.timedWait(null)) {
+            .timed_out => unreachable,
+            .event_set => return,
+        }
     }
 
-    fn timedWait(self: *AtomicEvent, timeout: ?u64) !void {
-        var waiters = @atomicLoad(u32, &self.waiters, .Acquire);
+    pub fn timedWait(ev: *AtomicEvent, timeout: ?u64) TimedWaitResult {
+        var waiters = @atomicLoad(u32, &ev.waiters, .Acquire);
         while (waiters != WAKE) {
-            waiters = @cmpxchgWeak(u32, &self.waiters, waiters, waiters + WAIT, .Acquire, .Acquire) orelse return Futex.wait(&self.waiters, timeout);
+            waiters = @cmpxchgWeak(u32, &ev.waiters, waiters, waiters + WAIT, .Acquire, .Acquire) orelse {
+                if (Futex.wait(&ev.waiters, timeout)) |_| {
+                    return .event_set;
+                } else |_| {
+                    return .timed_out;
+                }
+            };
         }
+        return .event_set;
     }
 
-    pub const Futex = switch (builtin.os.tag) {
+    pub fn reset(ev: *AtomicEvent) void {
+        @atomicStore(u32, &ev.waiters, 0, .Monotonic);
+    }
+
+    pub const Futex = switch (std.Target.current.os.tag) {
         .windows => WindowsFutex,
         .linux => LinuxFutex,
         else => SpinFutex,
     };
 
-    const SpinFutex = struct {
+    pub const SpinFutex = struct {
         fn wake(waiters: *u32, wake_count: u32) void {}
 
         fn wait(waiters: *u32, timeout: ?u64) !void {
-            // TODO: handle platforms where a monotonic timer isnt available
             var timer: time.Timer = undefined;
             if (timeout != null)
-                timer = time.Timer.start() catch unreachable;
+                timer = time.Timer.start() catch return error.TimedOut;
 
             while (@atomicLoad(u32, waiters, .Acquire) != WAKE) {
                 SpinLock.yield();
@@ -278,7 +192,7 @@ const AtomicEvent = struct {
         }
     };
 
-    const LinuxFutex = struct {
+    pub const LinuxFutex = struct {
         fn wake(waiters: *u32, wake_count: u32) void {
             const waiting = std.math.maxInt(i32); // wake_count
             const ptr = @ptrCast(*const i32, waiters);
@@ -313,7 +227,7 @@ const AtomicEvent = struct {
         }
     };
 
-    const WindowsFutex = struct {
+    pub const WindowsFutex = struct {
         pub fn wake(waiters: *u32, wake_count: u32) void {
             const handle = getEventHandle() orelse return SpinFutex.wake(waiters, wake_count);
             const key = @ptrCast(*const c_void, waiters);
@@ -392,18 +306,14 @@ const AtomicEvent = struct {
     };
 };
 
-test "ResetEvent" {
-    var event = ResetEvent.init();
-    defer event.deinit();
+test "basic usage" {
+    var event = StaticResetEvent{};
 
     // test event setting
-    testing.expect(!event.isSet());
     event.set();
-    testing.expect(event.isSet());
 
     // test event resetting
     event.reset();
-    testing.expect(!event.isSet());
 
     // test event waiting (non-blocking)
     event.set();
@@ -411,32 +321,18 @@ test "ResetEvent" {
     event.reset();
 
     event.set();
-    try event.timedWait(1);
+    testing.expectEqual(TimedWaitResult.event_set, event.timedWait(1));
 
     // test cross-thread signaling
-    if (builtin.single_threaded)
+    if (std.builtin.single_threaded)
         return;
 
     const Context = struct {
         const Self = @This();
 
-        value: u128,
-        in: ResetEvent,
-        out: ResetEvent,
-
-        fn init() Self {
-            return Self{
-                .value = 0,
-                .in = ResetEvent.init(),
-                .out = ResetEvent.init(),
-            };
-        }
-
-        fn deinit(self: *Self) void {
-            self.in.deinit();
-            self.out.deinit();
-            self.* = undefined;
-        }
+        value: u128 = 0,
+        in: StaticResetEvent = .{},
+        out: StaticResetEvent = .{},
 
         fn sender(self: *Self) void {
             // update value and signal input
@@ -477,14 +373,13 @@ test "ResetEvent" {
 
         fn timedWaiter(self: *Self) !void {
             self.in.wait();
-            testing.expectError(error.TimedOut, self.out.timedWait(time.ns_per_us));
+            testing.expectEqual(TimedWaitResult.timed_out, self.out.timedWait(time.ns_per_us));
             try self.out.timedWait(time.ns_per_ms * 100);
             testing.expect(self.value == 5);
         }
     };
 
-    var context = Context.init();
-    defer context.deinit();
+    var context = Context{};
     const receiver = try std.Thread.spawn(&context, Context.receiver);
     defer receiver.wait();
     context.sender();

@@ -8,7 +8,21 @@ const WaitGroup = @This();
 
 lock: std.Mutex = .{},
 counter: usize = 0,
-event: ?*std.ResetEvent = null,
+event: std.ResetEvent,
+
+pub fn init(self: *WaitGroup) !void {
+    self.* = .{
+        .lock = .{},
+        .counter = 0,
+        .event = undefined,
+    };
+    try self.event.init();
+}
+
+pub fn deinit(self: *WaitGroup) void {
+    self.event.deinit();
+    self.* = undefined;
+}
 
 pub fn start(self: *WaitGroup) void {
     const held = self.lock.acquire();
@@ -17,17 +31,14 @@ pub fn start(self: *WaitGroup) void {
     self.counter += 1;
 }
 
-pub fn stop(self: *WaitGroup) void {
+pub fn finish(self: *WaitGroup) void {
     const held = self.lock.acquire();
     defer held.release();
 
     self.counter -= 1;
 
     if (self.counter == 0) {
-        if (self.event) |event| {
-            self.event = null;
-            event.set();
-        }
+        self.event.set();
     }
 }
 
@@ -40,13 +51,11 @@ pub fn wait(self: *WaitGroup) void {
             return;
         }
 
-        var event = std.ResetEvent.init();
-        defer event.deinit();
-
-        std.debug.assert(self.event == null);
-        self.event = &event;
-
         held.release();
-        event.wait();
+        self.event.wait();
     }
+}
+
+pub fn reset(self: *WaitGroup) void {
+    self.event.reset();
 }
