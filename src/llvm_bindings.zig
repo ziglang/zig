@@ -36,6 +36,15 @@ pub const ValueRef = opaque {
 pub const TypeRef = opaque {
     pub const functionType = LLVMFunctionType;
     extern fn LLVMFunctionType(ReturnType: *const TypeRef, ParamTypes: ?[*]*const TypeRef, ParamCount: c_uint, IsVarArg: LLVMBool) *const TypeRef;
+
+    pub const constNull = LLVMConstNull;
+    extern fn LLVMConstNull(Ty: *const TypeRef) *const ValueRef;
+
+    pub const constAllOnes = LLVMConstAllOnes;
+    extern fn LLVMConstAllOnes(Ty: *const TypeRef) *const ValueRef;
+
+    pub const getUndef = LLVMGetUndef;
+    extern fn LLVMGetUndef(Ty: *const TypeRef) *const ValueRef;
 };
 
 pub const ModuleRef = opaque {

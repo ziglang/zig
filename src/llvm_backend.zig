@@ -301,6 +301,7 @@ pub const LLVMIRModule = struct {
                         .call => try self.genCall(inst.castTag(.call).?),
                         .unreach => self.genUnreach(inst.castTag(.unreach).?),
                         .retvoid => self.genRetVoid(inst.castTag(.retvoid).?),
+                        .arg => self.genArg(inst.castTag(.arg).?),
                         .dbg_stmt => {
                             // TODO: implement debug info
                         },
@@ -319,11 +320,23 @@ pub const LLVMIRModule = struct {
                 const zig_fn_type = func.owner_decl.typed_value.most_recent.typed_value.ty;
                 const llvm_fn = try self.resolveLLVMFunction(func);
 
-                // TODO: handle more arguments, inst.args
+                const num_args = inst.args.len;
+
+                const llvm_param_vals = try self.gpa.alloc(*const llvm.ValueRef, num_args);
+                defer self.gpa.free(llvm_param_vals);
+
+                for (inst.args) |arg, i| {
+                    llvm_param_vals[i] = try self.resolveInst(arg);
+                }
 
                 // TODO: LLVMBuildCall2 handles opaque function pointers, according to llvm docs
                 //       Do we need that?
-                const call = self.builder.buildCall(llvm_fn, null, 0, "");
+                const call = self.builder.buildCall(
+                    llvm_fn,
+                    if (num_args == 0) null else llvm_param_vals.ptr,
+                    @intCast(c_uint, num_args),
+                    "",
+                );
 
                 if (zig_fn_type.fnReturnType().zigTypeTag() == .NoReturn) {
                     _ = self.builder.buildUnreachable();
@@ -340,12 +353,35 @@ pub const LLVMIRModule = struct {
         _ = self.builder.buildUnreachable();
     }
 
+    fn genArg(self: *LLVMIRModule, inst: *Inst.Arg) void {
+        // TODO: implement this
+    }
+
     fn genBreakpoint(self: *LLVMIRModule, inst: *Inst.NoOp) !void {
         // TODO: Store this function somewhere such that we dont have to add it again
         const fn_type = llvm.TypeRef.functionType(llvm.voidType(), null, 0, false);
         const func = self.llvm_module.addFunction("llvm.debugtrap", fn_type);
         // TODO: add assertion: LLVMGetIntrinsicID
         _ = self.builder.buildCall(func, null, 0, "");
+    }
+
+    fn resolveInst(self: *LLVMIRModule, inst: *ir.Inst) !*const llvm.ValueRef {
+        if (inst.castTag(.constant)) |const_inst| {
+            return self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
+        }
+        return self.fail(inst.src, "TODO implement resolveInst", .{});
+    }
+
+    fn genTypedValue(self: *LLVMIRModule, src: usize, typed_value: TypedValue) !*const llvm.ValueRef {
+        const llvm_type = self.getLLVMType(typed_value.ty);
+
+        if (typed_value.val.isUndef())
+            return llvm_type.getUndef();
+
+        switch (typed_value.ty.zigTypeTag()) {
+            .Bool => return if (typed_value.val.toBool()) llvm_type.constAllOnes() else llvm_type.constNull(),
+            else => return self.fail(src, "TODO implement const of type '{}'", .{typed_value.ty}),
+        }
     }
 
     /// If the llvm function does not exist, create it
