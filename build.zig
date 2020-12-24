@@ -237,9 +237,13 @@ pub fn build(b: *Builder) !void {
         // Detect dirty changes.
         const diff_untrimmed = b.execAllowFail(&[_][]const u8{
             "git", "-C", b.build_root, "diff", "HEAD",
-        }, &code, .Ignore) catch |err| {
-            std.debug.print("Error executing git diff: {}", .{err});
-            std.process.exit(1);
+        }, &code, .Ignore) catch |err| switch (err) {
+            // when there is a big diff, usually after resolving merge conflicts, but before a commit
+            error.StreamTooLong => "dirty_diff_too_big",
+            else => {
+                std.debug.print("Error executing git diff: {}\n", .{err});
+                std.process.exit(1);
+            },
         };
         const trimmed_diff = mem.trim(u8, diff_untrimmed, " \n\r");
         const dirty_suffix = if (trimmed_diff.len == 0) "" else s: {
