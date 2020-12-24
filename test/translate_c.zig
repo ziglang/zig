@@ -2964,10 +2964,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo(arg_x: bool) bool {
         \\    var x = arg_x;
-        \\    var a: bool = (@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(x)))) != @as(c_int, 1));
-        \\    var b: bool = (@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(a)))) != @as(c_int, 0));
+        \\    var a: bool = (@as(c_int, @boolToInt(x)) != @as(c_int, 1));
+        \\    var b: bool = (@as(c_int, @boolToInt(a)) != @as(c_int, 0));
         \\    var c: bool = @ptrToInt(foo) != 0;
-        \\    return foo((@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(c)))) != @intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(b))))));
+        \\    return foo((@as(c_int, @boolToInt(c)) != @as(c_int, @boolToInt(b))));
         \\}
     });
 
