@@ -835,7 +835,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
-        man.hash.add(self.base.options.is_compiler_rt_or_libc);
+        man.hash.add(self.base.options.skip_linker_dependencies);
         if (self.base.options.link_libc) {
             man.hash.add(self.base.options.libc_installation != null);
             if (self.base.options.libc_installation) |libc_installation| {
@@ -1125,7 +1125,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         }
 
         // compiler-rt, libc and libssp
-        if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
+        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies) {
             if (!self.base.options.link_libc) {
                 try argv.append(comp.libc_static_lib.?.full_object_path);
             }

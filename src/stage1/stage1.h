@@ -185,6 +185,7 @@ struct ZigStage1 {
     bool dll_export_fns;
     bool link_mode_dynamic;
     bool valgrind_enabled;
+    bool tsan_enabled;
     bool function_sections;
     bool enable_stack_probing;
     bool enable_time_report;

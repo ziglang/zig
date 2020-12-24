@@ -50,6 +50,7 @@
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
 
@@ -91,6 +92,10 @@ char *ZigLLVMGetNativeFeatures(void) {
 
 static void addDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
     PM.add(createAddDiscriminatorsPass());
+}
+
+static void addThreadSanitizerPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
+    PM.add(createThreadSanitizerLegacyPassPass());
 }
 
 #ifndef NDEBUG
@@ -179,7 +184,7 @@ unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
-        bool is_small, bool time_report,
+        bool is_small, bool time_report, bool tsan,
         const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
 {
     TimePassesIsEnabled = time_report;
@@ -243,6 +248,11 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
         PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
         PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel, false);
+    }
+
+    if (tsan) {
+        PMBuilder->addExtension(PassManagerBuilder::EP_OptimizerLast, addThreadSanitizerPass);
+        PMBuilder->addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0, addThreadSanitizerPass);
     }
 
     // Set up the per-function pass manager.

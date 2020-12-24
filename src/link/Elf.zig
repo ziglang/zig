@@ -1310,7 +1310,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         man.hash.add(self.base.options.each_lib_rpath);
-        man.hash.add(self.base.options.is_compiler_rt_or_libc);
+        man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
         man.hash.add(self.base.options.z_defs);
         if (self.base.options.link_libc) {
@@ -1327,6 +1327,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.addStringSet(self.base.options.system_libs);
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
+        man.hash.add(self.base.options.tsan);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -1545,8 +1546,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append(p);
     }
 
+    // TSAN
+    if (self.base.options.tsan) {
+        try argv.append(comp.tsan_static_lib.?.full_object_path);
+    }
+
     // libc
-    if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc and !self.base.options.link_libc) {
+    if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies and !self.base.options.link_libc) {
         try argv.append(comp.libc_static_lib.?.full_object_path);
     }
 
@@ -1568,9 +1574,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
             argv.appendAssumeCapacity(arg);
         }
-    }
 
-    if (!is_obj) {
         // libc++ dep
         if (self.base.options.link_libcpp) {
             try argv.append(comp.libcxxabi_static_lib.?.full_object_path);

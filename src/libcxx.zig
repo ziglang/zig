@@ -138,8 +138,6 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         try cflags.append("-I");
         try cflags.append(cxxabi_include_path);
 
-        try cflags.append("-O3");
-        try cflags.append("-DNDEBUG");
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
@@ -165,15 +163,16 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = comp.bin_file.options.optimize_mode,
+        .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = link_mode,
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
+        .want_tsan = comp.bin_file.options.tsan,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
-        .strip = comp.bin_file.options.strip,
+        .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
@@ -188,6 +187,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .link_libc = true,
+        .skip_linker_dependencies = true,
     });
     defer sub_compilation.destroy();
 
@@ -255,16 +255,12 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         try cflags.append("-I");
         try cflags.append(cxx_include_path);
 
-        try cflags.append("-O3");
-        try cflags.append("-DNDEBUG");
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
         try cflags.append("-nostdinc++");
         try cflags.append("-fstrict-aliasing");
         try cflags.append("-funwind-tables");
-        try cflags.append("-D_DEBUG");
-        try cflags.append("-UNDEBUG");
         try cflags.append("-std=c++11");
 
         c_source_files[i] = .{
@@ -284,15 +280,16 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = comp.bin_file.options.optimize_mode,
+        .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = link_mode,
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
+        .want_tsan = comp.bin_file.options.tsan,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
-        .strip = comp.bin_file.options.strip,
+        .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
@@ -307,6 +304,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .link_libc = true,
+        .skip_linker_dependencies = true,
     });
     defer sub_compilation.destroy();
 

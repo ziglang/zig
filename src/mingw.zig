@@ -91,8 +91,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-D_CRTBLD",
                     "-D_WIN32_WINNT=0x0f00",
                     "-D__MSVCRT_VERSION__=0x700",
-                    "-g",
-                    "-O2",
                 });
                 c_source_files[i] = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -119,9 +117,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
 
                 "-isystem",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "any-windows-any" }),
-
-                "-g",
-                "-O2",
             });
             var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
 
@@ -167,8 +162,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-D_CRTBLD",
                 "-D_WIN32_WINNT=0x0f00",
                 "-D__MSVCRT_VERSION__=0x700",
-                "-g",
-                "-O2",
 
                 "-isystem",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "any-windows-any" }),
@@ -233,8 +226,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-D_CRTBLD",
                 "-D_WIN32_WINNT=0x0f00",
                 "-D__MSVCRT_VERSION__=0x700",
-                "-g",
-                "-O2",
 
                 "-isystem",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{

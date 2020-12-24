@@ -42,6 +42,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-sjlj.c",
         "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersRestore.S",
         "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersSave.S",
+        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "gcc_personality_v0.c",
     };
     var c_source_files: [unwind_src_list.len]Compilation.CSourceFile = undefined;
     for (unwind_src_list) |unwind_src, i| {
@@ -80,7 +81,12 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         if (comp.bin_file.options.single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
+        if (target.cpu.arch.isARM() and target.abi.floatAbi() == .hard) {
+            try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
+        }
         try cflags.append("-Wno-bitwise-conditional-parentheses");
+        try cflags.append("-Wno-visibility");
+        try cflags.append("-Wno-incompatible-pointer-types");
 
         c_source_files[i] = .{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{unwind_src}),
@@ -98,15 +104,16 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = comp.bin_file.options.optimize_mode,
+        .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = link_mode,
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
+        .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
-        .strip = comp.bin_file.options.strip,
+        .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
@@ -121,6 +128,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .link_libc = true,
+        .skip_linker_dependencies = true,
     });
     defer sub_compilation.destroy();
 

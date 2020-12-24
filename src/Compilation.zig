@@ -30,6 +30,7 @@ const c_codegen = @import("codegen/c.zig");
 const c_link = @import("link/C.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
+const libtsan = @import("libtsan.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -94,6 +95,9 @@ libcxxabi_static_lib: ?CRTFile = null,
 /// Populated when we build the libunwind static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libunwind_static_lib: ?CRTFile = null,
+/// Populated when we build the TSAN static library. A Job to build this is placed in the queue
+/// and resolved before calling linker.flush().
+tsan_static_lib: ?CRTFile = null,
 /// Populated when we build the libssp static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libssp_static_lib: ?CRTFile = null,
@@ -127,6 +131,7 @@ mutex: std.Mutex = .{},
 test_filter: ?[]const u8,
 test_name_prefix: ?[]const u8,
 test_evented_io: bool,
+debug_compiler_runtime_libs: bool,
 
 emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
@@ -179,6 +184,7 @@ const Job = union(enum) {
     libunwind: void,
     libcxx: void,
     libcxxabi: void,
+    libtsan: void,
     libssp: void,
     compiler_rt_lib: void,
     compiler_rt_obj: void,
@@ -388,6 +394,7 @@ pub const InitOptions = struct {
     want_sanitize_c: ?bool = null,
     want_stack_check: ?bool = null,
     want_valgrind: ?bool = null,
+    want_tsan: ?bool = null,
     want_compiler_rt: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
@@ -423,7 +430,12 @@ pub const InitOptions = struct {
     verbose_llvm_cpu_features: bool = false,
     is_test: bool = false,
     test_evented_io: bool = false,
-    is_compiler_rt_or_libc: bool = false,
+    debug_compiler_runtime_libs: bool = false,
+    /// Normally when you create a `Compilation`, Zig will automatically build
+    /// and link in required dependencies, such as compiler-rt and libc. When
+    /// building such dependencies themselves, this flag must be set to avoid
+    /// infinite recursion.
+    skip_linker_dependencies: bool = false,
     parent_compilation_link_libc: bool = false,
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
@@ -493,7 +505,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         .Lib => is_dyn_lib,
         .Exe => true,
     };
-    const needs_c_symbols = !options.is_compiler_rt_or_libc and
+    const needs_c_symbols = !options.skip_linker_dependencies and
         (is_exe_or_dyn_lib or (options.target.isWasm() and options.output_mode != .Obj));
 
     const comp: *Compilation = comp: {
@@ -583,7 +595,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :outer opts;
         } else .{};
 
-        const link_libc = options.link_libc or target_util.osRequiresLibC(options.target);
+        const tsan = options.want_tsan orelse false;
+
+        const link_libc = options.link_libc or target_util.osRequiresLibC(options.target) or tsan;
 
         const must_dynamic_link = dl: {
             if (target_util.cannotDynamicLink(options.target))
@@ -645,12 +659,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         );
 
         const must_pie = target_util.requiresPIE(options.target);
-        const pie = if (options.want_pie) |explicit| pie: {
+        const pie: bool = if (options.want_pie) |explicit| pie: {
             if (!explicit and must_pie) {
                 return error.TargetRequiresPIE;
             }
             break :pie explicit;
-        } else must_pie;
+        } else must_pie or tsan;
 
         const must_pic: bool = b: {
             if (target_util.requiresPIC(options.target, link_libc))
@@ -668,6 +682,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
             break :pic explicit;
         } else pie or must_pic;
+
+        // TSAN is implemented in C++ so it requires linking libc++.
+        const link_libcpp = options.link_libcpp or tsan;
 
         // Make a decision on whether to use Clang for translate-c and compiling C files.
         const use_clang = if (options.use_clang) |explicit| explicit else blk: {
@@ -751,12 +768,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(ofmt);
         cache.hash.add(pic);
         cache.hash.add(pie);
+        cache.hash.add(tsan);
         cache.hash.add(stack_check);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
         cache.hash.add(strip);
         cache.hash.add(link_libc);
-        cache.hash.add(options.link_libcpp);
+        cache.hash.add(link_libcpp);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
         cache.hash.addOptionalEmitLoc(options.emit_bin);
@@ -784,7 +802,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             hash.add(single_threaded);
             hash.add(dll_export_fns);
             hash.add(options.is_test);
-            hash.add(options.is_compiler_rt_or_libc);
+            hash.add(options.skip_linker_dependencies);
             hash.add(options.parent_compilation_link_libc);
 
             const digest = hash.final();
@@ -921,7 +939,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .use_llvm = use_llvm,
             .system_linker_hack = darwin_options.system_linker_hack,
             .link_libc = link_libc,
-            .link_libcpp = options.link_libcpp,
+            .link_libcpp = link_libcpp,
             .objects = options.link_objects,
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
@@ -953,6 +971,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .pic = pic,
             .pie = pie,
             .valgrind = valgrind,
+            .tsan = tsan,
             .stack_check = stack_check,
             .single_threaded = single_threaded,
             .verbose_link = options.verbose_link,
@@ -960,7 +979,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .dll_export_fns = dll_export_fns,
             .error_return_tracing = error_return_tracing,
             .llvm_cpu_features = llvm_cpu_features,
-            .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
+            .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
             .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
             .disable_lld_caching = options.disable_lld_caching,
@@ -1008,6 +1027,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .test_filter = options.test_filter,
             .test_name_prefix = options.test_name_prefix,
             .test_evented_io = options.test_evented_io,
+            .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .work_queue_wait_group = undefined,
         };
         break :comp comp;
@@ -1034,7 +1054,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
-    if (comp.bin_file.options.emit != null and !comp.bin_file.options.is_compiler_rt_or_libc) {
+    if (comp.bin_file.options.emit != null and !comp.bin_file.options.skip_linker_dependencies) {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
@@ -1087,11 +1107,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         if (comp.wantBuildLibUnwindFromSource()) {
             try comp.work_queue.writeItem(.{ .libunwind = {} });
         }
-        if (build_options.have_llvm and comp.bin_file.options.output_mode != .Obj and
-            comp.bin_file.options.link_libcpp)
-        {
+        if (build_options.have_llvm and is_exe_or_dyn_lib and comp.bin_file.options.link_libcpp) {
             try comp.work_queue.writeItem(.libcxx);
             try comp.work_queue.writeItem(.libcxxabi);
+        }
+        if (build_options.have_llvm and comp.bin_file.options.tsan) {
+            try comp.work_queue.writeItem(.libtsan);
         }
 
         // The `is_stage1` condition is here only because stage2 cannot yet build compiler-rt.
@@ -1567,6 +1588,12 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             libcxx.buildLibCXXABI(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build libcxxabi: {}", .{@errorName(err)});
+            };
+        },
+        .libtsan => {
+            libtsan.buildTsan(self) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build TSAN library: {}", .{@errorName(err)});
             };
         },
         .compiler_rt_lib => {
@@ -2175,9 +2202,14 @@ pub fn addCCArgs(
                 try argv.append("-fomit-frame-pointer");
             }
 
-            if (comp.sanitize_c) {
+            if (comp.sanitize_c and !comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=undefined");
                 try argv.append("-fsanitize-trap=undefined");
+            } else if (comp.sanitize_c and comp.bin_file.options.tsan) {
+                try argv.append("-fsanitize=undefined,thread");
+                try argv.append("-fsanitize-trap=undefined");
+            } else if (!comp.sanitize_c and comp.bin_file.options.tsan) {
+                try argv.append("-fsanitize=thread");
             }
 
             switch (comp.bin_file.options.optimize_mode) {
@@ -2749,7 +2781,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
     // in. For example, compiler_rt will not export the __chkstk symbol if it
     // knows libc will provide it, and likewise c.zig will not export memcpy.
     const link_libc = comp.bin_file.options.link_libc or
-        (comp.bin_file.options.is_compiler_rt_or_libc and comp.bin_file.options.parent_compilation_link_libc);
+        (comp.bin_file.options.skip_linker_dependencies and comp.bin_file.options.parent_compilation_link_libc);
 
     try buffer.writer().print(
         \\pub const object_format = ObjectFormat.{};
@@ -2862,14 +2894,6 @@ fn buildOutputFromZig(
         .directory = null, // Put it in the cache directory.
         .basename = bin_basename,
     };
-    const optimize_mode: std.builtin.Mode = blk: {
-        if (comp.bin_file.options.is_test)
-            break :blk comp.bin_file.options.optimize_mode;
-        switch (comp.bin_file.options.optimize_mode) {
-            .Debug, .ReleaseFast, .ReleaseSafe => break :blk .ReleaseFast,
-            .ReleaseSmall => break :blk .ReleaseSmall,
-        }
-    };
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
@@ -2881,16 +2905,17 @@ fn buildOutputFromZig(
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = optimize_mode,
+        .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = .Static,
         .function_sections = true,
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
+        .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
-        .strip = comp.bin_file.options.strip,
+        .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
@@ -2903,7 +2928,7 @@ fn buildOutputFromZig(
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .is_compiler_rt_or_libc = true,
+        .skip_linker_dependencies = true,
         .parent_compilation_link_libc = comp.bin_file.options.link_libc,
     });
     defer sub_compilation.destroy();
@@ -3115,6 +3140,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .dll_export_fns = comp.bin_file.options.dll_export_fns,
         .link_mode_dynamic = comp.bin_file.options.link_mode == .Dynamic,
         .valgrind_enabled = comp.bin_file.options.valgrind,
+        .tsan_enabled = comp.bin_file.options.tsan,
         .function_sections = comp.bin_file.options.function_sections,
         .enable_stack_probing = comp.bin_file.options.stack_check,
         .enable_time_report = comp.time_report,
@@ -3258,14 +3284,15 @@ pub fn build_crt_file(
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = comp.bin_file.options.optimize_mode,
+        .optimize_mode = comp.compilerRtOptMode(),
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
+        .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
-        .strip = comp.bin_file.options.strip,
+        .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
@@ -3279,7 +3306,7 @@ pub fn build_crt_file(
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .is_compiler_rt_or_libc = true,
+        .skip_linker_dependencies = true,
         .parent_compilation_link_libc = comp.bin_file.options.link_libc,
     });
     defer sub_compilation.destroy();
@@ -3300,7 +3327,7 @@ pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // Avoid deadlocking on building import libs such as kernel32.lib
     // This can happen when the user uses `build-exe foo.obj -lkernel32` and then
     // when we create a sub-Compilation for zig libc, it also tries to build kernel32.lib.
-    if (comp.bin_file.options.is_compiler_rt_or_libc) return;
+    if (comp.bin_file.options.skip_linker_dependencies) return;
 
     // This happens when an `extern "foo"` function is referenced by the stage1 backend.
     // If we haven't seen this library yet and we're targeting Windows, we need to queue up
@@ -3310,5 +3337,28 @@ pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
         try comp.work_queue.writeItem(.{
             .windows_import_lib = comp.bin_file.options.system_libs.count() - 1,
         });
+    }
+}
+
+/// This decides the optimization mode for all zig-provided libraries, including
+/// compiler-rt, libcxx, libc, libunwind, etc.
+pub fn compilerRtOptMode(comp: Compilation) std.builtin.Mode {
+    if (comp.debug_compiler_runtime_libs) {
+        return comp.bin_file.options.optimize_mode;
+    }
+    switch (comp.bin_file.options.optimize_mode) {
+        .Debug, .ReleaseSafe => return target_util.defaultCompilerRtOptimizeMode(comp.getTarget()),
+        .ReleaseFast => return .ReleaseFast,
+        .ReleaseSmall => return .ReleaseSmall,
+    }
+}
+
+/// This decides whether to strip debug info for all zig-provided libraries, including
+/// compiler-rt, libcxx, libc, libunwind, etc.
+pub fn compilerRtStrip(comp: Compilation) bool {
+    if (comp.debug_compiler_runtime_libs) {
+        return comp.bin_file.options.strip;
+    } else {
+        return true;
     }
 }
