@@ -131,6 +131,7 @@ mutex: std.Mutex = .{},
 test_filter: ?[]const u8,
 test_name_prefix: ?[]const u8,
 test_evented_io: bool,
+debug_compiler_runtime_libs: bool,
 
 emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
@@ -429,6 +430,7 @@ pub const InitOptions = struct {
     verbose_llvm_cpu_features: bool = false,
     is_test: bool = false,
     test_evented_io: bool = false,
+    debug_compiler_runtime_libs: bool = false,
     /// Normally when you create a `Compilation`, Zig will automatically build
     /// and link in required dependencies, such as compiler-rt and libc. When
     /// building such dependencies themselves, this flag must be set to avoid
@@ -1025,6 +1027,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .test_filter = options.test_filter,
             .test_name_prefix = options.test_name_prefix,
             .test_evented_io = options.test_evented_io,
+            .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .work_queue_wait_group = undefined,
         };
         break :comp comp;
@@ -2891,14 +2894,6 @@ fn buildOutputFromZig(
         .directory = null, // Put it in the cache directory.
         .basename = bin_basename,
     };
-    const optimize_mode: std.builtin.Mode = blk: {
-        if (comp.bin_file.options.is_test)
-            break :blk comp.bin_file.options.optimize_mode;
-        switch (comp.bin_file.options.optimize_mode) {
-            .Debug, .ReleaseFast, .ReleaseSafe => break :blk .ReleaseFast,
-            .ReleaseSmall => break :blk .ReleaseSmall,
-        }
-    };
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
@@ -2910,7 +2905,7 @@ fn buildOutputFromZig(
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = optimize_mode,
+        .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = .Static,
         .function_sections = true,
         .want_sanitize_c = false,
@@ -2920,7 +2915,7 @@ fn buildOutputFromZig(
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
-        .strip = comp.bin_file.options.strip,
+        .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
@@ -3289,7 +3284,7 @@ pub fn build_crt_file(
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = comp.bin_file.options.optimize_mode,
+        .optimize_mode = comp.compilerRtOptMode(),
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
@@ -3297,7 +3292,7 @@ pub fn build_crt_file(
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
-        .strip = comp.bin_file.options.strip,
+        .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
@@ -3342,5 +3337,28 @@ pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
         try comp.work_queue.writeItem(.{
             .windows_import_lib = comp.bin_file.options.system_libs.count() - 1,
         });
+    }
+}
+
+/// This decides the optimization mode for all zig-provided libraries, including
+/// compiler-rt, libcxx, libc, libunwind, etc.
+pub fn compilerRtOptMode(comp: Compilation) std.builtin.Mode {
+    if (comp.debug_compiler_runtime_libs) {
+        return comp.bin_file.options.optimize_mode;
+    }
+    switch (comp.bin_file.options.optimize_mode) {
+        .Debug, .ReleaseSafe => return target_util.defaultCompilerRtOptimizeMode(comp.getTarget()),
+        .ReleaseFast => return .ReleaseFast,
+        .ReleaseSmall => return .ReleaseSmall,
+    }
+}
+
+/// This decides whether to strip debug info for all zig-provided libraries, including
+/// compiler-rt, libcxx, libc, libunwind, etc.
+pub fn compilerRtStrip(comp: Compilation) bool {
+    if (comp.debug_compiler_runtime_libs) {
+        return comp.bin_file.options.strip;
+    } else {
+        return true;
     }
 }

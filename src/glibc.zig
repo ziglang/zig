@@ -271,7 +271,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                 "-DTOP_NAMESPACE=glibc",
                 "-DASSEMBLER",
-                "-g",
                 "-Wa,--noexecstack",
             });
             return comp.build_crt_file("crti", .Obj, &[1]Compilation.CSourceFile{
@@ -291,7 +290,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                 "-DTOP_NAMESPACE=glibc",
                 "-DASSEMBLER",
-                "-g",
                 "-Wa,--noexecstack",
             });
             return comp.build_crt_file("crtn", .Obj, &[1]Compilation.CSourceFile{
@@ -317,7 +315,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-DSHARED",
                     "-DTOP_NAMESPACE=glibc",
                     "-DASSEMBLER",
-                    "-g",
                     "-Wa,--noexecstack",
                 });
                 break :blk .{
@@ -337,7 +334,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-DMODULE_NAME=libc",
                     "-DTOP_NAMESPACE=glibc",
                     "-DASSEMBLER",
-                    "-g",
                     "-Wa,--noexecstack",
                 });
                 break :blk .{
@@ -372,8 +368,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 try args.appendSlice(&[_][]const u8{
                     "-std=gnu11",
                     "-fgnu89-inline",
-                    "-g",
-                    "-O2",
                     "-fmerge-all-constants",
                     "-fno-stack-protector",
                     "-fmath-errno",
@@ -409,8 +403,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 try args.appendSlice(&[_][]const u8{
                     "-std=gnu11",
                     "-fgnu89-inline",
-                    "-g",
-                    "-O2",
                     "-fmerge-all-constants",
                     "-fno-stack-protector",
                     "-fmath-errno",
@@ -939,13 +931,13 @@ fn buildSharedLib(
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = comp.bin_file.options.optimize_mode,
+        .optimize_mode = comp.compilerRtOptMode(),
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
         .want_tsan = false,
         .emit_h = null,
-        .strip = comp.bin_file.options.strip,
+        .strip = comp.compilerRtStrip(),
         .is_native_os = false,
         .is_native_abi = false,
         .self_exe_path = comp.self_exe_path,

@@ -344,3 +344,11 @@ pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
 pub fn hasDebugInfo(target: std.Target) bool {
     return !target.cpu.arch.isWasm();
 }
+
+pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
+    if (target.cpu.arch.isWasm() and target.os.tag == .freestanding) {
+        return .ReleaseSmall;
+    } else {
+        return .ReleaseFast;
+    }
+}
