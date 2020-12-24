@@ -5,11 +5,24 @@
 // and substantial portions of the software.
 const std = @import("std");
 const WaitGroup = @This();
-const Event = @import("Event.zig");
 
 lock: std.Mutex = .{},
 counter: usize = 0,
-event: ?*Event = null,
+event: std.ResetEvent,
+
+pub fn init(self: *WaitGroup) !void {
+    self.* = .{
+        .lock = .{},
+        .counter = 0,
+        .event = undefined,
+    };
+    try self.event.init();
+}
+
+pub fn deinit(self: *WaitGroup) void {
+    self.event.deinit();
+    self.* = undefined;
+}
 
 pub fn start(self: *WaitGroup) void {
     const held = self.lock.acquire();
@@ -18,29 +31,31 @@ pub fn start(self: *WaitGroup) void {
     self.counter += 1;
 }
 
-pub fn stop(self: *WaitGroup) void {
-    var event: ?*Event = null;
-    defer if (event) |waiter|
-        waiter.set();
-
+pub fn finish(self: *WaitGroup) void {
     const held = self.lock.acquire();
     defer held.release();
 
     self.counter -= 1;
-    if (self.counter == 0)
-        std.mem.swap(?*Event, &self.event, &event);
+
+    if (self.counter == 0) {
+        self.event.set();
+    }
 }
 
 pub fn wait(self: *WaitGroup) void {
-    var event = Event{};
-    var has_event = false;
-    defer if (has_event)
-        event.wait();
+    while (true) {
+        const held = self.lock.acquire();
 
-    const held = self.lock.acquire();
-    defer held.release();
+        if (self.counter == 0) {
+            held.release();
+            return;
+        }
 
-    has_event = self.counter != 0;
-    if (has_event)
-        self.event = &event;
+        held.release();
+        self.event.wait();
+    }
+}
+
+pub fn reset(self: *WaitGroup) void {
+    self.event.reset();
 }

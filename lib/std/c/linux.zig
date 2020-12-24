@@ -123,6 +123,10 @@ pub const pthread_mutex_t = extern struct {
 pub const pthread_cond_t = extern struct {
     size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
 };
+pub const sem_t = extern struct {
+    __size: [__SIZEOF_SEM_T]u8 align(@alignOf(usize)),
+};
+
 const __SIZEOF_PTHREAD_COND_T = 48;
 const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os.tag == .fuchsia) 40 else switch (builtin.abi) {
     .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
@@ -134,6 +138,7 @@ const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os.tag == .fuchsia) 40 else switch 
     },
     else => unreachable,
 };
+const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 
 pub const RTLD_LAZY = 1;
 pub const RTLD_NOW = 2;

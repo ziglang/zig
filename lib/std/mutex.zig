@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 const windows = os.windows;
 const testing = std.testing;
 const SpinLock = std.SpinLock;
-const ResetEvent = std.ResetEvent;
+const StaticResetEvent = std.StaticResetEvent;
 
 /// Lock may be held only once. If the same thread tries to acquire
 /// the same mutex twice, it deadlocks.  This type supports static
@@ -37,6 +37,8 @@ pub const Mutex = if (builtin.single_threaded)
     Dummy
 else if (builtin.os.tag == .windows)
     WindowsMutex
+else if (std.Thread.use_pthreads)
+    PthreadMutex
 else if (builtin.link_libc or builtin.os.tag == .linux)
     // stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
     struct {
@@ -52,7 +54,7 @@ else if (builtin.link_libc or builtin.os.tag == .linux)
 
         const Node = struct {
             next: ?*Node,
-            event: ResetEvent,
+            event: StaticResetEvent,
         };
 
         pub fn tryAcquire(self: *Mutex) ?Held {
@@ -88,11 +90,12 @@ else if (builtin.link_libc or builtin.os.tag == .linux)
                     state = @atomicLoad(usize, &self.state, .Monotonic);
                 }
 
-                // create the ResetEvent node on the stack
+                // create the StaticResetEvent node on the stack
                 // (faster than threadlocal on platforms like OSX)
-                var node: Node = undefined;
-                node.event = ResetEvent.init();
-                defer node.event.deinit();
+                var node: Node = .{
+                    .next = undefined,
+                    .event = .{},
+                };
 
                 // we've spun too long, try and add our node to the LIFO queue.
                 // if the mutex becomes available in the process, try and grab it instead.
@@ -166,6 +169,52 @@ else if (builtin.link_libc or builtin.os.tag == .linux)
 else
     SpinLock;
 
+pub const PthreadMutex = struct {
+    pthread_mutex: std.c.pthread_mutex_t = init,
+
+    pub const Held = struct {
+        mutex: *PthreadMutex,
+
+        pub fn release(self: Held) void {
+            switch (std.c.pthread_mutex_unlock(&self.mutex.pthread_mutex)) {
+                0 => return,
+                std.c.EINVAL => unreachable,
+                std.c.EAGAIN => unreachable,
+                std.c.EPERM => unreachable,
+                else => unreachable,
+            }
+        }
+    };
+
+    /// Create a new mutex in unlocked state.
+    pub const init = std.c.PTHREAD_MUTEX_INITIALIZER;
+
+    /// Try to acquire the mutex without blocking. Returns null if
+    /// the mutex is unavailable. Otherwise returns Held. Call
+    /// release on Held.
+    pub fn tryAcquire(self: *PthreadMutex) ?Held {
+        if (std.c.pthread_mutex_trylock(&self.pthread_mutex) == 0) {
+            return Held{ .mutex = self };
+        } else {
+            return null;
+        }
+    }
+
+    /// Acquire the mutex. Will deadlock if the mutex is already
+    /// held by the calling thread.
+    pub fn acquire(self: *PthreadMutex) Held {
+        switch (std.c.pthread_mutex_lock(&self.pthread_mutex)) {
+            0 => return Held{ .mutex = self },
+            std.c.EINVAL => unreachable,
+            std.c.EBUSY => unreachable,
+            std.c.EAGAIN => unreachable,
+            std.c.EDEADLK => unreachable,
+            std.c.EPERM => unreachable,
+            else => unreachable,
+        }
+    }
+};
+
 /// This has the sematics as `Mutex`, however it does not actually do any
 /// synchronization. Operations are safety-checked no-ops.
 pub const Dummy = struct {
@@ -236,7 +285,7 @@ const WindowsMutex = struct {
     fn acquireSlow(self: *WindowsMutex) Held {
         // try to use NT keyed events for blocking, falling back to spinlock if unavailable
         @setCold(true);
-        const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return self.acquireSpinning();
+        const handle = StaticResetEvent.Impl.Futex.getEventHandle() orelse return self.acquireSpinning();
         const key = @ptrCast(*const c_void, &self.state.waiters);
 
         while (true) : (SpinLock.loopHint(1)) {
@@ -264,7 +313,7 @@ const WindowsMutex = struct {
         pub fn release(self: Held) void {
             // unlock without a rmw/cmpxchg instruction
             @atomicStore(u8, @ptrCast(*u8, &self.mutex.state.locked), 0, .Release);
-            const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return;
+            const handle = StaticResetEvent.Impl.Futex.getEventHandle() orelse return;
             const key = @ptrCast(*const c_void, &self.mutex.state.waiters);
 
             while (true) : (SpinLock.loopHint(1)) {

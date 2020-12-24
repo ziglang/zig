@@ -135,6 +135,8 @@ emit_docs: ?EmitLoc,
 
 c_header: ?c_link.Header,
 
+work_queue_wait_group: WaitGroup,
+
 pub const InnerError = Module.InnerError;
 
 pub const CRTFile = struct {
@@ -1006,10 +1008,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .test_filter = options.test_filter,
             .test_name_prefix = options.test_name_prefix,
             .test_evented_io = options.test_evented_io,
+            .work_queue_wait_group = undefined,
         };
         break :comp comp;
     };
     errdefer comp.destroy();
+
+    try comp.work_queue_wait_group.init();
+    errdefer comp.work_queue_wait_group.deinit();
 
     if (comp.bin_file.options.module) |mod| {
         try comp.work_queue.writeItem(.{ .generate_builtin_zig = {} });
@@ -1190,6 +1196,8 @@ pub fn destroy(self: *Compilation) void {
 
     self.cache_parent.manifest_dir.close();
     if (self.owned_link_dir) |*dir| dir.close();
+
+    self.work_queue_wait_group.deinit();
 
     // This destroys `self`.
     self.arena_state.promote(gpa).deinit();
@@ -1405,13 +1413,13 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var arena = std.heap.ArenaAllocator.init(self.gpa);
     defer arena.deinit();
 
-    var wg = WaitGroup{};
-    defer wg.wait();
+    self.work_queue_wait_group.reset();
+    defer self.work_queue_wait_group.wait();
 
     while (self.c_object_work_queue.readItem()) |c_object| {
-        wg.start();
+        self.work_queue_wait_group.start();
         try self.thread_pool.spawn(workerUpdateCObject, .{
-            self, c_object, &c_comp_progress_node, &wg,
+            self, c_object, &c_comp_progress_node, &self.work_queue_wait_group,
         });
     }
 
@@ -1764,7 +1772,7 @@ fn workerUpdateCObject(
     progress_node: *std.Progress.Node,
     wg: *WaitGroup,
 ) void {
-    defer wg.stop();
+    defer wg.finish();
 
     comp.updateCObject(c_object, progress_node) catch |err| switch (err) {
         error.AnalysisFail => return,
