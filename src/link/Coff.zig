@@ -413,6 +413,8 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Coff {
 }
 
 pub fn allocateDeclIndexes(self: *Coff, decl: *Module.Decl) !void {
+    if (self.llvm_ir_module) |_| return;
+
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     if (self.offset_table_free_list.popOrNull()) |i| {
@@ -710,6 +712,8 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
 }
 
 pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
+    if (self.llvm_ir_module) |_| return;
+
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.coff);
     self.offset_table_free_list.append(self.base.allocator, decl.link.coff.offset_table_index) catch {};
@@ -1245,6 +1249,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 }
 
 pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl) u64 {
+    assert(self.llvm_ir_module == null);
     return self.text_section_virtual_address + decl.link.coff.text_offset;
 }
 

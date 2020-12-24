@@ -318,6 +318,7 @@ pub fn deinit(self: *Elf) void {
 }
 
 pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl) u64 {
+    assert(self.llvm_ir_module == null);
     assert(decl.link.elf.local_sym_index != 0);
     return self.local_symbols.items[decl.link.elf.local_sym_index].st_value;
 }
@@ -437,7 +438,7 @@ fn updateString(self: *Elf, old_str_off: u32, new_name: []const u8) !u32 {
 }
 
 pub fn populateMissingMetadata(self: *Elf) !void {
-    if (self.llvm_ir_module) |_| return;
+    assert(self.llvm_ir_module == null);
 
     const small_ptr = switch (self.ptr_width) {
         .p32 => true,
