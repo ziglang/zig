@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -302,7 +302,7 @@ pub const Dir = struct {
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
@@ -319,6 +319,7 @@ pub const Dir = struct {
                 switch (builtin.os.tag) {
                     .macos, .ios => return self.nextDarwin(),
                     .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
+                    .haiku => return self.nextHaiku(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -426,6 +427,16 @@ pub const Dir = struct {
                     };
                 }
             }
+
+            fn nextHaiku(self: *Self) !?Entry {
+                //const name = @ptrCast([*]u8, "placeholder-please-implement-me");
+                //const name = "placeholder-please-implement-me";
+                return Entry{
+                    .name = base64_alphabet,
+                    .kind = Entry.Kind.File,
+                };
+            }
+
         },
         .linux => struct {
             dir: Dir,
@@ -621,7 +632,7 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => return Iterator{
+            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,
@@ -2339,7 +2350,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0));
         },
-        .openbsd => {
+        .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len == 0)
                 return error.FileNotFound;

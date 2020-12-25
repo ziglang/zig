@@ -1125,12 +1125,15 @@ pub const DebugInfo = struct {
     }
 
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        if (comptime std.Target.current.isDarwin())
-            return self.lookupModuleDyld(address)
-        else if (builtin.os.tag == .windows)
-            return self.lookupModuleWin32(address)
-        else
+        if (comptime std.Target.current.isDarwin()) {
+            return self.lookupModuleDyld(address);
+        } else if (builtin.os.tag == .windows) {
+            return self.lookupModuleWin32(address);
+        } else if (builtin.os.tag == .haiku) {
+            return self.lookupModuleHaiku(address);
+        } else {
             return self.lookupModuleDl(address);
+        }
     }
 
     fn lookupModuleDyld(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
@@ -1336,6 +1339,18 @@ pub const DebugInfo = struct {
 
         return obj_di;
     }
+
+    fn lookupModuleHaiku(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        // TODO: implement me
+        var di = ModuleDebugInfo{
+            .base_address = undefined,
+            .dwarf = undefined,
+            .mapped_memory = undefined,
+        };
+
+        return &di;
+    }
+
 };
 
 const SymbolInfo = struct {
@@ -1702,6 +1717,17 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             unreachable;
         }
     },
+    .haiku => struct {
+        // Haiku should implement dl_iterat_phdr (https://dev.haiku-os.org/ticket/15743)
+        base_address: usize,
+        dwarf: DW.DwarfInfo,
+        mapped_memory: []const u8,
+
+        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+            // TODO: implement me
+            return SymbolInfo{};
+        }
+    },
     else => DW.DwarfInfo,
 };
 
@@ -1720,7 +1746,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 pub const have_segfault_handling_support = switch (builtin.os.tag) {
     .linux, .netbsd => true,
     .windows => true,
-    .freebsd, .openbsd => @hasDecl(os, "ucontext_t"),
+    .freebsd, .openbsd, .haiku => @hasDecl(os, "ucontext_t"),
     else => false,
 };
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))

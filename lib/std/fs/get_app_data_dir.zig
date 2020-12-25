@@ -56,6 +56,13 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
             };
             return fs.path.join(allocator, &[_][]const u8{ home_dir, ".local", "share", appname });
         },
+        .haiku => {
+            const home_dir = os.getenv("HOME") orelse {
+                // TODO look in /etc/passwd
+                return error.AppDataDirUnavailable;
+            };
+            return fs.path.join(allocator, &[_][]const u8{ home_dir, "config", "settings", appname });
+        },
         else => @compileError("Unsupported OS"),
     }
 }

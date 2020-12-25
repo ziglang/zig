@@ -31,6 +31,8 @@
 #define ZIG_OS_DRAGONFLY
 #elif defined(__OpenBSD__)
 #define ZIG_OS_OPENBSD
+#elif defined(__HAIKU__)
+#define ZIG_OS_HAIKU
 #else
 #define ZIG_OS_UNKNOWN
 #endif

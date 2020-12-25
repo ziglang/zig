@@ -15,6 +15,7 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     .macos, .ios, .tvos, .watchos => @import("bits/darwin.zig"),
     .dragonfly => @import("bits/dragonfly.zig"),
     .freebsd => @import("bits/freebsd.zig"),
+    .haiku => @import("bits/haiku.zig"),
     .linux => @import("bits/linux.zig"),
     .netbsd => @import("bits/netbsd.zig"),
     .openbsd => @import("bits/openbsd.zig"),
