@@ -488,7 +488,8 @@ fn labeledBlockExpr(
 
     try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
     if (!block_scope.label.?.used) {
-        return mod.fail(parent_scope, tree.token_locs[block_node.label].start, "unused block label", .{});
+        // use failWithNotes so that we can continue astgen
+        try mod.failWithNotes(parent_scope, tree.token_locs[block_node.label].start, "unused block label", .{});
     }
 
     block_inst.positionals.body.instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items);
@@ -1472,7 +1473,8 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     };
     if (loop_scope.label) |some| {
         if (!some.used) {
-            return mod.fail(scope, tree.token_locs[some.token].start, "unused while label", .{});
+            // use failWithNotes so that we can continue astgen
+            try mod.failWithNotes(scope, tree.token_locs[some.token].start, "unused while label", .{});
         }
     }
     return &while_block.base;
@@ -1658,7 +1660,8 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
     };
     if (loop_scope.label) |some| {
         if (!some.used) {
-            return mod.fail(scope, tree.token_locs[some.token].start, "unused for label", .{});
+            // use failWithNotes so that we can continue astgen
+            try mod.failWithNotes(scope, tree.token_locs[some.token].start, "unused for label", .{});
         }
     }
     return &for_block.base;
@@ -1692,7 +1695,8 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
     const switch_inst = (try addZIRInst(mod, &block_scope.base, switch_src, zir.Inst.SwitchBr, .{
         .target_ptr = target_ptr,
         .cases = undefined, // populated below
-        .items = &[_]*zir.Inst{}, // populated below
+        .items = undefined, // populated below
+        .else_src = undefined, // populated below
         .else_body = undefined, // populated below
     }, .{})).castTag(.switchbr).?;
 
@@ -1757,8 +1761,9 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
         // Check for else/_ prong, those are handled last.
         if (case.items_len == 1 and case.items()[0].tag == .SwitchElse) {
             if (else_src) |src| {
-                return mod.fail(scope, case_src, "multiple else prongs in switch expression", .{});
-                // TODO notes "previous else prong is here"
+                try mod.failWithNotes(scope, case_src, "multiple else prongs in switch expression", .{});
+                try mod.addNote(scope, src, "previous else prong is here", .{});
+                return error.AnalysisFail;
             }
             else_src = case_src;
             special_case = case;
@@ -1767,8 +1772,9 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
             mem.eql(u8, tree.tokenSlice(case.items()[0].firstToken()), "_"))
         {
             if (underscore_src) |src| {
-                return mod.fail(scope, case_src, "multiple '_' prongs in switch expression", .{});
-                // TODO notes "previous '_' prong is here"
+                try mod.failWithNotes(scope, case_src, "multiple '_' prongs in switch expression", .{});
+                try mod.addNote(scope, src, "previous '_' prong is here", .{});
+                return error.AnalysisFail;
             }
             underscore_src = case_src;
             special_case = case;
@@ -1777,9 +1783,10 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
 
         if (else_src) |some_else| {
             if (underscore_src) |some_underscore| {
-                return mod.fail(scope, switch_src, "else and '_' prong in switch expression", .{});
-                // TODO notes "else prong is here"
-                // TODO notes "'_' prong is here"
+                try mod.failWithNotes(scope, switch_src, "else and '_' prong in switch expression", .{});
+                try mod.addNote(scope, some_else, "else prong is here", .{});
+                try mod.addNote(scope, some_underscore, "'_' prong is here", .{});
+                return error.AnalysisFail;
             }
         }
 
@@ -1864,10 +1871,10 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
 
     // Generate else block or a break last to finish the block.
     if (special_case) |case| {
-        try switchCaseExpr(mod, &else_scope.base, case_rl, block, case);
+        try switchCaseExpr(mod, &case_scope.base, case_rl, block, case);
     } else {
         // Not handling all possible cases is a compile error.
-        _ = try addZIRNoOp(mod, &else_scope.base, switch_src, .unreach_nocheck);
+        _ = try addZIRNoOp(mod, &case_scope.base, switch_src, .unreach_nocheck);
     }
 
     // All items have been generated, add the instructions to the comptime block.
@@ -1880,10 +1887,11 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
     if (underscore_src != null) switch_inst.kw_args.special_prong = .underscore;
     switch_inst.positionals.cases = try block_scope.arena.dupe(zir.Inst.SwitchBr.Case, cases.items);
     switch_inst.positionals.items = try block_scope.arena.dupe(*zir.Inst, items.items);
-    switch_inst.kw_args.range = first_range;
+    switch_inst.positionals.else_src = else_src orelse underscore_src orelse 0;
     switch_inst.positionals.else_body = .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
+        .instructions = try block_scope.arena.dupe(*zir.Inst, case_scope.instructions.items),
     };
+    switch_inst.kw_args.range = first_range;
     return &block.base;
 }
 

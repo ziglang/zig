@@ -431,7 +431,7 @@ pub const Scope = struct {
         };
     }
 
-    /// Asserts the scope has a parent which is a ZIRModule, Contaienr or File and
+    /// Asserts the scope has a parent which is a ZIRModule, Container or File and
     /// returns the sub_file_path field.
     pub fn subFilePath(base: *Scope) []const u8 {
         switch (base.tag) {
@@ -2929,6 +2929,20 @@ fn coerceArrayPtrToSlice(self: *Module, scope: *Scope, dest_type: Type, inst: *I
 pub fn fail(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     const err_msg = try Compilation.ErrorMsg.create(self.gpa, src, format, args);
+    try self.failWithOwnedErrorMsg(scope, src, err_msg);
+    return error.AnalysisFail;
+}
+
+pub fn failWithNotes(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: anytype) InnerError!void {
+    @setCold(true);
+    const err_msg = try Compilation.ErrorMsg.create(self.gpa, src, format, args);
+    try self.failWithOwnedErrorMsg(scope, src, err_msg);
+}
+
+pub fn addNote(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: anytype) InnerError!void {
+    @setCold(true);
+    const err_msg = try Compilation.ErrorMsg.create(self.gpa, src, format, args);
+    err_msg.kind = .note;
     return self.failWithOwnedErrorMsg(scope, src, err_msg);
 }
 
@@ -2961,7 +2975,7 @@ pub fn addDeclErr(self: *Module, decl: *Decl, err: *Compilation.ErrorMsg) error{
     try entry.value.append(self.gpa, err);
 }
 
-fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Compilation.ErrorMsg) InnerError {
+fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Compilation.ErrorMsg) InnerError!void {
     {
         errdefer err_msg.destroy(self.gpa);
         try self.failed_files.ensureCapacity(self.gpa, self.failed_files.items().len + 1);
@@ -3009,7 +3023,6 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Com
         .file => unreachable,
         .container => unreachable,
     }
-    return error.AnalysisFail;
 }
 
 const InMemoryCoercionResult = enum {

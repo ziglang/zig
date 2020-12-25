@@ -493,21 +493,19 @@ fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileE
 fn analyzeInstCompileLog(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileLog) InnerError!*Inst {
     std.debug.print("| ", .{});
     for (inst.positionals.to_log) |item, i| {
+        if (i != 0) std.debug.print(", ", .{});
         const to_log = try resolveInst(mod, scope, item);
         if (to_log.value()) |val| {
             std.debug.print("{}", .{val});
         } else {
             std.debug.print("(runtime value)", .{});
         }
-        if (i != inst.positionals.to_log.len - 1) std.debug.print(", ", .{});
     }
     std.debug.print("\n", .{});
     if (!inst.kw_args.seen) {
         inst.kw_args.seen = true; // so that we do not give multiple compile errors if it gets evaled twice
-        switch (mod.fail(scope, inst.base.src, "found compile log statement", .{})) {
-            error.AnalysisFail => {}, // analysis continues
-            else => |e| return e,
-        }
+        // use failWithNotes since it allows us to continue analysis
+        try mod.failWithNotes(scope, inst.base.src, "found compile log statement", .{});
     }
     return mod.constVoid(scope, inst.base.src);
 }
@@ -1325,8 +1323,9 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
 fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.SwitchBr) InnerError!void {
     // validate usage of '_' prongs
     if (inst.kw_args.special_prong == .underscore and target.ty.zigTypeTag() != .Enum) {
-        return mod.fail(scope, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});
-        // TODO notes "'_' prong here" inst.positionals.cases[last].src
+        try mod.failWithNotes(scope, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});
+        try mod.addNote(scope, inst.positionals.else_src, "'_' prong here", .{});
+        return error.AnalysisFail;
     }
 
     // check that target type supports ranges
@@ -1334,8 +1333,9 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
         switch (target.ty.zigTypeTag()) {
             .Int, .ComptimeInt => {},
             else => {
-                return mod.fail(scope, target.src, "ranges not allowed when switching on type {}", .{target.ty});
-                // TODO notes "range used here" range_inst.src
+                try mod.failWithNotes(scope, target.src, "ranges not allowed when switching on type {}", .{target.ty});
+                try mod.addNote(scope, range_inst.src, "range used here", .{});
+                return error.AnalysisFail;
             },
         }
     }
@@ -1369,8 +1369,9 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                 };
 
                 if (maybe_src) |previous_src| {
-                    return mod.fail(scope, item.src, "duplicate switch value", .{});
-                    // TODO notes "previous value is here" previous_src
+                    try mod.failWithNotes(scope, item.src, "duplicate switch value", .{});
+                    try mod.addNote(scope, previous_src, "previous value here", .{});
+                    return error.AnalysisFail;
                 }
             }
 
@@ -1429,8 +1430,9 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                 const val = try mod.resolveConstValue(scope, casted);
 
                 if (try seen_values.fetchPut(val, item.src)) |prev| {
-                    return mod.fail(scope, item.src, "duplicate switch value", .{});
-                    // TODO notes "previous value here" prev.value
+                    try mod.failWithNotes(scope, item.src, "duplicate switch value", .{});
+                    try mod.addNote(scope, prev.value, "previous value here", .{});
+                    return error.AnalysisFail;
                 }
             }
         },

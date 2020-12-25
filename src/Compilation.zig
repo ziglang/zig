@@ -246,20 +246,26 @@ pub const AllErrors = struct {
     list: []const Message,
 
     pub const Message = union(enum) {
-        src: struct {
+        err_src: Src,
+        err_plain: Plain,
+        note_src: Src,
+        note_plain: Plain,
+
+        const Src = struct {
             src_path: []const u8,
             line: usize,
             column: usize,
             byte_offset: usize,
             msg: []const u8,
-        },
-        plain: struct {
+        };
+
+        const Plain = struct {
             msg: []const u8,
-        },
+        };
 
         pub fn renderToStdErr(self: Message) void {
             switch (self) {
-                .src => |src| {
+                .err_src => |src| {
                     std.debug.print("{s}:{d}:{d}: error: {s}\n", .{
                         src.src_path,
                         src.line + 1,
@@ -267,8 +273,19 @@ pub const AllErrors = struct {
                         src.msg,
                     });
                 },
-                .plain => |plain| {
+                .err_plain => |plain| {
                     std.debug.print("error: {s}\n", .{plain.msg});
+                },
+                .note_src => |src| {
+                    std.debug.print("{s}:{d}:{d}: note: {s}\n", .{
+                        src.src_path,
+                        src.line + 1,
+                        src.column + 1,
+                        src.msg,
+                    });
+                },
+                .note_plain => |plain| {
+                    std.debug.print("note: {s}\n", .{plain.msg});
                 },
             }
         }
@@ -286,13 +303,24 @@ pub const AllErrors = struct {
         simple_err_msg: ErrorMsg,
     ) !void {
         const loc = std.zig.findLineColumn(source, simple_err_msg.byte_offset);
-        try errors.append(.{
-            .src = .{
-                .src_path = try arena.allocator.dupe(u8, sub_file_path),
-                .msg = try arena.allocator.dupe(u8, simple_err_msg.msg),
-                .byte_offset = simple_err_msg.byte_offset,
-                .line = loc.line,
-                .column = loc.column,
+        try errors.append(switch (simple_err_msg.kind) {
+            .err => .{
+                .err_src = .{
+                    .src_path = try arena.allocator.dupe(u8, sub_file_path),
+                    .msg = try arena.allocator.dupe(u8, simple_err_msg.msg),
+                    .byte_offset = simple_err_msg.byte_offset,
+                    .line = loc.line,
+                    .column = loc.column,
+                },
+            },
+            .note => .{
+                .note_src = .{
+                    .src_path = try arena.allocator.dupe(u8, sub_file_path),
+                    .msg = try arena.allocator.dupe(u8, simple_err_msg.msg),
+                    .byte_offset = simple_err_msg.byte_offset,
+                    .line = loc.line,
+                    .column = loc.column,
+                },
             },
         });
     }
@@ -302,7 +330,7 @@ pub const AllErrors = struct {
         errors: *std.ArrayList(Message),
         msg: []const u8,
     ) !void {
-        try errors.append(.{ .plain = .{ .msg = msg } });
+        try errors.append(.{ .err_plain = .{ .msg = msg } });
     }
 };
 
@@ -1388,8 +1416,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         }
         for (module.failed_decls.items()) |entry| {
             const decl = entry.key;
-            const err_msg_list = entry.value;
-            for (err_msg_list.items) |err_msg| {
+            for (entry.value.items) |err_msg| {
                 const source = try decl.scope.getSource(module);
                 try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
             }
@@ -1413,7 +1440,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
 
     if (errors.items.len == 0 and self.link_error_flags.no_entry_point_found) {
         try errors.append(.{
-            .plain = .{
+            .err_plain = .{
                 .msg = try std.fmt.allocPrint(&arena.allocator, "no entry point found", .{}),
             },
         });
@@ -2311,6 +2338,9 @@ fn failCObjWithOwnedErrorMsg(comp: *Compilation, c_object: *CObject, err_msg: *E
 pub const ErrorMsg = struct {
     byte_offset: usize,
     msg: []const u8,
+    kind: Kind = .err,
+
+    pub const Kind = enum { err, note };
 
     pub fn create(gpa: *Allocator, byte_offset: usize, comptime format: []const u8, args: anytype) !*ErrorMsg {
         const self = try gpa.create(ErrorMsg);
@@ -2840,7 +2870,7 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
             switch (full_err_msg) {
-                .src => |src| {
+                .note_src, .err_src => |src| {
                     log.err("{s}:{d}:{d}: {s}\n", .{
                         src.src_path,
                         src.line + 1,
@@ -2848,7 +2878,7 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
                         src.msg,
                     });
                 },
-                .plain => |plain| {
+                .note_plain, .err_plain => |plain| {
                     log.err("{s}", .{plain.msg});
                 },
             }

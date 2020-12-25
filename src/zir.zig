@@ -1036,6 +1036,7 @@ pub const Inst = struct {
             /// List of all individual items and ranges
             items: []*Inst,
             cases: []Case,
+            else_src: usize,
             else_body: Module.Body,
         },
         kw_args: struct {
@@ -1053,6 +1054,7 @@ pub const Inst = struct {
             body: Module.Body,
         };
     };
+
     pub const TypeOfPeer = struct {
         pub const base_tag = .typeof_peer;
         base: Inst,
@@ -2601,6 +2603,7 @@ const EmitZIR = struct {
                             .target_ptr = try self.resolveInst(new_body, old_inst.target_ptr),
                             .cases = cases,
                             .items = &[_]*Inst{}, // TODO this should actually be populated
+                            .else_src = 0,
                             .else_body = undefined, // populated below
                         },
                         .kw_args = .{},
