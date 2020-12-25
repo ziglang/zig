@@ -208,7 +208,6 @@ enum TokenizeState {
     TokenizeStateSawAmpersand,
     TokenizeStateSawCaret,
     TokenizeStateSawBar,
-    TokenizeStateSawBarBar,
     TokenizeStateDocComment,
     TokenizeStateContainerDocComment,
     TokenizeStateLineComment,
@@ -833,19 +832,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     case '|':
                         set_token_id(&t, t.cur_tok, TokenIdBarBar);
-                        t.state = TokenizeStateSawBarBar;
-                        break;
-                    default:
-                        t.pos -= 1;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
-                }
-                break;
-            case TokenizeStateSawBarBar:
-                switch (c) {
-                    case '=':
-                        set_token_id(&t, t.cur_tok, TokenIdBarBarEq);
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -1500,7 +1486,6 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawMinusPercent:
         case TokenizeStateLineString:
         case TokenizeStateLineStringEnd:
-        case TokenizeStateSawBarBar:
         case TokenizeStateDocComment:
         case TokenizeStateContainerDocComment:
             end_token(&t);
@@ -1659,7 +1644,6 @@ const char * token_name(TokenId id) {
         case TokenIdTimesEq: return "*=";
         case TokenIdTimesPercent: return "*%";
         case TokenIdTimesPercentEq: return "*%=";
-        case TokenIdBarBarEq: return "||=";
         case TokenIdCount:
             zig_unreachable();
     }

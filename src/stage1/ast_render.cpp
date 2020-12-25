@@ -49,7 +49,6 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignBitAnd:           return "&=";
         case BinOpTypeAssignBitXor:           return "^=";
         case BinOpTypeAssignBitOr:            return "|=";
-        case BinOpTypeAssignMergeErrorSets:   return "||=";
         case BinOpTypeUnwrapOptional:         return "orelse";
         case BinOpTypeArrayCat:               return "++";
         case BinOpTypeArrayMult:              return "**";
