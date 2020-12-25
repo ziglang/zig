@@ -1722,6 +1722,9 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
         }
     }
     if (self.failed_decls.remove(decl)) |entry| {
+        for (entry.value.items) |compile_err| {
+            compile_err.destroy(self.gpa);
+        }
         entry.value.deinit(self.gpa);
         self.gpa.destroy(entry.value);
     }
@@ -1803,6 +1806,9 @@ fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     log.debug("mark {} outdated\n", .{decl.name});
     try self.comp.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
+        for (entry.value.items) |compile_err| {
+            compile_err.destroy(self.gpa);
+        }
         entry.value.deinit(self.gpa);
         self.gpa.destroy(entry.value);
     }
