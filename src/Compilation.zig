@@ -1330,6 +1330,7 @@ pub fn totalErrorCount(self: *Compilation) usize {
 
     if (self.bin_file.options.module) |module| {
         for (module.failed_decls.items()) |entry| {
+            assert(entry.value.items.len > 0);
             total += entry.value.items.len;
         }
         total += module.failed_exports.items().len +

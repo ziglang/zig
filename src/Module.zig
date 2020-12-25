@@ -2954,8 +2954,8 @@ pub fn addDeclErr(self: *Module, decl: *Decl, err: *Compilation.ErrorMsg) error{
         try value.append(self.gpa, err);
     } else {
         var new_list = try self.gpa.create(ArrayListUnmanaged(*Compilation.ErrorMsg));
-        new_list.* = ArrayListUnmanaged(*Compilation.ErrorMsg){};
-        try new_list.append(self.gpa, err);
+        new_list.* = try ArrayListUnmanaged(*Compilation.ErrorMsg).initCapacity(self.gpa, 1);
+        new_list.appendAssumeCapacity(err);
         errdefer {
             new_list.deinit(self.gpa);
             self.gpa.destroy(new_list);
