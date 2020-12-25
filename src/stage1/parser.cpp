@@ -2460,7 +2460,6 @@ static AstNode *ast_parse_assign_op(ParseContext *pc) {
     // In C, we have `T arr[N] = {[i] = T{}};` but it doesn't
     // seem to work in C++...
     BinOpType table[TokenIdCount] = {};
-    table[TokenIdBarBarEq] = BinOpTypeAssignMergeErrorSets;
     table[TokenIdBitAndEq] = BinOpTypeAssignBitAnd;
     table[TokenIdBitOrEq] = BinOpTypeAssignBitOr;
     table[TokenIdBitShiftLeftEq] = BinOpTypeAssignBitShiftLeft;
