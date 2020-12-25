@@ -53,7 +53,7 @@ decl_table: std.ArrayHashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_has
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
 /// Note that a Decl can succeed but the Fn it represents can fail. In this case,
 /// a Decl can have a failed_decls entry but have analysis status of success.
-failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ArrayListUnmanaged(*Compilation.ErrorMsg)) = .{},
+failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, ArrayListUnmanaged(*Compilation.ErrorMsg)) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Scope`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*Scope, *Compilation.ErrorMsg) = .{},
@@ -845,12 +845,11 @@ pub fn deinit(self: *Module) void {
     }
     self.decl_table.deinit(gpa);
 
-    for (self.failed_decls.items()) |entry| {
+    for (self.failed_decls.items()) |*entry| {
         for (entry.value.items) |compile_err| {
             compile_err.destroy(gpa);
         }
         entry.value.deinit(gpa);
-        gpa.destroy(entry.value);
     }
     self.failed_decls.deinit(gpa);
 
@@ -1721,12 +1720,11 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
             try self.markOutdatedDecl(dep);
         }
     }
-    if (self.failed_decls.remove(decl)) |entry| {
+    if (self.failed_decls.remove(decl)) |*entry| {
         for (entry.value.items) |compile_err| {
             compile_err.destroy(self.gpa);
         }
         entry.value.deinit(self.gpa);
-        self.gpa.destroy(entry.value);
     }
     self.deleteDeclExports(decl);
     self.comp.bin_file.freeDecl(decl);
@@ -1805,12 +1803,11 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     log.debug("mark {} outdated\n", .{decl.name});
     try self.comp.work_queue.writeItem(.{ .analyze_decl = decl });
-    if (self.failed_decls.remove(decl)) |entry| {
+    if (self.failed_decls.remove(decl)) |*entry| {
         for (entry.value.items) |compile_err| {
             compile_err.destroy(self.gpa);
         }
         entry.value.deinit(self.gpa);
-        self.gpa.destroy(entry.value);
     }
     decl.analysis = .outdated;
 }
@@ -2956,18 +2953,8 @@ pub fn failNode(
 }
 
 pub fn addDeclErr(self: *Module, decl: *Decl, err: *Compilation.ErrorMsg) error{OutOfMemory}!void {
-    if (self.failed_decls.get(decl)) |value| {
-        try value.append(self.gpa, err);
-    } else {
-        var new_list = try self.gpa.create(ArrayListUnmanaged(*Compilation.ErrorMsg));
-        new_list.* = try ArrayListUnmanaged(*Compilation.ErrorMsg).initCapacity(self.gpa, 1);
-        new_list.appendAssumeCapacity(err);
-        errdefer {
-            new_list.deinit(self.gpa);
-            self.gpa.destroy(new_list);
-        }
-        try self.failed_decls.putNoClobber(self.gpa, decl, new_list);
-    }
+    const entry = try self.failed_decls.getOrPutValue(self.gpa, decl, .{});
+    try entry.value.append(self.gpa, err);
 }
 
 fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Compilation.ErrorMsg) InnerError {

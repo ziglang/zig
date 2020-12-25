@@ -1175,7 +1175,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn _start() noreturn {
         \\  const b = true;
         \\  var f: u32 = 1;
-        \\  @compileLog(b, 20, f, x);
+        \\  @compileLog(b, 20, f, x, .foo);
         \\  var y: u32 = true;
         \\  unreachable;
         \\}
