@@ -1186,6 +1186,12 @@ pub fn addCases(ctx: *TestContext) !void {
 
     // "| true, 20, (runtime value), (function)" // TODO if this is here it invalidates the compile error checker. Need a way to check though.
 
+    ctx.compileError("compileError", linux_x64,
+        \\export fn _start() noreturn {
+        \\  @compileError("this is an error");
+        \\  unreachable;
+        \\}
+    , &[_][]const u8{":2:3: error: this is an error"});
     {
         var case = ctx.obj("variable shadowing", linux_x64);
         case.addError(

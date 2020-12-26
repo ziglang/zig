@@ -487,7 +487,7 @@ fn analyzeInstExport(mod: *Module, scope: *Scope, export_inst: *zir.Inst.Export)
 }
 
 fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileError) InnerError!*Inst {
-    const msg = try resolveConstString(mod,scope,inst.positionals.msg);
+    const msg = try resolveConstString(mod, scope, inst.positionals.msg);
     return mod.fail(scope, inst.base.src, "{}", .{msg});
 }
 

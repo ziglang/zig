@@ -1950,7 +1950,6 @@ const EmitZIR = struct {
                             .tag = Inst.CompileError.base_tag,
                         },
                         .positionals = .{
-
                             .msg = blk: {
                                 const msg_str = try self.arena.allocator.dupe(u8, err_msg_list.items[0].msg);
 
