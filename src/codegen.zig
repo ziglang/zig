@@ -2123,7 +2123,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             try parent_branch.inst_table.ensureCapacity(self.gpa, parent_branch.inst_table.items().len +
                 else_branch.inst_table.items().len);
             for (else_branch.inst_table.items()) |else_entry| {
-                const canon_mcv = if (saved_then_branch.inst_table.remove(else_entry.key)) |then_entry| blk: {
+                const canon_mcv = if (saved_then_branch.inst_table.swapRemove(else_entry.key)) |then_entry| blk: {
                     // The instruction's MCValue is overridden in both branches.
                     parent_branch.inst_table.putAssumeCapacity(else_entry.key, then_entry.value);
                     if (else_entry.value == .dead) {

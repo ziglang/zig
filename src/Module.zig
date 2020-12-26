@@ -561,7 +561,7 @@ pub const Scope = struct {
         }
 
         pub fn removeDecl(self: *Container, child: *Decl) void {
-            _ = self.decls.remove(child);
+            _ = self.decls.swapRemove(child);
         }
 
         pub fn fullyQualifiedNameHash(self: *Container, name: []const u8) NameHash {
@@ -1660,7 +1660,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                 // Update the AST Node index of the decl, even if its contents are unchanged, it may
                 // have been re-ordered.
                 decl.src_index = decl_i;
-                if (deleted_decls.remove(decl) == null) {
+                if (deleted_decls.swapRemove(decl) == null) {
                     decl.analysis = .sema_failure;
                     const err_msg = try Compilation.ErrorMsg.create(self.gpa, tree.token_locs[name_tok].start, "redefinition of '{s}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
@@ -1702,7 +1702,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                 // Update the AST Node index of the decl, even if its contents are unchanged, it may
                 // have been re-ordered.
                 decl.src_index = decl_i;
-                if (deleted_decls.remove(decl) == null) {
+                if (deleted_decls.swapRemove(decl) == null) {
                     decl.analysis = .sema_failure;
                     const err_msg = try Compilation.ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{s}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
@@ -1832,7 +1832,7 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
             try self.markOutdatedDecl(dep);
         }
     }
-    if (self.failed_decls.remove(decl)) |entry| {
+    if (self.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(self.gpa);
     }
     self.deleteDeclExports(decl);
@@ -1843,7 +1843,7 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
 fn deleteDeclExports(self: *Module, decl: *Decl) void {
-    const kv = self.export_owners.remove(decl) orelse return;
+    const kv = self.export_owners.swapRemove(decl) orelse return;
 
     for (kv.value) |exp| {
         if (self.decl_exports.getEntry(exp.exported_decl)) |decl_exports_kv| {
@@ -1870,10 +1870,10 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
         if (self.comp.bin_file.cast(link.File.MachO)) |macho| {
             macho.deleteExport(exp.link.macho);
         }
-        if (self.failed_exports.remove(exp)) |entry| {
+        if (self.failed_exports.swapRemove(exp)) |entry| {
             entry.value.destroy(self.gpa);
         }
-        _ = self.symbol_exports.remove(exp.options.name);
+        _ = self.symbol_exports.swapRemove(exp.options.name);
         self.gpa.free(exp.options.name);
         self.gpa.destroy(exp);
     }
@@ -1918,7 +1918,7 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     log.debug("mark {s} outdated\n", .{decl.name});
     try self.comp.work_queue.writeItem(.{ .analyze_decl = decl });
-    if (self.failed_decls.remove(decl)) |entry| {
+    if (self.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(self.gpa);
     }
     decl.analysis = .outdated;
