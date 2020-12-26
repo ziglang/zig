@@ -706,7 +706,7 @@ pub const Inst = struct {
         base: Inst,
 
         positionals: struct {
-            msg: []const u8,
+            msg: *Inst,
         },
         kw_args: struct {},
     };
@@ -1950,7 +1950,23 @@ const EmitZIR = struct {
                             .tag = Inst.CompileError.base_tag,
                         },
                         .positionals = .{
-                            .msg = try self.arena.allocator.dupe(u8, err_msg_list.items[0].msg),
+
+                            .msg = blk: {
+                                const msg_str = try self.arena.allocator.dupe(u8, err_msg_list.items[0].msg);
+
+                                const str_inst = try self.arena.allocator.create(Inst.Str);
+                                str_inst.* = .{
+                                    .base = .{
+                                        .src = ir_decl.src(),
+                                        .tag = Inst.Str.base_tag,
+                                    },
+                                    .positionals = .{
+                                        .bytes = msg_str,
+                                    },
+                                    .kw_args = .{},
+                                };
+                                break :blk &str_inst.base;
+                            },
                         },
                         .kw_args = .{},
                     };
@@ -2080,7 +2096,22 @@ const EmitZIR = struct {
                         .tag = Inst.CompileError.base_tag,
                     },
                     .positionals = .{
-                        .msg = try self.arena.allocator.dupe(u8, err_msg.msg),
+                        .msg = blk: {
+                            const msg_str = try self.arena.allocator.dupe(u8, err_msg.msg);
+
+                            const str_inst = try self.arena.allocator.create(Inst.Str);
+                            str_inst.* = .{
+                                .base = .{
+                                    .src = src,
+                                    .tag = Inst.Str.base_tag,
+                                },
+                                .positionals = .{
+                                    .bytes = msg_str,
+                                },
+                                .kw_args = .{},
+                            };
+                            break :blk &str_inst.base;
+                        },
                     },
                     .kw_args = .{},
                 };
@@ -2094,7 +2125,22 @@ const EmitZIR = struct {
                         .tag = Inst.CompileError.base_tag,
                     },
                     .positionals = .{
-                        .msg = try self.arena.allocator.dupe(u8, "depends on another failed Decl"),
+                        .msg = blk: {
+                            const msg_str = try self.arena.allocator.dupe(u8, "depends on another failed Decl");
+
+                            const str_inst = try self.arena.allocator.create(Inst.Str);
+                            str_inst.* = .{
+                                .base = .{
+                                    .src = src,
+                                    .tag = Inst.Str.base_tag,
+                                },
+                                .positionals = .{
+                                    .bytes = msg_str,
+                                },
+                                .kw_args = .{},
+                            };
+                            break :blk &str_inst.base;
+                        },
                     },
                     .kw_args = .{},
                 };
