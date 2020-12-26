@@ -1432,7 +1432,7 @@ fn buildOutputType(
     }
 
     if (cross_target.isNativeOs() and (system_libs.items.len != 0 or want_native_include_dirs)) {
-        const paths = std.zig.system.NativePaths.detect(arena) catch |err| {
+        const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
             fatal("unable to detect native system paths: {}", .{@errorName(err)});
         };
         for (paths.warnings.items) |warning| {

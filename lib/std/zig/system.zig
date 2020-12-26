@@ -15,8 +15,6 @@ const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
 const macos = @import("system/macos.zig");
 
-const is_windows = Target.current.os.tag == .windows;
-
 pub const getSDKPath = macos.getSDKPath;
 
 pub const NativePaths = struct {
@@ -25,7 +23,9 @@ pub const NativePaths = struct {
     rpaths: ArrayList([:0]u8),
     warnings: ArrayList([:0]u8),
 
-    pub fn detect(allocator: *Allocator) !NativePaths {
+    pub fn detect(allocator: *Allocator, native_info: NativeTargetInfo) !NativePaths {
+        const native_target = native_info.target;
+
         var self: NativePaths = .{
             .include_dirs = ArrayList([:0]u8).init(allocator),
             .lib_dirs = ArrayList([:0]u8).init(allocator),
@@ -88,15 +88,9 @@ pub const NativePaths = struct {
             return self;
         }
 
-        if (!is_windows) {
-            // on linux the native abi might be different if we are statically linked
-            const target = if (Target.current.os.tag == .linux)
-                (try NativeTargetInfo.detectAbiAndDynamicLinker(allocator, Target.current.cpu, Target.current.os, .{})).target
-            else
-                Target.current;
-
-            const triple = try target.linuxTriple(allocator);
-            const qual = Target.current.cpu.arch.ptrBitWidth();
+        if (native_target.os.tag != .windows) {
+            const triple = try native_target.linuxTriple(allocator);
+            const qual = native_target.cpu.arch.ptrBitWidth();
 
             // TODO: $ ld --verbose | grep SEARCH_DIR
             // the output contains some paths that end with lib64, maybe include them too?
