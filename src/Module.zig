@@ -804,7 +804,7 @@ pub const Scope = struct {
         pub const Label = struct {
             token: ast.TokenIndex,
             block_inst: *zir.Inst.Block,
-            result_loc: astgen.ResultLoc,
+            used: bool = false,
         };
     };
 

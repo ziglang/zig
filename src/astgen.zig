@@ -348,8 +348,9 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpr
 
                 const block_inst = blk: {
                     if (node.getLabel()) |break_label| {
-                        if (gen_zir.label) |label| {
+                        if (gen_zir.label) |*label| {
                             if (try tokenIdentEql(mod, parent_scope, label.token, break_label)) {
+                                label.used = true;
                                 break :blk label.block_inst;
                             }
                         }
@@ -407,8 +408,9 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowE
                     continue;
                 };
                 if (node.getLabel()) |break_label| blk: {
-                    if (gen_zir.label) |label| {
+                    if (gen_zir.label) |*label| {
                         if (try tokenIdentEql(mod, parent_scope, label.token, break_label)) {
+                            label.used = true;
                             break :blk;
                         }
                     }
@@ -485,6 +487,9 @@ fn labeledBlockExpr(
     defer block_scope.instructions.deinit(mod.gpa);
 
     try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
+    if (!block_scope.label.?.used) {
+        return mod.fail(parent_scope, tree.token_locs[block_node.label].start, "unused block label", .{});
+    }
 
     block_inst.positionals.body.instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items);
     try gen_zir.instructions.append(mod.gpa, &block_inst.base);
@@ -1398,7 +1403,7 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     loop_scope.break_block = while_block;
     loop_scope.continue_block = cond_block;
     if (while_node.label) |some| {
-        loop_scope.label =  @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+        loop_scope.label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
             .token = some,
             .block_inst = while_block,
         });
@@ -1465,6 +1470,11 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     condbr.positionals.else_body = .{
         .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
     };
+    if (loop_scope.label) |some| {
+        if (!some.used) {
+            return mod.fail(scope, tree.token_locs[some.token].start, "unused while label", .{});
+        }
+    }
     return &while_block.base;
 }
 
@@ -1555,7 +1565,7 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
     loop_scope.break_block = for_block;
     loop_scope.continue_block = cond_block;
     if (for_node.label) |some| {
-        loop_scope.label =  @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+        loop_scope.label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
             .token = some,
             .block_inst = for_block,
         });
@@ -1646,6 +1656,11 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
     condbr.positionals.else_body = .{
         .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
     };
+    if (loop_scope.label) |some| {
+        if (!some.used) {
+            return mod.fail(scope, tree.token_locs[some.token].start, "unused for label", .{});
+        }
+    }
     return &for_block.base;
 }
 
