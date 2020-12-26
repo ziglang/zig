@@ -848,8 +848,9 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
     // which we really do not want to run in the fork child. I caught LLVM doing this and
     // it caused a deadlock instead of doing an exit syscall. In the words of Avril Lavigne,
     // "Why'd you have to go and make things so complicated?"
-    if (std.Target.current.os.tag == .linux) {
-        std.os.linux.exit(1); // By-pass libc regardless of whether it is linked.
+    if (builtin.link_libc) {
+        // The _exit(2) function does nothing but make the exit syscall, unlike exit(3)
+        std.c._exit(1);
     }
     os.exit(1);
 }
