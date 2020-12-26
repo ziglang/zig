@@ -2248,6 +2248,17 @@ fn import(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError!*
     return addZIRUnOp(mod, scope, src, .import, target);
 }
 
+fn compileLog(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const arena = scope.arena();
+    const src = tree.token_locs[call.builtin_token].start;
+    const params = call.params();
+    var targets = try arena.alloc(*zir.Inst, params.len);
+    for (params) |param, param_i|
+        targets[param_i] = try expr(mod, scope, .none, param);
+    return addZIRInst(mod, scope, src, zir.Inst.CompileLog, .{ .to_log = targets }, .{});
+}
+
 fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
     const tree = scope.tree();
     const arena = scope.arena();
@@ -2291,6 +2302,8 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
         return rlWrap(mod, scope, rl, try addZIRNoOp(mod, scope, src, .breakpoint));
     } else if (mem.eql(u8, builtin_name, "@import")) {
         return rlWrap(mod, scope, rl, try import(mod, scope, call));
+    } else if (mem.eql(u8, builtin_name, "@compileLog")) {
+        return compileLog(mod, scope, call);
     } else {
         return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{}'", .{builtin_name});
     }

@@ -1171,6 +1171,21 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn entry() void {}
     , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
 
+    ctx.compileError("compileLog", linux_x64,
+        \\export fn _start() noreturn {
+        \\  const b = true;
+        \\  var f: u32 = 1;
+        \\  @compileLog(b, 20, f, x, .foo);
+        \\  var y: u32 = true;
+        \\  unreachable;
+        \\}
+        \\fn x() void {}
+    , &[_][]const u8{
+        ":4:3: error: found compile log statement", ":5:16: error: expected u32, found bool",
+    });
+
+    // "| true, 20, (runtime value), (function)" // TODO if this is here it invalidates the compile error checker. Need a way to check though.
+
     {
         var case = ctx.obj("variable shadowing", linux_x64);
         case.addError(

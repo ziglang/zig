@@ -106,7 +106,7 @@ pub fn generateHeader(
             const writer = header.buf.writer();
             renderFunctionSignature(&ctx, header, writer, decl) catch |err| {
                 if (err == error.AnalysisFail) {
-                    try module.failed_decls.put(module.gpa, decl, ctx.error_msg);
+                    try module.addDeclErr(decl, ctx.error_msg);
                 }
                 return err;
             };
