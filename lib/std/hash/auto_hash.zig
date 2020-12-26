@@ -169,21 +169,31 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     }
 }
 
+fn typeContainsSlice(comptime K: type) bool {
+    comptime {
+        if (meta.trait.isSlice(K)) {
+            return true;
+        }
+        if (meta.trait.is(.Struct)(K)) {
+            inline for (@typeInfo(K).Struct.fields) |field| {
+                if (typeContainsSlice(field.field_type)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+}
+
 /// Provides generic hashing for any eligible type.
 /// Only hashes `key` itself, pointers are not followed.
-/// Slices are rejected to avoid ambiguity on the user's intention.
+/// Slices and structs containing slices are rejected to avoid ambiguity on the
+/// user's intention.
 pub fn autoHash(hasher: anytype, key: anytype) void {
     const Key = @TypeOf(key);
-    if (comptime meta.trait.isSlice(Key)) {
-        comptime assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
-        const extra_help = if (Key == []const u8)
-            " Consider std.StringHashMap for hashing the contents of []const u8."
-        else
-            "";
-
-        @compileError("std.auto_hash.autoHash does not allow slices (here " ++ @typeName(Key) ++
-            ") because the intent is unclear. Consider using std.auto_hash.hash or providing your own hash function instead." ++
-            extra_help);
+    if (comptime typeContainsSlice(Key)) {
+        @compileError("std.auto_hash.autoHash does not allow slices or structs containing slices here (" ++ @typeName(Key) ++
+            ") because the intent is unclear. Consider using std.auto_hash.hash or providing your own hash function instead.");
     }
 
     hash(hasher, key, .Shallow);
@@ -218,6 +228,23 @@ fn testHashDeepRecursive(key: anytype) u64 {
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .DeepRecursive);
     return hasher.final();
+}
+
+test "typeContainsSlice" {
+    comptime {
+        testing.expect(!typeContainsSlice(@TagType(std.builtin.TypeInfo)));
+
+        testing.expect(typeContainsSlice([]const u8));
+        testing.expect(!typeContainsSlice(u8));
+        const A = struct { x: []const u8 };
+        const B = struct { a: A };
+        const C = struct { b: B };
+        const D = struct { x: u8 };
+        testing.expect(typeContainsSlice(A));
+        testing.expect(typeContainsSlice(B));
+        testing.expect(typeContainsSlice(C));
+        testing.expect(!typeContainsSlice(D));
+    }
 }
 
 test "hash pointer" {
