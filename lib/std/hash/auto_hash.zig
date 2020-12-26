@@ -181,18 +181,25 @@ fn typeContainsSlice(comptime K: type) bool {
                 }
             }
         }
+        if (meta.trait.is(.Union)(K)) {
+            inline for (@typeInfo(K).Union.fields) |field| {
+                if (typeContainsSlice(field.field_type)) {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 }
 
 /// Provides generic hashing for any eligible type.
 /// Only hashes `key` itself, pointers are not followed.
-/// Slices and structs containing slices are rejected to avoid ambiguity on the
-/// user's intention.
+/// Slices as well as unions and structs containing slices are rejected to avoid
+/// ambiguity on the user's intention.
 pub fn autoHash(hasher: anytype, key: anytype) void {
     const Key = @TypeOf(key);
     if (comptime typeContainsSlice(Key)) {
-        @compileError("std.auto_hash.autoHash does not allow slices or structs containing slices here (" ++ @typeName(Key) ++
+        @compileError("std.auto_hash.autoHash does not allow slices as well as unions and structs containing slices here (" ++ @typeName(Key) ++
             ") because the intent is unclear. Consider using std.auto_hash.hash or providing your own hash function instead.");
     }
 

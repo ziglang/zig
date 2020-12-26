@@ -530,10 +530,53 @@ test "std.meta.trait.hasUniqueRepresentation" {
 
     testing.expect(hasUniqueRepresentation(TestStruct3));
 
+    const TestStruct4 = struct {
+        a: []const u8
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestStruct4));
+
+    const TestStruct5 = struct {
+        a: TestStruct4
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestStruct5));
+
+    const TestUnion1 = packed union {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestUnion1));
+
+    const TestUnion2 = extern union {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestUnion2));
+
+    const TestUnion3 = union {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestUnion3));
+
+    const TestUnion4 = union(enum) {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestUnion4));
+
     inline for ([_]type{ i0, u8, i16, u32, i64 }) |T| {
         testing.expect(hasUniqueRepresentation(T));
     }
     inline for ([_]type{ i1, u9, i17, u33, i24 }) |T| {
         testing.expect(!hasUniqueRepresentation(T));
     }
+
+    testing.expect(!hasUniqueRepresentation([]u8));
+    testing.expect(!hasUniqueRepresentation([]const u8));
 }
