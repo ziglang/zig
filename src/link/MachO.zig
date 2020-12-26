@@ -74,6 +74,8 @@ main_cmd_index: ?u16 = null,
 version_min_cmd_index: ?u16 = null,
 /// Source version
 source_version_cmd_index: ?u16 = null,
+/// UUID load command
+uuid_cmd_index: ?u16 = null,
 /// Code signature
 code_signature_cmd_index: ?u16 = null,
 
@@ -1609,6 +1611,18 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.header_dirty = true;
         self.load_commands_dirty = true;
     }
+    if (self.uuid_cmd_index == null) {
+        self.uuid_cmd_index = @intCast(u16, self.load_commands.items.len);
+        var uuid_cmd: macho.uuid_command = .{
+            .cmd = macho.LC_UUID,
+            .cmdsize = @sizeOf(macho.uuid_command),
+            .uuid = undefined,
+        };
+        std.crypto.random.bytes(&uuid_cmd.uuid);
+        try self.load_commands.append(self.base.allocator, .{ .Uuid = uuid_cmd });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
     if (self.code_signature_cmd_index == null) {
         self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
@@ -2346,6 +2360,9 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
             },
             macho.LC_SOURCE_VERSION => {
                 self.source_version_cmd_index = i;
+            },
+            macho.LC_UUID => {
+                self.uuid_cmd_index = i;
             },
             macho.LC_MAIN => {
                 self.main_cmd_index = i;

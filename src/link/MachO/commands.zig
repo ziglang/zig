@@ -23,6 +23,7 @@ pub const LoadCommand = union(enum) {
     Main: macho.entry_point_command,
     VersionMin: macho.version_min_command,
     SourceVersion: macho.source_version_command,
+    Uuid: macho.uuid_command,
     LinkeditData: macho.linkedit_data_command,
     Unknown: GenericCommandWithData(macho.load_command),
 
@@ -62,6 +63,9 @@ pub const LoadCommand = union(enum) {
             macho.LC_SOURCE_VERSION => LoadCommand{
                 .SourceVersion = try stream.reader().readStruct(macho.source_version_command),
             },
+            macho.LC_UUID => LoadCommand{
+                .Uuid = try stream.reader().readStruct(macho.uuid_command),
+            },
             macho.LC_FUNCTION_STARTS, macho.LC_DATA_IN_CODE, macho.LC_CODE_SIGNATURE => LoadCommand{
                 .LinkeditData = try stream.reader().readStruct(macho.linkedit_data_command),
             },
@@ -79,6 +83,7 @@ pub const LoadCommand = union(enum) {
             .Main => |x| writeStruct(x, writer),
             .VersionMin => |x| writeStruct(x, writer),
             .SourceVersion => |x| writeStruct(x, writer),
+            .Uuid => |x| writeStruct(x, writer),
             .LinkeditData => |x| writeStruct(x, writer),
             .Segment => |x| x.write(writer),
             .Dylinker => |x| x.write(writer),
@@ -95,6 +100,7 @@ pub const LoadCommand = union(enum) {
             .Main => |x| x.cmd,
             .VersionMin => |x| x.cmd,
             .SourceVersion => |x| x.cmd,
+            .Uuid => |x| x.cmd,
             .LinkeditData => |x| x.cmd,
             .Segment => |x| x.inner.cmd,
             .Dylinker => |x| x.inner.cmd,
@@ -112,6 +118,7 @@ pub const LoadCommand = union(enum) {
             .VersionMin => |x| x.cmdsize,
             .SourceVersion => |x| x.cmdsize,
             .LinkeditData => |x| x.cmdsize,
+            .Uuid => |x| x.cmdsize,
             .Segment => |x| x.inner.cmdsize,
             .Dylinker => |x| x.inner.cmdsize,
             .Dylib => |x| x.inner.cmdsize,
@@ -142,6 +149,7 @@ pub const LoadCommand = union(enum) {
             .Main => |x| meta.eql(x, other.Main),
             .VersionMin => |x| meta.eql(x, other.VersionMin),
             .SourceVersion => |x| meta.eql(x, other.SourceVersion),
+            .Uuid => |x| meta.eql(x, other.Uuid),
             .LinkeditData => |x| meta.eql(x, other.LinkeditData),
             .Segment => |x| x.eql(other.Segment),
             .Dylinker => |x| x.eql(other.Dylinker),
