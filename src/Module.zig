@@ -796,6 +796,10 @@ pub const Scope = struct {
         /// The first N instructions in a function body ZIR are arg instructions.
         instructions: std.ArrayListUnmanaged(*zir.Inst) = .{},
         label: ?Label = null,
+        break_block: ?*zir.Inst.Block = null,
+        continue_block: ?*zir.Inst.Block = null,
+        /// only valid if label != null or (continue_block and break_block) != null
+        break_result_loc: astgen.ResultLoc = undefined,
 
         pub const Label = struct {
             token: ast.TokenIndex,

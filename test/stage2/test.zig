@@ -1204,4 +1204,96 @@ pub fn addCases(ctx: *TestContext) !void {
             \\extern var foo;
         , &[_][]const u8{":4:1: error: unable to infer variable type"});
     }
+
+    {
+        var case = ctx.exe("break/continue", linux_x64);
+        
+        // Break out of loop
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    while (true) {
+            \\        break;
+            \\    }
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    foo: while (true) {
+            \\        break :foo;
+            \\    }
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        // Continue in loop
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var i: u64 = 0;
+            \\    while (true) : (i+=1) {
+            \\        if (i == 4) exit();
+            \\        continue;
+            \\    }
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var i: u64 = 0;
+            \\    foo: while (true) : (i+=1) {
+            \\        if (i == 4) exit();
+            \\        continue :foo;
+            \\    }
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
