@@ -300,6 +300,7 @@ pub const Inst = struct {
                 => NoOp,
 
                 .boolnot,
+                .compileerror,
                 .deref,
                 .@"return",
                 .isnull,
@@ -387,7 +388,6 @@ pub const Inst = struct {
                 .declval => DeclVal,
                 .declval_in_module => DeclValInModule,
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
-                .compileerror => CompileError,
                 .compilelog => CompileLog,
                 .loop => Loop,
                 .@"const" => Const,
@@ -697,16 +697,6 @@ pub const Inst = struct {
         positionals: struct {
             dest_type: *Inst,
             block: *Block,
-        },
-        kw_args: struct {},
-    };
-
-    pub const CompileError = struct {
-        pub const base_tag = Tag.compileerror;
-        base: Inst,
-
-        positionals: struct {
-            msg: *Inst,
         },
         kw_args: struct {},
     };
@@ -1943,14 +1933,14 @@ const EmitZIR = struct {
                 .sema_failure_retryable,
                 .dependency_failure,
                 => if (self.old_module.failed_decls.get(ir_decl)) |err_msg_list| {
-                    const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                    const fail_inst = try self.arena.allocator.create(Inst.UnOp);
                     fail_inst.* = .{
                         .base = .{
                             .src = ir_decl.src(),
-                            .tag = Inst.CompileError.base_tag,
+                            .tag = .compileerror,
                         },
                         .positionals = .{
-                            .msg = blk: {
+                            .operand = blk: {
                                 const msg_str = try self.arena.allocator.dupe(u8, err_msg_list.items[0].msg);
 
                                 const str_inst = try self.arena.allocator.create(Inst.Str);
@@ -2088,14 +2078,14 @@ const EmitZIR = struct {
             },
             .sema_failure => {
                 const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?.items[0];
-                const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                const fail_inst = try self.arena.allocator.create(Inst.UnOp);
                 fail_inst.* = .{
                     .base = .{
                         .src = src,
-                        .tag = Inst.CompileError.base_tag,
+                        .tag = .compileerror,
                     },
                     .positionals = .{
-                        .msg = blk: {
+                        .operand = blk: {
                             const msg_str = try self.arena.allocator.dupe(u8, err_msg.msg);
 
                             const str_inst = try self.arena.allocator.create(Inst.Str);
@@ -2117,14 +2107,14 @@ const EmitZIR = struct {
                 try instructions.append(&fail_inst.base);
             },
             .dependency_failure => {
-                const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                const fail_inst = try self.arena.allocator.create(Inst.UnOp);
                 fail_inst.* = .{
                     .base = .{
                         .src = src,
-                        .tag = Inst.CompileError.base_tag,
+                        .tag = .compileerror,
                     },
                     .positionals = .{
-                        .msg = blk: {
+                        .operand = blk: {
                             const msg_str = try self.arena.allocator.dupe(u8, "depends on another failed Decl");
 
                             const str_inst = try self.arena.allocator.create(Inst.Str);
