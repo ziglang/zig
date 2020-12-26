@@ -261,6 +261,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Block => return rlWrapVoid(mod, scope, rl, node, try blockExpr(mod, scope, node.castTag(.Block).?)),
         .LabeledBlock => return labeledBlockExpr(mod, scope, rl, node.castTag(.LabeledBlock).?, .block),
         .Break => return rlWrap(mod, scope, rl, try breakExpr(mod, scope, node.castTag(.Break).?)),
+        .Continue => return rlWrap(mod, scope, rl, try continueExpr(mod, scope, node.castTag(.Continue).?)),
         .PtrType => return rlWrap(mod, scope, rl, try ptrType(mod, scope, node.castTag(.PtrType).?)),
         .GroupedExpression => return expr(mod, scope, rl, node.castTag(.GroupedExpression).?.expr),
         .ArrayType => return rlWrap(mod, scope, rl, try arrayType(mod, scope, node.castTag(.ArrayType).?)),
@@ -291,7 +292,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .StructInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializer", .{}),
         .StructInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializerDot", .{}),
         .Suspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Suspend", .{}),
-        .Continue => return mod.failNode(scope, node, "TODO implement astgen.expr for .Continue", .{}),
         .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
         .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
         .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
@@ -339,48 +339,99 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpr
     const tree = parent_scope.tree();
     const src = tree.token_locs[node.ltoken].start;
 
-    if (node.getLabel()) |break_label| {
-        // Look for the label in the scope.
-        var scope = parent_scope;
-        while (true) {
-            switch (scope.tag) {
-                .gen_zir => {
-                    const gen_zir = scope.cast(Scope.GenZIR).?;
-                    if (gen_zir.label) |label| {
-                        if (try tokenIdentEql(mod, parent_scope, label.token, break_label)) {
-                            if (node.getRHS()) |rhs| {
-                                // Most result location types can be forwarded directly; however
-                                // if we need to write to a pointer which has an inferred type,
-                                // proper type inference requires peer type resolution on the block's
-                                // break operand expressions.
-                                const branch_rl: ResultLoc = switch (label.result_loc) {
-                                    .discard, .none, .ty, .ptr, .ref => label.result_loc,
-                                    .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = label.block_inst },
-                                };
-                                const operand = try expr(mod, parent_scope, branch_rl, rhs);
-                                return try addZIRInst(mod, scope, src, zir.Inst.Break, .{
-                                    .block = label.block_inst,
-                                    .operand = operand,
-                                }, .{});
-                            } else {
-                                return try addZIRInst(mod, scope, src, zir.Inst.BreakVoid, .{
-                                    .block = label.block_inst,
-                                }, .{});
+    // Look for the label in the scope.
+    var scope = parent_scope;
+    while (true) {
+        switch (scope.tag) {
+            .gen_zir => {
+                const gen_zir = scope.cast(Scope.GenZIR).?;
+
+                const block_inst = blk: {
+                    if (node.getLabel()) |break_label| {
+                        if (gen_zir.label) |*label| {
+                            if (try tokenIdentEql(mod, parent_scope, label.token, break_label)) {
+                                label.used = true;
+                                break :blk label.block_inst;
                             }
                         }
+                    } else if (gen_zir.break_block) |inst| {
+                        break :blk inst;
                     }
                     scope = gen_zir.parent;
-                },
-                .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
-                .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-                else => {
-                    const label_name = try identifierTokenString(mod, parent_scope, break_label);
-                    return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
-                },
-            }
+                    continue;
+                };
+
+                if (node.getRHS()) |rhs| {
+                    // Most result location types can be forwarded directly; however
+                    // if we need to write to a pointer which has an inferred type,
+                    // proper type inference requires peer type resolution on the block's
+                    // break operand expressions.
+                    const branch_rl: ResultLoc = switch (gen_zir.break_result_loc) {
+                        .discard, .none, .ty, .ptr, .ref => gen_zir.break_result_loc,
+                        .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block_inst },
+                    };
+                    const operand = try expr(mod, parent_scope, branch_rl, rhs);
+                    return try addZIRInst(mod, parent_scope, src, zir.Inst.Break, .{
+                        .block = block_inst,
+                        .operand = operand,
+                    }, .{});
+                } else {
+                    return try addZIRInst(mod, parent_scope, src, zir.Inst.BreakVoid, .{
+                        .block = block_inst,
+                    }, .{});
+                }
+            },
+            .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+            .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            else => if (node.getLabel()) |break_label| {
+                const label_name = try identifierTokenString(mod, parent_scope, break_label);
+                return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+            } else {
+                return mod.failTok(parent_scope, src, "break expression outside loop", .{});
+            },
         }
-    } else {
-        return mod.failNode(parent_scope, &node.base, "TODO implement break from loop", .{});
+    }
+}
+
+fn continueExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpression) InnerError!*zir.Inst {
+    const tree = parent_scope.tree();
+    const src = tree.token_locs[node.ltoken].start;
+
+    // Look for the label in the scope.
+    var scope = parent_scope;
+    while (true) {
+        switch (scope.tag) {
+            .gen_zir => {
+                const gen_zir = scope.cast(Scope.GenZIR).?;
+                const continue_block = gen_zir.continue_block orelse {
+                    scope = gen_zir.parent;
+                    continue;
+                };
+                if (node.getLabel()) |break_label| blk: {
+                    if (gen_zir.label) |*label| {
+                        if (try tokenIdentEql(mod, parent_scope, label.token, break_label)) {
+                            label.used = true;
+                            break :blk;
+                        }
+                    }
+                    // found continue but either it has a different label, or no label
+                    scope = gen_zir.parent;
+                    continue;
+                }
+
+                return addZIRInst(mod, parent_scope, src, zir.Inst.BreakVoid, .{
+                    .block = continue_block,
+                }, .{});
+            },
+            .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+            .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            else => if (node.getLabel()) |break_label| {
+                const label_name = try identifierTokenString(mod, parent_scope, break_label);
+                return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+            } else {
+                return mod.failTok(parent_scope, src, "continue expression outside loop", .{});
+            },
+        }
     }
 }
 
@@ -426,16 +477,19 @@ fn labeledBlockExpr(
         .decl = parent_scope.decl().?,
         .arena = gen_zir.arena,
         .instructions = .{},
+        .break_result_loc = rl,
         // TODO @as here is working around a stage1 miscompilation bug :(
         .label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
             .token = block_node.label,
             .block_inst = block_inst,
-            .result_loc = rl,
         }),
     };
     defer block_scope.instructions.deinit(mod.gpa);
 
     try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
+    if (!block_scope.label.?.used) {
+        return mod.fail(parent_scope, tree.token_locs[block_node.label].start, "unused block label", .{});
+    }
 
     block_inst.positionals.body.instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items);
     try gen_zir.instructions.append(mod.gpa, &block_inst.base);
@@ -1289,9 +1343,6 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
         }
     }
 
-    if (while_node.label) |tok|
-        return mod.failTok(scope, tok, "TODO labeled while", .{});
-
     if (while_node.inline_token) |tok|
         return mod.failTok(scope, tok, "TODO inline while", .{});
 
@@ -1308,6 +1359,7 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
         .decl = expr_scope.decl,
         .arena = expr_scope.arena,
         .instructions = .{},
+        .break_result_loc = rl,
     };
     defer loop_scope.instructions.deinit(mod.gpa);
 
@@ -1348,6 +1400,14 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     const while_block = try addZIRInstBlock(mod, scope, while_src, .block, .{
         .instructions = try expr_scope.arena.dupe(*zir.Inst, expr_scope.instructions.items),
     });
+    loop_scope.break_block = while_block;
+    loop_scope.continue_block = cond_block;
+    if (while_node.label) |some| {
+        loop_scope.label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+            .token = some,
+            .block_inst = while_block,
+        });
+    }
 
     const then_src = tree.token_locs[while_node.body.lastToken()].start;
     var then_scope: Scope.GenZIR = .{
@@ -1410,13 +1470,15 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     condbr.positionals.else_body = .{
         .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
     };
+    if (loop_scope.label) |some| {
+        if (!some.used) {
+            return mod.fail(scope, tree.token_locs[some.token].start, "unused while label", .{});
+        }
+    }
     return &while_block.base;
 }
 
 fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) InnerError!*zir.Inst {
-    if (for_node.label) |tok|
-        return mod.failTok(scope, tok, "TODO labeled for", .{});
-
     if (for_node.inline_token) |tok|
         return mod.failTok(scope, tok, "TODO inline for", .{});
 
@@ -1458,6 +1520,7 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
         .decl = for_scope.decl,
         .arena = for_scope.arena,
         .instructions = .{},
+        .break_result_loc = rl,
     };
     defer loop_scope.instructions.deinit(mod.gpa);
 
@@ -1499,6 +1562,14 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
     const for_block = try addZIRInstBlock(mod, scope, for_src, .block, .{
         .instructions = try for_scope.arena.dupe(*zir.Inst, for_scope.instructions.items),
     });
+    loop_scope.break_block = for_block;
+    loop_scope.continue_block = cond_block;
+    if (for_node.label) |some| {
+        loop_scope.label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+            .token = some,
+            .block_inst = for_block,
+        });
+    }
 
     // while body
     const then_src = tree.token_locs[for_node.body.lastToken()].start;
@@ -1585,6 +1656,11 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
     condbr.positionals.else_body = .{
         .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
     };
+    if (loop_scope.label) |some| {
+        if (!some.used) {
+            return mod.fail(scope, tree.token_locs[some.token].start, "unused for label", .{});
+        }
+    }
     return &for_block.base;
 }
 
