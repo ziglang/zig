@@ -7232,13 +7232,13 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
             }
             return true;
         case ZigTypeIdFnFrame:
-            zig_panic("TODO");
+            zig_panic("TODO: const_values_equal ZigTypeIdFnFrame");
         case ZigTypeIdAnyFrame:
-            zig_panic("TODO");
+            zig_panic("TODO: const_values_equal ZigTypeIdAnyFrame");
         case ZigTypeIdUndefined:
-            zig_panic("TODO");
+            zig_panic("TODO: const_values_equal ZigTypeIdUndefined");
         case ZigTypeIdNull:
-            zig_panic("TODO");
+            zig_panic("TODO: const_values_equal ZigTypeIdNull");
         case ZigTypeIdOptional:
             if (get_src_ptr_type(a->type) != nullptr)
                 return const_values_equal_ptr(a, b);
@@ -7247,8 +7247,16 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
             } else {
                 return const_values_equal(g, a->data.x_optional, b->data.x_optional);
             }
-        case ZigTypeIdErrorUnion:
-            zig_panic("TODO");
+        case ZigTypeIdErrorUnion: {
+            bool a_is_err = a->data.x_err_union.error_set->data.x_err_set != nullptr;
+            bool b_is_err = b->data.x_err_union.error_set->data.x_err_set != nullptr;
+            if (a_is_err != b_is_err) return false;
+            if (a_is_err) {
+                return const_values_equal(g, a->data.x_err_union.error_set, b->data.x_err_union.error_set);
+            } else {
+                return const_values_equal(g, a->data.x_err_union.payload, b->data.x_err_union.payload);
+            }
+        }
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:

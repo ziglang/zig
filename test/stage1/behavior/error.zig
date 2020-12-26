@@ -441,3 +441,12 @@ test "error payload type is correctly resolved" {
 
     expectEqual(MyIntWrapper{ .x = 42 }, try MyIntWrapper.create());
 }
+
+test "error union comptime caching" {
+    const S = struct {
+        fn foo(comptime arg: anytype) void {}
+    };
+
+    S.foo(@as(anyerror!void, {}));
+    S.foo(@as(anyerror!void, {}));
+}

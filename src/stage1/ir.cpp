@@ -10843,7 +10843,7 @@ static void float_init_bigfloat(ZigValue *dest_val, BigFloat *bigfloat) {
                 dest_val->data.x_f64 = bigfloat_to_f64(bigfloat);
                 break;
             case 80:
-                zig_panic("TODO");
+                zig_panic("TODO: float_init_bigfloat c_longdouble");
             case 128:
                 dest_val->data.x_f128 = bigfloat_to_f128(bigfloat);
                 break;
@@ -11483,7 +11483,7 @@ static void value_to_bigfloat(BigFloat *out, ZigValue *val) {
                 bigfloat_init_64(out, val->data.x_f64);
                 return;
             case 80:
-                zig_panic("TODO");
+                zig_panic("TODO: value_to_bigfloat c_longdouble");
             case 128:
                 bigfloat_init_128(out, val->data.x_f128);
                 return;
@@ -11573,7 +11573,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstGen *instruction
                     break;
                 }
                 case 80:
-                    zig_panic("TODO");
+                    zig_panic("TODO: ir_num_lit_fits_in_other_type c_longdouble");
                 case 128: {
                     float128_t tmp = bigfloat_to_f128(&tmp_bf);
                     bigfloat_init_128(&orig_bf, tmp);
@@ -11618,7 +11618,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstGen *instruction
                         break;
                     }
                     case 80:
-                        zig_panic("TODO");
+                        zig_panic("TODO: ir_num_lit_fits_in_other_type c_longdouble");
                     case 128: {
                         float16_t tmp = f128M_to_f16(&const_val->data.x_f128);
                         float128_t orig;
@@ -11643,7 +11643,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstGen *instruction
                         break;
                     }
                     case 80:
-                        zig_panic("TODO");
+                        zig_panic("TODO: ir_num_lit_fits_in_other_type c_longdouble");
                     case 128: {
                         float32_t tmp = f128M_to_f32(&const_val->data.x_f128);
                         float128_t orig;
@@ -11660,7 +11660,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstGen *instruction
             case 64:
                 switch (const_val->type->data.floating.bit_count) {
                     case 80:
-                        zig_panic("TODO");
+                        zig_panic("TODO: ir_num_lit_fits_in_other_type c_longdouble");
                     case 128: {
                         float64_t tmp = f128M_to_f64(&const_val->data.x_f128);
                         float128_t orig;
@@ -11676,7 +11676,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstGen *instruction
                 break;
             case 80:
                 assert(const_val->type->data.floating.bit_count == 128);
-                zig_panic("TODO");
+                zig_panic("TODO: ir_num_lit_fits_in_other_type c_longdouble");
             case 128:
                 return true;
             default:
@@ -13068,7 +13068,7 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInst *source_instr,
             zig_unreachable();
         case CastOpErrSet:
         case CastOpBitCast:
-            zig_panic("TODO");
+            zig_panic("TODO: eval_const_expr_implicit_cast CastOpErrSet, CastOpBitCast");
         case CastOpNoop: {
             copy_const_val(ira->codegen, const_val, other_val);
             const_val->type = new_type;
@@ -13088,7 +13088,7 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInst *source_instr,
                         const_val->data.x_f64 = bigfloat_to_f64(&other_val->data.x_bigfloat);
                         break;
                     case 80:
-                        zig_panic("TODO");
+                        zig_panic("TODO: eval_const_expr_implicit_cast c_longdouble");
                     case 128:
                         const_val->data.x_f128 = bigfloat_to_f128(&other_val->data.x_bigfloat);
                         break;
@@ -13117,7 +13117,7 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInst *source_instr,
                         const_val->data.x_f64 = bigfloat_to_f64(&bigfloat);
                         break;
                     case 80:
-                        zig_panic("TODO");
+                        zig_panic("TODO: eval_const_expr_implicit_cast c_longdouble");
                     case 128:
                         const_val->data.x_f128 = bigfloat_to_f128(&bigfloat);
                         break;
@@ -21433,7 +21433,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
             ZigValue *array_val = ptr_val->data.x_ptr.data.base_array.array_val;
             assert(array_val->type->id == ZigTypeIdArray);
             if (array_val->data.x_array.special != ConstArraySpecialNone)
-                zig_panic("TODO");
+                zig_panic("TODO: ir_read_const_ptr ConstPtrSpecialSubArray !ConstArraySpecialNone");
             if (dst_size > src_size) {
                 size_t elem_index = ptr_val->data.x_ptr.data.base_array.elem_index;
                 opt_ir_add_error_node(ira, codegen, source_node,
@@ -21458,7 +21458,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
             ZigValue *array_val = ptr_val->data.x_ptr.data.base_array.array_val;
             assert(array_val->type->id == ZigTypeIdArray);
             if (array_val->data.x_array.special != ConstArraySpecialNone)
-                zig_panic("TODO");
+                zig_panic("TODO: ir_read_const_ptr ConstPtrSpecialBaseArray !ConstArraySpecialNone");
             size_t elem_size = src_size;
             size_t elem_index = ptr_val->data.x_ptr.data.base_array.elem_index;
             src_size = elem_size * (array_val->type->data.array.len - elem_index);
@@ -21487,7 +21487,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
         case ConstPtrSpecialDiscard:
         case ConstPtrSpecialHardCodedAddr:
         case ConstPtrSpecialFunction:
-            zig_panic("TODO");
+            zig_panic("TODO: ir_read_const_ptr");
     }
     zig_unreachable();
 }
@@ -28815,13 +28815,13 @@ done_with_return_type:
             case ConstPtrSpecialBaseArray:
                 zig_unreachable();
             case ConstPtrSpecialBaseStruct:
-                zig_panic("TODO");
+                zig_panic("TODO: ir_analyze_instruction_slice ConstPtrSpecialBaseStruct");
             case ConstPtrSpecialBaseErrorUnionCode:
-                zig_panic("TODO");
+                zig_panic("TODO: ir_analyze_instruction_slice ConstPtrSpecialBaseErrorUnionCode");
             case ConstPtrSpecialBaseErrorUnionPayload:
-                zig_panic("TODO");
+                zig_panic("TODO: ir_analyze_instruction_slice ConstPtrSpecialBaseErrorUnionPayload");
             case ConstPtrSpecialBaseOptionalPayload:
-                zig_panic("TODO");
+                zig_panic("TODO: ir_analyze_instruction_slice ConstPtrSpecialBaseOptionalPayload");
             case ConstPtrSpecialHardCodedAddr:
                 init_const_ptr_hard_coded_addr(ira->codegen, ptr_val,
                     parent_ptr->type->data.pointer.child_type,
@@ -28829,9 +28829,9 @@ done_with_return_type:
                     return_type_is_const);
                 break;
             case ConstPtrSpecialFunction:
-                zig_panic("TODO");
+                zig_panic("TODO: ir_analyze_instruction_slice ConstPtrSpecialFunction");
             case ConstPtrSpecialNull:
-                zig_panic("TODO");
+                zig_panic("TODO: ir_analyze_instruction_slice ConstPtrSpecialNull");
         }
 
         // In the case of pointer-to-array, we must restore this because above it overwrites ptr_val->type
