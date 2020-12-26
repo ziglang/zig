@@ -19,6 +19,7 @@ var all_cache_digest_set: std.AutoHashMapUnmanaged(BinDigest, void) = .{};
 var all_cache_digest_lock: std.Mutex = .{};
 const want_debug_deadlock = true; // TODO change this for release builds
 const DebugBinDigest = if (want_debug_deadlock) BinDigest else void;
+const null_debug_bin_digest = if (want_debug_deadlock) ([1]u8{0} ** bin_digest_len) else {};
 
 /// Be sure to call `Manifest.deinit` after successful initialization.
 pub fn obtain(cache: *const Cache) Manifest {
@@ -193,7 +194,7 @@ pub const Manifest = struct {
     manifest_dirty: bool,
     files: std.ArrayListUnmanaged(File) = .{},
     hex_digest: [hex_digest_len]u8,
-    bin_digest: DebugBinDigest = undefined,
+    debug_bin_digest: DebugBinDigest = null_debug_bin_digest,
 
     /// Add a file as a dependency of process being cached. When `hit` is
     /// called, the file's contents will be checked to ensure that it matches
@@ -262,7 +263,7 @@ pub const Manifest = struct {
         self.hash.hasher.final(&bin_digest);
 
         if (want_debug_deadlock) {
-            self.bin_digest = bin_digest;
+            self.debug_bin_digest = bin_digest;
 
             const held = all_cache_digest_lock.acquire();
             defer held.release();
@@ -603,18 +604,27 @@ pub const Manifest = struct {
     /// The `Manifest` remains safe to deinit.
     /// Don't forget to call `writeManifest` before this!
     pub fn toOwnedLock(self: *Manifest) Lock {
-        const manifest_file = self.manifest_file.?;
-        self.manifest_file = null;
-        return Lock{
-            .manifest_file = manifest_file,
-            .debug_bin_digest = self.bin_digest,
+        const lock: Lock = .{
+            .manifest_file = self.manifest_file.?,
+            .debug_bin_digest = self.debug_bin_digest,
         };
+        self.manifest_file = null;
+        self.debug_bin_digest = null_debug_bin_digest;
+        return lock;
     }
 
     /// Releases the manifest file and frees any memory the Manifest was using.
     /// `Manifest.hit` must be called first.
     /// Don't forget to call `writeManifest` before this!
     pub fn deinit(self: *Manifest) void {
+        if (want_debug_deadlock) {
+            if (!mem.eql(u8, &self.debug_bin_digest, &null_debug_bin_digest)) {
+                const held = all_cache_digest_lock.acquire();
+                defer held.release();
+
+                all_cache_digest_set.removeAssertDiscard(self.debug_bin_digest);
+            }
+        }
         if (self.manifest_file) |file| {
             file.close();
         }
@@ -698,6 +708,11 @@ test "cache file and then recall it" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+    defer if (want_debug_deadlock) {
+        testing.expect(all_cache_digest_set.count() == 0);
+        all_cache_digest_set.clearAndFree(testing.allocator);
+    };
+
     const cwd = fs.cwd();
 
     const temp_file = "test.txt";
@@ -775,6 +790,10 @@ test "check that changing a file makes cache fail" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+    defer if (want_debug_deadlock) {
+        testing.expect(all_cache_digest_set.count() == 0);
+        all_cache_digest_set.clearAndFree(testing.allocator);
+    };
     const cwd = fs.cwd();
 
     const temp_file = "cache_hash_change_file_test.txt";
@@ -851,6 +870,10 @@ test "no file inputs" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+    defer if (want_debug_deadlock) {
+        testing.expect(all_cache_digest_set.count() == 0);
+        all_cache_digest_set.clearAndFree(testing.allocator);
+    };
     const cwd = fs.cwd();
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
     defer cwd.deleteTree(temp_manifest_dir) catch {};
@@ -896,6 +919,10 @@ test "Manifest with files added after initial hash work" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+    defer if (want_debug_deadlock) {
+        testing.expect(all_cache_digest_set.count() == 0);
+        all_cache_digest_set.clearAndFree(testing.allocator);
+    };
     const cwd = fs.cwd();
 
     const temp_file1 = "cache_hash_post_file_test1.txt";
