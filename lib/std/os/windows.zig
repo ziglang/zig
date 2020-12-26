@@ -1528,6 +1528,16 @@ pub const PathSpace = struct {
     }
 };
 
+/// Decode a utf8 encoded path to a "wide character" path.  Returns the path by value via PathSpace
+/// which can accomodate paths up to `PATH_MAX_WIDE` characters long.
+pub fn utf8ToWPathSpace(utf8_path: []const u8) !PathSpace {
+    // TODO https://github.com/ziglang/zig/issues/2765
+    var path_space : PathSpace = undefined;
+    path_space.len = try std.unicode.utf8ToUtf16Le(&path_space.data, utf8_path);
+    path_space.data[path_space.len] = 0;
+    return path_space;
+}
+
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated path.
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
@@ -1572,12 +1582,6 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
 /// Convert `dos_path` to an NT path that can be passed to Nt* functions like NtCreateFile.
 pub const NtPath = struct {
     str: UNICODE_STRING,
-    pub fn initA(dos_path: []const u8) !NtPath {
-        var path_space : PathSpace = undefined;
-        path_space.len = try std.unicode.utf8ToUtf16Le(&path_space.data, dos_path);
-        path_space.data[path_space.len] = 0;
-        return init(path_space.span());
-    }
     pub fn init(dos_path: [*:0]const u16) !NtPath {
         var str : UNICODE_STRING = undefined;
         const status = ntdll.RtlDosPathNameToNtPathName_U_WithStatus(dos_path, &str, null, null);

@@ -1168,7 +1168,7 @@ pub const Dir = struct {
     /// Asserts that the path parameter has no null bytes.
     pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
-            const nt_path = try os.windows.NtPath.initA(sub_path);
+            const nt_path = try os.windows.NtPath.init((try os.windows.utf8ToWPathSpace(sub_path)).span());
             defer nt_path.deinit();
             return self.openDirWindows(std.fs.path.isAbsoluteWindows(sub_path), nt_path.str, args);
         } else if (builtin.os.tag == .wasi) {
