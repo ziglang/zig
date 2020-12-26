@@ -155,8 +155,8 @@ pub const PieFixup = struct {
 };
 
 /// `alloc_num / alloc_den` is the factor of padding when allocating.
-const alloc_num = 4;
-const alloc_den = 3;
+pub const alloc_num = 4;
+pub const alloc_den = 3;
 
 /// Default path to dyld
 /// TODO instead of hardcoding it, we should probably look through some env vars and search paths
@@ -1358,7 +1358,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         };
         const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
         const needed_size = self.base.options.program_code_size_hint;
-        const off = self.findFreeSpace(text_segment, needed_size, @as(u16, 1) << alignment);
+        const off = text_segment.findFreeSpace(needed_size, @as(u16, 1) << alignment, self.header_pad);
 
         log.debug("found __text section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
@@ -1386,7 +1386,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = self.findFreeSpace(text_segment, needed_size, @alignOf(u64));
+        const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
         assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
 
         log.debug("found __ziggot section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
@@ -1437,11 +1437,10 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (self.dyld_info_cmd_index == null) {
         self.dyld_info_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
 
         // TODO Preallocate rebase, binding, and lazy binding info.
         const export_size = 2;
-        const export_off = self.findFreeSpace(&linkedit_segment, export_size, 1);
+        const export_off = self.findFreeSpaceLinkedit(export_size, 1);
 
         log.debug("found export info free space 0x{x} to 0x{x}", .{ export_off, export_off + export_size });
 
@@ -1466,16 +1465,15 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (self.symtab_cmd_index == null) {
         self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
 
         const symtab_size = self.base.options.symbol_count_hint * @sizeOf(macho.nlist_64);
-        const symtab_off = self.findFreeSpace(&linkedit_segment, symtab_size, @sizeOf(macho.nlist_64));
+        const symtab_off = self.findFreeSpaceLinkedit(symtab_size, @sizeOf(macho.nlist_64));
 
         log.debug("found symbol table free space 0x{x} to 0x{x}", .{ symtab_off, symtab_off + symtab_size });
 
         try self.string_table.append(self.base.allocator, 0); // Need a null at position 0.
         const strtab_size = self.string_table.items.len;
-        const strtab_off = self.findFreeSpace(&linkedit_segment, strtab_size, 1);
+        const strtab_off = self.findFreeSpaceLinkedit(strtab_size, 1);
 
         log.debug("found string table free space 0x{x} to 0x{x}", .{ strtab_off, strtab_off + strtab_size });
 
@@ -1613,7 +1611,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (self.code_signature_cmd_index == null) {
         self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         try self.load_commands.append(self.base.allocator, .{
             .LinkeditData = .{
                 .cmd = macho.LC_CODE_SIGNATURE,
@@ -1790,48 +1787,41 @@ fn nextSegmentAddressAndOffset(self: *MachO) NextSegmentAddressAndOffset {
     };
 }
 
-fn allocatedSize(self: *MachO, segment: *const SegmentCommand, start: u64) u64 {
+fn allocatedSizeLinkedit(self: *MachO, start: u64) u64 {
     assert(start > 0);
     var min_pos: u64 = std.math.maxInt(u64);
 
-    if (parseAndCmpName(&segment.inner.segname, "__LINKEDIT")) {
-        assert(segment.sections.items.len == 0);
-        // __LINKEDIT is a weird segment where sections get their own load commands so we
-        // special-case it.
-        if (self.dyld_info_cmd_index) |idx| {
-            const dyld_info = self.load_commands.items[idx].DyldInfoOnly;
-            if (dyld_info.rebase_off > start and dyld_info.rebase_off < min_pos) min_pos = dyld_info.rebase_off;
-            if (dyld_info.bind_off > start and dyld_info.bind_off < min_pos) min_pos = dyld_info.bind_off;
-            if (dyld_info.weak_bind_off > start and dyld_info.weak_bind_off < min_pos) min_pos = dyld_info.weak_bind_off;
-            if (dyld_info.lazy_bind_off > start and dyld_info.lazy_bind_off < min_pos) min_pos = dyld_info.lazy_bind_off;
-            if (dyld_info.export_off > start and dyld_info.export_off < min_pos) min_pos = dyld_info.export_off;
-        }
+    // __LINKEDIT is a weird segment where sections get their own load commands so we
+    // special-case it.
+    if (self.dyld_info_cmd_index) |idx| {
+        const dyld_info = self.load_commands.items[idx].DyldInfoOnly;
+        if (dyld_info.rebase_off > start and dyld_info.rebase_off < min_pos) min_pos = dyld_info.rebase_off;
+        if (dyld_info.bind_off > start and dyld_info.bind_off < min_pos) min_pos = dyld_info.bind_off;
+        if (dyld_info.weak_bind_off > start and dyld_info.weak_bind_off < min_pos) min_pos = dyld_info.weak_bind_off;
+        if (dyld_info.lazy_bind_off > start and dyld_info.lazy_bind_off < min_pos) min_pos = dyld_info.lazy_bind_off;
+        if (dyld_info.export_off > start and dyld_info.export_off < min_pos) min_pos = dyld_info.export_off;
+    }
 
-        if (self.function_starts_cmd_index) |idx| {
-            const fstart = self.load_commands.items[idx].LinkeditData;
-            if (fstart.dataoff > start and fstart.dataoff < min_pos) min_pos = fstart.dataoff;
-        }
+    if (self.function_starts_cmd_index) |idx| {
+        const fstart = self.load_commands.items[idx].LinkeditData;
+        if (fstart.dataoff > start and fstart.dataoff < min_pos) min_pos = fstart.dataoff;
+    }
 
-        if (self.data_in_code_cmd_index) |idx| {
-            const dic = self.load_commands.items[idx].LinkeditData;
-            if (dic.dataoff > start and dic.dataoff < min_pos) min_pos = dic.dataoff;
-        }
+    if (self.data_in_code_cmd_index) |idx| {
+        const dic = self.load_commands.items[idx].LinkeditData;
+        if (dic.dataoff > start and dic.dataoff < min_pos) min_pos = dic.dataoff;
+    }
 
-        if (self.dysymtab_cmd_index) |idx| {
-            const dysymtab = self.load_commands.items[idx].Dysymtab;
-            if (dysymtab.indirectsymoff > start and dysymtab.indirectsymoff < min_pos) min_pos = dysymtab.indirectsymoff;
-            // TODO Handle more dynamic symbol table sections.
-        }
+    if (self.dysymtab_cmd_index) |idx| {
+        const dysymtab = self.load_commands.items[idx].Dysymtab;
+        if (dysymtab.indirectsymoff > start and dysymtab.indirectsymoff < min_pos) min_pos = dysymtab.indirectsymoff;
+        // TODO Handle more dynamic symbol table sections.
+    }
 
-        if (self.symtab_cmd_index) |idx| {
-            const symtab = self.load_commands.items[idx].Symtab;
-            if (symtab.symoff > start and symtab.symoff < min_pos) min_pos = symtab.symoff;
-            if (symtab.stroff > start and symtab.stroff < min_pos) min_pos = symtab.stroff;
-        }
-    } else {
-        for (segment.sections.items) |section| {
-            if (section.offset > start and section.offset < min_pos) min_pos = section.offset;
-        }
+    if (self.symtab_cmd_index) |idx| {
+        const symtab = self.load_commands.items[idx].Symtab;
+        if (symtab.symoff > start and symtab.symoff < min_pos) min_pos = symtab.symoff;
+        if (symtab.stroff > start and symtab.stroff < min_pos) min_pos = symtab.stroff;
     }
 
     return min_pos - start;
@@ -1846,101 +1836,90 @@ inline fn checkForCollision(start: u64, end: u64, off: u64, size: u64) ?u64 {
     return null;
 }
 
-fn detectAllocCollision(self: *MachO, segment: *const SegmentCommand, start: u64, size: u64) ?u64 {
+fn detectAllocCollisionLinkedit(self: *MachO, start: u64, size: u64) ?u64 {
     const end = start + satMul(size, alloc_num) / alloc_den;
 
-    if (parseAndCmpName(&segment.inner.segname, "__LINKEDIT")) {
-        assert(segment.sections.items.len == 0);
-        // __LINKEDIT is a weird segment where sections get their own load commands so we
-        // special-case it.
-        if (self.dyld_info_cmd_index) |idx| outer: {
-            if (self.load_commands.items.len == idx) break :outer;
-            const dyld_info = self.load_commands.items[idx].DyldInfoOnly;
-            if (checkForCollision(start, end, dyld_info.rebase_off, dyld_info.rebase_size)) |pos| {
-                return pos;
-            }
-            // Binding info
-            if (checkForCollision(start, end, dyld_info.bind_off, dyld_info.bind_size)) |pos| {
-                return pos;
-            }
-            // Weak binding info
-            if (checkForCollision(start, end, dyld_info.weak_bind_off, dyld_info.weak_bind_size)) |pos| {
-                return pos;
-            }
-            // Lazy binding info
-            if (checkForCollision(start, end, dyld_info.lazy_bind_off, dyld_info.lazy_bind_size)) |pos| {
-                return pos;
-            }
-            // Export info
-            if (checkForCollision(start, end, dyld_info.export_off, dyld_info.export_size)) |pos| {
-                return pos;
-            }
+    // __LINKEDIT is a weird segment where sections get their own load commands so we
+    // special-case it.
+    if (self.dyld_info_cmd_index) |idx| outer: {
+        if (self.load_commands.items.len == idx) break :outer;
+        const dyld_info = self.load_commands.items[idx].DyldInfoOnly;
+        if (checkForCollision(start, end, dyld_info.rebase_off, dyld_info.rebase_size)) |pos| {
+            return pos;
         }
+        // Binding info
+        if (checkForCollision(start, end, dyld_info.bind_off, dyld_info.bind_size)) |pos| {
+            return pos;
+        }
+        // Weak binding info
+        if (checkForCollision(start, end, dyld_info.weak_bind_off, dyld_info.weak_bind_size)) |pos| {
+            return pos;
+        }
+        // Lazy binding info
+        if (checkForCollision(start, end, dyld_info.lazy_bind_off, dyld_info.lazy_bind_size)) |pos| {
+            return pos;
+        }
+        // Export info
+        if (checkForCollision(start, end, dyld_info.export_off, dyld_info.export_size)) |pos| {
+            return pos;
+        }
+    }
 
-        if (self.function_starts_cmd_index) |idx| outer: {
-            if (self.load_commands.items.len == idx) break :outer;
-            const fstart = self.load_commands.items[idx].LinkeditData;
-            if (checkForCollision(start, end, fstart.dataoff, fstart.datasize)) |pos| {
-                return pos;
-            }
+    if (self.function_starts_cmd_index) |idx| outer: {
+        if (self.load_commands.items.len == idx) break :outer;
+        const fstart = self.load_commands.items[idx].LinkeditData;
+        if (checkForCollision(start, end, fstart.dataoff, fstart.datasize)) |pos| {
+            return pos;
         }
+    }
 
-        if (self.data_in_code_cmd_index) |idx| outer: {
-            if (self.load_commands.items.len == idx) break :outer;
-            const dic = self.load_commands.items[idx].LinkeditData;
-            if (checkForCollision(start, end, dic.dataoff, dic.datasize)) |pos| {
-                return pos;
-            }
+    if (self.data_in_code_cmd_index) |idx| outer: {
+        if (self.load_commands.items.len == idx) break :outer;
+        const dic = self.load_commands.items[idx].LinkeditData;
+        if (checkForCollision(start, end, dic.dataoff, dic.datasize)) |pos| {
+            return pos;
         }
+    }
 
-        if (self.dysymtab_cmd_index) |idx| outer: {
-            if (self.load_commands.items.len == idx) break :outer;
-            const dysymtab = self.load_commands.items[idx].Dysymtab;
-            // Indirect symbol table
-            const nindirectsize = dysymtab.nindirectsyms * @sizeOf(u32);
-            if (checkForCollision(start, end, dysymtab.indirectsymoff, nindirectsize)) |pos| {
-                return pos;
-            }
-            // TODO Handle more dynamic symbol table sections.
+    if (self.dysymtab_cmd_index) |idx| outer: {
+        if (self.load_commands.items.len == idx) break :outer;
+        const dysymtab = self.load_commands.items[idx].Dysymtab;
+        // Indirect symbol table
+        const nindirectsize = dysymtab.nindirectsyms * @sizeOf(u32);
+        if (checkForCollision(start, end, dysymtab.indirectsymoff, nindirectsize)) |pos| {
+            return pos;
         }
+        // TODO Handle more dynamic symbol table sections.
+    }
 
-        if (self.symtab_cmd_index) |idx| outer: {
-            if (self.load_commands.items.len == idx) break :outer;
-            const symtab = self.load_commands.items[idx].Symtab;
-            // Symbol table
-            const symsize = symtab.nsyms * @sizeOf(macho.nlist_64);
-            if (checkForCollision(start, end, symtab.symoff, symsize)) |pos| {
-                return pos;
-            }
-            // String table
-            if (checkForCollision(start, end, symtab.stroff, symtab.strsize)) |pos| {
-                return pos;
-            }
+    if (self.symtab_cmd_index) |idx| outer: {
+        if (self.load_commands.items.len == idx) break :outer;
+        const symtab = self.load_commands.items[idx].Symtab;
+        // Symbol table
+        const symsize = symtab.nsyms * @sizeOf(macho.nlist_64);
+        if (checkForCollision(start, end, symtab.symoff, symsize)) |pos| {
+            return pos;
         }
-    } else {
-        for (segment.sections.items) |section| {
-            if (checkForCollision(start, end, section.offset, section.size)) |pos| {
-                return pos;
-            }
+        // String table
+        if (checkForCollision(start, end, symtab.stroff, symtab.strsize)) |pos| {
+            return pos;
         }
     }
 
     return null;
 }
 
-fn findFreeSpace(self: *MachO, segment: *const SegmentCommand, object_size: u64, min_alignment: u16) u64 {
-    var start: u64 = if (parseAndCmpName(&segment.inner.segname, "__TEXT"))
-        self.header_pad
-    else
-        segment.inner.fileoff;
-    while (self.detectAllocCollision(segment, start, object_size)) |item_end| {
+fn findFreeSpaceLinkedit(self: *MachO, object_size: u64, min_alignment: u16) u64 {
+    const linkedit = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    var start: u64 = linkedit.inner.fileoff;
+    while (self.detectAllocCollisionLinkedit(start, object_size)) |item_end| {
         start = mem.alignForwardGeneric(u64, item_end, min_alignment);
     }
     return start;
 }
 
 /// Saturating multiplication
-fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
+pub fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     return std.math.mul(T, a, b) catch std.math.maxInt(T);
 }
@@ -1993,9 +1972,9 @@ fn relocateSymbolTable(self: *MachO) !void {
     if (symtab.nsyms < nsyms) {
         const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const needed_size = nsyms * @sizeOf(macho.nlist_64);
-        if (needed_size > self.allocatedSize(&linkedit_segment, symtab.symoff)) {
+        if (needed_size > self.allocatedSizeLinkedit(symtab.symoff)) {
             // Move the entire symbol table to a new location
-            const new_symoff = self.findFreeSpace(&linkedit_segment, needed_size, @alignOf(macho.nlist_64));
+            const new_symoff = self.findFreeSpaceLinkedit(needed_size, @alignOf(macho.nlist_64));
             const existing_size = symtab.nsyms * @sizeOf(macho.nlist_64);
 
             log.debug("relocating symbol table from 0x{x}-0x{x} to 0x{x}-0x{x}", .{
@@ -2140,12 +2119,12 @@ fn writeExportTrie(self: *MachO) !void {
 
     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const allocated_size = self.allocatedSize(&linkedit_segment, dyld_info.export_off);
+    const allocated_size = self.allocatedSizeLinkedit(dyld_info.export_off);
     const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
 
     if (needed_size > allocated_size) {
         dyld_info.export_off = 0;
-        dyld_info.export_off = @intCast(u32, self.findFreeSpace(&linkedit_segment, needed_size, 1));
+        dyld_info.export_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
     }
     dyld_info.export_size = @intCast(u32, needed_size);
     log.debug("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
@@ -2170,12 +2149,12 @@ fn writeBindingInfoTable(self: *MachO) !void {
 
     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const allocated_size = self.allocatedSize(&linkedit_segment, dyld_info.bind_off);
+    const allocated_size = self.allocatedSizeLinkedit(dyld_info.bind_off);
     const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
 
     if (needed_size > allocated_size) {
         dyld_info.bind_off = 0;
-        dyld_info.bind_off = @intCast(u32, self.findFreeSpace(&linkedit_segment, needed_size, 1));
+        dyld_info.bind_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
     }
 
     dyld_info.bind_size = @intCast(u32, needed_size);
@@ -2198,12 +2177,12 @@ fn writeLazyBindingInfoTable(self: *MachO) !void {
 
     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-    const allocated_size = self.allocatedSize(&linkedit_segment, dyld_info.lazy_bind_off);
+    const allocated_size = self.allocatedSizeLinkedit(dyld_info.lazy_bind_off);
     const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
 
     if (needed_size > allocated_size) {
         dyld_info.lazy_bind_off = 0;
-        dyld_info.lazy_bind_off = @intCast(u32, self.findFreeSpace(&linkedit_segment, needed_size, 1));
+        dyld_info.lazy_bind_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
     }
 
     dyld_info.lazy_bind_size = @intCast(u32, needed_size);
@@ -2222,12 +2201,12 @@ fn writeStringTable(self: *MachO) !void {
 
     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    const allocated_size = self.allocatedSize(&linkedit_segment, symtab.stroff);
+    const allocated_size = self.allocatedSizeLinkedit(symtab.stroff);
     const needed_size = mem.alignForwardGeneric(u64, self.string_table.items.len, @alignOf(u64));
 
     if (needed_size > allocated_size) {
         symtab.strsize = 0;
-        symtab.stroff = @intCast(u32, self.findFreeSpace(&linkedit_segment, needed_size, 1));
+        symtab.stroff = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
     }
     symtab.strsize = @intCast(u32, needed_size);
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
@@ -2280,7 +2259,7 @@ fn updateLinkeditSegmentSizes(self: *MachO) !void {
     const filesize = final_offset - linkedit_segment.inner.fileoff;
     linkedit_segment.inner.filesize = filesize;
     linkedit_segment.inner.vmsize = mem.alignForwardGeneric(u64, filesize, self.page_size);
-    try self.base.file.?.pwriteAll(&[_]u8{ 0 }, final_offset);
+    try self.base.file.?.pwriteAll(&[_]u8{0}, final_offset);
     self.load_commands_dirty = true;
 }
 
@@ -2301,7 +2280,7 @@ fn writeLoadCommands(self: *MachO) !void {
     }
 
     const off = @sizeOf(macho.mach_header_64);
-    log.debug("writing {} load commands from 0x{x} to 0x{x}", .{self.load_commands.items.len, off, off + sizeofcmds});
+    log.debug("writing {} load commands from 0x{x} to 0x{x}", .{ self.load_commands.items.len, off, off + sizeofcmds });
     try self.base.file.?.pwriteAll(buffer, off);
     self.load_commands_dirty = false;
 }

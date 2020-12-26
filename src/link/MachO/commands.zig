@@ -7,7 +7,11 @@ const macho = std.macho;
 const testing = std.testing;
 
 const Allocator = std.mem.Allocator;
-const makeStaticString = @import("../MachO.zig").makeStaticString;
+const MachO = @import("../MachO.zig");
+const makeStaticString = MachO.makeStaticString;
+const satMul = MachO.satMul;
+const alloc_num = MachO.alloc_num;
+const alloc_den = MachO.alloc_den;
 
 pub const LoadCommand = union(enum) {
     Segment: SegmentCommand,
@@ -186,6 +190,35 @@ pub const SegmentCommand = struct {
 
     pub fn deinit(self: *SegmentCommand, alloc: *Allocator) void {
         self.sections.deinit(alloc);
+    }
+
+    pub fn allocatedSize(self: SegmentCommand, start: u64) u64 {
+        assert(start > 0);
+        var min_pos: u64 = std.math.maxInt(u64);
+        for (self.sections.items) |section| {
+            if (section.offset > start and section.offset < min_pos) min_pos = section.offset;
+        }
+        return min_pos - start;
+    }
+
+    fn detectAllocCollision(self: SegmentCommand, start: u64, size: u64) ?u64 {
+        const end = start + satMul(size, alloc_num) / alloc_den;
+        for (self.sections.items) |section| {
+            const increased_size = satMul(section.size, alloc_num) / alloc_den;
+            const test_end = section.offset + increased_size;
+            if (end > section.offset and start < test_end) {
+                return test_end;
+            }
+        }
+        return null;
+    }
+
+    pub fn findFreeSpace(self: SegmentCommand, object_size: u64, min_alignment: u16, start: ?u64) u64 {
+        var st: u64 = if (start) |v| v else self.inner.fileoff;
+        while (self.detectAllocCollision(st, object_size)) |item_end| {
+            st = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        }
+        return st;
     }
 
     fn eql(self: SegmentCommand, other: SegmentCommand) bool {
