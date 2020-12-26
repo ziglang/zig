@@ -12,6 +12,14 @@ const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
 
+/// Process-scoped map keeping track of all locked Cache hashes, to detect deadlocks.
+/// The plan is to enable this for debug builds only, but for now we enable
+/// it always to catch a deadlock.
+var all_cache_digest_set: std.AutoHashMapUnmanaged(BinDigest, void) = .{};
+var all_cache_digest_lock: std.Mutex = .{};
+const want_debug_deadlock = true; // TODO change this for release builds
+const DebugBinDigest = if (want_debug_deadlock) BinDigest else void;
+
 /// Be sure to call `Manifest.deinit` after successful initialization.
 pub fn obtain(cache: *const Cache) Manifest {
     return Manifest{
@@ -160,8 +168,15 @@ pub const HashHelper = struct {
 
 pub const Lock = struct {
     manifest_file: fs.File,
+    debug_bin_digest: DebugBinDigest,
 
     pub fn release(lock: *Lock) void {
+        if (want_debug_deadlock) {
+            const held = all_cache_digest_lock.acquire();
+            defer held.release();
+
+            all_cache_digest_set.removeAssertDiscard(lock.debug_bin_digest);
+        }
         lock.manifest_file.close();
         lock.* = undefined;
     }
@@ -178,6 +193,7 @@ pub const Manifest = struct {
     manifest_dirty: bool,
     files: std.ArrayListUnmanaged(File) = .{},
     hex_digest: [hex_digest_len]u8,
+    bin_digest: DebugBinDigest = undefined,
 
     /// Add a file as a dependency of process being cached. When `hit` is
     /// called, the file's contents will be checked to ensure that it matches
@@ -244,6 +260,23 @@ pub const Manifest = struct {
 
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
+
+        if (want_debug_deadlock) {
+            self.bin_digest = bin_digest;
+
+            const held = all_cache_digest_lock.acquire();
+            defer held.release();
+
+            const gop = try all_cache_digest_set.getOrPut(self.cache.gpa, bin_digest);
+            if (gop.found_existing) {
+                std.debug.print("Cache deadlock detected in Cache.hit. Manifest has {d} files:\n", .{self.files.items.len});
+                for (self.files.items) |file| {
+                    const p: []const u8 = file.path orelse "(null)";
+                    std.debug.print("  file: {s}\n", .{p});
+                }
+                @panic("Cache deadlock detected");
+            }
+        }
 
         _ = std.fmt.bufPrint(&self.hex_digest, "{x}", .{bin_digest}) catch unreachable;
 
@@ -572,7 +605,10 @@ pub const Manifest = struct {
     pub fn toOwnedLock(self: *Manifest) Lock {
         const manifest_file = self.manifest_file.?;
         self.manifest_file = null;
-        return Lock{ .manifest_file = manifest_file };
+        return Lock{
+            .manifest_file = manifest_file,
+            .debug_bin_digest = self.bin_digest,
+        };
     }
 
     /// Releases the manifest file and frees any memory the Manifest was using.
