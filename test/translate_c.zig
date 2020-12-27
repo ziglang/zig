@@ -3,6 +3,15 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("variadic function demoted to prototype",
+        \\int foo(int bar, ...) {
+        \\    return 1;
+        \\}
+    , &[_][]const u8{
+        \\warning: TODO unable to translate variadic function, demoted to declaration
+        \\pub extern fn foo(bar: c_int, ...) c_int;
+    });
+
     cases.add("pointer to opaque demoted struct",
         \\typedef struct {
         \\    _Atomic int foo;

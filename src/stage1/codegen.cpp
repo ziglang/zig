@@ -7855,9 +7855,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
         case ZigTypeIdOpaque:
             zig_unreachable();
         case ZigTypeIdFnFrame:
-            zig_panic("TODO");
+            zig_panic("TODO: gen_const_val ZigTypeIdFnFrame");
         case ZigTypeIdAnyFrame:
-            zig_panic("TODO");
+            zig_panic("TODO: gen_const_val ZigTypeIdAnyFrame");
     }
     zig_unreachable();
 }

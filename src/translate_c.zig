@@ -550,7 +550,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     const fn_decl_loc = fn_decl.getLocation();
     const has_body = fn_decl.hasBody();
     const storage_class = fn_decl.getStorageClass();
-    const decl_ctx = FnDeclContext{
+    var decl_ctx = FnDeclContext{
         .fn_name = fn_name,
         .has_body = has_body,
         .storage_class = storage_class,
@@ -584,6 +584,12 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     const proto_node = switch (fn_type.getTypeClass()) {
         .FunctionProto => blk: {
             const fn_proto_type = @ptrCast(*const clang.FunctionProtoType, fn_type);
+            if (has_body and fn_proto_type.isVariadic()) {
+                decl_ctx.has_body = false;
+                decl_ctx.storage_class = .Extern;
+                decl_ctx.is_export = false;
+                try emitWarning(c, fn_decl_loc, "TODO unable to translate variadic function, demoted to declaration", .{});
+            }
             break :blk transFnProto(rp, fn_decl, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function", .{});
