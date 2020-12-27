@@ -591,13 +591,10 @@ fn varDecl(
             const result_loc = if (nodeMayNeedMemoryLocation(init_node, scope)) r: {
                 if (node.getTypeNode()) |type_node| {
                     const type_inst = try typeExpr(mod, scope, type_node);
-                    const alloc = try addZIRInst(mod, scope, name_src, zir.Inst.Alloc, .{
-                        .operand = type_inst,
-                        .mutable = false,
-                    }, .{});
+                    const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
                     break :r ResultLoc{ .ptr = alloc };
                 } else {
-                    const alloc = try addZIRInstSpecial(mod, scope, name_src, zir.Inst.AllocInferred, .{ .mutable = false }, .{});
+                    const alloc = try addZIRNoOpT(mod, scope, name_src, .alloc_inferred);
                     break :r ResultLoc{ .inferred_ptr = alloc };
                 }
             } else r: {
@@ -619,14 +616,11 @@ fn varDecl(
         .Keyword_var => {
             const var_data: struct { result_loc: ResultLoc, alloc: *zir.Inst } = if (node.getTypeNode()) |type_node| a: {
                 const type_inst = try typeExpr(mod, scope, type_node);
-                const alloc = try addZIRInst(mod, scope, name_src, zir.Inst.Alloc, .{
-                    .operand = type_inst,
-                    .mutable = true,
-                }, .{});
+                const alloc = try addZIRUnOp(mod, scope, name_src, .alloc_mut, type_inst);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
-                const alloc = try addZIRInst(mod, scope, name_src, zir.Inst.AllocInferred, .{ .mutable = true }, .{});
-                break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc.castTag(.alloc_inferred).? } };
+                const alloc = try addZIRNoOp(mod, scope, name_src, .alloc_inferred_mut);
+                break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc.castTag(.alloc_inferred_mut).? } };
             };
             const init_inst = try expr(mod, scope, var_data.result_loc, init_node);
             const sub_scope = try block_arena.create(Scope.LocalPtr);

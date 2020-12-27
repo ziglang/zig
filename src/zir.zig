@@ -41,8 +41,12 @@ pub const Inst = struct {
         /// Allocates stack local memory. Its lifetime ends when the block ends that contains
         /// this instruction. The operand is the type of the allocated object.
         alloc,
+        /// Same as `alloc` except mutable.
+        alloc_mut,
         /// Same as `alloc` except the type is inferred.
         alloc_inferred,
+        /// Same as `alloc_inferred` except mutable.
+        alloc_inferred_mut,
         /// Create an `anyframe->T`.
         anyframe_type,
         /// Array concatenation. `a ++ b`
@@ -289,6 +293,8 @@ pub const Inst = struct {
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
+                .alloc_inferred,
+                .alloc_inferred_mut,
                 .breakpoint,
                 .dbg_stmt,
                 .returnvoid,
@@ -298,6 +304,8 @@ pub const Inst = struct {
                 .@"unreachable",
                 => NoOp,
 
+                .alloc,
+                .alloc_mut,
                 .boolnot,
                 .deref,
                 .@"return",
@@ -374,8 +382,6 @@ pub const Inst = struct {
                 .block_comptime_flat,
                 => Block,
 
-                .alloc => Alloc,
-                .alloc_inferred => AllocInferred,
                 .arg => Arg,
                 .array_type_sentinel => ArrayTypeSentinel,
                 .@"break" => Break,
@@ -419,7 +425,9 @@ pub const Inst = struct {
                 .add,
                 .addwrap,
                 .alloc,
+                .alloc_mut,
                 .alloc_inferred,
+                .alloc_inferred_mut,
                 .array_cat,
                 .array_mul,
                 .array_type,
@@ -581,25 +589,6 @@ pub const Inst = struct {
         positionals: struct {
             lhs: *Inst,
             rhs: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Alloc = struct {
-        pub const base_tag = Tag.alloc;
-        base: Inst,
-        positionals: struct {
-            operand: *Inst,
-            mutable: bool,
-        },
-        kw_args: struct {},
-    };
-
-    pub const AllocInferred = struct {
-        pub const base_tag = Tag.alloc;
-        base: Inst,
-        positionals: struct {
-            mutable: bool,
         },
         kw_args: struct {},
     };
