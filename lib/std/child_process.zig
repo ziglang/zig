@@ -931,3 +931,36 @@ pub fn createNullDelimitedEnvMap(arena: *mem.Allocator, env_map: *const std.BufM
     }
     return envp_buf[0..envp_count :null];
 }
+
+test "createNullDelimitedEnvMap" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var envmap = BufMap.init(allocator);
+    defer envmap.deinit();
+
+    try envmap.set("HOME", "/home/ifreund");
+    try envmap.set("WAYLAND_DISPLAY", "wayland-1");
+    try envmap.set("DISPLAY", ":1");
+    try envmap.set("DEBUGINFOD_URLS", " ");
+    try envmap.set("XCURSOR_SIZE", "24");
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const environ = try createNullDelimitedEnvMap(&arena.allocator, &envmap);
+
+    testing.expectEqual(@as(usize, 5), environ.len);
+
+    inline for (.{
+        "HOME=/home/ifreund",
+        "WAYLAND_DISPLAY=wayland-1",
+        "DISPLAY=:1",
+        "DEBUGINFOD_URLS= ",
+        "XCURSOR_SIZE=24",
+    }) |target| {
+        for (environ) |variable| {
+            if (mem.eql(u8, mem.span(variable orelse continue), target)) break;
+        } else {
+            testing.expect(false); // Environment variable not found
+        }
+    }
+}
