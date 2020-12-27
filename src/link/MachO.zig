@@ -1427,7 +1427,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .addr = text_segment.inner.vmaddr + off,
             .size = needed_size,
             .offset = @intCast(u32, off),
-            .@"align" = @sizeOf(u64),
+            .@"align" = 3, // 2^@sizeOf(u64)
             .reloff = 0,
             .nreloc = 0,
             .flags = flags,
@@ -1749,8 +1749,14 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
 
         self.last_text_block = text_block;
         text_section.size = needed_size;
-
         self.load_commands_dirty = true; // TODO Make more granular.
+
+        if (self.d_sym) |*ds| {
+            const debug_text_seg = &ds.load_commands.items[ds.text_segment_cmd_index.?].Segment;
+            const debug_text_sect = &debug_text_seg.sections.items[ds.text_section_index.?];
+            debug_text_sect.size = needed_size;
+            ds.load_commands_dirty = true;
+        }
     }
     text_block.size = new_block_size;
 
