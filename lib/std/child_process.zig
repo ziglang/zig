@@ -390,15 +390,8 @@ pub const ChildProcess = struct {
         // can fail between fork() and execve().
         // Therefore, we do all the allocation for the execve() before the fork().
         // This means we must do the null-termination of argv and env vars here.
-        const argv_buf = try arena.alloc(?[*:0]u8, self.argv.len + 1);
-        for (self.argv) |arg, i| {
-            const arg_buf = try arena.alloc(u8, arg.len + 1);
-            @memcpy(arg_buf.ptr, arg.ptr, arg.len);
-            arg_buf[arg.len] = 0;
-            argv_buf[i] = arg_buf[0..arg.len :0].ptr;
-        }
-        argv_buf[self.argv.len] = null;
-        const argv_ptr = argv_buf[0..self.argv.len :null].ptr;
+        const argv_buf = try arena.allocSentinel(?[*:0]u8, self.argv.len, null);
+        for (self.argv) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
         const envp = m: {
             if (self.env_map) |env_map| {
@@ -465,8 +458,8 @@ pub const ChildProcess = struct {
             }
 
             const err = switch (self.expand_arg0) {
-                .expand => os.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_ptr, envp),
-                .no_expand => os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_ptr, envp),
+                .expand => os.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
+                .no_expand => os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
             };
             forkChildErrReport(err_pipe[1], err);
         }
@@ -914,21 +907,51 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
 
 pub fn createNullDelimitedEnvMap(arena: *mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
     const envp_count = env_map.count();
-    const envp_buf = try arena.alloc(?[*:0]u8, envp_count + 1);
-    mem.set(?[*:0]u8, envp_buf, null);
+    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
     {
         var it = env_map.iterator();
         var i: usize = 0;
         while (it.next()) |pair| : (i += 1) {
-            const env_buf = try arena.alloc(u8, pair.key.len + pair.value.len + 2);
-            @memcpy(env_buf.ptr, pair.key.ptr, pair.key.len);
+            const env_buf = try arena.allocSentinel(u8, pair.key.len + pair.value.len + 1, 0);
+            mem.copy(u8, env_buf, pair.key);
             env_buf[pair.key.len] = '=';
-            @memcpy(env_buf.ptr + pair.key.len + 1, pair.value.ptr, pair.value.len);
-            const len = env_buf.len - 1;
-            env_buf[len] = 0;
-            envp_buf[i] = env_buf[0..len :0].ptr;
+            mem.copy(u8, env_buf[pair.key.len + 1 ..], pair.value);
+            envp_buf[i] = env_buf.ptr;
         }
         assert(i == envp_count);
     }
-    return envp_buf[0..envp_count :null];
+    return envp_buf;
+}
+
+test "createNullDelimitedEnvMap" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var envmap = BufMap.init(allocator);
+    defer envmap.deinit();
+
+    try envmap.set("HOME", "/home/ifreund");
+    try envmap.set("WAYLAND_DISPLAY", "wayland-1");
+    try envmap.set("DISPLAY", ":1");
+    try envmap.set("DEBUGINFOD_URLS", " ");
+    try envmap.set("XCURSOR_SIZE", "24");
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const environ = try createNullDelimitedEnvMap(&arena.allocator, &envmap);
+
+    testing.expectEqual(@as(usize, 5), environ.len);
+
+    inline for (.{
+        "HOME=/home/ifreund",
+        "WAYLAND_DISPLAY=wayland-1",
+        "DISPLAY=:1",
+        "DEBUGINFOD_URLS= ",
+        "XCURSOR_SIZE=24",
+    }) |target| {
+        for (environ) |variable| {
+            if (mem.eql(u8, mem.span(variable orelse continue), target)) break;
+        } else {
+            testing.expect(false); // Environment variable not found
+        }
+    }
 }

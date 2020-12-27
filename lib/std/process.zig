@@ -816,15 +816,8 @@ pub fn execve(
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
 
-    const argv_buf = try arena.alloc(?[*:0]u8, argv.len + 1);
-    for (argv) |arg, i| {
-        const arg_buf = try arena.alloc(u8, arg.len + 1);
-        @memcpy(arg_buf.ptr, arg.ptr, arg.len);
-        arg_buf[arg.len] = 0;
-        argv_buf[i] = arg_buf[0..arg.len :0].ptr;
-    }
-    argv_buf[argv.len] = null;
-    const argv_ptr = argv_buf[0..argv.len :null].ptr;
+    const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.len, null);
+    for (argv) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
     const envp = m: {
         if (env_map) |m| {
@@ -842,5 +835,5 @@ pub fn execve(
         }
     };
 
-    return os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_ptr, envp);
+    return os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp);
 }
