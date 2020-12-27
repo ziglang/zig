@@ -301,6 +301,9 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     try self.populateMissingMetadata();
     try self.d_sym.?.populateMissingMetadata(allocator);
 
+    try self.writeLocalSymbol(0);
+    try self.d_sym.?.writeLocalSymbol(0);
+
     return self;
 }
 
@@ -1123,6 +1126,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         symbol.n_desc = 0;
 
         try self.writeLocalSymbol(decl.link.macho.local_sym_index);
+        try self.d_sym.?.writeLocalSymbol(decl.link.macho.local_sym_index);
     } else {
         const decl_name = mem.spanZ(decl.name);
         const name_str_index = try self.makeString(decl_name);
@@ -1140,6 +1144,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         self.offset_table.items[decl.link.macho.offset_table_index] = addr;
 
         try self.writeLocalSymbol(decl.link.macho.local_sym_index);
+        try self.d_sym.?.writeLocalSymbol(decl.link.macho.local_sym_index);
         try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
     }
 
@@ -1517,7 +1522,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .strsize = @intCast(u32, strtab_size),
             },
         });
-        try self.writeLocalSymbol(0);
         self.header_dirty = true;
         self.load_commands_dirty = true;
         self.string_table_dirty = true;
@@ -1795,6 +1799,7 @@ fn makeString(self: *MachO, bytes: []const u8) !u32 {
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
     self.string_table_dirty = true;
+    self.d_sym.?.string_table_dirty = true;
     return @intCast(u32, result);
 }
 
@@ -2247,7 +2252,6 @@ fn writeStringTable(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const allocated_size = self.allocatedSizeLinkedit(symtab.stroff);
     const needed_size = mem.alignForwardGeneric(u64, self.string_table.items.len, @alignOf(u64));
