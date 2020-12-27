@@ -3,6 +3,7 @@ const MachO = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const fmt = std.fmt;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
@@ -21,6 +22,7 @@ const File = link.File;
 const Cache = @import("../Cache.zig");
 const target_util = @import("../target.zig");
 
+const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 
@@ -30,6 +32,9 @@ usingnamespace @import("MachO/imports.zig");
 pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
+
+/// Debug symbols bundle (or dSym).
+d_sym: ?DebugSymbols = null,
 
 /// Page size is dependent on the target cpu architecture.
 /// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
@@ -263,6 +268,20 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     }
 
     self.base.file = file;
+
+    // Create dSym bundle.
+    const d_sym_path = try fmt.allocPrint(allocator, "{}.dSym/Contents/Resources/DWARF/", .{sub_path});
+    defer allocator.free(d_sym_path);
+    var d_sym_bundle = try options.emit.?.directory.handle.makeOpenPath(d_sym_path, .{});
+    defer d_sym_bundle.close();
+    const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
+        .truncate = false,
+        .read = true,
+    });
+    self.d_sym = .{
+        .base = self,
+        .file = d_sym_file,
+    };
 
     // Index 0 is always a null symbol.
     try self.local_symbols.append(allocator, .{
@@ -943,6 +962,9 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 }
 
 pub fn deinit(self: *MachO) void {
+    if (self.d_sym) |*ds| {
+        ds.deinit(self.base.allocator);
+    }
     self.binding_info_table.deinit(self.base.allocator);
     self.lazy_binding_info_table.deinit(self.base.allocator);
     self.pie_fixups.deinit(self.base.allocator);
