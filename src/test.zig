@@ -24,26 +24,46 @@ test "self-hosted" {
 }
 
 const ErrorMsg = union(enum) {
-    src: struct {
+    err_src: struct {
         msg: []const u8,
         line: u32,
         column: u32,
     },
-    plain: struct {
+    err_plain: struct {
+        msg: []const u8,
+    },
+    note_src: struct {
+        msg: []const u8,
+        line: u32,
+        column: u32,
+    },
+    note_plain: struct {
         msg: []const u8,
     },
 
     fn init(other: Compilation.AllErrors.Message) ErrorMsg {
         switch (other) {
-            .src => |src| return .{
-                .src = .{
+            .err_src => |src| return .{
+                .err_src = .{
                     .msg = src.msg,
                     .line = @intCast(u32, src.line),
                     .column = @intCast(u32, src.column),
                 },
             },
-            .plain => |plain| return .{
-                .plain = .{
+            .err_plain => |plain| return .{
+                .err_plain = .{
+                    .msg = plain.msg,
+                },
+            },
+            .note_src => |src| return .{
+                .note_src = .{
+                    .msg = src.msg,
+                    .line = @intCast(u32, src.line),
+                    .column = @intCast(u32, src.column),
+                },
+            },
+            .note_plain => |plain| return .{
+                .note_plain = .{
                     .msg = plain.msg,
                 },
             },
@@ -57,15 +77,25 @@ const ErrorMsg = union(enum) {
         writer: anytype,
     ) !void {
         switch (self) {
-            .src => |src| {
+            .err_src => |src| {
                 return writer.print(":{d}:{d}: error: {s}", .{
                     src.line + 1,
                     src.column + 1,
                     src.msg,
                 });
             },
-            .plain => |plain| {
+            .err_plain => |plain| {
                 return writer.print("error: {s}", .{plain.msg});
+            },
+            .note_src => |src| {
+                return writer.print(":{d}:{d}: note: {s}", .{
+                    src.line + 1,
+                    src.column + 1,
+                    src.msg,
+                });
+            },
+            .note_plain => |plain| {
+                return writer.print("note: {s}", .{plain.msg});
             },
         }
     }
@@ -168,7 +198,7 @@ pub const TestContext = struct {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
             for (errors) |e, i| {
                 if (e[0] != ':') {
-                    array[i] = .{ .plain = .{ .msg = e } };
+                    array[i] = .{ .err_plain = .{ .msg = e } };
                     continue;
                 }
                 var cur = e[1..];
@@ -184,22 +214,29 @@ pub const TestContext = struct {
                 }
                 const column = std.fmt.parseInt(u32, cur[0..column_index.?], 10) catch @panic("Unable to parse column number");
                 cur = cur[column_index.? + 2 ..];
-                if (!std.mem.eql(u8, cur[0..7], "error: ")) {
-                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
-                }
-                const msg = cur[7..];
-
                 if (line == 0 or column == 0) {
                     @panic("Invalid test: error line and column must be specified starting at one!");
                 }
 
-                array[i] = .{
-                    .src = .{
-                        .msg = msg,
-                        .line = line - 1,
-                        .column = column - 1,
-                    },
-                };
+                if (std.mem.eql(u8, cur[0..6], "note: ")) {
+                    array[i] = .{
+                        .note_src = .{
+                            .msg = cur[6..],
+                            .line = line - 1,
+                            .column = column - 1,
+                        },
+                    };
+                } else if (std.mem.eql(u8, cur[0..7], "error: ")) {
+                    array[i] = .{
+                        .err_src = .{
+                            .msg = cur[7..],
+                            .line = line - 1,
+                            .column = column - 1,
+                        },
+                    };
+                } else {
+                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
+                }
             }
             self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch unreachable;
         }
@@ -621,13 +658,21 @@ pub const TestContext = struct {
                     std.debug.print("\nErrors occurred updating the compilation:\n================\n", .{});
                     for (all_errors.list) |err_msg| {
                         switch (err_msg) {
-                            .src => |src| {
+                            .err_src => |src| {
                                 std.debug.print(":{d}:{d}: error: {s}\n================\n", .{
                                     src.line + 1, src.column + 1, src.msg,
                                 });
                             },
-                            .plain => |plain| {
+                            .note_src => |src| {
+                                std.debug.print(":{d}:{d}: note: {s}\n================\n", .{
+                                    src.line + 1, src.column + 1, src.msg,
+                                });
+                            },
+                            .err_plain => |plain| {
                                 std.debug.print("error: {s}\n================\n", .{plain.msg});
+                            },
+                            .note_plain => |plain| {
+                                std.debug.print("note: {s}\n================\n", .{plain.msg});
                             },
                         }
                     }
@@ -721,21 +766,40 @@ pub const TestContext = struct {
                             const a_tag: @TagType(@TypeOf(a)) = a;
                             const ex_tag: @TagType(@TypeOf(ex)) = ex;
                             switch (a) {
-                                .src => |src| {
-                                    if (ex_tag != .src) continue;
+                                .err_src => |src| {
+                                    if (ex_tag != .err_src) continue;
 
-                                    if (src.line == ex.src.line and
-                                        src.column == ex.src.column and
-                                        std.mem.eql(u8, ex.src.msg, src.msg))
+                                    if (src.line == ex.err_src.line and
+                                        src.column == ex.err_src.column and
+                                        std.mem.eql(u8, ex.err_src.msg, src.msg))
                                     {
                                         handled_errors[i] = true;
                                         break;
                                     }
                                 },
-                                .plain => |plain| {
-                                    if (ex_tag != .plain) continue;
+                                .err_plain => |plain| {
+                                    if (ex_tag != .err_plain) continue;
 
-                                    if (std.mem.eql(u8, ex.plain.msg, plain.msg)) {
+                                    if (std.mem.eql(u8, ex.err_plain.msg, plain.msg)) {
+                                        handled_errors[i] = true;
+                                        break;
+                                    }
+                                },
+                                .note_src => |src| {
+                                    if (ex_tag != .note_src) continue;
+
+                                    if (src.line == ex.note_src.line and
+                                        src.column == ex.note_src.column and
+                                        std.mem.eql(u8, ex.note_src.msg, src.msg))
+                                    {
+                                        handled_errors[i] = true;
+                                        break;
+                                    }
+                                },
+                                .note_plain => |plain| {
+                                    if (ex_tag != .note_plain) continue;
+
+                                    if (std.mem.eql(u8, ex.note_plain.msg, plain.msg)) {
                                         handled_errors[i] = true;
                                         break;
                                     }
@@ -743,7 +807,7 @@ pub const TestContext = struct {
                             }
                         } else {
                             std.debug.print(
-                                "{s}\nUnexpected error:\n================\n{}\n================\nTest failed.\n",
+                                "{s}\nUnexpected error/note:\n================\n{}\n================\nTest failed.\n",
                                 .{ case.name, ErrorMsg.init(a) },
                             );
                             std.process.exit(1);
@@ -754,7 +818,7 @@ pub const TestContext = struct {
                         if (!handled) {
                             const er = e[i];
                             std.debug.print(
-                                "{s}\nDid not receive error:\n================\n{}\n================\nTest failed.\n",
+                                "{s}\nDid not receive error/note:\n================\n{}\n================\nTest failed.\n",
                                 .{ case.name, er },
                             );
                             std.process.exit(1);

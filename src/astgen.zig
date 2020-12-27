@@ -442,6 +442,34 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
     try blockExprStmts(mod, parent_scope, &block_node.base, block_node.statements());
 }
 
+fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIndex) !void {
+    // Look for the label in the scope.
+    var scope = parent_scope;
+    while (true) {
+        switch (scope.tag) {
+            .gen_zir => {
+                const gen_zir = scope.cast(Scope.GenZIR).?;
+                if (gen_zir.label) |prev_label| {
+                    if (try tokenIdentEql(mod, parent_scope, label, prev_label.token)) {
+                        const tree = parent_scope.tree();
+                        const label_src = tree.token_locs[label].start;
+                        const prev_label_src = tree.token_locs[prev_label.token].start;
+
+                        const label_name = try identifierTokenString(mod, parent_scope, label);
+                        try mod.failWithNotes(parent_scope, label_src, "redefinition of label '{}'", .{label_name});
+                        try mod.addNote(parent_scope, prev_label_src, "previous definition is here", .{});
+                        return error.AnalysisFail;
+                    }
+                }
+                scope = gen_zir.parent;
+            },
+            .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+            .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            else => return,
+        }
+    }
+}
+
 fn labeledBlockExpr(
     mod: *Module,
     parent_scope: *Scope,
@@ -455,7 +483,9 @@ fn labeledBlockExpr(
     assert(zir_tag == .block or zir_tag == .block_comptime);
 
     const tree = parent_scope.tree();
-    const src = tree.token_locs[block_node.lbrace].start;
+    const src = tree.token_locs[block_node.label].start;
+
+    try checkLabelRedefinition(mod, parent_scope, block_node.label);
 
     // Create the Block ZIR instruction so that we can put it into the GenZIR struct
     // so that break statements can reference it.
@@ -561,14 +591,18 @@ fn varDecl(
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    try mod.failWithNotes(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    try mod.addNote(scope, local_val.inst.src, "previous definition is here", .{});
+                    return error.AnalysisFail;
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    try mod.failWithNotes(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    try mod.addNote(scope, local_ptr.ptr.src, "previous definition is here", .{});
+                    return error.AnalysisFail;
                 }
                 s = local_ptr.parent;
             },
@@ -1344,6 +1378,10 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
         }
     }
 
+    if (while_node.label) |some| {
+        try checkLabelRedefinition(mod, scope, some);
+    }
+
     if (while_node.inline_token) |tok|
         return mod.failTok(scope, tok, "TODO inline while", .{});
 
@@ -1483,6 +1521,10 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
 fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) InnerError!*zir.Inst {
     if (for_node.inline_token) |tok|
         return mod.failTok(scope, tok, "TODO inline for", .{});
+
+    if (for_node.label) |some| {
+        try checkLabelRedefinition(mod, scope, some);
+    }
 
     var for_scope: Scope.GenZIR = .{
         .parent = scope,
