@@ -150,18 +150,20 @@ pub fn addCases(ctx: *TestContext) !void {
             \\})
             \\
             \\@a = fn(@fnty, {
-            \\  %0 = call(@b, [])
+            \\  %0 = call(@c, [])
             \\  %1 = returnvoid()
             \\})
             \\
-            \\@b = fn(@fnty, {
-            \\  %9 = compileerror("message")
+            \\@b = str("message")
+            \\
+            \\@c = fn(@fnty, {
+            \\  %9 = compileerror(@b)
             \\  %0 = call(@a, [])
             \\  %1 = returnvoid()
             \\})
         ,
             &[_][]const u8{
-                ":18:21: error: message",
+                ":20:21: error: message",
             },
         );
         // Now we remove the call to `a`. `a` and `b` form a cycle, but no entry points are
@@ -179,20 +181,22 @@ pub fn addCases(ctx: *TestContext) !void {
             \\})
             \\
             \\@a = fn(@fnty, {
-            \\  %0 = call(@b, [])
+            \\  %0 = call(@c, [])
             \\  %1 = returnvoid()
             \\})
             \\
-            \\@b = fn(@fnty, {
-            \\  %9 = compileerror("message")
+            \\@b = str("message")
+            \\
+            \\@c = fn(@fnty, {
+            \\  %9 = compileerror(@b)
             \\  %0 = call(@a, [])
             \\  %1 = returnvoid()
             \\})
         ,
             \\@void = primitive(void)
             \\@fnty = fntype([], @void, cc=C)
-            \\@9 = declref("9__anon_2")
-            \\@9__anon_2 = str("entry")
+            \\@9 = declref("9__anon_3")
+            \\@9__anon_3 = str("entry")
             \\@unnamed$4 = str("entry")
             \\@unnamed$5 = export(@unnamed$4, "entry")
             \\@11 = primitive(void_value)
