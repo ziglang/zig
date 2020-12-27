@@ -1262,7 +1262,7 @@ pub const Loop = struct {
         flags: u32,
         dest_addr: ?*const os.sockaddr,
         addrlen: os.socklen_t,
-    ) os.SendError!usize {
+    ) os.SendToError!usize {
         while (true) {
             return os.sendto(sockfd, buf, flags, dest_addr, addrlen) catch |err| switch (err) {
                 error.WouldBlock => {
