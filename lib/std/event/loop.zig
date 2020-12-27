@@ -164,9 +164,10 @@ pub const Loop = struct {
             .fs_end_request = .{ .data = .{ .msg = .end, .finish = .NoAction } },
             .fs_queue = std.atomic.Queue(Request).init(),
             .fs_thread = undefined,
-            .fs_thread_wakeup = std.ResetEvent.init(),
+            .fs_thread_wakeup = undefined,
             .delay_queue = undefined,
         };
+        try self.fs_thread_wakeup.init();
         errdefer self.fs_thread_wakeup.deinit();
         errdefer self.arena.deinit();
 
