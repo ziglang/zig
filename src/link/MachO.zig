@@ -299,6 +299,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     }
 
     try self.populateMissingMetadata();
+    try self.d_sym.?.populateMissingMetadata(allocator);
 
     return self;
 }
@@ -351,6 +352,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.writeAllGlobalAndUndefSymbols();
             try self.writeStringTable();
             try self.updateLinkeditSegmentSizes();
+
+            if (self.d_sym) |*ds| {
+                // Flush debug symbols bundle.
+                try ds.flush();
+            }
 
             if (target.cpu.arch == .aarch64) {
                 // Preallocate space for the code signature.
