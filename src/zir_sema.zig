@@ -577,12 +577,14 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
 
     try analyzeBody(mod, &child_block.base, inst.positionals.body);
 
+    // Instructions ran at comptime won't result in any runtime instructions;
+    // return the analyzed result of the last instruction in the block.
+    if (is_comptime) {
+        const insts = inst.positionals.body.instructions;
+        return insts[insts.len - 1].analyzed_inst.?;
+    }
+
     try parent_block.instructions.appendSlice(mod.gpa, child_block.instructions.items);
-
-    // comptime blocks won't generate any runtime values
-    if (child_block.instructions.items.len == 0)
-        return mod.constVoid(scope, inst.base.src);
-
     return parent_block.instructions.items[parent_block.instructions.items.len - 1];
 }
 
