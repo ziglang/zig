@@ -355,7 +355,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
             if (self.d_sym) |*ds| {
                 // Flush debug symbols bundle.
-                try ds.flush();
+                try ds.flush(self.base.allocator);
             }
 
             if (target.cpu.arch == .aarch64) {

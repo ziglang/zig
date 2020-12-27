@@ -58,16 +58,49 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         self.header = header;
         self.header_dirty = true;
     }
+    if (self.uuid_cmd_index == null) {
+        const base_cmd = self.base.load_commands.items[self.base.uuid_cmd_index.?];
+        self.uuid_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(allocator, base_cmd);
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
 }
 
-pub fn flush(self: *DebugSymbols) !void {
+pub fn flush(self: *DebugSymbols, allocator: *Allocator) !void {
+    try self.writeLoadCommands(allocator);
     try self.writeHeader();
     assert(!self.header_dirty);
     assert(!self.load_commands_dirty);
 }
 
 pub fn deinit(self: *DebugSymbols, allocator: *Allocator) void {
+    for (self.load_commands.items) |*lc| {
+        lc.deinit(allocator);
+    }
     self.file.close();
+}
+
+/// Writes all load commands and section headers.
+fn writeLoadCommands(self: *DebugSymbols, allocator: *Allocator) !void {
+    if (!self.load_commands_dirty) return;
+
+    var sizeofcmds: usize = 0;
+    for (self.load_commands.items) |lc| {
+        sizeofcmds += lc.cmdsize();
+    }
+
+    var buffer = try allocator.alloc(u8, sizeofcmds);
+    defer allocator.free(buffer);
+    var writer = std.io.fixedBufferStream(buffer).writer();
+    for (self.load_commands.items) |lc| {
+        try lc.write(writer);
+    }
+
+    const off = @sizeOf(macho.mach_header_64);
+    log.debug("writing {} dSym load commands from 0x{x} to 0x{x}", .{ self.load_commands.items.len, off, off + sizeofcmds });
+    try self.file.pwriteAll(buffer, off);
+    self.load_commands_dirty = false;
 }
 
 fn writeHeader(self: *DebugSymbols) !void {
