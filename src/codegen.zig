@@ -42,6 +42,11 @@ pub const Reloc = union(enum) {
     /// To perform the reloc, write 32-bit signed little-endian integer
     /// which is a relative jump, based on the address following the reloc.
     rel32: usize,
+    /// A branch in the ARM instruction set
+    arm_branch: struct {
+        pos: usize,
+        cond: @import("codegen/arm.zig").Condition,
+    },
 };
 
 pub const Result = union(enum) {
@@ -653,7 +658,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                 const mcv = try self.genFuncInst(inst);
                 if (!inst.isUnused()) {
-                    log.debug("{*} => {}", .{ inst, mcv });
                     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
                     try branch.inst_table.putNoClobber(self.gpa, inst, mcv);
                 }
@@ -2016,6 +2020,27 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     self.code.items.len += 4;
                     break :reloc reloc;
                 },
+                .arm, .armeb => reloc: {
+                    const condition: Condition = switch (cond) {
+                        .register => |reg| blk: {
+                            // cmp reg, 1
+                            // bne ...
+                            const op = Instruction.Operand.imm(1, 0);
+                            writeInt(u32, try self.code.addManyAsArray(4), Instruction.cmp(.al, reg, op).toU32());
+                            break :blk .ne;
+                        },
+                        else => return self.fail(inst.base.src, "TODO implement condbr {} when condition is {}", .{ self.target.cpu.arch, @tagName(cond) }),
+                    };
+
+                    const reloc = Reloc{
+                        .arm_branch = .{
+                            .pos = self.code.items.len,
+                            .cond = condition,
+                        },
+                    };
+                    try self.code.resize(self.code.items.len + 4);
+                    break :reloc reloc;
+                },
                 else => return self.fail(inst.base.src, "TODO implement condbr {}", .{self.target.cpu.arch}),
             };
 
@@ -2225,6 +2250,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "unable to perform relocation: jump too far", .{});
                     mem.writeIntLittle(i32, self.code.items[pos..][0..4], s32_amt);
                 },
+                .arm_branch => |info| {
+                    switch (arch) {
+                        .arm, .armeb => {
+                            const amt = self.code.items.len - (info.pos + 4);
+                            if (math.cast(i26, amt)) |delta| {
+                                writeInt(u32, self.code.items[info.pos..][0..4], Instruction.b(info.cond, delta).toU32());
+                            } else |_| {
+                                return self.fail(src, "TODO: enable larger branch offset", .{});
+                            }
+                        },
+                        else => unreachable, // attempting to perfrom an ARM relocation on a non-ARM target arch
+                    }
+                },
             }
         }
 
@@ -2277,6 +2315,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
                     // Leave the jump offset undefined
                     block.codegen.relocs.appendAssumeCapacity(.{ .rel32 = self.code.items.len - 4 });
+                },
+                .arm, .armeb => {
+                    try self.code.resize(self.code.items.len + 4);
+                    block.codegen.relocs.appendAssumeCapacity(.{
+                        .arm_branch = .{
+                            .pos = self.code.items.len - 4,
+                            .cond = .al,
+                        },
+                    });
                 },
                 else => return self.fail(src, "TODO implement brvoid for {}", .{self.target.cpu.arch}),
             }
