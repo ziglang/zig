@@ -116,15 +116,13 @@ pub fn main() anyerror!void {
     return mainArgs(gpa, arena, args);
 }
 
-const os_can_execve = std.builtin.os.tag != .windows;
-
 pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
     if (args.len <= 1) {
         std.log.info("{}", .{usage});
         fatal("expected command argument", .{});
     }
 
-    if (os_can_execve and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
+    if (std.process.can_execv and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion
         // via child process execution due to the CC environment variable pointing to Zig.
@@ -147,11 +145,11 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         // CC environment variable. We detect and support this scenario here because of
         // the ZIG_IS_DETECTING_LIBC_PATHS environment variable.
         if (mem.eql(u8, args[1], "cc")) {
-            return std.os.execvpe(arena, args[1..], &env_map);
+            return std.process.execve(arena, args[1..], &env_map);
         } else {
             const modified_args = try arena.dupe([]const u8, args);
             modified_args[0] = "cc";
-            return std.os.execvpe(arena, modified_args, &env_map);
+            return std.process.execve(arena, modified_args, &env_map);
         }
     }
 
@@ -1841,10 +1839,8 @@ fn buildOutputType(
         }
         // We do not execve for tests because if the test fails we want to print the error message and
         // invocation below.
-        if (os_can_execve and arg_mode == .run and !watch) {
-            // TODO improve the std lib so that we don't need a call to getEnvMap here.
-            var env_vars = try process.getEnvMap(arena);
-            const err = std.os.execvpe(gpa, argv.items, &env_vars);
+        if (std.process.can_execv and arg_mode == .run and !watch) {
+            const err = std.process.execv(gpa, argv.items);
             const cmd = try argvCmd(arena, argv.items);
             fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
         } else {

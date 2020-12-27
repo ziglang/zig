@@ -13,6 +13,7 @@ const math = std.math;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
+const child_process = @import("child_process.zig");
 
 pub const abort = os.abort;
 pub const exit = os.exit;
@@ -777,4 +778,69 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
         },
         else => @compileError("getSelfExeSharedLibPaths unimplemented for this target"),
     }
+}
+
+/// Tells whether calling the `execv` or `execve` functions will be a compile error.
+pub const can_execv = std.builtin.os.tag != .windows;
+
+pub const ExecvError = std.os.ExecveError || error{OutOfMemory};
+
+/// Replaces the current process image with the executed process.
+/// This function must allocate memory to add a null terminating bytes on path and each arg.
+/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
+/// pointers after the args and after the environment variables.
+/// `argv[0]` is the executable path.
+/// This function also uses the PATH environment variable to get the full path to the executable.
+/// Due to the heap-allocation, it is illegal to call this function in a fork() child.
+/// For that use case, use the `std.os` functions directly.
+pub fn execv(allocator: *mem.Allocator, argv: []const []const u8) ExecvError {
+    return execve(allocator, argv, null);
+}
+
+/// Replaces the current process image with the executed process.
+/// This function must allocate memory to add a null terminating bytes on path and each arg.
+/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
+/// pointers after the args and after the environment variables.
+/// `argv[0]` is the executable path.
+/// This function also uses the PATH environment variable to get the full path to the executable.
+/// Due to the heap-allocation, it is illegal to call this function in a fork() child.
+/// For that use case, use the `std.os` functions directly.
+pub fn execve(
+    allocator: *mem.Allocator,
+    argv: []const []const u8,
+    env_map: ?*const std.BufMap,
+) ExecvError {
+    if (!can_execv) @compileError("The target OS does not support execv");
+
+    var arena_allocator = std.heap.ArenaAllocator.init(allocator);
+    defer arena_allocator.deinit();
+    const arena = &arena_allocator.allocator;
+
+    const argv_buf = try arena.alloc(?[*:0]u8, argv.len + 1);
+    for (argv) |arg, i| {
+        const arg_buf = try arena.alloc(u8, arg.len + 1);
+        @memcpy(arg_buf.ptr, arg.ptr, arg.len);
+        arg_buf[arg.len] = 0;
+        argv_buf[i] = arg_buf[0..arg.len :0].ptr;
+    }
+    argv_buf[argv.len] = null;
+    const argv_ptr = argv_buf[0..argv.len :null].ptr;
+
+    const envp = m: {
+        if (env_map) |m| {
+            const envp_buf = try child_process.createNullDelimitedEnvMap(arena, m);
+            break :m envp_buf.ptr;
+        } else if (std.builtin.link_libc) {
+            break :m std.c.environ;
+        } else if (std.builtin.output_mode == .Exe) {
+            // Then we have Zig start code and this works.
+            // TODO type-safety for null-termination of `os.environ`.
+            break :m @ptrCast([*:null]?[*:0]u8, os.environ.ptr);
+        } else {
+            // TODO come up with a solution for this.
+            @compileError("missing std lib enhancement: std.process.execv implementation has no way to collect the environment variables to forward to the child process");
+        }
+    };
+
+    return os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_ptr, envp);
 }

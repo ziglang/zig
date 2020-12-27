@@ -1348,89 +1348,10 @@ pub fn execvpeZ_expandArg0(
 /// If `file` is an absolute path, this is the same as `execveZ`.
 pub fn execvpeZ(
     file: [*:0]const u8,
-    argv: [*:null]const ?[*:0]const u8,
+    argv_ptr: [*:null]const ?[*:0]const u8,
     envp: [*:null]const ?[*:0]const u8,
 ) ExecveError {
-    return execvpeZ_expandArg0(.no_expand, file, argv, envp);
-}
-
-/// This is the same as `execvpe` except if the `arg0_expand` parameter is set to `.expand`,
-/// then argv[0] will be replaced with the expanded version of it, after resolving in accordance
-/// with the PATH environment variable.
-pub fn execvpe_expandArg0(
-    allocator: *mem.Allocator,
-    arg0_expand: Arg0Expand,
-    argv_slice: []const []const u8,
-    env_map: *const std.BufMap,
-) (ExecveError || error{OutOfMemory}) {
-    const argv_buf = try allocator.alloc(?[*:0]u8, argv_slice.len + 1);
-    mem.set(?[*:0]u8, argv_buf, null);
-    defer {
-        for (argv_buf) |arg| {
-            const arg_buf = mem.spanZ(arg) orelse break;
-            allocator.free(arg_buf);
-        }
-        allocator.free(argv_buf);
-    }
-    for (argv_slice) |arg, i| {
-        const arg_buf = try allocator.alloc(u8, arg.len + 1);
-        @memcpy(arg_buf.ptr, arg.ptr, arg.len);
-        arg_buf[arg.len] = 0;
-        argv_buf[i] = arg_buf[0..arg.len :0].ptr;
-    }
-    argv_buf[argv_slice.len] = null;
-    const argv_ptr = argv_buf[0..argv_slice.len :null].ptr;
-
-    const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
-    defer freeNullDelimitedEnvMap(allocator, envp_buf);
-
-    switch (arg0_expand) {
-        .expand => return execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr),
-        .no_expand => return execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr),
-    }
-}
-
-/// This function must allocate memory to add a null terminating bytes on path and each arg.
-/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
-/// pointers after the args and after the environment variables.
-/// `argv_slice[0]` is the executable path.
-/// This function also uses the PATH environment variable to get the full path to the executable.
-pub fn execvpe(
-    allocator: *mem.Allocator,
-    argv_slice: []const []const u8,
-    env_map: *const std.BufMap,
-) (ExecveError || error{OutOfMemory}) {
-    return execvpe_expandArg0(allocator, .no_expand, argv_slice, env_map);
-}
-
-pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
-    const envp_count = env_map.count();
-    const envp_buf = try allocator.alloc(?[*:0]u8, envp_count + 1);
-    mem.set(?[*:0]u8, envp_buf, null);
-    errdefer freeNullDelimitedEnvMap(allocator, envp_buf);
-    {
-        var it = env_map.iterator();
-        var i: usize = 0;
-        while (it.next()) |pair| : (i += 1) {
-            const env_buf = try allocator.alloc(u8, pair.key.len + pair.value.len + 2);
-            @memcpy(env_buf.ptr, pair.key.ptr, pair.key.len);
-            env_buf[pair.key.len] = '=';
-            @memcpy(env_buf.ptr + pair.key.len + 1, pair.value.ptr, pair.value.len);
-            const len = env_buf.len - 1;
-            env_buf[len] = 0;
-            envp_buf[i] = env_buf[0..len :0].ptr;
-        }
-        assert(i == envp_count);
-    }
-    return envp_buf[0..envp_count :null];
-}
-
-pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) void {
-    for (envp_buf) |env| {
-        const env_buf = if (env) |ptr| ptr[0 .. mem.len(ptr) + 1] else break;
-        allocator.free(env_buf);
-    }
-    allocator.free(envp_buf);
+    return execvpeZ_expandArg0(.no_expand, file, argv_ptr, envp);
 }
 
 /// Get an environment variable.
