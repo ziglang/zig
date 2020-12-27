@@ -15,8 +15,11 @@ const MachO = @import("../MachO.zig");
 const satMul = MachO.satMul;
 const alloc_num = MachO.alloc_num;
 const alloc_den = MachO.alloc_den;
+const makeStaticString = MachO.makeStaticString;
 
 usingnamespace @import("commands.zig");
+
+const page_size: u16 = 0x1000;
 
 base: *MachO,
 file: fs.File,
@@ -44,12 +47,25 @@ uuid_cmd_index: ?u16 = null,
 /// Index into __TEXT,__text section.
 text_section_index: ?u16 = null,
 
-linkedit_off: u16 = 0x1000,
-linkedit_size: u16 = 0x1000,
+linkedit_off: u16 = page_size,
+linkedit_size: u16 = page_size,
+
+debug_info_section_index: ?u16 = null,
+debug_abbrev_section_index: ?u16 = null,
+debug_str_section_index: ?u16 = null,
+debug_aranges_section_index: ?u16 = null,
+debug_line_section_index: ?u16 = null,
+
+debug_abbrev_table_offset: ?u64 = null,
 
 header_dirty: bool = false,
 load_commands_dirty: bool = false,
 string_table_dirty: bool = false,
+debug_string_table_dirty: bool = false,
+debug_abbrev_section_dirty: bool = false,
+debug_aranges_section_dirty: bool = false,
+debug_info_header_dirty: bool = false,
+debug_line_header_dirty: bool = false,
 
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
@@ -98,7 +114,6 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
                 .strsize = base_cmd.strsize,
             },
         });
-        try self.writeLocalSymbol(0);
         self.header_dirty = true;
         self.load_commands_dirty = true;
         self.string_table_dirty = true;
@@ -138,6 +153,176 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         try self.load_commands.append(allocator, .{ .Segment = cmd });
         self.header_dirty = true;
         self.load_commands_dirty = true;
+    }
+    if (self.dwarf_segment_cmd_index == null) {
+        self.dwarf_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
+
+        const linkedit = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+        const ideal_size: u16 = 200 + 128 + 160 + 250;
+        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, page_size);
+        const off = linkedit.inner.fileoff + linkedit.inner.filesize;
+        const vmaddr = linkedit.inner.vmaddr + linkedit.inner.vmsize;
+
+        log.debug("found dSym __DWARF segment free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try self.load_commands.append(allocator, .{
+            .Segment = SegmentCommand.empty(.{
+                .cmd = macho.LC_SEGMENT_64,
+                .cmdsize = @sizeOf(macho.segment_command_64),
+                .segname = makeStaticString("__DWARF"),
+                .vmaddr = vmaddr,
+                .vmsize = needed_size,
+                .fileoff = off,
+                .filesize = needed_size,
+                .maxprot = 0,
+                .initprot = 0,
+                .nsects = 0,
+                .flags = 0,
+            }),
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
+    if (self.debug_str_section_index == null) {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        self.debug_str_section_index = @intCast(u16, dwarf_segment.sections.items.len);
+        assert(self.base.debug_string_table.items.len == 0);
+
+        const file_size_hint = 200;
+        const p_align = 1;
+        const off = dwarf_segment.findFreeSpace(file_size_hint, p_align, null);
+
+        log.debug("found dSym __debug_strtab free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
+
+        try dwarf_segment.addSection(allocator, .{
+            .sectname = makeStaticString("__debug_str"),
+            .segname = makeStaticString("__DWARF"),
+            .addr = dwarf_segment.inner.vmaddr + off,
+            .size = @intCast(u32, self.base.debug_string_table.items.len),
+            .offset = @intCast(u32, off),
+            .@"align" = 1,
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = macho.S_REGULAR,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+        self.debug_string_table_dirty = true;
+    }
+    if (self.debug_info_section_index == null) {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        self.debug_info_section_index = @intCast(u16, dwarf_segment.sections.items.len);
+
+        const file_size_hint = 200;
+        const p_align = 1;
+        const off = dwarf_segment.findFreeSpace(file_size_hint, p_align, null);
+
+        log.debug("found dSym __debug_info free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
+
+        try dwarf_segment.addSection(allocator, .{
+            .sectname = makeStaticString("__debug_info"),
+            .segname = makeStaticString("__DWARF"),
+            .addr = dwarf_segment.inner.vmaddr + off,
+            .size = file_size_hint,
+            .offset = @intCast(u32, off),
+            .@"align" = p_align,
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = macho.S_REGULAR,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+        self.debug_info_header_dirty = true;
+    }
+    if (self.debug_abbrev_section_index == null) {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        self.debug_abbrev_section_index = @intCast(u16, dwarf_segment.sections.items.len);
+
+        const file_size_hint = 128;
+        const p_align = 1;
+        const off = dwarf_segment.findFreeSpace(file_size_hint, p_align, null);
+
+        log.debug("found dSym __debug_abbrev free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
+
+        try dwarf_segment.addSection(allocator, .{
+            .sectname = makeStaticString("__debug_abbrev"),
+            .segname = makeStaticString("__DWARF"),
+            .addr = dwarf_segment.inner.vmaddr + off,
+            .size = file_size_hint,
+            .offset = @intCast(u32, off),
+            .@"align" = p_align,
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = macho.S_REGULAR,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+        self.debug_abbrev_section_dirty = true;
+    }
+    if (self.debug_aranges_section_index == null) {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        self.debug_aranges_section_index = @intCast(u16, dwarf_segment.sections.items.len);
+
+        const file_size_hint = 160;
+        const p_align = 16;
+        const off = dwarf_segment.findFreeSpace(file_size_hint, p_align, null);
+
+        log.debug("found dSym __debug_aranges free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
+
+        try dwarf_segment.addSection(allocator, .{
+            .sectname = makeStaticString("__debug_aranges"),
+            .segname = makeStaticString("__DWARF"),
+            .addr = dwarf_segment.inner.vmaddr + off,
+            .size = file_size_hint,
+            .offset = @intCast(u32, off),
+            .@"align" = p_align,
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = macho.S_REGULAR,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+        self.debug_aranges_section_dirty = true;
+    }
+    if (self.debug_line_section_index == null) {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        self.debug_line_section_index = @intCast(u16, dwarf_segment.sections.items.len);
+
+        const file_size_hint = 250;
+        const p_align = 1;
+        const off = dwarf_segment.findFreeSpace(file_size_hint, p_align, null);
+
+        log.debug("found dSym __debug_line free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
+
+        try dwarf_segment.addSection(allocator, .{
+            .sectname = makeStaticString("__debug_line"),
+            .segname = makeStaticString("__DWARF"),
+            .addr = dwarf_segment.inner.vmaddr + off,
+            .size = file_size_hint,
+            .offset = @intCast(u32, off),
+            .@"align" = p_align,
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = macho.S_REGULAR,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+        self.debug_line_header_dirty = true;
     }
 }
 

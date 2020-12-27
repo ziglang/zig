@@ -108,6 +108,9 @@ dyld_stub_binder_index: ?u16 = null,
 /// Table of symbol names aka the string table.
 string_table: std.ArrayListUnmanaged(u8) = .{},
 
+/// Table of debug symbol names aka the debug string table.
+debug_string_table: std.ArrayListUnmanaged(u8) = .{},
+
 /// Table of trampolines to the actual symbols in __text section.
 offset_table: std.ArrayListUnmanaged(u64) = .{},
 
@@ -980,6 +983,7 @@ pub fn deinit(self: *MachO) void {
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
+    self.debug_string_table.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
     self.undef_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
