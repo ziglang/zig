@@ -146,9 +146,9 @@ const Salsa20VecImpl = struct {
             while (j < 64) : (j += 1) {
                 xout[j] ^= buf[j];
             }
-            ctx[2][0] +%= 1;
-            if (ctx[2][0] == 0) {
-                ctx[2][1] += 1;
+            ctx[3][2] +%= 1;
+            if (ctx[3][2] == 0) {
+                ctx[3][3] += 1;
             }
         }
         if (i < in.len) {
@@ -616,4 +616,13 @@ test "xsalsa20poly1305 sealedbox" {
     var kp = try Box.KeyPair.create(null);
     try SealedBox.seal(boxed[0..], msg[0..], kp.public_key);
     try SealedBox.open(msg2[0..], boxed[0..], kp);
+}
+
+test "secretbox twoblocks" {
+    const key = [_]u8{ 0xc9, 0xc9, 0x4d, 0xcf, 0x68, 0xbe, 0x00, 0xe4, 0x7f, 0xe6, 0x13, 0x26, 0xfc, 0xc4, 0x2f, 0xd0, 0xdb, 0x93, 0x91, 0x1c, 0x09, 0x94, 0x89, 0xe1, 0x1b, 0x88, 0x63, 0x18, 0x86, 0x64, 0x8b, 0x7b };
+    const nonce = [_]u8{ 0xa4, 0x33, 0xe9, 0x0a, 0x07, 0x68, 0x6e, 0x9a, 0x2b, 0x6d, 0xd4, 0x59, 0x04, 0x72, 0x3e, 0xd3, 0x8a, 0x67, 0x55, 0xc7, 0x9e, 0x3e, 0x77, 0xdc };
+    const msg = [_]u8{'a'} ** 97;
+    var ciphertext: [msg.len + SecretBox.tag_length]u8 = undefined;
+    SecretBox.seal(&ciphertext, &msg, nonce, key);
+    htest.assertEqual("b05760e217288ba079caa2fd57fd3701784974ffcfda20fe523b89211ad8af065a6eb37cdb29d51aca5bd75dafdd21d18b044c54bb7c526cf576c94ee8900f911ceab0147e82b667a28c52d58ceb29554ff45471224d37b03256b01c119b89ff6d36855de8138d103386dbc9d971f52261", &ciphertext);
 }
