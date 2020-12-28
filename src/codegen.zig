@@ -658,6 +658,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                 const mcv = try self.genFuncInst(inst);
                 if (!inst.isUnused()) {
+                    log.debug("{*} => {}", .{ inst, mcv });
                     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
                     try branch.inst_table.putNoClobber(self.gpa, inst, mcv);
                 }
@@ -2039,27 +2040,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const condition: Condition = switch (cond) {
                         .compare_flags_signed => |cmp_op| blk: {
                             // Here we map to the opposite condition because the jump is to the false branch.
-                            const condition: Condition = switch (cmp_op) {
-                                .gte => .lt,
-                                .gt => .le,
-                                .neq => .eq,
-                                .lt => .ge,
-                                .lte => .gt,
-                                .eq => .ne,
-                            };
-                            break :blk condition;
+                            const condition = Condition.fromCompareOperatorSigned(cmp_op);
+                            break :blk condition.negate();
                         },
                         .compare_flags_unsigned => |cmp_op| blk: {
                             // Here we map to the opposite condition because the jump is to the false branch.
-                            const condition: Condition = switch (cmp_op) {
-                                .gte => .cc,
-                                .gt => .ls,
-                                .neq => .eq,
-                                .lt => .cs,
-                                .lte => .hi,
-                                .eq => .ne,
-                            };
-                            break :blk condition;
+                            const condition = Condition.fromCompareOperatorUnsigned(cmp_op);
+                            break :blk condition.negate();
                         },
                         .register => |reg| blk: {
                             // cmp reg, 1
@@ -2239,7 +2226,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
                 },
                 .arm, .armeb => {
-                    if (math.cast(i26, @intCast(i32, index) - @intCast(i32, self.code.items.len))) |delta| {
+                    if (math.cast(i26, @intCast(i32, index) - @intCast(i32, self.code.items.len + 8))) |delta| {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.b(.al, delta).toU32());
                     } else |err| {
                         return self.fail(src, "TODO: enable larger branch offset", .{});
@@ -2735,6 +2722,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return; // The already existing value will do just fine.
                         // Write the debug undefined value.
                         return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa });
+                    },
+                    .compare_flags_unsigned,
+                    .compare_flags_signed,
+                    => |op| {
+                        const condition = switch (mcv) {
+                            .compare_flags_unsigned => Condition.fromCompareOperatorUnsigned(op),
+                            .compare_flags_signed => Condition.fromCompareOperatorSigned(op),
+                            else => unreachable,
+                        };
+
+                        // mov reg, 0
+                        // moveq reg, 1
+                        const zero = Instruction.Operand.imm(0, 0);
+                        const one = Instruction.Operand.imm(1, 0);
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, zero).toU32());
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(condition, reg, one).toU32());
                     },
                     .immediate => |x| {
                         if (x > math.maxInt(u32)) return self.fail(src, "ARM registers are 32-bit wide", .{});
