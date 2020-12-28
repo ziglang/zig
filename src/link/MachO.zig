@@ -1062,7 +1062,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         .appended => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.addDeclErr(decl, em);
+            try module.failed_decls.put(module.gpa, decl, em);
             return;
         },
     };

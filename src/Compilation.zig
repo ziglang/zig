@@ -1350,11 +1350,8 @@ pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.items().len;
 
     if (self.bin_file.options.module) |module| {
-        for (module.failed_decls.items()) |entry| {
-            assert(entry.value.items.len > 0);
-            total += entry.value.items.len;
-        }
-        total += module.failed_exports.items().len +
+        total += module.failed_decls.items().len +
+            module.failed_exports.items().len +
             module.failed_files.items().len +
             @boolToInt(module.failed_root_src_file != null);
     }
@@ -1388,11 +1385,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         }
         for (module.failed_decls.items()) |entry| {
             const decl = entry.key;
-            const err_msg_list = entry.value;
-            for (err_msg_list.items) |err_msg| {
-                const source = try decl.scope.getSource(module);
-                try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
-            }
+            const err_msg = entry.value;
+            const source = try decl.scope.getSource(module);
+            try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
         }
         for (module.failed_exports.items()) |entry| {
             const decl = entry.key.owner_decl;
@@ -1485,6 +1480,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 }
 
                 assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());
+
                 self.bin_file.updateDecl(module, decl) catch |err| {
                     switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
@@ -1492,7 +1488,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                             decl.analysis = .dependency_failure;
                         },
                         else => {
-                            try module.addDeclErr(decl, try ErrorMsg.create(
+                            try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
+                            module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                                 module.gpa,
                                 decl.src(),
                                 "unable to codegen: {}",
@@ -1511,7 +1508,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                             decl.analysis = .dependency_failure;
                         },
                         else => {
-                            try module.addDeclErr(decl, try ErrorMsg.create(
+                            try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
+                            module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                                 module.gpa,
                                 decl.src(),
                                 "unable to generate C header: {}",
@@ -1533,7 +1531,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         .update_line_number => |decl| {
             const module = self.bin_file.options.module.?;
             self.bin_file.updateDeclLineNumber(module, decl) catch |err| {
-                try module.addDeclErr(decl, try ErrorMsg.create(
+                try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
+                module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                     module.gpa,
                     decl.src(),
                     "unable to update line number: {}",

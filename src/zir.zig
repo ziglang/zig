@@ -126,8 +126,6 @@ pub const Inst = struct {
         coerce_to_ptr_elem,
         /// Emit an error message and fail compilation.
         compileerror,
-        /// Log compile time variables and emit an error message.
-        compilelog,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         condbr,
         /// Special case, has no textual representation.
@@ -394,7 +392,6 @@ pub const Inst = struct {
                 .declval => DeclVal,
                 .declval_in_module => DeclValInModule,
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
-                .compilelog => CompileLog,
                 .loop => Loop,
                 .@"const" => Const,
                 .str => Str,
@@ -524,7 +521,6 @@ pub const Inst = struct {
                 .slice_start,
                 .import,
                 .switch_range,
-                .compilelog,
                 .typeof_peer,
                 => false,
 
@@ -707,19 +703,6 @@ pub const Inst = struct {
             block: *Block,
         },
         kw_args: struct {},
-    };
-
-    pub const CompileLog = struct {
-        pub const base_tag = Tag.compilelog;
-        base: Inst,
-
-        positionals: struct {
-            to_log: []*Inst,
-        },
-        kw_args: struct {
-            /// If we have seen it already so don't make another error
-            seen: bool = false,
-        },
     };
 
     pub const Const = struct {
@@ -1940,7 +1923,7 @@ const EmitZIR = struct {
                 .sema_failure,
                 .sema_failure_retryable,
                 .dependency_failure,
-                => if (self.old_module.failed_decls.get(ir_decl)) |err_msg_list| {
+                => if (self.old_module.failed_decls.get(ir_decl)) |err_msg| {
                     const fail_inst = try self.arena.allocator.create(Inst.UnOp);
                     fail_inst.* = .{
                         .base = .{
@@ -1949,7 +1932,7 @@ const EmitZIR = struct {
                         },
                         .positionals = .{
                             .operand = blk: {
-                                const msg_str = try self.arena.allocator.dupe(u8, err_msg_list.items[0].msg);
+                                const msg_str = try self.arena.allocator.dupe(u8, err_msg.msg);
 
                                 const str_inst = try self.arena.allocator.create(Inst.Str);
                                 str_inst.* = .{
@@ -1958,7 +1941,7 @@ const EmitZIR = struct {
                                         .tag = Inst.Str.base_tag,
                                     },
                                     .positionals = .{
-                                        .bytes = msg_str,
+                                        .bytes = err_msg.msg,
                                     },
                                     .kw_args = .{},
                                 };
@@ -2085,7 +2068,7 @@ const EmitZIR = struct {
                 try self.emitBody(body, &inst_table, &instructions);
             },
             .sema_failure => {
-                const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?.items[0];
+                const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
                 const fail_inst = try self.arena.allocator.create(Inst.UnOp);
                 fail_inst.* = .{
                     .base = .{

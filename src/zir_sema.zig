@@ -45,7 +45,6 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .coerce_result_ptr => return analyzeInstCoerceResultPtr(mod, scope, old_inst.castTag(.coerce_result_ptr).?),
         .coerce_to_ptr_elem => return analyzeInstCoerceToPtrElem(mod, scope, old_inst.castTag(.coerce_to_ptr_elem).?),
         .compileerror => return analyzeInstCompileError(mod, scope, old_inst.castTag(.compileerror).?),
-        .compilelog => return analyzeInstCompileLog(mod, scope, old_inst.castTag(.compilelog).?),
         .@"const" => return analyzeInstConst(mod, scope, old_inst.castTag(.@"const").?),
         .dbg_stmt => return analyzeInstDbgStmt(mod, scope, old_inst.castTag(.dbg_stmt).?),
         .declref => return analyzeInstDeclRef(mod, scope, old_inst.castTag(.declref).?),
@@ -501,28 +500,6 @@ fn analyzeInstExport(mod: *Module, scope: *Scope, export_inst: *zir.Inst.Export)
 fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const msg = try resolveConstString(mod, scope, inst.positionals.operand);
     return mod.fail(scope, inst.base.src, "{}", .{msg});
-}
-
-fn analyzeInstCompileLog(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileLog) InnerError!*Inst {
-    std.debug.print("| ", .{});
-    for (inst.positionals.to_log) |item, i| {
-        const to_log = try resolveInst(mod, scope, item);
-        if (to_log.value()) |val| {
-            std.debug.print("{}", .{val});
-        } else {
-            std.debug.print("(runtime value)", .{});
-        }
-        if (i != inst.positionals.to_log.len - 1) std.debug.print(", ", .{});
-    }
-    std.debug.print("\n", .{});
-    if (!inst.kw_args.seen) {
-        inst.kw_args.seen = true; // so that we do not give multiple compile errors if it gets evaled twice
-        switch (mod.fail(scope, inst.base.src, "found compile log statement", .{})) {
-            error.AnalysisFail => {}, // analysis continues
-            else => |e| return e,
-        }
-    }
-    return mod.constVoid(scope, inst.base.src);
 }
 
 fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
