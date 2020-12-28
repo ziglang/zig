@@ -13778,7 +13778,7 @@ static ZigValue *ir_resolve_type_lazy(IrAnalyze *ira, IrInstGen *type_value) {
 
     Error err;
     if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, type_value->base.source_node,
-                    type_value->value, LazyOk)))
+                    type_value->value, LazyOkNoUndef)))
     {
         return nullptr;
     }
