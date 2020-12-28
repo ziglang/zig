@@ -3363,9 +3363,6 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutableGen *executable,
         IrInstGenPtrCast *instruction)
 {
     ZigType *wanted_type = instruction->base.value->type;
-    if (!type_has_bits(g, wanted_type)) {
-        return nullptr;
-    }
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef result_ptr = LLVMBuildBitCast(g->builder, ptr, get_llvm_type(g, wanted_type), "");
     bool want_safety_check = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base);
@@ -3849,10 +3846,10 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutableGen *executable,
 
     ZigType *ptr_type = instruction->ptr->value->type;
     assert(ptr_type->id == ZigTypeIdPointer);
-    bool ptr_type_has_bits;
-    if ((err = type_has_bits2(g, ptr_type, &ptr_type_has_bits)))
+    bool ptr_child_type_has_bits;
+    if ((err = type_has_bits2(g, ptr_type->data.pointer.child_type, &ptr_child_type_has_bits)))
         codegen_report_errors_and_exit(g);
-    if (!ptr_type_has_bits)
+    if (!ptr_child_type_has_bits)
         return nullptr;
     if (instruction->ptr->base.ref_count == 0) {
         // In this case, this StorePtr instruction should be elided. Something happened like this:
@@ -3894,12 +3891,13 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutableGen *executable, I
 
     ZigType *ptr_type = instruction->base.value->type;
     assert(ptr_type->id == ZigTypeIdPointer);
-    bool ptr_type_has_bits;
-    if ((err = type_has_bits2(g, ptr_type, &ptr_type_has_bits)))
+    bool ptr_child_type_has_bits;
+    if ((err = type_has_bits2(g, ptr_type->data.pointer.child_type, &ptr_child_type_has_bits)))
         codegen_report_errors_and_exit(g);
 
-    if (!ptr_type_has_bits) {
-        return nullptr;
+    if (!ptr_child_type_has_bits) {
+        LLVMValueRef ptr_int = LLVMConstInt(g->builtin_types.entry_usize->llvm_type, 0xDEADBEEF, false); // TESTING ADDRESS: TODO CHANGE THIS
+        return LLVMBuildIntToPtr(g->builder, ptr_int, get_llvm_type(g, ptr_type), "");
     }
 
     // The extra bitcasts are needed in case the LLVM value is an unnamed
@@ -5520,7 +5518,8 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
     }
 
     // When the cmpxchg is discarded, the result location will have no bits.
-    if (!type_has_bits(g, instruction->result_loc->value->type)) {
+    assert(instruction->result_loc->value->type->id == ZigTypeIdPointer);
+    if (!type_has_bits(g, instruction->result_loc->value->type->data.pointer.child_type)) {
         return nullptr;
     }
 
@@ -5844,25 +5843,18 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrI
             add_bounds_check(g, check_end_val, LLVMIntEQ, nullptr, LLVMIntULE, check_prev_end);
         }
 
-        bool ptr_has_bits;
-        if ((err = type_has_bits2(g, ptr_field_type, &ptr_has_bits)))
-            codegen_report_errors_and_exit(g);
+        const size_t gen_ptr_index = array_type->data.structure.fields[slice_ptr_index]->gen_index;
+        assert(gen_ptr_index != SIZE_MAX);
 
-        if (ptr_has_bits) {
-            const size_t gen_ptr_index = array_type->data.structure.fields[slice_ptr_index]->gen_index;
-            assert(gen_ptr_index != SIZE_MAX);
+        LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, gen_ptr_index, "");
+        LLVMValueRef src_ptr = gen_load_untyped(g, src_ptr_ptr, 0, false, "");
 
-            LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, gen_ptr_index, "");
-            LLVMValueRef src_ptr = gen_load_untyped(g, src_ptr_ptr, 0, false, "");
-
-            if (sentinel != nullptr) {
-                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &end_val, 1, "");
-                add_sentinel_check(g, sentinel_elem_ptr, sentinel);
-            }
-
-            slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &start_val, 1, "");
+        if (sentinel != nullptr) {
+            LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &end_val, 1, "");
+            add_sentinel_check(g, sentinel_elem_ptr, sentinel);
         }
 
+        slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &start_val, 1, "");
         len_value = LLVMBuildNUWSub(g->builder, end_val, start_val, "");
     } else {
         zig_unreachable();

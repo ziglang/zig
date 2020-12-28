@@ -14137,7 +14137,7 @@ static IrInstGen *ir_get_ref2(IrAnalyze *ira, IrInst* source_instruction, IrInst
         return ira->codegen->invalid_inst_gen;
 
     IrInstGen *result_loc;
-    if (type_has_bits(ira->codegen, ptr_type) && !handle_is_ptr(ira->codegen, elem_type)) {
+    if (!handle_is_ptr(ira->codegen, elem_type)) {
         result_loc = ir_resolve_result(ira, source_instruction, no_result_loc(), elem_type, nullptr, true, true);
     } else {
         result_loc = nullptr;
@@ -15764,19 +15764,6 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         if (dest_ptr_type != nullptr) {
             return ir_analyze_ptr_cast(ira, source_instr, value, source_instr, wanted_type, source_instr, true,
                     false);
-        }
-    }
-
-    // cast from T to *T where T is zero bits
-    if (wanted_type->id == ZigTypeIdPointer && wanted_type->data.pointer.ptr_len == PtrLenSingle &&
-        types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
-            actual_type, source_node, !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
-    {
-        bool has_bits;
-        if ((err = type_has_bits2(ira->codegen, actual_type, &has_bits)))
-            return ira->codegen->invalid_inst_gen;
-        if (!has_bits) {
-            return ir_get_ref(ira, source_instr, value, false, false);
         }
     }
 
@@ -30070,20 +30057,6 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
     if ((err = type_resolve(ira->codegen, src_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_inst_gen;
 
-    if (safety_check_on &&
-        type_has_bits(ira->codegen, dest_type) &&
-        !type_has_bits(ira->codegen, if_slice_ptr_type))
-    {
-        ErrorMsg *msg = ir_add_error(ira, source_instr,
-            buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
-                buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
-        add_error_note(ira->codegen, msg, ptr_src->source_node,
-                buf_sprintf("'%s' has no in-memory bits", buf_ptr(&src_type->name)));
-        add_error_note(ira->codegen, msg, dest_type_src->source_node,
-                buf_sprintf("'%s' has in-memory bits", buf_ptr(&dest_type->name)));
-        return ira->codegen->invalid_inst_gen;
-    }
-
     // For slices, follow the `ptr` field.
     if (is_slice(src_type)) {
         TypeStructField *ptr_field = src_type->data.structure.fields[slice_ptr_index];
@@ -30139,7 +30112,7 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         result->value->type = dest_type;
 
         // Keep the bigger alignment, it can only help- unless the target is zero bits.
-        if (keep_bigger_alignment && src_align_bytes > dest_align_bytes && type_has_bits(ira->codegen, dest_type)) {
+        if (keep_bigger_alignment && src_align_bytes > dest_align_bytes) {
             result = ir_align_cast(ira, result, src_align_bytes, false);
         }
 
@@ -30159,7 +30132,7 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
 
     // Keep the bigger alignment, it can only help- unless the target is zero bits.
     IrInstGen *result;
-    if (keep_bigger_alignment && src_align_bytes > dest_align_bytes && type_has_bits(ira->codegen, dest_type)) {
+    if (keep_bigger_alignment && src_align_bytes > dest_align_bytes) {
         result = ir_align_cast(ira, casted_ptr, src_align_bytes, false);
         if (type_is_invalid(result->value->type))
             return ira->codegen->invalid_inst_gen;
@@ -30609,7 +30582,6 @@ static IrInstGen *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInst* source_instr, Ir
     Error err;
 
     ir_assert(get_src_ptr_type(ptr_type) != nullptr, source_instr);
-    ir_assert(type_has_bits(ira->codegen, ptr_type), source_instr);
 
     IrInstGen *casted_int = ir_implicit_cast(ira, target, ira->codegen->builtin_types.entry_usize);
     if (type_is_invalid(casted_int->value->type))
@@ -30667,16 +30639,6 @@ static IrInstGen *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstSrcInt
         return ira->codegen->invalid_inst_gen;
     }
 
-    bool has_bits;
-    if ((err = type_has_bits2(ira->codegen, dest_type, &has_bits)))
-        return ira->codegen->invalid_inst_gen;
-
-    if (!has_bits) {
-        ir_add_error(ira, &dest_type_value->base,
-                buf_sprintf("type '%s' has 0 bits and cannot store information", buf_ptr(&dest_type->name)));
-        return ira->codegen->invalid_inst_gen;
-    }
-
     IrInstGen *target = instruction->target->child;
     if (type_is_invalid(target->value->type))
         return ira->codegen->invalid_inst_gen;
@@ -30709,16 +30671,6 @@ static IrInstGen *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstSrcPtr
     if (src_ptr_type == nullptr) {
         ir_add_error(ira, &target->base,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&target->value->type->name)));
-        return ira->codegen->invalid_inst_gen;
-    }
-
-    bool has_bits;
-    if ((err = type_has_bits2(ira->codegen, src_ptr_type, &has_bits)))
-        return ira->codegen->invalid_inst_gen;
-
-    if (!has_bits) {
-        ir_add_error(ira, &target->base,
-                buf_sprintf("pointer to size 0 type has no address"));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -33133,11 +33085,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                 }
             }
 
-            if (align_bytes != 0) {
-                if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusAlignmentKnown)))
-                    return err;
-                if (!type_has_bits(ira->codegen, elem_type))
-                    align_bytes = 0;
+            if (align_bytes != 0 && (err = type_resolve(ira->codegen, elem_type, ResolveStatusAlignmentKnown))) {
+                return err;
             }
             bool allow_zero = lazy_ptr_type->is_allowzero || lazy_ptr_type->ptr_len == PtrLenC;
             assert(val->type->id == ZigTypeIdMetaType);

@@ -886,21 +886,9 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
             entry->data.structure.requires_comptime = true;
     }
 
-    if (!type_has_bits(g, ptr_type)) {
-        entry->data.structure.gen_field_count = 1;
-        entry->data.structure.fields[slice_ptr_index]->gen_index = SIZE_MAX;
-        entry->data.structure.fields[slice_len_index]->gen_index = 0;
-    }
-
-    if (type_has_bits(g, ptr_type)) {
-        entry->size_in_bits = ptr_type->size_in_bits + g->builtin_types.entry_usize->size_in_bits;
-        entry->abi_size = ptr_type->abi_size + g->builtin_types.entry_usize->abi_size;
-        entry->abi_align = ptr_type->abi_align;
-    } else {
-        entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
-        entry->abi_size = g->builtin_types.entry_usize->abi_size;
-        entry->abi_align = g->builtin_types.entry_usize->abi_align;
-    }
+    entry->size_in_bits = ptr_type->size_in_bits + g->builtin_types.entry_usize->size_in_bits;
+    entry->abi_size = ptr_type->abi_size + g->builtin_types.entry_usize->abi_size;
+    entry->abi_align = ptr_type->abi_align;
 
     *parent_pointer = entry;
     return entry;
@@ -1782,6 +1770,7 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, ExternPosition pos
             return ErrorNone;
         case ZigTypeIdOpaque:
         case ZigTypeIdBool:
+        case ZigTypeIdPointer:
             *result = true;
             return ErrorNone;
         case ZigTypeIdInt:
@@ -1811,14 +1800,6 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, ExternPosition pos
             return ErrorNone;
         case ZigTypeIdFn:
             *result = !calling_convention_allows_zig_types(type_entry->data.fn.fn_type_id.cc);
-            return ErrorNone;
-        case ZigTypeIdPointer:
-            if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
-                return err;
-            bool has_bits;
-            if ((err = type_has_bits2(g, type_entry, &has_bits)))
-                return err;
-            *result = has_bits;
             return ErrorNone;
         case ZigTypeIdStruct:
             *result = type_entry->data.structure.layout == ContainerLayoutExtern ||
@@ -4660,13 +4641,6 @@ Error get_codegen_ptr_type(CodeGen *g, ZigType *type, ZigType **result) {
 
     ZigType *ty = get_src_ptr_type(type);
     if (ty == nullptr) {
-        *result = nullptr;
-        return ErrorNone;
-    }
-
-    bool has_bits;
-    if ((err = type_has_bits2(g, ty, &has_bits))) return err;
-    if (!has_bits) {
         *result = nullptr;
         return ErrorNone;
     }
@@ -9020,14 +8994,9 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {
     if (type->llvm_di_type != nullptr) return;
 
+    assert(type->id == ZigTypeIdPointer);
     if (resolve_pointer_zero_bits(g, type) != ErrorNone)
         zig_unreachable();
-
-    if (!type_has_bits(g, type)) {
-        type->llvm_type = g->builtin_types.entry_void->llvm_type;
-        type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
-        return;
-    }
 
     ZigType *elem_type = type->data.pointer.child_type;
 
