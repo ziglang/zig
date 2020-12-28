@@ -2106,7 +2106,7 @@ pub fn addCCArgs(
         try argv.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
     }
 
-    const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
+    const llvm_triple = try @import("llvm_backend.zig").targetTriple(arena, target);
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     switch (ext) {
