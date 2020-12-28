@@ -794,3 +794,42 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 
     try fs.deleteFileAbsolute(filename);
 }
+
+test "walker" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var allocator = &arena.allocator;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const nb_dirs = 8;
+
+    var i: usize = 0;
+    var sub_dir = tmp.dir;
+    while (i < nb_dirs) : (i += 1) {
+        const dir_name = try std.fmt.allocPrint(allocator, "{}", .{i});
+        try sub_dir.makeDir(dir_name);
+        sub_dir = try sub_dir.openDir(dir_name, .{});
+    }
+
+    const tmp_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+
+    var walker = try fs.walkPath(testing.allocator, tmp_path);
+    defer walker.deinit();
+
+    i = 0;
+    var expected_dir_name: []const u8 = "";
+    while (i < nb_dirs) : (i += 1) {
+        const name = try std.fmt.allocPrint(allocator, "{}", .{i});
+        expected_dir_name = if (expected_dir_name.len == 0)
+            name
+        else
+            try fs.path.join(allocator, &[_][]const u8{ expected_dir_name, name });
+
+        var entry = (try walker.next()).?;
+        testing.expectEqualStrings(expected_dir_name, try fs.path.relative(allocator, tmp_path, entry.path));
+    }
+}
