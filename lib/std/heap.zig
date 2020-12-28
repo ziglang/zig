@@ -160,8 +160,8 @@ var c_allocator_state = Allocator{
 /// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly calls
 /// `malloc`/`free`. Does not attempt to utilize `malloc_usable_size`.
 /// This allocator is safe to use as the backing allocator with
-/// `ArenaAllocator` and `GeneralPurposeAllocator`, and is more optimal in these cases
-/// than to using `c_allocator`.
+/// `ArenaAllocator` for example and is more optimal in such a case
+/// than `c_allocator`.
 pub const raw_c_allocator = &raw_c_allocator_state;
 var raw_c_allocator_state = Allocator{
     .allocFn = rawCAlloc,
