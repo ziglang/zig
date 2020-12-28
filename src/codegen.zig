@@ -1277,11 +1277,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             switch (op) {
                 .add => {
-                    // TODO runtime safety checks (overflow)
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.add(.al, dst_reg, dst_reg, operand).toU32());
                 },
                 .sub => {
-                    // TODO runtime safety checks (underflow)
                     if (lhs_is_dest) {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.sub(.al, dst_reg, dst_reg, operand).toU32());
                     } else {
@@ -1296,6 +1294,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .not, .xor => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.eor(.al, dst_reg, dst_reg, operand).toU32());
+                },
+                .cmp_eq => {
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.cmp(.al, dst_reg, operand).toU32());
                 },
                 else => unreachable, // not a binary instruction
             }
@@ -1957,6 +1958,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .unsigned => MCValue{ .compare_flags_unsigned = op },
                     };
                 },
+                .arm, .armeb => {
+                    const lhs = try self.resolveInst(inst.lhs);
+                    const rhs = try self.resolveInst(inst.rhs);
+
+                    const src_mcv = rhs;
+                    const dst_mcv = if (lhs != .register) try self.copyToNewRegister(&inst.base, lhs) else lhs;
+
+                    try self.genArmBinOpCode(inst.base.src, dst_mcv.register, src_mcv, true, .cmp_eq);
+                    const info = inst.lhs.ty.intInfo(self.target.*);
+                    return switch (info.signedness) {
+                        .signed => MCValue{ .compare_flags_signed = op },
+                        .unsigned => MCValue{ .compare_flags_unsigned = op },
+                    };
+                },
                 else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
             }
         }
@@ -2022,6 +2037,30 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .arm, .armeb => reloc: {
                     const condition: Condition = switch (cond) {
+                        .compare_flags_signed => |cmp_op| blk: {
+                            // Here we map to the opposite condition because the jump is to the false branch.
+                            const condition: Condition = switch (cmp_op) {
+                                .gte => .lt,
+                                .gt => .le,
+                                .neq => .eq,
+                                .lt => .ge,
+                                .lte => .gt,
+                                .eq => .ne,
+                            };
+                            break :blk condition;
+                        },
+                        .compare_flags_unsigned => |cmp_op| blk: {
+                            // Here we map to the opposite condition because the jump is to the false branch.
+                            const condition: Condition = switch (cmp_op) {
+                                .gte => .cc,
+                                .gt => .ls,
+                                .neq => .eq,
+                                .lt => .cs,
+                                .lte => .hi,
+                                .eq => .ne,
+                            };
+                            break :blk condition;
+                        },
                         .register => |reg| blk: {
                             // cmp reg, 1
                             // bne ...
@@ -2253,7 +2292,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .arm_branch => |info| {
                     switch (arch) {
                         .arm, .armeb => {
-                            const amt = self.code.items.len - (info.pos + 4);
+                            const amt = @intCast(i32, self.code.items.len) - @intCast(i32, info.pos + 8);
                             if (math.cast(i26, amt)) |delta| {
                                 writeInt(u32, self.code.items[info.pos..][0..4], Instruction.b(info.cond, delta).toU32());
                             } else |_| {
