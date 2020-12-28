@@ -27,7 +27,9 @@ const Decl = Module.Decl;
 pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Inst {
     switch (old_inst.tag) {
         .alloc => return analyzeInstAlloc(mod, scope, old_inst.castTag(.alloc).?),
+        .alloc_mut => return analyzeInstAllocMut(mod, scope, old_inst.castTag(.alloc_mut).?),
         .alloc_inferred => return analyzeInstAllocInferred(mod, scope, old_inst.castTag(.alloc_inferred).?),
+        .alloc_inferred_mut => return analyzeInstAllocInferredMut(mod, scope, old_inst.castTag(.alloc_inferred_mut).?),
         .arg => return analyzeInstArg(mod, scope, old_inst.castTag(.arg).?),
         .bitcast_ref => return analyzeInstBitCastRef(mod, scope, old_inst.castTag(.bitcast_ref).?),
         .bitcast_result_ptr => return analyzeInstBitCastResultPtr(mod, scope, old_inst.castTag(.bitcast_result_ptr).?),
@@ -410,7 +412,13 @@ fn analyzeInstEnsureIndexable(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp)
 
 fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
-    // TODO this should happen only for var allocs
+    const ptr_type = try mod.simplePtrType(scope, inst.base.src, var_type, true, .One);
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
+}
+
+fn analyzeInstAllocMut(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const var_type = try resolveType(mod, scope, inst.positionals.operand);
     if (!var_type.isValidVarType(false)) {
         return mod.fail(scope, inst.base.src, "variable of type '{}' must be const or comptime", .{var_type});
     }
@@ -421,6 +429,10 @@ fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErro
 
 fn analyzeInstAllocInferred(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstAllocInferred", .{});
+}
+
+fn analyzeInstAllocInferredMut(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstAllocInferredMut", .{});
 }
 
 fn analyzeInstStore(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {

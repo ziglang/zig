@@ -41,8 +41,12 @@ pub const Inst = struct {
         /// Allocates stack local memory. Its lifetime ends when the block ends that contains
         /// this instruction. The operand is the type of the allocated object.
         alloc,
+        /// Same as `alloc` except mutable.
+        alloc_mut,
         /// Same as `alloc` except the type is inferred.
         alloc_inferred,
+        /// Same as `alloc_inferred` except mutable.
+        alloc_inferred_mut,
         /// Create an `anyframe->T`.
         anyframe_type,
         /// Array concatenation. `a ++ b`
@@ -289,16 +293,19 @@ pub const Inst = struct {
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
+                .alloc_inferred,
+                .alloc_inferred_mut,
                 .breakpoint,
                 .dbg_stmt,
                 .returnvoid,
-                .alloc_inferred,
                 .ret_ptr,
                 .ret_type,
                 .unreach_nocheck,
                 .@"unreachable",
                 => NoOp,
 
+                .alloc,
+                .alloc_mut,
                 .boolnot,
                 .compileerror,
                 .deref,
@@ -307,7 +314,6 @@ pub const Inst = struct {
                 .isnonnull,
                 .iserr,
                 .ptrtoint,
-                .alloc,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_indexable,
@@ -419,7 +425,9 @@ pub const Inst = struct {
                 .add,
                 .addwrap,
                 .alloc,
+                .alloc_mut,
                 .alloc_inferred,
+                .alloc_inferred_mut,
                 .array_cat,
                 .array_mul,
                 .array_type,

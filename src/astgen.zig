@@ -616,11 +616,11 @@ fn varDecl(
         .Keyword_var => {
             const var_data: struct { result_loc: ResultLoc, alloc: *zir.Inst } = if (node.getTypeNode()) |type_node| a: {
                 const type_inst = try typeExpr(mod, scope, type_node);
-                const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
+                const alloc = try addZIRUnOp(mod, scope, name_src, .alloc_mut, type_inst);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
-                const alloc = try addZIRNoOp(mod, scope, name_src, .alloc_inferred);
-                break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc.castTag(.alloc_inferred).? } };
+                const alloc = try addZIRNoOp(mod, scope, name_src, .alloc_inferred_mut);
+                break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc.castTag(.alloc_inferred_mut).? } };
             };
             const init_inst = try expr(mod, scope, var_data.result_loc, init_node);
             const sub_scope = try block_arena.create(Scope.LocalPtr);
