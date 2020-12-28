@@ -17,6 +17,17 @@ const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
 
 pub fn getAutoHashFn(comptime K: type) (fn (K) u64) {
+    comptime {
+        assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
+        if (K == []const u8) {
+            @compileError("std.auto_hash.autoHash does not allow slices here (" ++
+                @typeName(K) ++
+                ") because the intent is unclear. " ++
+                "Consider using std.StringHashMap for hashing the contents of []const u8. " ++
+                "Alternatively, consider using std.auto_hash.hash or providing your own hash function instead.");
+        }
+    }
+
     return struct {
         fn hash(key: K) u64 {
             if (comptime trait.hasUniqueRepresentation(K)) {
