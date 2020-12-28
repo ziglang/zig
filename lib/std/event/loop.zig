@@ -796,10 +796,13 @@ pub const Loop = struct {
                 .waiters = DelayQueue.Waiters{
                     .entries = std.atomic.Queue(anyframe).init(),
                 },
-                .thread = try std.Thread.spawn(self, DelayQueue.run),
+                .thread = undefined,
                 .event = std.AutoResetEvent{},
-                .is_running = true,
+                .is_running = undefined,
             };
+
+            @atomicStore(bool, &self.is_running, true, .SeqCst);
+            self.thread = try std.Thread.spawn(self, DelayQueue.run);
         }
 
         /// Entry point for the timer thread
