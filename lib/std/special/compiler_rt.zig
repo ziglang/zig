@@ -277,6 +277,25 @@ comptime {
         @export(@import("compiler_rt/aullrem.zig")._aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
+    if (builtin.arch.isSPARC()) {
+        // SPARC systems use a different naming scheme
+        @export(@import("compiler_rt/sparc.zig")._Qp_add, .{ .name = "_Qp_add", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_div, .{ .name = "_Qp_div", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_mul, .{ .name = "_Qp_mul", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_sub, .{ .name = "_Qp_sub", .linkage = linkage });
+
+        @export(@import("compiler_rt/sparc.zig")._Qp_cmp, .{ .name = "_Qp_cmp", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_feq, .{ .name = "_Qp_feq", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_fne, .{ .name = "_Qp_fne", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_flt, .{ .name = "_Qp_flt", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_fle, .{ .name = "_Qp_fle", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_fgt, .{ .name = "_Qp_fgt", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_fge, .{ .name = "_Qp_fge", .linkage = linkage });
+
+        @export(@import("compiler_rt/sparc.zig")._Qp_dtoq, .{ .name = "_Qp_dtoq", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
+    }
+
     if (builtin.os.tag == .windows) {
         // Default stack-probe functions emitted by LLVM
         if (is_mingw) {
