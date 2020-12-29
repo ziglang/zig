@@ -742,7 +742,7 @@ test "@unionInit on union w/ tag but no fields" {
         const Data = union(Type) {
             no_op: void,
 
-            pub fn decode(buf: []const u8) !Data {
+            pub fn decode(buf: []const u8) Data {
                 return @unionInit(Data, "no_op", {});
             }
         };
@@ -753,7 +753,7 @@ test "@unionInit on union w/ tag but no fields" {
 
         fn doTheTest() void {
             var data: Data = .{ .no_op = .{} };
-            var o = try Data.decode(&[_]u8{});
+            var o = Data.decode(&[_]u8{});
             expectEqual(Type.no_op, o);
         }
     };
