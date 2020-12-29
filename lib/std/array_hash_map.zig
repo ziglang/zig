@@ -323,7 +323,7 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
-            self.entries.shrink(allocator, 0);
+            self.entries.shrinkAndFree(allocator, 0);
             if (self.index_header) |header| {
                 header.free(allocator);
                 self.index_header = null;

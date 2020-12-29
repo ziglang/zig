@@ -735,7 +735,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
             assert(mem.endsWith(u8, buf.items, ","));
             buf.items[buf.items.len - 1] = 0;
-            buf.shrink(buf.items.len);
+            buf.shrinkAndFree(buf.items.len);
             break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
         } else null;
 
