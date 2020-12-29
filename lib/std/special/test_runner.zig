@@ -18,6 +18,9 @@ pub fn main() anyerror!void {
     const args = std.process.argsAlloc(&args_allocator.allocator) catch {
         @panic("Too many bytes passed over the CLI to the test runner");
     };
+    if (args.len < 2) {
+        @panic("Stage1 build is too old!");
+    }
     std.testing.zig_exe_path = args[1];
 
     const test_fn_list = builtin.test_functions;
