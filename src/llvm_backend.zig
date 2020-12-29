@@ -271,6 +271,7 @@ pub const LLVMIRModule = struct {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
                 try module.failed_decls.put(module.gpa, decl, self.err_msg.?);
+                self.err_msg = null;
                 return;
             },
             else => |e| return e,
