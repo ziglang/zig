@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const llvm = @import("llvm_bindings.zig");
@@ -433,13 +434,18 @@ pub const LLVMIRModule = struct {
     }
 
     fn genBreakpoint(self: *LLVMIRModule, inst: *Inst.NoOp) !?*const llvm.ValueRef {
-        // TODO: Store this function somewhere such that we dont have to add it again
-        const fn_type = llvm.TypeRef.functionType(llvm.voidType(), null, 0, false);
-        const func = self.llvm_module.addFunction("llvm.debugtrap", fn_type);
-
-        // TODO: add assertion: LLVMGetIntrinsicID
-        _ = self.builder.buildCall(func, null, 0, "");
+        const llvn_fn = self.getIntrinsic("llvm.debugtrap");
+        _ = self.builder.buildCall(llvn_fn, null, 0, "");
         return null;
+    }
+
+    fn getIntrinsic(self: *LLVMIRModule, name: []const u8) *const llvm.ValueRef {
+        const id = llvm.lookupIntrinsicID(name.ptr, name.len);
+        assert(id != 0);
+        // TODO: add support for overload intrinsics by passing the prefix of the intrinsic
+        //       to `lookupIntrinsicID` and then passing the correct types to
+        //       `getIntrinsicDeclaration`
+        return self.llvm_module.getIntrinsicDeclaration(id, null, 0);
     }
 
     fn resolveInst(self: *LLVMIRModule, inst: *ir.Inst) !*const llvm.ValueRef {
@@ -514,7 +520,7 @@ pub const LLVMIRModule = struct {
 
     pub fn fail(self: *LLVMIRModule, src: usize, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
         @setCold(true);
-        std.debug.assert(self.err_msg == null);
+        assert(self.err_msg == null);
         self.err_msg = try Compilation.ErrorMsg.create(self.gpa, src, format, args);
         return error.CodegenFail;
     }

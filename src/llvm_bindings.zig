@@ -63,9 +63,15 @@ pub const ModuleRef = opaque {
     pub const getNamedFunction = LLVMGetNamedFunction;
     extern fn LLVMGetNamedFunction(*const ModuleRef, Name: [*:0]const u8) ?*const ValueRef;
 
+    pub const getIntrinsicDeclaration = LLVMGetIntrinsicDeclaration;
+    extern fn LLVMGetIntrinsicDeclaration(Mod: *const ModuleRef, ID: c_uint, ParamTypes: ?[*]*const TypeRef, ParamCount: usize) *const ValueRef;
+
     pub const printToString = LLVMPrintModuleToString;
     extern fn LLVMPrintModuleToString(*const ModuleRef) [*:0]const u8;
 };
+
+pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
+extern fn LLVMLookupIntrinsicID(Name: [*]const u8, NameLen: usize) c_uint;
 
 pub const disposeMessage = LLVMDisposeMessage;
 extern fn LLVMDisposeMessage(Message: [*:0]const u8) void;
