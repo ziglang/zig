@@ -351,7 +351,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
     // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
     // Zig source code.
     const module = options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
-    const init_len_size: usize = 12;
+    const init_len_size: usize = 4;
 
     if (self.debug_abbrev_section_dirty) {
         const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
@@ -450,11 +450,10 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         // +1 for the final 0 that ends the compilation unit children.
         const dbg_info_end = last_dbg_info_decl.dbg_info_off + last_dbg_info_decl.dbg_info_len + 1;
         const init_len = dbg_info_end - after_init_len;
-        di_buf.appendNTimesAssumeCapacity(0xff, 4);
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len);
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len));
         mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4); // DWARF version
         const abbrev_offset = self.debug_abbrev_table_offset.?;
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), abbrev_offset);
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, abbrev_offset));
         di_buf.appendAssumeCapacity(8); // address size
         // Write the form for the compile unit, which must match the abbrev table above.
         const name_strp = try self.makeDebugString(allocator, module.root_pkg.root_src_path);
@@ -468,12 +467,12 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         const high_pc = text_section.addr + text_section.size;
 
         di_buf.appendAssumeCapacity(abbrev_compile_unit);
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0); // DW.AT_stmt_list, DW.FORM_sec_offset
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0); // DW.AT_stmt_list, DW.FORM_sec_offset
         mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), low_pc);
         mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), high_pc);
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), name_strp);
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), comp_dir_strp);
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), producer_strp);
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, name_strp));
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, comp_dir_strp));
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, producer_strp));
         // We are still waiting on dwarf-std.org to assign DW_LANG_Zig a number:
         // http://dwarfstd.org/ShowIssue.php?issue=171115.1
         // Until then we say it is C99.
@@ -509,7 +508,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), 2); // version
         // When more than one compilation unit is supported, this will be the offset to it.
         // For now it is always at offset 0 in .debug_info.
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), debug_info_sect.addr); // __debug_info offset
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0); // __debug_info offset
         di_buf.appendAssumeCapacity(@sizeOf(u64)); // address_size
         di_buf.appendAssumeCapacity(0); // segment_selector_size
 
@@ -532,8 +531,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         const init_len = di_buf.items.len - after_init_len;
         // initial length - length of the .debug_aranges contribution for this compilation unit,
         // not including the initial length itself.
-        di_buf.items[init_len_index..][0..4].* = [_]u8{ 0xff, 0xff, 0xff, 0xff };
-        mem.writeIntLittle(u64, di_buf.items[init_len_index + 4 ..][0..8], init_len);
+        mem.writeIntLittle(u32, di_buf.items[init_len_index..][0..4], @intCast(u32, init_len));
 
         const needed_size = di_buf.items.len;
         const allocated_size = dwarf_segment.allocatedSize(debug_aranges_sect.offset);
@@ -576,8 +574,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         // not including the initial length itself.
         const after_init_len = di_buf.items.len + init_len_size;
         const init_len = dbg_line_prg_end - after_init_len;
-        di_buf.appendNTimesAssumeCapacity(0xff, 4);
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len);
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len));
         mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4); // version
 
         // Empirically, debug info consumers do not respect this field, or otherwise
@@ -585,7 +582,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         // Therefore we rely on the NOP jump at the beginning of the Line Number Program for
         // padding rather than this field.
         const before_header_len = di_buf.items.len;
-        di_buf.items.len += @sizeOf(u64); // We will come back and write this.
+        di_buf.items.len += @sizeOf(u32); // We will come back and write this.
         const after_header_len = di_buf.items.len;
 
         const opcode_base = DW.LNS_set_isa + 1;
@@ -624,7 +621,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         });
 
         const header_len = di_buf.items.len - after_header_len;
-        mem.writeIntLittle(u64, di_buf.items[before_header_len..][0..8], header_len);
+        mem.writeIntLittle(u32, di_buf.items[before_header_len..][0..4], @intCast(u32, header_len));
 
         // We use NOPs because consumers empirically do not respect the header length field.
         if (di_buf.items.len > dbg_line_prg_off) {
