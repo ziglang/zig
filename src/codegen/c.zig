@@ -137,22 +137,32 @@ fn renderValue(
             ),
         },
         .Array => {
-            // TODO first try specific tag representations for more efficiency
-            // Fall back to inefficient generic implementation.
-            try writer.writeAll("{");
-            var index: usize = 0;
-            const len = t.arrayLen();
-            const elem_ty = t.elemType();
-            while (index < len) : (index += 1) {
-                if (index != 0) try writer.writeAll(",");
-                const elem_val = try val.elemValue(&ctx.arena.allocator, index);
-                try renderValue(ctx, writer, elem_ty, elem_val);
+            // First try specific tag representations for more efficiency.
+            switch (val.tag()) {
+                .undef, .empty_struct_value, .empty_array => try writer.writeAll("{}"),
+                .bytes => {
+                    const bytes = val.cast(Value.Payload.Bytes).?.data;
+                    // TODO: make our own C string escape instead of using {Z}
+                    try writer.print("\"{Z}\"", .{bytes});
+                },
+                else => {
+                    // Fall back to generic implementation.
+                    try writer.writeAll("{");
+                    var index: usize = 0;
+                    const len = t.arrayLen();
+                    const elem_ty = t.elemType();
+                    while (index < len) : (index += 1) {
+                        if (index != 0) try writer.writeAll(",");
+                        const elem_val = try val.elemValue(&ctx.arena.allocator, index);
+                        try renderValue(ctx, writer, elem_ty, elem_val);
+                    }
+                    if (t.sentinel()) |sentinel_val| {
+                        if (index != 0) try writer.writeAll(",");
+                        try renderValue(ctx, writer, elem_ty, sentinel_val);
+                    }
+                    try writer.writeAll("}");
+                },
             }
-            if (t.sentinel()) |sentinel_val| {
-                if (index != 0) try writer.writeAll(",");
-                try renderValue(ctx, writer, elem_ty, sentinel_val);
-            }
-            try writer.writeAll("}");
         },
         else => |e| return ctx.fail(ctx.decl.src(), "TODO: C backend: implement value {s}", .{
             @tagName(e),
