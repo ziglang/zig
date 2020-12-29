@@ -194,6 +194,9 @@ pub const Manifest = struct {
     files: std.ArrayListUnmanaged(File) = .{},
     hex_digest: [hex_digest_len]u8,
     debug_bin_digest: DebugBinDigest = null_debug_bin_digest,
+    /// Populated when hit() returns an error because of one
+    /// of the files listed in the manifest.
+    failed_file_index: ?usize = null,
 
     /// Add a file as a dependency of process being cached. When `hit` is
     /// called, the file's contents will be checked to ensure that it matches
@@ -254,6 +257,8 @@ pub const Manifest = struct {
     /// the lock. `deinit` is safe to call whether or not `toOwnedLock` has been called.
     pub fn hit(self: *Manifest) !bool {
         assert(self.manifest_file == null);
+
+        self.failed_file_index = null;
 
         const ext = ".txt";
         var manifest_file_path: [self.hex_digest.len + ext.len]u8 = undefined;
@@ -366,7 +371,10 @@ pub const Manifest = struct {
             };
             defer this_file.close();
 
-            const actual_stat = try this_file.stat();
+            const actual_stat = this_file.stat() catch |err| {
+                self.failed_file_index = idx;
+                return err;
+            };
             const size_match = actual_stat.size == cache_hash_file.stat.size;
             const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
             const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
@@ -382,7 +390,10 @@ pub const Manifest = struct {
                 }
 
                 var actual_digest: BinDigest = undefined;
-                try hashFile(this_file, &actual_digest);
+                hashFile(this_file, &actual_digest) catch |err| {
+                    self.failed_file_index = idx;
+                    return err;
+                };
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
                     cache_hash_file.bin_digest = actual_digest;
@@ -407,7 +418,10 @@ pub const Manifest = struct {
             self.manifest_dirty = true;
             while (idx < input_file_count) : (idx += 1) {
                 const ch_file = &self.files.items[idx];
-                try self.populateFileHash(ch_file);
+                self.populateFileHash(ch_file) catch |err| {
+                    self.failed_file_index = idx;
+                    return err;
+                };
             }
             return false;
         }

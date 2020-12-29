@@ -1629,7 +1629,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 unreachable;
 
             self.updateStage1Module(main_progress_node) catch |err| {
-                fatal("unable to build stage1 zig object: {}", .{@errorName(err)});
+                fatal("unable to build stage1 zig object: {s}", .{@errorName(err)});
             };
         },
     };
@@ -3001,7 +3001,12 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     const prev_hash_state = man.hash.peekBin();
     const input_file_count = man.files.items.len;
 
-    if (try man.hit()) {
+    const hit = man.hit() catch |err| {
+        const i = man.failed_file_index orelse return err;
+        const file_path = man.files.items[i].path orelse return err;
+        fatal("unable to build stage1 zig object: {s}: {s}", .{ @errorName(err), file_path });
+    };
+    if (hit) {
         const digest = man.final();
 
         // We use an extra hex-encoded byte here to store some flags.
