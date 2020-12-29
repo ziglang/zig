@@ -79,6 +79,9 @@ pub const VerifierFailureAction = extern enum {
 pub const voidType = LLVMVoidType;
 extern fn LLVMVoidType() *const TypeRef;
 
+pub const getParam = LLVMGetParam;
+extern fn LLVMGetParam(Fn: *const ValueRef, Index: c_uint) *const ValueRef;
+
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;
 
@@ -117,6 +120,9 @@ pub const BuilderRef = opaque {
     pub const buildRetVoid = LLVMBuildRetVoid;
     extern fn LLVMBuildRetVoid(*const BuilderRef) *const ValueRef;
 
+    pub const buildRet = LLVMBuildRet;
+    extern fn LLVMBuildRet(*const BuilderRef, V: *const ValueRef) *const ValueRef;
+
     pub const buildUnreachable = LLVMBuildUnreachable;
     extern fn LLVMBuildUnreachable(*const BuilderRef) *const ValueRef;
 
@@ -128,6 +134,9 @@ pub const BuilderRef = opaque {
 
     pub const buildLoad = LLVMBuildLoad;
     extern fn LLVMBuildLoad(*const BuilderRef, PointerVal: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNot = LLVMBuildNot;
+    extern fn LLVMBuildNot(*const BuilderRef, V: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
 };
 
 pub const BasicBlockRef = opaque {

@@ -150,6 +150,10 @@ pub const LLVMIRModule = struct {
     /// referred to in other instructions. This table is cleared before every function is generated.
     func_inst_table: std.AutoHashMapUnmanaged(*Inst, *const llvm.ValueRef) = .{},
 
+    /// These fields are used to refer to the LLVM value of the function paramaters in an Arg instruction.
+    args: []*const llvm.ValueRef = &[_]*const llvm.ValueRef{},
+    arg_index: usize = 0,
+
     pub fn create(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*LLVMIRModule {
         const self = try allocator.create(LLVMIRModule);
         errdefer allocator.destroy(self);
@@ -289,6 +293,17 @@ pub const LLVMIRModule = struct {
 
                 const llvm_func = try self.resolveLLVMFunction(func, src);
 
+                // This gets the LLVM values from the function and stores them in `self.args`.
+                const fn_param_len = func.owner_decl.typed_value.most_recent.typed_value.ty.fnParamLen();
+                var args = try self.gpa.alloc(*const llvm.ValueRef, fn_param_len);
+                defer self.gpa.free(args);
+
+                for (args) |*arg, i| {
+                    arg.* = llvm.getParam(llvm_func, @intCast(c_uint, i));
+                }
+                self.args = args;
+                self.arg_index = 0;
+
                 // Make sure no other LLVM values from other functions can be referenced
                 self.func_inst_table.clearRetainingCapacity();
 
@@ -313,6 +328,8 @@ pub const LLVMIRModule = struct {
                         .alloc => try self.genAlloc(inst.castTag(.alloc).?),
                         .store => try self.genStore(inst.castTag(.store).?),
                         .load => try self.genLoad(inst.castTag(.load).?),
+                        .ret => try self.genRet(inst.castTag(.ret).?),
+                        .not => try self.genNot(inst.castTag(.not).?),
                         .dbg_stmt => blk: {
                             // TODO: implement debug info
                             break :blk null;
@@ -370,14 +387,27 @@ pub const LLVMIRModule = struct {
         return null;
     }
 
+    fn genRet(self: *LLVMIRModule, inst: *Inst.UnOp) !?*const llvm.ValueRef {
+        _ = self.builder.buildRet(try self.resolveInst(inst.operand));
+        return null;
+    }
+
+    fn genNot(self: *LLVMIRModule, inst: *Inst.UnOp) !?*const llvm.ValueRef {
+        return self.builder.buildNot(try self.resolveInst(inst.operand), "");
+    }
+
     fn genUnreach(self: *LLVMIRModule, inst: *Inst.NoOp) ?*const llvm.ValueRef {
         _ = self.builder.buildUnreachable();
         return null;
     }
 
     fn genArg(self: *LLVMIRModule, inst: *Inst.Arg) !?*const llvm.ValueRef {
-        // TODO: implement this
-        return null;
+        const arg_val = self.args[self.arg_index];
+        self.arg_index += 1;
+
+        const ptr_val = self.builder.buildAlloca(try self.getLLVMType(inst.base.ty, inst.base.src), "");
+        _ = self.builder.buildStore(arg_val, ptr_val);
+        return self.builder.buildLoad(ptr_val, "");
     }
 
     fn genAlloc(self: *LLVMIRModule, inst: *Inst.NoOp) !?*const llvm.ValueRef {
