@@ -5269,8 +5269,7 @@ pub const PollError = error{
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
-        const fds_count = math.cast(nfds_t, fds.len) catch
-            return error.SystemResources;
+        const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
         const rc = system.poll(fds.ptr, fds_count, timeout);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {

@@ -186,14 +186,22 @@ pub const ChildProcess = struct {
 
     pub const exec2 = @compileError("deprecated: exec2 is renamed to exec");
 
-    fn collectOutputPosix(child: *const ChildProcess, stdout: *std.ArrayList(u8), stderr: *std.ArrayList(u8), max_output_bytes: usize) !void {
+    fn collectOutputPosix(
+        child: *const ChildProcess,
+        stdout: *std.ArrayList(u8),
+        stderr: *std.ArrayList(u8),
+        max_output_bytes: usize,
+    ) !void {
         var poll_fds = [_]os.pollfd{
             .{ .fd = child.stdout.?.handle, .events = os.POLLIN, .revents = undefined },
             .{ .fd = child.stderr.?.handle, .events = os.POLLIN, .revents = undefined },
         };
 
         var dead_fds: usize = 0;
-        var loop_buf: [4096]u8 = undefined;
+        // We ask for ensureCapacity with this much extra space. This has more of an
+        // effect on small reads because once the reads start to get larger the amount
+        // of space an ArrayList will allocate grows exponentially.
+        const bump_amt = 512;
 
         while (dead_fds < poll_fds.len) {
             const events = try os.poll(&poll_fds, std.math.maxInt(i32));
@@ -203,13 +211,17 @@ pub const ChildProcess = struct {
             // conditions.
             if (poll_fds[0].revents & os.POLLIN != 0) {
                 // stdout is ready.
-                const n = try os.read(poll_fds[0].fd, &loop_buf);
-                try stdout.appendSlice(loop_buf[0..n]);
+                const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
+                if (new_capacity == stdout.capacity) return error.StdoutStreamTooLong;
+                try stdout.ensureCapacity(new_capacity);
+                stdout.items.len += try os.read(poll_fds[0].fd, stdout.unusedCapacitySlice());
             }
             if (poll_fds[1].revents & os.POLLIN != 0) {
                 // stderr is ready.
-                const n = try os.read(poll_fds[1].fd, &loop_buf);
-                try stderr.appendSlice(loop_buf[0..n]);
+                const new_capacity = std.math.min(stderr.items.len + bump_amt, max_output_bytes);
+                if (new_capacity == stderr.capacity) return error.StderrStreamTooLong;
+                try stderr.ensureCapacity(new_capacity);
+                stderr.items.len += try os.read(poll_fds[1].fd, stderr.unusedCapacitySlice());
             }
 
             // Exclude the fds that signaled an error.
@@ -220,61 +232,6 @@ pub const ChildProcess = struct {
             if (poll_fds[1].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
                 poll_fds[1].fd = -1;
                 dead_fds += 1;
-            }
-        }
-    }
-
-    fn collectOutputWindows(child: *const ChildProcess, stdout: *std.ArrayList(u8), stderr: *std.ArrayList(u8), max_output_bytes: usize) !void {
-        var wait_objects = [_]windows.kernel32.HANDLE{
-            child.stdout.?.handle, child.stderr.?.handle,
-        };
-        var waiting_objects: u32 = wait_objects.len;
-
-        // XXX: Calling zeroes([2]windows.OVERLAPPED) causes the stage1 compiler
-        // to crash and burn.
-        var overlapped = [_]windows.OVERLAPPED{
-            mem.zeroes(windows.OVERLAPPED),
-            mem.zeroes(windows.OVERLAPPED),
-        };
-        var temp_buf: [2][4096]u8 = undefined;
-
-        // Kickstart the loop by issuing two async reads.
-        // ReadFile returns false and GetLastError returns ERROR_IO_PENDING if
-        // everything is ok.
-        _ = windows.kernel32.ReadFile(wait_objects[0], &temp_buf[0], temp_buf[0].len, null, &overlapped[0]);
-        _ = windows.kernel32.ReadFile(wait_objects[1], &temp_buf[1], temp_buf[1].len, null, &overlapped[1]);
-
-        poll: while (waiting_objects > 0) {
-            const status = windows.kernel32.WaitForMultipleObjects(waiting_objects, &wait_objects, 0, windows.INFINITE);
-            switch (status) {
-                windows.WAIT_OBJECT_0 + 0...windows.WAIT_OBJECT_0 + 1 => {
-                    // stdout (or stderr) is ready.
-                    const object = status - windows.WAIT_OBJECT_0;
-
-                    var read_bytes: u32 = undefined;
-                    if (windows.kernel32.GetOverlappedResult(wait_objects[object], &overlapped[object], &read_bytes, 0) == 0) {
-                        switch (windows.kernel32.GetLastError()) {
-                            .BROKEN_PIPE => {
-                                // Move it to the end to remove it.
-                                if (object != waiting_objects - 1)
-                                    mem.swap(windows.kernel32.HANDLE, &wait_objects[object], &wait_objects[waiting_objects - 1]);
-                                waiting_objects -= 1;
-                                continue :poll;
-                            },
-                            else => |err| return windows.unexpectedError(err),
-                        }
-                    }
-                    try stdout.appendSlice(temp_buf[object][0..read_bytes]);
-                    _ = windows.kernel32.ReadFile(wait_objects[object], &temp_buf[object], temp_buf[object].len, null, &overlapped[object]);
-                },
-                windows.WAIT_FAILED => {
-                    switch (windows.kernel32.GetLastError()) {
-                        else => |err| return windows.unexpectedError(err),
-                    }
-                },
-                // We're waiting with an infinite timeout
-                windows.WAIT_TIMEOUT => unreachable,
-                else => unreachable,
             }
         }
     }
@@ -303,16 +260,28 @@ pub const ChildProcess = struct {
 
         try child.spawn();
 
+        // TODO collect output in a deadlock-avoiding way on Windows.
+        // https://github.com/ziglang/zig/issues/6343
+        if (builtin.os.tag == .windows) {
+            const stdout_in = child.stdout.?.reader();
+            const stderr_in = child.stderr.?.reader();
+
+            const stdout = try stdout_in.readAllAlloc(args.allocator, args.max_output_bytes);
+            errdefer args.allocator.free(stdout);
+            const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
+            errdefer args.allocator.free(stderr);
+
+            return ExecResult{
+                .term = try child.wait(),
+                .stdout = stdout,
+                .stderr = stderr,
+            };
+        }
+
         var stdout = std.ArrayList(u8).init(args.allocator);
         var stderr = std.ArrayList(u8).init(args.allocator);
 
-        // XXX: Respect max_output_bytes
-        // XXX: Smarter reading logic, read directly into the ArrayList
-        if (builtin.os.tag == .windows) {
-            try collectOutputWindows(child, &stdout, &stderr, args.max_output_bytes);
-        } else {
-            try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
-        }
+        try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
 
         return ExecResult{
             .term = try child.wait(),
@@ -650,7 +619,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
         switch (self.stdout_behavior) {
             StdIo.Pipe => {
-                try windowsMakePipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
+                try windowsMakePipeOut(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_OUT_Wr = nul_handle;
@@ -670,7 +639,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
         switch (self.stderr_behavior) {
             StdIo.Pipe => {
-                try windowsMakePipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
+                try windowsMakePipeOut(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_ERR_Wr = nul_handle;
@@ -901,55 +870,6 @@ fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8)
 fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) void {
     if (rd) |h| os.close(h);
     if (wr) |h| os.close(h);
-}
-
-var pipe_name_counter = std.atomic.Int(u32).init(1);
-
-fn windowsMakePipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
-    var tmp_buf: [128]u8 = undefined;
-    // Forge a random path for the pipe.
-    const pipe_path = std.fmt.bufPrintZ(
-        &tmp_buf,
-        "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
-        .{ windows.kernel32.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1) },
-    ) catch unreachable;
-
-    // Create the read handle that can be used with overlapped IO ops.
-    const read_handle = windows.kernel32.CreateNamedPipeA(
-        pipe_path,
-        windows.PIPE_ACCESS_INBOUND | windows.FILE_FLAG_OVERLAPPED,
-        windows.PIPE_TYPE_BYTE,
-        1,
-        0x1000,
-        0x1000,
-        0,
-        sattr,
-    );
-    if (read_handle == windows.INVALID_HANDLE_VALUE) {
-        switch (windows.kernel32.GetLastError()) {
-            else => |err| return windows.unexpectedError(err),
-        }
-    }
-
-    const write_handle = windows.kernel32.CreateFileA(
-        pipe_path,
-        windows.GENERIC_WRITE,
-        0,
-        sattr,
-        windows.OPEN_EXISTING,
-        windows.FILE_ATTRIBUTE_NORMAL,
-        null,
-    );
-    if (write_handle == windows.INVALID_HANDLE_VALUE) {
-        switch (windows.kernel32.GetLastError()) {
-            else => |err| return windows.unexpectedError(err),
-        }
-    }
-
-    try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
-
-    rd.* = read_handle;
-    wr.* = write_handle;
 }
 
 fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
