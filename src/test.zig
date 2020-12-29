@@ -762,15 +762,16 @@ pub const TestContext = struct {
                 },
                 .Execution => |expected_stdout| {
                     update_node.setEstimatedTotalItems(4);
+
+                    var argv = std.ArrayList([]const u8).init(allocator);
+                    defer argv.deinit();
+
                     var exec_result = x: {
                         var exec_node = update_node.start("execute", 0);
                         exec_node.activate();
                         defer exec_node.end();
 
-                        var argv = std.ArrayList([]const u8).init(allocator);
-                        defer argv.deinit();
-
-                        const exe_path = try std.fmt.allocPrint(arena, "." ++ std.fs.path.sep_str ++ "{s}", .{bin_name});
+                        const exe_path = try emit_directory.join(arena, &[_][]const u8{bin_name});
                         if (case.object_format != null and case.object_format.? == .c) {
                             try argv.appendSlice(&[_][]const u8{
                                 std.testing.zig_exe_path, "run", exe_path, "-lc",
@@ -837,16 +838,18 @@ pub const TestContext = struct {
                     switch (exec_result.term) {
                         .Exited => |code| {
                             if (code != 0) {
-                                std.debug.print("{s}: execution exited with code {d}. stderr:\n{s}", .{
-                                    case.name, code, exec_result.stderr,
+                                std.debug.print("\n{s}\n{s}: execution exited with code {d}:\n", .{
+                                    exec_result.stderr, case.name, code,
                                 });
+                                dumpArgs(argv.items);
                                 return error.ZigTestFailed;
                             }
                         },
                         else => {
-                            std.debug.print("{s}: execution crashed. stderr:\n{s}", .{
-                                case.name, exec_result.stderr,
+                            std.debug.print("\n{s}\n{s}: execution crashed:\n", .{
+                                exec_result.stderr, case.name,
                             });
+                            dumpArgs(argv.items);
                             return error.ZigTestFailed;
                         },
                     }
@@ -967,3 +970,10 @@ pub const TestContext = struct {
         }
     }
 };
+
+fn dumpArgs(argv: []const []const u8) void {
+    for (argv) |arg| {
+        std.debug.print("{s} ", .{arg});
+    }
+    std.debug.print("\n", .{});
+}
