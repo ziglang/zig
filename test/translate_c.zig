@@ -1375,11 +1375,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void b(void) {}
         \\void c();
         \\void d(void);
+        \\static void e() {}
+        \\static void f(void) {}
+        \\static void g();
+        \\static void h(void);
     , &[_][]const u8{
         \\pub export fn a() void {}
         \\pub export fn b() void {}
         \\pub extern fn c(...) void;
         \\pub extern fn d() void;
+        \\pub fn e() callconv(.C) void {}
+        \\pub fn f() callconv(.C) void {}
+        \\pub extern fn g() void;
+        \\pub extern fn h() void;
     });
 
     cases.add("variable declarations",
@@ -2938,7 +2946,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn a() callconv(.C) void {}
         \\pub fn b() callconv(.C) void {}
         \\pub export fn c() void {}
-        \\pub fn foo(...) callconv(.C) void {}
+        \\pub fn foo() callconv(.C) void {}
     });
 
     cases.add("casting away const and volatile",

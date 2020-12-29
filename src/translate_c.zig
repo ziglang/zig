@@ -5027,7 +5027,7 @@ fn transFnNoProto(
     is_pub: bool,
 ) !*ast.Node.FnProto {
     const cc = try transCC(rp, fn_ty, source_loc);
-    const is_var_args = if (fn_decl_context) |ctx| !ctx.is_export else true;
+    const is_var_args = if (fn_decl_context) |ctx| (!ctx.is_export and ctx.storage_class != .Static) else true;
     return finishTransFnProto(rp, null, null, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 

@@ -657,4 +657,34 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("static K&R-style no prototype function declaration (empty parameter list)",
+        \\#include <stdlib.h>
+        \\static int foo() {
+        \\    return 42;
+        \\}
+        \\int main() {
+        \\    if (foo() != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("K&R-style static function prototype for unused function",
+        \\static int foo();
+        \\int main() {
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("K&R-style static function prototype + separate definition",
+        \\#include <stdlib.h>
+        \\static int foo();
+        \\static int foo(int a, int b) {
+        \\    return a + b;
+        \\}
+        \\int main() {
+        \\    if (foo(40, 2) != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
 }
