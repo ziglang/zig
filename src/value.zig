@@ -82,6 +82,7 @@ pub const Value = extern union {
         int_big_positive,
         int_big_negative,
         function,
+        extern_fn,
         variable,
         ref_val,
         decl_ref,
@@ -205,6 +206,7 @@ pub const Value = extern union {
                 @panic("TODO implement copying of big ints");
             },
             .function => return self.copyPayloadShallow(allocator, Payload.Function),
+            .extern_fn => return self.copyPayloadShallow(allocator, Payload.ExternFn),
             .variable => return self.copyPayloadShallow(allocator, Payload.Variable),
             .ref_val => {
                 const payload = @fieldParentPtr(Payload.RefVal, "base", self.ptr_otherwise);
@@ -337,6 +339,7 @@ pub const Value = extern union {
             .int_big_positive => return out_stream.print("{}", .{val.cast(Payload.IntBigPositive).?.asBigInt()}),
             .int_big_negative => return out_stream.print("{}", .{val.cast(Payload.IntBigNegative).?.asBigInt()}),
             .function => return out_stream.writeAll("(function)"),
+            .extern_fn => return out_stream.writeAll("(extern function)"),
             .variable => return out_stream.writeAll("(variable)"),
             .ref_val => {
                 const ref_val = val.cast(Payload.RefVal).?;
@@ -468,6 +471,7 @@ pub const Value = extern union {
             .int_big_positive,
             .int_big_negative,
             .function,
+            .extern_fn,
             .variable,
             .ref_val,
             .decl_ref,
@@ -533,6 +537,7 @@ pub const Value = extern union {
             .anyframe_type,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .ref_val,
             .decl_ref,
@@ -617,6 +622,7 @@ pub const Value = extern union {
             .anyframe_type,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .ref_val,
             .decl_ref,
@@ -701,6 +707,7 @@ pub const Value = extern union {
             .anyframe_type,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .ref_val,
             .decl_ref,
@@ -812,6 +819,7 @@ pub const Value = extern union {
             .anyframe_type,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .ref_val,
             .decl_ref,
@@ -901,6 +909,7 @@ pub const Value = extern union {
             .anyframe_type,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .ref_val,
             .decl_ref,
@@ -1071,6 +1080,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .ref_val,
             .decl_ref,
@@ -1150,6 +1160,7 @@ pub const Value = extern union {
             .anyframe_type,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .ref_val,
             .decl_ref,
@@ -1383,6 +1394,10 @@ pub const Value = extern union {
                 const payload = @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise);
                 std.hash.autoHash(&hasher, payload.func);
             },
+            .extern_fn => {
+                const payload = @fieldParentPtr(Payload.ExternFn, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.decl);
+            },
             .variable => {
                 const payload = @fieldParentPtr(Payload.Variable, "base", self.ptr_otherwise);
                 std.hash.autoHash(&hasher, payload.variable);
@@ -1449,6 +1464,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .int_u64,
             .int_i64,
@@ -1533,6 +1549,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .extern_fn,
             .variable,
             .int_u64,
             .int_i64,
@@ -1634,6 +1651,7 @@ pub const Value = extern union {
             .bool_true,
             .bool_false,
             .function,
+            .extern_fn,
             .variable,
             .int_u64,
             .int_i64,
@@ -1730,6 +1748,7 @@ pub const Value = extern union {
             .bool_true,
             .bool_false,
             .function,
+            .extern_fn,
             .variable,
             .int_u64,
             .int_i64,
@@ -1791,6 +1810,11 @@ pub const Value = extern union {
         pub const Function = struct {
             base: Payload = Payload{ .tag = .function },
             func: *Module.Fn,
+        };
+
+        pub const ExternFn = struct {
+            base: Payload = Payload{ .tag = .extern_fn },
+            decl: *Module.Decl,
         };
 
         pub const Variable = struct {

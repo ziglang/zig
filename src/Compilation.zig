@@ -1431,9 +1431,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
     defer c_comp_progress_node.end();
 
-    var arena = std.heap.ArenaAllocator.init(self.gpa);
-    defer arena.deinit();
-
     self.work_queue_wait_group.reset();
     defer self.work_queue_wait_group.wait();
 
@@ -1502,7 +1499,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 };
 
                 if (self.c_header) |*header| {
-                    c_codegen.generateHeader(&arena, module, &header.*, decl) catch |err| switch (err) {
+                    c_codegen.generateHeader(self, module, header, decl) catch |err| switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
                         error.AnalysisFail => {
                             decl.analysis = .dependency_failure;
