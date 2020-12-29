@@ -394,7 +394,6 @@ pub const Inst = struct {
                 .declval => DeclVal,
                 .declval_in_module => DeclValInModule,
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
-                .compileerror => CompileError,
                 .compilelog => CompileLog,
                 .loop => Loop,
                 .@"const" => Const,
@@ -706,16 +705,6 @@ pub const Inst = struct {
         positionals: struct {
             dest_type: *Inst,
             block: *Block,
-        },
-        kw_args: struct {},
-    };
-
-    pub const CompileError = struct {
-        pub const base_tag = Tag.compileerror;
-        base: Inst,
-
-        positionals: struct {
-            msg: []const u8,
         },
         kw_args: struct {},
     };
