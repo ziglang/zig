@@ -125,6 +125,9 @@ pub const BuilderRef = opaque {
 
     pub const buildStore = LLVMBuildStore;
     extern fn LLVMBuildStore(*const BuilderRef, Val: *const ValueRef, Ptr: *const ValueRef) *const ValueRef;
+
+    pub const buildLoad = LLVMBuildLoad;
+    extern fn LLVMBuildLoad(*const BuilderRef, PointerVal: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
 };
 
 pub const BasicBlockRef = opaque {

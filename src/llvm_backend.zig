@@ -312,6 +312,7 @@ pub const LLVMIRModule = struct {
                         .arg => try self.genArg(inst.castTag(.arg).?),
                         .alloc => try self.genAlloc(inst.castTag(.alloc).?),
                         .store => try self.genStore(inst.castTag(.store).?),
+                        .load => try self.genLoad(inst.castTag(.load).?),
                         .dbg_stmt => blk: {
                             // TODO: implement debug info
                             break :blk null;
@@ -394,6 +395,11 @@ pub const LLVMIRModule = struct {
         const ptr = try self.resolveInst(inst.lhs);
         _ = self.builder.buildStore(val, ptr);
         return null;
+    }
+
+    fn genLoad(self: *LLVMIRModule, inst: *Inst.UnOp) !?*const llvm.ValueRef {
+        const ptr_val = try self.resolveInst(inst.operand);
+        return self.builder.buildLoad(ptr_val, "");
     }
 
     fn genBreakpoint(self: *LLVMIRModule, inst: *Inst.NoOp) !?*const llvm.ValueRef {
