@@ -837,11 +837,18 @@ pub const TestContext = struct {
                     switch (exec_result.term) {
                         .Exited => |code| {
                             if (code != 0) {
-                                std.debug.print("execution exited with code {}\n", .{code});
-                                return error.BinaryBadExitCode;
+                                std.debug.print("{s}: execution exited with code {d}. stderr:\n{s}", .{
+                                    case.name, code, exec_result.stderr,
+                                });
+                                return error.ZigTestFailed;
                             }
                         },
-                        else => return error.BinaryCrashed,
+                        else => {
+                            std.debug.print("{s}: execution crashed. stderr:\n{s}", .{
+                                case.name, exec_result.stderr,
+                            });
+                            return error.ZigTestFailed;
+                        },
                     }
                     std.testing.expectEqualStrings(expected_stdout, exec_result.stdout);
                 },
