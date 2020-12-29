@@ -1353,8 +1353,7 @@ pub fn totalErrorCount(self: *Compilation) usize {
         total += module.failed_decls.items().len +
             module.failed_exports.items().len +
             module.failed_files.items().len +
-            @boolToInt(module.failed_root_src_file != null) +
-            module.failed_files.items().len;
+            @boolToInt(module.failed_root_src_file != null);
         for (module.compile_log_decls.items()) |entry| {
             total += entry.value.items.len;
         }

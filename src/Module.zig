@@ -2964,7 +2964,7 @@ pub fn failCompileLog(
     self: *Module,
     scope: *Scope,
     src: usize,
-) InnerError!void { 
+) InnerError!void {
     switch (scope.tag) {
         .decl => {
             const decl = scope.cast(Scope.DeclAnalysis).?.decl;
@@ -2988,7 +2988,8 @@ pub fn failCompileLog(
         },
         .zir_module,
         .file,
-        .container, => unreachable,
+        .container,
+        => unreachable,
     }
 }
 
