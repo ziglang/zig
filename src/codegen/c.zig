@@ -11,6 +11,7 @@ const Type = @import("../type.zig").Type;
 const C = link.File.C;
 const Decl = Module.Decl;
 const mem = std.mem;
+const log = std.log.scoped(.c);
 
 const Writer = std.ArrayList(u8).Writer;
 
@@ -22,7 +23,6 @@ fn map(allocator: *std.mem.Allocator, name: []const u8) ![]const u8 {
 
 fn renderType(
     ctx: *Context,
-    header: *C.Header,
     writer: Writer,
     t: Type,
 ) error{ OutOfMemory, AnalysisFail }!void {
@@ -80,12 +80,12 @@ fn renderType(
                 if (t.isVolatilePtr()) {
                     try writer.writeAll("volatile ");
                 }
-                try renderType(ctx, header, writer, t.elemType());
+                try renderType(ctx, writer, t.elemType());
                 try writer.writeAll(" *");
             }
         },
         .Array => {
-            try renderType(ctx, header, writer, t.elemType());
+            try renderType(ctx, writer, t.elemType());
             const sentinel_bit = @boolToInt(t.sentinel() != null);
             const c_len = t.arrayLen() + sentinel_bit;
             try writer.print("[{d}]", .{c_len});
@@ -113,7 +113,16 @@ fn renderValue(
             .one => try writer.writeAll("1"),
             .decl_ref => {
                 const decl_ref_payload = val.cast(Value.Payload.DeclRef).?;
-                try writer.print("&{s}", .{decl_ref_payload.decl.name});
+
+                // Determine if we must pointer cast.
+                const decl_tv = decl_ref_payload.decl.typed_value.most_recent.typed_value;
+                if (t.eql(decl_tv.ty)) {
+                    try writer.print("&{s}", .{decl_ref_payload.decl.name});
+                } else {
+                    try writer.writeAll("(");
+                    try renderType(ctx, writer, t);
+                    try writer.print(")&{s}", .{decl_ref_payload.decl.name});
+                }
             },
             .function => {
                 const payload = val.cast(Value.Payload.Function).?;
@@ -155,12 +164,11 @@ fn renderValue(
 
 fn renderFunctionSignature(
     ctx: *Context,
-    header: *C.Header,
     writer: Writer,
     decl: *Decl,
 ) !void {
     const tv = decl.typed_value.most_recent.typed_value;
-    try renderType(ctx, header, writer, tv.ty.fnReturnType());
+    try renderType(ctx, writer, tv.ty.fnReturnType());
     // Use the child allocator directly, as we know the name can be freed before
     // the rest of the arena.
     const name = try map(ctx.arena.child_allocator, mem.spanZ(decl.name));
@@ -175,7 +183,7 @@ fn renderFunctionSignature(
             if (index > 0) {
                 try writer.writeAll(", ");
             }
-            try renderType(ctx, header, writer, tv.ty.fnParamType(index));
+            try renderType(ctx, writer, tv.ty.fnParamType(index));
             try writer.print(" arg{}", .{index});
         }
     }
@@ -194,6 +202,7 @@ pub fn generate(file: *C, decl: *Decl) !void {
         .arena = &arena,
         .inst_map = &inst_map,
         .target = file.base.options.target,
+        .header = &file.header,
     };
     defer {
         file.error_msg = ctx.error_msg;
@@ -202,7 +211,7 @@ pub fn generate(file: *C, decl: *Decl) !void {
 
     if (tv.val.cast(Value.Payload.Function)) |func_payload| {
         const writer = file.main.writer();
-        try renderFunctionSignature(&ctx, &file.header, writer, decl);
+        try renderFunctionSignature(&ctx, writer, decl);
 
         try writer.writeAll(" {");
 
@@ -211,9 +220,11 @@ pub fn generate(file: *C, decl: *Decl) !void {
         if (instructions.len > 0) {
             try writer.writeAll("\n");
             for (instructions) |inst| {
-                const indent_size = 4;
-                const indent_level = 1;
-                try writer.writeByteNTimes(' ', indent_size * indent_level);
+                if (inst.tag != .dbg_stmt) {
+                    const indent_size = 4;
+                    const indent_level = 1;
+                    try writer.writeByteNTimes(' ', indent_size * indent_level);
+                }
                 if (switch (inst.tag) {
                     .assembly => try genAsm(&ctx, file, inst.castTag(.assembly).?),
                     .call => try genCall(&ctx, file, inst.castTag(.call).?),
@@ -226,7 +237,7 @@ pub fn generate(file: *C, decl: *Decl) !void {
                     .breakpoint => try genBreak(&ctx, inst.castTag(.breakpoint).?),
                     .unreach => try genUnreach(file, inst.castTag(.unreach).?),
                     .intcast => try genIntCast(&ctx, file, inst.castTag(.intcast).?),
-                    else => |e| return ctx.fail(decl.src(), "TODO implement C codegen for {}", .{e}),
+                    else => |e| return ctx.fail(decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
                 }) |name| {
                     try ctx.inst_map.putNoClobber(inst, name);
                 }
@@ -243,7 +254,7 @@ pub fn generate(file: *C, decl: *Decl) !void {
         // TODO ask the Decl if it is const
         // https://github.com/ziglang/zig/issues/7582
 
-        try renderType(&ctx, &file.header, writer, tv.ty);
+        try renderType(&ctx, writer, tv.ty);
         try writer.print(" {s} = ", .{decl.name});
         try renderValue(&ctx, writer, tv.ty, tv.val);
         try writer.writeAll(";\n");
@@ -269,9 +280,10 @@ pub fn generateHeader(
                 .arena = &arena,
                 .inst_map = &inst_map,
                 .target = comp.getTarget(),
+                .header = header,
             };
             const writer = header.buf.writer();
-            renderFunctionSignature(&ctx, header, writer, decl) catch |err| {
+            renderFunctionSignature(&ctx, writer, decl) catch |err| {
                 if (err == error.AnalysisFail) {
                     try module.failed_decls.put(module.gpa, decl, ctx.error_msg);
                 }
@@ -291,6 +303,7 @@ const Context = struct {
     unnamed_index: usize = 0,
     error_msg: *Compilation.ErrorMsg = undefined,
     target: std.Target,
+    header: *C.Header,
 
     fn resolveInst(self: *Context, inst: *Inst) ![]u8 {
         if (inst.cast(Inst.Constant)) |const_inst| {
@@ -355,9 +368,9 @@ fn genIntCast(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
     const name = try ctx.name();
     const from = try ctx.resolveInst(inst.operand);
     try writer.writeAll("const ");
-    try renderType(ctx, &file.header, writer, inst.base.ty);
+    try renderType(ctx, writer, inst.base.ty);
     try writer.print(" {} = (", .{name});
-    try renderType(ctx, &file.header, writer, inst.base.ty);
+    try renderType(ctx, writer, inst.base.ty);
     try writer.print("){};\n", .{from});
     return name;
 }
@@ -370,7 +383,7 @@ fn genBinOp(ctx: *Context, file: *C, inst: *Inst.BinOp, comptime operator: []con
     const writer = file.main.writer();
     const name = try ctx.name();
     try writer.writeAll("const ");
-    try renderType(ctx, &file.header, writer, inst.base.ty);
+    try renderType(ctx, writer, inst.base.ty);
     try writer.print(" {} = {} " ++ operator ++ " {};\n", .{ name, lhs, rhs });
     return name;
 }
@@ -394,7 +407,7 @@ fn genCall(ctx: *Context, file: *C, inst: *Inst.Call) !?[]u8 {
         const fn_name = mem.spanZ(fn_decl.name);
         if (file.called.get(fn_name) == null) {
             try file.called.put(fn_name, void{});
-            try renderFunctionSignature(ctx, &file.header, header, fn_decl);
+            try renderFunctionSignature(ctx, header, fn_decl);
             try header.writeAll(";\n");
         }
         try writer.print("{s}(", .{fn_name});
@@ -440,7 +453,7 @@ fn genAsm(ctx: *Context, file: *C, as: *Inst.Assembly) !?[]u8 {
             const reg = i[1 .. i.len - 1];
             const arg = as.args[index];
             try writer.writeAll("register ");
-            try renderType(ctx, &file.header, writer, arg.ty);
+            try renderType(ctx, writer, arg.ty);
             try writer.print(" {}_constant __asm__(\"{}\") = ", .{ reg, reg });
             // TODO merge constant handling into inst_map as well
             if (arg.castTag(.constant)) |c| {
