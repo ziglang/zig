@@ -172,7 +172,15 @@ pub const Type = extern union {
                 const is_slice_b = isSlice(b);
                 if (is_slice_a != is_slice_b)
                     return false;
-                @panic("TODO implement more pointer Type equality comparison");
+
+                const ptr_size_a = ptrSize(a);
+                const ptr_size_b = ptrSize(b);
+                if (ptr_size_a != ptr_size_b)
+                    return false;
+
+                std.debug.panic("TODO implement more pointer Type equality comparison: {} and {}", .{
+                    a, b,
+                });
             },
             .Int => {
                 // Detect that e.g. u64 != usize, even if the bits match on a particular target.
@@ -1125,6 +1133,88 @@ pub const Type = extern union {
             => true,
 
             .pointer => self.cast(Payload.Pointer).?.size == .One,
+        };
+    }
+
+    /// Asserts the `Type` is a pointer.
+    pub fn ptrSize(self: Type) std.builtin.TypeInfo.Pointer.Size {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .array,
+            .array_sentinel,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .int_unsigned,
+            .int_signed,
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .enum_literal,
+            .error_union,
+            .@"anyframe",
+            .anyframe_T,
+            .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
+            .empty_struct,
+            => unreachable,
+
+            .const_slice,
+            .mut_slice,
+            .const_slice_u8,
+            => .Slice,
+
+            .many_const_pointer,
+            .many_mut_pointer,
+            => .Many,
+
+            .c_const_pointer,
+            .c_mut_pointer,
+            => .C,
+
+            .single_const_pointer,
+            .single_mut_pointer,
+            .single_const_pointer_to_comptime_int,
+            => .One,
+
+            .pointer => self.cast(Payload.Pointer).?.size,
         };
     }
 

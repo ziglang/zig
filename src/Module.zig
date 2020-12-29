@@ -277,6 +277,8 @@ pub const Decl = struct {
 };
 
 /// Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
+/// Extern functions do not have this data structure; they are represented by
+/// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
     /// This memory owned by the Decl's TypedValue.Managed arena allocator.
     analysis: union(enum) {
@@ -1010,8 +1012,6 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             defer fn_type_scope.instructions.deinit(self.gpa);
 
             decl.is_pub = fn_proto.getVisibToken() != null;
-            const body_node = fn_proto.getBodyNode() orelse
-                return self.failTok(&fn_type_scope.base, fn_proto.fn_token, "TODO implement extern functions", .{});
 
             const param_decls = fn_proto.params();
             const param_types = try fn_type_scope.arena.alloc(*zir.Inst, param_decls.len);
@@ -1083,6 +1083,36 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const fn_type = try zir_sema.analyzeBodyValueAsType(self, &block_scope, fn_type_inst, .{
                 .instructions = fn_type_scope.instructions.items,
             });
+            const body_node = fn_proto.getBodyNode() orelse {
+                // Extern function.
+                var type_changed = true;
+                if (decl.typedValueManaged()) |tvm| {
+                    type_changed = !tvm.typed_value.ty.eql(fn_type);
+
+                    tvm.deinit(self.gpa);
+                }
+                const value_payload = try decl_arena.allocator.create(Value.Payload.ExternFn);
+                value_payload.* = .{ .decl = decl };
+
+                decl_arena_state.* = decl_arena.state;
+                decl.typed_value = .{
+                    .most_recent = .{
+                        .typed_value = .{
+                            .ty = fn_type,
+                            .val = Value.initPayload(&value_payload.base),
+                        },
+                        .arena = decl_arena_state,
+                    },
+                };
+                decl.analysis = .complete;
+                decl.generation = self.generation;
+
+                try self.comp.bin_file.allocateDeclIndexes(decl);
+                try self.comp.work_queue.writeItem(.{ .codegen_decl = decl });
+
+                return type_changed;
+            };
+
             const new_func = try decl_arena.allocator.create(Fn);
             const fn_payload = try decl_arena.allocator.create(Value.Payload.Function);
 
@@ -1899,7 +1929,13 @@ pub fn resolveDefinedValue(self: *Module, scope: *Scope, base: *Inst) !?Value {
     return null;
 }
 
-pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, borrowed_symbol_name: []const u8, exported_decl: *Decl) !void {
+pub fn analyzeExport(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    borrowed_symbol_name: []const u8,
+    exported_decl: *Decl,
+) !void {
     try self.ensureDeclAnalyzed(exported_decl);
     const typed_value = exported_decl.typed_value.most_recent.typed_value;
     switch (typed_value.ty.zigTypeTag()) {
@@ -2801,16 +2837,47 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
         }
     }
 
-    // *[N]T to []T
-    if (inst.ty.isSinglePointer() and dest_type.isSlice() and
-        (!inst.ty.isConstPtr() or dest_type.isConstPtr()))
-    {
+    // Coercions where the source is a single pointer to an array.
+    src_array_ptr: {
+        if (!inst.ty.isSinglePointer()) break :src_array_ptr;
         const array_type = inst.ty.elemType();
+        if (array_type.zigTypeTag() != .Array) break :src_array_ptr;
+        const array_elem_type = array_type.elemType();
+        if (inst.ty.isConstPtr() and !dest_type.isConstPtr()) break :src_array_ptr;
+        if (inst.ty.isVolatilePtr() and !dest_type.isVolatilePtr()) break :src_array_ptr;
+
         const dst_elem_type = dest_type.elemType();
-        if (array_type.zigTypeTag() == .Array and
-            coerceInMemoryAllowed(dst_elem_type, array_type.elemType()) == .ok)
-        {
-            return self.coerceArrayPtrToSlice(scope, dest_type, inst);
+        switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type)) {
+            .ok => {},
+            .no_match => break :src_array_ptr,
+        }
+
+        switch (dest_type.ptrSize()) {
+            .Slice => {
+                // *[N]T to []T
+                return self.coerceArrayPtrToSlice(scope, dest_type, inst);
+            },
+            .C => {
+                // *[N]T to [*c]T
+                return self.coerceArrayPtrToMany(scope, dest_type, inst);
+            },
+            .Many => {
+                // *[N]T to [*]T
+                // *[N:s]T to [*:s]T
+                const src_sentinel = array_type.sentinel();
+                const dst_sentinel = dest_type.sentinel();
+                if (src_sentinel == null and dst_sentinel == null)
+                    return self.coerceArrayPtrToMany(scope, dest_type, inst);
+
+                if (src_sentinel) |src_s| {
+                    if (dst_sentinel) |dst_s| {
+                        if (src_s.eql(dst_s)) {
+                            return self.coerceArrayPtrToMany(scope, dest_type, inst);
+                        }
+                    }
+                }
+            },
+            .One => {},
         }
     }
 
@@ -2916,6 +2983,14 @@ fn coerceArrayPtrToSlice(self: *Module, scope: *Scope, dest_type: Type, inst: *I
         return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
     }
     return self.fail(scope, inst.src, "TODO implement coerceArrayPtrToSlice runtime instruction", .{});
+}
+
+fn coerceArrayPtrToMany(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
+    if (inst.value()) |val| {
+        // The comptime Value representation is compatible with both types.
+        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+    }
+    return self.fail(scope, inst.src, "TODO implement coerceArrayPtrToMany runtime instruction", .{});
 }
 
 pub fn fail(self: *Module, scope: *Scope, src: usize, comptime format: []const u8, args: anytype) InnerError {

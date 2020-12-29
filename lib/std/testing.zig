@@ -21,6 +21,10 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
+/// This is available to any test that wants to execute Zig in a child process.
+/// It will be the same executable that is running `zig test`.
+pub var zig_exe_path: []const u8 = undefined;
+
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) void {

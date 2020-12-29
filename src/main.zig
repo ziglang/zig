@@ -1828,7 +1828,9 @@ fn buildOutputType(
                     else => unreachable,
                 }
             }
-            try argv.append(exe_path);
+            try argv.appendSlice(&[_][]const u8{
+                exe_path, self_exe_path,
+            });
         } else {
             for (test_exec_args.items) |arg| {
                 try argv.append(arg orelse exe_path);

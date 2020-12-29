@@ -15,8 +15,6 @@ pub const base_tag: File.Tag = .c;
 
 pub const Header = struct {
     buf: std.ArrayList(u8),
-    need_stddef: bool = false,
-    need_stdint: bool = false,
     emit_loc: ?Compilation.EmitLoc,
 
     pub fn init(allocator: *Allocator, emit_loc: ?Compilation.EmitLoc) Header {
@@ -31,20 +29,8 @@ pub const Header = struct {
         defer tracy.end();
 
         try writer.writeAll(@embedFile("cbe.h"));
-        var includes = false;
-        if (self.need_stddef) {
-            try writer.writeAll("#include <stddef.h>\n");
-            includes = true;
-        }
-        if (self.need_stdint) {
-            try writer.writeAll("#include <stdint.h>\n");
-            includes = true;
-        }
-        if (includes) {
-            try writer.writeByte('\n');
-        }
         if (self.buf.items.len > 0) {
-            try writer.print("{}", .{self.buf.items});
+            try writer.print("{s}", .{self.buf.items});
         }
     }
 
