@@ -561,10 +561,10 @@ pub const TestContext = struct {
 
         var cache_dir = try tmp.dir.makeOpenPath("zig-cache", .{});
         defer cache_dir.close();
-        const tmp_path = try std.fs.path.join(arena, &[_][]const u8{ ".", "zig-cache", "tmp", &tmp.sub_path });
+        const tmp_dir_path = try std.fs.path.join(arena, &[_][]const u8{ ".", "zig-cache", "tmp", &tmp.sub_path });
         const zig_cache_directory: Compilation.Directory = .{
             .handle = cache_dir,
-            .path = try std.fs.path.join(arena, &[_][]const u8{ tmp_path, "zig-cache" }),
+            .path = try std.fs.path.join(arena, &[_][]const u8{ tmp_dir_path, "zig-cache" }),
         };
 
         const tmp_src_path = switch (case.extension) {
@@ -573,7 +573,7 @@ pub const TestContext = struct {
         };
 
         var root_pkg: Package = .{
-            .root_src_directory = .{ .path = tmp_path, .handle = tmp.dir },
+            .root_src_directory = .{ .path = tmp_dir_path, .handle = tmp.dir },
             .root_src_path = tmp_src_path,
         };
 
@@ -585,7 +585,7 @@ pub const TestContext = struct {
         });
 
         const emit_directory: Compilation.Directory = .{
-            .path = tmp_path,
+            .path = tmp_dir_path,
             .handle = tmp.dir,
         };
         const emit_bin: Compilation.EmitLoc = .{
@@ -771,7 +771,9 @@ pub const TestContext = struct {
                         exec_node.activate();
                         defer exec_node.end();
 
-                        const exe_path = try emit_directory.join(arena, &[_][]const u8{bin_name});
+                        // We use relative to cwd here because we pass a new cwd to the
+                        // child process.
+                        const exe_path = try std.fmt.allocPrint(arena, "." ++ std.fs.path.sep_str ++ "{s}", .{bin_name});
                         if (case.object_format != null and case.object_format.? == .c) {
                             try argv.appendSlice(&[_][]const u8{
                                 std.testing.zig_exe_path, "run", exe_path, "-lc",
@@ -824,11 +826,18 @@ pub const TestContext = struct {
 
                         try comp.makeBinFileExecutable();
 
-                        break :x try std.ChildProcess.exec(.{
+                        break :x std.ChildProcess.exec(.{
                             .allocator = allocator,
                             .argv = argv.items,
                             .cwd_dir = tmp.dir,
-                        });
+                            .cwd = tmp_dir_path,
+                        }) catch |err| {
+                            std.debug.print("\nThe following command failed with {s}:\n", .{
+                                @errorName(err),
+                            });
+                            dumpArgs(argv.items);
+                            return error.ZigTestFailed;
+                        };
                     };
                     var test_node = update_node.start("test", 0);
                     test_node.activate();
