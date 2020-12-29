@@ -11,9 +11,10 @@ const codegen = @import("../codegen.zig");
 const aarch64 = @import("../codegen/aarch64.zig");
 const math = std.math;
 const mem = std.mem;
+const DW = std.dwarf;
+const leb = std.leb;
 
 const trace = @import("../tracy.zig").trace;
-const Type = @import("../type.zig").Type;
 const build_options = @import("build_options");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
@@ -107,9 +108,6 @@ dyld_stub_binder_index: ?u16 = null,
 
 /// Table of symbol names aka the string table.
 string_table: std.ArrayListUnmanaged(u8) = .{},
-
-/// Table of debug symbol names aka the debug string table.
-debug_string_table: std.ArrayListUnmanaged(u8) = .{},
 
 /// Table of trampolines to the actual symbols in __text section.
 offset_table: std.ArrayListUnmanaged(u64) = .{},
@@ -207,12 +205,25 @@ pub const TextBlock = struct {
     prev: ?*TextBlock,
     next: ?*TextBlock,
 
+    /// Previous/next linked list pointers. This value is `next ^ prev`.
+    /// This is the linked list node for this Decl's corresponding .debug_info tag.
+    dbg_info_prev: ?*TextBlock,
+    dbg_info_next: ?*TextBlock,
+    /// Offset into .debug_info pointing to the tag for this Decl.
+    dbg_info_off: u32,
+    /// Size of the .debug_info tag for this Decl, not including padding.
+    dbg_info_len: u32,
+
     pub const empty = TextBlock{
         .local_sym_index = 0,
         .offset_table_index = undefined,
         .size = 0,
         .prev = null,
         .next = null,
+        .dbg_info_prev = null,
+        .dbg_info_next = null,
+        .dbg_info_off = undefined,
+        .dbg_info_len = undefined,
     };
 
     /// Returns how much room there is to grow in virtual address space.
@@ -248,7 +259,23 @@ pub const Export = struct {
 };
 
 pub const SrcFn = struct {
-    pub const empty = SrcFn{};
+    /// Offset from the beginning of the Debug Line Program header that contains this function.
+    off: u32,
+    /// Size of the line number program component belonging to this function, not
+    /// including padding.
+    len: u32,
+
+    /// Points to the previous and next neighbors, based on the offset from .debug_line.
+    /// This can be used to find, for example, the capacity of this `SrcFn`.
+    prev: ?*SrcFn,
+    next: ?*SrcFn,
+
+    pub const empty: SrcFn = .{
+        .off = 0,
+        .len = 0,
+        .prev = null,
+        .next = null,
+    };
 };
 
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*MachO {
@@ -361,7 +388,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
             if (self.d_sym) |*ds| {
                 // Flush debug symbols bundle.
-                try ds.flush(self.base.allocator);
+                try ds.flushModule(self.base.allocator, self.base.options);
             }
 
             if (target.cpu.arch == .aarch64) {
@@ -983,7 +1010,6 @@ pub fn deinit(self: *MachO) void {
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
-    self.debug_string_table.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
     self.undef_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
@@ -1091,8 +1117,126 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
+    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer dbg_line_buffer.deinit();
+
+    var dbg_info_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer dbg_info_buffer.deinit();
+
+    var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
+    defer {
+        var it = dbg_info_type_relocs.iterator();
+        while (it.next()) |entry| {
+            entry.value.relocs.deinit(self.base.allocator);
+        }
+        dbg_info_type_relocs.deinit(self.base.allocator);
+    }
+
     const typed_value = decl.typed_value.most_recent.typed_value;
-    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .none);
+    const is_fn: bool = switch (typed_value.ty.zigTypeTag()) {
+        .Fn => true,
+        else => false,
+    };
+    if (is_fn) {
+        const zir_dumps = if (std.builtin.is_test) &[0][]const u8{} else build_options.zir_dumps;
+        if (zir_dumps.len != 0) {
+            for (zir_dumps) |fn_name| {
+                if (mem.eql(u8, mem.spanZ(decl.name), fn_name)) {
+                    std.debug.print("\n{}\n", .{decl.name});
+                    typed_value.val.cast(Value.Payload.Function).?.func.dump(module.*);
+                }
+            }
+        }
+
+        // For functions we need to add a prologue to the debug line program.
+        try dbg_line_buffer.ensureCapacity(26);
+
+        const line_off: u28 = blk: {
+            if (decl.scope.cast(Module.Scope.Container)) |container_scope| {
+                const tree = container_scope.file_scope.contents.tree;
+                const file_ast_decls = tree.root_node.decls();
+                // TODO Look into improving the performance here by adding a token-index-to-line
+                // lookup table. Currently this involves scanning over the source code for newlines.
+                const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+                const block = fn_proto.getBodyNode().?.castTag(.Block).?;
+                const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+                break :blk @intCast(u28, line_delta);
+            } else if (decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
+                const byte_off = zir_module.contents.module.decls[decl.src_index].inst.src;
+                const line_delta = std.zig.lineDelta(zir_module.source.bytes, 0, byte_off);
+                break :blk @intCast(u28, line_delta);
+            } else {
+                unreachable;
+            }
+        };
+
+        dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
+            DW.LNS_extended_op,
+            @sizeOf(u64) + 1,
+            DW.LNE_set_address,
+        });
+        // This is the "relocatable" vaddr, corresponding to `code_buffer` index `0`.
+        assert(DebugSymbols.dbg_line_vaddr_reloc_index == dbg_line_buffer.items.len);
+        dbg_line_buffer.items.len += @sizeOf(u64);
+
+        dbg_line_buffer.appendAssumeCapacity(DW.LNS_advance_line);
+        // This is the "relocatable" relative line offset from the previous function's end curly
+        // to this function's begin curly.
+        assert(DebugSymbols.getRelocDbgLineOff() == dbg_line_buffer.items.len);
+        // Here we use a ULEB128-fixed-4 to make sure this field can be overwritten later.
+        leb.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line_off);
+
+        dbg_line_buffer.appendAssumeCapacity(DW.LNS_set_file);
+        assert(DebugSymbols.getRelocDbgFileIndex() == dbg_line_buffer.items.len);
+        // Once we support more than one source file, this will have the ability to be more
+        // than one possible value.
+        const file_index = 1;
+        leb.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), file_index);
+
+        // Emit a line for the begin curly with prologue_end=false. The codegen will
+        // do the work of setting prologue_end=true and epilogue_begin=true.
+        dbg_line_buffer.appendAssumeCapacity(DW.LNS_copy);
+
+        // .debug_info subprogram
+        const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
+        try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 25 + decl_name_with_null.len);
+
+        const fn_ret_type = typed_value.ty.fnReturnType();
+        const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
+        if (fn_ret_has_bits) {
+            dbg_info_buffer.appendAssumeCapacity(DebugSymbols.abbrev_subprogram);
+        } else {
+            dbg_info_buffer.appendAssumeCapacity(DebugSymbols.abbrev_subprogram_retvoid);
+        }
+        // These get overwritten after generating the machine code. These values are
+        // "relocations" and have to be in this fixed place so that functions can be
+        // moved in virtual address space.
+        assert(DebugSymbols.dbg_info_low_pc_reloc_index == dbg_info_buffer.items.len);
+        dbg_info_buffer.items.len += @sizeOf(u64); // DW.AT_low_pc,  DW.FORM_addr
+        assert(DebugSymbols.getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
+        dbg_info_buffer.items.len += 4; // DW.AT_high_pc,  DW.FORM_data4
+        if (fn_ret_has_bits) {
+            const gop = try dbg_info_type_relocs.getOrPut(self.base.allocator, fn_ret_type);
+            if (!gop.found_existing) {
+                gop.entry.value = .{
+                    .off = undefined,
+                    .relocs = .{},
+                };
+            }
+            try gop.entry.value.relocs.append(self.base.allocator, @intCast(u32, dbg_info_buffer.items.len));
+            dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
+        }
+        dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
+    } else {
+        // TODO implement .debug_info for global variables
+    }
+    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .{
+        .dwarf = .{
+            .dbg_line = &dbg_line_buffer,
+            .dbg_info = &dbg_info_buffer,
+            .dbg_info_type_relocs = &dbg_info_type_relocs,
+        },
+    });
 
     const code = switch (res) {
         .externally_managed => |x| x,
@@ -1178,12 +1322,160 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     const file_offset = text_section.offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
+    const text_block = &decl.link.macho;
+    // If the Decl is a function, we need to update the __debug_line program.
+    if (is_fn) {
+        // Perform the relocations based on vaddr.
+        {
+            const ptr = dbg_line_buffer.items[DebugSymbols.dbg_line_vaddr_reloc_index..][0..8];
+            mem.writeIntLittle(u64, ptr, symbol.n_value);
+        }
+        {
+            const ptr = dbg_info_buffer.items[DebugSymbols.dbg_info_low_pc_reloc_index..][0..8];
+            mem.writeIntLittle(u64, ptr, symbol.n_value);
+        }
+        {
+            const ptr = dbg_info_buffer.items[DebugSymbols.getRelocDbgInfoSubprogramHighPC()..][0..4];
+            mem.writeIntLittle(u32, ptr, @intCast(u32, text_block.size));
+        }
+
+        try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS_extended_op, 1, DW.LNE_end_sequence });
+
+        // Now we have the full contents and may allocate a region to store it.
+
+        // This logic is nearly identical to the logic below in `updateDeclDebugInfo` for
+        // `TextBlock` and the .debug_info. If you are editing this logic, you
+        // probably need to edit that logic too.
+
+        const dwarf_segment = &self.d_sym.?.load_commands.items[self.d_sym.?.dwarf_segment_cmd_index.?].Segment;
+        const debug_line_sect = &dwarf_segment.sections.items[self.d_sym.?.debug_line_section_index.?];
+        const src_fn = &decl.fn_link.macho;
+        src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
+        if (self.d_sym.?.dbg_line_fn_last) |last| {
+            if (src_fn.next) |next| {
+                // Update existing function - non-last item.
+                if (src_fn.off + src_fn.len + DebugSymbols.min_nop_size > next.off) {
+                    // It grew too big, so we move it to a new location.
+                    if (src_fn.prev) |prev| {
+                        _ = self.d_sym.?.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
+                        prev.next = src_fn.next;
+                    }
+                    next.prev = src_fn.prev;
+                    src_fn.next = null;
+                    // Populate where it used to be with NOPs.
+                    const file_pos = debug_line_sect.offset + src_fn.off;
+                    try self.d_sym.?.pwriteDbgLineNops(0, &[0]u8{}, src_fn.len, file_pos);
+                    // TODO Look at the free list before appending at the end.
+                    src_fn.prev = last;
+                    last.next = src_fn;
+                    self.d_sym.?.dbg_line_fn_last = src_fn;
+
+                    src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+                }
+            } else if (src_fn.prev == null) {
+                // Append new function.
+                // TODO Look at the free list before appending at the end.
+                src_fn.prev = last;
+                last.next = src_fn;
+                self.d_sym.?.dbg_line_fn_last = src_fn;
+
+                src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+            }
+        } else {
+            // This is the first function of the Line Number Program.
+            self.d_sym.?.dbg_line_fn_first = src_fn;
+            self.d_sym.?.dbg_line_fn_last = src_fn;
+
+            src_fn.off = self.d_sym.?.dbgLineNeededHeaderBytes(module) * alloc_num / alloc_den;
+        }
+
+        const last_src_fn = self.d_sym.?.dbg_line_fn_last.?;
+        const needed_size = last_src_fn.off + last_src_fn.len;
+        if (needed_size != debug_line_sect.size) {
+            if (needed_size > dwarf_segment.allocatedSize(debug_line_sect.offset)) {
+                const new_offset = dwarf_segment.findFreeSpace(needed_size, 1, null);
+                const existing_size = last_src_fn.off;
+
+                assert(dwarf_segment.inner.fileoff + dwarf_segment.inner.filesize >= new_offset + needed_size);
+
+                log.debug("moving __zdebug_line section: {} bytes from 0x{x} to 0x{x}", .{
+                    existing_size,
+                    debug_line_sect.offset,
+                    new_offset,
+                });
+
+                const amt = try self.d_sym.?.file.copyRangeAll(debug_line_sect.offset, self.d_sym.?.file, new_offset, existing_size);
+                if (amt != existing_size) return error.InputOutput;
+                debug_line_sect.offset = @intCast(u32, new_offset);
+                debug_line_sect.addr = dwarf_segment.inner.vmaddr + new_offset - dwarf_segment.inner.fileoff;
+            }
+            debug_line_sect.size = needed_size;
+            self.d_sym.?.load_commands_dirty = true; // TODO look into making only the one section dirty
+            self.d_sym.?.debug_line_header_dirty = true;
+        }
+        const prev_padding_size: u32 = if (src_fn.prev) |prev| src_fn.off - (prev.off + prev.len) else 0;
+        const next_padding_size: u32 = if (src_fn.next) |next| next.off - (src_fn.off + src_fn.len) else 0;
+
+        // We only have support for one compilation unit so far, so the offsets are directly
+        // from the .debug_line section.
+        const file_pos = debug_line_sect.offset + src_fn.off;
+        try self.d_sym.?.pwriteDbgLineNops(prev_padding_size, dbg_line_buffer.items, next_padding_size, file_pos);
+
+        // .debug_info - End the TAG_subprogram children.
+        try dbg_info_buffer.append(0);
+    }
+
+    // Now we emit the .debug_info types of the Decl. These will count towards the size of
+    // the buffer, so we have to do it before computing the offset, and we can't perform the actual
+    // relocations yet.
+    var it = dbg_info_type_relocs.iterator();
+    while (it.next()) |entry| {
+        entry.value.off = @intCast(u32, dbg_info_buffer.items.len);
+        try self.d_sym.?.addDbgInfoType(entry.key, &dbg_info_buffer, self.base.options.target);
+    }
+
+    try self.d_sym.?.updateDeclDebugInfoAllocation(self.base.allocator, text_block, @intCast(u32, dbg_info_buffer.items.len));
+
+    // Now that we have the offset assigned we can finally perform type relocations.
+    it = dbg_info_type_relocs.iterator();
+    while (it.next()) |entry| {
+        for (entry.value.relocs.items) |off| {
+            mem.writeIntLittle(
+                u32,
+                dbg_info_buffer.items[off..][0..4],
+                text_block.dbg_info_off + entry.value.off,
+            );
+        }
+    }
+
+    try self.d_sym.?.writeDeclDebugInfo(text_block, dbg_info_buffer.items);
+
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
     const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
     try self.updateDeclExports(module, decl, decl_exports);
 }
 
-pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {}
+pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const container_scope = decl.scope.cast(Module.Scope.Container).?;
+    const tree = container_scope.file_scope.contents.tree;
+    const file_ast_decls = tree.root_node.decls();
+    // TODO Look into improving the performance here by adding a token-index-to-line
+    // lookup table. Currently this involves scanning over the source code for newlines.
+    const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+    const block = fn_proto.getBodyNode().?.castTag(.Block).?;
+    const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+    const casted_line_off = @intCast(u28, line_delta);
+
+    const dwarf_segment = &self.d_sym.?.load_commands.items[self.d_sym.?.dwarf_segment_cmd_index.?].Segment;
+    const shdr = &dwarf_segment.sections.items[self.d_sym.?.debug_line_section_index.?];
+    const file_pos = shdr.offset + decl.fn_link.macho.off + DebugSymbols.getRelocDbgLineOff();
+    var data: [4]u8 = undefined;
+    leb.writeUnsignedFixed(4, &data, casted_line_off);
+    try self.d_sym.?.file.pwriteAll(&data, file_pos);
+}
 
 pub fn updateDeclExports(
     self: *MachO,

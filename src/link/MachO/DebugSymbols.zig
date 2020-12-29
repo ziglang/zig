@@ -11,7 +11,12 @@ const leb = std.leb;
 const Allocator = mem.Allocator;
 
 const trace = @import("../../tracy.zig").trace;
+const Module = @import("../../Module.zig");
+const Type = @import("../../type.zig").Type;
+const link = @import("../../link.zig");
 const MachO = @import("../MachO.zig");
+const SrcFn = MachO.SrcFn;
+const TextBlock = MachO.TextBlock;
 const satMul = MachO.satMul;
 const alloc_num = MachO.alloc_num;
 const alloc_den = MachO.alloc_den;
@@ -58,6 +63,21 @@ debug_line_section_index: ?u16 = null,
 
 debug_abbrev_table_offset: ?u64 = null,
 
+/// A list of `SrcFn` whose Line Number Programs have surplus capacity.
+/// This is the same concept as `text_block_free_list`; see those doc comments.
+dbg_line_fn_free_list: std.AutoHashMapUnmanaged(*SrcFn, void) = .{},
+dbg_line_fn_first: ?*SrcFn = null,
+dbg_line_fn_last: ?*SrcFn = null,
+
+/// A list of `TextBlock` whose corresponding .debug_info tags have surplus capacity.
+/// This is the same concept as `text_block_free_list`; see those doc comments.
+dbg_info_decl_free_list: std.AutoHashMapUnmanaged(*TextBlock, void) = .{},
+dbg_info_decl_first: ?*TextBlock = null,
+dbg_info_decl_last: ?*TextBlock = null,
+
+/// Table of debug symbol names aka the debug string table.
+debug_string_table: std.ArrayListUnmanaged(u8) = .{},
+
 header_dirty: bool = false,
 load_commands_dirty: bool = false,
 string_table_dirty: bool = false,
@@ -66,6 +86,13 @@ debug_abbrev_section_dirty: bool = false,
 debug_aranges_section_dirty: bool = false,
 debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
+
+pub const abbrev_compile_unit = 1;
+pub const abbrev_subprogram = 2;
+pub const abbrev_subprogram_retvoid = 3;
+pub const abbrev_base_type = 4;
+pub const abbrev_pad1 = 5;
+pub const abbrev_parameter = 6;
 
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
@@ -186,20 +213,14 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
     if (self.debug_str_section_index == null) {
         const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
         self.debug_str_section_index = @intCast(u16, dwarf_segment.sections.items.len);
-        assert(self.base.debug_string_table.items.len == 0);
-
-        const file_size_hint = 200;
-        const p_align = 1;
-        const off = dwarf_segment.findFreeSpace(file_size_hint, p_align, null);
-
-        log.debug("found dSym __debug_strtab free space 0x{x} to 0x{x}", .{ off, off + file_size_hint });
+        assert(self.debug_string_table.items.len == 0);
 
         try dwarf_segment.addSection(allocator, .{
             .sectname = makeStaticString("__debug_str"),
             .segname = makeStaticString("__DWARF"),
-            .addr = dwarf_segment.inner.vmaddr + off,
-            .size = @intCast(u32, self.base.debug_string_table.items.len),
-            .offset = @intCast(u32, off),
+            .addr = dwarf_segment.inner.vmaddr,
+            .size = @intCast(u32, self.debug_string_table.items.len),
+            .offset = @intCast(u32, dwarf_segment.inner.fileoff),
             .@"align" = 1,
             .reloff = 0,
             .nreloc = 0,
@@ -225,7 +246,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         try dwarf_segment.addSection(allocator, .{
             .sectname = makeStaticString("__debug_info"),
             .segname = makeStaticString("__DWARF"),
-            .addr = dwarf_segment.inner.vmaddr + off,
+            .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
             .@"align" = p_align,
@@ -253,7 +274,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         try dwarf_segment.addSection(allocator, .{
             .sectname = makeStaticString("__debug_abbrev"),
             .segname = makeStaticString("__DWARF"),
-            .addr = dwarf_segment.inner.vmaddr + off,
+            .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
             .@"align" = p_align,
@@ -281,7 +302,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         try dwarf_segment.addSection(allocator, .{
             .sectname = makeStaticString("__debug_aranges"),
             .segname = makeStaticString("__DWARF"),
-            .addr = dwarf_segment.inner.vmaddr + off,
+            .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
             .@"align" = p_align,
@@ -309,7 +330,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
         try dwarf_segment.addSection(allocator, .{
             .sectname = makeStaticString("__debug_line"),
             .segname = makeStaticString("__DWARF"),
-            .addr = dwarf_segment.inner.vmaddr + off,
+            .addr = dwarf_segment.inner.vmaddr + off - dwarf_segment.inner.fileoff,
             .size = file_size_hint,
             .offset = @intCast(u32, off),
             .@"align" = p_align,
@@ -326,17 +347,346 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
     }
 }
 
-pub fn flush(self: *DebugSymbols, allocator: *Allocator) !void {
+pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Options) !void {
+    // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
+    // Zig source code.
+    const module = options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const init_len_size: usize = 12;
+
+    if (self.debug_abbrev_section_dirty) {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        const debug_abbrev_sect = &dwarf_segment.sections.items[self.debug_abbrev_section_index.?];
+
+        // These are LEB encoded but since the values are all less than 127
+        // we can simply append these bytes.
+        const abbrev_buf = [_]u8{
+            abbrev_compile_unit, DW.TAG_compile_unit, DW.CHILDREN_yes, // header
+            DW.AT_stmt_list,     DW.FORM_sec_offset,  DW.AT_low_pc,
+            DW.FORM_addr,        DW.AT_high_pc,       DW.FORM_addr,
+            DW.AT_name,          DW.FORM_strp,        DW.AT_comp_dir,
+            DW.FORM_strp,        DW.AT_producer,      DW.FORM_strp,
+            DW.AT_language,      DW.FORM_data2,       0,
+            0, // table sentinel
+            abbrev_subprogram,
+            DW.TAG_subprogram,
+            DW.CHILDREN_yes, // header
+            DW.AT_low_pc,
+            DW.FORM_addr,
+            DW.AT_high_pc,
+            DW.FORM_data4,
+            DW.AT_type,
+            DW.FORM_ref4,
+            DW.AT_name,
+            DW.FORM_string,
+            0,                         0, // table sentinel
+            abbrev_subprogram_retvoid,
+            DW.TAG_subprogram, DW.CHILDREN_yes, // header
+            DW.AT_low_pc,      DW.FORM_addr,
+            DW.AT_high_pc,     DW.FORM_data4,
+            DW.AT_name,        DW.FORM_string,
+            0,
+            0, // table sentinel
+            abbrev_base_type,
+            DW.TAG_base_type,
+            DW.CHILDREN_no, // header
+            DW.AT_encoding,
+            DW.FORM_data1,
+            DW.AT_byte_size,
+            DW.FORM_data1,
+            DW.AT_name,
+            DW.FORM_string, 0, 0, // table sentinel
+            abbrev_pad1, DW.TAG_unspecified_type, DW.CHILDREN_no, // header
+            0,                0, // table sentinel
+            abbrev_parameter,
+            DW.TAG_formal_parameter, DW.CHILDREN_no, // header
+            DW.AT_location,          DW.FORM_exprloc,
+            DW.AT_type,              DW.FORM_ref4,
+            DW.AT_name,              DW.FORM_string,
+            0,
+            0, // table sentinel
+            0,
+            0,
+            0, // section sentinel
+        };
+
+        const needed_size = abbrev_buf.len;
+        const allocated_size = dwarf_segment.allocatedSize(debug_abbrev_sect.offset);
+        if (needed_size > allocated_size) {
+            debug_abbrev_sect.size = 0; // free the space
+            debug_abbrev_sect.offset = @intCast(u32, dwarf_segment.findFreeSpace(needed_size, 1, null));
+        }
+        debug_abbrev_sect.size = needed_size;
+        log.debug("__debug_abbrev start=0x{x} end=0x{x}", .{
+            debug_abbrev_sect.offset,
+            debug_abbrev_sect.offset + needed_size,
+        });
+
+        const abbrev_offset = 0;
+        self.debug_abbrev_table_offset = abbrev_offset;
+        try self.file.pwriteAll(&abbrev_buf, debug_abbrev_sect.offset + abbrev_offset);
+        self.load_commands_dirty = true;
+        self.debug_abbrev_section_dirty = false;
+    }
+
+    if (self.debug_info_header_dirty) debug_info: {
+        // If this value is null it means there is an error in the module;
+        // leave debug_info_header_dirty=true.
+        const first_dbg_info_decl = self.dbg_info_decl_first orelse break :debug_info;
+        const last_dbg_info_decl = self.dbg_info_decl_last.?;
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        const debug_info_sect = &dwarf_segment.sections.items[self.debug_info_section_index.?];
+
+        var di_buf = std.ArrayList(u8).init(allocator);
+        defer di_buf.deinit();
+
+        // We have a function to compute the upper bound size, because it's needed
+        // for determining where to put the offset of the first `LinkBlock`.
+        try di_buf.ensureCapacity(self.dbgInfoNeededHeaderBytes());
+
+        // initial length - length of the .debug_info contribution for this compilation unit,
+        // not including the initial length itself.
+        // We have to come back and write it later after we know the size.
+        const after_init_len = di_buf.items.len + init_len_size;
+        // +1 for the final 0 that ends the compilation unit children.
+        const dbg_info_end = last_dbg_info_decl.dbg_info_off + last_dbg_info_decl.dbg_info_len + 1;
+        const init_len = dbg_info_end - after_init_len;
+        di_buf.appendNTimesAssumeCapacity(0xff, 4);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len);
+        mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4); // DWARF version
+        const abbrev_offset = self.debug_abbrev_table_offset.?;
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), abbrev_offset);
+        di_buf.appendAssumeCapacity(8); // address size
+        // Write the form for the compile unit, which must match the abbrev table above.
+        const name_strp = try self.makeDebugString(allocator, module.root_pkg.root_src_path);
+        const comp_dir_strp = try self.makeDebugString(allocator, module.root_pkg.root_src_directory.path orelse ".");
+        const producer_strp = try self.makeDebugString(allocator, link.producer_string);
+        // Currently only one compilation unit is supported, so the address range is simply
+        // identical to the main program header virtual address and memory size.
+        const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const text_section = text_segment.sections.items[self.text_section_index.?];
+        const low_pc = text_section.addr;
+        const high_pc = text_section.addr + text_section.size;
+
+        di_buf.appendAssumeCapacity(abbrev_compile_unit);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0); // DW.AT_stmt_list, DW.FORM_sec_offset
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), low_pc);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), high_pc);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), name_strp);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), comp_dir_strp);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), producer_strp);
+        // We are still waiting on dwarf-std.org to assign DW_LANG_Zig a number:
+        // http://dwarfstd.org/ShowIssue.php?issue=171115.1
+        // Until then we say it is C99.
+        mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG_C99);
+
+        if (di_buf.items.len > first_dbg_info_decl.dbg_info_off) {
+            // Move the first N decls to the end to make more padding for the header.
+            @panic("TODO: handle __zdebug_info header exceeding its padding");
+        }
+        const jmp_amt = first_dbg_info_decl.dbg_info_off - di_buf.items.len;
+        try self.pwriteDbgInfoNops(0, di_buf.items, jmp_amt, false, debug_info_sect.offset);
+        self.debug_info_header_dirty = false;
+    }
+
+    if (self.debug_aranges_section_dirty) {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        const debug_aranges_sect = &dwarf_segment.sections.items[self.debug_aranges_section_index.?];
+        const debug_info_sect = dwarf_segment.sections.items[self.debug_info_section_index.?];
+
+        var di_buf = std.ArrayList(u8).init(allocator);
+        defer di_buf.deinit();
+
+        // Enough for all the data without resizing. When support for more compilation units
+        // is added, the size of this section will become more variable.
+        try di_buf.ensureCapacity(100);
+
+        // initial length - length of the .debug_aranges contribution for this compilation unit,
+        // not including the initial length itself.
+        // We have to come back and write it later after we know the size.
+        const init_len_index = di_buf.items.len;
+        di_buf.items.len += init_len_size;
+        const after_init_len = di_buf.items.len;
+        mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), 2); // version
+        // When more than one compilation unit is supported, this will be the offset to it.
+        // For now it is always at offset 0 in .debug_info.
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), debug_info_sect.addr); // __debug_info offset
+        di_buf.appendAssumeCapacity(@sizeOf(u64)); // address_size
+        di_buf.appendAssumeCapacity(0); // segment_selector_size
+
+        const end_header_offset = di_buf.items.len;
+        const begin_entries_offset = mem.alignForward(end_header_offset, @sizeOf(u64) * 2);
+        di_buf.appendNTimesAssumeCapacity(0, begin_entries_offset - end_header_offset);
+
+        // Currently only one compilation unit is supported, so the address range is simply
+        // identical to the main program header virtual address and memory size.
+        const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const text_section = text_segment.sections.items[self.text_section_index.?];
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), text_section.addr);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), text_section.size);
+
+        // Sentinel.
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0);
+
+        // Go back and populate the initial length.
+        const init_len = di_buf.items.len - after_init_len;
+        // initial length - length of the .debug_aranges contribution for this compilation unit,
+        // not including the initial length itself.
+        di_buf.items[init_len_index..][0..4].* = [_]u8{ 0xff, 0xff, 0xff, 0xff };
+        mem.writeIntLittle(u64, di_buf.items[init_len_index + 4 ..][0..8], init_len);
+
+        const needed_size = di_buf.items.len;
+        const allocated_size = dwarf_segment.allocatedSize(debug_aranges_sect.offset);
+        if (needed_size > allocated_size) {
+            debug_aranges_sect.size = 0; // free the space
+            const offset = dwarf_segment.findFreeSpace(needed_size, 16, null);
+            debug_aranges_sect.offset = @intCast(u32, offset);
+            debug_aranges_sect.addr = dwarf_segment.inner.vmaddr + offset - dwarf_segment.inner.fileoff;
+        }
+        debug_aranges_sect.size = needed_size;
+        log.debug("__debug_aranges start=0x{x} end=0x{x}", .{
+            debug_aranges_sect.offset,
+            debug_aranges_sect.offset + needed_size,
+        });
+
+        try self.file.pwriteAll(di_buf.items, debug_aranges_sect.offset);
+        self.load_commands_dirty = true;
+        self.debug_aranges_section_dirty = false;
+    }
+    if (self.debug_line_header_dirty) debug_line: {
+        if (self.dbg_line_fn_first == null) {
+            break :debug_line; // Error in module; leave debug_line_header_dirty=true.
+        }
+        const dbg_line_prg_off = self.getDebugLineProgramOff();
+        const dbg_line_prg_end = self.getDebugLineProgramEnd();
+        assert(dbg_line_prg_end != 0);
+
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        const debug_line_sect = &dwarf_segment.sections.items[self.debug_line_section_index.?];
+
+        var di_buf = std.ArrayList(u8).init(allocator);
+        defer di_buf.deinit();
+
+        // The size of this header is variable, depending on the number of directories,
+        // files, and padding. We have a function to compute the upper bound size, however,
+        // because it's needed for determining where to put the offset of the first `SrcFn`.
+        try di_buf.ensureCapacity(self.dbgLineNeededHeaderBytes(module));
+
+        // initial length - length of the .debug_line contribution for this compilation unit,
+        // not including the initial length itself.
+        const after_init_len = di_buf.items.len + init_len_size;
+        const init_len = dbg_line_prg_end - after_init_len;
+        di_buf.appendNTimesAssumeCapacity(0xff, 4);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len);
+        mem.writeIntLittle(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4); // version
+
+        // Empirically, debug info consumers do not respect this field, or otherwise
+        // consider it to be an error when it does not point exactly to the end of the header.
+        // Therefore we rely on the NOP jump at the beginning of the Line Number Program for
+        // padding rather than this field.
+        const before_header_len = di_buf.items.len;
+        di_buf.items.len += @sizeOf(u64); // We will come back and write this.
+        const after_header_len = di_buf.items.len;
+
+        const opcode_base = DW.LNS_set_isa + 1;
+        di_buf.appendSliceAssumeCapacity(&[_]u8{
+            1, // minimum_instruction_length
+            1, // maximum_operations_per_instruction
+            1, // default_is_stmt
+            1, // line_base (signed)
+            1, // line_range
+            opcode_base,
+
+            // Standard opcode lengths. The number of items here is based on `opcode_base`.
+            // The value is the number of LEB128 operands the instruction takes.
+            0, // `DW.LNS_copy`
+            1, // `DW.LNS_advance_pc`
+            1, // `DW.LNS_advance_line`
+            1, // `DW.LNS_set_file`
+            1, // `DW.LNS_set_column`
+            0, // `DW.LNS_negate_stmt`
+            0, // `DW.LNS_set_basic_block`
+            0, // `DW.LNS_const_add_pc`
+            1, // `DW.LNS_fixed_advance_pc`
+            0, // `DW.LNS_set_prologue_end`
+            0, // `DW.LNS_set_epilogue_begin`
+            1, // `DW.LNS_set_isa`
+            0, // include_directories (none except the compilation unit cwd)
+        });
+        // file_names[0]
+        di_buf.appendSliceAssumeCapacity(module.root_pkg.root_src_path); // relative path name
+        di_buf.appendSliceAssumeCapacity(&[_]u8{
+            0, // null byte for the relative path name
+            0, // directory_index
+            0, // mtime (TODO supply this)
+            0, // file size bytes (TODO supply this)
+            0, // file_names sentinel
+        });
+
+        const header_len = di_buf.items.len - after_header_len;
+        mem.writeIntLittle(u64, di_buf.items[before_header_len..][0..8], header_len);
+
+        // We use NOPs because consumers empirically do not respect the header length field.
+        if (di_buf.items.len > dbg_line_prg_off) {
+            // Move the first N files to the end to make more padding for the header.
+            @panic("TODO: handle __debug_line header exceeding its padding");
+        }
+        const jmp_amt = dbg_line_prg_off - di_buf.items.len;
+        try self.pwriteDbgLineNops(0, di_buf.items, jmp_amt, debug_line_sect.offset);
+        self.debug_line_header_dirty = false;
+    }
+    {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        const debug_strtab_sect = &dwarf_segment.sections.items[self.debug_str_section_index.?];
+        if (self.debug_string_table_dirty or self.debug_string_table.items.len != debug_strtab_sect.size) {
+            const allocated_size = dwarf_segment.allocatedSize(debug_strtab_sect.offset);
+            const needed_size = self.debug_string_table.items.len;
+
+            if (needed_size > allocated_size) {
+                debug_strtab_sect.size = 0; // free the space
+                const new_offset = dwarf_segment.findFreeSpace(needed_size, 1, null);
+                debug_strtab_sect.addr = dwarf_segment.inner.vmaddr + new_offset - dwarf_segment.inner.fileoff;
+                debug_strtab_sect.offset = @intCast(u32, new_offset);
+            }
+            debug_strtab_sect.size = @intCast(u32, needed_size);
+
+            log.debug("__debug_strtab start=0x{x} end=0x{x}", .{
+                debug_strtab_sect.offset,
+                debug_strtab_sect.offset + needed_size,
+            });
+
+            try self.file.pwriteAll(self.debug_string_table.items, debug_strtab_sect.offset);
+            self.load_commands_dirty = true;
+            self.debug_string_table_dirty = false;
+        }
+    }
+
     try self.writeStringTable();
+
+    {
+        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+        var file_size: u64 = 0;
+        for (dwarf_segment.sections.items) |sect| {
+            file_size += sect.size;
+        }
+        dwarf_segment.inner.filesize = file_size;
+    }
+
     try self.writeLoadCommands(allocator);
     try self.writeHeader();
 
     assert(!self.header_dirty);
     assert(!self.load_commands_dirty);
     assert(!self.string_table_dirty);
+    assert(!self.debug_abbrev_section_dirty);
+    assert(!self.debug_aranges_section_dirty);
+    assert(!self.debug_string_table_dirty);
 }
 
 pub fn deinit(self: *DebugSymbols, allocator: *Allocator) void {
+    self.dbg_info_decl_free_list.deinit(allocator);
+    self.dbg_line_fn_free_list.deinit(allocator);
+    self.debug_string_table.deinit(allocator);
     for (self.load_commands.items) |*lc| {
         lc.deinit(allocator);
     }
@@ -534,4 +884,368 @@ pub fn writeStringTable(self: *DebugSymbols) !void {
     try self.file.pwriteAll(self.base.string_table.items, symtab.stroff);
     self.load_commands_dirty = true;
     self.string_table_dirty = false;
+}
+
+/// Asserts the type has codegen bits.
+pub fn addDbgInfoType(
+    self: *DebugSymbols,
+    ty: Type,
+    dbg_info_buffer: *std.ArrayList(u8),
+    target: std.Target,
+) !void {
+    switch (ty.zigTypeTag()) {
+        .Void => unreachable,
+        .NoReturn => unreachable,
+        .Bool => {
+            try dbg_info_buffer.appendSlice(&[_]u8{
+                abbrev_base_type,
+                DW.ATE_boolean, // DW.AT_encoding ,  DW.FORM_data1
+                1, // DW.AT_byte_size,  DW.FORM_data1
+                'b',
+                'o',
+                'o',
+                'l',
+                0, // DW.AT_name,  DW.FORM_string
+            });
+        },
+        .Int => {
+            const info = ty.intInfo(target);
+            try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
+            dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
+            // DW.AT_encoding, DW.FORM_data1
+            dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
+                .signed => DW.ATE_signed,
+                .unsigned => DW.ATE_unsigned,
+            });
+            // DW.AT_byte_size,  DW.FORM_data1
+            dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(target)));
+            // DW.AT_name,  DW.FORM_string
+            try dbg_info_buffer.writer().print("{}\x00", .{ty});
+        },
+        else => {
+            std.log.scoped(.compiler).err("TODO implement .debug_info for type '{}'", .{ty});
+            try dbg_info_buffer.append(abbrev_pad1);
+        },
+    }
+}
+
+pub fn updateDeclDebugInfoAllocation(
+    self: *DebugSymbols,
+    allocator: *Allocator,
+    text_block: *TextBlock,
+    len: u32,
+) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    // This logic is nearly identical to the logic above in `updateDecl` for
+    // `SrcFn` and the line number programs. If you are editing this logic, you
+    // probably need to edit that logic too.
+
+    const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+    const debug_info_sect = &dwarf_segment.sections.items[self.debug_info_section_index.?];
+    text_block.dbg_info_len = len;
+    if (self.dbg_info_decl_last) |last| {
+        if (text_block.dbg_info_next) |next| {
+            // Update existing Decl - non-last item.
+            if (text_block.dbg_info_off + text_block.dbg_info_len + min_nop_size > next.dbg_info_off) {
+                // It grew too big, so we move it to a new location.
+                if (text_block.dbg_info_prev) |prev| {
+                    _ = self.dbg_info_decl_free_list.put(allocator, prev, {}) catch {};
+                    prev.dbg_info_next = text_block.dbg_info_next;
+                }
+                next.dbg_info_prev = text_block.dbg_info_prev;
+                text_block.dbg_info_next = null;
+                // Populate where it used to be with NOPs.
+                const file_pos = debug_info_sect.offset + text_block.dbg_info_off;
+                try self.pwriteDbgInfoNops(0, &[0]u8{}, text_block.dbg_info_len, false, file_pos);
+                // TODO Look at the free list before appending at the end.
+                text_block.dbg_info_prev = last;
+                last.dbg_info_next = text_block;
+                self.dbg_info_decl_last = text_block;
+
+                text_block.dbg_info_off = last.dbg_info_off + (last.dbg_info_len * alloc_num / alloc_den);
+            }
+        } else if (text_block.dbg_info_prev == null) {
+            // Append new Decl.
+            // TODO Look at the free list before appending at the end.
+            text_block.dbg_info_prev = last;
+            last.dbg_info_next = text_block;
+            self.dbg_info_decl_last = text_block;
+
+            text_block.dbg_info_off = last.dbg_info_off + (last.dbg_info_len * alloc_num / alloc_den);
+        }
+    } else {
+        // This is the first Decl of the .debug_info
+        self.dbg_info_decl_first = text_block;
+        self.dbg_info_decl_last = text_block;
+
+        text_block.dbg_info_off = self.dbgInfoNeededHeaderBytes() * alloc_num / alloc_den;
+    }
+}
+
+pub fn writeDeclDebugInfo(self: *DebugSymbols, text_block: *TextBlock, dbg_info_buf: []const u8) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    // This logic is nearly identical to the logic above in `updateDecl` for
+    // `SrcFn` and the line number programs. If you are editing this logic, you
+    // probably need to edit that logic too.
+
+    const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+    const debug_info_sect = &dwarf_segment.sections.items[self.debug_info_section_index.?];
+
+    const last_decl = self.dbg_info_decl_last.?;
+    // +1 for a trailing zero to end the children of the decl tag.
+    const needed_size = last_decl.dbg_info_off + last_decl.dbg_info_len + 1;
+    if (needed_size != debug_info_sect.size) {
+        if (needed_size > dwarf_segment.allocatedSize(debug_info_sect.offset)) {
+            const new_offset = dwarf_segment.findFreeSpace(needed_size, 1, null);
+            const existing_size = last_decl.dbg_info_off;
+
+            // TODO
+            assert(dwarf_segment.inner.fileoff + dwarf_segment.inner.filesize >= new_offset + needed_size);
+
+            log.debug("moving _debug_info section: {} bytes from 0x{x} to 0x{x}", .{
+                existing_size,
+                debug_info_sect.offset,
+                new_offset,
+            });
+
+            const amt = try self.file.copyRangeAll(debug_info_sect.offset, self.file, new_offset, existing_size);
+            if (amt != existing_size) return error.InputOutput;
+            debug_info_sect.offset = @intCast(u32, new_offset);
+            debug_info_sect.addr = dwarf_segment.inner.vmaddr + new_offset - dwarf_segment.inner.fileoff;
+        }
+        debug_info_sect.size = needed_size;
+        self.load_commands_dirty = true; // TODO look into making only the one section dirty
+        self.debug_info_header_dirty = true;
+    }
+    const prev_padding_size: u32 = if (text_block.dbg_info_prev) |prev|
+        text_block.dbg_info_off - (prev.dbg_info_off + prev.dbg_info_len)
+    else
+        0;
+    const next_padding_size: u32 = if (text_block.dbg_info_next) |next|
+        next.dbg_info_off - (text_block.dbg_info_off + text_block.dbg_info_len)
+    else
+        0;
+
+    // To end the children of the decl tag.
+    const trailing_zero = text_block.dbg_info_next == null;
+
+    // We only have support for one compilation unit so far, so the offsets are directly
+    // from the .debug_info section.
+    const file_pos = debug_info_sect.offset + text_block.dbg_info_off;
+    try self.pwriteDbgInfoNops(prev_padding_size, dbg_info_buf, next_padding_size, trailing_zero, file_pos);
+}
+
+fn getDebugLineProgramOff(self: DebugSymbols) u32 {
+    return self.dbg_line_fn_first.?.off;
+}
+
+fn getDebugLineProgramEnd(self: DebugSymbols) u32 {
+    return self.dbg_line_fn_last.?.off + self.dbg_line_fn_last.?.len;
+}
+
+/// TODO Improve this to use a table.
+fn makeDebugString(self: *DebugSymbols, allocator: *Allocator, bytes: []const u8) !u32 {
+    try self.debug_string_table.ensureCapacity(allocator, self.debug_string_table.items.len + bytes.len + 1);
+    const result = self.debug_string_table.items.len;
+    self.debug_string_table.appendSliceAssumeCapacity(bytes);
+    self.debug_string_table.appendAssumeCapacity(0);
+    return @intCast(u32, result);
+}
+
+/// The reloc offset for the virtual address of a function in its Line Number Program.
+/// Size is a virtual address integer.
+pub const dbg_line_vaddr_reloc_index = 3;
+/// The reloc offset for the virtual address of a function in its .debug_info TAG_subprogram.
+/// Size is a virtual address integer.
+pub const dbg_info_low_pc_reloc_index = 1;
+
+/// The reloc offset for the line offset of a function from the previous function's line.
+/// It's a fixed-size 4-byte ULEB128.
+pub fn getRelocDbgLineOff() usize {
+    return dbg_line_vaddr_reloc_index + @sizeOf(u64) + 1;
+}
+
+pub fn getRelocDbgFileIndex() usize {
+    return getRelocDbgLineOff() + 5;
+}
+
+pub fn getRelocDbgInfoSubprogramHighPC() u32 {
+    return dbg_info_low_pc_reloc_index + @sizeOf(u64);
+}
+
+pub fn dbgLineNeededHeaderBytes(self: DebugSymbols, module: *Module) u32 {
+    const directory_entry_format_count = 1;
+    const file_name_entry_format_count = 1;
+    const directory_count = 1;
+    const file_name_count = 1;
+    const root_src_dir_path_len = if (module.root_pkg.root_src_directory.path) |p| p.len else 1; // "."
+    return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
+        directory_count * 8 + file_name_count * 8 +
+        // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
+        // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
+        root_src_dir_path_len +
+        module.root_pkg.root_src_path.len);
+}
+
+fn dbgInfoNeededHeaderBytes(self: DebugSymbols) u32 {
+    return 120;
+}
+
+pub const min_nop_size = 2;
+
+/// Writes to the file a buffer, prefixed and suffixed by the specified number of
+/// bytes of NOPs. Asserts each padding size is at least `min_nop_size` and total padding bytes
+/// are less than 126,976 bytes (if this limit is ever reached, this function can be
+/// improved to make more than one pwritev call, or the limit can be raised by a fixed
+/// amount by increasing the length of `vecs`).
+pub fn pwriteDbgLineNops(
+    self: *DebugSymbols,
+    prev_padding_size: usize,
+    buf: []const u8,
+    next_padding_size: usize,
+    offset: u64,
+) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const page_of_nops = [1]u8{DW.LNS_negate_stmt} ** 4096;
+    const three_byte_nop = [3]u8{ DW.LNS_advance_pc, 0b1000_0000, 0 };
+    var vecs: [32]std.os.iovec_const = undefined;
+    var vec_index: usize = 0;
+    {
+        var padding_left = prev_padding_size;
+        if (padding_left % 2 != 0) {
+            vecs[vec_index] = .{
+                .iov_base = &three_byte_nop,
+                .iov_len = three_byte_nop.len,
+            };
+            vec_index += 1;
+            padding_left -= three_byte_nop.len;
+        }
+        while (padding_left > page_of_nops.len) {
+            vecs[vec_index] = .{
+                .iov_base = &page_of_nops,
+                .iov_len = page_of_nops.len,
+            };
+            vec_index += 1;
+            padding_left -= page_of_nops.len;
+        }
+        if (padding_left > 0) {
+            vecs[vec_index] = .{
+                .iov_base = &page_of_nops,
+                .iov_len = padding_left,
+            };
+            vec_index += 1;
+        }
+    }
+
+    vecs[vec_index] = .{
+        .iov_base = buf.ptr,
+        .iov_len = buf.len,
+    };
+    vec_index += 1;
+
+    {
+        var padding_left = next_padding_size;
+        if (padding_left % 2 != 0) {
+            vecs[vec_index] = .{
+                .iov_base = &three_byte_nop,
+                .iov_len = three_byte_nop.len,
+            };
+            vec_index += 1;
+            padding_left -= three_byte_nop.len;
+        }
+        while (padding_left > page_of_nops.len) {
+            vecs[vec_index] = .{
+                .iov_base = &page_of_nops,
+                .iov_len = page_of_nops.len,
+            };
+            vec_index += 1;
+            padding_left -= page_of_nops.len;
+        }
+        if (padding_left > 0) {
+            vecs[vec_index] = .{
+                .iov_base = &page_of_nops,
+                .iov_len = padding_left,
+            };
+            vec_index += 1;
+        }
+    }
+    try self.file.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
+}
+
+/// Writes to the file a buffer, prefixed and suffixed by the specified number of
+/// bytes of padding.
+pub fn pwriteDbgInfoNops(
+    self: *DebugSymbols,
+    prev_padding_size: usize,
+    buf: []const u8,
+    next_padding_size: usize,
+    trailing_zero: bool,
+    offset: u64,
+) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const page_of_nops = [1]u8{abbrev_pad1} ** 4096;
+    var vecs: [32]std.os.iovec_const = undefined;
+    var vec_index: usize = 0;
+    {
+        var padding_left = prev_padding_size;
+        while (padding_left > page_of_nops.len) {
+            vecs[vec_index] = .{
+                .iov_base = &page_of_nops,
+                .iov_len = page_of_nops.len,
+            };
+            vec_index += 1;
+            padding_left -= page_of_nops.len;
+        }
+        if (padding_left > 0) {
+            vecs[vec_index] = .{
+                .iov_base = &page_of_nops,
+                .iov_len = padding_left,
+            };
+            vec_index += 1;
+        }
+    }
+
+    vecs[vec_index] = .{
+        .iov_base = buf.ptr,
+        .iov_len = buf.len,
+    };
+    vec_index += 1;
+
+    {
+        var padding_left = next_padding_size;
+        while (padding_left > page_of_nops.len) {
+            vecs[vec_index] = .{
+                .iov_base = &page_of_nops,
+                .iov_len = page_of_nops.len,
+            };
+            vec_index += 1;
+            padding_left -= page_of_nops.len;
+        }
+        if (padding_left > 0) {
+            vecs[vec_index] = .{
+                .iov_base = &page_of_nops,
+                .iov_len = padding_left,
+            };
+            vec_index += 1;
+        }
+    }
+
+    if (trailing_zero) {
+        var zbuf = [1]u8{0};
+        vecs[vec_index] = .{
+            .iov_base = &zbuf,
+            .iov_len = zbuf.len,
+        };
+        vec_index += 1;
+    }
+
+    try self.file.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
 }

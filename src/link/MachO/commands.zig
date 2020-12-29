@@ -5,6 +5,7 @@ const mem = std.mem;
 const meta = std.meta;
 const macho = std.macho;
 const testing = std.testing;
+const assert = std.debug.assert;
 
 const Allocator = std.mem.Allocator;
 const MachO = @import("../MachO.zig");
@@ -202,9 +203,12 @@ pub const SegmentCommand = struct {
 
     pub fn allocatedSize(self: SegmentCommand, start: u64) u64 {
         assert(start > 0);
+        if (start == self.inner.fileoff)
+            return 0;
         var min_pos: u64 = std.math.maxInt(u64);
         for (self.sections.items) |section| {
-            if (section.offset > start and section.offset < min_pos) min_pos = section.offset;
+            if (section.offset <= start) continue;
+            if (section.offset < min_pos) min_pos = section.offset;
         }
         return min_pos - start;
     }
