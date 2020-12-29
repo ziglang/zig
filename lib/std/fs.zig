@@ -302,7 +302,7 @@ pub const Dir = struct {
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
@@ -319,7 +319,6 @@ pub const Dir = struct {
                 switch (builtin.os.tag) {
                     .macos, .ios => return self.nextDarwin(),
                     .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
-                    .haiku => return self.nextHaiku(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -427,16 +426,61 @@ pub const Dir = struct {
                     };
                 }
             }
+        },
+        .haiku => struct {
+            dir: Dir,
+            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            index: usize,
+            end_index: usize,
 
-            fn nextHaiku(self: *Self) !?Entry {
-                //const name = @ptrCast([*]u8, "placeholder-please-implement-me");
-                //const name = "placeholder-please-implement-me";
-                return Entry{
-                    .name = base64_alphabet,
-                    .kind = Entry.Kind.File,
-                };
+            const Self = @This();
+
+            pub const Error = IteratorError;
+
+            /// Memory such as file names referenced in this returned entry becomes invalid
+            /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
+            pub fn next(self: *Self) Error!?Entry {
+                start_over: while (true) {
+                    // TODO: find a better max
+                    const HAIKU_MAX_COUNT = 10000;
+                    if (self.index >= self.end_index) {
+                        const rc = os.system._kern_read_dir(
+                            self.dir.fd,
+                            &self.buf,
+                            self.buf.len,
+                            HAIKU_MAX_COUNT,
+                        );
+                        if (rc == 0) return null;
+                        if (rc < 0) {
+                            switch (os.errno(rc)) {
+                                os.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
+                                os.EFAULT => unreachable,
+                                os.ENOTDIR => unreachable,
+                                os.EINVAL => unreachable,
+                                else => |err| return os.unexpectedErrno(err),
+                            }
+                        }
+                        self.index = 0;
+                        self.end_index = @intCast(usize, rc);
+                    }
+                    const haiku_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const next_index = self.index + haiku_entry.reclen();
+                    self.index = next_index;
+                    const name = mem.spanZ(@ptrCast([*:0]u8, &haiku_entry.d_name));
+
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.d_ino == 0)) {
+                        continue :start_over;
+                    }
+
+                    // TODO: determine entry kind
+                    const entry_kind = Entry.Kind.File;
+
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
             }
-
         },
         .linux => struct {
             dir: Dir,
@@ -632,14 +676,14 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku => return Iterator{
+            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
             },
-            .linux => return Iterator{
+            .linux, .haiku => return Iterator{
                 .dir = self,
                 .index = 0,
                 .end_index = 0,

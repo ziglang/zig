@@ -11,15 +11,13 @@ const builtin = std.builtin;
 usingnamespace std.c;
 
 extern "c" fn _errnop() *c_int;
+
 pub const _errno = _errnop;
 
-// not supported in haiku
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
+pub extern "c" fn _kern_read_dir(fd: c_int, buf_ptr: [*]u8, nbytes: usize, maxcount: u32) usize;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
-//pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
+pub extern "c" fn _get_next_image_info(team: c_int, cookie: *i32, image_info: *image_info) usize;
 
-//
 pub const sem_t = extern struct {
     _magic: u32,
     _kern: extern struct {

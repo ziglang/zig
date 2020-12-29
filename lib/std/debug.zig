@@ -1350,7 +1350,6 @@ pub const DebugInfo = struct {
 
         return &di;
     }
-
 };
 
 const SymbolInfo = struct {
@@ -1717,17 +1716,6 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             unreachable;
         }
     },
-    .haiku => struct {
-        // Haiku should implement dl_iterat_phdr (https://dev.haiku-os.org/ticket/15743)
-        base_address: usize,
-        dwarf: DW.DwarfInfo,
-        mapped_memory: []const u8,
-
-        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
-            // TODO: implement me
-            return SymbolInfo{};
-        }
-    },
     else => DW.DwarfInfo,
 };
 
@@ -1746,7 +1734,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 pub const have_segfault_handling_support = switch (builtin.os.tag) {
     .linux, .netbsd => true,
     .windows => true,
-    .freebsd, .openbsd, .haiku => @hasDecl(os, "ucontext_t"),
+    .freebsd, .openbsd => @hasDecl(os, "ucontext_t"),
     else => false,
 };
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))

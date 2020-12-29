@@ -777,7 +777,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
             }
             return paths.toOwnedSlice();
         },
-        // Haiku should implement dl_iterat_phdr (https://dev.haiku-os.org/ticket/15743)
+        // revisit if Haiku implements dl_iterat_phdr (https://dev.haiku-os.org/ticket/15743)
         .haiku => {
             var paths = List.init(allocator);
             errdefer {
@@ -787,7 +787,12 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
                 }
                 allocator.free(slice);
             }
-            //TODO: fill out placeholder
+
+            var b = "/boot/system/runtime_loader";
+            const item = try allocator.dupeZ(u8, mem.spanZ(b));
+            errdefer allocator.free(item);
+            try paths.append(item);
+
             return paths.toOwnedSlice();
         },
         else => @compileError("getSelfExeSharedLibPaths unimplemented for this target"),

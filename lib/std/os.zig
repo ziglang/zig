@@ -53,6 +53,7 @@ test {
     _ = uefi;
     _ = wasi;
     _ = windows;
+    _ = haiku;
 
     _ = @import("os/test.zig");
 }
@@ -601,7 +602,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     const have_pread_but_not_preadv = switch (std.Target.current.os.tag) {
-        .windows, .macos, .ios, .watchos, .tvos => true,
+        .windows, .macos, .ios, .watchos, .tvos, .haiku => true,
         else => false,
     };
     if (have_pread_but_not_preadv) {

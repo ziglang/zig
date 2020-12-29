@@ -379,6 +379,7 @@ pub const Target = struct {
                 .watchos,
                 .dragonfly,
                 .openbsd,
+                .haiku,
                 => true,
 
                 .linux,
@@ -390,7 +391,6 @@ pub const Target = struct {
                 .kfreebsd,
                 .lv2,
                 .solaris,
-                .haiku,
                 .minix,
                 .rtems,
                 .nacl,
@@ -468,7 +468,6 @@ pub const Target = struct {
                 .dragonfly,
                 .lv2,
                 .solaris,
-                .haiku,
                 .minix,
                 .rtems,
                 .nacl,
@@ -495,6 +494,7 @@ pub const Target = struct {
                 .kfreebsd,
                 .netbsd,
                 .hurd,
+                .haiku,
                 => return .gnu,
                 .windows,
                 .uefi,
@@ -1566,6 +1566,10 @@ pub const Target = struct {
             .other,
             => return result,
 
+            // Operating systems in this list have been verified as not having a standard
+            // dynamic linker path.
+            .haiku => return copy(&result, "/system/runtime_loader"),
+
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.
             .ananas,
@@ -1574,7 +1578,6 @@ pub const Target = struct {
             .kfreebsd,
             .lv2,
             .solaris,
-            .haiku,
             .minix,
             .rtems,
             .nacl,

@@ -162,18 +162,34 @@ pub const timespec = extern struct {
 };
 
 pub const dirent = extern struct {
-    d_fileno: usize,
-    d_off: i64,
+    d_dev: i32,
+    d_pdev: i32,
+    d_ino: i64,
+    d_pino: i64,
     d_reclen: u16,
-    d_type: u8,
-    d_pad0: u8,
-    d_namlen: u16,
-    d_pad1: u16,
     d_name: [256]u8,
 
     pub fn reclen(self: dirent) u16 {
         return self.d_reclen;
     }
+};
+
+pub const image_info = extern struct {
+    id: u32,        //image_id
+    type: u32,      // image_type
+    sequence: i32,
+    init_order: i32,
+    init_routine: *c_void,
+    term_routine: *c_void,
+    device: i32,
+    node: i32,
+    name: [1024]u8,
+    text: *c_void,
+    data: *c_void,
+    text_size: i32,
+    data_size: i32,
+    api_version: i32,
+    abi: i32,
 };
 
 pub const in_port_t = u16;
