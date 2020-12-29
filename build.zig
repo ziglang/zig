@@ -91,6 +91,20 @@ pub fn build(b: *Builder) !void {
     exe.addBuildOption(bool, "have_llvm", enable_llvm);
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else findAndParseConfigH(b, config_h_path_option);
+
+        const exe_cflags = [_][]const u8{
+            "-std=c++14",
+            "-D__STDC_CONSTANT_MACROS",
+            "-D__STDC_FORMAT_MACROS",
+            "-D__STDC_LIMIT_MACROS",
+            "-D_GNU_SOURCE",
+            "-fvisibility-inlines-hidden",
+            "-fno-exceptions",
+            "-fno-rtti",
+            "-Werror=type-limits",
+            "-Wno-missing-braces",
+            "-Wno-comment",
+        };
         if (is_stage1) {
             exe.addIncludeDir("src");
             exe.addIncludeDir("deps/SoftFloat-3e/source/include");
@@ -109,28 +123,8 @@ pub fn build(b: *Builder) !void {
             softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
             exe.linkLibrary(softfloat);
 
-            const exe_cflags = [_][]const u8{
-                "-std=c++14",
-                "-D__STDC_CONSTANT_MACROS",
-                "-D__STDC_FORMAT_MACROS",
-                "-D__STDC_LIMIT_MACROS",
-                "-D_GNU_SOURCE",
-                "-fvisibility-inlines-hidden",
-                "-fno-exceptions",
-                "-fno-rtti",
-                "-Werror=type-limits",
-                "-Wno-missing-braces",
-                "-Wno-comment",
-            };
             exe.addCSourceFiles(&stage1_sources, &exe_cflags);
             exe.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
-            if (cmake_cfg == null) {
-                // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
-                // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
-                // unavailable when LLVM is compiled in Release mode.
-                const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
-                exe.addCSourceFiles(&zig_cpp_sources, &zig_cpp_cflags);
-            }
         }
         if (cmake_cfg) |cfg| {
             // Inside this code path, we have to coordinate with system packaged LLVM, Clang, and LLD.
@@ -193,6 +187,15 @@ pub fn build(b: *Builder) !void {
             }
         } else {
             // Here we are -Denable-llvm but no cmake integration.
+
+            // Adds the Zig C++ sources which both stage1 and stage2 need.
+            //
+            // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
+            // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
+            // unavailable when LLVM is compiled in Release mode.
+            const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
+            exe.addCSourceFiles(&zig_cpp_sources, &zig_cpp_cflags);
+
             for (clang_libs) |lib_name| {
                 exe.linkSystemLibrary(lib_name);
             }
