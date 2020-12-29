@@ -15,6 +15,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     ,
         \\zig_noreturn void _start(void) {
+        \\    zig_breakpoint();
         \\    zig_unreachable();
         \\}
         \\
@@ -41,6 +42,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
         \\zig_noreturn void main(void) {
+        \\    zig_breakpoint();
         \\    zig_unreachable();
         \\}
         \\
@@ -61,8 +63,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    exitGood();
         \\}
     ,
-        \\#include <stddef.h>
-        \\
         \\zig_noreturn void exitGood(void);
         \\
         \\const char *const exitGood__anon_0 = "{rax}";
@@ -74,9 +74,10 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
         \\zig_noreturn void exitGood(void) {
-        \\    register size_t rax_constant __asm__("rax") = 231;
-        \\    register size_t rdi_constant __asm__("rdi") = 0;
+        \\    register uintptr_t rax_constant __asm__("rax") = 231;
+        \\    register uintptr_t rdi_constant __asm__("rdi") = 0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_breakpoint();
         \\    zig_unreachable();
         \\}
         \\
@@ -96,9 +97,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     ,
-        \\#include <stddef.h>
-        \\
-        \\zig_noreturn void exit(size_t arg0);
+        \\zig_noreturn void exit(uintptr_t arg0);
         \\
         \\const char *const exit__anon_0 = "{rax}";
         \\const char *const exit__anon_1 = "{rdi}";
@@ -108,10 +107,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    exit(0);
         \\}
         \\
-        \\zig_noreturn void exit(size_t arg0) {
-        \\    register size_t rax_constant __asm__("rax") = 231;
-        \\    register size_t rdi_constant __asm__("rdi") = arg0;
+        \\zig_noreturn void exit(uintptr_t arg0) {
+        \\    register uintptr_t rax_constant __asm__("rax") = 231;
+        \\    register uintptr_t rdi_constant __asm__("rdi") = arg0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_breakpoint();
         \\    zig_unreachable();
         \\}
         \\
@@ -131,7 +131,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     ,
-        \\#include <stddef.h>
         \\#include <stdint.h>
         \\
         \\zig_noreturn void exit(uint8_t arg0);
@@ -145,10 +144,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
         \\zig_noreturn void exit(uint8_t arg0) {
-        \\    const size_t __temp_0 = (size_t)arg0;
-        \\    register size_t rax_constant __asm__("rax") = 231;
-        \\    register size_t rdi_constant __asm__("rdi") = __temp_0;
+        \\    const uintptr_t __temp_0 = (uintptr_t)arg0;
+        \\    register uintptr_t rax_constant __asm__("rax") = 231;
+        \\    register uintptr_t rdi_constant __asm__("rdi") = __temp_0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_breakpoint();
         \\    zig_unreachable();
         \\}
         \\
@@ -172,7 +172,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     ,
-        \\#include <stddef.h>
         \\#include <stdint.h>
         \\
         \\zig_noreturn void exitMath(uint8_t arg0);
@@ -193,10 +192,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
         \\zig_noreturn void exit(uint8_t arg0) {
-        \\    const size_t __temp_0 = (size_t)arg0;
-        \\    register size_t rax_constant __asm__("rax") = 231;
-        \\    register size_t rdi_constant __asm__("rdi") = __temp_0;
+        \\    const uintptr_t __temp_0 = (uintptr_t)arg0;
+        \\    register uintptr_t rax_constant __asm__("rax") = 231;
+        \\    register uintptr_t rdi_constant __asm__("rdi") = __temp_0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_breakpoint();
         \\    zig_unreachable();
         \\}
         \\
@@ -220,7 +220,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     ,
-        \\#include <stddef.h>
         \\#include <stdint.h>
         \\
         \\zig_noreturn void exitMath(uint8_t arg0);
@@ -241,10 +240,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
         \\zig_noreturn void exit(uint8_t arg0) {
-        \\    const size_t __temp_0 = (size_t)arg0;
-        \\    register size_t rax_constant __asm__("rax") = 231;
-        \\    register size_t rdi_constant __asm__("rdi") = __temp_0;
+        \\    const uintptr_t __temp_0 = (uintptr_t)arg0;
+        \\    register uintptr_t rax_constant __asm__("rax") = 231;
+        \\    register uintptr_t rdi_constant __asm__("rdi") = __temp_0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_breakpoint();
         \\    zig_unreachable();
         \\}
         \\
@@ -276,9 +276,7 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.h("header with usize param function", linux_x64,
         \\export fn start(a: usize) void{}
     ,
-        \\#include <stddef.h>
-        \\
-        \\void start(size_t arg0);
+        \\void start(uintptr_t arg0);
         \\
     );
     ctx.h("header with bool param function", linux_x64,
@@ -308,10 +306,9 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.h("header with multiple includes", linux_x64,
         \\export fn start(a: u32, b: usize) void{}
     ,
-        \\#include <stddef.h>
         \\#include <stdint.h>
         \\
-        \\void start(uint32_t arg0, size_t arg1);
+        \\void start(uint32_t arg0, uintptr_t arg1);
         \\
     );
 }

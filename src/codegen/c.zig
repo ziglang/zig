@@ -232,7 +232,7 @@ pub fn generate(file: *C, decl: *Decl) !void {
                     .retvoid => try genRetVoid(file),
                     .arg => try genArg(&ctx),
                     .dbg_stmt => try genDbgStmt(&ctx, inst.castTag(.dbg_stmt).?),
-                    .breakpoint => try genBreak(&ctx, inst.castTag(.breakpoint).?),
+                    .breakpoint => try genBreakpoint(file, inst.castTag(.breakpoint).?),
                     .unreach => try genUnreach(file, inst.castTag(.unreach).?),
                     .intcast => try genIntCast(&ctx, file, inst.castTag(.intcast).?),
                     else => |e| return ctx.fail(decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
@@ -447,8 +447,8 @@ fn genDbgStmt(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
     return null;
 }
 
-fn genBreak(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
-    // TODO ??
+fn genBreakpoint(file: *C, inst: *Inst.NoOp) !?[]u8 {
+    try file.main.writer().writeAll("zig_breakpoint();\n");
     return null;
 }
 

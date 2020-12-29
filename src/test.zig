@@ -646,35 +646,16 @@ pub const TestContext = struct {
                     defer file.close();
                     var out = file.reader().readAllAlloc(arena, 1024 * 1024) catch @panic("Unable to read headeroutput!");
 
-                    if (expected_output.len != out.len) {
-                        std.debug.print("\nTransformed header length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
-                        std.process.exit(1);
-                    }
-                    for (expected_output) |e, i| {
-                        if (out[i] != e) {
-                            std.debug.print("\nTransformed header differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
-                            std.process.exit(1);
-                        }
-                    }
+                    std.testing.expectEqualStrings(expected_output, out);
                 },
                 .Transformation => |expected_output| {
                     if (case.cbe) {
                         // The C file is always closed after an update, because we don't support
-                        // incremental updates
+                        // incremental updates.
                         var file = try tmp.dir.openFile(bin_name, .{ .read = true });
                         defer file.close();
                         var out = file.reader().readAllAlloc(arena, 1024 * 1024) catch @panic("Unable to read C output!");
-
-                        if (expected_output.len != out.len) {
-                            std.debug.print("\nTransformed C length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
-                            std.process.exit(1);
-                        }
-                        for (expected_output) |e, i| {
-                            if (out[i] != e) {
-                                std.debug.print("\nTransformed C differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
-                                std.process.exit(1);
-                            }
-                        }
+                        std.testing.expectEqualStrings(expected_output, out);
                     } else {
                         update_node.setEstimatedTotalItems(5);
                         var emit_node = update_node.start("emit", 0);
@@ -694,16 +675,7 @@ pub const TestContext = struct {
                         test_node.activate();
                         defer test_node.end();
 
-                        if (expected_output.len != out_zir.items.len) {
-                            std.debug.print("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
-                            std.process.exit(1);
-                        }
-                        for (expected_output) |e, i| {
-                            if (out_zir.items[i] != e) {
-                                std.debug.print("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
-                                std.process.exit(1);
-                            }
-                        }
+                        std.testing.expectEqualStrings(expected_output, out_zir.items);
                     }
                 },
                 .Error => |e| {
