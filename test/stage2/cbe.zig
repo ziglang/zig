@@ -9,6 +9,29 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
+    {
+        var case = ctx.exeFromCompiledC("hello world with updates", .{});
+
+        // Regular old hello world
+        case.addCompareOutput(
+            \\extern fn puts(s: [*:0]const u8) c_int;
+            \\export fn main() c_int {
+            \\    _ = puts("hello world!");
+            \\    return 0;
+            \\}
+        , "hello world!" ++ std.cstr.line_sep);
+
+        // Now change the message only
+        // TODO fix C backend not supporting updates
+        //case.addCompareOutput(
+        //    \\extern fn puts(s: [*:0]const u8) c_int;
+        //    \\export fn main() c_int {
+        //    \\    _ = puts("yo");
+        //    \\    return 0;
+        //    \\}
+        //, "yo" ++ std.cstr.line_sep);
+    }
+
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {
         \\    unreachable;
