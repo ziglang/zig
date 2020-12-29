@@ -122,6 +122,9 @@ pub const BuilderRef = opaque {
 
     pub const buildAlloca = LLVMBuildAlloca;
     extern fn LLVMBuildAlloca(*const BuilderRef, Ty: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildStore = LLVMBuildStore;
+    extern fn LLVMBuildStore(*const BuilderRef, Val: *const ValueRef, Ptr: *const ValueRef) *const ValueRef;
 };
 
 pub const BasicBlockRef = opaque {

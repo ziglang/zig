@@ -146,6 +146,10 @@ pub const LLVMIRModule = struct {
     gpa: *Allocator,
     err_msg: ?*Compilation.ErrorMsg = null,
 
+    /// This stores the LLVM values used in a function, such that they can be
+    /// referred to in other instructions. This table is cleared before every function is generated.
+    func_inst_table: std.AutoHashMapUnmanaged(*Inst, *const llvm.ValueRef) = .{},
+
     pub fn create(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*LLVMIRModule {
         const self = try allocator.create(LLVMIRModule);
         errdefer allocator.destroy(self);
@@ -283,7 +287,10 @@ pub const LLVMIRModule = struct {
             .Fn => {
                 const func = typed_value.val.castTag(.function).?.data;
 
-                const llvm_func = try self.resolveLLVMFunction(func);
+                const llvm_func = try self.resolveLLVMFunction(func, src);
+
+                // Make sure no other LLVM values from other functions can be referenced
+                self.func_inst_table.clearRetainingCapacity();
 
                 // We remove all the basic blocks of a function to support incremental
                 // compilation!
@@ -297,29 +304,33 @@ pub const LLVMIRModule = struct {
 
                 const instructions = func.body.instructions;
                 for (instructions) |inst| {
-                    switch (inst.tag) {
+                    const opt_llvm_val: ?*const llvm.ValueRef = switch (inst.tag) {
                         .breakpoint => try self.genBreakpoint(inst.castTag(.breakpoint).?),
                         .call => try self.genCall(inst.castTag(.call).?),
                         .unreach => self.genUnreach(inst.castTag(.unreach).?),
                         .retvoid => self.genRetVoid(inst.castTag(.retvoid).?),
-                        .arg => self.genArg(inst.castTag(.arg).?),
-                        .dbg_stmt => {
+                        .arg => try self.genArg(inst.castTag(.arg).?),
+                        .alloc => try self.genAlloc(inst.castTag(.alloc).?),
+                        .store => try self.genStore(inst.castTag(.store).?),
+                        .dbg_stmt => blk: {
                             // TODO: implement debug info
+                            break :blk null;
                         },
                         else => |tag| return self.fail(src, "TODO implement LLVM codegen for Zir instruction: {}", .{tag}),
-                    }
+                    };
+                    if (opt_llvm_val) |llvm_val| try self.func_inst_table.put(self.gpa, inst, llvm_val);
                 }
             },
             else => |ty| return self.fail(src, "TODO implement LLVM codegen for top-level decl type: {}", .{ty}),
         }
     }
 
-    fn genCall(self: *LLVMIRModule, inst: *Inst.Call) !void {
+    fn genCall(self: *LLVMIRModule, inst: *Inst.Call) !?*const llvm.ValueRef {
         if (inst.func.value()) |func_value| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const zig_fn_type = func.owner_decl.typed_value.most_recent.typed_value.ty;
-                const llvm_fn = try self.resolveLLVMFunction(func);
+                const llvm_fn = try self.resolveLLVMFunction(func, inst.base.src);
 
                 const num_args = inst.args.len;
 
@@ -339,42 +350,73 @@ pub const LLVMIRModule = struct {
                     "",
                 );
 
-                if (zig_fn_type.fnReturnType().zigTypeTag() == .NoReturn) {
+                const return_type = zig_fn_type.fnReturnType().zigTypeTag();
+                if (return_type == .NoReturn) {
                     _ = self.builder.buildUnreachable();
                 }
+
+                // No need to store the LLVM value if the return type is void or noreturn
+                if (return_type == .NoReturn or return_type == .Void) return null;
+
+                return call;
             }
         }
+        return self.fail(inst.base.src, "TODO implement calling runtime known function pointer LLVM backend", .{});
     }
 
-    fn genRetVoid(self: *LLVMIRModule, inst: *Inst.NoOp) void {
+    fn genRetVoid(self: *LLVMIRModule, inst: *Inst.NoOp) ?*const llvm.ValueRef {
         _ = self.builder.buildRetVoid();
+        return null;
     }
 
-    fn genUnreach(self: *LLVMIRModule, inst: *Inst.NoOp) void {
+    fn genUnreach(self: *LLVMIRModule, inst: *Inst.NoOp) ?*const llvm.ValueRef {
         _ = self.builder.buildUnreachable();
+        return null;
     }
 
-    fn genArg(self: *LLVMIRModule, inst: *Inst.Arg) void {
+    fn genArg(self: *LLVMIRModule, inst: *Inst.Arg) !?*const llvm.ValueRef {
         // TODO: implement this
+        return null;
     }
 
-    fn genBreakpoint(self: *LLVMIRModule, inst: *Inst.NoOp) !void {
+    fn genAlloc(self: *LLVMIRModule, inst: *Inst.NoOp) !?*const llvm.ValueRef {
+        // buildAlloca expects the pointee type, not the pointer type, so assert that
+        // a Payload.PointerSimple is passed to the alloc instruction.
+        const pointee_type = inst.base.ty.castPointer().?.data;
+
+        // TODO: figure out a way to get the name of the var decl.
+        // TODO: set alignment and volatile
+        return self.builder.buildAlloca(try self.getLLVMType(pointee_type, inst.base.src), "");
+    }
+
+    fn genStore(self: *LLVMIRModule, inst: *Inst.BinOp) !?*const llvm.ValueRef {
+        const val = try self.resolveInst(inst.rhs);
+        const ptr = try self.resolveInst(inst.lhs);
+        _ = self.builder.buildStore(val, ptr);
+        return null;
+    }
+
+    fn genBreakpoint(self: *LLVMIRModule, inst: *Inst.NoOp) !?*const llvm.ValueRef {
         // TODO: Store this function somewhere such that we dont have to add it again
         const fn_type = llvm.TypeRef.functionType(llvm.voidType(), null, 0, false);
         const func = self.llvm_module.addFunction("llvm.debugtrap", fn_type);
+
         // TODO: add assertion: LLVMGetIntrinsicID
         _ = self.builder.buildCall(func, null, 0, "");
+        return null;
     }
 
     fn resolveInst(self: *LLVMIRModule, inst: *ir.Inst) !*const llvm.ValueRef {
         if (inst.castTag(.constant)) |const_inst| {
             return self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
         }
-        return self.fail(inst.src, "TODO implement resolveInst", .{});
+        if (self.func_inst_table.get(inst)) |value| return value;
+
+        return self.fail(inst.src, "TODO implement global llvm values (or the value is not in the func_inst_table table)", .{});
     }
 
     fn genTypedValue(self: *LLVMIRModule, src: usize, typed_value: TypedValue) !*const llvm.ValueRef {
-        const llvm_type = self.getLLVMType(typed_value.ty);
+        const llvm_type = try self.getLLVMType(typed_value.ty, src);
 
         if (typed_value.val.isUndef())
             return llvm_type.getUndef();
@@ -386,7 +428,7 @@ pub const LLVMIRModule = struct {
     }
 
     /// If the llvm function does not exist, create it
-    fn resolveLLVMFunction(self: *LLVMIRModule, func: *Module.Fn) !*const llvm.ValueRef {
+    fn resolveLLVMFunction(self: *LLVMIRModule, func: *Module.Fn, src: usize) !*const llvm.ValueRef {
         // TODO: do we want to store this in our own datastructure?
         if (self.llvm_module.getNamedFunction(func.owner_decl.name)) |llvm_fn| return llvm_fn;
 
@@ -403,11 +445,11 @@ pub const LLVMIRModule = struct {
         defer self.gpa.free(llvm_param);
 
         for (fn_param_types) |fn_param, i| {
-            llvm_param[i] = self.getLLVMType(fn_param);
+            llvm_param[i] = try self.getLLVMType(fn_param, src);
         }
 
         const fn_type = llvm.TypeRef.functionType(
-            self.getLLVMType(return_type),
+            try self.getLLVMType(return_type, src),
             if (fn_param_len == 0) null else llvm_param.ptr,
             @intCast(c_uint, fn_param_len),
             false,
@@ -421,7 +463,7 @@ pub const LLVMIRModule = struct {
         return llvm_fn;
     }
 
-    fn getLLVMType(self: *LLVMIRModule, t: Type) *const llvm.TypeRef {
+    fn getLLVMType(self: *LLVMIRModule, t: Type, src: usize) !*const llvm.TypeRef {
         switch (t.zigTypeTag()) {
             .Void => return llvm.voidType(),
             .NoReturn => return llvm.voidType(),
@@ -430,7 +472,7 @@ pub const LLVMIRModule = struct {
                 return llvm.intType(info.bits);
             },
             .Bool => return llvm.intType(1),
-            else => unreachable,
+            else => return self.fail(src, "TODO implement getLLVMType for type '{}'", .{t}),
         }
     }
 
