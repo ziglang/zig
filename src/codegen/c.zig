@@ -86,9 +86,7 @@ fn renderType(
         },
         .Array => {
             try renderType(ctx, writer, t.elemType());
-            const sentinel_bit = @boolToInt(t.sentinel() != null);
-            const c_len = t.arrayLen() + sentinel_bit;
-            try writer.print("[{d}]", .{c_len});
+            try writer.writeAll(" *");
         },
         else => |e| return ctx.fail(ctx.decl.src(), "TODO: C backend: implement type {s}", .{
             @tagName(e),
@@ -254,8 +252,21 @@ pub fn generate(file: *C, decl: *Decl) !void {
         // TODO ask the Decl if it is const
         // https://github.com/ziglang/zig/issues/7582
 
-        try renderType(&ctx, writer, tv.ty);
-        try writer.print(" {s} = ", .{decl.name});
+        var suffix = std.ArrayList(u8).init(file.base.allocator);
+        defer suffix.deinit();
+
+        var render_ty = tv.ty;
+        while (render_ty.zigTypeTag() == .Array) {
+            const sentinel_bit = @boolToInt(render_ty.sentinel() != null);
+            const c_len = render_ty.arrayLen() + sentinel_bit;
+            try suffix.writer().print("[{d}]", .{c_len});
+            render_ty = render_ty.elemType();
+        }
+
+        try renderType(&ctx, writer, render_ty);
+        try writer.print(" {s}{s}", .{ decl.name, suffix.items });
+
+        try writer.writeAll(" = ");
         try renderValue(&ctx, writer, tv.ty, tv.val);
         try writer.writeAll(";\n");
     }
