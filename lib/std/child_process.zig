@@ -212,16 +212,18 @@ pub const ChildProcess = struct {
             if (poll_fds[0].revents & os.POLLIN != 0) {
                 // stdout is ready.
                 const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
-                if (new_capacity == stdout.capacity) return error.StdoutStreamTooLong;
                 try stdout.ensureCapacity(new_capacity);
-                stdout.items.len += try os.read(poll_fds[0].fd, stdout.unusedCapacitySlice());
+                const buf = stdout.unusedCapacitySlice();
+                if (buf.len == 0) return error.StdoutStreamTooLong;
+                stdout.items.len += try os.read(poll_fds[0].fd, buf);
             }
             if (poll_fds[1].revents & os.POLLIN != 0) {
                 // stderr is ready.
                 const new_capacity = std.math.min(stderr.items.len + bump_amt, max_output_bytes);
-                if (new_capacity == stderr.capacity) return error.StderrStreamTooLong;
                 try stderr.ensureCapacity(new_capacity);
-                stderr.items.len += try os.read(poll_fds[1].fd, stderr.unusedCapacitySlice());
+                const buf = stderr.unusedCapacitySlice();
+                if (buf.len == 0) return error.StderrStreamTooLong;
+                stderr.items.len += try os.read(poll_fds[1].fd, buf);
             }
 
             // Exclude the fds that signaled an error.
