@@ -1833,7 +1833,13 @@ fn buildOutputType(
             });
         } else {
             for (test_exec_args.items) |arg| {
-                try argv.append(arg orelse exe_path);
+                if (arg) |a| {
+                    try argv.append(a);
+                } else {
+                    try argv.appendSlice(&[_][]const u8{
+                        exe_path, self_exe_path,
+                    });
+                }
             }
         }
         if (runtime_args_start) |i| {
