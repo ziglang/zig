@@ -198,6 +198,13 @@ fn renderFunctionSignature(
     try writer.writeByte(')');
 }
 
+fn indent(file: *C) !void {
+    const indent_size = 4;
+    const indent_level = 1;
+    const indent_amt = indent_size * indent_level;
+    try file.main.writer().writeByteNTimes(' ', indent_amt);
+}
+
 pub fn generate(file: *C, decl: *Decl) !void {
     const tv = decl.typed_value.most_recent.typed_value;
 
@@ -228,11 +235,6 @@ pub fn generate(file: *C, decl: *Decl) !void {
         if (instructions.len > 0) {
             try writer.writeAll("\n");
             for (instructions) |inst| {
-                if (inst.tag != .dbg_stmt) {
-                    const indent_size = 4;
-                    const indent_level = 1;
-                    try writer.writeByteNTimes(' ', indent_size * indent_level);
-                }
                 if (switch (inst.tag) {
                     .assembly => try genAsm(&ctx, file, inst.castTag(.assembly).?),
                     .call => try genCall(&ctx, file, inst.castTag(.call).?),
@@ -361,11 +363,13 @@ fn genArg(ctx: *Context) !?[]u8 {
 }
 
 fn genRetVoid(file: *C) !?[]u8 {
+    try indent(file);
     try file.main.writer().print("return;\n", .{});
     return null;
 }
 
 fn genRet(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
+    try indent(file);
     const writer = file.main.writer();
     try writer.writeAll("return ");
     try genValue(ctx, writer, inst.operand);
@@ -384,6 +388,7 @@ fn genValue(ctx: *Context, writer: Writer, inst: *Inst) !void {
 fn genIntCast(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
     if (inst.base.isUnused())
         return null;
+    try indent(file);
     const op = inst.operand;
     const writer = file.main.writer();
     const name = try ctx.name();
@@ -399,6 +404,7 @@ fn genIntCast(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
 fn genBinOp(ctx: *Context, file: *C, inst: *Inst.BinOp, comptime operator: []const u8) !?[]u8 {
     if (inst.base.isUnused())
         return null;
+    try indent(file);
     const lhs = ctx.resolveInst(inst.lhs);
     const rhs = ctx.resolveInst(inst.rhs);
     const writer = file.main.writer();
@@ -410,6 +416,7 @@ fn genBinOp(ctx: *Context, file: *C, inst: *Inst.BinOp, comptime operator: []con
 }
 
 fn genCall(ctx: *Context, file: *C, inst: *Inst.Call) !?[]u8 {
+    try indent(file);
     const writer = file.main.writer();
     const header = file.header.buf.writer();
     if (inst.func.castTag(.constant)) |func_inst| {
@@ -458,16 +465,19 @@ fn genDbgStmt(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
 }
 
 fn genBreakpoint(file: *C, inst: *Inst.NoOp) !?[]u8 {
+    try indent(file);
     try file.main.writer().writeAll("zig_breakpoint();\n");
     return null;
 }
 
 fn genUnreach(file: *C, inst: *Inst.NoOp) !?[]u8 {
+    try indent(file);
     try file.main.writer().writeAll("zig_unreachable();\n");
     return null;
 }
 
 fn genAsm(ctx: *Context, file: *C, as: *Inst.Assembly) !?[]u8 {
+    try indent(file);
     const writer = file.main.writer();
     for (as.inputs) |i, index| {
         if (i[0] == '{' and i[i.len - 1] == '}') {
