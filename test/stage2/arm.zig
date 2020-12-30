@@ -282,4 +282,66 @@ pub fn addCases(ctx: *TestContext) !void {
             "123456",
         );
     }
+
+    {
+        var case = ctx.exe("if statements", linux_arm);
+        // Simple if statement in assert
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var x: u32 = 123;
+            \\    var y: u32 = 42;
+            \\    assert(x > y);
+            \\    exit();
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("while loops", linux_arm);
+        // Simple while loop with assert
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var x: u32 = 2020;
+            \\    var i: u32 = 0;
+            \\    while (x > 0) {
+            \\        x -= 2;
+            \\        i += 1;
+            \\    }
+            \\    assert(i == 1010);
+            \\    exit();
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
