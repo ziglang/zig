@@ -329,10 +329,12 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     }
 
     try self.populateMissingMetadata();
-    try self.d_sym.?.populateMissingMetadata(allocator);
-
     try self.writeLocalSymbol(0);
-    try self.d_sym.?.writeLocalSymbol(0);
+
+    if (self.d_sym) |*ds| {
+        try ds.populateMissingMetadata(allocator);
+        try ds.writeLocalSymbol(0);
+    }
 
     return self;
 }
@@ -1276,7 +1278,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         symbol.n_desc = 0;
 
         try self.writeLocalSymbol(decl.link.macho.local_sym_index);
-        try self.d_sym.?.writeLocalSymbol(decl.link.macho.local_sym_index);
+        if (self.d_sym) |*ds|
+            try ds.writeLocalSymbol(decl.link.macho.local_sym_index);
     } else {
         const decl_name = mem.spanZ(decl.name);
         const name_str_index = try self.makeString(decl_name);
@@ -1294,7 +1297,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         self.offset_table.items[decl.link.macho.offset_table_index] = addr;
 
         try self.writeLocalSymbol(decl.link.macho.local_sym_index);
-        try self.d_sym.?.writeLocalSymbol(decl.link.macho.local_sym_index);
+        if (self.d_sym) |*ds|
+            try ds.writeLocalSymbol(decl.link.macho.local_sym_index);
         try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
     }
 
@@ -1398,9 +1402,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
                 const new_offset = dwarf_segment.findFreeSpace(needed_size, 1, null);
                 const existing_size = last_src_fn.off;
 
-                assert(dwarf_segment.inner.fileoff + dwarf_segment.inner.filesize >= new_offset + needed_size);
-
-                log.debug("moving __zdebug_line section: {} bytes from 0x{x} to 0x{x}", .{
+                log.debug("moving __debug_line section: {} bytes from 0x{x} to 0x{x}", .{
                     existing_size,
                     debug_line_sect.offset,
                     new_offset,
@@ -2097,7 +2099,8 @@ fn makeString(self: *MachO, bytes: []const u8) !u32 {
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
     self.string_table_dirty = true;
-    self.d_sym.?.string_table_dirty = true;
+    if (self.d_sym) |*ds|
+        ds.string_table_dirty = true;
     return @intCast(u32, result);
 }
 

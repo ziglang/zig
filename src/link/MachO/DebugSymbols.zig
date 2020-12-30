@@ -94,6 +94,15 @@ pub const abbrev_base_type = 4;
 pub const abbrev_pad1 = 5;
 pub const abbrev_parameter = 6;
 
+/// The reloc offset for the virtual address of a function in its Line Number Program.
+/// Size is a virtual address integer.
+pub const dbg_line_vaddr_reloc_index = 3;
+/// The reloc offset for the virtual address of a function in its .debug_info TAG_subprogram.
+/// Size is a virtual address integer.
+pub const dbg_info_low_pc_reloc_index = 1;
+
+pub const min_nop_size = 2;
+
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
 pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void {
@@ -469,7 +478,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
 
         if (di_buf.items.len > first_dbg_info_decl.dbg_info_off) {
             // Move the first N decls to the end to make more padding for the header.
-            @panic("TODO: handle __zdebug_info header exceeding its padding");
+            @panic("TODO: handle __debug_info header exceeding its padding");
         }
         const jmp_amt = first_dbg_info_decl.dbg_info_off - di_buf.items.len;
         try self.pwriteDbgInfoNops(0, di_buf.items, jmp_amt, false, debug_info_sect.offset);
@@ -648,16 +657,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
     }
 
     try self.writeStringTable();
-
-    {
-        const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
-        var file_size: u64 = 0;
-        for (dwarf_segment.sections.items) |sect| {
-            file_size += sect.size;
-        }
-        dwarf_segment.inner.filesize = file_size;
-    }
-
+    self.updateDwarfSegment();
     try self.writeLoadCommands(allocator);
     try self.writeHeader();
 
@@ -676,6 +676,7 @@ pub fn deinit(self: *DebugSymbols, allocator: *Allocator) void {
     for (self.load_commands.items) |*lc| {
         lc.deinit(allocator);
     }
+    self.load_commands.deinit(allocator);
     self.file.close();
 }
 
@@ -722,6 +723,21 @@ fn copySegmentCommand(self: *DebugSymbols, allocator: *Allocator, base_cmd: Segm
     }
 
     return cmd;
+}
+
+fn updateDwarfSegment(self: *DebugSymbols) void {
+    const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
+    var file_size: u64 = 0;
+    for (dwarf_segment.sections.items) |sect| {
+        file_size += sect.size;
+    }
+    if (file_size != dwarf_segment.inner.filesize) {
+        dwarf_segment.inner.filesize = file_size;
+        if (dwarf_segment.inner.vmsize < dwarf_segment.inner.filesize) {
+            dwarf_segment.inner.vmsize = mem.alignForwardGeneric(u64, dwarf_segment.inner.filesize, page_size);
+        }
+        self.load_commands_dirty = true;
+    }
 }
 
 /// Writes all load commands and section headers.
@@ -823,7 +839,7 @@ fn relocateSymbolTable(self: *DebugSymbols) !void {
             const new_symoff = self.findFreeSpaceLinkedit(needed_size, @alignOf(macho.nlist_64));
             const existing_size = symtab.nsyms * @sizeOf(macho.nlist_64);
 
-            assert(new_symoff + existing_size <= self.linkedit_off + self.linkedit_size);
+            assert(new_symoff + existing_size <= self.linkedit_off + self.linkedit_size); // TODO expand LINKEDIT segment.
             log.debug("relocating dSym symbol table from 0x{x}-0x{x} to 0x{x}-0x{x}", .{
                 symtab.symoff,
                 symtab.symoff + existing_size,
@@ -850,7 +866,7 @@ pub fn writeLocalSymbol(self: *DebugSymbols, index: usize) !void {
     try self.file.pwriteAll(mem.asBytes(&self.base.local_symbols.items[index]), off);
 }
 
-pub fn writeStringTable(self: *DebugSymbols) !void {
+fn writeStringTable(self: *DebugSymbols) !void {
     if (!self.string_table_dirty) return;
 
     const tracy = trace(@src());
@@ -989,10 +1005,7 @@ pub fn writeDeclDebugInfo(self: *DebugSymbols, text_block: *TextBlock, dbg_info_
             const new_offset = dwarf_segment.findFreeSpace(needed_size, 1, null);
             const existing_size = last_decl.dbg_info_off;
 
-            // TODO
-            assert(dwarf_segment.inner.fileoff + dwarf_segment.inner.filesize >= new_offset + needed_size);
-
-            log.debug("moving _debug_info section: {} bytes from 0x{x} to 0x{x}", .{
+            log.debug("moving __debug_info section: {} bytes from 0x{x} to 0x{x}", .{
                 existing_size,
                 debug_info_sect.offset,
                 new_offset,
@@ -1042,13 +1055,6 @@ fn makeDebugString(self: *DebugSymbols, allocator: *Allocator, bytes: []const u8
     return @intCast(u32, result);
 }
 
-/// The reloc offset for the virtual address of a function in its Line Number Program.
-/// Size is a virtual address integer.
-pub const dbg_line_vaddr_reloc_index = 3;
-/// The reloc offset for the virtual address of a function in its .debug_info TAG_subprogram.
-/// Size is a virtual address integer.
-pub const dbg_info_low_pc_reloc_index = 1;
-
 /// The reloc offset for the line offset of a function from the previous function's line.
 /// It's a fixed-size 4-byte ULEB128.
 pub fn getRelocDbgLineOff() usize {
@@ -1080,8 +1086,6 @@ pub fn dbgLineNeededHeaderBytes(self: DebugSymbols, module: *Module) u32 {
 fn dbgInfoNeededHeaderBytes(self: DebugSymbols) u32 {
     return 120;
 }
-
-pub const min_nop_size = 2;
 
 /// Writes to the file a buffer, prefixed and suffixed by the specified number of
 /// bytes of NOPs. Asserts each padding size is at least `min_nop_size` and total padding bytes
