@@ -337,6 +337,9 @@ pub const Target = struct {
             };
         }
 
+        /// On Darwin, we always link libSystem which contains libc.
+        /// Similarly on FreeBSD and NetBSD we always link system libc
+        /// since this is the stable syscall interface.
         pub fn requiresLibC(os: Os) bool {
             return switch (os.tag) {
                 .freebsd,
