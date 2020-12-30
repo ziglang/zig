@@ -1460,25 +1460,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 }
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const container_scope = decl.scope.cast(Module.Scope.Container).?;
-    const tree = container_scope.file_scope.contents.tree;
-    const file_ast_decls = tree.root_node.decls();
-    // TODO Look into improving the performance here by adding a token-index-to-line
-    // lookup table. Currently this involves scanning over the source code for newlines.
-    const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-    const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-    const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
-    const casted_line_off = @intCast(u28, line_delta);
-
-    const dwarf_segment = &self.d_sym.?.load_commands.items[self.d_sym.?.dwarf_segment_cmd_index.?].Segment;
-    const shdr = &dwarf_segment.sections.items[self.d_sym.?.debug_line_section_index.?];
-    const file_pos = shdr.offset + decl.fn_link.macho.off + DebugSymbols.getRelocDbgLineOff();
-    var data: [4]u8 = undefined;
-    leb.writeUnsignedFixed(4, &data, casted_line_off);
-    try self.d_sym.?.file.pwriteAll(&data, file_pos);
+    if (self.d_sym) |*ds| {
+        try ds.updateDeclLineNumber(module, decl);
+    }
 }
 
 pub fn updateDeclExports(
