@@ -278,6 +278,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .For => return forExpr(mod, scope, rl, node.castTag(.For).?),
         .ArrayAccess => return arrayAccess(mod, scope, rl, node.castTag(.ArrayAccess).?),
         .Slice => return rlWrap(mod, scope, rl, try sliceExpr(mod, scope, node.castTag(.Slice).?)),
+        .Try => return tryExpr(mod, scope, rl, node.castTag(.Try).?),
         .Catch => return catchExpr(mod, scope, rl, node.castTag(.Catch).?),
         .Comptime => return comptimeKeyword(mod, scope, rl, node.castTag(.Comptime).?),
         .OrElse => return orelseExpr(mod, scope, rl, node.castTag(.OrElse).?),
@@ -287,7 +288,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Await => return mod.failNode(scope, node, "TODO implement astgen.expr for .Await", .{}),
         .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
-        .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
         .ArrayInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializer", .{}),
         .ArrayInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializerDot", .{}),
         .StructInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializer", .{}),
@@ -1053,6 +1053,86 @@ fn errorType(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*
         .ty = Type.initTag(.type),
         .val = Value.initTag(.anyerror_type),
     });
+}
+
+fn tryExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+
+    const operand_ptr = try expr(mod, scope, .ref, node.rhs);
+    // TODO we could avoid an unnecessary copy if .iserr, .isnull took a pointer
+    const err_union = try addZIRUnOp(mod, scope, src, .deref, operand_ptr);
+    const cond = try addZIRUnOp(mod, scope, src, .iserr, err_union);
+
+    var block_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = scope.decl().?,
+        .arena = scope.arena(),
+        .instructions = .{},
+    };
+    defer block_scope.instructions.deinit(mod.gpa);
+
+    const condbr = try addZIRInstSpecial(mod, &block_scope.base, src, zir.Inst.CondBr, .{
+        .condition = cond,
+        .then_body = undefined, // populated below
+        .else_body = undefined, // populated below
+    }, .{});
+
+    const block = try addZIRInstBlock(mod, scope, src, .block, .{
+        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+    });
+
+    // Most result location types can be forwarded directly; however
+    // if we need to write to a pointer which has an inferred type,
+    // proper type inference requires peer type resolution on the if's
+    // branches.
+    const branch_rl: ResultLoc = switch (rl) {
+        .discard, .none, .ty, .ptr, .ref => rl,
+        .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block },
+    };
+
+    var then_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = block_scope.decl,
+        .arena = block_scope.arena,
+        .instructions = .{},
+    };
+    defer then_scope.instructions.deinit(mod.gpa);
+
+    var err_val_scope: Scope.LocalVal = undefined;
+
+    const unwrapped_err_ptr = try addZIRUnOp(mod, &then_scope.base, src, .unwrap_err_code, operand_ptr);
+    const unwrapped_err = try addZIRUnOp(mod, &then_scope.base, src, .deref, unwrapped_err_ptr);
+
+    _ = try addZIRInst(mod, &then_scope.base, src, zir.Inst.Break, .{
+        .block = block,
+        .operand = try addZIRUnOp(mod, &then_scope.base, src, .@"return", try addZIRBinOp(
+            mod,
+            &then_scope.base,
+            src,
+            .as,
+            try addZIRNoOp(mod, &then_scope.base, src, .ret_type),
+            unwrapped_err,
+        )),
+    }, .{});
+
+    var else_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = block_scope.decl,
+        .arena = block_scope.arena,
+        .instructions = .{},
+    };
+    defer else_scope.instructions.deinit(mod.gpa);
+
+    const unwrapped_payload = try addZIRUnOp(mod, &else_scope.base, src, .unwrap_err_unsafe, operand_ptr);
+    _ = try addZIRInst(mod, &else_scope.base, src, zir.Inst.Break, .{
+        .block = block,
+        .operand = unwrapped_payload,
+    }, .{});
+
+    condbr.positionals.then_body = .{ .instructions = try then_scope.arena.dupe(*zir.Inst, then_scope.instructions.items) };
+    condbr.positionals.else_body = .{ .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items) };
+    return rlWrapPtr(mod, scope, rl, &block.base);
 }
 
 fn catchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Catch) InnerError!*zir.Inst {

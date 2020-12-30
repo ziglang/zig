@@ -2006,6 +2006,20 @@ const AfterUpdateHook = union(enum) {
 fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, hook: AfterUpdateHook) !void {
     try comp.update();
 
+    if (zir_out_path) |zop| {
+        const module = comp.bin_file.options.module orelse
+            fatal("-femit-zir with no zig source code", .{});
+        var new_zir_module = try zir.emit(gpa, module);
+        defer new_zir_module.deinit(gpa);
+
+        const baf = try io.BufferedAtomicFile.create(gpa, fs.cwd(), zop, .{});
+        defer baf.destroy();
+
+        try new_zir_module.writeToStream(gpa, baf.writer());
+
+        try baf.finish();
+    }
+
     var errors = try comp.getAllErrorsAlloc();
     defer errors.deinit(comp.gpa);
 
@@ -2023,20 +2037,6 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, 
             full_path,
             .{},
         ),
-    }
-
-    if (zir_out_path) |zop| {
-        const module = comp.bin_file.options.module orelse
-            fatal("-femit-zir with no zig source code", .{});
-        var new_zir_module = try zir.emit(gpa, module);
-        defer new_zir_module.deinit(gpa);
-
-        const baf = try io.BufferedAtomicFile.create(gpa, fs.cwd(), zop, .{});
-        defer baf.destroy();
-
-        try new_zir_module.writeToStream(gpa, baf.writer());
-
-        try baf.finish();
     }
 }
 
