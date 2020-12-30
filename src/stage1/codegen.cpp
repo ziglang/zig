@@ -19,6 +19,7 @@
 #include "stage2.h"
 #include "dump_analysis.hpp"
 #include "softfloat.hpp"
+#include "zigendian.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -7421,11 +7422,20 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                     return LLVMConstReal(get_llvm_type(g, type_entry), const_val->data.x_f64);
                 case 128:
                     {
-                        // TODO make sure this is correct on big endian targets too
-                        uint8_t buf[16];
-                        memcpy(buf, &const_val->data.x_f128, 16);
-                        LLVMValueRef as_int = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2,
-                                (uint64_t*)buf);
+                        uint64_t buf[2];
+
+                        // LLVM seems to require that the lower half of the f128 be placed first in the buffer.
+                        #if defined(ZIG_BYTE_ORDER) && ZIG_BYTE_ORDER == ZIG_LITTLE_ENDIAN
+                            buf[0] = const_val->data.x_f128.v[0];
+                            buf[1] = const_val->data.x_f128.v[1];
+                        #elif defined(ZIG_BYTE_ORDER) && ZIG_BYTE_ORDER == ZIG_BIG_ENDIAN
+                            buf[0] = const_val->data.x_f128.v[1];
+                            buf[1] = const_val->data.x_f128.v[0];
+                        #else
+                            #error Unsupported endian
+                        #endif
+
+                        LLVMValueRef as_int = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
                         return LLVMConstBitCast(as_int, get_llvm_type(g, type_entry));
                     }
                 default:
