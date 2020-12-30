@@ -1199,7 +1199,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
         // .debug_info subprogram
         const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
-        try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 25 + decl_name_with_null.len);
+        try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 27 + decl_name_with_null.len);
 
         const fn_ret_type = typed_value.ty.fnReturnType();
         const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
@@ -1227,6 +1227,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
         }
         dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
+        mem.writeIntLittle(u32, dbg_info_buffer.addManyAsArrayAssumeCapacity(4), line_off + 1); // DW.AT_decl_line, DW.FORM_data4
+        dbg_info_buffer.appendAssumeCapacity(file_index); // DW.AT_decl_file, DW.FORM_data1
     } else {
         // TODO implement .debug_info for global variables
     }

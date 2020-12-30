@@ -361,52 +361,41 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         // we can simply append these bytes.
         const abbrev_buf = [_]u8{
             abbrev_compile_unit, DW.TAG_compile_unit, DW.CHILDREN_yes, // header
-            DW.AT_stmt_list,     DW.FORM_sec_offset,  DW.AT_low_pc,
-            DW.FORM_addr,        DW.AT_high_pc,       DW.FORM_addr,
-            DW.AT_name,          DW.FORM_strp,        DW.AT_comp_dir,
-            DW.FORM_strp,        DW.AT_producer,      DW.FORM_strp,
-            DW.AT_language,      DW.FORM_data2,       0,
-            0, // table sentinel
-            abbrev_subprogram,
-            DW.TAG_subprogram,
-            DW.CHILDREN_yes, // header
-            DW.AT_low_pc,
-            DW.FORM_addr,
-            DW.AT_high_pc,
-            DW.FORM_data4,
-            DW.AT_type,
-            DW.FORM_ref4,
-            DW.AT_name,
-            DW.FORM_string,
+            DW.AT_stmt_list, DW.FORM_sec_offset, // offset
+            DW.AT_low_pc,    DW.FORM_addr,
+            DW.AT_high_pc,   DW.FORM_addr,
+            DW.AT_name,      DW.FORM_strp,
+            DW.AT_comp_dir,  DW.FORM_strp,
+            DW.AT_producer,  DW.FORM_strp,
+            DW.AT_language,  DW.FORM_data2,
+            0, 0, // table sentinel
+            abbrev_subprogram, DW.TAG_subprogram, DW.CHILDREN_yes, // header
+            DW.AT_low_pc,    DW.FORM_addr, // start VM address
+            DW.AT_high_pc,   DW.FORM_data4,
+            DW.AT_type,      DW.FORM_ref4,
+            DW.AT_name,      DW.FORM_string,
+            DW.AT_decl_line, DW.FORM_data4,
+            DW.AT_decl_file, DW.FORM_data1,
             0,                         0, // table sentinel
             abbrev_subprogram_retvoid,
             DW.TAG_subprogram, DW.CHILDREN_yes, // header
             DW.AT_low_pc,      DW.FORM_addr,
             DW.AT_high_pc,     DW.FORM_data4,
             DW.AT_name,        DW.FORM_string,
-            0,
-            0, // table sentinel
-            abbrev_base_type,
-            DW.TAG_base_type,
-            DW.CHILDREN_no, // header
-            DW.AT_encoding,
-            DW.FORM_data1,
-            DW.AT_byte_size,
-            DW.FORM_data1,
-            DW.AT_name,
-            DW.FORM_string, 0, 0, // table sentinel
+            DW.AT_decl_line,   DW.FORM_data4,
+            DW.AT_decl_file,   DW.FORM_data1,
+            0, 0, // table sentinel
+            abbrev_base_type, DW.TAG_base_type, DW.CHILDREN_no, // header
+            DW.AT_encoding,   DW.FORM_data1,    DW.AT_byte_size,
+            DW.FORM_data1,    DW.AT_name,       DW.FORM_string,
+            0, 0, // table sentinel
             abbrev_pad1, DW.TAG_unspecified_type, DW.CHILDREN_no, // header
-            0,                0, // table sentinel
-            abbrev_parameter,
-            DW.TAG_formal_parameter, DW.CHILDREN_no, // header
-            DW.AT_location,          DW.FORM_exprloc,
-            DW.AT_type,              DW.FORM_ref4,
-            DW.AT_name,              DW.FORM_string,
-            0,
-            0, // table sentinel
-            0,
-            0,
-            0, // section sentinel
+            0, 0, // table sentinel
+            abbrev_parameter, DW.TAG_formal_parameter, DW.CHILDREN_no, // header
+            DW.AT_location,   DW.FORM_exprloc,         DW.AT_type,
+            DW.FORM_ref4,     DW.AT_name,              DW.FORM_string,
+            0, 0, // table sentinel
+            0, 0, 0, // section sentinel
         };
 
         const needed_size = abbrev_buf.len;
