@@ -291,7 +291,7 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
-            .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
+            .c => {},
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDecl(module, decl),
         }
     }
@@ -412,7 +412,7 @@ pub const File = struct {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
             .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
-            .c => unreachable,
+            .c => {},
             .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
         }
     }

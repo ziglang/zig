@@ -24,13 +24,13 @@ pub fn addCases(ctx: *TestContext) !void {
         // Now change the message only
         // TODO fix C backend not supporting updates
         // https://github.com/ziglang/zig/issues/7589
-        //case.addCompareOutput(
-        //    \\extern fn puts(s: [*:0]const u8) c_int;
-        //    \\export fn main() c_int {
-        //    \\    _ = puts("yo");
-        //    \\    return 0;
-        //    \\}
-        //, "yo" ++ std.cstr.line_sep);
+        case.addCompareOutput(
+            \\extern fn puts(s: [*:0]const u8) c_int;
+            \\export fn main() c_int {
+            \\    _ = puts("yo");
+            \\    return 0;
+            \\}
+        , "yo" ++ std.cstr.line_sep);
     }
 
     {
@@ -111,13 +111,13 @@ pub fn addCases(ctx: *TestContext) !void {
     ,
         \\static zig_noreturn void main(void);
         \\
-        \\zig_noreturn void _start(void) {
-        \\    main();
-        \\}
-        \\
         \\static zig_noreturn void main(void) {
         \\    zig_breakpoint();
         \\    zig_unreachable();
+        \\}
+        \\
+        \\zig_noreturn void _start(void) {
+        \\    main();
         \\}
         \\
     );
@@ -143,16 +143,16 @@ pub fn addCases(ctx: *TestContext) !void {
         \\static uint8_t exitGood__anon_1[6] = "{rdi}";
         \\static uint8_t exitGood__anon_2[8] = "syscall";
         \\
-        \\zig_noreturn void _start(void) {
-        \\    exitGood();
-        \\}
-        \\
         \\static zig_noreturn void exitGood(void) {
         \\    register uintptr_t rax_constant __asm__("rax") = 231;
         \\    register uintptr_t rdi_constant __asm__("rdi") = 0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
         \\    zig_breakpoint();
         \\    zig_unreachable();
+        \\}
+        \\
+        \\zig_noreturn void _start(void) {
+        \\    exitGood();
         \\}
         \\
     );
