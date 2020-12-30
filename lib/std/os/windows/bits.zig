@@ -84,8 +84,8 @@ pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
 
 pub const WPARAM = usize;
-pub const LPARAM = ?*c_void;
-pub const LRESULT = ?*c_void;
+pub const LPARAM = LONG_PTR;
+pub const LRESULT = LONG_PTR;
 
 pub const va_list = *opaque {};
 
