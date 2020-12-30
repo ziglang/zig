@@ -128,10 +128,7 @@ pub fn cannotDynamicLink(target: std.Target) bool {
 /// Similarly on FreeBSD and NetBSD we always link system libc
 /// since this is the stable syscall interface.
 pub fn osRequiresLibC(target: std.Target) bool {
-    return switch (target.os.tag) {
-        .freebsd, .netbsd, .dragonfly, .openbsd, .macos, .ios, .watchos, .tvos => true,
-        else => false,
-    };
+    return target.os.requiresLibC();
 }
 
 pub fn libcNeedsLibUnwind(target: std.Target) bool {
