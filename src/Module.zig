@@ -37,6 +37,7 @@ root_scope: *Scope,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
+/// The slice is guaranteed to not be empty.
 decl_exports: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// We track which export is associated with the given symbol name for quick
 /// detection of symbol collisions.

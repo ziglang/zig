@@ -863,6 +863,7 @@ pub const TestContext = struct {
                         },
                     }
                     std.testing.expectEqualStrings(expected_stdout, exec_result.stdout);
+                    std.testing.expectEqualStrings("", exec_result.stderr);
                 },
             }
         }

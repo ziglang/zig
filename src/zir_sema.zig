@@ -352,7 +352,11 @@ fn analyzeInstCoerceToPtrElem(mod: *Module, scope: *Scope, inst: *zir.Inst.Coerc
 }
 
 fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstRetPtr", .{});
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
+    const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
+    const ret_type = fn_ty.fnReturnType();
+    const ptr_type = try mod.simplePtrType(scope, inst.base.src, ret_type, true, .One);
+    return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
 }
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
