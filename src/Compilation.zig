@@ -825,9 +825,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
             const root_scope = rs: {
                 if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
-                    const struct_payload = try gpa.create(Type.Payload.EmptyStruct);
                     const root_scope = try gpa.create(Module.Scope.File);
-                    struct_payload.* = .{ .scope = &root_scope.root_container };
+                    const struct_ty = try Type.Tag.empty_struct.create(
+                        gpa,
+                        &root_scope.root_container,
+                    );
                     root_scope.* = .{
                         // TODO this is duped so it can be freed in Container.deinit
                         .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
@@ -838,7 +840,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                         .root_container = .{
                             .file_scope = root_scope,
                             .decls = .{},
-                            .ty = Type.initPayload(&struct_payload.base),
+                            .ty = struct_ty,
                         },
                     };
                     break :rs &root_scope.base;

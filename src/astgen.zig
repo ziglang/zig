@@ -2723,7 +2723,7 @@ fn rlWrap(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerEr
             return mod.fail(scope, result.src, "TODO implement rlWrap .bitcasted_ptr", .{});
         },
         .inferred_ptr => |alloc| {
-            return mod.fail(scope, result.src, "TODO implement rlWrap .inferred_ptr", .{});
+            return addZIRBinOp(mod, scope, result.src, .store, &alloc.base, result);
         },
         .block_ptr => |block_ptr| {
             return mod.fail(scope, result.src, "TODO implement rlWrap .block_ptr", .{});

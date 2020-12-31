@@ -562,7 +562,7 @@ pub const Scope = struct {
         pub fn deinit(self: *Container, gpa: *Allocator) void {
             self.decls.deinit(gpa);
             // TODO either Container of File should have an arena for sub_file_path and ty
-            gpa.destroy(self.ty.cast(Type.Payload.EmptyStruct).?);
+            gpa.destroy(self.ty.castTag(.empty_struct).?);
             gpa.free(self.file_scope.sub_file_path);
             self.* = undefined;
         }
@@ -2528,12 +2528,11 @@ pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []
     }
 
     // TODO Scope.Container arena for ty and sub_file_path
-    const struct_payload = try self.gpa.create(Type.Payload.EmptyStruct);
-    errdefer self.gpa.destroy(struct_payload);
     const file_scope = try self.gpa.create(Scope.File);
     errdefer self.gpa.destroy(file_scope);
+    const struct_ty = try Type.Tag.empty_struct.create(self.gpa, &file_scope.root_container);
+    errdefer self.gpa.destroy(struct_ty.castTag(.empty_struct).?);
 
-    struct_payload.* = .{ .scope = &file_scope.root_container };
     file_scope.* = .{
         .sub_file_path = resolved_path,
         .source = .{ .unloaded = {} },
@@ -2543,7 +2542,7 @@ pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []
         .root_container = .{
             .file_scope = file_scope,
             .decls = .{},
-            .ty = Type.initPayload(&struct_payload.base),
+            .ty = struct_ty,
         },
     };
     self.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
@@ -2564,7 +2563,7 @@ pub fn cmpNumeric(
     lhs: *Inst,
     rhs: *Inst,
     op: std.math.CompareOperator,
-) !*Inst {
+) InnerError!*Inst {
     assert(lhs.ty.isNumeric());
     assert(rhs.ty.isNumeric());
 
@@ -2738,15 +2737,14 @@ fn wrapOptional(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*In
 }
 
 fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
-    if (signed) {
-        const int_payload = try scope.arena().create(Type.Payload.IntSigned);
-        int_payload.* = .{ .bits = bits };
-        return Type.initPayload(&int_payload.base);
-    } else {
-        const int_payload = try scope.arena().create(Type.Payload.IntUnsigned);
-        int_payload.* = .{ .bits = bits };
-        return Type.initPayload(&int_payload.base);
-    }
+    const int_payload = try scope.arena().create(Type.Payload.Bits);
+    int_payload.* = .{
+        .base = .{
+            .tag = if (signed) .int_signed else .int_unsigned,
+        },
+        .data = bits,
+    };
+    return Type.initPayload(&int_payload.base);
 }
 
 pub fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Type {
@@ -2829,7 +2827,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
 
     // T to ?T
     if (dest_type.zigTypeTag() == .Optional) {
-        var buf: Type.Payload.PointerSimple = undefined;
+        var buf: Type.Payload.ElemType = undefined;
         const child_type = dest_type.optionalChild(&buf);
         if (child_type.eql(inst.ty)) {
             return self.wrapOptional(scope, dest_type, inst);
@@ -3225,7 +3223,7 @@ pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mu
     // TODO stage1 type inference bug
     const T = Type.Tag;
 
-    const type_payload = try scope.arena().create(Type.Payload.PointerSimple);
+    const type_payload = try scope.arena().create(Type.Payload.ElemType);
     type_payload.* = .{
         .base = .{
             .tag = switch (size) {
@@ -3235,7 +3233,7 @@ pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mu
                 .Slice => if (mutable) T.mut_slice else T.const_slice,
             },
         },
-        .pointee_type = elem_ty,
+        .data = elem_ty,
     };
     return Type.initPayload(&type_payload.base);
 }
@@ -3257,8 +3255,7 @@ pub fn ptrType(
     assert(host_size == 0 or bit_offset < host_size * 8);
 
     // TODO check if type can be represented by simplePtrType
-    const type_payload = try scope.arena().create(Type.Payload.Pointer);
-    type_payload.* = .{
+    return Type.Tag.pointer.create(scope.arena(), .{
         .pointee_type = elem_ty,
         .sentinel = sentinel,
         .@"align" = @"align",
@@ -3268,95 +3265,73 @@ pub fn ptrType(
         .mutable = mutable,
         .@"volatile" = @"volatile",
         .size = size,
-    };
-    return Type.initPayload(&type_payload.base);
-}
-
-pub fn optionalType(self: *Module, scope: *Scope, child_type: Type) Allocator.Error!Type {
-    return Type.initPayload(switch (child_type.tag()) {
-        .single_const_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.PointerSimple);
-            payload.* = .{
-                .base = .{ .tag = .optional_single_const_pointer },
-                .pointee_type = child_type.elemType(),
-            };
-            break :blk &payload.base;
-        },
-        .single_mut_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.PointerSimple);
-            payload.* = .{
-                .base = .{ .tag = .optional_single_mut_pointer },
-                .pointee_type = child_type.elemType(),
-            };
-            break :blk &payload.base;
-        },
-        else => blk: {
-            const payload = try scope.arena().create(Type.Payload.Optional);
-            payload.* = .{
-                .child_type = child_type,
-            };
-            break :blk &payload.base;
-        },
     });
 }
 
-pub fn arrayType(self: *Module, scope: *Scope, len: u64, sentinel: ?Value, elem_type: Type) Allocator.Error!Type {
+pub fn optionalType(self: *Module, scope: *Scope, child_type: Type) Allocator.Error!Type {
+    switch (child_type.tag()) {
+        .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
+            scope.arena(),
+            child_type.elemType(),
+        ),
+        .single_mut_pointer => return Type.Tag.optional_single_mut_pointer.create(
+            scope.arena(),
+            child_type.elemType(),
+        ),
+        else => return Type.Tag.optional.create(scope.arena(), child_type),
+    }
+}
+
+pub fn arrayType(
+    self: *Module,
+    scope: *Scope,
+    len: u64,
+    sentinel: ?Value,
+    elem_type: Type,
+) Allocator.Error!Type {
     if (elem_type.eql(Type.initTag(.u8))) {
         if (sentinel) |some| {
             if (some.eql(Value.initTag(.zero))) {
-                const payload = try scope.arena().create(Type.Payload.Array_u8_Sentinel0);
-                payload.* = .{
-                    .len = len,
-                };
-                return Type.initPayload(&payload.base);
+                return Type.Tag.array_u8_sentinel_0.create(scope.arena(), len);
             }
         } else {
-            const payload = try scope.arena().create(Type.Payload.Array_u8);
-            payload.* = .{
-                .len = len,
-            };
-            return Type.initPayload(&payload.base);
+            return Type.Tag.array_u8.create(scope.arena(), len);
         }
     }
 
     if (sentinel) |some| {
-        const payload = try scope.arena().create(Type.Payload.ArraySentinel);
-        payload.* = .{
+        return Type.Tag.array_sentinel.create(scope.arena(), .{
             .len = len,
             .sentinel = some,
             .elem_type = elem_type,
-        };
-        return Type.initPayload(&payload.base);
+        });
     }
 
-    const payload = try scope.arena().create(Type.Payload.Array);
-    payload.* = .{
+    return Type.Tag.array.create(scope.arena(), .{
         .len = len,
         .elem_type = elem_type,
-    };
-    return Type.initPayload(&payload.base);
+    });
 }
 
-pub fn errorUnionType(self: *Module, scope: *Scope, error_set: Type, payload: Type) Allocator.Error!Type {
+pub fn errorUnionType(
+    self: *Module,
+    scope: *Scope,
+    error_set: Type,
+    payload: Type,
+) Allocator.Error!Type {
     assert(error_set.zigTypeTag() == .ErrorSet);
     if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
         return Type.initTag(.anyerror_void_error_union);
     }
 
-    const result = try scope.arena().create(Type.Payload.ErrorUnion);
-    result.* = .{
+    return Type.Tag.error_union.create(scope.arena(), .{
         .error_set = error_set,
         .payload = payload,
-    };
-    return Type.initPayload(&result.base);
+    });
 }
 
 pub fn anyframeType(self: *Module, scope: *Scope, return_type: Type) Allocator.Error!Type {
-    const result = try scope.arena().create(Type.Payload.AnyFrame);
-    result.* = .{
-        .return_type = return_type,
-    };
-    return Type.initPayload(&result.base);
+    return Type.Tag.anyframe_T.create(scope.arena(), return_type);
 }
 
 pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
