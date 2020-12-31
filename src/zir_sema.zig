@@ -1261,34 +1261,124 @@ fn zirOptionalPayload(
 fn zirErrUnionPayload(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.fail(scope, unwrap.base.src, "TODO implement zir_sema.zirErrUnionPayload", .{});
+
+    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
+    if (operand.ty.zigTypeTag() != .ErrorUnion)
+        return mod.fail(scope, operand.src, "expected error union type, found '{}'", .{operand.ty});
+
+    if (operand.value()) |val| {
+        if (val.getError()) |name| {
+            return mod.fail(scope, unwrap.base.src, "caught unexpected error '{s}'", .{name});
+        }
+        const data = val.castTag(.error_union).?.data;
+        return mod.constInst(scope, unwrap.base.src, .{
+            .ty = operand.ty.castTag(.error_union).?.data.payload,
+            .val = data,
+        });
+    }
+    const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
+    if (safety_check and mod.wantSafety(scope)) {
+        const is_non_err = try mod.addUnOp(b, unwrap.base.src, Type.initTag(.bool), .is_err, operand);
+        try mod.addSafetyCheck(b, is_non_err, .unwrap_errunion);
+    }
+    return mod.addUnOp(b, unwrap.base.src, operand.ty.castTag(.error_union).?.data.payload, .unwrap_errunion_payload, operand);
 }
 
 /// Pointer in, pointer out
 fn zirErrUnionPayloadPtr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.fail(scope, unwrap.base.src, "TODO implement zir_sema.zirErrUnionPayloadPtr", .{});
+
+    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
+    assert(operand.ty.zigTypeTag() == .Pointer);
+
+    if (operand.ty.elemType().zigTypeTag() != .ErrorUnion)
+        return mod.fail(scope, unwrap.base.src, "expected error union type, found {}", .{operand.ty.elemType()});
+
+    const operand_pointer_ty = try mod.simplePtrType(scope, unwrap.base.src, operand.ty.elemType().castTag(.error_union).?.data.payload, !operand.ty.isConstPtr(), .One);
+
+    if (operand.value()) |pointer_val| {
+        const val = try pointer_val.pointerDeref(scope.arena());
+        if (val.getError()) |name| {
+            return mod.fail(scope, unwrap.base.src, "caught unexpected error '{s}'", .{name});
+        }
+        const data = val.castTag(.error_union).?.data;
+        // The same Value represents the pointer to the error union and the payload.
+        return mod.constInst(scope, unwrap.base.src, .{
+            .ty = operand_pointer_ty,
+            .val = try Value.Tag.ref_val.create(
+                scope.arena(),
+                data,
+            ),
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
+    if (safety_check and mod.wantSafety(scope)) {
+        const is_non_err = try mod.addUnOp(b, unwrap.base.src, Type.initTag(.bool), .is_err, operand);
+        try mod.addSafetyCheck(b, is_non_err, .unwrap_errunion);
+    }
+    return mod.addUnOp(b, unwrap.base.src, operand_pointer_ty, .unwrap_errunion_payload_ptr, operand);
 }
 
 /// Value in, value out
 fn zirErrUnionCode(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.fail(scope, unwrap.base.src, "TODO implement zir_sema.zirErrUnionCode", .{});
+
+    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
+    if (operand.ty.zigTypeTag() != .ErrorUnion)
+        return mod.fail(scope, unwrap.base.src, "expected error union type, found '{}'", .{operand.ty});
+
+    if (operand.value()) |val| {
+        assert(val.getError() != null);
+        const data = val.castTag(.error_union).?.data;
+        return mod.constInst(scope, unwrap.base.src, .{
+            .ty = operand.ty.castTag(.error_union).?.data.error_set,
+            .val = data,
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
+    return mod.addUnOp(b, unwrap.base.src, operand.ty.castTag(.error_union).?.data.payload, .unwrap_errunion_err, operand);
 }
 
 /// Pointer in, value out
 fn zirErrUnionCodePtr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.fail(scope, unwrap.base.src, "TODO implement zir_sema.zirErrUnionCodePtr", .{});
+
+    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
+    assert(operand.ty.zigTypeTag() == .Pointer);
+
+    if (operand.ty.elemType().zigTypeTag() != .ErrorUnion)
+        return mod.fail(scope, unwrap.base.src, "expected error union type, found {}", .{operand.ty.elemType()});
+
+    if (operand.value()) |pointer_val| {
+        const val = try pointer_val.pointerDeref(scope.arena());
+        assert(val.getError() != null);
+        const data = val.castTag(.error_union).?.data;
+        return mod.constInst(scope, unwrap.base.src, .{
+            .ty = operand.ty.elemType().castTag(.error_union).?.data.error_set,
+            .val = data,
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
+    return mod.addUnOp(b, unwrap.base.src, operand.ty.castTag(.error_union).?.data.payload, .unwrap_errunion_err_ptr, operand);
 }
 
 fn zirEnsureErrPayloadVoid(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.fail(scope, unwrap.base.src, "TODO implement zirEnsureErrPayloadVoid", .{});
+
+    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
+    if (operand.ty.zigTypeTag() != .ErrorUnion)
+        return mod.fail(scope, unwrap.base.src, "expected error union type, found '{}'", .{operand.ty});
+    if (operand.ty.castTag(.error_union).?.data.payload.zigTypeTag() != .Void) {
+        return mod.fail(scope, unwrap.base.src, "expression value is ignored", .{});
+    }
+    return mod.constVoid(scope, unwrap.base.src);
 }
 
 fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
@@ -2062,7 +2152,12 @@ fn zirCmp(
         if (!is_equality_cmp) {
             return mod.fail(scope, inst.base.src, "{s} operator not allowed for errors", .{@tagName(op)});
         }
-        return mod.fail(scope, inst.base.src, "TODO implement equality comparison between errors", .{});
+        if (rhs.value()) |rval| {
+            if (lhs.value()) |lval| {
+                return mod.constBool(scope, inst.base.src, (lval.castTag(.@"error").?.data.value == rval.castTag(.@"error").?.data.value) == (op == .eq));
+            }
+        }
+        return mod.fail(scope, inst.base.src, "TODO implement equality comparison between runtime errors", .{});
     } else if (lhs.ty.isNumeric() and rhs.ty.isNumeric()) {
         // This operation allows any combination of integer and float types, regardless of the
         // signed-ness, comptime-ness, and bit-width. So peer type resolution is incorrect for

@@ -114,6 +114,18 @@ pub const Inst = struct {
         // *?T => *T
         optional_payload_ptr,
         wrap_optional,
+        /// E!T -> T
+        unwrap_errunion_payload,
+        /// E!T -> E
+        unwrap_errunion_err,
+        /// *(E!T) -> *T
+        unwrap_errunion_payload_ptr,
+        /// *(E!T) -> E
+        unwrap_errunion_err_ptr,
+        /// wrap from T to E!T
+        wrap_errunion_payload,
+        /// wrap from E to E!T
+        wrap_errunion_err,
         xor,
         switchbr,
 
@@ -143,6 +155,12 @@ pub const Inst = struct {
                 .optional_payload,
                 .optional_payload_ptr,
                 .wrap_optional,
+                .unwrap_errunion_payload,
+                .unwrap_errunion_err,
+                .unwrap_errunion_payload_ptr,
+                .unwrap_errunion_err_ptr,
+                .wrap_errunion_payload,
+                .wrap_errunion_err,
                 => UnOp,
 
                 .add,
