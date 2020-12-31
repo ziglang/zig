@@ -16,6 +16,10 @@ pub fn ArrayList(comptime T: type) type {
     return ArrayListAligned(T, null);
 }
 
+/// A contiguous, growable list of byte-aligned items in memory.
+/// This is a wrapper around an array of T values aligned to `alignment`-byte
+/// addresses. If the specified alignment is `null`, then `@alignOf(T)` is used.
+/// Initialize with `init`.
 pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
     if (alignment) |a| {
         if (a == @alignOf(T)) {
@@ -24,9 +28,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
     }
     return struct {
         const Self = @This();
-
-        /// Content of the ArrayList
+        /// Contents of the list. Pointers to elements in this slice are
+        /// **invalid after resizing operations** on the ArrayList, unless the
+        /// operation explicitly either: (1) states otherwise or (2) lists the
+        /// invalidated pointers.
         items: Slice,
+        /// How many T values this list can hold without allocating
+        /// additional memory.
         capacity: usize,
         allocator: *Allocator,
 
@@ -42,7 +50,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             };
         }
 
-        /// Initialize with capacity to hold at least num elements.
+        /// Initialize with capacity to hold at least `num` elements.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
             var self = Self.init(allocator);
@@ -79,11 +87,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             };
         }
 
+        /// Creates a copy of this list, but with no memory managment.
+        /// Retains ownership of underlying memory.
         pub fn toUnmanaged(self: Self) ArrayListAlignedUnmanaged(T, alignment) {
             return .{ .items = self.items, .capacity = self.capacity };
         }
 
-        /// The caller owns the returned memory. ArrayList becomes empty.
+        /// The caller owns the returned memory. Empties this ArrayList.
         pub fn toOwnedSlice(self: *Self) Slice {
             const allocator = self.allocator;
             const result = allocator.shrink(self.allocatedSlice(), self.items.len);
@@ -91,7 +101,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return result;
         }
 
-        /// The caller owns the returned memory. ArrayList becomes empty.
+        /// The caller owns the returned memory. Empties this ArrayList.
         pub fn toOwnedSliceSentinel(self: *Self, comptime sentinel: T) ![:sentinel]T {
             try self.append(sentinel);
             const result = self.toOwnedSlice();
@@ -118,9 +128,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             mem.copy(T, self.items[i .. i + items.len], items);
         }
 
-        /// Replace range of elements `list[start..start+len]` with `new_items`
-        /// grows list if `len < new_items.len`. may allocate
-        /// shrinks list if `len > new_items.len`
+        /// Replace range of elements `list[start..start+len]` with `new_items`.
+        /// Grows list if `len < new_items.len`.
+        /// Shrinks list if `len > new_items.len`.
         pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: SliceConst) !void {
             const after_range = start + len;
             const range = self.items[start..after_range];
@@ -145,21 +155,24 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             }
         }
 
-        /// Extend the list by 1 element. Allocates more memory as necessary.
+        /// Extend the list by 1 element.
         pub fn append(self: *Self, item: T) !void {
             const new_item_ptr = try self.addOne();
             new_item_ptr.* = item;
         }
 
-        /// Extend the list by 1 element, but asserting `self.capacity`
-        /// is sufficient to hold an additional item.
+        /// Extend the list by 1 element, but assert `self.capacity`
+        /// is sufficient to hold an additional item. **Does not**
+        /// invalidate pointers.
         pub fn appendAssumeCapacity(self: *Self, item: T) void {
             const new_item_ptr = self.addOneAssumeCapacity();
             new_item_ptr.* = item;
         }
 
-        /// Remove the element at index `i` from the list and return its value.
+        /// Remove the element at index `i`, shift elements after index
+        /// `i` forward, and return the removed element.
         /// Asserts the array has at least one item.
+        /// Invalidates pointers to end of list.
         /// This operation is O(N).
         pub fn orderedRemove(self: *Self, i: usize) T {
             const newlen = self.items.len - 1;
@@ -191,7 +204,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Append the slice of items to the list, asserting the capacity is already
-        /// enough to store the new items.
+        /// enough to store the new items. **Does not** invalidate pointers.
         pub fn appendSliceAssumeCapacity(self: *Self, items: SliceConst) void {
             const oldlen = self.items.len;
             const newlen = self.items.len + items.len;
@@ -227,7 +240,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Append a value to the list `n` times.
-        /// Asserts the capacity is enough.
+        /// Asserts the capacity is enough. **Does not** invalidate pointers.
         pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const new_len = self.items.len + n;
             assert(new_len <= self.capacity);
@@ -243,7 +256,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Reduce allocated capacity to `new_len`.
-        /// Invalidates element pointers.
+        /// May invalidate element pointers.
         pub fn shrink(self: *Self, new_len: usize) void {
             assert(new_len <= self.items.len);
 
@@ -257,13 +270,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Reduce length to `new_len`.
-        /// Invalidates element pointers.
-        /// Keeps capacity the same.
+        /// Invalidates pointers for the elements `items[new_len..]`.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             assert(new_len <= self.items.len);
             self.items.len = new_len;
         }
 
+        /// Modify the array so that it can hold at least `new_capacity` items.
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
             var better_capacity = self.capacity;
             if (better_capacity >= new_capacity) return;
@@ -280,14 +293,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Increases the array's length to match the full capacity that is already allocated.
-        /// The new elements have `undefined` values. This operation does not invalidate any
-        /// element pointers.
+        /// The new elements have `undefined` values. **Does not** invalidate pointers.
         pub fn expandToCapacity(self: *Self) void {
             self.items.len = self.capacity;
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// See struct documentation for returned element pointer validity.
         pub fn addOne(self: *Self) !*T {
             const newlen = self.items.len + 1;
             try self.ensureCapacity(newlen);
@@ -296,7 +308,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Increase length by 1, returning pointer to the new item.
         /// Asserts that there is already space for the new item without allocating more.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// See struct documentation for returned element pointer validity.
+        /// **Does not** invalidate element pointers.
         pub fn addOneAssumeCapacity(self: *Self) *T {
             assert(self.items.len < self.capacity);
 
@@ -315,6 +328,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
         /// Asserts that there is already space for the new item without allocating more.
+        /// **Does not** invalidate element pointers.
         pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
             assert(self.items.len + n <= self.capacity);
             const prev_len = self.items.len;
@@ -324,14 +338,16 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Remove and return the last element from the list.
         /// Asserts the list has at least one item.
+        /// Invalidates pointers to the removed element.
         pub fn pop(self: *Self) T {
             const val = self.items[self.items.len - 1];
             self.items.len -= 1;
             return val;
         }
 
-        /// Remove and return the last element from the list.
-        /// If the list is empty, returns `null`.
+        /// Remove and return the last element from the list, or
+        /// return `null` if list is empty.
+        /// Invalidates pointers to the removed element, if any.
         pub fn popOrNull(self: *Self) ?T {
             if (self.items.len == 0) return null;
             return self.pop();
@@ -447,7 +463,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Remove the element at index `i` from the list and return its value.
-        /// Asserts the array has at least one item.
+        /// Asserts the array has at least one item. Invalidates pointers to
+        /// last element.
         /// This operation is O(N).
         pub fn orderedRemove(self: *Self, i: usize) T {
             const newlen = self.items.len - 1;
@@ -462,6 +479,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Removes the element at the specified index and returns it.
         /// The empty slot is filled from the end of the list.
+        /// Invalidates pointers to last element.
         /// This operation is O(1).
         pub fn swapRemove(self: *Self, i: usize) T {
             if (self.items.len - 1 == i) return self.pop();
@@ -505,6 +523,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Append a value to the list `n` times.
+        /// **Does not** invalidate pointers.
         /// Asserts the capacity is enough.
         pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const new_len = self.items.len + n;
@@ -521,7 +540,6 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Reduce allocated capacity to `new_len`.
-        /// Invalidates element pointers.
         pub fn shrink(self: *Self, allocator: *Allocator, new_len: usize) void {
             assert(new_len <= self.items.len);
 
@@ -535,13 +553,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Reduce length to `new_len`.
-        /// Invalidates element pointers.
+        /// Invalidates pointers to elements `items[new_len..]`.
         /// Keeps capacity the same.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             assert(new_len <= self.items.len);
             self.items.len = new_len;
         }
 
+        /// Modify the array so that it can hold at least `new_capacity` items.
         pub fn ensureCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) !void {
             var better_capacity = self.capacity;
             if (better_capacity >= new_capacity) return;
@@ -558,13 +577,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Increases the array's length to match the full capacity that is already allocated.
         /// The new elements have `undefined` values.
-        /// This operation does not invalidate any element pointers.
+        /// **Does not** invalidate pointers.
         pub fn expandToCapacity(self: *Self) void {
             self.items.len = self.capacity;
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// The returned pointer becomes invalid when the list is resized (see
+        /// struct documentation).
         pub fn addOne(self: *Self, allocator: *Allocator) !*T {
             const newlen = self.items.len + 1;
             try self.ensureCapacity(allocator, newlen);
@@ -573,8 +593,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Increase length by 1, returning pointer to the new item.
         /// Asserts that there is already space for the new item without allocating more.
-        /// The returned pointer becomes invalid when the list is resized.
-        /// This operation does not invalidate any element pointers.
+        /// The returned pointer becomes invalid when the list is resized (see struct
+        /// documentation).
+        /// **Does not** invalidate pointers.
         pub fn addOneAssumeCapacity(self: *Self) *T {
             assert(self.items.len < self.capacity);
 
@@ -593,6 +614,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
         /// Asserts that there is already space for the new item without allocating more.
+        /// **Does not** invalidate pointers.
         pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
             assert(self.items.len + n <= self.capacity);
             const prev_len = self.items.len;
@@ -602,7 +624,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Remove and return the last element from the list.
         /// Asserts the list has at least one item.
-        /// This operation does not invalidate any element pointers.
+        /// Invalidates pointers to last element.
         pub fn pop(self: *Self) T {
             const val = self.items[self.items.len - 1];
             self.items.len -= 1;
@@ -611,7 +633,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Remove and return the last element from the list.
         /// If the list is empty, returns `null`.
-        /// This operation does not invalidate any element pointers.
+        /// Invalidates pointers to last element.
         pub fn popOrNull(self: *Self) ?T {
             if (self.items.len == 0) return null;
             return self.pop();
