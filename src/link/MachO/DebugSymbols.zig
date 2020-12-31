@@ -525,8 +525,8 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), text_section.size);
 
         // Sentinel.
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0);
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0);
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0);
+        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0);
 
         // Go back and populate the initial length.
         const init_len = di_buf.items.len - after_init_len;
