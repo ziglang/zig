@@ -32,6 +32,11 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// **invalid after resizing operations** on the ArrayList, unless the
         /// operation explicitly either: (1) states otherwise or (2) lists the
         /// invalidated pointers.
+        ///
+        /// The allocator used determines how element pointers are
+        /// invalidated, so the behavior may vary between lists. To avoid
+        /// undefined behavior, take into account the above paragraph plus the
+        /// explicit statements given in each method.
         items: Slice,
         /// How many T values this list can hold without allocating
         /// additional memory.
@@ -371,12 +376,22 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
     };
 }
 
-/// Bring-your-own allocator with every function call.
-/// Initialize directly and deinitialize with `deinit` or use `toOwnedSlice`.
+/// An `ArrayList`, but with bring-your-own allocator on every function call.
+/// Initialize directly or with `initCapacity`, and deinitialize with `deinit`
+/// or use `toOwnedSlice`.
+///
+/// Generally you should prefer to use the analogous `ArrayList` unless
+/// you have a reason not to.
 pub fn ArrayListUnmanaged(comptime T: type) type {
     return ArrayListAlignedUnmanaged(T, null);
 }
 
+/// An `ArrayListAligned`, but with bring-your-own allocator on every function
+/// call. Initialize directly or with `initCapacity`, and deinitialize with
+/// `deinit` or use `toOwnedSlice`.
+///
+/// Generally you should prefer to use the analogous `ArrayListAligned` unless
+/// you have a reason not to.
 pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) type {
     if (alignment) |a| {
         if (a == @alignOf(T)) {
@@ -386,8 +401,11 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
     return struct {
         const Self = @This();
 
-        /// Content of the ArrayList.
+        /// Contents of the list. See `ArrayList.items` for guiding principles
+        /// on how element pointers are invalidated.
         items: Slice = &[_]T{},
+        /// How many T values this list can hold without allocating
+        /// additional memory.
         capacity: usize = 0,
 
         pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
@@ -411,6 +429,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.* = undefined;
         }
 
+        /// Convert this list into an analogous memory-managed one.
+        /// The returned list has ownership of the underlying memory.
         pub fn toManaged(self: *Self, allocator: *Allocator) ArrayListAligned(T, alignment) {
             return .{ .items = self.items, .capacity = self.capacity, .allocator = allocator };
         }
@@ -430,7 +450,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Insert `item` at index `n`. Moves `list[n .. list.len]`
-        /// to make room.
+        /// to higher indices to make room.
+        /// This operation is O(N).
         pub fn insert(self: *Self, allocator: *Allocator, n: usize, item: T) !void {
             try self.ensureCapacity(allocator, self.items.len + 1);
             self.items.len += 1;
@@ -439,8 +460,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.items[n] = item;
         }
 
-        /// Insert slice `items` at index `i`. Moves
-        /// `list[i .. list.len]` to make room.
+        /// Insert slice `items` at index `i`. Moves `list[i .. list.len]` to
+        /// higher indicices make room.
         /// This operation is O(N).
         pub fn insertSlice(self: *Self, allocator: *Allocator, i: usize, items: SliceConst) !void {
             try self.ensureCapacity(allocator, self.items.len + items.len);
@@ -451,8 +472,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Replace range of elements `list[start..start+len]` with `new_items`
-        /// grows list if `len < new_items.len`. may allocate
-        /// shrinks list if `len > new_items.len`
+        /// Grows list if `len < new_items.len`.
+        /// Shrinks list if `len > new_items.len`
         pub fn replaceRange(self: *Self, allocator: *Allocator, start: usize, len: usize, new_items: SliceConst) !void {
             var managed = self.toManaged(allocator);
             try managed.replaceRange(start, len, new_items);
@@ -543,7 +564,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Adjust the list's length to `new_len`.
-        /// Does not initialize added items if any.
+        /// Does not initialize added items, if any.
         pub fn resize(self: *Self, allocator: *Allocator, new_len: usize) !void {
             try self.ensureCapacity(allocator, new_len);
             self.items.len = new_len;
@@ -593,8 +614,6 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        /// The returned pointer becomes invalid when the list is resized (see
-        /// struct documentation).
         pub fn addOne(self: *Self, allocator: *Allocator) !*T {
             const newlen = self.items.len + 1;
             try self.ensureCapacity(allocator, newlen);
@@ -603,8 +622,6 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Increase length by 1, returning pointer to the new item.
         /// Asserts that there is already space for the new item without allocating more.
-        /// The returned pointer becomes invalid when the list is resized (see struct
-        /// documentation).
         /// **Does not** invalidate pointers.
         pub fn addOneAssumeCapacity(self: *Self) *T {
             assert(self.items.len < self.capacity);
