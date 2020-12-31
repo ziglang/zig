@@ -1397,7 +1397,6 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
-
     {
         var case = ctx.exe("passing u0 to function", linux_x64);
         case.addCompareOutput(
@@ -1418,5 +1417,112 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+    }
+    {
+        var case = ctx.exe("catch at comptime", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const i: anyerror!u64 = 0;
+            \\    const caught = i catch 5;
+            \\    assert(caught == 0);
+            \\    exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const i: anyerror!u64 = error.B;
+            \\    const caught = i catch 5;
+            \\    assert(caught == 5);
+            \\    exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const a: anyerror!comptime_int = 42;
+            \\    const b: *const comptime_int = &(a catch unreachable);
+            \\    assert(b.* == 42);
+            \\
+            \\    exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable; // assertion failure
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , "");
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\const a: anyerror!u32 = error.B;
+            \\_ = &(a catch |err| assert(err == error.B));
+            \\exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , "");
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const a: anyerror!u32 = error.Bar;
+            \\    a catch |err| assert(err == error.Bar);
+            \\
+            \\    exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , "");
     }
 }

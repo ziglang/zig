@@ -1622,6 +1622,12 @@ const DumpTzir = struct {
                 .optional_payload,
                 .optional_payload_ptr,
                 .wrap_optional,
+                .wrap_errunion_payload,
+                .wrap_errunion_err,
+                .unwrap_errunion_payload,
+                .unwrap_errunion_err,
+                .unwrap_errunion_payload_ptr,
+                .unwrap_errunion_err_ptr,
                 => {
                     const un_op = inst.cast(ir.Inst.UnOp).?;
                     try dtz.findConst(un_op.operand);
@@ -1733,6 +1739,12 @@ const DumpTzir = struct {
                 .optional_payload,
                 .optional_payload_ptr,
                 .wrap_optional,
+                .wrap_errunion_err,
+                .wrap_errunion_payload,
+                .unwrap_errunion_err,
+                .unwrap_errunion_payload,
+                .unwrap_errunion_payload_ptr,
+                .unwrap_errunion_err_ptr,
                 => {
                     const un_op = inst.cast(ir.Inst.UnOp).?;
                     const kinky = try dtz.writeInst(writer, un_op.operand);

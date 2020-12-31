@@ -2871,7 +2871,15 @@ pub fn analyzeIsNull(
 }
 
 pub fn analyzeIsErr(self: *Module, scope: *Scope, src: usize, operand: *Inst) InnerError!*Inst {
-    return self.fail(scope, src, "TODO implement analysis of iserr", .{});
+    const ot = operand.ty.zigTypeTag();
+    if (ot != .ErrorSet and ot != .ErrorUnion) return self.constBool(scope, src, false);
+    if (ot == .ErrorSet) return self.constBool(scope, src, true);
+    assert(ot == .ErrorUnion);
+    if (operand.value()) |err_union| {
+        return self.constBool(scope, src, err_union.getError() != null);
+    }
+    const b = try self.requireRuntimeBlock(scope, src);
+    return self.addUnOp(b, src, Type.initTag(.bool), .is_err, operand);
 }
 
 pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, start: *Inst, end_opt: ?*Inst, sentinel_opt: ?*Inst) InnerError!*Inst {
@@ -3174,6 +3182,52 @@ fn wrapOptional(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*In
     return self.addUnOp(b, inst.src, dest_type, .wrap_optional, inst);
 }
 
+fn wrapErrorUnion(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
+    // TODO deal with inferred error sets
+    const err_union = dest_type.castTag(.error_union).?;
+    if (inst.value()) |val| {
+        const to_wrap = if (inst.ty.zigTypeTag() != .ErrorSet) blk: {
+            _ = try self.coerce(scope, err_union.data.payload, inst);
+            break :blk val;
+        } else switch (err_union.data.error_set.tag()) {
+            .anyerror => val,
+            .error_set_single => blk: {
+                const n = err_union.data.error_set.castTag(.error_set_single).?.data;
+                if (!mem.eql(u8, val.castTag(.@"error").?.data.name, n))
+                    return self.fail(scope, inst.src, "expected type '{}', found type '{}'", .{ err_union.data.error_set, inst.ty });
+                break :blk val;
+            },
+            .error_set => blk: {
+                const f = err_union.data.error_set.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
+                if (f.get(val.castTag(.@"error").?.data.name) == null)
+                    return self.fail(scope, inst.src, "expected type '{}', found type '{}'", .{ err_union.data.error_set, inst.ty });
+                break :blk val;
+            },
+            else => unreachable,
+        };
+
+        return self.constInst(scope, inst.src, .{
+            .ty = dest_type,
+            // creating a SubValue for the error_union payload
+            .val = try Value.Tag.error_union.create(
+                scope.arena(),
+                to_wrap,
+            ),
+        });
+    }
+
+    const b = try self.requireRuntimeBlock(scope, inst.src);
+
+    // we are coercing from E to E!T
+    if (inst.ty.zigTypeTag() == .ErrorSet) {
+        var coerced = try self.coerce(scope, err_union.data.error_set, inst);
+        return self.addUnOp(b, inst.src, dest_type, .wrap_errunion_err, coerced);
+    } else {
+        var coerced = try self.coerce(scope, err_union.data.payload, inst);
+        return self.addUnOp(b, inst.src, dest_type, .wrap_errunion_payload, coerced);
+    }
+}
+
 fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
     const int_payload = try scope.arena().create(Type.Payload.Bits);
     int_payload.* = .{
@@ -3240,7 +3294,7 @@ pub fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Ty
     return chosen.ty;
 }
 
-pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
+pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) InnerError!*Inst {
     // If the types are the same, we can return the operand.
     if (dest_type.eql(inst.ty))
         return inst;
@@ -3272,6 +3326,11 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
         } else if (try self.coerceNum(scope, child_type, inst)) |some| {
             return self.wrapOptional(scope, dest_type, some);
         }
+    }
+
+    // T to E!T or E to E!T
+    if (dest_type.tag() == .error_union) {
+        return try self.wrapErrorUnion(scope, dest_type, inst);
     }
 
     // Coercions where the source is a single pointer to an array.
@@ -3352,7 +3411,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     return self.fail(scope, inst.src, "expected {}, found {}", .{ dest_type, inst.ty });
 }
 
-pub fn coerceNum(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !?*Inst {
+pub fn coerceNum(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) InnerError!?*Inst {
     const val = inst.value() orelse return null;
     const src_zig_tag = inst.ty.zigTypeTag();
     const dst_zig_tag = dest_type.zigTypeTag();
@@ -3843,6 +3902,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
 pub const PanicId = enum {
     unreach,
     unwrap_null,
+    unwrap_errunion,
 };
 
 pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic_id: PanicId) !void {

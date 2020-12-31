@@ -909,7 +909,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .unreach => return MCValue{ .unreach = {} },
                 .optional_payload => return self.genOptionalPayload(inst.castTag(.optional_payload).?),
                 .optional_payload_ptr => return self.genOptionalPayloadPtr(inst.castTag(.optional_payload_ptr).?),
+                .unwrap_errunion_err => return self.genUnwrapErrErr(inst.castTag(.unwrap_errunion_err).?),
+                .unwrap_errunion_payload => return self.genUnwrapErrPayload(inst.castTag(.unwrap_errunion_payload).?),
+                .unwrap_errunion_err_ptr => return self.genUnwrapErrErrPtr(inst.castTag(.unwrap_errunion_err_ptr).?),
+                .unwrap_errunion_payload_ptr => return self.genUnwrapErrPayloadPtr(inst.castTag(.unwrap_errunion_payload_ptr).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
+                .wrap_errunion_payload => return self.genWrapErrUnionPayload(inst.castTag(.wrap_errunion_payload).?),
+                .wrap_errunion_err => return self.genWrapErrUnionErr(inst.castTag(.wrap_errunion_err).?),
                 .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
                 .xor => return self.genXor(inst.castTag(.xor).?),
             }
@@ -1170,6 +1176,41 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        fn genUnwrapErrErr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement unwrap error union error for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genUnwrapErrPayload(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement unwrap error union payload for {}", .{self.target.cpu.arch}),
+            }
+        }
+        // *(E!T) -> E
+        fn genUnwrapErrErrPtr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement unwrap error union error ptr for {}", .{self.target.cpu.arch}),
+            }
+        }
+        // *(E!T) -> *T
+        fn genUnwrapErrPayloadPtr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement unwrap error union payload ptr for {}", .{self.target.cpu.arch}),
+            }
+        }
         fn genWrapOptional(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             const optional_ty = inst.base.ty;
 
@@ -1186,6 +1227,27 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        /// T to E!T
+        fn genWrapErrUnionPayload(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement wrap errunion payload for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        /// E to E!T
+        fn genWrapErrUnionErr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement wrap errunion error for {}", .{self.target.cpu.arch}),
+            }
+        }
         fn genVarPtr(self: *Self, inst: *ir.Inst.VarPtr) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
