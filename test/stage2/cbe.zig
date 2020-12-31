@@ -52,7 +52,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("inferred local const", .{});
+        var case = ctx.exeFromCompiledC("inferred local const and var", .{});
 
         case.addCompareOutput(
             \\fn add(a: i32, b: i32) i32 {
@@ -61,7 +61,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\export fn main() c_int {
             \\    const x = add(1, 2);
-            \\    return x - 3;
+            \\    var y = add(3, 0);
+            \\    y -= x;
+            \\    return y;
             \\}
         , "");
     }

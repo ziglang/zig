@@ -625,9 +625,9 @@ fn varDecl(
                 const alloc = try addZIRUnOp(mod, scope, name_src, .alloc_mut, type_inst);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
-                const alloc = try addZIRNoOp(mod, scope, name_src, .alloc_inferred_mut);
-                resolve_inferred_alloc = alloc;
-                break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc.castTag(.alloc_inferred_mut).? } };
+                const alloc = try addZIRNoOpT(mod, scope, name_src, .alloc_inferred);
+                resolve_inferred_alloc = &alloc.base;
+                break :a .{ .alloc = &alloc.base, .result_loc = .{ .inferred_ptr = alloc } };
             };
             const init_inst = try expr(mod, scope, var_data.result_loc, init_node);
             if (resolve_inferred_alloc) |inst| {
