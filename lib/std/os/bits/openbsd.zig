@@ -1209,3 +1209,23 @@ pub const rlimit = extern struct {
 pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
 pub const SHUT_RDWR = 2;
+
+pub const nfds_t = c_uint;
+
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: c_short,
+    revents: c_short,
+};
+
+pub const POLLIN = 0x0001;
+pub const POLLPRI = 0x0002;
+pub const POLLOUT = 0x0004;
+pub const POLLERR = 0x0008;
+pub const POLLHUP = 0x0010;
+pub const POLLNVAL = 0x0020;
+pub const POLLRDNORM = 0x0040;
+pub const POLLNORM = POLLRDNORM;
+pub const POLLWRNORM = POLLOUT;
+pub const POLLRDBAND = 0x0080;
+pub const POLLWRBAND = 0x0100;
