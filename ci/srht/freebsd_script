@@ -4,7 +4,7 @@ set -x
 set -e
 
 sudo pkg update -fq
-sudo pkg install -y cmake py27-s3cmd wget curl jq
+sudo pkg install -y cmake py37-s3cmd wget curl jq
 
 ZIGDIR="$(pwd)"
 CACHE_BASENAME="llvm+clang+lld-11.0.0-x86_64-freebsd-release"
