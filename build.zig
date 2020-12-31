@@ -256,17 +256,11 @@ pub fn build(b: *Builder) !void {
                     std.process.exit(1);
                 }
 
-                // Check that the commit hash is prefixed with a 'g' (a Git convention).
-                if (commit_id.len < 1 or commit_id[0] != 'g') {
-                    std.debug.print("Unexpected `git describe` output: {}\n", .{git_describe});
-                    break :v version_string;
-                }
-
                 // The version is reformatted in accordance with the https://semver.org specification.
-                break :v b.fmt("{}-dev.{}+{}", .{ version_string, commit_height, commit_id[1..] });
+                break :v b.fmt("{}-dev.{}+{}", .{ version_string, commit_height, commit_id });
             },
             else => {
-                std.debug.print("Unexpected `git describe` output: {}\n", .{git_describe});
+                std.debug.print("Failed to parse `git describe` output: {}\n", .{git_describe});
                 break :v version_string;
             },
         }
