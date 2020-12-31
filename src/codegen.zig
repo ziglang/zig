@@ -3262,7 +3262,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (typed_value.val.isNull())
                             return MCValue{ .immediate = 0 };
 
-                        var buf: Type.Payload.PointerSimple = undefined;
+                        var buf: Type.Payload.ElemType = undefined;
                         return self.genTypedValue(src, .{
                             .ty = typed_value.ty.optionalChild(&buf),
                             .val = typed_value.val,

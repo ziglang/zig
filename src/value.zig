@@ -440,21 +440,18 @@ pub const Value = extern union {
 
             .int_type => {
                 const payload = self.cast(Payload.IntType).?;
-                if (payload.signed) {
-                    const new = try allocator.create(Type.Payload.IntSigned);
-                    new.* = .{ .bits = payload.bits };
-                    return Type.initPayload(&new.base);
-                } else {
-                    const new = try allocator.create(Type.Payload.IntUnsigned);
-                    new.* = .{ .bits = payload.bits };
-                    return Type.initPayload(&new.base);
-                }
+                const new = try allocator.create(Type.Payload.Bits);
+                new.* = .{
+                    .base = .{
+                        .tag = if (payload.signed) .int_signed else .int_unsigned,
+                    },
+                    .data = payload.bits,
+                };
+                return Type.initPayload(&new.base);
             },
             .error_set => {
                 const payload = self.cast(Payload.ErrorSet).?;
-                const new = try allocator.create(Type.Payload.ErrorSet);
-                new.* = .{ .decl = payload.decl };
-                return Type.initPayload(&new.base);
+                return Type.Tag.error_set.create(allocator, payload.decl);
             },
 
             .undef,
@@ -1321,13 +1318,13 @@ pub const Value = extern union {
             },
             .int_type => {
                 const payload = self.cast(Payload.IntType).?;
-                if (payload.signed) {
-                    var new = Type.Payload.IntSigned{ .bits = payload.bits };
-                    return Type.initPayload(&new.base).hash();
-                } else {
-                    var new = Type.Payload.IntUnsigned{ .bits = payload.bits };
-                    return Type.initPayload(&new.base).hash();
-                }
+                var int_payload = Type.Payload.Bits{
+                    .base = .{
+                        .tag = if (payload.signed) .int_signed else .int_unsigned,
+                    },
+                    .data = payload.bits,
+                };
+                return Type.initPayload(&int_payload.base).hash();
             },
 
             .empty_struct_value,
