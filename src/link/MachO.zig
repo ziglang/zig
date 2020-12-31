@@ -860,13 +860,17 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
                 // Add load dylib load command
                 self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
-                const cmdsize = mem.alignForwardGeneric(u64, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH), @sizeOf(u64));
+                const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+                    u64,
+                    @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH),
+                    @sizeOf(u64),
+                ));
                 // TODO Find a way to work out runtime version from the OS version triple stored in std.Target.
                 // In the meantime, we're gonna hardcode to the minimum compatibility version of 0.0.0.
                 const min_version = 0x0;
                 var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
                     .cmd = macho.LC_LOAD_DYLIB,
-                    .cmdsize = @intCast(u32, cmdsize),
+                    .cmdsize = cmdsize,
                     .dylib = .{
                         .name = @sizeOf(macho.dylib_command),
                         .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
