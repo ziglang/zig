@@ -62,7 +62,7 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     // Write instructions
     // TODO: check for and handle death of instructions
     const tv = decl.typed_value.most_recent.typed_value;
-    const mod_fn = tv.val.cast(Value.Payload.Function).?.func;
+    const mod_fn = tv.val.castTag(.function).?.data;
     for (mod_fn.analysis.success.instructions) |inst| try genInst(buf, decl, inst);
 
     // Write 'end' opcode
@@ -125,8 +125,8 @@ fn genRet(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.UnOp) !void {
 
 fn genCall(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Call) !void {
     const func_inst = inst.func.castTag(.constant).?;
-    const func_val = func_inst.val.cast(Value.Payload.Function).?;
-    const target = func_val.func.owner_decl;
+    const func = func_inst.val.castTag(.function).?.data;
+    const target = func.owner_decl;
     const target_ty = target.typed_value.most_recent.typed_value.ty;
 
     if (inst.args.len != 0) return error.TODOImplementMoreWasmCodegen;

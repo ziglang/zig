@@ -186,6 +186,58 @@ pub const ChildProcess = struct {
 
     pub const exec2 = @compileError("deprecated: exec2 is renamed to exec");
 
+    fn collectOutputPosix(
+        child: *const ChildProcess,
+        stdout: *std.ArrayList(u8),
+        stderr: *std.ArrayList(u8),
+        max_output_bytes: usize,
+    ) !void {
+        var poll_fds = [_]os.pollfd{
+            .{ .fd = child.stdout.?.handle, .events = os.POLLIN, .revents = undefined },
+            .{ .fd = child.stderr.?.handle, .events = os.POLLIN, .revents = undefined },
+        };
+
+        var dead_fds: usize = 0;
+        // We ask for ensureCapacity with this much extra space. This has more of an
+        // effect on small reads because once the reads start to get larger the amount
+        // of space an ArrayList will allocate grows exponentially.
+        const bump_amt = 512;
+
+        while (dead_fds < poll_fds.len) {
+            const events = try os.poll(&poll_fds, std.math.maxInt(i32));
+            if (events == 0) continue;
+
+            // Try reading whatever is available before checking the error
+            // conditions.
+            if (poll_fds[0].revents & os.POLLIN != 0) {
+                // stdout is ready.
+                const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
+                try stdout.ensureCapacity(new_capacity);
+                const buf = stdout.unusedCapacitySlice();
+                if (buf.len == 0) return error.StdoutStreamTooLong;
+                stdout.items.len += try os.read(poll_fds[0].fd, buf);
+            }
+            if (poll_fds[1].revents & os.POLLIN != 0) {
+                // stderr is ready.
+                const new_capacity = std.math.min(stderr.items.len + bump_amt, max_output_bytes);
+                try stderr.ensureCapacity(new_capacity);
+                const buf = stderr.unusedCapacitySlice();
+                if (buf.len == 0) return error.StderrStreamTooLong;
+                stderr.items.len += try os.read(poll_fds[1].fd, buf);
+            }
+
+            // Exclude the fds that signaled an error.
+            if (poll_fds[0].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+                poll_fds[0].fd = -1;
+                dead_fds += 1;
+            }
+            if (poll_fds[1].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+                poll_fds[1].fd = -1;
+                dead_fds += 1;
+            }
+        }
+    }
+
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
     pub fn exec(args: struct {
@@ -210,19 +262,33 @@ pub const ChildProcess = struct {
 
         try child.spawn();
 
-        const stdout_in = child.stdout.?.reader();
-        const stderr_in = child.stderr.?.reader();
+        // TODO collect output in a deadlock-avoiding way on Windows.
+        // https://github.com/ziglang/zig/issues/6343
+        if (builtin.os.tag == .windows) {
+            const stdout_in = child.stdout.?.reader();
+            const stderr_in = child.stderr.?.reader();
 
-        // TODO https://github.com/ziglang/zig/issues/6343
-        const stdout = try stdout_in.readAllAlloc(args.allocator, args.max_output_bytes);
-        errdefer args.allocator.free(stdout);
-        const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
-        errdefer args.allocator.free(stderr);
+            const stdout = try stdout_in.readAllAlloc(args.allocator, args.max_output_bytes);
+            errdefer args.allocator.free(stdout);
+            const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
+            errdefer args.allocator.free(stderr);
+
+            return ExecResult{
+                .term = try child.wait(),
+                .stdout = stdout,
+                .stderr = stderr,
+            };
+        }
+
+        var stdout = std.ArrayList(u8).init(args.allocator);
+        var stderr = std.ArrayList(u8).init(args.allocator);
+
+        try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
 
         return ExecResult{
             .term = try child.wait(),
-            .stdout = stdout,
-            .stderr = stderr,
+            .stdout = stdout.toOwnedSlice(),
+            .stderr = stderr.toOwnedSlice(),
         };
     }
 

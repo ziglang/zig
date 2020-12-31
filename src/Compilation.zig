@@ -825,9 +825,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
             const root_scope = rs: {
                 if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
-                    const struct_payload = try gpa.create(Type.Payload.EmptyStruct);
                     const root_scope = try gpa.create(Module.Scope.File);
-                    struct_payload.* = .{ .scope = &root_scope.root_container };
+                    const struct_ty = try Type.Tag.empty_struct.create(
+                        gpa,
+                        &root_scope.root_container,
+                    );
                     root_scope.* = .{
                         // TODO this is duped so it can be freed in Container.deinit
                         .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
@@ -838,7 +840,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                         .root_container = .{
                             .file_scope = root_scope,
                             .decls = .{},
-                            .ty = Type.initPayload(&struct_payload.base),
+                            .ty = struct_ty,
                         },
                     };
                     break :rs &root_scope.base;
@@ -1455,11 +1457,12 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 
             .complete, .codegen_failure_retryable => {
                 const module = self.bin_file.options.module.?;
-                if (decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.Function)) |payload| {
-                    switch (payload.func.analysis) {
-                        .queued => module.analyzeFnBody(decl, payload.func) catch |err| switch (err) {
+                if (decl.typed_value.most_recent.typed_value.val.castTag(.function)) |payload| {
+                    const func = payload.data;
+                    switch (func.analysis) {
+                        .queued => module.analyzeFnBody(decl, func) catch |err| switch (err) {
                             error.AnalysisFail => {
-                                assert(payload.func.analysis != .in_progress);
+                                assert(func.analysis != .in_progress);
                                 continue;
                             },
                             error.OutOfMemory => return error.OutOfMemory,
@@ -1473,7 +1476,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     var decl_arena = decl.typed_value.most_recent.arena.?.promote(module.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
                     log.debug("analyze liveness of {}\n", .{decl.name});
-                    try liveness.analyze(module.gpa, &decl_arena.allocator, payload.func.analysis.success);
+                    try liveness.analyze(module.gpa, &decl_arena.allocator, func.analysis.success);
                 }
 
                 assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());

@@ -280,7 +280,7 @@ pub const LLVMIRModule = struct {
     fn gen(self: *LLVMIRModule, module: *Module, typed_value: TypedValue, src: usize) !void {
         switch (typed_value.ty.zigTypeTag()) {
             .Fn => {
-                const func = typed_value.val.cast(Value.Payload.Function).?.func;
+                const func = typed_value.val.castTag(.function).?.data;
 
                 const llvm_func = try self.resolveLLVMFunction(func);
 
@@ -314,9 +314,9 @@ pub const LLVMIRModule = struct {
     }
 
     fn genCall(self: *LLVMIRModule, inst: *Inst.Call) !void {
-        if (inst.func.cast(Inst.Constant)) |func_inst| {
-            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
-                const func = func_val.func;
+        if (inst.func.value()) |func_value| {
+            if (func_value.castTag(.function)) |func_payload| {
+                const func = func_payload.data;
                 const zig_fn_type = func.owner_decl.typed_value.most_recent.typed_value.ty;
                 const llvm_fn = try self.resolveLLVMFunction(func);
 

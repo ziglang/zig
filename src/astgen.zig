@@ -1956,13 +1956,13 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
                 32 => if (is_signed) Value.initTag(.i32_type) else Value.initTag(.u32_type),
                 64 => if (is_signed) Value.initTag(.i64_type) else Value.initTag(.u64_type),
                 else => {
-                    const int_type_payload = try scope.arena().create(Value.Payload.IntType);
-                    int_type_payload.* = .{ .signed = is_signed, .bits = bit_count };
-                    const result = try addZIRInstConst(mod, scope, src, .{
+                    return rlWrap(mod, scope, rl, try addZIRInstConst(mod, scope, src, .{
                         .ty = Type.initTag(.type),
-                        .val = Value.initPayload(&int_type_payload.base),
-                    });
-                    return rlWrap(mod, scope, rl, result);
+                        .val = try Value.Tag.int_type.create(scope.arena(), .{
+                            .signed = is_signed,
+                            .bits = bit_count,
+                        }),
+                    }));
                 },
             };
             const result = try addZIRInstConst(mod, scope, src, .{
@@ -2062,11 +2062,9 @@ fn charLiteral(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) !*zir.Inst
         },
     };
 
-    const int_payload = try scope.arena().create(Value.Payload.Int_u64);
-    int_payload.* = .{ .int = value };
     return addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.comptime_int),
-        .val = Value.initPayload(&int_payload.base),
+        .val = try Value.Tag.int_u64.create(scope.arena(), value),
     });
 }
 
@@ -2089,12 +2087,10 @@ fn integerLiteral(mod: *Module, scope: *Scope, int_lit: *ast.Node.OneToken) Inne
         prefixed_bytes[2..];
 
     if (std.fmt.parseInt(u64, bytes, base)) |small_int| {
-        const int_payload = try arena.create(Value.Payload.Int_u64);
-        int_payload.* = .{ .int = small_int };
         const src = tree.token_locs[int_lit.token].start;
         return addZIRInstConst(mod, scope, src, .{
             .ty = Type.initTag(.comptime_int),
-            .val = Value.initPayload(&int_payload.base),
+            .val = try Value.Tag.int_u64.create(arena, small_int),
         });
     } else |err| {
         return mod.failTok(scope, int_lit.token, "TODO implement int literals that don't fit in a u64", .{});
@@ -2109,15 +2105,13 @@ fn floatLiteral(mod: *Module, scope: *Scope, float_lit: *ast.Node.OneToken) Inne
         return mod.failTok(scope, float_lit.token, "TODO hex floats", .{});
     }
 
-    const val = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
+    const float_number = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
         error.InvalidCharacter => unreachable, // validated by tokenizer
     };
-    const float_payload = try arena.create(Value.Payload.Float_128);
-    float_payload.* = .{ .val = val };
     const src = tree.token_locs[float_lit.token].start;
     return addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.comptime_float),
-        .val = Value.initPayload(&float_payload.base),
+        .val = try Value.Tag.float_128.create(arena, float_number),
     });
 }
 
@@ -2723,7 +2717,7 @@ fn rlWrap(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerEr
             return mod.fail(scope, result.src, "TODO implement rlWrap .bitcasted_ptr", .{});
         },
         .inferred_ptr => |alloc| {
-            return mod.fail(scope, result.src, "TODO implement rlWrap .inferred_ptr", .{});
+            return addZIRBinOp(mod, scope, result.src, .store, &alloc.base, result);
         },
         .block_ptr => |block_ptr| {
             return mod.fail(scope, result.src, "TODO implement rlWrap .block_ptr", .{});

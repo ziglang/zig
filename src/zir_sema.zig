@@ -352,7 +352,11 @@ fn analyzeInstCoerceToPtrElem(mod: *Module, scope: *Scope, inst: *zir.Inst.Coerc
 }
 
 fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstRetPtr", .{});
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
+    const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
+    const ret_type = fn_ty.fnReturnType();
+    const ptr_type = try mod.simplePtrType(scope, inst.base.src, ret_type, true, .One);
+    return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
 }
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
@@ -360,12 +364,9 @@ fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!
     const ptr_type = try mod.simplePtrType(scope, inst.base.src, operand.ty, false, .One);
 
     if (operand.value()) |val| {
-        const ref_payload = try scope.arena().create(Value.Payload.RefVal);
-        ref_payload.* = .{ .val = val };
-
         return mod.constInst(scope, inst.base.src, .{
             .ty = ptr_type,
-            .val = Value.initPayload(&ref_payload.base),
+            .val = try Value.Tag.ref_val.create(scope.arena(), val),
         });
     }
 
@@ -476,15 +477,9 @@ fn analyzeInstStr(mod: *Module, scope: *Scope, str_inst: *zir.Inst.Str) InnerErr
     errdefer new_decl_arena.deinit();
     const arena_bytes = try new_decl_arena.allocator.dupe(u8, str_inst.positionals.bytes);
 
-    const ty_payload = try scope.arena().create(Type.Payload.Array_u8_Sentinel0);
-    ty_payload.* = .{ .len = arena_bytes.len };
-
-    const bytes_payload = try scope.arena().create(Value.Payload.Bytes);
-    bytes_payload.* = .{ .data = arena_bytes };
-
     const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
-        .ty = Type.initPayload(&ty_payload.base),
-        .val = Value.initPayload(&bytes_payload.base),
+        .ty = try Type.Tag.array_u8_sentinel_0.create(scope.arena(), arena_bytes.len),
+        .val = try Value.Tag.bytes.create(scope.arena(), arena_bytes),
     });
     return mod.analyzeDeclRef(scope, str_inst.base.src, new_decl);
 }
@@ -778,11 +773,9 @@ fn analyzeInstFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!
         .analysis = .{ .queued = fn_zir },
         .owner_decl = scope.decl().?,
     };
-    const fn_payload = try scope.arena().create(Value.Payload.Function);
-    fn_payload.* = .{ .func = new_func };
     return mod.constInst(scope, fn_inst.base.src, .{
         .ty = fn_type,
-        .val = Value.initPayload(&fn_payload.base),
+        .val = try Value.Tag.function.create(scope.arena(), new_func),
     });
 }
 
@@ -837,14 +830,17 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
 
     const payload = try scope.arena().create(Value.Payload.ErrorSet);
     payload.* = .{
-        .fields = .{},
-        .decl = undefined, // populated below
+        .base = .{ .tag = .error_set },
+        .data = .{
+            .fields = .{},
+            .decl = undefined, // populated below
+        },
     };
-    try payload.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, inst.positionals.fields.len));
+    try payload.data.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, inst.positionals.fields.len));
 
     for (inst.positionals.fields) |field_name| {
         const entry = try mod.getErrorValue(field_name);
-        if (payload.fields.fetchPutAssumeCapacity(entry.key, entry.value)) |prev| {
+        if (payload.data.fields.fetchPutAssumeCapacity(entry.key, entry.value)) |prev| {
             return mod.fail(scope, inst.base.src, "duplicate error: '{}'", .{field_name});
         }
     }
@@ -853,7 +849,7 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
         .ty = Type.initTag(.type),
         .val = Value.initPayload(&payload.base),
     });
-    payload.decl = new_decl;
+    payload.data.decl = new_decl;
     return mod.analyzeDeclRef(scope, inst.base.src, new_decl);
 }
 
@@ -862,14 +858,10 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
 }
 
 fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
-    const payload = try scope.arena().create(Value.Payload.Bytes);
-    payload.* = .{
-        .base = .{ .tag = .enum_literal },
-        .data = try scope.arena().dupe(u8, inst.positionals.name),
-    };
+    const duped_name = try scope.arena().dupe(u8, inst.positionals.name);
     return mod.constInst(scope, inst.base.src, .{
         .ty = Type.initTag(.enum_literal),
-        .val = Value.initPayload(&payload.base),
+        .val = try Value.Tag.enum_literal.create(scope.arena(), duped_name),
     });
 }
 
@@ -948,13 +940,12 @@ fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) Inne
         param_types[i] = resolved;
     }
 
-    const payload = try arena.create(Type.Payload.Function);
-    payload.* = .{
+    const fn_ty = try Type.Tag.function.create(arena, .{
         .cc = fntype.kw_args.cc,
         .return_type = return_type,
         .param_types = param_types,
-    };
-    return mod.constType(scope, fntype.base.src, Type.initPayload(&payload.base));
+    });
+    return mod.constType(scope, fntype.base.src, fn_ty);
 }
 
 fn analyzeInstPrimitive(mod: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) InnerError!*Inst {
@@ -989,15 +980,12 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
     switch (elem_ty.zigTypeTag()) {
         .Array => {
             if (mem.eql(u8, field_name, "len")) {
-                const len_payload = try scope.arena().create(Value.Payload.Int_u64);
-                len_payload.* = .{ .int = elem_ty.arrayLen() };
-
-                const ref_payload = try scope.arena().create(Value.Payload.RefVal);
-                ref_payload.* = .{ .val = Value.initPayload(&len_payload.base) };
-
                 return mod.constInst(scope, fieldptr.base.src, .{
                     .ty = Type.initTag(.single_const_pointer_to_comptime_int),
-                    .val = Value.initPayload(&ref_payload.base),
+                    .val = try Value.Tag.ref_val.create(
+                        scope.arena(),
+                        try Value.Tag.int_u64.create(scope.arena(), elem_ty.arrayLen()),
+                    ),
                 });
             } else {
                 return mod.fail(
@@ -1013,15 +1001,12 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
             switch (ptr_child.zigTypeTag()) {
                 .Array => {
                     if (mem.eql(u8, field_name, "len")) {
-                        const len_payload = try scope.arena().create(Value.Payload.Int_u64);
-                        len_payload.* = .{ .int = ptr_child.arrayLen() };
-
-                        const ref_payload = try scope.arena().create(Value.Payload.RefVal);
-                        ref_payload.* = .{ .val = Value.initPayload(&len_payload.base) };
-
                         return mod.constInst(scope, fieldptr.base.src, .{
                             .ty = Type.initTag(.single_const_pointer_to_comptime_int),
-                            .val = Value.initPayload(&ref_payload.base),
+                            .val = try Value.Tag.ref_val.create(
+                                scope.arena(),
+                                try Value.Tag.int_u64.create(scope.arena(), ptr_child.arrayLen()),
+                            ),
                         });
                     } else {
                         return mod.fail(
@@ -1043,30 +1028,26 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
                     // TODO resolve inferred error sets
-                    const entry = if (val.cast(Value.Payload.ErrorSet)) |payload|
-                        (payload.fields.getEntry(field_name) orelse
+                    const entry = if (val.castTag(.error_set)) |payload|
+                        (payload.data.fields.getEntry(field_name) orelse
                             return mod.fail(scope, fieldptr.base.src, "no error named '{}' in '{}'", .{ field_name, child_type })).*
                     else
                         try mod.getErrorValue(field_name);
 
-                    const error_payload = try scope.arena().create(Value.Payload.Error);
-                    error_payload.* = .{
-                        .name = entry.key,
-                        .value = entry.value,
-                    };
-
-                    const ref_payload = try scope.arena().create(Value.Payload.RefVal);
-                    ref_payload.* = .{ .val = Value.initPayload(&error_payload.base) };
-
-                    const result_type = if (child_type.tag() == .anyerror) blk: {
-                        const result_payload = try scope.arena().create(Type.Payload.ErrorSetSingle);
-                        result_payload.* = .{ .name = entry.key };
-                        break :blk Type.initPayload(&result_payload.base);
-                    } else child_type;
+                    const result_type = if (child_type.tag() == .anyerror)
+                        try Type.Tag.error_set_single.create(scope.arena(), entry.key)
+                    else
+                        child_type;
 
                     return mod.constInst(scope, fieldptr.base.src, .{
                         .ty = try mod.simplePtrType(scope, fieldptr.base.src, result_type, false, .One),
-                        .val = Value.initPayload(&ref_payload.base),
+                        .val = try Value.Tag.ref_val.create(
+                            scope.arena(),
+                            try Value.Tag.@"error".create(scope.arena(), .{
+                                .name = entry.key,
+                                .value = entry.value,
+                            }),
+                        ),
                     });
                 },
                 .Struct => {
@@ -1191,15 +1172,10 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
                 // @intCast here because it would have been impossible to construct a value that
                 // required a larger index.
                 const elem_ptr = try array_ptr_val.elemPtr(scope.arena(), @intCast(usize, index_u64));
-
-                const type_payload = try scope.arena().create(Type.Payload.PointerSimple);
-                type_payload.* = .{
-                    .base = .{ .tag = .single_const_pointer },
-                    .pointee_type = elem_ty.elemType().elemType(),
-                };
+                const pointee_type = elem_ty.elemType().elemType();
 
                 return mod.constInst(scope, inst.base.src, .{
-                    .ty = Type.initPayload(&type_payload.base),
+                    .ty = try Type.Tag.single_const_pointer.create(scope.arena(), pointee_type),
                     .val = elem_ptr,
                 });
             }

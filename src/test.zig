@@ -776,7 +776,15 @@ pub const TestContext = struct {
                         const exe_path = try std.fmt.allocPrint(arena, "." ++ std.fs.path.sep_str ++ "{s}", .{bin_name});
                         if (case.object_format != null and case.object_format.? == .c) {
                             try argv.appendSlice(&[_][]const u8{
-                                std.testing.zig_exe_path, "run", exe_path, "-lc",
+                                std.testing.zig_exe_path,
+                                "run",
+                                "-cflags",
+                                "-std=c89",
+                                "-pedantic",
+                                "-Werror",
+                                "--",
+                                "-lc",
+                                exe_path,
                             });
                         } else switch (case.target.getExternalExecutor()) {
                             .native => try argv.append(exe_path),
@@ -863,6 +871,9 @@ pub const TestContext = struct {
                         },
                     }
                     std.testing.expectEqualStrings(expected_stdout, exec_result.stdout);
+                    // We allow stderr to have garbage in it because wasmtime prints a
+                    // warning about --invoke even though we don't pass it.
+                    //std.testing.expectEqualStrings("", exec_result.stderr);
                 },
             }
         }

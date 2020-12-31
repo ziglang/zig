@@ -1990,15 +1990,15 @@ const EmitZIR = struct {
 
     fn resolveInst(self: *EmitZIR, new_body: ZirBody, inst: *ir.Inst) !*Inst {
         if (inst.cast(ir.Inst.Constant)) |const_inst| {
-            const new_inst = if (const_inst.val.cast(Value.Payload.Function)) |func_pl| blk: {
-                const owner_decl = func_pl.func.owner_decl;
+            const new_inst = if (const_inst.val.castTag(.function)) |func_pl| blk: {
+                const owner_decl = func_pl.data.owner_decl;
                 break :blk try self.emitDeclVal(inst.src, mem.spanZ(owner_decl.name));
-            } else if (const_inst.val.cast(Value.Payload.DeclRef)) |declref| blk: {
-                const decl_ref = try self.emitDeclRef(inst.src, declref.decl);
+            } else if (const_inst.val.castTag(.decl_ref)) |declref| blk: {
+                const decl_ref = try self.emitDeclRef(inst.src, declref.data);
                 try new_body.instructions.append(decl_ref);
                 break :blk decl_ref;
-            } else if (const_inst.val.cast(Value.Payload.Variable)) |var_pl| blk: {
-                const owner_decl = var_pl.variable.owner_decl;
+            } else if (const_inst.val.castTag(.variable)) |var_pl| blk: {
+                const owner_decl = var_pl.data.owner_decl;
                 break :blk try self.emitDeclVal(inst.src, mem.spanZ(owner_decl.name));
             } else blk: {
                 break :blk (try self.emitTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val })).inst;
@@ -2150,13 +2150,13 @@ const EmitZIR = struct {
 
     fn emitTypedValue(self: *EmitZIR, src: usize, typed_value: TypedValue) Allocator.Error!*Decl {
         const allocator = &self.arena.allocator;
-        if (typed_value.val.cast(Value.Payload.DeclRef)) |decl_ref| {
-            const decl = decl_ref.decl;
+        if (typed_value.val.castTag(.decl_ref)) |decl_ref| {
+            const decl = decl_ref.data;
             return try self.emitUnnamedDecl(try self.emitDeclRef(src, decl));
-        } else if (typed_value.val.cast(Value.Payload.Variable)) |variable| {
+        } else if (typed_value.val.castTag(.variable)) |variable| {
             return self.emitTypedValue(src, .{
                 .ty = typed_value.ty,
-                .val = variable.variable.init,
+                .val = variable.data.init,
             });
         }
         if (typed_value.val.isUndef()) {
@@ -2215,7 +2215,7 @@ const EmitZIR = struct {
                 return self.emitType(src, ty);
             },
             .Fn => {
-                const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
+                const module_fn = typed_value.val.castTag(.function).?.data;
                 return self.emitFn(module_fn, src, typed_value.ty);
             },
             .Array => {
@@ -2248,7 +2248,7 @@ const EmitZIR = struct {
             else
                 return self.emitPrimitive(src, .@"false"),
             .EnumLiteral => {
-                const enum_literal = @fieldParentPtr(Value.Payload.Bytes, "base", typed_value.val.ptr_otherwise);
+                const enum_literal = typed_value.val.castTag(.enum_literal).?;
                 const inst = try self.arena.allocator.create(Inst.Str);
                 inst.* = .{
                     .base = .{
@@ -2748,9 +2748,8 @@ const EmitZIR = struct {
                         .signed => .@"true",
                         .unsigned => .@"false",
                     });
-                    const bits_payload = try self.arena.allocator.create(Value.Payload.Int_u64);
-                    bits_payload.* = .{ .int = info.bits };
-                    const bits = try self.emitComptimeIntVal(src, Value.initPayload(&bits_payload.base));
+                    const bits_val = try Value.Tag.int_u64.create(&self.arena.allocator, info.bits);
+                    const bits = try self.emitComptimeIntVal(src, bits_val);
                     const inttype_inst = try self.arena.allocator.create(Inst.IntType);
                     inttype_inst.* = .{
                         .base = .{
@@ -2785,7 +2784,7 @@ const EmitZIR = struct {
                     }
                 },
                 .Optional => {
-                    var buf: Type.Payload.PointerSimple = undefined;
+                    var buf: Type.Payload.ElemType = undefined;
                     const inst = try self.arena.allocator.create(Inst.UnOp);
                     inst.* = .{
                         .base = .{
@@ -2800,7 +2799,10 @@ const EmitZIR = struct {
                     return self.emitUnnamedDecl(&inst.base);
                 },
                 .Array => {
-                    var len_pl = Value.Payload.Int_u64{ .int = ty.arrayLen() };
+                    var len_pl = Value.Payload.U64{
+                        .base = .{ .tag = .int_u64 },
+                        .data = ty.arrayLen(),
+                    };
                     const len = Value.initPayload(&len_pl.base);
 
                     const inst = if (ty.sentinel()) |sentinel| blk: {
