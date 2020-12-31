@@ -138,25 +138,25 @@ fn renderValue(
             .undef, .zero => try writer.writeAll("0"),
             .one => try writer.writeAll("1"),
             .decl_ref => {
-                const decl_ref_payload = val.cast(Value.Payload.DeclRef).?;
+                const decl = val.castTag(.decl_ref).?.data;
 
                 // Determine if we must pointer cast.
-                const decl_tv = decl_ref_payload.decl.typed_value.most_recent.typed_value;
+                const decl_tv = decl.typed_value.most_recent.typed_value;
                 if (t.eql(decl_tv.ty)) {
-                    try writer.print("&{s}", .{decl_ref_payload.decl.name});
+                    try writer.print("&{s}", .{decl.name});
                 } else {
                     try writer.writeAll("(");
                     try renderType(ctx, writer, t);
-                    try writer.print(")&{s}", .{decl_ref_payload.decl.name});
+                    try writer.print(")&{s}", .{decl.name});
                 }
             },
             .function => {
-                const payload = val.cast(Value.Payload.Function).?;
-                try writer.print("{s}", .{payload.func.owner_decl.name});
+                const func = val.castTag(.function).?.data;
+                try writer.print("{s}", .{func.owner_decl.name});
             },
             .extern_fn => {
-                const payload = val.cast(Value.Payload.ExternFn).?;
-                try writer.print("{s}", .{payload.decl.name});
+                const decl = val.castTag(.extern_fn).?.data;
+                try writer.print("{s}", .{decl.name});
             },
             else => |e| return ctx.fail(
                 ctx.decl.src(),
@@ -169,7 +169,7 @@ fn renderValue(
             switch (val.tag()) {
                 .undef, .empty_struct_value, .empty_array => try writer.writeAll("{}"),
                 .bytes => {
-                    const bytes = val.cast(Value.Payload.Bytes).?.data;
+                    const bytes = val.castTag(.bytes).?.data;
                     // TODO: make our own C string escape instead of using {Z}
                     try writer.print("\"{Z}\"", .{bytes});
                 },
@@ -209,7 +209,7 @@ fn renderFunctionSignature(
         switch (tv.val.tag()) {
             .extern_fn => break :blk true,
             .function => {
-                const func = tv.val.cast(Value.Payload.Function).?.func;
+                const func = tv.val.castTag(.function).?.data;
                 break :blk ctx.module.decl_exports.contains(func.owner_decl);
             },
             else => unreachable,
@@ -268,13 +268,13 @@ pub fn generate(file: *C, module: *Module, decl: *Decl) !void {
         ctx.deinit();
     }
 
-    if (tv.val.cast(Value.Payload.Function)) |func_payload| {
+    if (tv.val.castTag(.function)) |func_payload| {
         const writer = file.main.writer();
         try renderFunctionSignature(&ctx, writer, decl);
 
         try writer.writeAll(" {");
 
-        const func: *Module.Fn = func_payload.func;
+        const func: *Module.Fn = func_payload.data;
         const instructions = func.analysis.success.instructions;
         if (instructions.len > 0) {
             try writer.writeAll("\n");
@@ -480,10 +480,10 @@ fn genCall(ctx: *Context, file: *C, inst: *Inst.Call) !?[]u8 {
     const writer = file.main.writer();
     const header = file.header.buf.writer();
     if (inst.func.castTag(.constant)) |func_inst| {
-        const fn_decl = if (func_inst.val.cast(Value.Payload.ExternFn)) |extern_fn|
-            extern_fn.decl
-        else if (func_inst.val.cast(Value.Payload.Function)) |func_val|
-            func_val.func.owner_decl
+        const fn_decl = if (func_inst.val.castTag(.extern_fn)) |extern_fn|
+            extern_fn.data
+        else if (func_inst.val.castTag(.function)) |func_payload|
+            func_payload.data.owner_decl
         else
             unreachable;
 
@@ -513,8 +513,8 @@ fn genCall(ctx: *Context, file: *C, inst: *Inst.Call) !?[]u8 {
                 if (i > 0) {
                     try writer.writeAll(", ");
                 }
-                if (arg.cast(Inst.Constant)) |con| {
-                    try renderValue(ctx, writer, arg.ty, con.val);
+                if (arg.value()) |val| {
+                    try renderValue(ctx, writer, arg.ty, val);
                 } else {
                     const val = try ctx.resolveInst(arg);
                     try writer.print("{}", .{val});

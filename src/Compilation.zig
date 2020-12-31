@@ -1457,11 +1457,12 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 
             .complete, .codegen_failure_retryable => {
                 const module = self.bin_file.options.module.?;
-                if (decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.Function)) |payload| {
-                    switch (payload.func.analysis) {
-                        .queued => module.analyzeFnBody(decl, payload.func) catch |err| switch (err) {
+                if (decl.typed_value.most_recent.typed_value.val.castTag(.function)) |payload| {
+                    const func = payload.data;
+                    switch (func.analysis) {
+                        .queued => module.analyzeFnBody(decl, func) catch |err| switch (err) {
                             error.AnalysisFail => {
-                                assert(payload.func.analysis != .in_progress);
+                                assert(func.analysis != .in_progress);
                                 continue;
                             },
                             error.OutOfMemory => return error.OutOfMemory,
@@ -1475,7 +1476,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     var decl_arena = decl.typed_value.most_recent.arena.?.promote(module.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
                     log.debug("analyze liveness of {}\n", .{decl.name});
-                    try liveness.analyze(module.gpa, &decl_arena.allocator, payload.func.analysis.success);
+                    try liveness.analyze(module.gpa, &decl_arena.allocator, func.analysis.success);
                 }
 
                 assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());

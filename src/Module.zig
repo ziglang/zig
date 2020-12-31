@@ -1092,16 +1092,12 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                     tvm.deinit(self.gpa);
                 }
-                const value_payload = try decl_arena.allocator.create(Value.Payload.ExternFn);
-                value_payload.* = .{ .decl = decl };
+                const fn_val = try Value.Tag.extern_fn.create(&decl_arena.allocator, decl);
 
                 decl_arena_state.* = decl_arena.state;
                 decl.typed_value = .{
                     .most_recent = .{
-                        .typed_value = .{
-                            .ty = fn_type,
-                            .val = Value.initPayload(&value_payload.base),
-                        },
+                        .typed_value = .{ .ty = fn_type, .val = fn_val },
                         .arena = decl_arena_state,
                     },
                 };
@@ -1187,7 +1183,10 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .analysis = .{ .queued = fn_zir },
                 .owner_decl = decl,
             };
-            fn_payload.* = .{ .func = new_func };
+            fn_payload.* = .{
+                .base = .{ .tag = .function },
+                .data = new_func,
+            };
 
             var prev_type_has_bits = false;
             var type_changed = true;
@@ -1375,7 +1374,6 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             }
 
             const new_variable = try decl_arena.allocator.create(Var);
-            const var_payload = try decl_arena.allocator.create(Value.Payload.Variable);
             new_variable.* = .{
                 .owner_decl = decl,
                 .init = var_info.val orelse undefined,
@@ -1383,14 +1381,14 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .is_mutable = is_mutable,
                 .is_threadlocal = is_threadlocal,
             };
-            var_payload.* = .{ .variable = new_variable };
+            const var_val = try Value.Tag.variable.create(&decl_arena.allocator, new_variable);
 
             decl_arena_state.* = decl_arena.state;
             decl.typed_value = .{
                 .most_recent = .{
                     .typed_value = .{
                         .ty = var_info.ty,
-                        .val = Value.initPayload(&var_payload.base),
+                        .val = var_val,
                     },
                     .arena = decl_arena_state,
                 },
@@ -2232,52 +2230,43 @@ pub fn constBool(self: *Module, scope: *Scope, src: usize, v: bool) !*Inst {
 }
 
 pub fn constIntUnsigned(self: *Module, scope: *Scope, src: usize, ty: Type, int: u64) !*Inst {
-    const int_payload = try scope.arena().create(Value.Payload.Int_u64);
-    int_payload.* = .{ .int = int };
-
     return self.constInst(scope, src, .{
         .ty = ty,
-        .val = Value.initPayload(&int_payload.base),
+        .val = try Value.Tag.int_u64.create(scope.arena(), int),
     });
 }
 
 pub fn constIntSigned(self: *Module, scope: *Scope, src: usize, ty: Type, int: i64) !*Inst {
-    const int_payload = try scope.arena().create(Value.Payload.Int_i64);
-    int_payload.* = .{ .int = int };
-
     return self.constInst(scope, src, .{
         .ty = ty,
-        .val = Value.initPayload(&int_payload.base),
+        .val = try Value.Tag.int_i64.create(scope.arena(), int),
     });
 }
 
 pub fn constIntBig(self: *Module, scope: *Scope, src: usize, ty: Type, big_int: BigIntConst) !*Inst {
-    const val_payload = if (big_int.positive) blk: {
+    if (big_int.positive) {
         if (big_int.to(u64)) |x| {
             return self.constIntUnsigned(scope, src, ty, x);
         } else |err| switch (err) {
             error.NegativeIntoUnsigned => unreachable,
             error.TargetTooSmall => {}, // handled below
         }
-        const big_int_payload = try scope.arena().create(Value.Payload.IntBigPositive);
-        big_int_payload.* = .{ .limbs = big_int.limbs };
-        break :blk &big_int_payload.base;
-    } else blk: {
+        return self.constInst(scope, src, .{
+            .ty = ty,
+            .val = try Value.Tag.int_big_positive.create(scope.arena(), big_int.limbs),
+        });
+    } else {
         if (big_int.to(i64)) |x| {
             return self.constIntSigned(scope, src, ty, x);
         } else |err| switch (err) {
             error.NegativeIntoUnsigned => unreachable,
             error.TargetTooSmall => {}, // handled below
         }
-        const big_int_payload = try scope.arena().create(Value.Payload.IntBigNegative);
-        big_int_payload.* = .{ .limbs = big_int.limbs };
-        break :blk &big_int_payload.base;
-    };
-
-    return self.constInst(scope, src, .{
-        .ty = ty,
-        .val = Value.initPayload(val_payload),
-    });
+        return self.constInst(scope, src, .{
+            .ty = ty,
+            .val = try Value.Tag.int_big_negative.create(scope.arena(), big_int.limbs),
+        });
+    }
 }
 
 pub fn createAnonymousDecl(
@@ -2346,26 +2335,20 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     if (decl_tv.val.tag() == .variable) {
         return self.analyzeVarRef(scope, src, decl_tv);
     }
-    const ty = try self.simplePtrType(scope, src, decl_tv.ty, false, .One);
-    const val_payload = try scope.arena().create(Value.Payload.DeclRef);
-    val_payload.* = .{ .decl = decl };
-
     return self.constInst(scope, src, .{
-        .ty = ty,
-        .val = Value.initPayload(&val_payload.base),
+        .ty = try self.simplePtrType(scope, src, decl_tv.ty, false, .One),
+        .val = try Value.Tag.decl_ref.create(scope.arena(), decl),
     });
 }
 
 fn analyzeVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) InnerError!*Inst {
-    const variable = tv.val.cast(Value.Payload.Variable).?.variable;
+    const variable = tv.val.castTag(.variable).?.data;
 
     const ty = try self.simplePtrType(scope, src, tv.ty, variable.is_mutable, .One);
     if (!variable.is_mutable and !variable.is_extern) {
-        const val_payload = try scope.arena().create(Value.Payload.RefVal);
-        val_payload.* = .{ .val = variable.init };
         return self.constInst(scope, src, .{
             .ty = ty,
-            .val = Value.initPayload(&val_payload.base),
+            .val = try Value.Tag.ref_val.create(scope.arena(), variable.init),
         });
     }
 
@@ -3107,17 +3090,11 @@ pub fn intAdd(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
     result_bigint.add(lhs_bigint, rhs_bigint);
     const result_limbs = result_bigint.limbs[0..result_bigint.len];
 
-    const val_payload = if (result_bigint.positive) blk: {
-        const val_payload = try allocator.create(Value.Payload.IntBigPositive);
-        val_payload.* = .{ .limbs = result_limbs };
-        break :blk &val_payload.base;
-    } else blk: {
-        const val_payload = try allocator.create(Value.Payload.IntBigNegative);
-        val_payload.* = .{ .limbs = result_limbs };
-        break :blk &val_payload.base;
-    };
-
-    return Value.initPayload(val_payload);
+    if (result_bigint.positive) {
+        return Value.Tag.int_big_positive.create(allocator, result_limbs);
+    } else {
+        return Value.Tag.int_big_negative.create(allocator, result_limbs);
+    }
 }
 
 pub fn intSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
@@ -3135,85 +3112,81 @@ pub fn intSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
     result_bigint.sub(lhs_bigint, rhs_bigint);
     const result_limbs = result_bigint.limbs[0..result_bigint.len];
 
-    const val_payload = if (result_bigint.positive) blk: {
-        const val_payload = try allocator.create(Value.Payload.IntBigPositive);
-        val_payload.* = .{ .limbs = result_limbs };
-        break :blk &val_payload.base;
-    } else blk: {
-        const val_payload = try allocator.create(Value.Payload.IntBigNegative);
-        val_payload.* = .{ .limbs = result_limbs };
-        break :blk &val_payload.base;
-    };
-
-    return Value.initPayload(val_payload);
+    if (result_bigint.positive) {
+        return Value.Tag.int_big_positive.create(allocator, result_limbs);
+    } else {
+        return Value.Tag.int_big_negative.create(allocator, result_limbs);
+    }
 }
 
-pub fn floatAdd(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs: Value, rhs: Value) !Value {
-    var bit_count = switch (float_type.tag()) {
-        .comptime_float => 128,
-        else => float_type.floatBits(self.getTarget()),
-    };
-
-    const allocator = scope.arena();
-    const val_payload = switch (bit_count) {
-        16 => {
-            return self.fail(scope, src, "TODO Implement addition for soft floats", .{});
+pub fn floatAdd(
+    self: *Module,
+    scope: *Scope,
+    float_type: Type,
+    src: usize,
+    lhs: Value,
+    rhs: Value,
+) !Value {
+    const arena = scope.arena();
+    switch (float_type.tag()) {
+        .f16 => {
+            @panic("TODO add __trunctfhf2 to compiler-rt");
+            //const lhs_val = lhs.toFloat(f16);
+            //const rhs_val = rhs.toFloat(f16);
+            //return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
         },
-        32 => blk: {
+        .f32 => {
             const lhs_val = lhs.toFloat(f32);
             const rhs_val = rhs.toFloat(f32);
-            const val_payload = try allocator.create(Value.Payload.Float_32);
-            val_payload.* = .{ .val = lhs_val + rhs_val };
-            break :blk &val_payload.base;
+            return Value.Tag.float_32.create(arena, lhs_val + rhs_val);
         },
-        64 => blk: {
+        .f64 => {
             const lhs_val = lhs.toFloat(f64);
             const rhs_val = rhs.toFloat(f64);
-            const val_payload = try allocator.create(Value.Payload.Float_64);
-            val_payload.* = .{ .val = lhs_val + rhs_val };
-            break :blk &val_payload.base;
+            return Value.Tag.float_64.create(arena, lhs_val + rhs_val);
         },
-        128 => {
-            return self.fail(scope, src, "TODO Implement addition for big floats", .{});
+        .f128, .comptime_float, .c_longdouble => {
+            const lhs_val = lhs.toFloat(f128);
+            const rhs_val = rhs.toFloat(f128);
+            return Value.Tag.float_128.create(arena, lhs_val + rhs_val);
         },
         else => unreachable,
-    };
-
-    return Value.initPayload(val_payload);
+    }
 }
 
-pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs: Value, rhs: Value) !Value {
-    var bit_count = switch (float_type.tag()) {
-        .comptime_float => 128,
-        else => float_type.floatBits(self.getTarget()),
-    };
-
-    const allocator = scope.arena();
-    const val_payload = switch (bit_count) {
-        16 => {
-            return self.fail(scope, src, "TODO Implement substraction for soft floats", .{});
+pub fn floatSub(
+    self: *Module,
+    scope: *Scope,
+    float_type: Type,
+    src: usize,
+    lhs: Value,
+    rhs: Value,
+) !Value {
+    const arena = scope.arena();
+    switch (float_type.tag()) {
+        .f16 => {
+            @panic("TODO add __trunctfhf2 to compiler-rt");
+            //const lhs_val = lhs.toFloat(f16);
+            //const rhs_val = rhs.toFloat(f16);
+            //return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
         },
-        32 => blk: {
+        .f32 => {
             const lhs_val = lhs.toFloat(f32);
             const rhs_val = rhs.toFloat(f32);
-            const val_payload = try allocator.create(Value.Payload.Float_32);
-            val_payload.* = .{ .val = lhs_val - rhs_val };
-            break :blk &val_payload.base;
+            return Value.Tag.float_32.create(arena, lhs_val - rhs_val);
         },
-        64 => blk: {
+        .f64 => {
             const lhs_val = lhs.toFloat(f64);
             const rhs_val = rhs.toFloat(f64);
-            const val_payload = try allocator.create(Value.Payload.Float_64);
-            val_payload.* = .{ .val = lhs_val - rhs_val };
-            break :blk &val_payload.base;
+            return Value.Tag.float_64.create(arena, lhs_val - rhs_val);
         },
-        128 => {
-            return self.fail(scope, src, "TODO Implement substraction for big floats", .{});
+        .f128, .comptime_float, .c_longdouble => {
+            const lhs_val = lhs.toFloat(f128);
+            const rhs_val = rhs.toFloat(f128);
+            return Value.Tag.float_128.create(arena, lhs_val - rhs_val);
         },
         else => unreachable,
-    };
-
-    return Value.initPayload(val_payload);
+    }
 }
 
 pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) Allocator.Error!Type {
