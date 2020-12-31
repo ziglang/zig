@@ -412,7 +412,9 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         const allocated_size = dwarf_segment.allocatedSize(debug_abbrev_sect.offset);
         if (needed_size > allocated_size) {
             debug_abbrev_sect.size = 0; // free the space
-            debug_abbrev_sect.offset = @intCast(u32, dwarf_segment.findFreeSpace(needed_size, 1, null));
+            const offset = dwarf_segment.findFreeSpace(needed_size, 1, null);
+            debug_abbrev_sect.offset = @intCast(u32, offset);
+            debug_abbrev_sect.addr = dwarf_segment.inner.vmaddr + offset - dwarf_segment.inner.fileoff;
         }
         debug_abbrev_sect.size = needed_size;
         log.debug("__debug_abbrev start=0x{x} end=0x{x}", .{
@@ -536,9 +538,9 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         const allocated_size = dwarf_segment.allocatedSize(debug_aranges_sect.offset);
         if (needed_size > allocated_size) {
             debug_aranges_sect.size = 0; // free the space
-            const offset = dwarf_segment.findFreeSpace(needed_size, 16, null);
-            debug_aranges_sect.offset = @intCast(u32, offset);
-            debug_aranges_sect.addr = dwarf_segment.inner.vmaddr + offset - dwarf_segment.inner.fileoff;
+            const new_offset = dwarf_segment.findFreeSpace(needed_size, 16, null);
+            debug_aranges_sect.addr = dwarf_segment.inner.vmaddr + new_offset - dwarf_segment.inner.fileoff;
+            debug_aranges_sect.offset = @intCast(u32, new_offset);
         }
         debug_aranges_sect.size = needed_size;
         log.debug("__debug_aranges start=0x{x} end=0x{x}", .{
