@@ -441,7 +441,7 @@ fn analyzeInstAllocInferred(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) I
     // to a normal instruction when we hit `resolve_inferred_alloc`. So we append
     // to the block even though it is currently a `.constant`.
     const result = try mod.constInst(scope, inst.base.src, .{
-        .ty = try Type.Tag.inferred_alloc.create(scope.arena(), val_payload),
+        .ty = Type.initTag(.inferred_alloc),
         .val = Value.initPayload(&val_payload.base),
     });
     const block = try mod.requireFunctionBlock(scope, inst.base.src);

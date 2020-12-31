@@ -3073,7 +3073,11 @@ pub const Type = extern union {
         single_const_pointer_to_comptime_int,
         anyerror_void_error_union,
         @"anyframe",
-        const_slice_u8, // See last_no_payload_tag below.
+        const_slice_u8,
+        /// This is a special value that tracks a set of types that have been stored
+        /// to an inferred allocation. It does not support most of the normal type queries.
+        /// However it does respond to `isConstPtr`, `ptrSize`, `zigTypeTag`, etc.
+        inferred_alloc, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         array_u8,
@@ -3100,12 +3104,8 @@ pub const Type = extern union {
         error_set,
         error_set_single,
         empty_struct,
-        /// This is a special value that tracks a set of types that have been stored
-        /// to an inferred allocation. It does not support most of the normal type queries.
-        /// However it does respond to `isConstPtr`, `ptrSize`, `zigTypeTag`, etc.
-        inferred_alloc,
 
-        pub const last_no_payload_tag = Tag.const_slice_u8;
+        pub const last_no_payload_tag = Tag.inferred_alloc;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
@@ -3152,6 +3152,7 @@ pub const Type = extern union {
                 .anyerror_void_error_union,
                 .@"anyframe",
                 .const_slice_u8,
+                .inferred_alloc,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,
@@ -3184,7 +3185,6 @@ pub const Type = extern union {
                 .error_set => Payload.Decl,
                 .error_set_single => Payload.Name,
                 .empty_struct => Payload.ContainerScope,
-                .inferred_alloc => Payload.InferredAlloc,
             };
         }
 
@@ -3297,13 +3297,6 @@ pub const Type = extern union {
         pub const ContainerScope = struct {
             base: Payload,
             data: *Module.Scope.Container,
-        };
-
-        pub const InferredAlloc = struct {
-            pub const base_tag = Tag.inferred_alloc;
-
-            base: Payload = .{ .tag = base_tag },
-            data: *Value.Payload.InferredAlloc,
         };
     };
 };
