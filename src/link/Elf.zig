@@ -2183,7 +2183,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             for (zir_dumps) |fn_name| {
                 if (mem.eql(u8, mem.spanZ(decl.name), fn_name)) {
                     std.debug.print("\n{}\n", .{decl.name});
-                    typed_value.val.cast(Value.Payload.Function).?.func.dump(module.*);
+                    typed_value.val.castTag(.function).?.data.dump(module.*);
                 }
             }
         }

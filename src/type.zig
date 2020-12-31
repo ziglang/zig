@@ -733,11 +733,7 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
             .enum_literal => return Value.initTag(.enum_literal_type),
-            else => {
-                const ty_payload = try allocator.create(Value.Payload.Ty);
-                ty_payload.* = .{ .ty = self };
-                return Value.initPayload(&ty_payload.base);
-            },
+            else => return Value.Tag.ty.create(allocator, self),
         }
     }
 
@@ -2951,11 +2947,8 @@ pub const Type = extern union {
         }
 
         if ((info.bits - 1) <= std.math.maxInt(u6)) {
-            const payload = try arena.allocator.create(Value.Payload.Int_i64);
-            payload.* = .{
-                .int = -(@as(i64, 1) << @truncate(u6, info.bits - 1)),
-            };
-            return Value.initPayload(&payload.base);
+            const n: i64 = -(@as(i64, 1) << @truncate(u6, info.bits - 1));
+            return Value.Tag.int_i64.create(&arena.allocator, n);
         }
 
         var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
@@ -2964,13 +2957,9 @@ pub const Type = extern union {
 
         const res_const = res.toConst();
         if (res_const.positive) {
-            const val_payload = try arena.allocator.create(Value.Payload.IntBigPositive);
-            val_payload.* = .{ .limbs = res_const.limbs };
-            return Value.initPayload(&val_payload.base);
+            return Value.Tag.int_big_positive.create(&arena.allocator, res_const.limbs);
         } else {
-            const val_payload = try arena.allocator.create(Value.Payload.IntBigNegative);
-            val_payload.* = .{ .limbs = res_const.limbs };
-            return Value.initPayload(&val_payload.base);
+            return Value.Tag.int_big_negative.create(&arena.allocator, res_const.limbs);
         }
     }
 
@@ -2980,17 +2969,11 @@ pub const Type = extern union {
         const info = self.intInfo(target);
 
         if (info.signedness == .signed and (info.bits - 1) <= std.math.maxInt(u6)) {
-            const payload = try arena.allocator.create(Value.Payload.Int_i64);
-            payload.* = .{
-                .int = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1,
-            };
-            return Value.initPayload(&payload.base);
+            const n: i64 = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1;
+            return Value.Tag.int_i64.create(&arena.allocator, n);
         } else if (info.signedness == .signed and info.bits <= std.math.maxInt(u6)) {
-            const payload = try arena.allocator.create(Value.Payload.Int_u64);
-            payload.* = .{
-                .int = (@as(u64, 1) << @truncate(u6, info.bits)) - 1,
-            };
-            return Value.initPayload(&payload.base);
+            const n: u64 = (@as(u64, 1) << @truncate(u6, info.bits)) - 1;
+            return Value.Tag.int_u64.create(&arena.allocator, n);
         }
 
         var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
@@ -3003,13 +2986,9 @@ pub const Type = extern union {
 
         const res_const = res.toConst();
         if (res_const.positive) {
-            const val_payload = try arena.allocator.create(Value.Payload.IntBigPositive);
-            val_payload.* = .{ .limbs = res_const.limbs };
-            return Value.initPayload(&val_payload.base);
+            return Value.Tag.int_big_positive.create(&arena.allocator, res_const.limbs);
         } else {
-            const val_payload = try arena.allocator.create(Value.Payload.IntBigNegative);
-            val_payload.* = .{ .limbs = res_const.limbs };
-            return Value.initPayload(&val_payload.base);
+            return Value.Tag.int_big_negative.create(&arena.allocator, res_const.limbs);
         }
     }
 
