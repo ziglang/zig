@@ -585,6 +585,7 @@ fn varDecl(
 
     switch (tree.token_ids[node.mut_token]) {
         .Keyword_const => {
+            var resolve_inferred_alloc: ?*zir.Inst = null;
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
@@ -595,6 +596,7 @@ fn varDecl(
                     break :r ResultLoc{ .ptr = alloc };
                 } else {
                     const alloc = try addZIRNoOpT(mod, scope, name_src, .alloc_inferred);
+                    resolve_inferred_alloc = &alloc.base;
                     break :r ResultLoc{ .inferred_ptr = alloc };
                 }
             } else r: {
@@ -604,6 +606,9 @@ fn varDecl(
                     break :r .none;
             };
             const init_inst = try expr(mod, scope, result_loc, init_node);
+            if (resolve_inferred_alloc) |inst| {
+                _ = try addZIRUnOp(mod, scope, name_src, .resolve_inferred_alloc, inst);
+            }
             const sub_scope = try block_arena.create(Scope.LocalVal);
             sub_scope.* = .{
                 .parent = scope,
@@ -614,15 +619,20 @@ fn varDecl(
             return &sub_scope.base;
         },
         .Keyword_var => {
+            var resolve_inferred_alloc: ?*zir.Inst = null;
             const var_data: struct { result_loc: ResultLoc, alloc: *zir.Inst } = if (node.getTypeNode()) |type_node| a: {
                 const type_inst = try typeExpr(mod, scope, type_node);
                 const alloc = try addZIRUnOp(mod, scope, name_src, .alloc_mut, type_inst);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
                 const alloc = try addZIRNoOp(mod, scope, name_src, .alloc_inferred_mut);
+                resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc.castTag(.alloc_inferred_mut).? } };
             };
             const init_inst = try expr(mod, scope, var_data.result_loc, init_node);
+            if (resolve_inferred_alloc) |inst| {
+                _ = try addZIRUnOp(mod, scope, name_src, .resolve_inferred_alloc, inst);
+            }
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
@@ -2717,7 +2727,8 @@ fn rlWrap(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerEr
             return mod.fail(scope, result.src, "TODO implement rlWrap .bitcasted_ptr", .{});
         },
         .inferred_ptr => |alloc| {
-            return addZIRBinOp(mod, scope, result.src, .store, &alloc.base, result);
+            _ = try addZIRBinOp(mod, scope, result.src, .store_to_inferred_ptr, &alloc.base, result);
+            return result;
         },
         .block_ptr => |block_ptr| {
             return mod.fail(scope, result.src, "TODO implement rlWrap .block_ptr", .{});

@@ -78,6 +78,7 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .pointer,
+            .inferred_alloc,
             => return .Pointer,
 
             .optional,
@@ -157,6 +158,8 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             => self.cast(Payload.ElemType),
+
+            .inferred_alloc => unreachable,
 
             else => null,
         };
@@ -384,6 +387,7 @@ pub const Type = extern union {
             .enum_literal,
             .anyerror_void_error_union,
             .@"anyframe",
+            .inferred_alloc,
             => unreachable,
 
             .array_u8,
@@ -686,6 +690,7 @@ pub const Type = extern union {
                     const name = ty.castTag(.error_set_single).?.data;
                     return out_stream.print("error{{{s}}}", .{name});
                 },
+                .inferred_alloc => return out_stream.writeAll("(inferred allocation type)"),
             }
             unreachable;
         }
@@ -733,6 +738,7 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
             .enum_literal => return Value.initTag(.enum_literal_type),
+            .inferred_alloc => unreachable,
             else => return Value.Tag.ty.create(allocator, self),
         }
     }
@@ -803,6 +809,8 @@ pub const Type = extern union {
             .enum_literal,
             .empty_struct,
             => false,
+
+            .inferred_alloc => unreachable,
         };
     }
 
@@ -920,6 +928,7 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
         };
     }
@@ -943,6 +952,7 @@ pub const Type = extern union {
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
             .empty_struct => unreachable,
+            .inferred_alloc => unreachable,
 
             .u8,
             .i8,
@@ -1121,6 +1131,7 @@ pub const Type = extern union {
             .single_const_pointer,
             .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
+            .inferred_alloc,
             => true,
 
             .pointer => self.castTag(.pointer).?.data.size == .One,
@@ -1203,6 +1214,7 @@ pub const Type = extern union {
             .single_const_pointer,
             .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
+            .inferred_alloc,
             => .One,
 
             .pointer => self.castTag(.pointer).?.data.size,
@@ -1273,6 +1285,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => false,
 
             .const_slice,
@@ -1345,6 +1358,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => false,
 
             .single_const_pointer,
@@ -1426,6 +1440,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => false,
 
             .pointer => {
@@ -1502,6 +1517,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => false,
 
             .pointer => {
@@ -1569,58 +1585,58 @@ pub const Type = extern union {
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .usize,
-            .isize,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
-            .c_longdouble,
-            .f16,
-            .f32,
-            .f64,
-            .f128,
-            .c_void,
-            .bool,
-            .void,
-            .type,
-            .anyerror,
-            .comptime_int,
-            .comptime_float,
-            .noreturn,
-            .@"null",
-            .@"undefined",
-            .fn_noreturn_no_args,
-            .fn_void_no_args,
-            .fn_naked_noreturn_no_args,
-            .fn_ccc_void_no_args,
-            .function,
-            .int_unsigned,
-            .int_signed,
-            .optional,
-            .optional_single_const_pointer,
-            .optional_single_mut_pointer,
-            .enum_literal,
-            .error_union,
-            .@"anyframe",
-            .anyframe_T,
-            .anyerror_void_error_union,
-            .error_set,
-            .error_set_single,
-            .empty_struct,
-            => unreachable,
+            .u8 => unreachable,
+            .i8 => unreachable,
+            .u16 => unreachable,
+            .i16 => unreachable,
+            .u32 => unreachable,
+            .i32 => unreachable,
+            .u64 => unreachable,
+            .i64 => unreachable,
+            .usize => unreachable,
+            .isize => unreachable,
+            .c_short => unreachable,
+            .c_ushort => unreachable,
+            .c_int => unreachable,
+            .c_uint => unreachable,
+            .c_long => unreachable,
+            .c_ulong => unreachable,
+            .c_longlong => unreachable,
+            .c_ulonglong => unreachable,
+            .c_longdouble => unreachable,
+            .f16 => unreachable,
+            .f32 => unreachable,
+            .f64 => unreachable,
+            .f128 => unreachable,
+            .c_void => unreachable,
+            .bool => unreachable,
+            .void => unreachable,
+            .type => unreachable,
+            .anyerror => unreachable,
+            .comptime_int => unreachable,
+            .comptime_float => unreachable,
+            .noreturn => unreachable,
+            .@"null" => unreachable,
+            .@"undefined" => unreachable,
+            .fn_noreturn_no_args => unreachable,
+            .fn_void_no_args => unreachable,
+            .fn_naked_noreturn_no_args => unreachable,
+            .fn_ccc_void_no_args => unreachable,
+            .function => unreachable,
+            .int_unsigned => unreachable,
+            .int_signed => unreachable,
+            .optional => unreachable,
+            .optional_single_const_pointer => unreachable,
+            .optional_single_mut_pointer => unreachable,
+            .enum_literal => unreachable,
+            .error_union => unreachable,
+            .@"anyframe" => unreachable,
+            .anyframe_T => unreachable,
+            .anyerror_void_error_union => unreachable,
+            .error_set => unreachable,
+            .error_set_single => unreachable,
+            .empty_struct => unreachable,
+            .inferred_alloc => unreachable,
 
             .array => self.castTag(.array).?.data.elem_type,
             .array_sentinel => self.castTag(.array_sentinel).?.data.elem_type,
@@ -1742,6 +1758,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
 
             .array => self.castTag(.array).?.data.len,
@@ -1808,6 +1825,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
 
             .single_const_pointer,
@@ -1891,6 +1909,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => false,
 
             .int_signed,
@@ -1966,6 +1985,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => false,
 
             .int_unsigned,
@@ -2031,6 +2051,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
 
             .int_unsigned => .{
@@ -2120,6 +2141,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => false,
 
             .usize,
@@ -2232,6 +2254,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
         };
     }
@@ -2310,6 +2333,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
         }
     }
@@ -2387,6 +2411,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
         }
     }
@@ -2464,6 +2489,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
         };
     }
@@ -2538,6 +2564,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
         };
     }
@@ -2612,6 +2639,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => unreachable,
         };
     }
@@ -2686,6 +2714,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => false,
         };
     }
@@ -2778,6 +2807,7 @@ pub const Type = extern union {
                 ty = ty.castTag(.pointer).?.data.pointee_type;
                 continue;
             },
+            .inferred_alloc => unreachable,
         };
     }
 
@@ -2846,6 +2876,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc,
             => return false,
 
             .c_const_pointer,
@@ -2931,6 +2962,7 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             .pointer,
+            .inferred_alloc,
             => unreachable,
 
             .empty_struct => self.castTag(.empty_struct).?.data,
@@ -3068,6 +3100,10 @@ pub const Type = extern union {
         error_set,
         error_set_single,
         empty_struct,
+        /// This is a special value that tracks a set of types that have been stored
+        /// to an inferred allocation. It does not support most of the normal type queries.
+        /// However it does respond to `isConstPtr`, `ptrSize`, `zigTypeTag`, etc.
+        inferred_alloc,
 
         pub const last_no_payload_tag = Tag.const_slice_u8;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -3148,6 +3184,7 @@ pub const Type = extern union {
                 .error_set => Payload.Decl,
                 .error_set_single => Payload.Name,
                 .empty_struct => Payload.ContainerScope,
+                .inferred_alloc => Payload.InferredAlloc,
             };
         }
 
@@ -3260,6 +3297,13 @@ pub const Type = extern union {
         pub const ContainerScope = struct {
             base: Payload,
             data: *Module.Scope.Container,
+        };
+
+        pub const InferredAlloc = struct {
+            pub const base_tag = Tag.inferred_alloc;
+
+            base: Payload = .{ .tag = base_tag },
+            data: *Value.Payload.InferredAlloc,
         };
     };
 };

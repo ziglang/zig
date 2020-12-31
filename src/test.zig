@@ -782,6 +782,7 @@ pub const TestContext = struct {
                                 "-std=c89",
                                 "-pedantic",
                                 "-Werror",
+                                "-Wno-declaration-after-statement",
                                 "--",
                                 "-lc",
                                 exe_path,

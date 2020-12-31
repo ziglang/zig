@@ -241,12 +241,20 @@ pub const Inst = struct {
         const_slice_type,
         /// Create a pointer type with attributes
         ptr_type,
+        /// Each `store_to_inferred_ptr` puts the type of the stored value into a set,
+        /// and then `resolve_inferred_alloc` triggers peer type resolution on the set.
+        /// The operand is a `alloc_inferred` or `alloc_inferred_mut` instruction, which
+        /// is the allocation that needs to have its type inferred.
+        resolve_inferred_alloc,
         /// Slice operation `array_ptr[start..end:sentinel]`
         slice,
         /// Slice operation with just start `lhs[rhs..]`
         slice_start,
         /// Write a value to a pointer. For loading, see `deref`.
         store,
+        /// Same as `store` but the type of the value being stored will be used to infer
+        /// the pointer type.
+        store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         str,
         /// Arithmetic subtraction. Asserts no integer overflow.
@@ -319,6 +327,7 @@ pub const Inst = struct {
                 .ref,
                 .bitcast_ref,
                 .typeof,
+                .resolve_inferred_alloc,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
                 .many_const_ptr_type,
@@ -355,6 +364,7 @@ pub const Inst = struct {
                 .shl,
                 .shr,
                 .store,
+                .store_to_inferred_ptr,
                 .sub,
                 .subwrap,
                 .cmp_lt,
@@ -498,6 +508,7 @@ pub const Inst = struct {
                 .mut_slice_type,
                 .const_slice_type,
                 .store,
+                .store_to_inferred_ptr,
                 .str,
                 .sub,
                 .subwrap,
@@ -522,6 +533,7 @@ pub const Inst = struct {
                 .import,
                 .switch_range,
                 .typeof_peer,
+                .resolve_inferred_alloc,
                 => false,
 
                 .@"break",

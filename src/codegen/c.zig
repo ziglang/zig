@@ -275,6 +275,7 @@ pub fn generate(file: *C, module: *Module, decl: *Decl) !void {
         try writer.writeAll(" {");
 
         const func: *Module.Fn = func_payload.data;
+        //func.dump(module.*);
         const instructions = func.analysis.success.instructions;
         if (instructions.len > 0) {
             try writer.writeAll("\n");
@@ -285,6 +286,7 @@ pub fn generate(file: *C, module: *Module, decl: *Decl) !void {
                     .arg => try genArg(&ctx),
                     .assembly => try genAsm(&ctx, file, inst.castTag(.assembly).?),
                     .block => try genBlock(&ctx, file, inst.castTag(.block).?),
+                    .bitcast => try genBitcast(&ctx, file, inst.castTag(.bitcast).?),
                     .breakpoint => try genBreakpoint(file, inst.castTag(.breakpoint).?),
                     .call => try genCall(&ctx, file, inst.castTag(.call).?),
                     .cmp_eq => try genBinOp(&ctx, file, inst.castTag(.cmp_eq).?, "=="),
@@ -535,6 +537,24 @@ fn genDbgStmt(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
 
 fn genBlock(ctx: *Context, file: *C, inst: *Inst.Block) !?[]u8 {
     return ctx.fail(ctx.decl.src(), "TODO: C backend: implement blocks", .{});
+}
+
+fn genBitcast(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
+    const writer = file.main.writer();
+    try indent(file);
+    const local_name = try ctx.name();
+    const operand = try ctx.resolveInst(inst.operand);
+    try renderTypeAndName(ctx, writer, inst.base.ty, local_name, .Const);
+    if (inst.base.ty.zigTypeTag() == .Pointer and inst.operand.ty.zigTypeTag() == .Pointer) {
+        try writer.writeAll(" = (");
+        try renderType(ctx, writer, inst.base.ty);
+        try writer.print("){s};\n", .{operand});
+    } else {
+        try writer.writeAll(";\n");
+        try indent(file);
+        try writer.print("memcpy(&{s}, &{s}, sizeof {s});\n", .{ local_name, operand, local_name });
+    }
+    return local_name;
 }
 
 fn genBreakpoint(file: *C, inst: *Inst.NoOp) !?[]u8 {

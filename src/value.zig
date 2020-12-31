@@ -7,6 +7,7 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
 const Module = @import("Module.zig");
+const ir = @import("ir.zig");
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.
@@ -101,6 +102,9 @@ pub const Value = extern union {
         enum_literal,
         error_set,
         @"error",
+        /// This is a special value that tracks a set of types that have been stored
+        /// to an inferred allocation. It does not support any of the normal value queries.
+        inferred_alloc,
 
         pub const last_no_payload_tag = Tag.bool_false;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -189,6 +193,7 @@ pub const Value = extern union {
                 .float_128 => Payload.Float_128,
                 .error_set => Payload.ErrorSet,
                 .@"error" => Payload.Error,
+                .inferred_alloc => Payload.InferredAlloc,
             };
         }
 
@@ -383,6 +388,8 @@ pub const Value = extern union {
 
             // memory is managed by the declaration
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
+
+            .inferred_alloc => unreachable,
         }
     }
 
@@ -501,6 +508,7 @@ pub const Value = extern union {
                 return out_stream.writeAll("}");
             },
             .@"error" => return out_stream.print("error.{}", .{val.castTag(.@"error").?.data.name}),
+            .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
         };
     }
 
@@ -613,6 +621,7 @@ pub const Value = extern union {
             .enum_literal,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
         };
     }
@@ -683,6 +692,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .undef => unreachable,
@@ -768,6 +778,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .undef => unreachable,
@@ -853,6 +864,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .undef => unreachable,
@@ -966,6 +978,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .zero,
@@ -1055,6 +1068,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .zero,
@@ -1213,6 +1227,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .zero,
@@ -1289,6 +1304,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .zero,
@@ -1525,6 +1541,8 @@ pub const Value = extern union {
                 hasher.update(payload.name);
                 std.hash.autoHash(&hasher, payload.value);
             },
+
+            .inferred_alloc => unreachable,
         }
         return hasher.final();
     }
@@ -1602,6 +1620,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .ref_val => self.castTag(.ref_val).?.data,
@@ -1687,6 +1706,7 @@ pub const Value = extern union {
             .error_set,
             .@"error",
             .empty_struct_value,
+            .inferred_alloc,
             => unreachable,
 
             .empty_array => unreachable, // out of bounds array index
@@ -1793,6 +1813,7 @@ pub const Value = extern union {
 
             .undef => unreachable,
             .unreachable_value => unreachable,
+            .inferred_alloc => unreachable,
             .null_value => true,
         };
     }
@@ -1801,6 +1822,7 @@ pub const Value = extern union {
     pub fn isFloat(self: Value) bool {
         return switch (self.tag()) {
             .undef => unreachable,
+            .inferred_alloc => unreachable,
 
             .float_16,
             .float_32,
@@ -1890,6 +1912,7 @@ pub const Value = extern union {
 
             .undef => unreachable,
             .unreachable_value => unreachable,
+            .inferred_alloc => unreachable,
         };
     }
 
@@ -2018,6 +2041,19 @@ pub const Value = extern union {
                 /// duration of the compilation.
                 name: []const u8,
                 value: u16,
+            },
+        };
+
+        pub const InferredAlloc = struct {
+            pub const base_tag = Tag.inferred_alloc;
+
+            base: Payload = .{ .tag = base_tag },
+            data: struct {
+                /// The value stored in the inferred allocation. This will go into
+                /// peer type resolution. This is stored in a separate list so that
+                /// the items are contiguous in memory and thus can be passed to
+                /// `Module.resolvePeerTypes`.
+                stored_inst_list: std.ArrayListUnmanaged(*ir.Inst) = .{},
             },
         };
     };

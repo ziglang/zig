@@ -3189,7 +3189,14 @@ pub fn floatSub(
     }
 }
 
-pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) Allocator.Error!Type {
+pub fn simplePtrType(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    elem_ty: Type,
+    mutable: bool,
+    size: std.builtin.TypeInfo.Pointer.Size,
+) Allocator.Error!Type {
     if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
         return Type.initTag(.const_slice_u8);
     }

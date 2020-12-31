@@ -51,6 +51,21 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
     }
 
+    {
+        var case = ctx.exeFromCompiledC("inferred local const", .{});
+
+        case.addCompareOutput(
+            \\fn add(a: i32, b: i32) i32 {
+            \\    return a + b;
+            \\}
+            \\
+            \\export fn main() c_int {
+            \\    const x = add(1, 2);
+            \\    return x - 3;
+            \\}
+        , "");
+    }
+
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {
         \\    unreachable;
