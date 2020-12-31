@@ -46,7 +46,7 @@ if("${ZIG_VERSION}" STREQUAL "")
                 if(NOT GIT_TAG VERSION_EQUAL ZIG_VERSION)
                     message(SEND_ERROR "Zig version (${ZIG_VERSION}) does not match Git tag (${GIT_TAG}).")
                 endif()
-            elseif(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)-([0-9]+)-(.+)$")
+            elseif(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)-([0-9]+)-g(.+)$")
                 # Untagged pre-release. The Zig version is updated to include the number of commits
                 # since the last tagged version and the commit hash. The version is formatted in
                 # accordance with the https://semver.org specification.
