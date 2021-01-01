@@ -1100,6 +1100,7 @@ pub const Builder = struct {
     }
 
     pub fn getInstallPath(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
+        assert(!fs.path.isAbsolute(dest_rel_path)); // Install paths must be relative to the prefix
         const base_dir = switch (dir) {
             .Prefix => self.install_path,
             .Bin => self.exe_dir,
