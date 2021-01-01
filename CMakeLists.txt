@@ -350,6 +350,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/dwarf.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/dwarf_bits.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/elf.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/enum_set.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/event.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/event/batch.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/event/loop.zig"

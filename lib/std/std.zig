@@ -19,6 +19,7 @@ pub const BufSet = @import("buf_set.zig").BufSet;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const ComptimeStringMap = @import("comptime_string_map.zig").ComptimeStringMap;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
+pub const EnumSet = @import("enum_set.zig").EnumSet;
 pub const HashMap = hash_map.HashMap;
 pub const HashMapUnmanaged = hash_map.HashMapUnmanaged;
 pub const mutex = @import("mutex.zig");
