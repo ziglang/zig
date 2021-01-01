@@ -10,10 +10,12 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const log = std.log.scoped(.sema);
+
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
-const assert = std.debug.assert;
 const ir = @import("ir.zig");
 const zir = @import("zir.zig");
 const Module = @import("Module.zig");
@@ -28,8 +30,18 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
     switch (old_inst.tag) {
         .alloc => return analyzeInstAlloc(mod, scope, old_inst.castTag(.alloc).?),
         .alloc_mut => return analyzeInstAllocMut(mod, scope, old_inst.castTag(.alloc_mut).?),
-        .alloc_inferred => return analyzeInstAllocInferred(mod, scope, old_inst.castTag(.alloc_inferred).?),
-        .alloc_inferred_mut => return analyzeInstAllocInferredMut(mod, scope, old_inst.castTag(.alloc_inferred_mut).?),
+        .alloc_inferred => return analyzeInstAllocInferred(
+            mod,
+            scope,
+            old_inst.castTag(.alloc_inferred).?,
+            .inferred_alloc_const,
+        ),
+        .alloc_inferred_mut => return analyzeInstAllocInferred(
+            mod,
+            scope,
+            old_inst.castTag(.alloc_inferred_mut).?,
+            .inferred_alloc_mut,
+        ),
         .arg => return analyzeInstArg(mod, scope, old_inst.castTag(.arg).?),
         .bitcast_ref => return analyzeInstBitCastRef(mod, scope, old_inst.castTag(.bitcast_ref).?),
         .bitcast_result_ptr => return analyzeInstBitCastResultPtr(mod, scope, old_inst.castTag(.bitcast_result_ptr).?),
@@ -55,8 +67,10 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .ensure_result_non_error => return analyzeInstEnsureResultNonError(mod, scope, old_inst.castTag(.ensure_result_non_error).?),
         .ensure_indexable => return analyzeInstEnsureIndexable(mod, scope, old_inst.castTag(.ensure_indexable).?),
         .ref => return analyzeInstRef(mod, scope, old_inst.castTag(.ref).?),
+        .resolve_inferred_alloc => return analyzeInstResolveInferredAlloc(mod, scope, old_inst.castTag(.resolve_inferred_alloc).?),
         .ret_ptr => return analyzeInstRetPtr(mod, scope, old_inst.castTag(.ret_ptr).?),
         .ret_type => return analyzeInstRetType(mod, scope, old_inst.castTag(.ret_type).?),
+        .store_to_inferred_ptr => return analyzeInstStoreToInferredPtr(mod, scope, old_inst.castTag(.store_to_inferred_ptr).?),
         .single_const_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?, false, .One),
         .single_mut_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?, true, .One),
         .many_const_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.many_const_ptr_type).?, false, .Many),
@@ -419,20 +433,83 @@ fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErro
 
 fn analyzeInstAllocMut(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
-    if (!var_type.isValidVarType(false)) {
-        return mod.fail(scope, inst.base.src, "variable of type '{}' must be const or comptime", .{var_type});
-    }
+    try mod.validateVarType(scope, inst.base.src, var_type);
     const ptr_type = try mod.simplePtrType(scope, inst.base.src, var_type, true, .One);
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
 }
 
-fn analyzeInstAllocInferred(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstAllocInferred", .{});
+fn analyzeInstAllocInferred(
+    mod: *Module,
+    scope: *Scope,
+    inst: *zir.Inst.NoOp,
+    mut_tag: Type.Tag,
+) InnerError!*Inst {
+    const val_payload = try scope.arena().create(Value.Payload.InferredAlloc);
+    val_payload.* = .{
+        .data = .{},
+    };
+    // `Module.constInst` does not add the instruction to the block because it is
+    // not needed in the case of constant values. However here, we plan to "downgrade"
+    // to a normal instruction when we hit `resolve_inferred_alloc`. So we append
+    // to the block even though it is currently a `.constant`.
+    const result = try mod.constInst(scope, inst.base.src, .{
+        .ty = switch (mut_tag) {
+            .inferred_alloc_const => Type.initTag(.inferred_alloc_const),
+            .inferred_alloc_mut => Type.initTag(.inferred_alloc_mut),
+            else => unreachable,
+        },
+        .val = Value.initPayload(&val_payload.base),
+    });
+    const block = try mod.requireFunctionBlock(scope, inst.base.src);
+    try block.instructions.append(mod.gpa, result);
+    return result;
 }
 
-fn analyzeInstAllocInferredMut(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstAllocInferredMut", .{});
+fn analyzeInstResolveInferredAlloc(
+    mod: *Module,
+    scope: *Scope,
+    inst: *zir.Inst.UnOp,
+) InnerError!*Inst {
+    const ptr = try resolveInst(mod, scope, inst.positionals.operand);
+    const ptr_val = ptr.castTag(.constant).?.val;
+    const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
+    const peer_inst_list = inferred_alloc.data.stored_inst_list.items;
+    const final_elem_ty = try mod.resolvePeerTypes(scope, peer_inst_list);
+    const var_is_mut = switch (ptr.ty.tag()) {
+        .inferred_alloc_const => false,
+        .inferred_alloc_mut => true,
+        else => unreachable,
+    };
+    if (var_is_mut) {
+        try mod.validateVarType(scope, inst.base.src, final_elem_ty);
+    }
+    const final_ptr_ty = try mod.simplePtrType(scope, inst.base.src, final_elem_ty, true, .One);
+
+    // Change it to a normal alloc.
+    ptr.ty = final_ptr_ty;
+    ptr.tag = .alloc;
+
+    return mod.constVoid(scope, inst.base.src);
+}
+
+fn analyzeInstStoreToInferredPtr(
+    mod: *Module,
+    scope: *Scope,
+    inst: *zir.Inst.BinOp,
+) InnerError!*Inst {
+    const ptr = try resolveInst(mod, scope, inst.positionals.lhs);
+    const value = try resolveInst(mod, scope, inst.positionals.rhs);
+    const inferred_alloc = ptr.castTag(.constant).?.val.castTag(.inferred_alloc).?;
+    // Add the stored instruction to the set we will use to resolve peer types
+    // for the inferred allocation.
+    try inferred_alloc.data.stored_inst_list.append(scope.arena(), value);
+    // Create a new alloc with exactly the type the pointer wants.
+    // Later it gets cleaned up by aliasing the alloc we are supposed to be storing to.
+    const ptr_ty = try mod.simplePtrType(scope, inst.base.src, value.ty, true, .One);
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const bitcasted_ptr = try mod.addUnOp(b, inst.base.src, ptr_ty, .bitcast, ptr);
+    return mod.storePtr(scope, inst.base.src, bitcasted_ptr, value);
 }
 
 fn analyzeInstStore(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {

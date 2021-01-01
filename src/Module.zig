@@ -3189,7 +3189,14 @@ pub fn floatSub(
     }
 }
 
-pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) Allocator.Error!Type {
+pub fn simplePtrType(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    elem_ty: Type,
+    mutable: bool,
+    size: std.builtin.TypeInfo.Pointer.Size,
+) Allocator.Error!Type {
     if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
         return Type.initTag(.const_slice_u8);
     }
@@ -3413,4 +3420,10 @@ pub fn getTarget(self: Module) Target {
 
 pub fn optimizeMode(self: Module) std.builtin.Mode {
     return self.comp.bin_file.options.optimize_mode;
+}
+
+pub fn validateVarType(mod: *Module, scope: *Scope, src: usize, ty: Type) !void {
+    if (!ty.isValidVarType(false)) {
+        return mod.fail(scope, src, "variable of type '{}' must be const or comptime", .{ty});
+    }
 }

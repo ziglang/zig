@@ -41,4 +41,4 @@
 #include <stdint.h>
 #define int128_t __int128
 #define uint128_t unsigned __int128
-
+#include <string.h>

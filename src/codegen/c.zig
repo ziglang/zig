@@ -285,6 +285,7 @@ pub fn generate(file: *C, module: *Module, decl: *Decl) !void {
                     .arg => try genArg(&ctx),
                     .assembly => try genAsm(&ctx, file, inst.castTag(.assembly).?),
                     .block => try genBlock(&ctx, file, inst.castTag(.block).?),
+                    .bitcast => try genBitcast(&ctx, file, inst.castTag(.bitcast).?),
                     .breakpoint => try genBreakpoint(file, inst.castTag(.breakpoint).?),
                     .call => try genCall(&ctx, file, inst.castTag(.call).?),
                     .cmp_eq => try genBinOp(&ctx, file, inst.castTag(.cmp_eq).?, "=="),
@@ -295,6 +296,7 @@ pub fn generate(file: *C, module: *Module, decl: *Decl) !void {
                     .cmp_neq => try genBinOp(&ctx, file, inst.castTag(.cmp_neq).?, "!="),
                     .dbg_stmt => try genDbgStmt(&ctx, inst.castTag(.dbg_stmt).?),
                     .intcast => try genIntCast(&ctx, file, inst.castTag(.intcast).?),
+                    .load => try genLoad(&ctx, file, inst.castTag(.load).?),
                     .ret => try genRet(&ctx, file, inst.castTag(.ret).?),
                     .retvoid => try genRetVoid(file),
                     .store => try genStore(&ctx, file, inst.castTag(.store).?),
@@ -429,6 +431,16 @@ fn genRetVoid(file: *C) !?[]u8 {
     return null;
 }
 
+fn genLoad(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
+    const operand = try ctx.resolveInst(inst.operand);
+    const writer = file.main.writer();
+    try indent(file);
+    const local_name = try ctx.name();
+    try renderTypeAndName(ctx, writer, inst.base.ty, local_name, .Const);
+    try writer.print(" = *{s};\n", .{operand});
+    return local_name;
+}
+
 fn genRet(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
     try indent(file);
     const writer = file.main.writer();
@@ -440,7 +452,6 @@ fn genIntCast(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
     if (inst.base.isUnused())
         return null;
     try indent(file);
-    const op = inst.operand;
     const writer = file.main.writer();
     const name = try ctx.name();
     const from = try ctx.resolveInst(inst.operand);
@@ -535,6 +546,24 @@ fn genDbgStmt(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
 
 fn genBlock(ctx: *Context, file: *C, inst: *Inst.Block) !?[]u8 {
     return ctx.fail(ctx.decl.src(), "TODO: C backend: implement blocks", .{});
+}
+
+fn genBitcast(ctx: *Context, file: *C, inst: *Inst.UnOp) !?[]u8 {
+    const writer = file.main.writer();
+    try indent(file);
+    const local_name = try ctx.name();
+    const operand = try ctx.resolveInst(inst.operand);
+    try renderTypeAndName(ctx, writer, inst.base.ty, local_name, .Const);
+    if (inst.base.ty.zigTypeTag() == .Pointer and inst.operand.ty.zigTypeTag() == .Pointer) {
+        try writer.writeAll(" = (");
+        try renderType(ctx, writer, inst.base.ty);
+        try writer.print("){s};\n", .{operand});
+    } else {
+        try writer.writeAll(";\n");
+        try indent(file);
+        try writer.print("memcpy(&{s}, &{s}, sizeof {s});\n", .{ local_name, operand, local_name });
+    }
+    return local_name;
 }
 
 fn genBreakpoint(file: *C, inst: *Inst.NoOp) !?[]u8 {

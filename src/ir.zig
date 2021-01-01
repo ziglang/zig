@@ -196,7 +196,7 @@ pub const Inst = struct {
     pub fn value(base: *Inst) ?Value {
         if (base.ty.onePossibleValue()) |opv| return opv;
 
-        const inst = base.cast(Constant) orelse return null;
+        const inst = base.castTag(.constant) orelse return null;
         return inst.val;
     }
 
