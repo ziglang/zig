@@ -487,19 +487,14 @@ test "std.meta.fields" {
     testing.expect(comptime uf[0].field_type == u8);
 }
 
-pub fn fieldInfo(comptime T: type, comptime field_name: []const u8) switch (@typeInfo(T)) {
+pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
     .Struct => TypeInfo.StructField,
     .Union => TypeInfo.UnionField,
     .ErrorSet => TypeInfo.Error,
     .Enum => TypeInfo.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
-    inline for (comptime fields(T)) |field| {
-        if (comptime mem.eql(u8, field.name, field_name))
-            return field;
-    }
-
-    @compileError("'" ++ @typeName(T) ++ "' has no field '" ++ field_name ++ "'");
+    return fields(T)[@enumToInt(field)];
 }
 
 test "std.meta.fieldInfo" {
@@ -514,10 +509,10 @@ test "std.meta.fieldInfo" {
         a: u8,
     };
 
-    const e1f = comptime fieldInfo(E1, "A");
-    const e2f = comptime fieldInfo(E2, "A");
-    const sf = comptime fieldInfo(S1, "a");
-    const uf = comptime fieldInfo(U1, "a");
+    const e1f = fieldInfo(E1, .A);
+    const e2f = fieldInfo(E2, .A);
+    const sf = fieldInfo(S1, .a);
+    const uf = fieldInfo(U1, .a);
 
     testing.expect(mem.eql(u8, e1f.name, "A"));
     testing.expect(mem.eql(u8, e2f.name, "A"));
@@ -566,6 +561,43 @@ test "std.meta.fieldNames" {
     testing.expect(u1names.len == 2);
     testing.expectEqualSlices(u8, u1names[0], "a");
     testing.expectEqualSlices(u8, u1names[1], "b");
+}
+
+pub fn FieldEnum(comptime T: type) type {
+    const fieldInfos = fields(T);
+    var enumFields: [fieldInfos.len]std.builtin.TypeInfo.EnumField = undefined;
+    var decls = [_]std.builtin.TypeInfo.Declaration{};
+    inline for (fieldInfos) |field, i| {
+        enumFields[i] = .{
+            .name = field.name,
+            .value = i,
+        };
+    }
+    return @Type(.{
+        .Enum = .{
+            .layout = .Auto,
+            .tag_type = std.math.IntFittingRange(0, fieldInfos.len - 1),
+            .fields = &enumFields,
+            .decls = &decls,
+            .is_exhaustive = true,
+        },
+    });
+}
+
+fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) void {
+    // TODO: https://github.com/ziglang/zig/issues/7419
+    // testing.expectEqual(@typeInfo(expected).Enum, @typeInfo(actual).Enum);
+    testing.expectEqual(@typeInfo(expected).Enum.layout, @typeInfo(actual).Enum.layout);
+    testing.expectEqual(@typeInfo(expected).Enum.tag_type, @typeInfo(actual).Enum.tag_type);
+    comptime testing.expectEqualSlices(std.builtin.TypeInfo.EnumField, @typeInfo(expected).Enum.fields, @typeInfo(actual).Enum.fields);
+    comptime testing.expectEqualSlices(std.builtin.TypeInfo.Declaration, @typeInfo(expected).Enum.decls, @typeInfo(actual).Enum.decls);
+    testing.expectEqual(@typeInfo(expected).Enum.is_exhaustive, @typeInfo(actual).Enum.is_exhaustive);
+}
+
+test "std.meta.FieldEnum" {
+    expectEqualEnum(enum { a }, FieldEnum(struct { a: u8 }));
+    expectEqualEnum(enum { a, b, c }, FieldEnum(struct { a: u8, b: void, c: f32 }));
+    expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
 }
 
 pub fn TagType(comptime T: type) type {

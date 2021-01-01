@@ -21,20 +21,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
         pub const Int = meta.Int(.unsigned, bit_count);
         pub const bit_count = @typeInfo(Fields).Struct.fields.len;
 
-        pub const FieldEnum = blk: {
-            comptime var fields: [bit_count]TypeInfo.EnumField = undefined;
-            inline for (@typeInfo(Fields).Struct.fields) |struct_field, i|
-                fields[i] = .{ .name = struct_field.name, .value = i };
-            break :blk @Type(.{
-                .Enum = .{
-                    .layout = .Auto,
-                    .tag_type = std.math.IntFittingRange(0, bit_count - 1),
-                    .fields = &fields,
-                    .decls = &[_]TypeInfo.Declaration{},
-                    .is_exhaustive = true,
-                },
-            });
-        };
+        pub const FieldEnum = std.meta.FieldEnum(Fields);
 
         pub const InitStruct = blk: {
             comptime var fields: [bit_count]TypeInfo.StructField = undefined;
@@ -135,10 +122,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
         }
 
         pub fn Field(comptime field: FieldEnum) type {
-            inline for (@typeInfo(Fields).Struct.fields) |field_info, i| {
-                if (i == @enumToInt(field))
-                    return field_info.field_type;
-            }
+            return @typeInfo(Fields).Struct.fields[@enumToInt(field)].field_type;
         }
 
         pub fn sizeInBytes(self: Self) usize {
