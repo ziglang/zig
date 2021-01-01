@@ -471,32 +471,32 @@ pub const Builder = struct {
                     } else if (mem.eql(u8, s, "false")) {
                         return false;
                     } else {
-                        warn("Expected -D{} to be a boolean, but received '{}'\n", .{ name, s });
+                        warn("Expected -D{} to be a boolean, but received '{}'\n\n", .{ name, s });
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 .List => {
-                    warn("Expected -D{} to be a boolean, but received a list.\n", .{name});
+                    warn("Expected -D{} to be a boolean, but received a list.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .Int => switch (entry.value.value) {
                 .Flag => {
-                    warn("Expected -D{} to be an integer, but received a boolean.\n", .{name});
+                    warn("Expected -D{} to be an integer, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 .Scalar => |s| {
                     const n = std.fmt.parseInt(T, s, 10) catch |err| switch (err) {
                         error.Overflow => {
-                            warn("-D{} value {} cannot fit into type {}.\n", .{ name, s, @typeName(T) });
+                            warn("-D{} value {} cannot fit into type {}.\n\n", .{ name, s, @typeName(T) });
                             self.markInvalidUserInput();
                             return null;
                         },
                         else => {
-                            warn("Expected -D{} to be an integer of type {}.\n", .{ name, @typeName(T) });
+                            warn("Expected -D{} to be an integer of type {}.\n\n", .{ name, @typeName(T) });
                             self.markInvalidUserInput();
                             return null;
                         },
@@ -504,34 +504,34 @@ pub const Builder = struct {
                     return n;
                 },
                 .List => {
-                    warn("Expected -D{} to be an integer, but received a list.\n", .{name});
+                    warn("Expected -D{} to be an integer, but received a list.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .Float => switch (entry.value.value) {
                 .Flag => {
-                    warn("Expected -D{} to be a float, but received a boolean.\n", .{name});
+                    warn("Expected -D{} to be a float, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 .Scalar => |s| {
                     const n = std.fmt.parseFloat(T, s) catch |err| {
-                        warn("Expected -D{} to be a float of type {}.\n", .{ name, @typeName(T) });
+                        warn("Expected -D{} to be a float of type {}.\n\n", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     };
                     return n;
                 },
                 .List => {
-                    warn("Expected -D{} to be a float, but received a list.\n", .{name});
+                    warn("Expected -D{} to be a float, but received a list.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .Enum => switch (entry.value.value) {
                 .Flag => {
-                    warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
+                    warn("Expected -D{} to be a string, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -539,25 +539,25 @@ pub const Builder = struct {
                     if (std.meta.stringToEnum(T, s)) |enum_lit| {
                         return enum_lit;
                     } else {
-                        warn("Expected -D{} to be of type {}.\n", .{ name, @typeName(T) });
+                        warn("Expected -D{} to be of type {}.\n\n", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 .List => {
-                    warn("Expected -D{} to be a string, but received a list.\n", .{name});
+                    warn("Expected -D{} to be a string, but received a list.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .String => switch (entry.value.value) {
                 .Flag => {
-                    warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
+                    warn("Expected -D{} to be a string, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 .List => {
-                    warn("Expected -D{} to be a string, but received a list.\n", .{name});
+                    warn("Expected -D{} to be a string, but received a list.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -565,7 +565,7 @@ pub const Builder = struct {
             },
             .List => switch (entry.value.value) {
                 .Flag => {
-                    warn("Expected -D{} to be a list, but received a boolean.\n", .{name});
+                    warn("Expected -D{} to be a list, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -615,7 +615,7 @@ pub const Builder = struct {
         else if (!release_fast and !release_safe and !release_small)
             builtin.Mode.Debug
         else x: {
-            warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)", .{});
+            warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)\n\n", .{});
             self.markInvalidUserInput();
             break :x builtin.Mode.Debug;
         };
@@ -646,17 +646,19 @@ pub const Builder = struct {
             .diagnostics = &diags,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {
-                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
                     diags.cpu_name.?,
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allCpuModels()) |cpu| {
-                    std.debug.warn(" {}\n", .{cpu.name});
+                    warn(" {}\n", .{cpu.name});
                 }
-                process.exit(1);
+                warn("\n", .{});
+                self.markInvalidUserInput();
+                return args.default_target;
             },
             error.UnknownCpuFeature => {
-                std.debug.warn(
+                warn(
                     \\Unknown CPU feature: '{}'
                     \\Available CPU features for architecture '{}':
                     \\
@@ -665,24 +667,29 @@ pub const Builder = struct {
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allFeaturesList()) |feature| {
-                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+                    warn(" {}: {}\n", .{ feature.name, feature.description });
                 }
-                process.exit(1);
+                warn("\n", .{});
+                self.markInvalidUserInput();
+                return args.default_target;
             },
             error.UnknownOperatingSystem => {
-                std.debug.warn(
+                warn(
                     \\Unknown OS: '{}'
                     \\Available operating systems:
                     \\
                 , .{diags.os_name});
                 inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
-                    std.debug.warn(" {}\n", .{field.name});
+                    warn(" {}\n", .{field.name});
                 }
-                process.exit(1);
+                warn("\n", .{});
+                self.markInvalidUserInput();
+                return args.default_target;
             },
             else => |e| {
-                std.debug.warn("Unable to parse target '{}': {}\n", .{ triple, @errorName(e) });
-                process.exit(1);
+                warn("Unable to parse target '{}': {}\n\n", .{ triple, @errorName(e) });
+                self.markInvalidUserInput();
+                return args.default_target;
             },
         };
 
@@ -696,16 +703,16 @@ pub const Builder = struct {
                     break :whitelist_check;
                 }
             }
-            std.debug.warn("Chosen target '{}' does not match one of the supported targets:\n", .{
+            warn("Chosen target '{}' does not match one of the supported targets:\n", .{
                 selected_canonicalized_triple,
             });
             for (list) |t| {
                 const t_triple = t.zigTriple(self.allocator) catch unreachable;
-                std.debug.warn(" {}\n", .{t_triple});
+                warn(" {}\n", .{t_triple});
             }
-            // TODO instead of process exit, return error and have a zig build flag implemented by
-            // the build runner that turns process exits into error return traces
-            process.exit(1);
+            warn("\n", .{});
+            self.markInvalidUserInput();
+            return args.default_target;
         }
 
         return selected_target;
