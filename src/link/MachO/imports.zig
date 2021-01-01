@@ -167,7 +167,7 @@ pub const BindingInfoTable = struct {
             size += 1;
         }
 
-        size += 1 + stream.bytes_written;
+        size += 1 + @intCast(usize, stream.bytes_written);
         return size;
     }
 };
@@ -322,7 +322,7 @@ pub const LazyBindingInfoTable = struct {
             size += 2;
         }
 
-        size += stream.bytes_written;
+        size += @intCast(usize, stream.bytes_written);
         return size;
     }
 };

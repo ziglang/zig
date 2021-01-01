@@ -265,7 +265,7 @@ pub const Node = struct {
         const updated = offset_in_trie != trie_offset;
         self.trie_offset = offset_in_trie;
         self.node_dirty = false;
-        node_size += stream.bytes_written;
+        node_size += @intCast(usize, stream.bytes_written);
 
         return FinalizeResult{ .node_size = node_size, .updated = updated };
     }
@@ -380,7 +380,7 @@ pub fn write(self: Trie, writer: anytype) !usize {
     for (self.ordered_nodes.items) |node| {
         try node.write(counting_writer.writer());
     }
-    return counting_writer.bytes_written;
+    return @intCast(usize, counting_writer.bytes_written);
 }
 
 pub fn deinit(self: *Trie) void {
