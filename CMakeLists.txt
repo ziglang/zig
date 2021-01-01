@@ -801,31 +801,32 @@ endif()
 
 install(TARGETS zig DESTINATION bin)
 
-set(ZIG_INSTALL_ARGS "build"
-    --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-    "-Dlib-files-only"
-    --prefix "${CMAKE_INSTALL_PREFIX}"
-    "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
-    install
-)
+set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL
+    "Disable copying lib/ files to install prefix during the build phase")
 
-# CODE has no effect with Visual Studio build system generator, therefore
-# when using Visual Studio build system generator we resort to running
-# `zig build install` during the build phase.
-if(MSVC)
-    set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL
-        "Windows-only: Disable copying lib/ files to install prefix during the build phase")
-    if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
+if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
+    set(ZIG_INSTALL_ARGS "build"
+        --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+        "-Dlib-files-only"
+        --prefix "${CMAKE_INSTALL_PREFIX}"
+        "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
+        install
+    )
+
+    # CODE has no effect with Visual Studio build system generator, therefore
+    # when using Visual Studio build system generator we resort to running
+    # `zig build install` during the build phase.
+    if(MSVC)
         add_custom_target(zig_install_lib_files ALL
             COMMAND zig ${ZIG_INSTALL_ARGS}
             DEPENDS zig
             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         )
+    else()
+        get_target_property(zig_BINARY_DIR zig BINARY_DIR)
+        install(CODE "set(zig_EXE \"${ZIG_EXECUTABLE}\")")
+        install(CODE "set(ZIG_INSTALL_ARGS \"${ZIG_INSTALL_ARGS}\")")
+        install(CODE "set(CMAKE_SOURCE_DIR \"${CMAKE_SOURCE_DIR}\")")
+        install(SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/install.cmake)
     endif()
-else()
-    get_target_property(zig_BINARY_DIR zig BINARY_DIR)
-    install(CODE "set(zig_EXE \"${ZIG_EXECUTABLE}\")")
-    install(CODE "set(ZIG_INSTALL_ARGS \"${ZIG_INSTALL_ARGS}\")")
-    install(CODE "set(CMAKE_SOURCE_DIR \"${CMAKE_SOURCE_DIR}\")")
-    install(SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/install.cmake)
 endif()
