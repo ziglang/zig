@@ -205,7 +205,8 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
 
         ///Initialize all entries of a packed array to the same value
         pub fn initAllTo(int: Int) Self {
-            var self = @as(Self, undefined);
+            // TODO: use `var self = @as(Self, undefined);` https://github.com/ziglang/zig/issues/7635
+            var self = Self{ .bytes = [_]u8{0} ** total_bytes };
             self.setAll(int);
             return self;
         }
