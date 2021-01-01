@@ -10,7 +10,7 @@ const testing = std.testing;
 /// A Writer that counts how many bytes has been written to it.
 pub fn CountingWriter(comptime WriterType: type) type {
     return struct {
-        bytes_written: u64,
+        bytes_written: usize,
         child_stream: WriterType,
 
         pub const Error = WriterType.Error;
