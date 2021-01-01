@@ -16,6 +16,8 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_
 
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
+pub extern "c" fn getthrid() pid_t;
+
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 

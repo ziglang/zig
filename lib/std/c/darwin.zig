@@ -186,6 +186,9 @@ pub const pthread_attr_t = extern struct {
     __opaque: [56]u8,
 };
 
+const pthread_t = std.c.pthread_t;
+pub extern "c" fn pthread_threadid_np(thread: ?pthread_t, thread_id: *u64) c_int;
+
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 // Grand Central Dispatch is exposed by libSystem.
