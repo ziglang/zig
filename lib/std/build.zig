@@ -653,7 +653,8 @@ pub const Builder = struct {
                 for (diags.arch.?.allCpuModels()) |cpu| {
                     warn(" {}\n", .{cpu.name});
                 }
-                process.exit(1);
+                self.markInvalidUserInput();
+                return args.default_target;
             },
             error.UnknownCpuFeature => {
                 warn(
@@ -667,7 +668,8 @@ pub const Builder = struct {
                 for (diags.arch.?.allFeaturesList()) |feature| {
                     warn(" {}: {}\n", .{ feature.name, feature.description });
                 }
-                process.exit(1);
+                self.markInvalidUserInput();
+                return args.default_target;
             },
             error.UnknownOperatingSystem => {
                 warn(
@@ -678,11 +680,13 @@ pub const Builder = struct {
                 inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
                     warn(" {}\n", .{field.name});
                 }
-                process.exit(1);
+                self.markInvalidUserInput();
+                return args.default_target;
             },
             else => |e| {
                 warn("Unable to parse target '{}': {}\n", .{ triple, @errorName(e) });
-                process.exit(1);
+                self.markInvalidUserInput();
+                return args.default_target;
             },
         };
 
@@ -703,9 +707,8 @@ pub const Builder = struct {
                 const t_triple = t.zigTriple(self.allocator) catch unreachable;
                 warn(" {}\n", .{t_triple});
             }
-            // TODO instead of process exit, return error and have a zig build flag implemented by
-            // the build runner that turns process exits into error return traces
-            process.exit(1);
+            self.markInvalidUserInput();
+            return args.default_target;
         }
 
         return selected_target;
