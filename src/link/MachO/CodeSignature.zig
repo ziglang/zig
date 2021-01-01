@@ -84,7 +84,7 @@ pub fn calcAdhocSignature(
             .identOffset = 0,
             .nSpecialSlots = 0,
             .nCodeSlots = 0,
-            .codeLimit = @intCast(u32, file_size),
+            .codeLimit = file_size,
             .hashSize = hash_size,
             .hashType = macho.CS_HASHTYPE_SHA256,
             .platform = 0,

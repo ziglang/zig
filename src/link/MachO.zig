@@ -907,7 +907,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     const size = try self.binding_info_table.calcSize();
                     assert(dyld_info.bind_size >= size);
 
-                    var buffer = try self.base.allocator.alloc(u8, size);
+                    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
                     defer self.base.allocator.free(buffer);
 
                     var stream = std.io.fixedBufferStream(buffer);
@@ -919,7 +919,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     const size = try self.lazy_binding_info_table.calcSize();
                     assert(dyld_info.lazy_bind_size >= size);
 
-                    var buffer = try self.base.allocator.alloc(u8, size);
+                    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
                     defer self.base.allocator.free(buffer);
 
                     var stream = std.io.fixedBufferStream(buffer);
@@ -1875,13 +1875,13 @@ pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
 
 fn makeString(self: *MachO, bytes: []const u8) !u32 {
     try self.string_table.ensureCapacity(self.base.allocator, self.string_table.items.len + bytes.len + 1);
-    const result = self.string_table.items.len;
+    const result = @intCast(u32, self.string_table.items.len);
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
     self.string_table_dirty = true;
     if (self.d_sym) |*ds|
         ds.string_table_dirty = true;
-    return @intCast(u32, result);
+    return result;
 }
 
 fn getString(self: *MachO, str_off: u32) []const u8 {
@@ -2245,7 +2245,7 @@ fn writeExportTrie(self: *MachO) !void {
     }
 
     try trie.finalize();
-    var buffer = try self.base.allocator.alloc(u8, trie.size);
+    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, trie.size));
     defer self.base.allocator.free(buffer);
     var stream = std.io.fixedBufferStream(buffer);
     const nwritten = try trie.write(stream.writer());
@@ -2275,7 +2275,7 @@ fn writeBindingInfoTable(self: *MachO) !void {
     defer tracy.end();
 
     const size = try self.binding_info_table.calcSize();
-    var buffer = try self.base.allocator.alloc(u8, size);
+    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
@@ -2303,7 +2303,7 @@ fn writeLazyBindingInfoTable(self: *MachO) !void {
     if (!self.lazy_binding_info_dirty) return;
 
     const size = try self.lazy_binding_info_table.calcSize();
-    var buffer = try self.base.allocator.alloc(u8, size);
+    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
@@ -2400,7 +2400,7 @@ fn updateLinkeditSegmentSizes(self: *MachO) !void {
 fn writeLoadCommands(self: *MachO) !void {
     if (!self.load_commands_dirty) return;
 
-    var sizeofcmds: usize = 0;
+    var sizeofcmds: u32 = 0;
     for (self.load_commands.items) |lc| {
         sizeofcmds += lc.cmdsize();
     }
