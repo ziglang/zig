@@ -3421,3 +3421,9 @@ pub fn getTarget(self: Module) Target {
 pub fn optimizeMode(self: Module) std.builtin.Mode {
     return self.comp.bin_file.options.optimize_mode;
 }
+
+pub fn validateVarType(mod: *Module, scope: *Scope, src: usize, ty: Type) !void {
+    if (!ty.isValidVarType(false)) {
+        return mod.fail(scope, src, "variable of type '{}' must be const or comptime", .{ty});
+    }
+}

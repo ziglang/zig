@@ -1322,4 +1322,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{":2:5: error: unused for label"});
     }
+
+    {
+        var case = ctx.exe("bad inferred variable type", linux_x64);
+        case.addError(
+            \\export fn foo() void {
+            \\    var x = null;
+            \\}
+        , &[_][]const u8{":2:9: error: variable of type '@Type(.Null)' must be const or comptime"});
+    }
 }
