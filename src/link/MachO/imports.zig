@@ -138,10 +138,10 @@ pub const BindingInfoTable = struct {
     }
 
     /// Calculate size in bytes of this binding info table.
-    pub fn calcSize(self: *BindingInfoTable) !usize {
+    pub fn calcSize(self: *BindingInfoTable) !u64 {
         var stream = std.io.countingWriter(std.io.null_writer);
         var writer = stream.writer();
-        var size: usize = 1;
+        var size: u64 = 1;
 
         if (self.dylib_ordinal > 15) {
             try leb.writeULEB128(writer, @bitCast(u64, self.dylib_ordinal));
@@ -296,10 +296,10 @@ pub const LazyBindingInfoTable = struct {
     }
 
     /// Calculate size in bytes of this binding info table.
-    pub fn calcSize(self: *LazyBindingInfoTable) !usize {
+    pub fn calcSize(self: *LazyBindingInfoTable) !u64 {
         var stream = std.io.countingWriter(std.io.null_writer);
         var writer = stream.writer();
-        var size: usize = 0;
+        var size: u64 = 0;
 
         for (self.symbols.items) |symbol| {
             size += 1;

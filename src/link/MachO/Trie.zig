@@ -52,7 +52,7 @@ pub const Node = struct {
     } = null,
 
     /// Offset of this node in the trie output byte stream.
-    trie_offset: ?usize = null,
+    trie_offset: ?u64 = null,
 
     /// List of all edges originating from this node.
     edges: std.ArrayListUnmanaged(Edge) = .{},
@@ -199,7 +199,6 @@ pub const Node = struct {
         assert(!self.node_dirty);
         if (self.terminal_info) |info| {
             // Terminal node info: encode export flags and vmaddr offset of this symbol.
-            var info_buf_len: usize = 0;
             var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
             var info_stream = std.io.fixedBufferStream(&info_buf);
             // TODO Implement for special flags.
@@ -233,7 +232,7 @@ pub const Node = struct {
 
     const FinalizeResult = struct {
         /// Current size of this node in bytes.
-        node_size: usize,
+        node_size: u64,
 
         /// True if the trie offset of this node in the output byte stream
         /// would need updating; false otherwise.
@@ -241,11 +240,11 @@ pub const Node = struct {
     };
 
     /// Updates offset of this node in the output byte stream.
-    fn finalize(self: *Node, offset_in_trie: usize) !FinalizeResult {
+    fn finalize(self: *Node, offset_in_trie: u64) !FinalizeResult {
         var stream = std.io.countingWriter(std.io.null_writer);
         var writer = stream.writer();
 
-        var node_size: usize = 0;
+        var node_size: u64 = 0;
         if (self.terminal_info) |info| {
             try leb.writeULEB128(writer, info.export_flags);
             try leb.writeULEB128(writer, info.vmaddr_offset);
@@ -288,7 +287,7 @@ ordered_nodes: std.ArrayListUnmanaged(*Node) = .{},
 /// insertions performed after `finalize` was called.
 /// Call `finalize` before accessing this value to ensure
 /// it is up-to-date.
-size: usize = 0,
+size: u64 = 0,
 
 /// Number of nodes currently in the trie.
 node_count: usize = 0,
@@ -374,7 +373,7 @@ pub fn read(self: *Trie, reader: anytype) ReadError!usize {
 
 /// Write the trie to a byte stream.
 /// Panics if the trie was not finalized using `finalize` before calling this method.
-pub fn write(self: Trie, writer: anytype) !usize {
+pub fn write(self: Trie, writer: anytype) !u64 {
     assert(!self.trie_dirty);
     var counting_writer = std.io.countingWriter(writer);
     for (self.ordered_nodes.items) |node| {

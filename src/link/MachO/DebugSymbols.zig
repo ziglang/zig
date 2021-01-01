@@ -747,7 +747,7 @@ fn updateDwarfSegment(self: *DebugSymbols) void {
 fn writeLoadCommands(self: *DebugSymbols, allocator: *Allocator) !void {
     if (!self.load_commands_dirty) return;
 
-    var sizeofcmds: usize = 0;
+    var sizeofcmds: u32 = 0;
     for (self.load_commands.items) |lc| {
         sizeofcmds += lc.cmdsize();
     }
