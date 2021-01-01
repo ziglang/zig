@@ -1,8 +1,9 @@
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
+    _ = b.standardReleaseOptions();
+
     const main = b.addExecutable("main", "main.zig");
-    main.setBuildMode(b.standardReleaseOptions());
 
     const run = main.run();
     run.clearEnvironment();

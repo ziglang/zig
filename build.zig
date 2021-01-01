@@ -15,7 +15,7 @@ const zig_version = std.builtin.Version{ .major = 0, .minor = 7, .patch = 1 };
 
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
-    const mode = b.standardReleaseOptions();
+    _ = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
@@ -39,7 +39,6 @@ pub fn build(b: *Builder) !void {
     const test_step = b.step("test", "Run all the tests");
 
     var test_stage2 = b.addTest("src/test.zig");
-    test_stage2.setBuildMode(mode);
     test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
@@ -82,7 +81,6 @@ pub fn build(b: *Builder) !void {
 
     var exe = b.addExecutable("zig", main_file);
     exe.install();
-    exe.setBuildMode(mode);
     exe.setTarget(target);
     test_step.dependOn(&exe.step);
     b.default_step.dependOn(&exe.step);
