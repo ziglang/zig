@@ -35,7 +35,73 @@ pub const Condition = enum(u4) {
     le,
     /// always
     al,
+
+    /// Converts a std.math.CompareOperator into a condition flag,
+    /// i.e. returns the condition that is true iff the result of the
+    /// comparison is true. Assumes signed comparison
+    pub fn fromCompareOperatorSigned(op: std.math.CompareOperator) Condition {
+        return switch (op) {
+            .gte => .ge,
+            .gt => .gt,
+            .neq => .ne,
+            .lt => .lt,
+            .lte => .le,
+            .eq => .eq,
+        };
+    }
+
+    /// Converts a std.math.CompareOperator into a condition flag,
+    /// i.e. returns the condition that is true iff the result of the
+    /// comparison is true. Assumes unsigned comparison
+    pub fn fromCompareOperatorUnsigned(op: std.math.CompareOperator) Condition {
+        return switch (op) {
+            .gte => .cs,
+            .gt => .hi,
+            .neq => .ne,
+            .lt => .cc,
+            .lte => .ls,
+            .eq => .eq,
+        };
+    }
+
+    /// Returns the condition which is true iff the given condition is
+    /// false (if such a condition exists)
+    pub fn negate(cond: Condition) Condition {
+        return switch (cond) {
+            .eq => .ne,
+            .ne => .eq,
+            .cs => .cc,
+            .cc => .cs,
+            .mi => .pl,
+            .pl => .mi,
+            .vs => .vc,
+            .vc => .vs,
+            .hi => .ls,
+            .ls => .hi,
+            .ge => .lt,
+            .lt => .ge,
+            .gt => .le,
+            .le => .gt,
+            .al => unreachable,
+        };
+    }
 };
+
+test "condition from CompareOperator" {
+    testing.expectEqual(@as(Condition, .eq), Condition.fromCompareOperatorSigned(.eq));
+    testing.expectEqual(@as(Condition, .eq), Condition.fromCompareOperatorUnsigned(.eq));
+
+    testing.expectEqual(@as(Condition, .gt), Condition.fromCompareOperatorSigned(.gt));
+    testing.expectEqual(@as(Condition, .hi), Condition.fromCompareOperatorUnsigned(.gt));
+
+    testing.expectEqual(@as(Condition, .le), Condition.fromCompareOperatorSigned(.lte));
+    testing.expectEqual(@as(Condition, .ls), Condition.fromCompareOperatorUnsigned(.lte));
+}
+
+test "negate condition" {
+    testing.expectEqual(@as(Condition, .eq), Condition.ne.negate());
+    testing.expectEqual(@as(Condition, .ne), Condition.eq.negate());
+}
 
 /// Represents a register in the ARM instruction set architecture
 pub const Register = enum(u5) {
