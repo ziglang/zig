@@ -646,17 +646,17 @@ pub const Builder = struct {
             .diagnostics = &diags,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {
-                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
                     diags.cpu_name.?,
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allCpuModels()) |cpu| {
-                    std.debug.warn(" {}\n", .{cpu.name});
+                    warn(" {}\n", .{cpu.name});
                 }
                 process.exit(1);
             },
             error.UnknownCpuFeature => {
-                std.debug.warn(
+                warn(
                     \\Unknown CPU feature: '{}'
                     \\Available CPU features for architecture '{}':
                     \\
@@ -665,23 +665,23 @@ pub const Builder = struct {
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allFeaturesList()) |feature| {
-                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+                    warn(" {}: {}\n", .{ feature.name, feature.description });
                 }
                 process.exit(1);
             },
             error.UnknownOperatingSystem => {
-                std.debug.warn(
+                warn(
                     \\Unknown OS: '{}'
                     \\Available operating systems:
                     \\
                 , .{diags.os_name});
                 inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
-                    std.debug.warn(" {}\n", .{field.name});
+                    warn(" {}\n", .{field.name});
                 }
                 process.exit(1);
             },
             else => |e| {
-                std.debug.warn("Unable to parse target '{}': {}\n", .{ triple, @errorName(e) });
+                warn("Unable to parse target '{}': {}\n", .{ triple, @errorName(e) });
                 process.exit(1);
             },
         };
@@ -696,12 +696,12 @@ pub const Builder = struct {
                     break :whitelist_check;
                 }
             }
-            std.debug.warn("Chosen target '{}' does not match one of the supported targets:\n", .{
+            warn("Chosen target '{}' does not match one of the supported targets:\n", .{
                 selected_canonicalized_triple,
             });
             for (list) |t| {
                 const t_triple = t.zigTriple(self.allocator) catch unreachable;
-                std.debug.warn(" {}\n", .{t_triple});
+                warn(" {}\n", .{t_triple});
             }
             // TODO instead of process exit, return error and have a zig build flag implemented by
             // the build runner that turns process exits into error return traces
