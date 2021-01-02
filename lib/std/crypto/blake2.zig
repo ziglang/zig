@@ -137,12 +137,8 @@ pub fn Blake2s(comptime out_bits: usize) type {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
-
-            const rr = d.h[0 .. digest_length / 4];
-
-            for (rr) |s, j| {
-                mem.writeIntSliceLittle(u32, out[4 * j ..], s);
-            }
+            for (d.h) |*x| x.* = mem.nativeToLittle(u32, x.*);
+            mem.copy(u8, out[0..], @ptrCast(*[digest_length]u8, &d.h));
         }
 
         fn round(d: *Self, b: *const [64]u8, last: bool) void {
@@ -480,12 +476,8 @@ pub fn Blake2b(comptime out_bits: usize) type {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
-
-            const rr = d.h[0 .. digest_length / 8];
-
-            for (rr) |s, j| {
-                mem.writeIntSliceLittle(u64, out[8 * j ..], s);
-            }
+            for (d.h) |*x| x.* = mem.nativeToLittle(u64, x.*);
+            mem.copy(u8, out[0..], @ptrCast(*[digest_length]u8, &d.h));
         }
 
         fn round(d: *Self, b: *const [128]u8, last: bool) void {
