@@ -316,7 +316,7 @@ const test_targets = blk: {
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
-pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes: std.EnumSet(Mode)) *build.Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
@@ -331,7 +331,7 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes:
     return cases.step;
 }
 
-pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: std.EnumSet(Mode)) *build.Step {
     const cases = b.allocator.create(StackTracesContext) catch unreachable;
     cases.* = StackTracesContext{
         .b = b,
@@ -346,7 +346,7 @@ pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
     return cases.step;
 }
 
-pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes: std.EnumSet(Mode)) *build.Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
@@ -361,7 +361,7 @@ pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes:
     return cases.step;
 }
 
-pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: std.EnumSet(Mode)) *build.Step {
     const cases = b.allocator.create(CompileErrorContext) catch unreachable;
     cases.* = CompileErrorContext{
         .b = b,
@@ -376,7 +376,7 @@ pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: 
     return cases.step;
 }
 
-pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: std.EnumSet(Mode)) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
         .b = b,
@@ -391,7 +391,7 @@ pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
     return cases.step;
 }
 
-pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: std.EnumSet(Mode)) *build.Step {
     const step = b.step("test-cli", "Test the command line interface");
 
     const exe = b.addExecutable("test-cli", "test/cli.zig");
@@ -405,7 +405,7 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const M
     return step;
 }
 
-pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, modes: std.EnumSet(Mode)) *build.Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
@@ -473,7 +473,7 @@ pub fn addPkgTests(
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
-    modes: []const Mode,
+    modes: std.EnumSet(Mode),
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_libc: bool,
@@ -507,10 +507,7 @@ pub fn addPkgTests(
             continue;
         }
 
-        const want_this_mode = for (modes) |m| {
-            if (m == test_target.mode) break true;
-        } else false;
-        if (!want_this_mode) continue;
+        if (!modes.exists(test_target.mode)) continue;
 
         const libc_prefix = if (test_target.target.getOs().requiresLibC())
             ""
@@ -554,7 +551,7 @@ pub const StackTracesContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    modes: std.EnumSet(Mode),
 
     const Expect = [@typeInfo(Mode).Enum.fields.len][]const u8;
 
@@ -566,7 +563,8 @@ pub const StackTracesContext = struct {
     ) void {
         const b = self.b;
 
-        for (self.modes) |mode| {
+        var it = self.modes.iterator();
+        while (it.next()) |mode| {
             const expect_for_mode = expect[@enumToInt(mode)];
             if (expect_for_mode.len == 0) continue;
 
@@ -749,7 +747,7 @@ pub const CompileErrorContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    modes: std.EnumSet(Mode), // TODO: unused?
 
     const TestCase = struct {
         name: []const u8,
@@ -1045,7 +1043,7 @@ pub const StandaloneContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    modes: std.EnumSet(Mode),
 
     pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -1088,7 +1086,8 @@ pub const StandaloneContext = struct {
     pub fn addAllArgs(self: *StandaloneContext, root_src: []const u8, link_libc: bool) void {
         const b = self.b;
 
-        for (self.modes) |mode| {
+        var it = self.modes.iterator();
+        while (it.next()) |mode| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "build {s} ({s})", .{
                 root_src,
                 @tagName(mode),

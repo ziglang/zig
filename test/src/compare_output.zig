@@ -15,7 +15,7 @@ pub const CompareOutputContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    modes: std.EnumSet(Mode),
 
     const Special = enum {
         None,
@@ -115,7 +115,8 @@ pub const CompareOutputContext = struct {
                 self.step.dependOn(&run.step);
             },
             Special.None => {
-                for (self.modes) |mode| {
+                var it = self.modes.iterator();
+                while (it.next()) |mode| {
                     const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
                         "compare-output",
                         case.name,

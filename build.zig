@@ -313,23 +313,11 @@ pub fn build(b: *Builder) !void {
     test_stage2_step.dependOn(&test_stage2.step);
     test_step.dependOn(test_stage2_step);
 
-    var chosen_modes: [4]builtin.Mode = undefined;
-    var chosen_mode_index: usize = 0;
-    chosen_modes[chosen_mode_index] = builtin.Mode.Debug;
-    chosen_mode_index += 1;
-    if (!skip_release_safe) {
-        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSafe;
-        chosen_mode_index += 1;
-    }
-    if (!skip_release_fast) {
-        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseFast;
-        chosen_mode_index += 1;
-    }
-    if (!skip_release_small) {
-        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSmall;
-        chosen_mode_index += 1;
-    }
-    const modes = chosen_modes[0..chosen_mode_index];
+    var modes = std.EnumSet(builtin.Mode).Empty;
+    modes.put(.Debug);
+    if (!skip_release_safe) modes.put(.ReleaseSafe);
+    if (!skip_release_fast) modes.put(.ReleaseFast);
+    if (!skip_release_small) modes.put(.ReleaseSmall);
 
     // run stage1 `zig fmt` on this build.zig file just to make sure it works
     test_step.dependOn(&fmt_build_zig.step);
