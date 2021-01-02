@@ -167,7 +167,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             }
         }
 
-        /// Extend the list by 1 element.
+        /// Extend the list by 1 element. Allocates more memory as necessary.
         pub fn append(self: *Self, item: T) !void {
             const new_item_ptr = try self.addOne();
             new_item_ptr.* = item;
