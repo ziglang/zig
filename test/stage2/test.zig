@@ -1379,4 +1379,55 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{":2:9: error: variable of type '@Type(.Null)' must be const or comptime"});
     }
+
+    {
+        var case = ctx.exe("compile error in inline fn call fixed", linux_x64);
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    var x: usize = 3;
+            \\    const y = add(10, 2, x);
+            \\    exit(y - 6);
+            \\}
+            \\
+            \\inline fn add(a: usize, b: usize, c: usize) usize {
+            \\    if (a == 10) @compileError("bad");
+            \\    return a + b + c;
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":8:18: error: bad"});
+
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var x: usize = 3;
+            \\    const y = add(1, 2, x);
+            \\    exit(y - 6);
+            \\}
+            \\
+            \\inline fn add(a: usize, b: usize, c: usize) usize {
+            \\    if (a == 10) @compileError("bad");
+            \\    return a + b + c;
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }

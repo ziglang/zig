@@ -576,13 +576,10 @@ fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) In
 
 fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
-    switch (b.label) {
-        .none, .breaking => {},
-        .inlining => |*inlining| {
-            const param_index = inlining.param_index;
-            inlining.param_index += 1;
-            return inlining.casted_args[param_index];
-        },
+    if (b.inlining) |*inlining| {
+        const param_index = inlining.param_index;
+        inlining.param_index += 1;
+        return inlining.casted_args[param_index];
     }
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
     const param_index = b.instructions.items.len;
@@ -620,6 +617,7 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer child_block.instructions.deinit(mod.gpa);
@@ -642,7 +640,8 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
-        .label = .none,
+        .label = null,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime or is_comptime,
     };
     defer child_block.instructions.deinit(mod.gpa);
@@ -680,18 +679,18 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_compt
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
-        .label = Scope.Block.Label{
-            .breaking = .{
-                .zir_block = inst,
-                .merges = .{
-                    .results = .{},
-                    .block_inst = block_inst,
-                },
+        // TODO @as here is working around a stage1 miscompilation bug :(
+        .label = @as(?Scope.Block.Label, Scope.Block.Label{
+            .zir_block = inst,
+            .merges = .{
+                .results = .{},
+                .block_inst = block_inst,
             },
-        },
+        }),
+        .inlining = parent_block.inlining,
         .is_comptime = is_comptime or parent_block.is_comptime,
     };
-    const merges = &child_block.label.breaking.merges;
+    const merges = &child_block.label.?.merges;
 
     defer child_block.instructions.deinit(mod.gpa);
     defer merges.results.deinit(mod.gpa);
@@ -705,7 +704,7 @@ fn analyzeBlockBody(
     mod: *Module,
     scope: *Scope,
     child_block: *Scope.Block,
-    merges: *Scope.Block.Label.Merges,
+    merges: *Scope.Block.Merges,
 ) InnerError!*Inst {
     const parent_block = scope.cast(Scope.Block).?;
 
@@ -895,19 +894,20 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
             .decl = scope.decl().?,
             .instructions = .{},
             .arena = scope.arena(),
-            .label = Scope.Block.Label{
-                .inlining = .{
-                    .param_index = 0,
-                    .casted_args = casted_args,
-                    .merges = .{
-                        .results = .{},
-                        .block_inst = block_inst,
-                    },
+            .label = null,
+            // TODO @as here is working around a stage1 miscompilation bug :(
+            .inlining = @as(?Scope.Block.Inlining, Scope.Block.Inlining{
+                .caller = b.func,
+                .param_index = 0,
+                .casted_args = casted_args,
+                .merges = .{
+                    .results = .{},
+                    .block_inst = block_inst,
                 },
-            },
+            }),
             .is_comptime = is_comptime_call,
         };
-        const merges = &child_block.label.inlining.merges;
+        const merges = &child_block.inlining.?.merges;
 
         defer child_block.instructions.deinit(mod.gpa);
         defer merges.results.deinit(mod.gpa);
@@ -1416,6 +1416,7 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer case_block.instructions.deinit(mod.gpa);
@@ -1955,6 +1956,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer true_block.instructions.deinit(mod.gpa);
@@ -1966,6 +1968,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer false_block.instructions.deinit(mod.gpa);
@@ -1995,40 +1998,34 @@ fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
 
-    switch (b.label) {
-        .inlining => |*inlining| {
-            // We are inlining a function call; rewrite the `ret` as a `break`.
-            try inlining.merges.results.append(mod.gpa, operand);
-            return mod.addBr(b, inst.base.src, inlining.merges.block_inst, operand);
-        },
-        .none, .breaking => {
-            return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
-        },
+    if (b.inlining) |*inlining| {
+        // We are inlining a function call; rewrite the `ret` as a `break`.
+        try inlining.merges.results.append(mod.gpa, operand);
+        return mod.addBr(b, inst.base.src, inlining.merges.block_inst, operand);
     }
+
+    return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
 }
 
 fn analyzeInstRetVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
-    switch (b.label) {
-        .inlining => |*inlining| {
-            // We are inlining a function call; rewrite the `retvoid` as a `breakvoid`.
-            const void_inst = try mod.constVoid(scope, inst.base.src);
-            try inlining.merges.results.append(mod.gpa, void_inst);
-            return mod.addBr(b, inst.base.src, inlining.merges.block_inst, void_inst);
-        },
-        .none, .breaking => {
-            if (b.func) |func| {
-                // Need to emit a compile error if returning void is not allowed.
-                const void_inst = try mod.constVoid(scope, inst.base.src);
-                const fn_ty = func.owner_decl.typed_value.most_recent.typed_value.ty;
-                const casted_void = try mod.coerce(scope, fn_ty.fnReturnType(), void_inst);
-                if (casted_void.ty.zigTypeTag() != .Void) {
-                    return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, casted_void);
-                }
-            }
-            return mod.addNoOp(b, inst.base.src, Type.initTag(.noreturn), .retvoid);
-        },
+    if (b.inlining) |*inlining| {
+        // We are inlining a function call; rewrite the `retvoid` as a `breakvoid`.
+        const void_inst = try mod.constVoid(scope, inst.base.src);
+        try inlining.merges.results.append(mod.gpa, void_inst);
+        return mod.addBr(b, inst.base.src, inlining.merges.block_inst, void_inst);
     }
+
+    if (b.func) |func| {
+        // Need to emit a compile error if returning void is not allowed.
+        const void_inst = try mod.constVoid(scope, inst.base.src);
+        const fn_ty = func.owner_decl.typed_value.most_recent.typed_value.ty;
+        const casted_void = try mod.coerce(scope, fn_ty.fnReturnType(), void_inst);
+        if (casted_void.ty.zigTypeTag() != .Void) {
+            return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, casted_void);
+        }
+    }
+    return mod.addNoOp(b, inst.base.src, Type.initTag(.noreturn), .retvoid);
 }
 
 fn floatOpAllowed(tag: zir.Inst.Tag) bool {
@@ -2048,16 +2045,12 @@ fn analyzeBreak(
 ) InnerError!*Inst {
     var opt_block = scope.cast(Scope.Block);
     while (opt_block) |block| {
-        switch (block.label) {
-            .none => {},
-            .breaking => |*label| {
-                if (label.zir_block == zir_block) {
-                    try label.merges.results.append(mod.gpa, operand);
-                    const b = try mod.requireFunctionBlock(scope, src);
-                    return mod.addBr(b, src, label.merges.block_inst, operand);
-                }
-            },
-            .inlining => unreachable, // Invalid `break` ZIR inside inline function call.
+        if (block.label) |*label| {
+            if (label.zir_block == zir_block) {
+                try label.merges.results.append(mod.gpa, operand);
+                const b = try mod.requireFunctionBlock(scope, src);
+                return mod.addBr(b, src, label.merges.block_inst, operand);
+            }
         }
         opt_block = block.parent;
     } else unreachable;

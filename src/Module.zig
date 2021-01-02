@@ -759,33 +759,33 @@ pub const Scope = struct {
         instructions: ArrayListUnmanaged(*Inst),
         /// Points to the arena allocator of DeclAnalysis
         arena: *Allocator,
-        label: Label = Label.none,
+        label: ?Label = null,
+        inlining: ?Inlining,
         is_comptime: bool,
 
-        pub const Label = union(enum) {
-            none,
-            /// This `Block` maps a block ZIR instruction to the corresponding
-            /// TZIR instruction for break instruction analysis.
-            breaking: struct {
-                zir_block: *zir.Inst.Block,
-                merges: Merges,
-            },
-            /// This `Block` indicates that an inline function call is happening
-            /// and return instructions should be analyzed as a break instruction
-            /// to this TZIR block instruction.
-            inlining: struct {
-                /// We use this to count from 0 so that arg instructions know
-                /// which parameter index they are, without having to store
-                /// a parameter index with each arg instruction.
-                param_index: usize,
-                casted_args: []*Inst,
-                merges: Merges,
-            },
+        /// This `Block` maps a block ZIR instruction to the corresponding
+        /// TZIR instruction for break instruction analysis.
+        pub const Label = struct {
+            zir_block: *zir.Inst.Block,
+            merges: Merges,
+        };
 
-            pub const Merges = struct {
-                results: ArrayListUnmanaged(*Inst),
-                block_inst: *Inst.Block,
-            };
+        /// This `Block` indicates that an inline function call is happening
+        /// and return instructions should be analyzed as a break instruction
+        /// to this TZIR block instruction.
+        pub const Inlining = struct {
+            caller: ?*Fn,
+            /// We use this to count from 0 so that arg instructions know
+            /// which parameter index they are, without having to store
+            /// a parameter index with each arg instruction.
+            param_index: usize,
+            casted_args: []*Inst,
+            merges: Merges,
+        };
+
+        pub const Merges = struct {
+            results: ArrayListUnmanaged(*Inst),
+            block_inst: *Inst.Block,
         };
 
         /// For debugging purposes.
@@ -1093,6 +1093,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &decl_arena.allocator,
+                .inlining = null,
                 .is_comptime = false,
             };
             defer block_scope.instructions.deinit(self.gpa);
@@ -1281,6 +1282,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &decl_arena.allocator,
+                .inlining = null,
                 .is_comptime = true,
             };
             defer block_scope.instructions.deinit(self.gpa);
@@ -1346,6 +1348,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .decl = decl,
                     .instructions = .{},
                     .arena = &gen_scope_arena.allocator,
+                    .inlining = null,
                     .is_comptime = true,
                 };
                 defer inner_block.instructions.deinit(self.gpa);
@@ -1466,6 +1469,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &analysis_arena.allocator,
+                .inlining = null,
                 .is_comptime = true,
             };
             defer block_scope.instructions.deinit(self.gpa);
@@ -1843,6 +1847,7 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
         .decl = decl,
         .instructions = .{},
         .arena = &arena.allocator,
+        .inlining = null,
         .is_comptime = false,
     };
     defer inner_block.instructions.deinit(self.gpa);
@@ -3050,11 +3055,20 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Com
         },
         .block => {
             const block = scope.cast(Scope.Block).?;
-            if (block.func) |func| {
-                func.state = .sema_failure;
+            if (block.inlining) |*inlining| {
+                if (inlining.caller) |func| {
+                    func.state = .sema_failure;
+                } else {
+                    block.decl.analysis = .sema_failure;
+                    block.decl.generation = self.generation;
+                }
             } else {
-                block.decl.analysis = .sema_failure;
-                block.decl.generation = self.generation;
+                if (block.func) |func| {
+                    func.state = .sema_failure;
+                } else {
+                    block.decl.analysis = .sema_failure;
+                    block.decl.generation = self.generation;
+                }
             }
             self.failed_decls.putAssumeCapacityNoClobber(block.decl, err_msg);
         },
@@ -3414,6 +3428,7 @@ pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer fail_block.instructions.deinit(mod.gpa);

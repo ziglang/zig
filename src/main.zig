@@ -1818,7 +1818,7 @@ fn buildOutputType(
     };
 
     updateModule(gpa, comp, zir_out_path, hook) catch |err| switch (err) {
-        error.SemanticAnalyzeFail => process.exit(1),
+        error.SemanticAnalyzeFail => if (!watch) process.exit(1),
         else => |e| return e,
     };
     try comp.makeBinFileExecutable();
