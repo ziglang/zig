@@ -142,6 +142,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Replace range of elements `list[start..start+len]` with `new_items`.
         /// Grows list if `len < new_items.len`.
         /// Shrinks list if `len > new_items.len`.
+        /// Invalidates pointers if this ArrayList is resized.
         pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: SliceConst) !void {
             const after_range = start + len;
             const range = self.items[start..after_range];
@@ -486,6 +487,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Replace range of elements `list[start..start+len]` with `new_items`
         /// Grows list if `len < new_items.len`.
         /// Shrinks list if `len > new_items.len`
+        /// Invalidates pointers if this ArrayList is resized.
         pub fn replaceRange(self: *Self, allocator: *Allocator, start: usize, len: usize, new_items: SliceConst) !void {
             var managed = self.toManaged(allocator);
             try managed.replaceRange(start, len, new_items);
