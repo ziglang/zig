@@ -1459,15 +1459,16 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 const module = self.bin_file.options.module.?;
                 if (decl.typed_value.most_recent.typed_value.val.castTag(.function)) |payload| {
                     const func = payload.data;
-                    switch (func.bits.state) {
+                    switch (func.state) {
                         .queued => module.analyzeFnBody(decl, func) catch |err| switch (err) {
                             error.AnalysisFail => {
-                                assert(func.bits.state != .in_progress);
+                                assert(func.state != .in_progress);
                                 continue;
                             },
                             error.OutOfMemory => return error.OutOfMemory,
                         },
                         .in_progress => unreachable,
+                        .inline_only => unreachable, // don't queue work for this
                         .sema_failure, .dependency_failure => continue,
                         .success => {},
                     }
@@ -1476,9 +1477,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     var decl_arena = decl.typed_value.most_recent.arena.?.promote(module.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
                     log.debug("analyze liveness of {s}\n", .{decl.name});
-                    try liveness.analyze(module.gpa, &decl_arena.allocator, func.data.body);
+                    try liveness.analyze(module.gpa, &decl_arena.allocator, func.body);
 
-                    if (self.verbose_ir) {
+                    if (std.builtin.mode == .Debug and self.verbose_ir) {
                         func.dump(module.*);
                     }
                 }

@@ -1864,13 +1864,15 @@ pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
     defer ctx.const_table.deinit();
     defer ctx.arena.deinit();
 
-    switch (module_fn.analysis()) {
+    switch (module_fn.state) {
         .queued => std.debug.print("(queued)", .{}),
+        .inline_only => std.debug.print("(inline_only)", .{}),
         .in_progress => std.debug.print("(in_progress)", .{}),
         .sema_failure => std.debug.print("(sema_failure)", .{}),
         .dependency_failure => std.debug.print("(dependency_failure)", .{}),
-        .success => |body| {
-            ctx.dump(body, std.io.getStdErr().writer()) catch @panic("failed to dump TZIR");
+        .success => {
+            const writer = std.io.getStdErr().writer();
+            ctx.dump(module_fn.body, writer) catch @panic("failed to dump TZIR");
         },
     }
 }
@@ -2289,11 +2291,12 @@ const EmitZIR = struct {
         var instructions = std.ArrayList(*Inst).init(self.allocator);
         defer instructions.deinit();
 
-        switch (module_fn.analysis()) {
+        switch (module_fn.state) {
             .queued => unreachable,
             .in_progress => unreachable,
-            .success => |body| {
-                try self.emitBody(body, &inst_table, &instructions);
+            .inline_only => unreachable,
+            .success => {
+                try self.emitBody(module_fn.body, &inst_table, &instructions);
             },
             .sema_failure => {
                 const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
@@ -2372,7 +2375,7 @@ const EmitZIR = struct {
                 .body = .{ .instructions = arena_instrs },
             },
             .kw_args = .{
-                .is_inline = module_fn.bits.is_inline,
+                .is_inline = module_fn.state == .inline_only,
             },
         };
         return self.emitUnnamedDecl(&fn_inst.base);

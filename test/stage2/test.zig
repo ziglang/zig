@@ -342,6 +342,7 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+        // comptime function call
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    exit();
@@ -358,6 +359,30 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        :
             \\        : [number] "{rax}" (231),
             \\          [arg1] "{rdi}" (x - 7)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        // Inline function call
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var x: usize = 3;
+            \\    const y = add(1, 2, x);
+            \\    exit(y - 6);
+            \\}
+            \\
+            \\inline fn add(a: usize, b: usize, c: usize) usize {
+            \\    return a + b + c;
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    unreachable;

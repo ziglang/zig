@@ -532,7 +532,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         self.code.items.len += 4;
 
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.data.body);
+                        try self.genBody(self.mod_fn.body);
 
                         const stack_end = self.max_end_stack;
                         if (stack_end > math.maxInt(i32))
@@ -576,7 +576,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         });
                     } else {
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.data.body);
+                        try self.genBody(self.mod_fn.body);
                         try self.dbgSetEpilogueBegin();
                     }
                 },
@@ -593,7 +593,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         try self.dbgSetPrologueEnd();
 
-                        try self.genBody(self.mod_fn.data.body);
+                        try self.genBody(self.mod_fn.body);
 
                         // Backpatch stack offset
                         const stack_end = self.max_end_stack;
@@ -638,13 +638,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
                     } else {
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.data.body);
+                        try self.genBody(self.mod_fn.body);
                         try self.dbgSetEpilogueBegin();
                     }
                 },
                 else => {
                     try self.dbgSetPrologueEnd();
-                    try self.genBody(self.mod_fn.data.body);
+                    try self.genBody(self.mod_fn.body);
                     try self.dbgSetEpilogueBegin();
                 },
             }

@@ -25,8 +25,6 @@ const trace = @import("tracy.zig").trace;
 const Scope = Module.Scope;
 const InnerError = Module.InnerError;
 const Decl = Module.Decl;
-const astgen = @import("astgen.zig");
-const ast = std.zig.ast;
 
 pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Inst {
     switch (old_inst.tag) {
@@ -861,7 +859,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
                 .function => func_val.castTag(.function).?.data,
                 else => break :blk false,
             };
-            break :blk module_fn.bits.is_inline;
+            break :blk module_fn.state == .inline_only;
         }
         break :blk false;
     };
@@ -874,76 +872,6 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
             }),
             else => unreachable,
         };
-        const callee_decl = module_fn.owner_decl;
-        // TODO: De-duplicate this with the code in Module.zig that generates
-        // ZIR for the same function and re-use the same ZIR for runtime function
-        // generation and for inline/comptime calls.
-        const callee_file_scope = callee_decl.getFileScope();
-        const tree = mod.getAstTree(callee_file_scope) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.AnalysisFail => return error.AnalysisFail,
-            // TODO: make sure this gets retried and not cached
-            else => return mod.fail(scope, inst.base.src, "failed to load {s}: {s}", .{
-                callee_file_scope.sub_file_path, @errorName(err),
-            }),
-        };
-        const ast_node = tree.root_node.decls()[callee_decl.src_index];
-        const fn_proto = ast_node.castTag(.FnProto).?;
-
-        var call_arena = std.heap.ArenaAllocator.init(mod.gpa);
-        defer call_arena.deinit();
-
-        var gen_scope: Scope.GenZIR = .{
-            .decl = callee_decl,
-            .arena = &call_arena.allocator,
-            .parent = callee_decl.scope,
-        };
-        defer gen_scope.instructions.deinit(mod.gpa);
-
-        // We need an instruction for each parameter, and they must be first in the body.
-        try gen_scope.instructions.resize(mod.gpa, fn_proto.params_len);
-        var params_scope = &gen_scope.base;
-        for (fn_proto.params()) |param, i| {
-            const name_token = param.name_token.?;
-            const src = tree.token_locs[name_token].start;
-            const param_name = try mod.identifierTokenString(scope, name_token);
-            const arg = try call_arena.allocator.create(zir.Inst.Arg);
-            arg.* = .{
-                .base = .{
-                    .tag = .arg,
-                    .src = src,
-                },
-                .positionals = .{
-                    .name = param_name,
-                },
-                .kw_args = .{},
-            };
-            gen_scope.instructions.items[i] = &arg.base;
-            const sub_scope = try call_arena.allocator.create(Scope.LocalVal);
-            sub_scope.* = .{
-                .parent = params_scope,
-                .gen_zir = &gen_scope,
-                .name = param_name,
-                .inst = &arg.base,
-            };
-            params_scope = &sub_scope.base;
-        }
-
-        const body_node = fn_proto.getBodyNode().?; // We handle extern functions above.
-        const body_block = body_node.cast(ast.Node.Block).?;
-
-        try astgen.blockExpr(mod, params_scope, body_block);
-
-        if (gen_scope.instructions.items.len == 0 or
-            !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
-        {
-            const src = tree.token_locs[body_block.rbrace].start;
-            _ = try astgen.addZIRNoOp(mod, &gen_scope.base, src, .returnvoid);
-        }
-
-        if (mod.comp.verbose_ir) {
-            zir.dumpZir(mod.gpa, "fn_body_callee", callee_decl.name, gen_scope.instructions.items) catch {};
-        }
 
         // Analyze the ZIR. The same ZIR gets analyzed into a runtime function
         // or an inlined call depending on what union tag the `label` field is
@@ -986,9 +914,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
 
         // This will have return instructions analyzed as break instructions to
         // the block_inst above.
-        try analyzeBody(mod, &child_block.base, .{
-            .instructions = gen_scope.instructions.items,
-        });
+        try analyzeBody(mod, &child_block.base, module_fn.zir);
 
         return analyzeBlockBody(mod, scope, &child_block, merges);
     }
@@ -998,26 +924,11 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
 
 fn analyzeInstFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!*Inst {
     const fn_type = try resolveType(mod, scope, fn_inst.positionals.fn_type);
-    const fn_zir = blk: {
-        var fn_arena = std.heap.ArenaAllocator.init(mod.gpa);
-        errdefer fn_arena.deinit();
-
-        const fn_zir = try scope.arena().create(Module.Fn.ZIR);
-        fn_zir.* = .{
-            .body = .{
-                .instructions = fn_inst.positionals.body.instructions,
-            },
-            .arena = fn_arena.state,
-        };
-        break :blk fn_zir;
-    };
     const new_func = try scope.arena().create(Module.Fn);
     new_func.* = .{
-        .bits = .{
-            .state = .queued,
-            .is_inline = fn_inst.kw_args.is_inline,
-        },
-        .data = .{ .zir = fn_zir },
+        .state = if (fn_inst.kw_args.is_inline) .inline_only else .queued,
+        .zir = fn_inst.positionals.body,
+        .body = undefined,
         .owner_decl = scope.decl().?,
     };
     return mod.constInst(scope, fn_inst.base.src, .{

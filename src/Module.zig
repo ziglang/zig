@@ -286,74 +286,28 @@ pub const Decl = struct {
 /// Extern functions do not have this data structure; they are represented by
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
-    bits: packed struct {
-        /// Get and set this field via `analysis` and `setAnalysis`.
-        state: Analysis.Tag,
-        /// We carry this state into `Fn` instead of leaving it in the AST so that
-        /// analysis of function calls can happen even on functions whose AST has
-        /// been unloaded from memory.
-        is_inline: bool,
-        unused_bits: u4 = 0,
-    },
-    /// Get and set this data via `analysis` and `setAnalysis`.
-    data: union {
-        none: void,
-        zir: *ZIR,
-        body: Body,
-    },
     owner_decl: *Decl,
-
-    pub const Analysis = union(Tag) {
-        queued: *ZIR,
-        in_progress,
-        sema_failure,
-        dependency_failure,
-        success: Body,
-
-        pub const Tag = enum(u3) {
-            queued,
-            in_progress,
-            /// There will be a corresponding ErrorMsg in Module.failed_decls
-            sema_failure,
-            /// This Fn might be OK but it depends on another Decl which did not
-            /// successfully complete semantic analysis.
-            dependency_failure,
-            success,
-        };
-    };
-
     /// Contains un-analyzed ZIR instructions generated from Zig source AST.
-    pub const ZIR = struct {
-        body: zir.Module.Body,
-        arena: std.heap.ArenaAllocator.State,
+    /// Even after we finish analysis, the ZIR is kept in memory, so that
+    /// comptime and inline function calls can happen.
+    zir: zir.Module.Body,
+    /// undefined unless analysis state is `success`.
+    body: Body,
+    state: Analysis,
+
+    pub const Analysis = enum {
+        queued,
+        /// This function intentionally only has ZIR generated because it is marked
+        /// inline, which means no runtime version of the function will be generated.
+        inline_only,
+        in_progress,
+        /// There will be a corresponding ErrorMsg in Module.failed_decls
+        sema_failure,
+        /// This Fn might be OK but it depends on another Decl which did not
+        /// successfully complete semantic analysis.
+        dependency_failure,
+        success,
     };
-
-    pub fn analysis(self: Fn) Analysis {
-        return switch (self.bits.state) {
-            .queued => .{ .queued = self.data.zir },
-            .success => .{ .success = self.data.body },
-            .in_progress => .in_progress,
-            .sema_failure => .sema_failure,
-            .dependency_failure => .dependency_failure,
-        };
-    }
-
-    pub fn setAnalysis(self: *Fn, anal: Analysis) void {
-        switch (anal) {
-            .queued => |zir_ptr| {
-                self.bits.state = .queued;
-                self.data = .{ .zir = zir_ptr };
-            },
-            .success => |body| {
-                self.bits.state = .success;
-                self.data = .{ .body = body };
-            },
-            .in_progress, .sema_failure, .dependency_failure => {
-                self.bits.state = anal;
-                self.data = .{ .none = {} };
-            },
-        }
-    }
 
     /// For debugging purposes.
     pub fn dump(self: *Fn, mod: Module) void {
@@ -1124,7 +1078,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .param_types = param_types,
             }, .{});
 
-            if (self.comp.verbose_ir) {
+            if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                 zir.dumpZir(self.gpa, "fn_type", decl.name, fn_type_scope.instructions.items) catch {};
             }
 
@@ -1175,14 +1129,11 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const new_func = try decl_arena.allocator.create(Fn);
             const fn_payload = try decl_arena.allocator.create(Value.Payload.Function);
 
-            const fn_zir = blk: {
-                // This scope's arena memory is discarded after the ZIR generation
-                // pass completes, and semantic analysis of it completes.
-                var gen_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
-                errdefer gen_scope_arena.deinit();
+            const fn_zir: zir.Module.Body = blk: {
+                // We put the ZIR inside the Decl arena.
                 var gen_scope: Scope.GenZIR = .{
                     .decl = decl,
-                    .arena = &gen_scope_arena.allocator,
+                    .arena = &decl_arena.allocator,
                     .parent = decl.scope,
                 };
                 defer gen_scope.instructions.deinit(self.gpa);
@@ -1194,7 +1145,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     const name_token = param.name_token.?;
                     const src = tree.token_locs[name_token].start;
                     const param_name = try self.identifierTokenString(&gen_scope.base, name_token);
-                    const arg = try gen_scope_arena.allocator.create(zir.Inst.Arg);
+                    const arg = try decl_arena.allocator.create(zir.Inst.Arg);
                     arg.* = .{
                         .base = .{
                             .tag = .arg,
@@ -1206,7 +1157,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                         .kw_args = .{},
                     };
                     gen_scope.instructions.items[i] = &arg.base;
-                    const sub_scope = try gen_scope_arena.allocator.create(Scope.LocalVal);
+                    const sub_scope = try decl_arena.allocator.create(Scope.LocalVal);
                     sub_scope.* = .{
                         .parent = params_scope,
                         .gen_zir = &gen_scope,
@@ -1227,18 +1178,13 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);
                 }
 
-                if (self.comp.verbose_ir) {
+                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "fn_body", decl.name, gen_scope.instructions.items) catch {};
                 }
 
-                const fn_zir = try gen_scope_arena.allocator.create(Fn.ZIR);
-                fn_zir.* = .{
-                    .body = .{
-                        .instructions = try gen_scope.arena.dupe(*zir.Inst, gen_scope.instructions.items),
-                    },
-                    .arena = gen_scope_arena.state,
+                break :blk .{
+                    .instructions = try gen_scope.arena.dupe(*zir.Inst, gen_scope.instructions.items),
                 };
-                break :blk fn_zir;
             };
 
             const is_inline = blk: {
@@ -1249,13 +1195,12 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 }
                 break :blk false;
             };
+            const anal_state = ([2]Fn.Analysis{ .queued, .inline_only })[@boolToInt(is_inline)];
 
             new_func.* = .{
-                .bits = .{
-                    .state = .queued,
-                    .is_inline = is_inline,
-                },
-                .data = .{ .zir = fn_zir },
+                .state = anal_state,
+                .zir = fn_zir,
+                .body = undefined,
                 .owner_decl = decl,
             };
             fn_payload.* = .{
@@ -1272,7 +1217,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 type_changed = !tvm.typed_value.ty.eql(fn_type);
                 if (tvm.typed_value.val.castTag(.function)) |payload| {
                     const prev_func = payload.data;
-                    prev_is_inline = prev_func.bits.is_inline;
+                    prev_is_inline = prev_func.state == .inline_only;
                 }
 
                 tvm.deinit(self.gpa);
@@ -1391,7 +1336,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 const src = tree.token_locs[init_node.firstToken()].start;
                 const init_inst = try astgen.expr(self, &gen_scope.base, init_result_loc, init_node);
-                if (self.comp.verbose_ir) {
+                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "var_init", decl.name, gen_scope.instructions.items) catch {};
                 }
 
@@ -1435,7 +1380,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .val = Value.initTag(.type_type),
                 });
                 const var_type = try astgen.expr(self, &type_scope.base, .{ .ty = type_type }, type_node);
-                if (self.comp.verbose_ir) {
+                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "var_type", decl.name, type_scope.instructions.items) catch {};
                 }
 
@@ -1511,7 +1456,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             defer gen_scope.instructions.deinit(self.gpa);
 
             _ = try astgen.comptimeExpr(self, &gen_scope.base, .none, comptime_decl.expr);
-            if (self.comp.verbose_ir) {
+            if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                 zir.dumpZir(self.gpa, "comptime_block", decl.name, gen_scope.instructions.items) catch {};
             }
 
@@ -1902,15 +1847,14 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     };
     defer inner_block.instructions.deinit(self.gpa);
 
-    const fn_zir = func.data.zir;
-    defer fn_zir.arena.promote(self.gpa).deinit();
-    func.setAnalysis(.in_progress);
+    func.state = .in_progress;
     log.debug("set {s} to in_progress\n", .{decl.name});
 
-    try zir_sema.analyzeBody(self, &inner_block.base, fn_zir.body);
+    try zir_sema.analyzeBody(self, &inner_block.base, func.zir);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
-    func.setAnalysis(.{ .success = .{ .instructions = instructions } });
+    func.state = .success;
+    func.body = .{ .instructions = instructions };
     log.debug("set {s} to success\n", .{decl.name});
 }
 
@@ -2407,7 +2351,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     self.ensureDeclAnalyzed(decl) catch |err| {
         if (scope.cast(Scope.Block)) |block| {
             if (block.func) |func| {
-                func.setAnalysis(.dependency_failure);
+                func.state = .dependency_failure;
             } else {
                 block.decl.analysis = .dependency_failure;
             }
@@ -3107,7 +3051,7 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Com
         .block => {
             const block = scope.cast(Scope.Block).?;
             if (block.func) |func| {
-                func.setAnalysis(.sema_failure);
+                func.state = .sema_failure;
             } else {
                 block.decl.analysis = .sema_failure;
                 block.decl.generation = self.generation;

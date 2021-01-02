@@ -63,7 +63,7 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     // TODO: check for and handle death of instructions
     const tv = decl.typed_value.most_recent.typed_value;
     const mod_fn = tv.val.castTag(.function).?.data;
-    for (mod_fn.data.body.instructions) |inst| try genInst(buf, decl, inst);
+    for (mod_fn.body.instructions) |inst| try genInst(buf, decl, inst);
 
     // Write 'end' opcode
     try writer.writeByte(0x0B);
