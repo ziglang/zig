@@ -446,7 +446,7 @@ pub const Tokenizer = struct {
                     'L' => {
                         state = .L;
                     },
-                    'a'...'t', 'v'...'z', 'A'...'K', 'M'...'T', 'V'...'Z', '_' => {
+                    'a'...'t', 'v'...'z', 'A'...'K', 'M'...'T', 'V'...'Z', '_', '$' => {
                         state = .Identifier;
                     },
                     '=' => {
@@ -776,7 +776,7 @@ pub const Tokenizer = struct {
                     },
                 },
                 .Identifier => switch (c) {
-                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
+                    'a'...'z', 'A'...'Z', '_', '0'...'9', '$' => {},
                     else => {
                         result.id = Token.getKeyword(self.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
                         if (self.prev_tok_id == .Hash)
