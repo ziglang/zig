@@ -132,7 +132,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .macabi => "macabi",
     };
 
-    return std.fmt.allocPrintZ(allocator, "{}-unknown-{}-{}", .{ llvm_arch, llvm_os, llvm_abi });
+    return std.fmt.allocPrintZ(allocator, "{s}-unknown-{s}-{s}", .{ llvm_arch, llvm_os, llvm_abi });
 }
 
 pub const LLVMIRModule = struct {
