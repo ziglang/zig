@@ -22,6 +22,7 @@ pub const getSDKPath = macos.getSDKPath;
 pub const NativePaths = struct {
     include_dirs: ArrayList([:0]u8),
     lib_dirs: ArrayList([:0]u8),
+    framework_dirs: ArrayList([:0]u8),
     rpaths: ArrayList([:0]u8),
     warnings: ArrayList([:0]u8),
 
@@ -29,6 +30,7 @@ pub const NativePaths = struct {
         var self: NativePaths = .{
             .include_dirs = ArrayList([:0]u8).init(allocator),
             .lib_dirs = ArrayList([:0]u8).init(allocator),
+            .framework_dirs = ArrayList([:0]u8).init(allocator),
             .rpaths = ArrayList([:0]u8).init(allocator),
             .warnings = ArrayList([:0]u8).init(allocator),
         };
@@ -88,6 +90,19 @@ pub const NativePaths = struct {
             return self;
         }
 
+        if (comptime Target.current.isDarwin()) {
+            try self.addIncludeDir("/usr/include");
+            try self.addIncludeDir("/usr/local/include");
+
+            try self.addLibDir("/usr/lib");
+            try self.addLibDir("/usr/local/lib");
+
+            try self.addFrameworkDir("/Library/Frameworks");
+            try self.addFrameworkDir("/System/Library/Frameworks");
+
+            return self;
+        }
+
         if (!is_windows) {
             const triple = try Target.current.linuxTriple(allocator);
             const qual = Target.current.cpu.arch.ptrBitWidth();
@@ -122,6 +137,7 @@ pub const NativePaths = struct {
     pub fn deinit(self: *NativePaths) void {
         deinitArray(&self.include_dirs);
         deinitArray(&self.lib_dirs);
+        deinitArray(&self.framework_dirs);
         deinitArray(&self.rpaths);
         deinitArray(&self.warnings);
         self.* = undefined;
@@ -156,6 +172,16 @@ pub const NativePaths = struct {
 
     pub fn addWarning(self: *NativePaths, s: []const u8) !void {
         return self.appendArray(&self.warnings, s);
+    }
+
+    pub fn addFrameworkDir(self: *NativePaths, s: []const u8) !void {
+        return self.appendArray(&self.framework_dirs, s);
+    }
+
+    pub fn addFrameworkDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
+        const item = try std.fmt.allocPrint0(self.framework_dirs.allocator, fmt, args);
+        errdefer self.framework_dirs.allocator.free(item);
+        try self.framework_dirs.append(item);
     }
 
     pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
@@ -237,8 +263,7 @@ pub const NativeTargetInfo = struct {
                     //   `---` `` ``--> Sub-version (Starting from Windows 10 onwards)
                     //     \    `--> Service pack (Always zero in the constants defined)
                     //      `--> OS version (Major & minor)
-                    const os_ver: u16 =
-                        @intCast(u16, version_info.dwMajorVersion & 0xff) << 8 |
+                    const os_ver: u16 = @intCast(u16, version_info.dwMajorVersion & 0xff) << 8 |
                         @intCast(u16, version_info.dwMinorVersion & 0xff);
                     const sp_ver: u8 = 0;
                     const sub_ver: u8 = if (os_ver >= 0x0A00) subver: {

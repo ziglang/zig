@@ -1436,11 +1436,35 @@ fn buildOutputType(
         for (paths.warnings.items) |warning| {
             warn("{}", .{warning});
         }
+
+        const has_sysroot = if (comptime std.Target.current.isDarwin()) outer: {
+            const at_least_big_sur = target_info.target.os.getVersionRange().semver.min.major >= 11;
+            if (at_least_big_sur) {
+                const sdk_path = try std.zig.system.getSDKPath(arena);
+                try clang_argv.ensureCapacity(clang_argv.items.len + 2);
+                clang_argv.appendAssumeCapacity("-isysroot");
+                clang_argv.appendAssumeCapacity(sdk_path);
+                break :outer true;
+            }
+            break :outer false;
+        } else false;
+
         try clang_argv.ensureCapacity(clang_argv.items.len + paths.include_dirs.items.len * 2);
+        const isystem_flag = if (has_sysroot) "-iwithsysroot" else "-isystem";
         for (paths.include_dirs.items) |include_dir| {
-            clang_argv.appendAssumeCapacity("-isystem");
+            clang_argv.appendAssumeCapacity(isystem_flag);
             clang_argv.appendAssumeCapacity(include_dir);
         }
+
+        try clang_argv.ensureCapacity(clang_argv.items.len + paths.framework_dirs.items.len * 2);
+        try framework_dirs.ensureCapacity(framework_dirs.items.len + paths.framework_dirs.items.len);
+        const iframework_flag = if (has_sysroot) "-iframeworkwithsysroot" else "-iframework";
+        for (paths.framework_dirs.items) |framework_dir| {
+            clang_argv.appendAssumeCapacity(iframework_flag);
+            clang_argv.appendAssumeCapacity(framework_dir);
+            framework_dirs.appendAssumeCapacity(framework_dir);
+        }
+
         for (paths.lib_dirs.items) |lib_dir| {
             try lib_dirs.append(lib_dir);
         }
