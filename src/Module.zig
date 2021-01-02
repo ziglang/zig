@@ -268,6 +268,11 @@ pub const Decl = struct {
         }
     }
 
+    /// Asserts that the `Decl` is part of AST and not ZIRModule.
+    pub fn getFileScope(self: *Decl) *Scope.File {
+        return self.scope.cast(Scope.Container).?.file_scope;
+    }
+
     fn removeDependant(self: *Decl, other: *Decl) void {
         self.dependants.removeAssertDiscard(other);
     }
@@ -776,6 +781,11 @@ pub const Scope = struct {
             results: ArrayListUnmanaged(*Inst),
             block_inst: *Inst.Block,
         };
+
+        /// For debugging purposes.
+        pub fn dump(self: *Block, mod: Module) void {
+            zir.dumpBlock(mod, self);
+        }
     };
 
     /// This is a temporary structure, references to it are valid only
@@ -992,11 +1002,11 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
     defer tracy.end();
 
     const container_scope = decl.scope.cast(Scope.Container).?;
-    const tree = try self.getAstTree(container_scope);
+    const tree = try self.getAstTree(container_scope.file_scope);
     const ast_node = tree.root_node.decls()[decl.src_index];
     switch (ast_node.tag) {
         .FnProto => {
-            const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", ast_node);
+            const fn_proto = ast_node.castTag(.FnProto).?;
 
             decl.analysis = .in_progress;
 
@@ -1131,7 +1141,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 for (fn_proto.params()) |param, i| {
                     const name_token = param.name_token.?;
                     const src = tree.token_locs[name_token].start;
-                    const param_name = tree.tokenSlice(name_token); // TODO: call identifierTokenString
+                    const param_name = try self.identifierTokenString(&gen_scope.base, name_token);
                     const arg = try gen_scope_arena.allocator.create(zir.Inst.Arg);
                     arg.* = .{
                         .base = .{
@@ -1496,11 +1506,9 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
     }
 }
 
-fn getAstTree(self: *Module, container_scope: *Scope.Container) !*ast.Tree {
+pub fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
     const tracy = trace(@src());
     defer tracy.end();
-
-    const root_scope = container_scope.file_scope;
 
     switch (root_scope.status) {
         .never_loaded, .unloaded_success => {
@@ -1549,7 +1557,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
 
     // We may be analyzing it for the first time, or this may be
     // an incremental update. This code handles both cases.
-    const tree = try self.getAstTree(container_scope);
+    const tree = try self.getAstTree(container_scope.file_scope);
     const decls = tree.root_node.decls();
 
     try self.comp.work_queue.ensureUnusedCapacity(decls.len);
@@ -3426,4 +3434,24 @@ pub fn validateVarType(mod: *Module, scope: *Scope, src: usize, ty: Type) !void 
     if (!ty.isValidVarType(false)) {
         return mod.fail(scope, src, "variable of type '{}' must be const or comptime", .{ty});
     }
+}
+
+/// Identifier token -> String (allocated in scope.arena())
+pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
+    const tree = scope.tree();
+
+    const ident_name = tree.tokenSlice(token);
+    if (mem.startsWith(u8, ident_name, "@")) {
+        const raw_string = ident_name[1..];
+        var bad_index: usize = undefined;
+        return std.zig.parseStringLiteral(scope.arena(), raw_string, &bad_index) catch |err| switch (err) {
+            error.InvalidCharacter => {
+                const bad_byte = raw_string[bad_index];
+                const src = tree.token_locs[token].start;
+                return mod.fail(scope, src + 1 + bad_index, "invalid string literal character: '{c}'\n", .{bad_byte});
+            },
+            else => |e| return e,
+        };
+    }
+    return ident_name;
 }

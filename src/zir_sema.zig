@@ -25,6 +25,8 @@ const trace = @import("tracy.zig").trace;
 const Scope = Module.Scope;
 const InnerError = Module.InnerError;
 const Decl = Module.Decl;
+const astgen = @import("astgen.zig");
+const ast = std.zig.ast;
 
 pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Inst {
     switch (old_inst.tag) {
@@ -826,7 +828,112 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
 
     const ret_type = func.ty.fnReturnType();
 
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
+    if (b.is_comptime) {
+        const fn_val = try mod.resolveConstValue(scope, func);
+        const module_fn = switch (fn_val.tag()) {
+            .function => fn_val.castTag(.function).?.data,
+            .extern_fn => return mod.fail(scope, inst.base.src, "comptime call of extern function", .{}),
+            else => unreachable,
+        };
+        const callee_decl = module_fn.owner_decl;
+        const callee_file_scope = callee_decl.getFileScope();
+        const tree = mod.getAstTree(callee_file_scope) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => return error.AnalysisFail,
+            // TODO: make sure this gets retried and not cached
+            else => return mod.fail(scope, inst.base.src, "failed to load {s}: {s}", .{
+                callee_file_scope.sub_file_path, @errorName(err),
+            }),
+        };
+        const ast_node = tree.root_node.decls()[callee_decl.src_index];
+        const fn_proto = ast_node.castTag(.FnProto).?;
+
+        var call_arena = std.heap.ArenaAllocator.init(mod.gpa);
+        defer call_arena.deinit();
+
+        var gen_scope: Scope.GenZIR = .{
+            .decl = callee_decl,
+            .arena = &call_arena.allocator,
+            .parent = callee_decl.scope,
+        };
+        defer gen_scope.instructions.deinit(mod.gpa);
+
+        // Add a const instruction for each parameter.
+        var params_scope = &gen_scope.base;
+        for (fn_proto.params()) |param, i| {
+            const name_token = param.name_token.?;
+            const src = tree.token_locs[name_token].start;
+            const param_name = try mod.identifierTokenString(scope, name_token);
+            const arg_val = try mod.resolveConstValue(scope, casted_args[i]);
+            const arg = try astgen.addZIRInstConst(mod, params_scope, src, .{
+                .ty = casted_args[i].ty,
+                .val = arg_val,
+            });
+            const sub_scope = try call_arena.allocator.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = params_scope,
+                .gen_zir = &gen_scope,
+                .name = param_name,
+                .inst = arg,
+            };
+            params_scope = &sub_scope.base;
+        }
+
+        const body_node = fn_proto.getBodyNode().?; // We handle extern functions above.
+        const body_block = body_node.cast(ast.Node.Block).?;
+
+        try astgen.blockExpr(mod, params_scope, body_block);
+
+        if (gen_scope.instructions.items.len == 0 or
+            !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
+        {
+            const src = tree.token_locs[body_block.rbrace].start;
+            _ = try astgen.addZIRNoOp(mod, &gen_scope.base, src, .returnvoid);
+        }
+
+        if (mod.comp.verbose_ir) {
+            zir.dumpZir(mod.gpa, "fn_body_callee", callee_decl.name, gen_scope.instructions.items) catch {};
+        }
+
+        // Analyze the ZIR.
+        var inner_block: Scope.Block = .{
+            .parent = null,
+            .func = module_fn,
+            .decl = callee_decl,
+            .instructions = .{},
+            .arena = &call_arena.allocator,
+            .is_comptime = true,
+        };
+        defer inner_block.instructions.deinit(mod.gpa);
+
+        // TODO make sure compile errors that happen from this analyzeBody are reported correctly
+        // and attach to the caller Decl not the callee.
+        try analyzeBody(mod, &inner_block.base, .{
+            .instructions = gen_scope.instructions.items,
+        });
+
+        if (mod.comp.verbose_ir) {
+            inner_block.dump(mod.*);
+        }
+
+        assert(inner_block.instructions.items.len == 1);
+        const only_inst = inner_block.instructions.items[0];
+        switch (only_inst.tag) {
+            .ret => {
+                const ret_inst = only_inst.castTag(.ret).?;
+                const operand = ret_inst.operand;
+                const callee_arena = scope.arena();
+                return mod.constInst(scope, inst.base.src, .{
+                    .ty = try operand.ty.copy(callee_arena),
+                    .val = try operand.value().?.copy(callee_arena),
+                });
+            },
+            .retvoid => return mod.constVoid(scope, inst.base.src),
+            else => unreachable,
+        }
+    }
+
     return mod.addCall(b, inst.base.src, ret_type, func, casted_args);
 }
 
@@ -1509,7 +1616,7 @@ fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErr
             return mod.fail(scope, inst.base.src, "unable to find '{s}'", .{operand});
         },
         else => {
-            // TODO user friendly error to string
+            // TODO: make sure this gets retried and not cached
             return mod.fail(scope, inst.base.src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
@@ -1912,12 +2019,12 @@ fn analyzeInstUnreachable(
 
 fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
     return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
 }
 
 fn analyzeInstRetVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
     if (b.func) |func| {
         // Need to emit a compile error if returning void is not allowed.
         const void_inst = try mod.constVoid(scope, inst.base.src);

@@ -1885,6 +1885,46 @@ pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
     module.dump();
 }
 
+/// For debugging purposes, prints a function representation to stderr.
+pub fn dumpBlock(old_module: IrModule, module_block: *IrModule.Scope.Block) void {
+    const allocator = old_module.gpa;
+    var ctx: EmitZIR = .{
+        .allocator = allocator,
+        .decls = .{},
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .old_module = &old_module,
+        .next_auto_name = 0,
+        .names = std.StringArrayHashMap(void).init(allocator),
+        .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
+        .indent = 0,
+        .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
+        .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
+        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
+        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
+    };
+    defer ctx.metadata.deinit();
+    defer ctx.body_metadata.deinit();
+    defer ctx.block_table.deinit();
+    defer ctx.loop_table.deinit();
+    defer ctx.decls.deinit(allocator);
+    defer ctx.names.deinit();
+    defer ctx.primitive_table.deinit();
+    defer ctx.arena.deinit();
+
+    _ = ctx.emitBlock(module_block, 0) catch |err| {
+        std.debug.print("unable to dump function: {}\n", .{err});
+        return;
+    };
+    var module = Module{
+        .decls = ctx.decls.items,
+        .arena = ctx.arena,
+        .metadata = ctx.metadata,
+        .body_metadata = ctx.body_metadata,
+    };
+
+    module.dump();
+}
+
 const EmitZIR = struct {
     allocator: *Allocator,
     arena: std.heap.ArenaAllocator,
@@ -2063,6 +2103,36 @@ const EmitZIR = struct {
             .kw_args = .{},
         };
         return &declref_inst.base;
+    }
+
+    fn emitBlock(self: *EmitZIR, module_block: *IrModule.Scope.Block, src: usize) Allocator.Error!*Decl {
+        var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
+        defer inst_table.deinit();
+
+        var instructions = std.ArrayList(*Inst).init(self.allocator);
+        defer instructions.deinit();
+
+        const body: ir.Body = .{ .instructions = module_block.instructions.items };
+        try self.emitBody(body, &inst_table, &instructions);
+
+        const fn_type = try self.emitType(src, Type.initTag(.void));
+
+        const arena_instrs = try self.arena.allocator.alloc(*Inst, instructions.items.len);
+        mem.copy(*Inst, arena_instrs, instructions.items);
+
+        const fn_inst = try self.arena.allocator.create(Inst.Fn);
+        fn_inst.* = .{
+            .base = .{
+                .src = src,
+                .tag = Inst.Fn.base_tag,
+            },
+            .positionals = .{
+                .fn_type = fn_type.inst,
+                .body = .{ .instructions = arena_instrs },
+            },
+            .kw_args = .{},
+        };
+        return self.emitUnnamedDecl(&fn_inst.base);
     }
 
     fn emitFn(self: *EmitZIR, module_fn: *IrModule.Fn, src: usize, ty: Type) Allocator.Error!*Decl {
