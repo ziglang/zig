@@ -481,9 +481,8 @@ fn genBinOp(ctx: *Context, file: *C, inst: *Inst.BinOp, operator: []const u8) !?
     const rhs = try ctx.resolveInst(inst.rhs);
     const writer = file.main.writer();
     const name = try ctx.name();
-    try writer.writeAll(indentation ++ "const ");
-    try renderType(ctx, writer, inst.base.ty);
-    try writer.print(" {s} = {s} " ++ operator ++ " {s};\n", .{ name, lhs, rhs });
+    try renderTypeAndName(ctx, writer, inst.base.ty, name, .Const);
+    try writer.print(" = {s} {s} {s};\n", .{ lhs, operator, rhs });
     return name;
 }
 
