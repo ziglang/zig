@@ -543,13 +543,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (self.code.items.len >= math.maxInt(i32)) {
                             return self.fail(self.src, "unable to perform relocation: jump too far", .{});
                         }
-                        for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+                        if (self.exitlude_jump_relocs.items.len == 1) {
+                            self.code.items.len -= 5;
+                        } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
                             const amt = self.code.items.len - (jmp_reloc + 4);
-                            // If it wouldn't jump at all, elide it.
-                            if (amt == 0) {
-                                self.code.items.len -= 5;
-                                continue;
-                            }
                             const s32_amt = @intCast(i32, amt);
                             mem.writeIntLittle(i32, self.code.items[jmp_reloc..][0..4], s32_amt);
                         }
