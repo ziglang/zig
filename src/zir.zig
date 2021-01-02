@@ -793,7 +793,9 @@ pub const Inst = struct {
             fn_type: *Inst,
             body: Module.Body,
         },
-        kw_args: struct {},
+        kw_args: struct {
+            is_inline: bool = false,
+        },
     };
 
     pub const FnType = struct {
@@ -1847,83 +1849,258 @@ pub fn emit(allocator: *Allocator, old_module: *IrModule) !Module {
 /// For debugging purposes, prints a function representation to stderr.
 pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
     const allocator = old_module.gpa;
-    var ctx: EmitZIR = .{
+    var ctx: DumpTzir = .{
         .allocator = allocator,
-        .decls = .{},
         .arena = std.heap.ArenaAllocator.init(allocator),
         .old_module = &old_module,
-        .next_auto_name = 0,
-        .names = std.StringArrayHashMap(void).init(allocator),
-        .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
-        .indent = 0,
-        .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
-        .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
-        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
-        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
+        .module_fn = module_fn,
+        .indent = 2,
+        .inst_table = DumpTzir.InstTable.init(allocator),
+        .partial_inst_table = DumpTzir.InstTable.init(allocator),
+        .const_table = DumpTzir.InstTable.init(allocator),
     };
-    defer ctx.metadata.deinit();
-    defer ctx.body_metadata.deinit();
-    defer ctx.block_table.deinit();
-    defer ctx.loop_table.deinit();
-    defer ctx.decls.deinit(allocator);
-    defer ctx.names.deinit();
-    defer ctx.primitive_table.deinit();
+    defer ctx.inst_table.deinit();
+    defer ctx.partial_inst_table.deinit();
+    defer ctx.const_table.deinit();
     defer ctx.arena.deinit();
 
-    const fn_ty = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
-    _ = ctx.emitFn(module_fn, 0, fn_ty) catch |err| {
-        std.debug.print("unable to dump function: {s}\n", .{@errorName(err)});
-        return;
-    };
-    var module = Module{
-        .decls = ctx.decls.items,
-        .arena = ctx.arena,
-        .metadata = ctx.metadata,
-        .body_metadata = ctx.body_metadata,
-    };
-
-    module.dump();
+    switch (module_fn.analysis()) {
+        .queued => std.debug.print("(queued)", .{}),
+        .in_progress => std.debug.print("(in_progress)", .{}),
+        .sema_failure => std.debug.print("(sema_failure)", .{}),
+        .dependency_failure => std.debug.print("(dependency_failure)", .{}),
+        .success => |body| {
+            ctx.dump(body, std.io.getStdErr().writer()) catch @panic("failed to dump TZIR");
+        },
+    }
 }
 
-/// For debugging purposes, prints a function representation to stderr.
-pub fn dumpBlock(old_module: IrModule, module_block: *IrModule.Scope.Block) void {
-    const allocator = old_module.gpa;
-    var ctx: EmitZIR = .{
-        .allocator = allocator,
-        .decls = .{},
-        .arena = std.heap.ArenaAllocator.init(allocator),
-        .old_module = &old_module,
-        .next_auto_name = 0,
-        .names = std.StringArrayHashMap(void).init(allocator),
-        .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
-        .indent = 0,
-        .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
-        .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
-        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
-        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
-    };
-    defer ctx.metadata.deinit();
-    defer ctx.body_metadata.deinit();
-    defer ctx.block_table.deinit();
-    defer ctx.loop_table.deinit();
-    defer ctx.decls.deinit(allocator);
-    defer ctx.names.deinit();
-    defer ctx.primitive_table.deinit();
-    defer ctx.arena.deinit();
+const DumpTzir = struct {
+    allocator: *Allocator,
+    arena: std.heap.ArenaAllocator,
+    old_module: *const IrModule,
+    module_fn: *IrModule.Fn,
+    indent: usize,
+    inst_table: InstTable,
+    partial_inst_table: InstTable,
+    const_table: InstTable,
+    next_index: usize = 0,
+    next_partial_index: usize = 0,
+    next_const_index: usize = 0,
 
-    _ = ctx.emitBlock(module_block, 0) catch |err| {
-        std.debug.print("unable to dump function: {}\n", .{err});
-        return;
-    };
-    var module = Module{
-        .decls = ctx.decls.items,
-        .arena = ctx.arena,
-        .metadata = ctx.metadata,
-        .body_metadata = ctx.body_metadata,
-    };
+    const InstTable = std.AutoArrayHashMap(*ir.Inst, usize);
 
-    module.dump();
-}
+    fn dump(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
+        // First pass to pre-populate the table so that we can show even invalid references.
+        // Must iterate the same order we iterate the second time.
+        // We also look for constants and put them in the const_table.
+        for (body.instructions) |inst| {
+            try dtz.inst_table.put(inst, dtz.next_index);
+            dtz.next_index += 1;
+            switch (inst.tag) {
+                .alloc,
+                .retvoid,
+                .unreach,
+                .breakpoint,
+                .dbg_stmt,
+                => {},
+
+                .ref,
+                .ret,
+                .bitcast,
+                .not,
+                .isnonnull,
+                .isnull,
+                .iserr,
+                .ptrtoint,
+                .floatcast,
+                .intcast,
+                .load,
+                .unwrap_optional,
+                .wrap_optional,
+                => {
+                    const un_op = inst.cast(ir.Inst.UnOp).?;
+                    try dtz.findConst(un_op.operand);
+                },
+
+                .add,
+                .sub,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                .store,
+                .booland,
+                .boolor,
+                .bitand,
+                .bitor,
+                .xor,
+                => {
+                    const bin_op = inst.cast(ir.Inst.BinOp).?;
+                    try dtz.findConst(bin_op.lhs);
+                    try dtz.findConst(bin_op.rhs);
+                },
+
+                .arg => {},
+
+                // TODO fill out this debug printing
+                .assembly,
+                .block,
+                .br,
+                .brvoid,
+                .call,
+                .condbr,
+                .constant,
+                .loop,
+                .varptr,
+                .switchbr,
+                => {},
+            }
+        }
+
+        std.debug.print("Module.Function(name={s}):\n", .{dtz.module_fn.owner_decl.name});
+
+        for (dtz.const_table.items()) |entry| {
+            const constant = entry.key.castTag(.constant).?;
+            try writer.print("  @{d}: {} = {};\n", .{
+                entry.value, constant.base.ty, constant.val,
+            });
+        }
+
+        return dtz.dumpBody(body, writer);
+    }
+
+    fn dumpBody(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
+        for (body.instructions) |inst| {
+            const my_index = dtz.next_partial_index;
+            try dtz.partial_inst_table.put(inst, my_index);
+            dtz.next_partial_index += 1;
+
+            try writer.writeByteNTimes(' ', dtz.indent);
+            try writer.print("%{d}: {} = {s}(", .{
+                my_index, inst.ty, @tagName(inst.tag),
+            });
+            switch (inst.tag) {
+                .alloc,
+                .retvoid,
+                .unreach,
+                .breakpoint,
+                .dbg_stmt,
+                => try writer.writeAll(")\n"),
+
+                .ref,
+                .ret,
+                .bitcast,
+                .not,
+                .isnonnull,
+                .isnull,
+                .iserr,
+                .ptrtoint,
+                .floatcast,
+                .intcast,
+                .load,
+                .unwrap_optional,
+                .wrap_optional,
+                => {
+                    const un_op = inst.cast(ir.Inst.UnOp).?;
+                    if (dtz.partial_inst_table.get(un_op.operand)) |operand_index| {
+                        try writer.print("%{d})\n", .{operand_index});
+                    } else if (dtz.const_table.get(un_op.operand)) |operand_index| {
+                        try writer.print("@{d})\n", .{operand_index});
+                    } else if (dtz.inst_table.get(un_op.operand)) |operand_index| {
+                        try writer.print("%{d}) // Instruction does not dominate all uses!\n", .{
+                            operand_index,
+                        });
+                    } else {
+                        try writer.writeAll("!BADREF!)\n");
+                    }
+                },
+
+                .add,
+                .sub,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                .store,
+                .booland,
+                .boolor,
+                .bitand,
+                .bitor,
+                .xor,
+                => {
+                    var lhs_kinky: ?usize = null;
+                    var rhs_kinky: ?usize = null;
+
+                    const bin_op = inst.cast(ir.Inst.BinOp).?;
+                    if (dtz.partial_inst_table.get(bin_op.lhs)) |operand_index| {
+                        try writer.print("%{d}, ", .{operand_index});
+                    } else if (dtz.const_table.get(bin_op.lhs)) |operand_index| {
+                        try writer.print("@{d}, ", .{operand_index});
+                    } else if (dtz.inst_table.get(bin_op.lhs)) |operand_index| {
+                        lhs_kinky = operand_index;
+                        try writer.print("%{d}, ", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!, ");
+                    }
+                    if (dtz.partial_inst_table.get(bin_op.rhs)) |operand_index| {
+                        try writer.print("%{d}", .{operand_index});
+                    } else if (dtz.const_table.get(bin_op.rhs)) |operand_index| {
+                        try writer.print("@{d}", .{operand_index});
+                    } else if (dtz.inst_table.get(bin_op.rhs)) |operand_index| {
+                        rhs_kinky = operand_index;
+                        try writer.print("%{d}", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!");
+                    }
+                    if (lhs_kinky != null or rhs_kinky != null) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!");
+                        if (lhs_kinky) |lhs| {
+                            try writer.print(" %{d}", .{lhs});
+                        }
+                        if (rhs_kinky) |rhs| {
+                            try writer.print(" %{d}", .{rhs});
+                        }
+                        try writer.writeAll("\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                .arg => {
+                    const arg = inst.castTag(.arg).?;
+                    try writer.print("{s})\n", .{arg.name});
+                },
+
+                // TODO fill out this debug printing
+                .assembly,
+                .block,
+                .br,
+                .brvoid,
+                .call,
+                .condbr,
+                .constant,
+                .loop,
+                .varptr,
+                .switchbr,
+                => {
+                    try writer.writeAll("!TODO!)\n");
+                },
+            }
+        }
+    }
+
+    fn findConst(dtz: *DumpTzir, operand: *ir.Inst) !void {
+        if (operand.tag == .constant) {
+            try dtz.const_table.put(operand, dtz.next_const_index);
+            dtz.next_const_index += 1;
+        }
+    }
+};
 
 const EmitZIR = struct {
     allocator: *Allocator,
@@ -2105,36 +2282,6 @@ const EmitZIR = struct {
         return &declref_inst.base;
     }
 
-    fn emitBlock(self: *EmitZIR, module_block: *IrModule.Scope.Block, src: usize) Allocator.Error!*Decl {
-        var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
-        defer inst_table.deinit();
-
-        var instructions = std.ArrayList(*Inst).init(self.allocator);
-        defer instructions.deinit();
-
-        const body: ir.Body = .{ .instructions = module_block.instructions.items };
-        try self.emitBody(body, &inst_table, &instructions);
-
-        const fn_type = try self.emitType(src, Type.initTag(.void));
-
-        const arena_instrs = try self.arena.allocator.alloc(*Inst, instructions.items.len);
-        mem.copy(*Inst, arena_instrs, instructions.items);
-
-        const fn_inst = try self.arena.allocator.create(Inst.Fn);
-        fn_inst.* = .{
-            .base = .{
-                .src = src,
-                .tag = Inst.Fn.base_tag,
-            },
-            .positionals = .{
-                .fn_type = fn_type.inst,
-                .body = .{ .instructions = arena_instrs },
-            },
-            .kw_args = .{},
-        };
-        return self.emitUnnamedDecl(&fn_inst.base);
-    }
-
     fn emitFn(self: *EmitZIR, module_fn: *IrModule.Fn, src: usize, ty: Type) Allocator.Error!*Decl {
         var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
         defer inst_table.deinit();
@@ -2142,7 +2289,7 @@ const EmitZIR = struct {
         var instructions = std.ArrayList(*Inst).init(self.allocator);
         defer instructions.deinit();
 
-        switch (module_fn.analysis) {
+        switch (module_fn.analysis()) {
             .queued => unreachable,
             .in_progress => unreachable,
             .success => |body| {
@@ -2224,7 +2371,9 @@ const EmitZIR = struct {
                 .fn_type = fn_type.inst,
                 .body = .{ .instructions = arena_instrs },
             },
-            .kw_args = .{},
+            .kw_args = .{
+                .is_inline = module_fn.bits.is_inline,
+            },
         };
         return self.emitUnnamedDecl(&fn_inst.base);
     }

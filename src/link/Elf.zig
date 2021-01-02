@@ -2178,16 +2178,6 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         else => false,
     };
     if (is_fn) {
-        const zir_dumps = if (std.builtin.is_test) &[0][]const u8{} else build_options.zir_dumps;
-        if (zir_dumps.len != 0) {
-            for (zir_dumps) |fn_name| {
-                if (mem.eql(u8, mem.spanZ(decl.name), fn_name)) {
-                    std.debug.print("\n{s}\n", .{decl.name});
-                    typed_value.val.castTag(.function).?.data.dump(module.*);
-                }
-            }
-        }
-
         // For functions we need to add a prologue to the debug line program.
         try dbg_line_buffer.ensureCapacity(26);
 

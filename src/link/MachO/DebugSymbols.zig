@@ -936,16 +936,6 @@ pub fn initDeclDebugBuffers(
     const typed_value = decl.typed_value.most_recent.typed_value;
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
-            const zir_dumps = if (std.builtin.is_test) &[0][]const u8{} else build_options.zir_dumps;
-            if (zir_dumps.len != 0) {
-                for (zir_dumps) |fn_name| {
-                    if (mem.eql(u8, mem.spanZ(decl.name), fn_name)) {
-                        std.debug.print("\n{}\n", .{decl.name});
-                        typed_value.val.cast(Value.Payload.Function).?.func.dump(module.*);
-                    }
-                }
-            }
-
             // For functions we need to add a prologue to the debug line program.
             try dbg_line_buffer.ensureCapacity(26);
 

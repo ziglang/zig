@@ -286,23 +286,40 @@ pub const Decl = struct {
 /// Extern functions do not have this data structure; they are represented by
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
-    /// This memory owned by the Decl's TypedValue.Managed arena allocator.
-    analysis: union(enum) {
-        queued: *ZIR,
-        in_progress,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls
-        sema_failure,
-        /// This Fn might be OK but it depends on another Decl which did not successfully complete
-        /// semantic analysis.
-        dependency_failure,
-        success: Body,
+    bits: packed struct {
+        /// Get and set this field via `analysis` and `setAnalysis`.
+        state: Analysis.Tag,
+        /// We carry this state into `Fn` instead of leaving it in the AST so that
+        /// analysis of function calls can happen even on functions whose AST has
+        /// been unloaded from memory.
+        is_inline: bool,
+        unused_bits: u4 = 0,
+    },
+    /// Get and set this data via `analysis` and `setAnalysis`.
+    data: union {
+        none: void,
+        zir: *ZIR,
+        body: Body,
     },
     owner_decl: *Decl,
 
-    /// This memory is temporary and points to stack memory for the duration
-    /// of Fn analysis.
-    pub const Analysis = struct {
-        inner_block: Scope.Block,
+    pub const Analysis = union(Tag) {
+        queued: *ZIR,
+        in_progress,
+        sema_failure,
+        dependency_failure,
+        success: Body,
+
+        pub const Tag = enum(u3) {
+            queued,
+            in_progress,
+            /// There will be a corresponding ErrorMsg in Module.failed_decls
+            sema_failure,
+            /// This Fn might be OK but it depends on another Decl which did not
+            /// successfully complete semantic analysis.
+            dependency_failure,
+            success,
+        };
     };
 
     /// Contains un-analyzed ZIR instructions generated from Zig source AST.
@@ -311,21 +328,36 @@ pub const Fn = struct {
         arena: std.heap.ArenaAllocator.State,
     };
 
-    /// For debugging purposes.
-    pub fn dump(self: *Fn, mod: Module) void {
-        std.debug.print("Module.Function(name={s}) ", .{self.owner_decl.name});
-        switch (self.analysis) {
-            .queued => {
-                std.debug.print("queued\n", .{});
+    pub fn analysis(self: Fn) Analysis {
+        return switch (self.bits.state) {
+            .queued => .{ .queued = self.data.zir },
+            .success => .{ .success = self.data.body },
+            .in_progress => .in_progress,
+            .sema_failure => .sema_failure,
+            .dependency_failure => .dependency_failure,
+        };
+    }
+
+    pub fn setAnalysis(self: *Fn, anal: Analysis) void {
+        switch (anal) {
+            .queued => |zir_ptr| {
+                self.bits.state = .queued;
+                self.data = .{ .zir = zir_ptr };
             },
-            .in_progress => {
-                std.debug.print("in_progress\n", .{});
+            .success => |body| {
+                self.bits.state = .success;
+                self.data = .{ .body = body };
             },
-            else => {
-                std.debug.print("\n", .{});
-                zir.dumpFn(mod, self);
+            .in_progress, .sema_failure, .dependency_failure => {
+                self.bits.state = anal;
+                self.data = .{ .none = {} };
             },
         }
+    }
+
+    /// For debugging purposes.
+    pub fn dump(self: *Fn, mod: Module) void {
+        zir.dumpFn(mod, self);
     }
 };
 
@@ -773,13 +805,33 @@ pub const Scope = struct {
         instructions: ArrayListUnmanaged(*Inst),
         /// Points to the arena allocator of DeclAnalysis
         arena: *Allocator,
-        label: ?Label = null,
+        label: Label = Label.none,
         is_comptime: bool,
 
-        pub const Label = struct {
-            zir_block: *zir.Inst.Block,
-            results: ArrayListUnmanaged(*Inst),
-            block_inst: *Inst.Block,
+        pub const Label = union(enum) {
+            none,
+            /// This `Block` maps a block ZIR instruction to the corresponding
+            /// TZIR instruction for break instruction analysis.
+            breaking: struct {
+                zir_block: *zir.Inst.Block,
+                merges: Merges,
+            },
+            /// This `Block` indicates that an inline function call is happening
+            /// and return instructions should be analyzed as a break instruction
+            /// to this TZIR block instruction.
+            inlining: struct {
+                /// We use this to count from 0 so that arg instructions know
+                /// which parameter index they are, without having to store
+                /// a parameter index with each arg instruction.
+                param_index: usize,
+                casted_args: []*Inst,
+                merges: Merges,
+            },
+
+            pub const Merges = struct {
+                results: ArrayListUnmanaged(*Inst),
+                block_inst: *Inst.Block,
+            };
         };
 
         /// For debugging purposes.
@@ -1189,8 +1241,21 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 break :blk fn_zir;
             };
 
+            const is_inline = blk: {
+                if (fn_proto.getExternExportInlineToken()) |maybe_inline_token| {
+                    if (tree.token_ids[maybe_inline_token] == .Keyword_inline) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
             new_func.* = .{
-                .analysis = .{ .queued = fn_zir },
+                .bits = .{
+                    .state = .queued,
+                    .is_inline = is_inline,
+                },
+                .data = .{ .zir = fn_zir },
                 .owner_decl = decl,
             };
             fn_payload.* = .{
@@ -1199,11 +1264,16 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
 
             var prev_type_has_bits = false;
+            var prev_is_inline = false;
             var type_changed = true;
 
             if (decl.typedValueManaged()) |tvm| {
                 prev_type_has_bits = tvm.typed_value.ty.hasCodeGenBits();
                 type_changed = !tvm.typed_value.ty.eql(fn_type);
+                if (tvm.typed_value.val.castTag(.function)) |payload| {
+                    const prev_func = payload.data;
+                    prev_is_inline = prev_func.bits.is_inline;
+                }
 
                 tvm.deinit(self.gpa);
             }
@@ -1221,18 +1291,26 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             decl.analysis = .complete;
             decl.generation = self.generation;
 
-            if (fn_type.hasCodeGenBits()) {
+            if (!is_inline and fn_type.hasCodeGenBits()) {
                 // We don't fully codegen the decl until later, but we do need to reserve a global
                 // offset table index for it. This allows us to codegen decls out of dependency order,
                 // increasing how many computations can be done in parallel.
                 try self.comp.bin_file.allocateDeclIndexes(decl);
                 try self.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-            } else if (prev_type_has_bits) {
+            } else if (!prev_is_inline and prev_type_has_bits) {
                 self.comp.bin_file.freeDecl(decl);
             }
 
             if (fn_proto.getExternExportInlineToken()) |maybe_export_token| {
                 if (tree.token_ids[maybe_export_token] == .Keyword_export) {
+                    if (is_inline) {
+                        return self.failTok(
+                            &block_scope.base,
+                            maybe_export_token,
+                            "export of inline function",
+                            .{},
+                        );
+                    }
                     const export_src = tree.token_locs[maybe_export_token].start;
                     const name_loc = tree.token_locs[fn_proto.getNameToken().?];
                     const name = tree.tokenSliceLoc(name_loc);
@@ -1240,7 +1318,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     try self.analyzeExport(&block_scope.base, export_src, name, decl);
                 }
             }
-            return type_changed;
+            return type_changed or is_inline != prev_is_inline;
         },
         .VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", ast_node);
@@ -1824,15 +1902,15 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     };
     defer inner_block.instructions.deinit(self.gpa);
 
-    const fn_zir = func.analysis.queued;
+    const fn_zir = func.data.zir;
     defer fn_zir.arena.promote(self.gpa).deinit();
-    func.analysis = .{ .in_progress = {} };
+    func.setAnalysis(.in_progress);
     log.debug("set {s} to in_progress\n", .{decl.name});
 
     try zir_sema.analyzeBody(self, &inner_block.base, fn_zir.body);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
-    func.analysis = .{ .success = .{ .instructions = instructions } };
+    func.setAnalysis(.{ .success = .{ .instructions = instructions } });
     log.debug("set {s} to success\n", .{decl.name});
 }
 
@@ -2329,7 +2407,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     self.ensureDeclAnalyzed(decl) catch |err| {
         if (scope.cast(Scope.Block)) |block| {
             if (block.func) |func| {
-                func.analysis = .dependency_failure;
+                func.setAnalysis(.dependency_failure);
             } else {
                 block.decl.analysis = .dependency_failure;
             }
@@ -3029,7 +3107,7 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Com
         .block => {
             const block = scope.cast(Scope.Block).?;
             if (block.func) |func| {
-                func.analysis = .sema_failure;
+                func.setAnalysis(.sema_failure);
             } else {
                 block.decl.analysis = .sema_failure;
                 block.decl.generation = self.generation;

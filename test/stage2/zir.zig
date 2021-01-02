@@ -30,7 +30,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@unnamed$7 = fntype([], @void, cc=C)
         \\@entry = fn(@unnamed$7, {
         \\  %0 = returnvoid() ; deaths=0b1000000000000000
-        \\})
+        \\}, is_inline=0)
         \\
     );
     ctx.transformZIR("elemptr, add, cmp, condbr, return, breakpoint", linux_x64,
@@ -78,7 +78,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@unnamed$6 = fntype([], @void, cc=C)
         \\@entry = fn(@unnamed$6, {
         \\  %0 = returnvoid() ; deaths=0b1000000000000000
-        \\})
+        \\}, is_inline=0)
         \\@entry__anon_1 = str("2\x08\x01\n")
         \\@9 = declref("9__anon_0")
         \\@9__anon_0 = str("entry")
@@ -123,17 +123,17 @@ pub fn addCases(ctx: *TestContext) !void {
             \\@entry = fn(@unnamed$7, {
             \\  %0 = call(@a, [], modifier=auto) ; deaths=0b1000000000000001
             \\  %1 = returnvoid() ; deaths=0b1000000000000000
-            \\})
+            \\}, is_inline=0)
             \\@unnamed$9 = fntype([], @void, cc=C)
             \\@a = fn(@unnamed$9, {
             \\  %0 = call(@b, [], modifier=auto) ; deaths=0b1000000000000001
             \\  %1 = returnvoid() ; deaths=0b1000000000000000
-            \\})
+            \\}, is_inline=0)
             \\@unnamed$11 = fntype([], @void, cc=C)
             \\@b = fn(@unnamed$11, {
             \\  %0 = call(@a, [], modifier=auto) ; deaths=0b1000000000000001
             \\  %1 = returnvoid() ; deaths=0b1000000000000000
-            \\})
+            \\}, is_inline=0)
             \\
         );
         // Now we introduce a compile error
@@ -203,7 +203,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\@unnamed$7 = fntype([], @void, cc=C)
             \\@entry = fn(@unnamed$7, {
             \\  %0 = returnvoid() ; deaths=0b1000000000000000
-            \\})
+            \\}, is_inline=0)
             \\
         );
     }
