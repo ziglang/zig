@@ -155,4 +155,48 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
     }
+
+    {
+        var case = ctx.exe("exit fn taking argument", macos_aarch64);
+
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    exit(0);
+            \\}
+            \\
+            \\fn exit(ret: usize) noreturn {
+            \\    asm volatile ("svc #0x80"
+            \\        :
+            \\        : [number] "{x16}" (1),
+            \\          [arg1] "{x0}" (ret)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("exit fn taking argument", linux_aarch64);
+
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    exit(0);
+            \\}
+            \\
+            \\fn exit(ret: usize) noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{x8}" (93),
+            \\          [arg1] "{x0}" (ret)
+            \\        : "memory", "cc"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
