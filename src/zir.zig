@@ -1308,17 +1308,17 @@ const Writer = struct {
                 try stream.writeByte('}');
             },
             bool => return stream.writeByte("01"[@boolToInt(param)]),
-            []u8, []const u8 => return stream.print("\"{Z}\"", .{param}),
+            []u8, []const u8 => return stream.print("\"{}\"", .{std.zig.fmtEscapes(param)}),
             BigIntConst, usize => return stream.print("{}", .{param}),
             TypedValue => return stream.print("TypedValue{{ .ty = {}, .val = {}}}", .{ param.ty, param.val }),
             *IrModule.Decl => return stream.print("Decl({s})", .{param.name}),
             *Inst.Block => {
                 const name = self.block_table.get(param).?;
-                return stream.print("\"{Z}\"", .{name});
+                return stream.print("\"{}\"", .{std.zig.fmtEscapes(name)});
             },
             *Inst.Loop => {
                 const name = self.loop_table.get(param).?;
-                return stream.print("\"{Z}\"", .{name});
+                return stream.print("\"{}\"", .{std.zig.fmtEscapes(name)});
             },
             [][]const u8 => {
                 try stream.writeByte('[');
@@ -1326,7 +1326,7 @@ const Writer = struct {
                     if (i != 0) {
                         try stream.writeAll(", ");
                     }
-                    try stream.print("\"{Z}\"", .{str});
+                    try stream.print("\"{}\"", .{std.zig.fmtEscapes(str)});
                 }
                 try stream.writeByte(']');
             },

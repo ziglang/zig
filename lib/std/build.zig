@@ -1852,25 +1852,25 @@ pub const LibExeObjStep = struct {
         const out = self.build_options_contents.writer();
         switch (T) {
             []const []const u8 => {
-                out.print("pub const {z}: []const []const u8 = &[_][]const u8{{\n", .{name}) catch unreachable;
+                out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{std.zig.fmtId(name)}) catch unreachable;
                 for (value) |slice| {
-                    out.print("    \"{Z}\",\n", .{slice}) catch unreachable;
+                    out.print("    \"{}\",\n", .{std.zig.fmtEscapes(slice)}) catch unreachable;
                 }
                 out.writeAll("};\n") catch unreachable;
                 return;
             },
             [:0]const u8 => {
-                out.print("pub const {z}: [:0]const u8 = \"{Z}\";\n", .{ name, value }) catch unreachable;
+                out.print("pub const {}: [:0]const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
                 return;
             },
             []const u8 => {
-                out.print("pub const {z}: []const u8 = \"{Z}\";\n", .{ name, value }) catch unreachable;
+                out.print("pub const {}: []const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
                 return;
             },
             ?[]const u8 => {
-                out.print("pub const {z}: ?[]const u8 = ", .{name}) catch unreachable;
+                out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
                 if (value) |payload| {
-                    out.print("\"{Z}\";\n", .{payload}) catch unreachable;
+                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
                 } else {
                     out.writeAll("null;\n") catch unreachable;
                 }
@@ -1878,14 +1878,14 @@ pub const LibExeObjStep = struct {
             },
             std.builtin.Version => {
                 out.print(
-                    \\pub const {z}: @import("builtin").Version = .{{
+                    \\pub const {}: @import("builtin").Version = .{{
                     \\    .major = {d},
                     \\    .minor = {d},
                     \\    .patch = {d},
                     \\}};
                     \\
                 , .{
-                    name,
+                    std.zig.fmtId(name),
 
                     value.major,
                     value.minor,
@@ -1894,23 +1894,23 @@ pub const LibExeObjStep = struct {
             },
             std.SemanticVersion => {
                 out.print(
-                    \\pub const {z}: @import("std").SemanticVersion = .{{
+                    \\pub const {}: @import("std").SemanticVersion = .{{
                     \\    .major = {d},
                     \\    .minor = {d},
                     \\    .patch = {d},
                     \\
                 , .{
-                    name,
+                    std.zig.fmtId(name),
 
                     value.major,
                     value.minor,
                     value.patch,
                 }) catch unreachable;
                 if (value.pre) |some| {
-                    out.print("    .pre = \"{Z}\",\n", .{some}) catch unreachable;
+                    out.print("    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
                 }
                 if (value.build) |some| {
-                    out.print("    .build = \"{Z}\",\n", .{some}) catch unreachable;
+                    out.print("    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
                 }
                 out.writeAll("};\n") catch unreachable;
                 return;
@@ -1919,15 +1919,15 @@ pub const LibExeObjStep = struct {
         }
         switch (@typeInfo(T)) {
             .Enum => |enum_info| {
-                out.print("pub const {z} = enum {{\n", .{@typeName(T)}) catch unreachable;
+                out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))}) catch unreachable;
                 inline for (enum_info.fields) |field| {
-                    out.print("    {z},\n", .{field.name}) catch unreachable;
+                    out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
                 }
                 out.writeAll("};\n") catch unreachable;
             },
             else => {},
         }
-        out.print("pub const {z}: {s} = {};\n", .{ name, @typeName(T), value }) catch unreachable;
+        out.print("pub const {}: {s} = {};\n", .{ std.zig.fmtId(name), @typeName(T), value }) catch unreachable;
     }
 
     /// The value is the path in the cache dir.
@@ -2157,7 +2157,7 @@ pub const LibExeObjStep = struct {
             // Render build artifact options at the last minute, now that the path is known.
             for (self.build_options_artifact_args.items) |item| {
                 const out = self.build_options_contents.writer();
-                out.print("pub const {s}: []const u8 = \"{Z}\";\n", .{ item.name, item.artifact.getOutputPath() }) catch unreachable;
+                out.print("pub const {s}: []const u8 = \"{}\";\n", .{ item.name, std.zig.fmtEscapes(item.artifact.getOutputPath()) }) catch unreachable;
             }
 
             const build_options_file = try fs.path.join(
