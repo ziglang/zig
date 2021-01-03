@@ -752,16 +752,21 @@ pub const Scope = struct {
     /// during semantic analysis of the block.
     pub const Block = struct {
         pub const base_tag: Tag = .block;
+
         base: Scope = Scope{ .tag = base_tag },
         parent: ?*Block,
+        /// Maps ZIR to TZIR. Shared to sub-blocks.
+        inst_table: *InstTable,
         func: ?*Fn,
         decl: *Decl,
         instructions: ArrayListUnmanaged(*Inst),
         /// Points to the arena allocator of DeclAnalysis
         arena: *Allocator,
         label: ?Label = null,
-        inlining: ?Inlining,
+        inlining: ?*Inlining,
         is_comptime: bool,
+
+        pub const InstTable = std.AutoHashMap(*zir.Inst, *Inst);
 
         /// This `Block` maps a block ZIR instruction to the corresponding
         /// TZIR instruction for break instruction analysis.
@@ -773,14 +778,23 @@ pub const Scope = struct {
         /// This `Block` indicates that an inline function call is happening
         /// and return instructions should be analyzed as a break instruction
         /// to this TZIR block instruction.
+        /// It is shared among all the blocks in an inline or comptime called
+        /// function.
         pub const Inlining = struct {
-            caller: ?*Fn,
+            /// Shared state among the entire inline/comptime call stack.
+            shared: *Shared,
             /// We use this to count from 0 so that arg instructions know
             /// which parameter index they are, without having to store
             /// a parameter index with each arg instruction.
             param_index: usize,
             casted_args: []*Inst,
             merges: Merges,
+
+            pub const Shared = struct {
+                caller: ?*Fn,
+                branch_count: u64,
+                branch_quota: u64,
+            };
         };
 
         pub const Merges = struct {
@@ -1087,8 +1101,12 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             errdefer decl_arena.deinit();
             const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
+            var inst_table = Scope.Block.InstTable.init(self.gpa);
+            defer inst_table.deinit();
+
             var block_scope: Scope.Block = .{
                 .parent = null,
+                .inst_table = &inst_table,
                 .func = null,
                 .decl = decl,
                 .instructions = .{},
@@ -1276,8 +1294,12 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             errdefer decl_arena.deinit();
             const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
+            var decl_inst_table = Scope.Block.InstTable.init(self.gpa);
+            defer decl_inst_table.deinit();
+
             var block_scope: Scope.Block = .{
                 .parent = null,
+                .inst_table = &decl_inst_table,
                 .func = null,
                 .decl = decl,
                 .instructions = .{},
@@ -1342,8 +1364,12 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     zir.dumpZir(self.gpa, "var_init", decl.name, gen_scope.instructions.items) catch {};
                 }
 
+                var var_inst_table = Scope.Block.InstTable.init(self.gpa);
+                defer var_inst_table.deinit();
+
                 var inner_block: Scope.Block = .{
                     .parent = null,
+                    .inst_table = &var_inst_table,
                     .func = null,
                     .decl = decl,
                     .instructions = .{},
@@ -1352,10 +1378,12 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .is_comptime = true,
                 };
                 defer inner_block.instructions.deinit(self.gpa);
-                try zir_sema.analyzeBody(self, &inner_block.base, .{ .instructions = gen_scope.instructions.items });
+                try zir_sema.analyzeBody(self, &inner_block, .{
+                    .instructions = gen_scope.instructions.items,
+                });
 
                 // The result location guarantees the type coercion.
-                const analyzed_init_inst = init_inst.analyzed_inst.?;
+                const analyzed_init_inst = var_inst_table.get(init_inst).?;
                 // The is_comptime in the Scope.Block guarantees the result is comptime-known.
                 const val = analyzed_init_inst.value().?;
 
@@ -1463,8 +1491,12 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 zir.dumpZir(self.gpa, "comptime_block", decl.name, gen_scope.instructions.items) catch {};
             }
 
+            var inst_table = Scope.Block.InstTable.init(self.gpa);
+            defer inst_table.deinit();
+
             var block_scope: Scope.Block = .{
                 .parent = null,
+                .inst_table = &inst_table,
                 .func = null,
                 .decl = decl,
                 .instructions = .{},
@@ -1474,7 +1506,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
             defer block_scope.instructions.deinit(self.gpa);
 
-            _ = try zir_sema.analyzeBody(self, &block_scope.base, .{
+            _ = try zir_sema.analyzeBody(self, &block_scope, .{
                 .instructions = gen_scope.instructions.items,
             });
 
@@ -1841,8 +1873,11 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     // Use the Decl's arena for function memory.
     var arena = decl.typed_value.most_recent.arena.?.promote(self.gpa);
     defer decl.typed_value.most_recent.arena.?.* = arena.state;
+    var inst_table = Scope.Block.InstTable.init(self.gpa);
+    defer inst_table.deinit();
     var inner_block: Scope.Block = .{
         .parent = null,
+        .inst_table = &inst_table,
         .func = func,
         .decl = decl,
         .instructions = .{},
@@ -1855,7 +1890,7 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     func.state = .in_progress;
     log.debug("set {s} to in_progress\n", .{decl.name});
 
-    try zir_sema.analyzeBody(self, &inner_block.base, func.zir);
+    try zir_sema.analyzeBody(self, &inner_block, func.zir);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
     func.state = .success;
@@ -3055,8 +3090,8 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Com
         },
         .block => {
             const block = scope.cast(Scope.Block).?;
-            if (block.inlining) |*inlining| {
-                if (inlining.caller) |func| {
+            if (block.inlining) |inlining| {
+                if (inlining.shared.caller) |func| {
                     func.state = .sema_failure;
                 } else {
                     block.decl.analysis = .sema_failure;
@@ -3424,6 +3459,7 @@ pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic
 
     var fail_block: Scope.Block = .{
         .parent = parent_block,
+        .inst_table = parent_block.inst_table,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
@@ -3491,4 +3527,15 @@ pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex)
         };
     }
     return ident_name;
+}
+
+pub fn emitBackwardBranch(mod: *Module, block: *Scope.Block, src: usize) !void {
+    const shared = block.inlining.?.shared;
+    shared.branch_count += 1;
+    if (shared.branch_count > shared.branch_quota) {
+        // TODO show the "called from here" stack
+        return mod.fail(&block.base, src, "evaluation exceeded {d} backwards branches", .{
+            shared.branch_quota,
+        });
+    }
 }

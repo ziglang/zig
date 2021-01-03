@@ -25,12 +25,13 @@ pub const Decl = struct {
 
 /// These are instructions that correspond to the ZIR text format. See `ir.Inst` for
 /// in-memory, analyzed instructions with types and values.
+/// We use a table to map these instruction to their respective semantically analyzed
+/// instructions because it is possible to have multiple analyses on the same ZIR
+/// happening at the same time.
 pub const Inst = struct {
     tag: Tag,
     /// Byte offset into the source.
     src: usize,
-    /// Pre-allocated field for mapping ZIR text instructions to post-analysis instructions.
-    analyzed_inst: ?*ir.Inst = null,
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
@@ -1947,11 +1948,20 @@ const DumpTzir = struct {
 
                 .arg => {},
 
+                .br => {
+                    const br = inst.castTag(.br).?;
+                    try dtz.findConst(&br.block.base);
+                    try dtz.findConst(br.operand);
+                },
+
+                .brvoid => {
+                    const brvoid = inst.castTag(.brvoid).?;
+                    try dtz.findConst(&brvoid.block.base);
+                },
+
                 // TODO fill out this debug printing
                 .assembly,
                 .block,
-                .br,
-                .brvoid,
                 .call,
                 .condbr,
                 .constant,
@@ -2078,11 +2088,66 @@ const DumpTzir = struct {
                     try writer.print("{s})\n", .{arg.name});
                 },
 
+                .br => {
+                    const br = inst.castTag(.br).?;
+
+                    var lhs_kinky: ?usize = null;
+                    var rhs_kinky: ?usize = null;
+
+                    if (dtz.partial_inst_table.get(&br.block.base)) |operand_index| {
+                        try writer.print("%{d}, ", .{operand_index});
+                    } else if (dtz.const_table.get(&br.block.base)) |operand_index| {
+                        try writer.print("@{d}, ", .{operand_index});
+                    } else if (dtz.inst_table.get(&br.block.base)) |operand_index| {
+                        lhs_kinky = operand_index;
+                        try writer.print("%{d}, ", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!, ");
+                    }
+
+                    if (dtz.partial_inst_table.get(br.operand)) |operand_index| {
+                        try writer.print("%{d}", .{operand_index});
+                    } else if (dtz.const_table.get(br.operand)) |operand_index| {
+                        try writer.print("@{d}", .{operand_index});
+                    } else if (dtz.inst_table.get(br.operand)) |operand_index| {
+                        rhs_kinky = operand_index;
+                        try writer.print("%{d}", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!");
+                    }
+
+                    if (lhs_kinky != null or rhs_kinky != null) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!");
+                        if (lhs_kinky) |lhs| {
+                            try writer.print(" %{d}", .{lhs});
+                        }
+                        if (rhs_kinky) |rhs| {
+                            try writer.print(" %{d}", .{rhs});
+                        }
+                        try writer.writeAll("\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                .brvoid => {
+                    const brvoid = inst.castTag(.brvoid).?;
+                    if (dtz.partial_inst_table.get(&brvoid.block.base)) |operand_index| {
+                        try writer.print("%{d})\n", .{operand_index});
+                    } else if (dtz.const_table.get(&brvoid.block.base)) |operand_index| {
+                        try writer.print("@{d})\n", .{operand_index});
+                    } else if (dtz.inst_table.get(&brvoid.block.base)) |operand_index| {
+                        try writer.print("%{d}) // Instruction does not dominate all uses!\n", .{
+                            operand_index,
+                        });
+                    } else {
+                        try writer.writeAll("!BADREF!)\n");
+                    }
+                },
+
                 // TODO fill out this debug printing
                 .assembly,
                 .block,
-                .br,
-                .brvoid,
                 .call,
                 .condbr,
                 .constant,

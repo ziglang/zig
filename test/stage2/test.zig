@@ -27,7 +27,6 @@ const wasi = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    try @import("zir.zig").addCases(ctx);
     try @import("cbe.zig").addCases(ctx);
     try @import("spu-ii.zig").addCases(ctx);
     try @import("arm.zig").addCases(ctx);
@@ -1429,5 +1428,52 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+    }
+    {
+        var case = ctx.exe("recursive inline function", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const y = fibonacci(7);
+            \\    exit(y - 21);
+            \\}
+            \\
+            \\inline fn fibonacci(n: usize) usize {
+            \\    if (n <= 2) return n;
+            \\    return fibonacci(n - 2) + fibonacci(n - 1);
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const y = fibonacci(999);
+            \\    exit(y - 21);
+            \\}
+            \\
+            \\inline fn fibonacci(n: usize) usize {
+            \\    if (n <= 2) return n;
+            \\    return fibonacci(n - 2) + fibonacci(n - 1);
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":8:10: error: evaluation exceeded 1000 backwards branches"});
     }
 }
