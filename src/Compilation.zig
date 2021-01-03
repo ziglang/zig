@@ -1512,7 +1512,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                             module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                                 module.gpa,
                                 decl.src(),
-                                "unable to generate C header: {}",
+                                "unable to generate C header: {s}",
                                 .{@errorName(err)},
                             ));
                             decl.analysis = .codegen_failure_retryable;
@@ -1593,7 +1593,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         .libtsan => {
             libtsan.buildTsan(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build TSAN library: {}", .{@errorName(err)});
+                fatal("unable to build TSAN library: {s}", .{@errorName(err)});
             };
         },
         .compiler_rt_lib => {
@@ -1983,7 +1983,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
                         // TODO parse clang stderr and turn it into an error message
                         // and then call failCObjWithOwnedErrorMsg
                         log.err("clang failed with stderr: {s}", .{stderr});
-                        return comp.failCObj(c_object, "clang exited with code {}", .{code});
+                        return comp.failCObj(c_object, "clang exited with code {d}", .{code});
                     }
                 },
                 else => {
@@ -3013,7 +3013,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("stage1 {} new_digest={} error: {s}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
+            log.debug("stage1 {s} new_digest={} error: {s}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -3021,7 +3021,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             if (!mem.eql(u8, prev_digest[0..digest.len], &digest))
                 break :hit;
 
-            log.debug("stage1 {} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
+            log.debug("stage1 {s} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
             var flags_bytes: [1]u8 = undefined;
             _ = std.fmt.hexToBytes(&flags_bytes, prev_digest[digest.len..]) catch {
                 log.warn("bad cache stage1 digest: '{s}'", .{prev_digest});
@@ -3044,7 +3044,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             mod.stage1_flags = @bitCast(@TypeOf(mod.stage1_flags), flags_bytes[0]);
             return;
         }
-        log.debug("stage1 {} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
+        log.debug("stage1 {s} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
         man.unhit(prev_hash_state, input_file_count);
     }
 

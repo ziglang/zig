@@ -163,7 +163,7 @@ pub fn format(
     out_stream: anytype,
 ) !void {
     if (fmt.len != 0) @compileError("Unknown format string: '" ++ fmt ++ "'");
-    try std.fmt.format(out_stream, "{}.{}.{}", .{ self.major, self.minor, self.patch });
+    try std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
     if (self.pre) |pre| try std.fmt.format(out_stream, "-{s}", .{pre});
     if (self.build) |build| try std.fmt.format(out_stream, "+{s}", .{build});
 }

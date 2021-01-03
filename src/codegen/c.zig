@@ -383,7 +383,7 @@ const Context = struct {
     }
 
     fn name(self: *Context) ![]u8 {
-        const val = try std.fmt.allocPrint(&self.arena.allocator, "__temp_{}", .{self.unnamed_index});
+        const val = try std.fmt.allocPrint(&self.arena.allocator, "__temp_{d}", .{self.unnamed_index});
         self.unnamed_index += 1;
         return val;
     }
@@ -420,7 +420,7 @@ fn genAlloc(ctx: *Context, file: *C, alloc: *Inst.NoOp) !?[]u8 {
 }
 
 fn genArg(ctx: *Context) !?[]u8 {
-    const name = try std.fmt.allocPrint(&ctx.arena.allocator, "arg{}", .{ctx.argdex});
+    const name = try std.fmt.allocPrint(&ctx.arena.allocator, "arg{d}", .{ctx.argdex});
     ctx.argdex += 1;
     return name;
 }
@@ -528,7 +528,7 @@ fn genCall(ctx: *Context, file: *C, inst: *Inst.Call) !?[]u8 {
                     try renderValue(ctx, writer, arg.ty, val);
                 } else {
                     const val = try ctx.resolveInst(arg);
-                    try writer.print("{}", .{val});
+                    try writer.print("{s}", .{val});
                 }
             }
         }

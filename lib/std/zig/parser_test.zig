@@ -3742,7 +3742,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     for (tree.errors) |*parse_error| {
         const token = tree.token_locs[parse_error.loc()];
         const loc = tree.tokenLocation(0, parse_error.loc());
-        try stderr.print("(memory buffer):{}:{}: error: ", .{ loc.line + 1, loc.column + 1 });
+        try stderr.print("(memory buffer):{d}:{d}: error: ", .{ loc.line + 1, loc.column + 1 });
         try tree.renderError(parse_error, stderr);
         try stderr.print("\n{s}\n", .{source[loc.line_start..loc.line_end]});
         {
@@ -3800,7 +3800,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
             error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
                     warn(
-                        "\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
+                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\n",
                         .{
                             fail_index,
                             needed_alloc_count,

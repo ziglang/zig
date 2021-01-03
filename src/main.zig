@@ -626,7 +626,7 @@ fn buildOutputType(
                             fs.path.dirname(pkg_path),
                             fs.path.basename(pkg_path),
                         ) catch |err| {
-                            fatal("Failed to add package at path {}: {}", .{ pkg_path, @errorName(err) });
+                            fatal("Failed to add package at path {s}: {s}", .{ pkg_path, @errorName(err) });
                         };
                         new_cur_pkg.parent = cur_pkg;
                         try cur_pkg.add(gpa, pkg_name, new_cur_pkg);
@@ -696,13 +696,13 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         stack_size_override = std.fmt.parseUnsigned(u64, args[i], 0) catch |err| {
-                            fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                            fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "--image-base")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         image_base_override = std.fmt.parseUnsigned(u64, args[i], 0) catch |err| {
-                            fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
+                            fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "--name")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
@@ -1914,7 +1914,7 @@ fn buildOutputType(
                                 if (!watch) return cleanExit();
                             } else {
                                 const cmd = try argvCmd(arena, argv.items);
-                                fatal("the following test command failed with exit code {}:\n{s}", .{ code, cmd });
+                                fatal("the following test command failed with exit code {d}:\n{s}", .{ code, cmd });
                             }
                         },
                         else => {
@@ -2069,7 +2069,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
             error.ASTUnitFailure => fatal("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{}),
             error.SemanticAnalyzeFail => {
                 for (clang_errors) |clang_err| {
-                    std.debug.print("{s}:{}:{}: {s}\n", .{
+                    std.debug.print("{s}:{d}:{d}: {s}\n", .{
                         if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
                         clang_err.line + 1,
                         clang_err.column + 1,
@@ -2493,7 +2493,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         .Exited => |code| {
             if (code == 0) return cleanExit();
             const cmd = try argvCmd(arena, child_argv);
-            fatal("the following build command failed with exit code {}:\n{s}", .{ code, cmd });
+            fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
         },
         else => {
             const cmd = try argvCmd(arena, child_argv);
@@ -2812,7 +2812,7 @@ fn printErrMsgToFile(
     const text = text_buf.items;
 
     const stream = file.outStream();
-    try stream.print("{s}:{}:{}: error: {s}\n", .{ path, start_loc.line + 1, start_loc.column + 1, text });
+    try stream.print("{s}:{d}:{d}: error: {s}\n", .{ path, start_loc.line + 1, start_loc.column + 1, text });
 
     if (!color_on) return;
 

@@ -535,7 +535,7 @@ fn analyzeInstParamType(mod: *Module, scope: *Scope, inst: *zir.Inst.ParamType) 
     // TODO support C-style var args
     const param_count = fn_ty.fnParamLen();
     if (arg_index >= param_count) {
-        return mod.fail(scope, inst.base.src, "arg index {} out of bounds; '{}' has {} argument(s)", .{
+        return mod.fail(scope, inst.base.src, "arg index {d} out of bounds; '{}' has {d} argument(s)", .{
             arg_index,
             fn_ty,
             param_count,
@@ -580,7 +580,7 @@ fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*
     const param_index = b.instructions.items.len;
     const param_count = fn_ty.fnParamLen();
     if (param_index >= param_count) {
-        return mod.fail(scope, inst.base.src, "parameter index {} outside list of length {}", .{
+        return mod.fail(scope, inst.base.src, "parameter index {d} outside list of length {d}", .{
             param_index,
             param_count,
         });
@@ -790,7 +790,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
             return mod.fail(
                 scope,
                 inst.positionals.func.src,
-                "expected at least {} argument(s), found {}",
+                "expected at least {d} argument(s), found {d}",
                 .{ fn_params_len, call_params_len },
             );
         }
@@ -800,7 +800,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
         return mod.fail(
             scope,
             inst.positionals.func.src,
-            "expected {} argument(s), found {}",
+            "expected {d} argument(s), found {d}",
             .{ fn_params_len, call_params_len },
         );
     }
@@ -1545,7 +1545,7 @@ fn analyzeInstBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerE
 
     if (lhs.ty.zigTypeTag() == .Vector and rhs.ty.zigTypeTag() == .Vector) {
         if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
-            return mod.fail(scope, inst.base.src, "vector length mismatch: {} and {}", .{
+            return mod.fail(scope, inst.base.src, "vector length mismatch: {d} and {d}", .{
                 lhs.ty.arrayLen(),
                 rhs.ty.arrayLen(),
             });
@@ -1620,7 +1620,7 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 
     if (lhs.ty.zigTypeTag() == .Vector and rhs.ty.zigTypeTag() == .Vector) {
         if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
-            return mod.fail(scope, inst.base.src, "vector length mismatch: {} and {}", .{
+            return mod.fail(scope, inst.base.src, "vector length mismatch: {d} and {d}", .{
                 lhs.ty.arrayLen(),
                 rhs.ty.arrayLen(),
             });
@@ -1791,7 +1791,7 @@ fn analyzeInstCmp(
         return mod.cmpNumeric(scope, inst.base.src, lhs, rhs, op);
     } else if (lhs_ty_tag == .Type and rhs_ty_tag == .Type) {
         if (!is_equality_cmp) {
-            return mod.fail(scope, inst.base.src, "{} operator not allowed for types", .{@tagName(op)});
+            return mod.fail(scope, inst.base.src, "{s} operator not allowed for types", .{@tagName(op)});
         }
         return mod.constBool(scope, inst.base.src, lhs.value().?.eql(rhs.value().?) == (op == .eq));
     }

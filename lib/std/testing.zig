@@ -258,7 +258,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     // If the child type is u8 and no weird bytes, we could print it as strings
     // Even for the length difference, it would be useful to see the values of the slices probably.
     if (expected.len != actual.len) {
-        std.debug.panic("slice lengths differ. expected {}, found {}", .{ expected.len, actual.len });
+        std.debug.panic("slice lengths differ. expected {d}, found {d}", .{ expected.len, actual.len });
     }
     var i: usize = 0;
     while (i < expected.len) : (i += 1) {

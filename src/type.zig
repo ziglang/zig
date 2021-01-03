@@ -558,21 +558,21 @@ pub const Type = extern union {
                 },
                 .array_u8 => {
                     const len = ty.castTag(.array_u8).?.data;
-                    return out_stream.print("[{}]u8", .{len});
+                    return out_stream.print("[{d}]u8", .{len});
                 },
                 .array_u8_sentinel_0 => {
                     const len = ty.castTag(.array_u8_sentinel_0).?.data;
-                    return out_stream.print("[{}:0]u8", .{len});
+                    return out_stream.print("[{d}:0]u8", .{len});
                 },
                 .array => {
                     const payload = ty.castTag(.array).?.data;
-                    try out_stream.print("[{}]", .{payload.len});
+                    try out_stream.print("[{d}]", .{payload.len});
                     ty = payload.elem_type;
                     continue;
                 },
                 .array_sentinel => {
                     const payload = ty.castTag(.array_sentinel).?.data;
-                    try out_stream.print("[{}:{}]", .{ payload.len, payload.sentinel });
+                    try out_stream.print("[{d}:{}]", .{ payload.len, payload.sentinel });
                     ty = payload.elem_type;
                     continue;
                 },

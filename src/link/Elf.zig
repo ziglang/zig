@@ -2082,10 +2082,10 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     if (self.local_symbol_free_list.popOrNull()) |i| {
-        log.debug("reusing symbol index {} for {s}\n", .{ i, decl.name });
+        log.debug("reusing symbol index {d} for {s}\n", .{ i, decl.name });
         decl.link.elf.local_sym_index = i;
     } else {
-        log.debug("allocating symbol index {} for {s}\n", .{ self.local_symbols.items.len, decl.name });
+        log.debug("allocating symbol index {d} for {s}\n", .{ self.local_symbols.items.len, decl.name });
         decl.link.elf.local_sym_index = @intCast(u32, self.local_symbols.items.len);
         _ = self.local_symbols.addOneAssumeCapacity();
     }
@@ -2432,7 +2432,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             if (needed_size > self.allocatedSize(debug_line_sect.sh_offset)) {
                 const new_offset = self.findFreeSpace(needed_size, 1);
                 const existing_size = last_src_fn.off;
-                log.debug("moving .debug_line section: {} bytes from 0x{x} to 0x{x}\n", .{
+                log.debug("moving .debug_line section: {d} bytes from 0x{x} to 0x{x}\n", .{
                     existing_size,
                     debug_line_sect.sh_offset,
                     new_offset,

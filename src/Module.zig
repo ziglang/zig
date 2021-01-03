@@ -248,7 +248,7 @@ pub const Decl = struct {
 
     pub fn dump(self: *Decl) void {
         const loc = std.zig.findLineColumn(self.scope.source.bytes, self.src);
-        std.debug.print("{}:{}:{} name={} status={}", .{
+        std.debug.print("{s}:{d}:{d} name={s} status={s}", .{
             self.scope.sub_file_path,
             loc.line + 1,
             loc.column + 1,
@@ -308,7 +308,7 @@ pub const Fn = struct {
 
     /// For debugging purposes.
     pub fn dump(self: *Fn, mod: Module) void {
-        std.debug.print("Module.Function(name={}) ", .{self.owner_decl.name});
+        std.debug.print("Module.Function(name={s}) ", .{self.owner_decl.name});
         switch (self.analysis) {
             .queued => {
                 std.debug.print("queued\n", .{});
@@ -632,7 +632,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *File, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{s}:{d}:{d}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *File, module: *Module) ![:0]const u8 {
@@ -730,7 +730,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *ZIRModule, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{s}:{d}:{d}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *ZIRModule, module: *Module) ![:0]const u8 {
@@ -1641,7 +1641,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
             }
         } else if (src_decl.castTag(.Comptime)) |comptime_node| {
             const name_index = self.getNextAnonNameIndex();
-            const name = try std.fmt.allocPrint(self.gpa, "__comptime_{}", .{name_index});
+            const name = try std.fmt.allocPrint(self.gpa, "__comptime_{d}", .{name_index});
             defer self.gpa.free(name);
 
             const name_hash = container_scope.fullyQualifiedNameHash(name);
@@ -2277,7 +2277,7 @@ pub fn createAnonymousDecl(
 ) !*Decl {
     const name_index = self.getNextAnonNameIndex();
     const scope_decl = scope.decl().?;
-    const name = try std.fmt.allocPrint(self.gpa, "{s}__anon_{}", .{ scope_decl.name, name_index });
+    const name = try std.fmt.allocPrint(self.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
     defer self.gpa.free(name);
     const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
@@ -2555,7 +2555,7 @@ pub fn cmpNumeric(
 
     if (lhs_ty_tag == .Vector and rhs_ty_tag == .Vector) {
         if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
-            return self.fail(scope, src, "vector length mismatch: {} and {}", .{
+            return self.fail(scope, src, "vector length mismatch: {d} and {d}", .{
                 lhs.ty.arrayLen(),
                 rhs.ty.arrayLen(),
             });
@@ -2700,7 +2700,7 @@ pub fn cmpNumeric(
     const dest_type = if (dest_float_type) |ft| ft else blk: {
         const max_bits = std.math.max(lhs_bits, rhs_bits);
         const casted_bits = std.math.cast(u16, max_bits) catch |err| switch (err) {
-            error.Overflow => return self.fail(scope, src, "{} exceeds maximum integer bit count", .{max_bits}),
+            error.Overflow => return self.fail(scope, src, "{d} exceeds maximum integer bit count", .{max_bits}),
         };
         break :blk try self.makeIntType(scope, dest_int_is_signed, casted_bits);
     };
@@ -3319,7 +3319,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
     const source = zir_module.getSource(self) catch @panic("dumpInst failed to get source");
     const loc = std.zig.findLineColumn(source, inst.src);
     if (inst.tag == .constant) {
-        std.debug.print("constant ty={} val={} src={}:{}:{}\n", .{
+        std.debug.print("constant ty={} val={} src={s}:{d}:{d}\n", .{
             inst.ty,
             inst.castTag(.constant).?.val,
             zir_module.subFilePath(),
@@ -3327,7 +3327,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else if (inst.deaths == 0) {
-        std.debug.print("{} ty={} src={}:{}:{}\n", .{
+        std.debug.print("{s} ty={} src={s}:{d}:{d}\n", .{
             @tagName(inst.tag),
             inst.ty,
             zir_module.subFilePath(),
@@ -3335,7 +3335,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else {
-        std.debug.print("{} ty={} deaths={b} src={}:{}:{}\n", .{
+        std.debug.print("{s} ty={} deaths={b} src={s}:{d}:{d}\n", .{
             @tagName(inst.tag),
             inst.ty,
             inst.deaths,

@@ -450,7 +450,7 @@ test "version_from_build" {
     for (known) |pair| {
         var buf: [32]u8 = undefined;
         const ver = try version_from_build(pair[0]);
-        const sver = try std.fmt.bufPrint(buf[0..], "{}.{}.{}", .{ ver.major, ver.minor, ver.patch });
+        const sver = try std.fmt.bufPrint(buf[0..], "{d}.{d}.{d}", .{ ver.major, ver.minor, ver.patch });
         std.testing.expect(std.mem.eql(u8, sver, pair[1]));
     }
 }
@@ -468,7 +468,7 @@ pub fn getSDKPath(allocator: *mem.Allocator) ![]u8 {
         allocator.free(result.stdout);
     }
     if (result.stderr.len != 0) {
-        std.log.err("unexpected 'xcrun --show-sdk-path' stderr: {}", .{result.stderr});
+        std.log.err("unexpected 'xcrun --show-sdk-path' stderr: {s}", .{result.stderr});
     }
     if (result.term.Exited != 0) {
         return error.ProcessTerminated;

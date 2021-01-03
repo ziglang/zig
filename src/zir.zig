@@ -1257,12 +1257,12 @@ const Writer = struct {
                     self.next_instr_index += 1;
                     try self.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = undefined });
                     try stream.writeByteNTimes(' ', self.indent);
-                    try stream.print("%{} ", .{my_i});
+                    try stream.print("%{d} ", .{my_i});
                     if (inst.cast(Inst.Block)) |block| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{}", .{my_i});
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{d}", .{my_i});
                         try self.block_table.put(block, name);
                     } else if (inst.cast(Inst.Loop)) |loop| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{}", .{my_i});
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{d}", .{my_i});
                         try self.loop_table.put(loop, name);
                     }
                     self.indent += 2;
@@ -1332,7 +1332,7 @@ const Writer = struct {
     fn writeInstParamToStream(self: *Writer, stream: anytype, inst: *Inst) !void {
         if (self.inst_table.get(inst)) |info| {
             if (info.index) |i| {
-                try stream.print("%{}", .{info.index});
+                try stream.print("%{d}", .{info.index});
             } else {
                 try stream.print("@{s}", .{info.name});
             }
@@ -1660,7 +1660,6 @@ const Parser = struct {
             .contents_hash = std.zig.hashSrc(self.source[contents_start..self.i]),
             .inst = &inst_specific.base,
         };
-        //std.debug.warn("parsed {} = '{}'\n", .{ inst_specific.base.name, inst_specific.base.contents });
 
         return decl;
     }
@@ -1805,7 +1804,7 @@ const Parser = struct {
     }
 
     fn generateName(self: *Parser) ![]u8 {
-        const result = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${}", .{self.unnamed_index});
+        const result = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${d}", .{self.unnamed_index});
         self.unnamed_index += 1;
         return result;
     }
@@ -2865,7 +2864,7 @@ const EmitZIR = struct {
 
     fn autoName(self: *EmitZIR) ![]u8 {
         while (true) {
-            const proposed_name = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${}", .{self.next_auto_name});
+            const proposed_name = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${d}", .{self.next_auto_name});
             self.next_auto_name += 1;
             const gop = try self.names.getOrPut(proposed_name);
             if (!gop.found_existing) {
@@ -2954,15 +2953,15 @@ pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8
         write.next_instr_index += 1;
 
         if (inst.cast(Inst.Block)) |block| {
-            const name = try std.fmt.allocPrint(&write.arena.allocator, "label_{}", .{my_i});
+            const name = try std.fmt.allocPrint(&write.arena.allocator, "label_{d}", .{my_i});
             try write.block_table.put(block, name);
         } else if (inst.cast(Inst.Loop)) |loop| {
-            const name = try std.fmt.allocPrint(&write.arena.allocator, "loop_{}", .{my_i});
+            const name = try std.fmt.allocPrint(&write.arena.allocator, "loop_{d}", .{my_i});
             try write.loop_table.put(loop, name);
         }
 
         try write.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = "inst" });
-        try stderr.print("  %{} ", .{my_i});
+        try stderr.print("  %{d} ", .{my_i});
         try write.writeInstToStream(stderr, inst);
         try stderr.writeByte('\n');
     }

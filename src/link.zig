@@ -523,7 +523,7 @@ pub const File = struct {
                 id_symlink_basename,
                 &prev_digest_buf,
             ) catch |err| b: {
-                log.debug("archive new_digest={} readFile error: {}", .{ digest, @errorName(err) });
+                log.debug("archive new_digest={} readFile error: {s}", .{ digest, @errorName(err) });
                 break :b prev_digest_buf[0..0];
             };
             if (mem.eql(u8, prev_digest, &digest)) {

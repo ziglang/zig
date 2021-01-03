@@ -385,7 +385,7 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpr
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (node.getLabel()) |break_label| {
                 const label_name = try identifierTokenString(mod, parent_scope, break_label);
-                return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+                return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
                 return mod.failTok(parent_scope, src, "break expression outside loop", .{});
             },
@@ -427,7 +427,7 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowE
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (node.getLabel()) |break_label| {
                 const label_name = try identifierTokenString(mod, parent_scope, break_label);
-                return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+                return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
                 return mod.failTok(parent_scope, src, "continue expression outside loop", .{});
             },
@@ -2204,7 +2204,7 @@ fn ensureBuiltinParamCount(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinC
         return;
 
     const s = if (count == 1) "" else "s";
-    return mod.failTok(scope, call.builtin_token, "expected {} parameter{s}, found {}", .{ count, s, call.params_len });
+    return mod.failTok(scope, call.builtin_token, "expected {d} parameter{s}, found {d}", .{ count, s, call.params_len });
 }
 
 fn simpleCast(
