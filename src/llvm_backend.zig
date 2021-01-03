@@ -142,7 +142,7 @@ pub const LLVMIRModule = struct {
     target_machine: *const llvm.TargetMachineRef,
     builder: *const llvm.BuilderRef,
 
-    output_path: []const u8,
+    object_path: []const u8,
 
     gpa: *Allocator,
     err_msg: ?*Compilation.ErrorMsg = null,
@@ -160,6 +160,17 @@ pub const LLVMIRModule = struct {
         errdefer allocator.destroy(self);
 
         const gpa = options.module.?.gpa;
+
+        const obj_basename = try std.zig.binNameAlloc(gpa, .{
+            .root_name = options.root_name,
+            .target = options.target,
+            .output_mode = .Obj,
+        });
+        defer gpa.free(obj_basename);
+
+        const o_directory = options.module.?.zig_cache_artifact_directory;
+        const object_path = try o_directory.join(gpa, &[_][]const u8{obj_basename});
+        errdefer gpa.free(object_path);
 
         initializeLLVMTargets();
 
@@ -212,7 +223,7 @@ pub const LLVMIRModule = struct {
             .llvm_module = llvm_module,
             .target_machine = target_machine,
             .builder = builder,
-            .output_path = sub_path,
+            .object_path = object_path,
             .gpa = gpa,
         };
         return self;
@@ -222,6 +233,10 @@ pub const LLVMIRModule = struct {
         self.builder.disposeBuilder();
         self.target_machine.disposeTargetMachine();
         self.llvm_module.disposeModule();
+
+        self.func_inst_table.deinit(self.gpa);
+        self.gpa.free(self.object_path);
+
         allocator.destroy(self);
     }
 
@@ -254,15 +269,13 @@ pub const LLVMIRModule = struct {
             }
         }
 
-        const output_pathZ = try self.gpa.dupeZ(u8, self.output_path);
-        defer self.gpa.free(output_pathZ);
+        const object_pathZ = try self.gpa.dupeZ(u8, self.object_path);
+        defer self.gpa.free(object_pathZ);
 
         var error_message: [*:0]const u8 = undefined;
-        // TODO: where to put the output object, zig-cache something?
-        // TODO: caching?
         if (self.target_machine.emitToFile(
             self.llvm_module,
-            output_pathZ.ptr,
+            object_pathZ.ptr,
             .ObjectFile,
             &error_message,
         )) {
