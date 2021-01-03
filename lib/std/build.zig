@@ -200,12 +200,16 @@ pub const Builder = struct {
             const install_prefix = self.install_prefix orelse "/usr";
             self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, install_prefix }) catch unreachable;
         } else {
-            const install_prefix = self.install_prefix orelse blk: {
-                const p = self.cache_root;
+            self.install_path = self.install_prefix orelse blk: {
+                const p = if (self.release_mode) |mode| switch (mode) {
+                    .Debug => "debug",
+                    .ReleaseSafe => "release",
+                    .ReleaseFast => "release",
+                    .ReleaseSmall => "release",
+                } else "debug";
                 self.install_prefix = p;
-                break :blk p;
+                break :blk self.pathFromRoot(p);
             };
-            self.install_path = install_prefix;
         }
         self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
         self.exe_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable;
