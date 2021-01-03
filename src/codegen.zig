@@ -2575,12 +2575,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
-                        // TODO: strh
-                        const offset = if (stack_offset <= math.maxInt(u12)) blk: {
-                            break :blk Instruction.Offset.imm(@intCast(u12, stack_offset));
-                        } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = stack_offset }), 0);
-
                         const abi_size = ty.abiSize(self.target.*);
+                        const adj_off = stack_offset + abi_size;
+                        const offset = if (adj_off <= math.maxInt(u12)) blk: {
+                            break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
+                        } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
+
                         switch (abi_size) {
                             1 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.strb(.al, reg, .fp, .{
                                 .offset = offset,
@@ -2778,21 +2778,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
                     },
                     .stack_offset => |unadjusted_off| {
-                        // TODO: ldrh
                         // TODO: maybe addressing from sp instead of fp
-                        const offset = if (unadjusted_off <= math.maxInt(u12)) blk: {
-                            break :blk Instruction.Offset.imm(@intCast(u12, unadjusted_off));
-                        } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = unadjusted_off }), 0);
-
                         // TODO: supply type information to genSetReg as we do to genSetStack
                         // const abi_size = ty.abiSize(self.target.*);
                         const abi_size = 4;
+                        const adj_off = unadjusted_off + abi_size;
+                        const offset = if (adj_off <= math.maxInt(u12)) blk: {
+                            break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
+                        } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
+
                         switch (abi_size) {
                             1 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldrb(.al, reg, .fp, .{
                                 .offset = offset,
                                 .positive = false,
                             }).toU32()),
-                            2 => return self.fail(src, "TODO implement strh", .{}),
+                            2 => return self.fail(src, "TODO implement ldrh", .{}),
                             4 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, .fp, .{
                                 .offset = offset,
                                 .positive = false,
