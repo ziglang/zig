@@ -1853,9 +1853,16 @@ fn buildOutputType(
                     else => unreachable,
                 }
             }
-            try argv.appendSlice(&[_][]const u8{
-                exe_path, self_exe_path,
-            });
+            // when testing pass the zig_exe_path to argv
+            if (arg_mode == .zig_test)
+                try argv.appendSlice(&[_][]const u8{
+                    exe_path, self_exe_path,
+                })
+                // when running just pass the current exe
+            else
+                try argv.appendSlice(&[_][]const u8{
+                    exe_path,
+                });
         } else {
             for (test_exec_args.items) |arg| {
                 if (arg) |a| {
