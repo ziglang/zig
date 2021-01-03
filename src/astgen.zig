@@ -384,7 +384,7 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpr
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (node.getLabel()) |break_label| {
-                const label_name = try identifierTokenString(mod, parent_scope, break_label);
+                const label_name = try mod.identifierTokenString(parent_scope, break_label);
                 return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
                 return mod.failTok(parent_scope, src, "break expression outside loop", .{});
@@ -426,7 +426,7 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowE
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (node.getLabel()) |break_label| {
-                const label_name = try identifierTokenString(mod, parent_scope, break_label);
+                const label_name = try mod.identifierTokenString(parent_scope, break_label);
                 return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
                 return mod.failTok(parent_scope, src, "continue expression outside loop", .{});
@@ -551,7 +551,7 @@ fn varDecl(
     }
     const tree = scope.tree();
     const name_src = tree.token_locs[node.name_token].start;
-    const ident_name = try identifierTokenString(mod, scope, node.name_token);
+    const ident_name = try mod.identifierTokenString(scope, node.name_token);
 
     // Local variables shadowing detection, including function parameters.
     {
@@ -843,7 +843,7 @@ fn typeInixOp(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp, op_ins
 fn enumLiteral(mod: *Module, scope: *Scope, node: *ast.Node.EnumLiteral) !*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.name].start;
-    const name = try identifierTokenString(mod, scope, node.name);
+    const name = try mod.identifierTokenString(scope, node.name);
 
     return addZIRInst(mod, scope, src, zir.Inst.EnumLiteral, .{ .name = name }, .{});
 }
@@ -864,7 +864,7 @@ fn errorSetDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Erro
 
     for (decls) |decl, i| {
         const tag = decl.castTag(.ErrorTag).?;
-        fields[i] = try identifierTokenString(mod, scope, tag.name_token);
+        fields[i] = try mod.identifierTokenString(scope, tag.name_token);
     }
 
     // analyzing the error set results in a decl ref, so we might need to dereference it
@@ -988,36 +988,16 @@ fn orelseCatchExpr(
 /// Return whether the identifier names of two tokens are equal. Resolves @"" tokens without allocating.
 /// OK in theory it could do it without allocating. This implementation allocates when the @"" form is used.
 fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: ast.TokenIndex) !bool {
-    const ident_name_1 = try identifierTokenString(mod, scope, token1);
-    const ident_name_2 = try identifierTokenString(mod, scope, token2);
+    const ident_name_1 = try mod.identifierTokenString(scope, token1);
+    const ident_name_2 = try mod.identifierTokenString(scope, token2);
     return mem.eql(u8, ident_name_1, ident_name_2);
-}
-
-/// Identifier token -> String (allocated in scope.arena())
-fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
-    const tree = scope.tree();
-
-    const ident_name = tree.tokenSlice(token);
-    if (mem.startsWith(u8, ident_name, "@")) {
-        const raw_string = ident_name[1..];
-        var bad_index: usize = undefined;
-        return std.zig.parseStringLiteral(scope.arena(), raw_string, &bad_index) catch |err| switch (err) {
-            error.InvalidCharacter => {
-                const bad_byte = raw_string[bad_index];
-                const src = tree.token_locs[token].start;
-                return mod.fail(scope, src + 1 + bad_index, "invalid string literal character: '{c}'\n", .{bad_byte});
-            },
-            else => |e| return e,
-        };
-    }
-    return ident_name;
 }
 
 pub fn identifierStringInst(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.token].start;
 
-    const ident_name = try identifierTokenString(mod, scope, node.token);
+    const ident_name = try mod.identifierTokenString(scope, node.token);
 
     return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = ident_name }, .{});
 }
@@ -1936,7 +1916,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
     defer tracy.end();
 
     const tree = scope.tree();
-    const ident_name = try identifierTokenString(mod, scope, ident.token);
+    const ident_name = try mod.identifierTokenString(scope, ident.token);
     const src = tree.token_locs[ident.token].start;
     if (mem.eql(u8, ident_name, "_")) {
         return mod.failNode(scope, &ident.base, "TODO implement '_' identifier", .{});

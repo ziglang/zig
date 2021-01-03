@@ -294,7 +294,7 @@ pub const LLVMIRModule = struct {
                 const entry_block = llvm_func.appendBasicBlock("Entry");
                 self.builder.positionBuilderAtEnd(entry_block);
 
-                const instructions = func.analysis.success.instructions;
+                const instructions = func.body.instructions;
                 for (instructions) |inst| {
                     switch (inst.tag) {
                         .breakpoint => try self.genBreakpoint(inst.castTag(.breakpoint).?),

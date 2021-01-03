@@ -159,16 +159,11 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
     }
 }
 
-pub fn analyzeBody(mod: *Module, scope: *Scope, body: zir.Module.Body) !void {
-    for (body.instructions) |src_inst, i| {
-        const analyzed_inst = try analyzeInst(mod, scope, src_inst);
-        src_inst.analyzed_inst = analyzed_inst;
+pub fn analyzeBody(mod: *Module, block: *Scope.Block, body: zir.Module.Body) !void {
+    for (body.instructions) |src_inst| {
+        const analyzed_inst = try analyzeInst(mod, &block.base, src_inst);
+        try block.inst_table.putNoClobber(src_inst, analyzed_inst);
         if (analyzed_inst.ty.zigTypeTag() == .NoReturn) {
-            for (body.instructions[i..]) |unreachable_inst| {
-                if (unreachable_inst.castTag(.dbg_stmt)) |dbg_stmt| {
-                    return mod.fail(scope, dbg_stmt.base.src, "unreachable code", .{});
-                }
-            }
             break;
         }
     }
@@ -180,8 +175,8 @@ pub fn analyzeBodyValueAsType(
     zir_result_inst: *zir.Inst,
     body: zir.Module.Body,
 ) !Type {
-    try analyzeBody(mod, &block_scope.base, body);
-    const result_inst = zir_result_inst.analyzed_inst.?;
+    try analyzeBody(mod, block_scope, body);
+    const result_inst = block_scope.inst_table.get(zir_result_inst).?;
     const val = try mod.resolveConstValue(&block_scope.base, result_inst);
     return val.toType(block_scope.base.arena());
 }
@@ -264,30 +259,9 @@ fn resolveCompleteZirDecl(mod: *Module, scope: *Scope, src_decl: *zir.Decl) Inne
     return decl;
 }
 
-/// TODO Look into removing this function. The body is only needed for .zir files, not .zig files.
-pub fn resolveInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Inst {
-    if (old_inst.analyzed_inst) |inst| return inst;
-
-    // If this assert trips, the instruction that was referenced did not get properly
-    // analyzed before it was referenced.
-    const zir_module = scope.namespace().cast(Scope.ZIRModule).?;
-    const entry = if (old_inst.cast(zir.Inst.DeclVal)) |declval| blk: {
-        const decl_name = declval.positionals.name;
-        const entry = zir_module.contents.module.findDecl(decl_name) orelse
-            return mod.fail(scope, old_inst.src, "decl '{s}' not found", .{decl_name});
-        break :blk entry;
-    } else blk: {
-        // If this assert trips, the instruction that was referenced did not get
-        // properly analyzed by a previous instruction analysis before it was
-        // referenced by the current one.
-        break :blk zir_module.contents.module.findInstDecl(old_inst).?;
-    };
-    const decl = try resolveCompleteZirDecl(mod, scope, entry.decl);
-    const decl_ref = try mod.analyzeDeclRef(scope, old_inst.src, decl);
-    // Note: it would be tempting here to store the result into old_inst.analyzed_inst field,
-    // but this would prevent the analyzeDeclRef from happening, which is needed to properly
-    // detect Decl dependencies and dependency failures on updates.
-    return mod.analyzeDeref(scope, old_inst.src, decl_ref, old_inst.src);
+pub fn resolveInst(mod: *Module, scope: *Scope, zir_inst: *zir.Inst) InnerError!*Inst {
+    const block = scope.cast(Scope.Block).?;
+    return block.inst_table.get(zir_inst).?; // Instruction does not dominate all uses!
 }
 
 fn resolveConstString(mod: *Module, scope: *Scope, old_inst: *zir.Inst) ![]u8 {
@@ -575,7 +549,12 @@ fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) In
 }
 
 fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
+    if (b.inlining) |inlining| {
+        const param_index = inlining.param_index;
+        inlining.param_index += 1;
+        return inlining.casted_args[param_index];
+    }
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
     const param_index = b.instructions.items.len;
     const param_count = fn_ty.fnParamLen();
@@ -608,15 +587,17 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
 
     var child_block: Scope.Block = .{
         .parent = parent_block,
+        .inst_table = parent_block.inst_table,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer child_block.instructions.deinit(mod.gpa);
 
-    try analyzeBody(mod, &child_block.base, inst.positionals.body);
+    try analyzeBody(mod, &child_block, inst.positionals.body);
 
     // Loop repetition is implied so the last instruction may or may not be a noreturn instruction.
 
@@ -630,16 +611,18 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
 
     var child_block: Scope.Block = .{
         .parent = parent_block,
+        .inst_table = parent_block.inst_table,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
         .label = null,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime or is_comptime,
     };
     defer child_block.instructions.deinit(mod.gpa);
 
-    try analyzeBody(mod, &child_block.base, inst.positionals.body);
+    try analyzeBody(mod, &child_block, inst.positionals.body);
 
     try parent_block.instructions.appendSlice(mod.gpa, child_block.instructions.items);
 
@@ -668,6 +651,7 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_compt
 
     var child_block: Scope.Block = .{
         .parent = parent_block,
+        .inst_table = parent_block.inst_table,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
@@ -675,38 +659,53 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_compt
         // TODO @as here is working around a stage1 miscompilation bug :(
         .label = @as(?Scope.Block.Label, Scope.Block.Label{
             .zir_block = inst,
-            .results = .{},
-            .block_inst = block_inst,
+            .merges = .{
+                .results = .{},
+                .block_inst = block_inst,
+            },
         }),
+        .inlining = parent_block.inlining,
         .is_comptime = is_comptime or parent_block.is_comptime,
     };
-    const label = &child_block.label.?;
+    const merges = &child_block.label.?.merges;
 
     defer child_block.instructions.deinit(mod.gpa);
-    defer label.results.deinit(mod.gpa);
+    defer merges.results.deinit(mod.gpa);
 
-    try analyzeBody(mod, &child_block.base, inst.positionals.body);
+    try analyzeBody(mod, &child_block, inst.positionals.body);
+
+    return analyzeBlockBody(mod, scope, &child_block, merges);
+}
+
+fn analyzeBlockBody(
+    mod: *Module,
+    scope: *Scope,
+    child_block: *Scope.Block,
+    merges: *Scope.Block.Merges,
+) InnerError!*Inst {
+    const parent_block = scope.cast(Scope.Block).?;
 
     // Blocks must terminate with noreturn instruction.
     assert(child_block.instructions.items.len != 0);
     assert(child_block.instructions.items[child_block.instructions.items.len - 1].ty.isNoReturn());
 
-    if (label.results.items.len == 0) {
-        // No need for a block instruction. We can put the new instructions directly into the parent block.
+    if (merges.results.items.len == 0) {
+        // No need for a block instruction. We can put the new instructions
+        // directly into the parent block.
         const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items);
         try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
         return copied_instructions[copied_instructions.len - 1];
     }
-    if (label.results.items.len == 1) {
+    if (merges.results.items.len == 1) {
         const last_inst_index = child_block.instructions.items.len - 1;
         const last_inst = child_block.instructions.items[last_inst_index];
         if (last_inst.breakBlock()) |br_block| {
-            if (br_block == block_inst) {
+            if (br_block == merges.block_inst) {
                 // No need for a block instruction. We can put the new instructions directly into the parent block.
                 // Here we omit the break instruction.
                 const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items[0..last_inst_index]);
                 try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
-                return label.results.items[0];
+                return merges.results.items[0];
             }
         }
     }
@@ -715,10 +714,10 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_compt
 
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
-    try parent_block.instructions.append(mod.gpa, &block_inst.base);
-    block_inst.base.ty = try mod.resolvePeerTypes(scope, label.results.items);
-    block_inst.body = .{ .instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items) };
-    return &block_inst.base;
+    try parent_block.instructions.append(mod.gpa, &merges.block_inst.base);
+    merges.block_inst.base.ty = try mod.resolvePeerTypes(scope, merges.results.items);
+    merges.block_inst.body = .{ .instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items) };
+    return &merges.block_inst.base;
 }
 
 fn analyzeInstBreakpoint(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
@@ -826,28 +825,108 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
 
     const ret_type = func.ty.fnReturnType();
 
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
+    const is_comptime_call = b.is_comptime or inst.kw_args.modifier == .compile_time;
+    const is_inline_call = is_comptime_call or inst.kw_args.modifier == .always_inline or blk: {
+        // This logic will get simplified by
+        // https://github.com/ziglang/zig/issues/6429
+        if (try mod.resolveDefinedValue(scope, func)) |func_val| {
+            const module_fn = switch (func_val.tag()) {
+                .function => func_val.castTag(.function).?.data,
+                else => break :blk false,
+            };
+            break :blk module_fn.state == .inline_only;
+        }
+        break :blk false;
+    };
+    if (is_inline_call) {
+        const func_val = try mod.resolveConstValue(scope, func);
+        const module_fn = switch (func_val.tag()) {
+            .function => func_val.castTag(.function).?.data,
+            .extern_fn => return mod.fail(scope, inst.base.src, "{s} call of extern function", .{
+                @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
+            }),
+            else => unreachable,
+        };
+
+        // Analyze the ZIR. The same ZIR gets analyzed into a runtime function
+        // or an inlined call depending on what union tag the `label` field is
+        // set to in the `Scope.Block`.
+        // This block instruction will be used to capture the return value from the
+        // inlined function.
+        const block_inst = try scope.arena().create(Inst.Block);
+        block_inst.* = .{
+            .base = .{
+                .tag = Inst.Block.base_tag,
+                .ty = ret_type,
+                .src = inst.base.src,
+            },
+            .body = undefined,
+        };
+        // If this is the top of the inline/comptime call stack, we use this data.
+        // Otherwise we pass on the shared data from the parent scope.
+        var shared_inlining = Scope.Block.Inlining.Shared{
+            .branch_count = 0,
+            .branch_quota = 1000,
+            .caller = b.func,
+        };
+        // This one is shared among sub-blocks within the same callee, but not
+        // shared among the entire inline/comptime call stack.
+        var inlining = Scope.Block.Inlining{
+            .shared = if (b.inlining) |inlining| inlining.shared else &shared_inlining,
+            .param_index = 0,
+            .casted_args = casted_args,
+            .merges = .{
+                .results = .{},
+                .block_inst = block_inst,
+            },
+        };
+        var inst_table = Scope.Block.InstTable.init(mod.gpa);
+        defer inst_table.deinit();
+
+        var child_block: Scope.Block = .{
+            .parent = null,
+            .inst_table = &inst_table,
+            .func = module_fn,
+            // Note that we pass the caller's Decl, not the callee. This causes
+            // compile errors to be attached (correctly) to the caller's Decl.
+            .decl = scope.decl().?,
+            .instructions = .{},
+            .arena = scope.arena(),
+            .label = null,
+            .inlining = &inlining,
+            .is_comptime = is_comptime_call,
+        };
+        const merges = &child_block.inlining.?.merges;
+
+        defer child_block.instructions.deinit(mod.gpa);
+        defer merges.results.deinit(mod.gpa);
+
+        try mod.emitBackwardBranch(&child_block, inst.base.src);
+
+        // This will have return instructions analyzed as break instructions to
+        // the block_inst above.
+        try analyzeBody(mod, &child_block, module_fn.zir);
+
+        const result = try analyzeBlockBody(mod, scope, &child_block, merges);
+        if (result.castTag(.constant)) |constant| {
+            log.debug("inline call resulted in {}", .{constant.val});
+        } else {
+            log.debug("inline call resulted in {}", .{result});
+        }
+        return result;
+    }
+
     return mod.addCall(b, inst.base.src, ret_type, func, casted_args);
 }
 
 fn analyzeInstFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!*Inst {
     const fn_type = try resolveType(mod, scope, fn_inst.positionals.fn_type);
-    const fn_zir = blk: {
-        var fn_arena = std.heap.ArenaAllocator.init(mod.gpa);
-        errdefer fn_arena.deinit();
-
-        const fn_zir = try scope.arena().create(Module.Fn.ZIR);
-        fn_zir.* = .{
-            .body = .{
-                .instructions = fn_inst.positionals.body.instructions,
-            },
-            .arena = fn_arena.state,
-        };
-        break :blk fn_zir;
-    };
     const new_func = try scope.arena().create(Module.Fn);
     new_func.* = .{
-        .analysis = .{ .queued = fn_zir },
+        .state = if (fn_inst.kw_args.is_inline) .inline_only else .queued,
+        .zir = fn_inst.positionals.body,
+        .body = undefined,
         .owner_decl = scope.decl().?,
     };
     return mod.constInst(scope, fn_inst.base.src, .{
@@ -1312,17 +1391,17 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
             const item = try mod.resolveConstValue(scope, casted);
 
             if (target_val.eql(item)) {
-                try analyzeBody(mod, scope, case.body);
+                try analyzeBody(mod, scope.cast(Scope.Block).?, case.body);
                 return mod.constNoReturn(scope, inst.base.src);
             }
         }
-        try analyzeBody(mod, scope, inst.positionals.else_body);
+        try analyzeBody(mod, scope.cast(Scope.Block).?, inst.positionals.else_body);
         return mod.constNoReturn(scope, inst.base.src);
     }
 
     if (inst.positionals.cases.len == 0) {
         // no cases just analyze else_branch
-        try analyzeBody(mod, scope, inst.positionals.else_body);
+        try analyzeBody(mod, scope.cast(Scope.Block).?, inst.positionals.else_body);
         return mod.constNoReturn(scope, inst.base.src);
     }
 
@@ -1331,10 +1410,12 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
 
     var case_block: Scope.Block = .{
         .parent = parent_block,
+        .inst_table = parent_block.inst_table,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer case_block.instructions.deinit(mod.gpa);
@@ -1347,7 +1428,7 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
         const casted = try mod.coerce(scope, target.ty, resolved);
         const item = try mod.resolveConstValue(scope, casted);
 
-        try analyzeBody(mod, &case_block.base, case.body);
+        try analyzeBody(mod, &case_block, case.body);
 
         cases[i] = .{
             .item = item,
@@ -1356,7 +1437,7 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
     }
 
     case_block.instructions.items.len = 0;
-    try analyzeBody(mod, &case_block.base, inst.positionals.else_body);
+    try analyzeBody(mod, &case_block, inst.positionals.else_body);
 
     const else_body: ir.Body = .{
         .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items),
@@ -1509,7 +1590,7 @@ fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErr
             return mod.fail(scope, inst.base.src, "unable to find '{s}'", .{operand});
         },
         else => {
-            // TODO user friendly error to string
+            // TODO: make sure this gets retried and not cached
             return mod.fail(scope, inst.base.src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
@@ -1674,23 +1755,25 @@ fn analyzeInstComptimeOp(mod: *Module, scope: *Scope, res_type: Type, inst: *zir
     }
     const is_int = res_type.isInt() or res_type.zigTypeTag() == .ComptimeInt;
 
-    const value = try switch (inst.base.tag) {
+    const value = switch (inst.base.tag) {
         .add => blk: {
             const val = if (is_int)
-                Module.intAdd(scope.arena(), lhs_val, rhs_val)
+                try Module.intAdd(scope.arena(), lhs_val, rhs_val)
             else
-                mod.floatAdd(scope, res_type, inst.base.src, lhs_val, rhs_val);
+                try mod.floatAdd(scope, res_type, inst.base.src, lhs_val, rhs_val);
             break :blk val;
         },
         .sub => blk: {
             const val = if (is_int)
-                Module.intSub(scope.arena(), lhs_val, rhs_val)
+                try Module.intSub(scope.arena(), lhs_val, rhs_val)
             else
-                mod.floatSub(scope, res_type, inst.base.src, lhs_val, rhs_val);
+                try mod.floatSub(scope, res_type, inst.base.src, lhs_val, rhs_val);
             break :blk val;
         },
         else => return mod.fail(scope, inst.base.src, "TODO Implement arithmetic operand '{s}'", .{@tagName(inst.base.tag)}),
     };
+
+    log.debug("{s}({}, {}) result: {}", .{ @tagName(inst.base.tag), lhs_val, rhs_val, value });
 
     return mod.constInst(scope, inst.base.src, .{
         .ty = res_type,
@@ -1860,35 +1943,39 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
     const uncasted_cond = try resolveInst(mod, scope, inst.positionals.condition);
     const cond = try mod.coerce(scope, Type.initTag(.bool), uncasted_cond);
 
+    const parent_block = scope.cast(Scope.Block).?;
+
     if (try mod.resolveDefinedValue(scope, cond)) |cond_val| {
         const body = if (cond_val.toBool()) &inst.positionals.then_body else &inst.positionals.else_body;
-        try analyzeBody(mod, scope, body.*);
+        try analyzeBody(mod, parent_block, body.*);
         return mod.constNoReturn(scope, inst.base.src);
     }
 
-    const parent_block = try mod.requireRuntimeBlock(scope, inst.base.src);
-
     var true_block: Scope.Block = .{
         .parent = parent_block,
+        .inst_table = parent_block.inst_table,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer true_block.instructions.deinit(mod.gpa);
-    try analyzeBody(mod, &true_block.base, inst.positionals.then_body);
+    try analyzeBody(mod, &true_block, inst.positionals.then_body);
 
     var false_block: Scope.Block = .{
         .parent = parent_block,
+        .inst_table = parent_block.inst_table,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
     defer false_block.instructions.deinit(mod.gpa);
-    try analyzeBody(mod, &false_block.base, inst.positionals.else_body);
+    try analyzeBody(mod, &false_block, inst.positionals.else_body);
 
     const then_body: ir.Body = .{ .instructions = try scope.arena().dupe(*Inst, true_block.instructions.items) };
     const else_body: ir.Body = .{ .instructions = try scope.arena().dupe(*Inst, false_block.instructions.items) };
@@ -1912,12 +1999,26 @@ fn analyzeInstUnreachable(
 
 fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
+
+    if (b.inlining) |inlining| {
+        // We are inlining a function call; rewrite the `ret` as a `break`.
+        try inlining.merges.results.append(mod.gpa, operand);
+        return mod.addBr(b, inst.base.src, inlining.merges.block_inst, operand);
+    }
+
     return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
 }
 
 fn analyzeInstRetVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
+    if (b.inlining) |inlining| {
+        // We are inlining a function call; rewrite the `retvoid` as a `breakvoid`.
+        const void_inst = try mod.constVoid(scope, inst.base.src);
+        try inlining.merges.results.append(mod.gpa, void_inst);
+        return mod.addBr(b, inst.base.src, inlining.merges.block_inst, void_inst);
+    }
+
     if (b.func) |func| {
         // Need to emit a compile error if returning void is not allowed.
         const void_inst = try mod.constVoid(scope, inst.base.src);
@@ -1949,9 +2050,9 @@ fn analyzeBreak(
     while (opt_block) |block| {
         if (block.label) |*label| {
             if (label.zir_block == zir_block) {
-                try label.results.append(mod.gpa, operand);
-                const b = try mod.requireRuntimeBlock(scope, src);
-                return mod.addBr(b, src, label.block_inst, operand);
+                try label.merges.results.append(mod.gpa, operand);
+                const b = try mod.requireFunctionBlock(scope, src);
+                return mod.addBr(b, src, label.merges.block_inst, operand);
             }
         }
         opt_block = block.parent;

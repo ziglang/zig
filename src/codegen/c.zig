@@ -275,7 +275,7 @@ pub fn generate(file: *C, module: *Module, decl: *Decl) !void {
         try writer.writeAll(" {");
 
         const func: *Module.Fn = func_payload.data;
-        const instructions = func.analysis.success.instructions;
+        const instructions = func.body.instructions;
         if (instructions.len > 0) {
             try writer.writeAll("\n");
             for (instructions) |inst| {
