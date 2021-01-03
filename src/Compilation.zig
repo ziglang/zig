@@ -1173,6 +1173,7 @@ pub fn destroy(self: *Compilation) void {
 
     const gpa = self.gpa;
     self.work_queue.deinit();
+    self.c_object_work_queue.deinit();
 
     {
         var it = self.crt_files.iterator();
@@ -1200,6 +1201,10 @@ pub fn destroy(self: *Compilation) void {
     }
     if (self.libc_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
+    }
+
+    if (self.glibc_so_files) |*glibc_file| {
+        glibc_file.deinit(gpa);
     }
 
     for (self.c_object_table.items()) |entry| {
