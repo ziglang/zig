@@ -2223,7 +2223,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             writeInt(u32, try self.code.addManyAsArray(4), Instruction.cmp(.al, reg, op).toU32());
                             break :blk .ne;
                         },
-                        else => return self.fail(inst.base.src, "TODO implement condbr {} when condition is {}", .{ self.target.cpu.arch, @tagName(cond) }),
+                        else => return self.fail(inst.base.src, "TODO implement condbr {} when condition is {s}", .{ self.target.cpu.arch, @tagName(cond) }),
                     };
 
                     const reloc = Reloc{

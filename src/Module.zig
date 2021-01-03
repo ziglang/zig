@@ -2400,7 +2400,7 @@ fn getAnonTypeName(self: *Module, scope: *Scope, base_token: std.zig.ast.TokenIn
         else => unreachable,
     };
     const loc = tree.tokenLocationLoc(0, tree.token_locs[base_token]);
-    return std.fmt.allocPrint(self.gpa, "{}:{}:{}", .{ base_name, loc.line, loc.column });
+    return std.fmt.allocPrint(self.gpa, "{s}:{}:{}", .{ base_name, loc.line, loc.column });
 }
 
 fn getNextAnonNameIndex(self: *Module) usize {

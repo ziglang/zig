@@ -1832,7 +1832,7 @@ fn zirBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*In
     const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
 
     if (!is_int) {
-        return mod.fail(scope, inst.base.src, "invalid operands to binary bitwise expression: '{}' and '{}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
+        return mod.fail(scope, inst.base.src, "invalid operands to binary bitwise expression: '{s}' and '{s}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
     }
 
     if (casted_lhs.value()) |lhs_val| {
