@@ -127,6 +127,8 @@ pub const Inst = struct {
         coerce_to_ptr_elem,
         /// Emit an error message and fail compilation.
         compileerror,
+        /// Changes the maximum number of backwards branches that compile-time code execution can use before giving up and making a compile error.
+        setevalbranchquota,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         condbr,
         /// Special case, has no textual representation.
@@ -347,6 +349,7 @@ pub const Inst = struct {
                 .anyframe_type,
                 .bitnot,
                 .import,
+                .setevalbranchquota,
                 => UnOp,
 
                 .add,
@@ -535,6 +538,7 @@ pub const Inst = struct {
                 .switch_range,
                 .typeof_peer,
                 .resolve_inferred_alloc,
+                .setevalbranchquota,
                 => false,
 
                 .@"break",
