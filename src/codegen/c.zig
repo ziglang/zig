@@ -169,8 +169,8 @@ pub const DeclGen = struct {
                     .undef, .empty_struct_value, .empty_array => try writer.writeAll("{}"),
                     .bytes => {
                         const bytes = val.castTag(.bytes).?.data;
-                        // TODO: make our own C string escape instead of using {Z}
-                        try writer.print("\"{Z}\"", .{bytes});
+                        // TODO: make our own C string escape instead of using std.zig.fmtEscapes
+                        try writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)});
                     },
                     else => {
                         // Fall back to generic implementation.

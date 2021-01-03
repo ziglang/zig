@@ -2703,27 +2703,27 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const arch = Target.current.cpu.arch;
         \\/// Deprecated
         \\pub const endian = Target.current.cpu.arch.endian();
-        \\pub const output_mode = OutputMode.{z};
-        \\pub const link_mode = LinkMode.{z};
+        \\pub const output_mode = OutputMode.{};
+        \\pub const link_mode = LinkMode.{};
         \\pub const is_test = {};
         \\pub const single_threaded = {};
-        \\pub const abi = Abi.{z};
+        \\pub const abi = Abi.{};
         \\pub const cpu: Cpu = Cpu{{
-        \\    .arch = .{z},
-        \\    .model = &Target.{z}.cpu.{z},
-        \\    .features = Target.{z}.featureSet(&[_]Target.{z}.Feature{{
+        \\    .arch = .{},
+        \\    .model = &Target.{}.cpu.{},
+        \\    .features = Target.{}.featureSet(&[_]Target.{}.Feature{{
         \\
     , .{
-        @tagName(comp.bin_file.options.output_mode),
-        @tagName(comp.bin_file.options.link_mode),
+        std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
+        std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,
         comp.bin_file.options.single_threaded,
-        @tagName(target.abi),
-        @tagName(target.cpu.arch),
-        generic_arch_name,
-        target.cpu.model.name,
-        generic_arch_name,
-        generic_arch_name,
+        std.zig.fmtId(@tagName(target.abi)),
+        std.zig.fmtId(@tagName(target.cpu.arch)),
+        std.zig.fmtId(generic_arch_name),
+        std.zig.fmtId(target.cpu.model.name),
+        std.zig.fmtId(generic_arch_name),
+        std.zig.fmtId(generic_arch_name),
     });
 
     for (target.cpu.arch.allFeaturesList()) |feature, index_usize| {
@@ -2742,10 +2742,10 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\    }}),
         \\}};
         \\pub const os = Os{{
-        \\    .tag = .{z},
+        \\    .tag = .{},
         \\    .version_range = .{{
     ,
-        .{@tagName(target.os.tag)},
+        .{std.zig.fmtId(@tagName(target.os.tag))},
     );
 
     switch (target.os.getVersionRange()) {
@@ -2828,8 +2828,8 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         (comp.bin_file.options.skip_linker_dependencies and comp.bin_file.options.parent_compilation_link_libc);
 
     try buffer.writer().print(
-        \\pub const object_format = ObjectFormat.{z};
-        \\pub const mode = Mode.{z};
+        \\pub const object_format = ObjectFormat.{};
+        \\pub const mode = Mode.{};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -2837,11 +2837,11 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
-        \\pub const code_model = CodeModel.{z};
+        \\pub const code_model = CodeModel.{};
         \\
     , .{
-        @tagName(comp.bin_file.options.object_format),
-        @tagName(comp.bin_file.options.optimize_mode),
+        std.zig.fmtId(@tagName(comp.bin_file.options.object_format)),
+        std.zig.fmtId(@tagName(comp.bin_file.options.optimize_mode)),
         link_libc,
         comp.bin_file.options.link_libcpp,
         comp.bin_file.options.error_return_tracing,
@@ -2849,7 +2849,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         comp.bin_file.options.pic,
         comp.bin_file.options.pie,
         comp.bin_file.options.strip,
-        @tagName(comp.bin_file.options.machine_code_model),
+        std.zig.fmtId(@tagName(comp.bin_file.options.machine_code_model)),
     });
 
     if (comp.bin_file.options.is_test) {

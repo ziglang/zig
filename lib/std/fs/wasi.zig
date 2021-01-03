@@ -38,7 +38,7 @@ pub const PreopenType = union(PreopenTypeTag) {
     pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
         try out_stream.print("PreopenType{{ ", .{});
         switch (self) {
-            PreopenType.Dir => |path| try out_stream.print(".Dir = '{z}'", .{path}),
+            PreopenType.Dir => |path| try out_stream.print(".Dir = '{}'", .{std.zig.fmtId(path)}),
         }
         return out_stream.print(" }}", .{});
     }

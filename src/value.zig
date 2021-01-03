@@ -491,8 +491,8 @@ pub const Value = extern union {
                 val = elem_ptr.array_ptr;
             },
             .empty_array => return out_stream.writeAll(".{}"),
-            .enum_literal => return out_stream.print(".{z}", .{self.castTag(.enum_literal).?.data}),
-            .bytes => return out_stream.print("\"{Z}\"", .{self.castTag(.bytes).?.data}),
+            .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(self.castTag(.enum_literal).?.data)}),
+            .bytes => return out_stream.print("\"{}\"", .{std.zig.fmtEscapes(self.castTag(.bytes).?.data)}),
             .repeated => {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;

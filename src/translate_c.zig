@@ -2031,7 +2031,7 @@ fn transStringLiteral(
             const bytes_ptr = stmt.getString_bytes_begin_size(&len);
             const str = bytes_ptr[0..len];
 
-            const token = try appendTokenFmt(rp.c, .StringLiteral, "\"{Z}\"", .{str});
+            const token = try appendTokenFmt(rp.c, .StringLiteral, "\"{}\"", .{std.zig.fmtEscapes(str)});
             const node = try rp.c.arena.create(ast.Node.OneToken);
             node.* = .{
                 .base = .{ .tag = .StringLiteral },
@@ -2944,7 +2944,8 @@ fn transCharLiteral(
                 if (val > 255)
                     break :blk try transCreateNodeInt(rp.c, val);
             }
-            const token = try appendTokenFmt(rp.c, .CharLiteral, "'{Z}'", .{@intCast(u8, val)});
+            const val_array = [_]u8 { @intCast(u8, val) };
+            const token = try appendTokenFmt(rp.c, .CharLiteral, "'{}'", .{std.zig.fmtEscapes(&val_array)});
             const node = try rp.c.arena.create(ast.Node.OneToken);
             node.* = .{
                 .base = .{ .tag = .CharLiteral },
@@ -5315,7 +5316,7 @@ fn isZigPrimitiveType(name: []const u8) bool {
 }
 
 fn appendIdentifier(c: *Context, name: []const u8) !ast.TokenIndex {
-    return appendTokenFmt(c, .Identifier, "{z}", .{name});
+    return appendTokenFmt(c, .Identifier, "{}", .{std.zig.fmtId(name)});
 }
 
 fn transCreateNodeIdentifier(c: *Context, name: []const u8) !*ast.Node {

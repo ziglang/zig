@@ -715,9 +715,9 @@ pub fn formatText(
         }
         return;
     } else if (comptime std.mem.eql(u8, fmt, "z")) {
-        return formatZigIdentifier(bytes, options, writer);
+        @compileError("specifier 'z' has been deprecated, wrap your argument in std.zig.fmtId instead");
     } else if (comptime std.mem.eql(u8, fmt, "Z")) {
-        return formatZigEscapes(bytes, options, writer);
+        @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
@@ -780,52 +780,6 @@ pub fn formatBuf(
         // Fast path, avoid counting the number of codepoints
         try writer.writeAll(buf);
     }
-}
-
-/// Print the string as a Zig identifier escaping it with @"" syntax if needed.
-pub fn formatZigIdentifier(
-    bytes: []const u8,
-    options: FormatOptions,
-    writer: anytype,
-) !void {
-    if (isValidZigIdentifier(bytes)) {
-        return writer.writeAll(bytes);
-    }
-    try writer.writeAll("@\"");
-    try formatZigEscapes(bytes, options, writer);
-    try writer.writeByte('"');
-}
-
-fn isValidZigIdentifier(bytes: []const u8) bool {
-    for (bytes) |c, i| {
-        switch (c) {
-            '_', 'a'...'z', 'A'...'Z' => {},
-            '0'...'9' => if (i == 0) return false,
-            else => return false,
-        }
-    }
-    return std.zig.Token.getKeyword(bytes) == null;
-}
-
-pub fn formatZigEscapes(
-    bytes: []const u8,
-    options: FormatOptions,
-    writer: anytype,
-) !void {
-    for (bytes) |byte| switch (byte) {
-        '\n' => try writer.writeAll("\\n"),
-        '\r' => try writer.writeAll("\\r"),
-        '\t' => try writer.writeAll("\\t"),
-        '\\' => try writer.writeAll("\\\\"),
-        '"' => try writer.writeAll("\\\""),
-        '\'' => try writer.writeAll("\\'"),
-        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try writer.writeByte(byte),
-        // Use hex escapes for rest any unprintable characters.
-        else => {
-            try writer.writeAll("\\x");
-            try formatInt(byte, 16, false, .{ .width = 2, .fill = '0' }, writer);
-        },
-    };
 }
 
 /// Print a float in scientific notation to the specified precision. Null uses full precision.
@@ -1172,6 +1126,32 @@ pub const ParseIntError = error{
     /// The input was empty or had a byte that was not a digit
     InvalidCharacter,
 };
+
+/// Creates a Formatter type from a format function. Wrapping data in Formatter(func) causes
+/// the data to be formatted using the given function `func`.  `func` must be of the following
+/// form:
+///
+///     fn formatExample(
+///         data: T,
+///         comptime fmt: []const u8,
+///         options: std.fmt.FormatOptions,
+///         writer: anytype,
+///     ) !void;
+///
+pub fn Formatter(comptime format_fn: anytype) type {
+    const Data = @typeInfo(@TypeOf(format_fn)).Fn.args[0].arg_type.?;
+    return struct {
+        data: Data,
+        pub fn format(
+            self: @This(),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            try format_fn(self.data, fmt, options, writer);
+        }
+    };
+}
 
 /// Parses the string `buf` as signed or unsigned representation in the
 /// specified radix of an integral value of type `T`.
@@ -1608,17 +1588,6 @@ test "escape non-printable" {
     try testFmt("ab\\xFFc", "{E}", .{"ab\xffc"});
 }
 
-test "escape invalid identifiers" {
-    try testFmt("@\"while\"", "{z}", .{"while"});
-    try testFmt("hello", "{z}", .{"hello"});
-    try testFmt("@\"11\\\"23\"", "{z}", .{"11\"23"});
-    try testFmt("@\"11\\x0f23\"", "{z}", .{"11\x0F23"});
-    try testFmt("\\x0f", "{Z}", .{0x0f});
-    try testFmt(
-        \\" \\ hi \x07 \x11 \" derp \'"
-    , "\"{Z}\"", .{" \\ hi \x07 \x11 \" derp '"});
-}
-
 test "pointer" {
     {
         const value = @intToPtr(*align(1) i32, 0xdeadbeef);
@@ -1898,7 +1867,7 @@ test "bytes.hex" {
     try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
-fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
+pub fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
     var buf: [100]u8 = undefined;
     const result = try bufPrint(buf[0..], template, args);
     if (mem.eql(u8, result, expected)) return;
