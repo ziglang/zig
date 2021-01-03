@@ -43,8 +43,14 @@ pub const TypeRef = opaque {
     pub const constAllOnes = LLVMConstAllOnes;
     extern fn LLVMConstAllOnes(Ty: *const TypeRef) *const ValueRef;
 
+    pub const constInt = LLVMConstInt;
+    extern fn LLVMConstInt(IntTy: *const TypeRef, N: c_ulonglong, SignExtend: LLVMBool) *const ValueRef;
+
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *const TypeRef) *const ValueRef;
+
+    pub const pointerType = LLVMPointerType;
+    extern fn LLVMPointerType(ElementType: *const TypeRef, AddressSpace: c_uint) *const TypeRef;
 };
 
 pub const ModuleRef = opaque {
@@ -81,6 +87,9 @@ pub const VerifierFailureAction = extern enum {
     PrintMessage,
     ReturnStatus,
 };
+
+pub const constNeg = LLVMConstNeg;
+extern fn LLVMConstNeg(ConstantVal: *const ValueRef) *const ValueRef;
 
 pub const voidType = LLVMVoidType;
 extern fn LLVMVoidType() *const TypeRef;
@@ -143,6 +152,24 @@ pub const BuilderRef = opaque {
 
     pub const buildNot = LLVMBuildNot;
     extern fn LLVMBuildNot(*const BuilderRef, V: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNSWAdd = LLVMBuildNSWAdd;
+    extern fn LLVMBuildNSWAdd(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNUWAdd = LLVMBuildNUWAdd;
+    extern fn LLVMBuildNUWAdd(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNSWSub = LLVMBuildNSWSub;
+    extern fn LLVMBuildNSWSub(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNUWSub = LLVMBuildNUWSub;
+    extern fn LLVMBuildNUWSub(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildIntCast2 = LLVMBuildIntCast2;
+    extern fn LLVMBuildIntCast2(*const BuilderRef, Val: *const ValueRef, DestTy: *const TypeRef, IsSigned: LLVMBool, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildBitCast = LLVMBuildBitCast;
+    extern fn LLVMBuildBitCast(*const BuilderRef, Val: *const ValueRef, DestTy: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
 };
 
 pub const BasicBlockRef = opaque {

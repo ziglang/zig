@@ -288,59 +288,62 @@ pub const LLVMIRModule = struct {
     }
 
     fn gen(self: *LLVMIRModule, module: *Module, typed_value: TypedValue, src: usize) !void {
-        switch (typed_value.ty.zigTypeTag()) {
-            .Fn => {
-                const func = typed_value.val.castTag(.function).?.data;
+        if (typed_value.val.castTag(.function)) |func_inst| {
+            const func = func_inst.data;
 
-                const llvm_func = try self.resolveLLVMFunction(func, src);
+            const llvm_func = try self.resolveLLVMFunction(func, src);
 
-                // This gets the LLVM values from the function and stores them in `self.args`.
-                const fn_param_len = func.owner_decl.typed_value.most_recent.typed_value.ty.fnParamLen();
-                var args = try self.gpa.alloc(*const llvm.ValueRef, fn_param_len);
-                defer self.gpa.free(args);
+            // This gets the LLVM values from the function and stores them in `self.args`.
+            const fn_param_len = func.owner_decl.typed_value.most_recent.typed_value.ty.fnParamLen();
+            var args = try self.gpa.alloc(*const llvm.ValueRef, fn_param_len);
+            defer self.gpa.free(args);
 
-                for (args) |*arg, i| {
-                    arg.* = llvm.getParam(llvm_func, @intCast(c_uint, i));
-                }
-                self.args = args;
-                self.arg_index = 0;
+            for (args) |*arg, i| {
+                arg.* = llvm.getParam(llvm_func, @intCast(c_uint, i));
+            }
+            self.args = args;
+            self.arg_index = 0;
 
-                // Make sure no other LLVM values from other functions can be referenced
-                self.func_inst_table.clearRetainingCapacity();
+            // Make sure no other LLVM values from other functions can be referenced
+            self.func_inst_table.clearRetainingCapacity();
 
-                // We remove all the basic blocks of a function to support incremental
-                // compilation!
-                // TODO: remove all basic blocks if functions can have more than one
-                if (llvm_func.getFirstBasicBlock()) |bb| {
-                    bb.deleteBasicBlock();
-                }
+            // We remove all the basic blocks of a function to support incremental
+            // compilation!
+            // TODO: remove all basic blocks if functions can have more than one
+            if (llvm_func.getFirstBasicBlock()) |bb| {
+                bb.deleteBasicBlock();
+            }
 
-                const entry_block = llvm_func.appendBasicBlock("Entry");
-                self.builder.positionBuilderAtEnd(entry_block);
+            const entry_block = llvm_func.appendBasicBlock("Entry");
+            self.builder.positionBuilderAtEnd(entry_block);
 
-                const instructions = func.body.instructions;
-                for (instructions) |inst| {
-                    const opt_llvm_val: ?*const llvm.ValueRef = switch (inst.tag) {
-                        .breakpoint => try self.genBreakpoint(inst.castTag(.breakpoint).?),
-                        .call => try self.genCall(inst.castTag(.call).?),
-                        .unreach => self.genUnreach(inst.castTag(.unreach).?),
-                        .retvoid => self.genRetVoid(inst.castTag(.retvoid).?),
-                        .arg => try self.genArg(inst.castTag(.arg).?),
-                        .alloc => try self.genAlloc(inst.castTag(.alloc).?),
-                        .store => try self.genStore(inst.castTag(.store).?),
-                        .load => try self.genLoad(inst.castTag(.load).?),
-                        .ret => try self.genRet(inst.castTag(.ret).?),
-                        .not => try self.genNot(inst.castTag(.not).?),
-                        .dbg_stmt => blk: {
-                            // TODO: implement debug info
-                            break :blk null;
-                        },
-                        else => |tag| return self.fail(src, "TODO implement LLVM codegen for Zir instruction: {}", .{tag}),
-                    };
-                    if (opt_llvm_val) |llvm_val| try self.func_inst_table.put(self.gpa, inst, llvm_val);
-                }
-            },
-            else => |ty| return self.fail(src, "TODO implement LLVM codegen for top-level decl type: {}", .{ty}),
+            const instructions = func.body.instructions;
+            for (instructions) |inst| {
+                const opt_llvm_val: ?*const llvm.ValueRef = switch (inst.tag) {
+                    .add => try self.genAdd(inst.castTag(.add).?),
+                    .alloc => try self.genAlloc(inst.castTag(.alloc).?),
+                    .arg => try self.genArg(inst.castTag(.arg).?),
+                    .bitcast => try self.genBitCast(inst.castTag(.bitcast).?),
+                    .breakpoint => try self.genBreakpoint(inst.castTag(.breakpoint).?),
+                    .call => try self.genCall(inst.castTag(.call).?),
+                    .intcast => try self.genIntCast(inst.castTag(.intcast).?),
+                    .load => try self.genLoad(inst.castTag(.load).?),
+                    .not => try self.genNot(inst.castTag(.not).?),
+                    .ret => try self.genRet(inst.castTag(.ret).?),
+                    .retvoid => self.genRetVoid(inst.castTag(.retvoid).?),
+                    .store => try self.genStore(inst.castTag(.store).?),
+                    .sub => try self.genSub(inst.castTag(.sub).?),
+                    .unreach => self.genUnreach(inst.castTag(.unreach).?),
+                    .dbg_stmt => blk: {
+                        // TODO: implement debug info
+                        break :blk null;
+                    },
+                    else => |tag| return self.fail(src, "TODO implement LLVM codegen for Zir instruction: {}", .{tag}),
+                };
+                if (opt_llvm_val) |llvm_val| try self.func_inst_table.putNoClobber(self.gpa, inst, llvm_val);
+            }
+        } else {
+            return self.fail(src, "TODO implement LLVM codegen for top-level decl type: {}", .{typed_value.ty});
         }
     }
 
@@ -369,13 +372,13 @@ pub const LLVMIRModule = struct {
                     "",
                 );
 
-                const return_type = zig_fn_type.fnReturnType().zigTypeTag();
-                if (return_type == .NoReturn) {
+                const return_type = zig_fn_type.fnReturnType();
+                if (return_type.tag() == .noreturn) {
                     _ = self.builder.buildUnreachable();
                 }
 
                 // No need to store the LLVM value if the return type is void or noreturn
-                if (return_type == .NoReturn or return_type == .Void) return null;
+                if (!return_type.hasCodeGenBits()) return null;
 
                 return call;
             }
@@ -400,6 +403,48 @@ pub const LLVMIRModule = struct {
     fn genUnreach(self: *LLVMIRModule, inst: *Inst.NoOp) ?*const llvm.ValueRef {
         _ = self.builder.buildUnreachable();
         return null;
+    }
+
+    fn genAdd(self: *LLVMIRModule, inst: *Inst.BinOp) !?*const llvm.ValueRef {
+        const lhs = try self.resolveInst(inst.lhs);
+        const rhs = try self.resolveInst(inst.rhs);
+
+        if (!inst.base.ty.isInt())
+            return self.fail(inst.base.src, "TODO implement 'genAdd' for type {}", .{inst.base.ty});
+
+        return if (inst.base.ty.isSignedInt())
+            self.builder.buildNSWAdd(lhs, rhs, "")
+        else
+            self.builder.buildNUWAdd(lhs, rhs, "");
+    }
+
+    fn genSub(self: *LLVMIRModule, inst: *Inst.BinOp) !?*const llvm.ValueRef {
+        const lhs = try self.resolveInst(inst.lhs);
+        const rhs = try self.resolveInst(inst.rhs);
+
+        if (!inst.base.ty.isInt())
+            return self.fail(inst.base.src, "TODO implement 'genSub' for type {}", .{inst.base.ty});
+
+        return if (inst.base.ty.isSignedInt())
+            self.builder.buildNSWSub(lhs, rhs, "")
+        else
+            self.builder.buildNUWSub(lhs, rhs, "");
+    }
+
+    fn genIntCast(self: *LLVMIRModule, inst: *Inst.UnOp) !?*const llvm.ValueRef {
+        const val = try self.resolveInst(inst.operand);
+
+        const signed = inst.base.ty.isSignedInt();
+        // TODO: Should we use intcast here or just a simple bitcast?
+        //       LLVM does truncation vs bitcast (+signed extension) in the intcast depending on the sizes
+        return self.builder.buildIntCast2(val, try self.getLLVMType(inst.base.ty, inst.base.src), signed, "");
+    }
+
+    fn genBitCast(self: *LLVMIRModule, inst: *Inst.UnOp) !?*const llvm.ValueRef {
+        const val = try self.resolveInst(inst.operand);
+        const dest_type = try self.getLLVMType(inst.base.ty, inst.base.src);
+
+        return self.builder.buildBitCast(val, dest_type, "");
     }
 
     fn genArg(self: *LLVMIRModule, inst: *Inst.Arg) !?*const llvm.ValueRef {
@@ -449,23 +494,38 @@ pub const LLVMIRModule = struct {
     }
 
     fn resolveInst(self: *LLVMIRModule, inst: *ir.Inst) !*const llvm.ValueRef {
-        if (inst.castTag(.constant)) |const_inst| {
-            return self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
+        if (inst.value()) |val| {
+            return self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = val });
         }
         if (self.func_inst_table.get(inst)) |value| return value;
 
         return self.fail(inst.src, "TODO implement global llvm values (or the value is not in the func_inst_table table)", .{});
     }
 
-    fn genTypedValue(self: *LLVMIRModule, src: usize, typed_value: TypedValue) !*const llvm.ValueRef {
-        const llvm_type = try self.getLLVMType(typed_value.ty, src);
+    fn genTypedValue(self: *LLVMIRModule, src: usize, tv: TypedValue) !*const llvm.ValueRef {
+        const llvm_type = try self.getLLVMType(tv.ty, src);
 
-        if (typed_value.val.isUndef())
+        if (tv.val.isUndef())
             return llvm_type.getUndef();
 
-        switch (typed_value.ty.zigTypeTag()) {
-            .Bool => return if (typed_value.val.toBool()) llvm_type.constAllOnes() else llvm_type.constNull(),
-            else => return self.fail(src, "TODO implement const of type '{}'", .{typed_value.ty}),
+        switch (tv.ty.zigTypeTag()) {
+            .Bool => return if (tv.val.toBool()) llvm_type.constAllOnes() else llvm_type.constNull(),
+            .Int => {
+                var bigint_space: Value.BigIntSpace = undefined;
+                const bigint = tv.val.toBigInt(&bigint_space);
+
+                if (bigint.eqZero()) return llvm_type.constNull();
+
+                if (bigint.limbs.len != 1) {
+                    return self.fail(src, "TODO implement bigger bigint", .{});
+                }
+                const llvm_int = llvm_type.constInt(bigint.limbs[0], false);
+                if (!bigint.positive) {
+                    return llvm.constNeg(llvm_int);
+                }
+                return llvm_int;
+            },
+            else => return self.fail(src, "TODO implement const of type '{}'", .{tv.ty}),
         }
     }
 
@@ -498,14 +558,14 @@ pub const LLVMIRModule = struct {
         );
         const llvm_fn = self.llvm_module.addFunction(func.owner_decl.name, fn_type);
 
-        if (return_type.zigTypeTag() == .NoReturn) {
+        if (return_type.tag() == .noreturn) {
             llvm_fn.addFnAttr("noreturn");
         }
 
         return llvm_fn;
     }
 
-    fn getLLVMType(self: *LLVMIRModule, t: Type, src: usize) !*const llvm.TypeRef {
+    fn getLLVMType(self: *LLVMIRModule, t: Type, src: usize) error{ OutOfMemory, CodegenFail }!*const llvm.TypeRef {
         switch (t.zigTypeTag()) {
             .Void => return llvm.voidType(),
             .NoReturn => return llvm.voidType(),
@@ -514,6 +574,11 @@ pub const LLVMIRModule = struct {
                 return llvm.intType(info.bits);
             },
             .Bool => return llvm.intType(1),
+            .Pointer => {
+                const pointer = t.castPointer().?;
+                const elem_type = try self.getLLVMType(pointer.data, src);
+                return elem_type.pointerType(0);
+            },
             else => return self.fail(src, "TODO implement getLLVMType for type '{}'", .{t}),
         }
     }
