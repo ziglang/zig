@@ -519,7 +519,7 @@ pub const CrossTarget = struct {
         var result = std.ArrayList(u8).init(allocator);
         defer result.deinit();
 
-        try result.outStream().print("{}-{}", .{ arch_name, os_name });
+        try result.outStream().print("{s}-{s}", .{ arch_name, os_name });
 
         // The zig target syntax does not allow specifying a max os version with no min, so
         // if either are present, we need the min.
@@ -539,9 +539,9 @@ pub const CrossTarget = struct {
         }
 
         if (self.glibc_version) |v| {
-            try result.outStream().print("-{}.{}", .{ @tagName(self.getAbi()), v });
+            try result.outStream().print("-{s}.{}", .{ @tagName(self.getAbi()), v });
         } else if (self.abi) |abi| {
-            try result.outStream().print("-{}", .{@tagName(abi)});
+            try result.outStream().print("-{s}", .{@tagName(abi)});
         }
 
         return result.toOwnedSlice();
@@ -595,7 +595,7 @@ pub const CrossTarget = struct {
             .Dynamic => "",
         };
 
-        return std.fmt.allocPrint(allocator, "{}-{}{}", .{ arch, os, static_suffix });
+        return std.fmt.allocPrint(allocator, "{s}-{s}{s}", .{ arch, os, static_suffix });
     }
 
     pub const Executor = union(enum) {
@@ -790,7 +790,7 @@ test "CrossTarget.parse" {
         var buf: [256]u8 = undefined;
         const triple = std.fmt.bufPrint(
             buf[0..],
-            "native-native-{}.2.1.1",
+            "native-native-{s}.2.1.1",
             .{@tagName(std.Target.current.abi)},
         ) catch unreachable;
 

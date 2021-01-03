@@ -248,7 +248,7 @@ pub const Decl = struct {
 
     pub fn dump(self: *Decl) void {
         const loc = std.zig.findLineColumn(self.scope.source.bytes, self.src);
-        std.debug.print("{}:{}:{} name={} status={}", .{
+        std.debug.print("{s}:{d}:{d} name={s} status={s}", .{
             self.scope.sub_file_path,
             loc.line + 1,
             loc.column + 1,
@@ -308,7 +308,7 @@ pub const Fn = struct {
 
     /// For debugging purposes.
     pub fn dump(self: *Fn, mod: Module) void {
-        std.debug.print("Module.Function(name={}) ", .{self.owner_decl.name});
+        std.debug.print("Module.Function(name={s}) ", .{self.owner_decl.name});
         switch (self.analysis) {
             .queued => {
                 std.debug.print("queued\n", .{});
@@ -632,7 +632,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *File, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{s}:{d}:{d}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *File, module: *Module) ![:0]const u8 {
@@ -730,7 +730,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *ZIRModule, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{s}:{d}:{d}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *ZIRModule, module: *Module) ![:0]const u8 {
@@ -918,7 +918,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
         .complete => return,
 
         .outdated => blk: {
-            log.debug("re-analyzing {}\n", .{decl.name});
+            log.debug("re-analyzing {s}\n", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
@@ -953,7 +953,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
                 self.failed_decls.putAssumeCapacityNoClobber(decl, try Compilation.ErrorMsg.create(
                     self.gpa,
                     decl.src(),
-                    "unable to analyze: {}",
+                    "unable to analyze: {s}",
                     .{@errorName(err)},
                 ));
                 decl.analysis = .sema_failure_retryable;
@@ -1475,7 +1475,7 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
             if (zir_module.error_msg) |src_err_msg| {
                 self.failed_files.putAssumeCapacityNoClobber(
                     &root_scope.base,
-                    try Compilation.ErrorMsg.create(self.gpa, src_err_msg.byte_offset, "{}", .{src_err_msg.msg}),
+                    try Compilation.ErrorMsg.create(self.gpa, src_err_msg.byte_offset, "{s}", .{src_err_msg.msg}),
                 );
                 root_scope.status = .unloaded_parse_failure;
                 return error.AnalysisFail;
@@ -1581,7 +1581,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                 decl.src_index = decl_i;
                 if (deleted_decls.remove(decl) == null) {
                     decl.analysis = .sema_failure;
-                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, tree.token_locs[name_tok].start, "redefinition of '{}'", .{decl.name});
+                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, tree.token_locs[name_tok].start, "redefinition of '{s}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
                     try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
                 } else {
@@ -1623,7 +1623,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                 decl.src_index = decl_i;
                 if (deleted_decls.remove(decl) == null) {
                     decl.analysis = .sema_failure;
-                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{}'", .{decl.name});
+                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{s}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
                     try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
                 } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
@@ -1641,7 +1641,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
             }
         } else if (src_decl.castTag(.Comptime)) |comptime_node| {
             const name_index = self.getNextAnonNameIndex();
-            const name = try std.fmt.allocPrint(self.gpa, "__comptime_{}", .{name_index});
+            const name = try std.fmt.allocPrint(self.gpa, "__comptime_{d}", .{name_index});
             defer self.gpa.free(name);
 
             const name_hash = container_scope.fullyQualifiedNameHash(name);
@@ -1663,7 +1663,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug("noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{s}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1716,7 +1716,7 @@ pub fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug("noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{s}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1728,7 +1728,7 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
     // not be present in the set, and this does nothing.
     decl.scope.removeDecl(decl);
 
-    log.debug("deleting decl '{}'\n", .{decl.name});
+    log.debug("deleting decl '{s}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -1819,17 +1819,17 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     const fn_zir = func.analysis.queued;
     defer fn_zir.arena.promote(self.gpa).deinit();
     func.analysis = .{ .in_progress = {} };
-    log.debug("set {} to in_progress\n", .{decl.name});
+    log.debug("set {s} to in_progress\n", .{decl.name});
 
     try zir_sema.analyzeBody(self, &inner_block.base, fn_zir.body);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
     func.analysis = .{ .success = .{ .instructions = instructions } };
-    log.debug("set {} to success\n", .{decl.name});
+    log.debug("set {s} to success\n", .{decl.name});
 }
 
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
-    log.debug("mark {} outdated\n", .{decl.name});
+    log.debug("mark {s} outdated\n", .{decl.name});
     try self.comp.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.gpa);
@@ -1991,7 +1991,7 @@ pub fn analyzeExport(
         self.failed_exports.putAssumeCapacityNoClobber(new_export, try Compilation.ErrorMsg.create(
             self.gpa,
             src,
-            "exported symbol collision: {}",
+            "exported symbol collision: {s}",
             .{symbol_name},
         ));
         // TODO: add a note
@@ -2007,7 +2007,7 @@ pub fn analyzeExport(
             self.failed_exports.putAssumeCapacityNoClobber(new_export, try Compilation.ErrorMsg.create(
                 self.gpa,
                 src,
-                "unable to export: {}",
+                "unable to export: {s}",
                 .{@errorName(err)},
             ));
             new_export.status = .failed_retryable;
@@ -2277,7 +2277,7 @@ pub fn createAnonymousDecl(
 ) !*Decl {
     const name_index = self.getNextAnonNameIndex();
     const scope_decl = scope.decl().?;
-    const name = try std.fmt.allocPrint(self.gpa, "{}__anon_{}", .{ scope_decl.name, name_index });
+    const name = try std.fmt.allocPrint(self.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
     defer self.gpa.free(name);
     const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
@@ -2384,7 +2384,7 @@ pub fn analyzeDeref(self: *Module, scope: *Scope, src: usize, ptr: *Inst, ptr_sr
 
 pub fn analyzeDeclRefByName(self: *Module, scope: *Scope, src: usize, decl_name: []const u8) InnerError!*Inst {
     const decl = self.lookupDeclName(scope, decl_name) orelse
-        return self.fail(scope, src, "decl '{}' not found", .{decl_name});
+        return self.fail(scope, src, "decl '{s}' not found", .{decl_name});
     return self.analyzeDeclRef(scope, src, decl);
 }
 
@@ -2555,7 +2555,7 @@ pub fn cmpNumeric(
 
     if (lhs_ty_tag == .Vector and rhs_ty_tag == .Vector) {
         if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
-            return self.fail(scope, src, "vector length mismatch: {} and {}", .{
+            return self.fail(scope, src, "vector length mismatch: {d} and {d}", .{
                 lhs.ty.arrayLen(),
                 rhs.ty.arrayLen(),
             });
@@ -2700,7 +2700,7 @@ pub fn cmpNumeric(
     const dest_type = if (dest_float_type) |ft| ft else blk: {
         const max_bits = std.math.max(lhs_bits, rhs_bits);
         const casted_bits = std.math.cast(u16, max_bits) catch |err| switch (err) {
-            error.Overflow => return self.fail(scope, src, "{} exceeds maximum integer bit count", .{max_bits}),
+            error.Overflow => return self.fail(scope, src, "{d} exceeds maximum integer bit count", .{max_bits}),
         };
         break :blk try self.makeIntType(scope, dest_int_is_signed, casted_bits);
     };
@@ -3319,7 +3319,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
     const source = zir_module.getSource(self) catch @panic("dumpInst failed to get source");
     const loc = std.zig.findLineColumn(source, inst.src);
     if (inst.tag == .constant) {
-        std.debug.print("constant ty={} val={} src={}:{}:{}\n", .{
+        std.debug.print("constant ty={} val={} src={s}:{d}:{d}\n", .{
             inst.ty,
             inst.castTag(.constant).?.val,
             zir_module.subFilePath(),
@@ -3327,7 +3327,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else if (inst.deaths == 0) {
-        std.debug.print("{} ty={} src={}:{}:{}\n", .{
+        std.debug.print("{s} ty={} src={s}:{d}:{d}\n", .{
             @tagName(inst.tag),
             inst.ty,
             zir_module.subFilePath(),
@@ -3335,7 +3335,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else {
-        std.debug.print("{} ty={} deaths={b} src={}:{}:{}\n", .{
+        std.debug.print("{s} ty={} deaths={b} src={s}:{d}:{d}\n", .{
             @tagName(inst.tag),
             inst.ty,
             inst.deaths,

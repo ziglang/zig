@@ -83,7 +83,7 @@ pub const LibCInstallation = struct {
         }
         inline for (fields) |field, i| {
             if (!found_keys[i].found) {
-                log.err("missing field: {}\n", .{field.name});
+                log.err("missing field: {s}\n", .{field.name});
                 return error.ParseError;
             }
         }
@@ -96,18 +96,18 @@ pub const LibCInstallation = struct {
             return error.ParseError;
         }
         if (self.crt_dir == null and !is_darwin) {
-            log.err("crt_dir may not be empty for {}\n", .{@tagName(Target.current.os.tag)});
+            log.err("crt_dir may not be empty for {s}\n", .{@tagName(Target.current.os.tag)});
             return error.ParseError;
         }
         if (self.msvc_lib_dir == null and is_windows and !is_gnu) {
-            log.err("msvc_lib_dir may not be empty for {}-{}\n", .{
+            log.err("msvc_lib_dir may not be empty for {s}-{s}\n", .{
                 @tagName(Target.current.os.tag),
                 @tagName(Target.current.abi),
             });
             return error.ParseError;
         }
         if (self.kernel32_lib_dir == null and is_windows and !is_gnu) {
-            log.err("kernel32_lib_dir may not be empty for {}-{}\n", .{
+            log.err("kernel32_lib_dir may not be empty for {s}-{s}\n", .{
                 @tagName(Target.current.os.tag),
                 @tagName(Target.current.abi),
             });
@@ -128,25 +128,25 @@ pub const LibCInstallation = struct {
         try out.print(
             \\# The directory that contains `stdlib.h`.
             \\# On POSIX-like systems, include directories be found with: `cc -E -Wp,-v -xc /dev/null`
-            \\include_dir={}
+            \\include_dir={s}
             \\
             \\# The system-specific include directory. May be the same as `include_dir`.
             \\# On Windows it's the directory that includes `vcruntime.h`.
             \\# On POSIX it's the directory that includes `sys/errno.h`.
-            \\sys_include_dir={}
+            \\sys_include_dir={s}
             \\
             \\# The directory that contains `crt1.o` or `crt2.o`.
             \\# On POSIX, can be found with `cc -print-file-name=crt1.o`.
             \\# Not needed when targeting MacOS.
-            \\crt_dir={}
+            \\crt_dir={s}
             \\
             \\# The directory that contains `vcruntime.lib`.
             \\# Only needed when targeting MSVC on Windows.
-            \\msvc_lib_dir={}
+            \\msvc_lib_dir={s}
             \\
             \\# The directory that contains `kernel32.lib`.
             \\# Only needed when targeting MSVC on Windows.
-            \\kernel32_lib_dir={}
+            \\kernel32_lib_dir={s}
             \\
         , .{
             include_dir,
@@ -338,7 +338,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            try result_buf.outStream().print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
+            try result_buf.outStream().print("{s}\\Include\\{s}\\ucrt", .{ search.path, search.version });
 
             var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
                 error.FileNotFound,
@@ -384,7 +384,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            try result_buf.outStream().print("{}\\Lib\\{}\\ucrt\\{}", .{ search.path, search.version, arch_sub_dir });
+            try result_buf.outStream().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ search.path, search.version, arch_sub_dir });
 
             var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
                 error.FileNotFound,
@@ -439,7 +439,7 @@ pub const LibCInstallation = struct {
         for (searches) |search| {
             result_buf.shrink(0);
             const stream = result_buf.outStream();
-            try stream.print("{}\\Lib\\{}\\um\\{}", .{ search.path, search.version, arch_sub_dir });
+            try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ search.path, search.version, arch_sub_dir });
 
             var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
                 error.FileNotFound,
@@ -520,7 +520,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     const allocator = args.allocator;
 
     const cc_exe = std.os.getenvZ("CC") orelse default_cc_exe;
-    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={}", .{args.search_basename});
+    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={s}", .{args.search_basename});
     defer allocator.free(arg1);
     const argv = [_][]const u8{ cc_exe, arg1 };
 
@@ -584,17 +584,17 @@ fn printVerboseInvocation(
     if (!verbose) return;
 
     if (search_basename) |s| {
-        std.debug.warn("Zig attempted to find the file '{}' by executing this command:\n", .{s});
+        std.debug.warn("Zig attempted to find the file '{s}' by executing this command:\n", .{s});
     } else {
         std.debug.warn("Zig attempted to find the path to native system libc headers by executing this command:\n", .{});
     }
     for (argv) |arg, i| {
         if (i != 0) std.debug.warn(" ", .{});
-        std.debug.warn("{}", .{arg});
+        std.debug.warn("{s}", .{arg});
     }
     std.debug.warn("\n", .{});
     if (stderr) |s| {
-        std.debug.warn("Output:\n==========\n{}\n==========\n", .{s});
+        std.debug.warn("Output:\n==========\n{s}\n==========\n", .{s});
     }
 }
 

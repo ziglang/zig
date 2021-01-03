@@ -51,7 +51,7 @@ pub const NativePaths = struct {
                     };
                     try self.addIncludeDir(include_path);
                 } else {
-                    try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}", .{word});
+                    try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {s}", .{word});
                     break;
                 }
             }
@@ -77,7 +77,7 @@ pub const NativePaths = struct {
                     const lib_path = word[2..];
                     try self.addLibDir(lib_path);
                 } else {
-                    try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {}", .{word});
+                    try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {s}", .{word});
                     break;
                 }
             }
@@ -113,22 +113,22 @@ pub const NativePaths = struct {
             // TODO: some of these are suspect and should only be added on some systems. audit needed.
 
             try self.addIncludeDir("/usr/local/include");
-            try self.addLibDirFmt("/usr/local/lib{}", .{qual});
+            try self.addLibDirFmt("/usr/local/lib{d}", .{qual});
             try self.addLibDir("/usr/local/lib");
 
-            try self.addIncludeDirFmt("/usr/include/{}", .{triple});
-            try self.addLibDirFmt("/usr/lib/{}", .{triple});
+            try self.addIncludeDirFmt("/usr/include/{s}", .{triple});
+            try self.addLibDirFmt("/usr/lib/{s}", .{triple});
 
             try self.addIncludeDir("/usr/include");
-            try self.addLibDirFmt("/lib{}", .{qual});
+            try self.addLibDirFmt("/lib{d}", .{qual});
             try self.addLibDir("/lib");
-            try self.addLibDirFmt("/usr/lib{}", .{qual});
+            try self.addLibDirFmt("/usr/lib{d}", .{qual});
             try self.addLibDir("/usr/lib");
 
             // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
             // zlib.h is in /usr/include (added above)
             // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
-            try self.addLibDirFmt("/lib/{}", .{triple});
+            try self.addLibDirFmt("/lib/{s}", .{triple});
         }
 
         return self;

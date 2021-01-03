@@ -116,7 +116,7 @@ pub const RunStep = struct {
         }
 
         if (prev_path) |pp| {
-            const new_path = self.builder.fmt("{}" ++ [1]u8{fs.path.delimiter} ++ "{}", .{ pp, search_path });
+            const new_path = self.builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
             env_map.set(key, new_path) catch unreachable;
         } else {
             env_map.set(key, search_path) catch unreachable;
@@ -189,7 +189,7 @@ pub const RunStep = struct {
         child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
 
         child.spawn() catch |err| {
-            warn("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
+            warn("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
             return err;
         };
 
@@ -216,7 +216,7 @@ pub const RunStep = struct {
         }
 
         const term = child.wait() catch |err| {
-            warn("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
+            warn("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
             return err;
         };
 
@@ -245,9 +245,9 @@ pub const RunStep = struct {
                     warn(
                         \\
                         \\========= Expected this stderr: =========
-                        \\{}
+                        \\{s}
                         \\========= But found: ====================
-                        \\{}
+                        \\{s}
                         \\
                     , .{ expected_bytes, stderr.? });
                     printCmd(cwd, argv);
@@ -259,9 +259,9 @@ pub const RunStep = struct {
                     warn(
                         \\
                         \\========= Expected to find in stderr: =========
-                        \\{}
+                        \\{s}
                         \\========= But stderr does not contain it: =====
-                        \\{}
+                        \\{s}
                         \\
                     , .{ match, stderr.? });
                     printCmd(cwd, argv);
@@ -277,9 +277,9 @@ pub const RunStep = struct {
                     warn(
                         \\
                         \\========= Expected this stdout: =========
-                        \\{}
+                        \\{s}
                         \\========= But found: ====================
-                        \\{}
+                        \\{s}
                         \\
                     , .{ expected_bytes, stdout.? });
                     printCmd(cwd, argv);
@@ -291,9 +291,9 @@ pub const RunStep = struct {
                     warn(
                         \\
                         \\========= Expected to find in stdout: =========
-                        \\{}
+                        \\{s}
                         \\========= But stdout does not contain it: =====
-                        \\{}
+                        \\{s}
                         \\
                     , .{ match, stdout.? });
                     printCmd(cwd, argv);
@@ -304,9 +304,9 @@ pub const RunStep = struct {
     }
 
     fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-        if (cwd) |yes_cwd| warn("cd {} && ", .{yes_cwd});
+        if (cwd) |yes_cwd| warn("cd {s} && ", .{yes_cwd});
         for (argv) |arg| {
-            warn("{} ", .{arg});
+            warn("{s} ", .{arg});
         }
         warn("\n", .{});
     }

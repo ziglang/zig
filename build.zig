@@ -224,7 +224,7 @@ pub fn build(b: *Builder) !void {
 
     const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
     const version = if (opt_version_string) |version| version else v: {
-        const version_string = b.fmt("{}.{}.{}", .{ zig_version.major, zig_version.minor, zig_version.patch });
+        const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
         var code: u8 = undefined;
         const git_describe_untrimmed = b.execAllowFail(&[_][]const u8{
@@ -238,7 +238,7 @@ pub fn build(b: *Builder) !void {
             0 => {
                 // Tagged release version (e.g. 0.7.0).
                 if (!mem.eql(u8, git_describe, version_string)) {
-                    std.debug.print("Zig version '{}' does not match Git tag '{}'\n", .{ version_string, git_describe });
+                    std.debug.print("Zig version '{s}' does not match Git tag '{s}'\n", .{ version_string, git_describe });
                     std.process.exit(1);
                 }
                 break :v version_string;
@@ -258,15 +258,15 @@ pub fn build(b: *Builder) !void {
 
                 // Check that the commit hash is prefixed with a 'g' (a Git convention).
                 if (commit_id.len < 1 or commit_id[0] != 'g') {
-                    std.debug.print("Unexpected `git describe` output: {}\n", .{git_describe});
+                    std.debug.print("Unexpected `git describe` output: {s}\n", .{git_describe});
                     break :v version_string;
                 }
 
                 // The version is reformatted in accordance with the https://semver.org specification.
-                break :v b.fmt("{}-dev.{}+{}", .{ version_string, commit_height, commit_id[1..] });
+                break :v b.fmt("{s}-dev.{s}+{s}", .{ version_string, commit_height, commit_id[1..] });
             },
             else => {
-                std.debug.print("Unexpected `git describe` output: {}\n", .{git_describe});
+                std.debug.print("Unexpected `git describe` output: {s}\n", .{git_describe});
                 break :v version_string;
             },
         }
@@ -369,14 +369,14 @@ fn addCxxKnownPath(
 ) !void {
     const path_padded = try b.exec(&[_][]const u8{
         ctx.cxx_compiler,
-        b.fmt("-print-file-name={}", .{objname}),
+        b.fmt("-print-file-name={s}", .{objname}),
     });
     const path_unpadded = mem.tokenize(path_padded, "\r\n").next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
-            warn("{}", .{msg});
+            warn("{s}", .{msg});
         } else {
-            warn("Unable to determine path to {}\n", .{objname});
+            warn("Unable to determine path to {s}\n", .{objname});
         }
         return error.RequiredLibraryNotFound;
     }

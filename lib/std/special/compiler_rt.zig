@@ -324,7 +324,7 @@ pub usingnamespace @import("compiler_rt/atomics.zig");
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
     if (is_test) {
-        std.debug.panic("{}", .{msg});
+        std.debug.panic("{s}", .{msg});
     } else {
         unreachable;
     }

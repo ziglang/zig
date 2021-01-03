@@ -274,7 +274,7 @@ pub fn resolveInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
     const entry = if (old_inst.cast(zir.Inst.DeclVal)) |declval| blk: {
         const decl_name = declval.positionals.name;
         const entry = zir_module.contents.module.findDecl(decl_name) orelse
-            return mod.fail(scope, old_inst.src, "decl '{}' not found", .{decl_name});
+            return mod.fail(scope, old_inst.src, "decl '{s}' not found", .{decl_name});
         break :blk entry;
     } else blk: {
         // If this assert trips, the instruction that was referenced did not get
@@ -535,7 +535,7 @@ fn analyzeInstParamType(mod: *Module, scope: *Scope, inst: *zir.Inst.ParamType) 
     // TODO support C-style var args
     const param_count = fn_ty.fnParamLen();
     if (arg_index >= param_count) {
-        return mod.fail(scope, inst.base.src, "arg index {} out of bounds; '{}' has {} argument(s)", .{
+        return mod.fail(scope, inst.base.src, "arg index {d} out of bounds; '{}' has {d} argument(s)", .{
             arg_index,
             fn_ty,
             param_count,
@@ -564,14 +564,14 @@ fn analyzeInstStr(mod: *Module, scope: *Scope, str_inst: *zir.Inst.Str) InnerErr
 fn analyzeInstExport(mod: *Module, scope: *Scope, export_inst: *zir.Inst.Export) InnerError!*Inst {
     const symbol_name = try resolveConstString(mod, scope, export_inst.positionals.symbol_name);
     const exported_decl = mod.lookupDeclName(scope, export_inst.positionals.decl_name) orelse
-        return mod.fail(scope, export_inst.base.src, "decl '{}' not found", .{export_inst.positionals.decl_name});
+        return mod.fail(scope, export_inst.base.src, "decl '{s}' not found", .{export_inst.positionals.decl_name});
     try mod.analyzeExport(scope, export_inst.base.src, symbol_name, exported_decl);
     return mod.constVoid(scope, export_inst.base.src);
 }
 
 fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const msg = try resolveConstString(mod, scope, inst.positionals.operand);
-    return mod.fail(scope, inst.base.src, "{}", .{msg});
+    return mod.fail(scope, inst.base.src, "{s}", .{msg});
 }
 
 fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
@@ -580,7 +580,7 @@ fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*
     const param_index = b.instructions.items.len;
     const param_count = fn_ty.fnParamLen();
     if (param_index >= param_count) {
-        return mod.fail(scope, inst.base.src, "parameter index {} outside list of length {}", .{
+        return mod.fail(scope, inst.base.src, "parameter index {d} outside list of length {d}", .{
             param_index,
             param_count,
         });
@@ -790,7 +790,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
             return mod.fail(
                 scope,
                 inst.positionals.func.src,
-                "expected at least {} argument(s), found {}",
+                "expected at least {d} argument(s), found {d}",
                 .{ fn_params_len, call_params_len },
             );
         }
@@ -800,7 +800,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
         return mod.fail(
             scope,
             inst.positionals.func.src,
-            "expected {} argument(s), found {}",
+            "expected {d} argument(s), found {d}",
             .{ fn_params_len, call_params_len },
         );
     }
@@ -918,7 +918,7 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
     for (inst.positionals.fields) |field_name| {
         const entry = try mod.getErrorValue(field_name);
         if (payload.data.fields.fetchPutAssumeCapacity(entry.key, entry.value)) |prev| {
-            return mod.fail(scope, inst.base.src, "duplicate error: '{}'", .{field_name});
+            return mod.fail(scope, inst.base.src, "duplicate error: '{s}'", .{field_name});
         }
     }
     // TODO create name in format "error:line:column"
@@ -1068,7 +1068,7 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                 return mod.fail(
                     scope,
                     fieldptr.positionals.field_name.src,
-                    "no member named '{}' in '{}'",
+                    "no member named '{s}' in '{}'",
                     .{ field_name, elem_ty },
                 );
             }
@@ -1089,7 +1089,7 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                         return mod.fail(
                             scope,
                             fieldptr.positionals.field_name.src,
-                            "no member named '{}' in '{}'",
+                            "no member named '{s}' in '{}'",
                             .{ field_name, elem_ty },
                         );
                     }
@@ -1107,7 +1107,7 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                     // TODO resolve inferred error sets
                     const entry = if (val.castTag(.error_set)) |payload|
                         (payload.data.fields.getEntry(field_name) orelse
-                            return mod.fail(scope, fieldptr.base.src, "no error named '{}' in '{}'", .{ field_name, child_type })).*
+                            return mod.fail(scope, fieldptr.base.src, "no error named '{s}' in '{}'", .{ field_name, child_type })).*
                     else
                         try mod.getErrorValue(field_name);
 
@@ -1135,9 +1135,9 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                     }
 
                     if (&container_scope.file_scope.base == mod.root_scope) {
-                        return mod.fail(scope, fieldptr.base.src, "root source file has no member called '{}'", .{field_name});
+                        return mod.fail(scope, fieldptr.base.src, "root source file has no member called '{s}'", .{field_name});
                     } else {
-                        return mod.fail(scope, fieldptr.base.src, "container '{}' has no member called '{}'", .{ child_type, field_name });
+                        return mod.fail(scope, fieldptr.base.src, "container '{}' has no member called '{s}'", .{ child_type, field_name });
                     }
                 },
                 else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{child_type}),
@@ -1503,14 +1503,14 @@ fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErr
 
     const file_scope = mod.analyzeImport(scope, inst.base.src, operand) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
-            return mod.fail(scope, inst.base.src, "import of file outside package path: '{}'", .{operand});
+            return mod.fail(scope, inst.base.src, "import of file outside package path: '{s}'", .{operand});
         },
         error.FileNotFound => {
-            return mod.fail(scope, inst.base.src, "unable to find '{}'", .{operand});
+            return mod.fail(scope, inst.base.src, "unable to find '{s}'", .{operand});
         },
         else => {
             // TODO user friendly error to string
-            return mod.fail(scope, inst.base.src, "unable to open '{}': {}", .{ operand, @errorName(err) });
+            return mod.fail(scope, inst.base.src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
     return mod.constType(scope, inst.base.src, file_scope.root_container.ty);
@@ -1545,7 +1545,7 @@ fn analyzeInstBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerE
 
     if (lhs.ty.zigTypeTag() == .Vector and rhs.ty.zigTypeTag() == .Vector) {
         if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
-            return mod.fail(scope, inst.base.src, "vector length mismatch: {} and {}", .{
+            return mod.fail(scope, inst.base.src, "vector length mismatch: {d} and {d}", .{
                 lhs.ty.arrayLen(),
                 rhs.ty.arrayLen(),
             });
@@ -1620,7 +1620,7 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 
     if (lhs.ty.zigTypeTag() == .Vector and rhs.ty.zigTypeTag() == .Vector) {
         if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
-            return mod.fail(scope, inst.base.src, "vector length mismatch: {} and {}", .{
+            return mod.fail(scope, inst.base.src, "vector length mismatch: {d} and {d}", .{
                 lhs.ty.arrayLen(),
                 rhs.ty.arrayLen(),
             });
@@ -1637,7 +1637,7 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
     const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
 
     if (!is_int and !(is_float and floatOpAllowed(inst.base.tag))) {
-        return mod.fail(scope, inst.base.src, "invalid operands to binary expression: '{}' and '{}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
+        return mod.fail(scope, inst.base.src, "invalid operands to binary expression: '{s}' and '{s}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
     }
 
     if (casted_lhs.value()) |lhs_val| {
@@ -1656,7 +1656,7 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
     const ir_tag = switch (inst.base.tag) {
         .add => Inst.Tag.add,
         .sub => Inst.Tag.sub,
-        else => return mod.fail(scope, inst.base.src, "TODO implement arithmetic for operand '{}''", .{@tagName(inst.base.tag)}),
+        else => return mod.fail(scope, inst.base.src, "TODO implement arithmetic for operand '{s}''", .{@tagName(inst.base.tag)}),
     };
 
     return mod.addBinOp(b, inst.base.src, scalar_type, ir_tag, casted_lhs, casted_rhs);
@@ -1689,7 +1689,7 @@ fn analyzeInstComptimeOp(mod: *Module, scope: *Scope, res_type: Type, inst: *zir
                 mod.floatSub(scope, res_type, inst.base.src, lhs_val, rhs_val);
             break :blk val;
         },
-        else => return mod.fail(scope, inst.base.src, "TODO Implement arithmetic operand '{}'", .{@tagName(inst.base.tag)}),
+        else => return mod.fail(scope, inst.base.src, "TODO Implement arithmetic operand '{s}'", .{@tagName(inst.base.tag)}),
     };
 
     return mod.constInst(scope, inst.base.src, .{
@@ -1781,7 +1781,7 @@ fn analyzeInstCmp(
         return mod.fail(scope, inst.base.src, "TODO implement equality comparison between a union's tag value and an enum literal", .{});
     } else if (lhs_ty_tag == .ErrorSet and rhs_ty_tag == .ErrorSet) {
         if (!is_equality_cmp) {
-            return mod.fail(scope, inst.base.src, "{} operator not allowed for errors", .{@tagName(op)});
+            return mod.fail(scope, inst.base.src, "{s} operator not allowed for errors", .{@tagName(op)});
         }
         return mod.fail(scope, inst.base.src, "TODO implement equality comparison between errors", .{});
     } else if (lhs.ty.isNumeric() and rhs.ty.isNumeric()) {
@@ -1791,7 +1791,7 @@ fn analyzeInstCmp(
         return mod.cmpNumeric(scope, inst.base.src, lhs, rhs, op);
     } else if (lhs_ty_tag == .Type and rhs_ty_tag == .Type) {
         if (!is_equality_cmp) {
-            return mod.fail(scope, inst.base.src, "{} operator not allowed for types", .{@tagName(op)});
+            return mod.fail(scope, inst.base.src, "{s} operator not allowed for types", .{@tagName(op)});
         }
         return mod.constBool(scope, inst.base.src, lhs.value().?.eql(rhs.value().?) == (op == .eq));
     }
@@ -1962,7 +1962,7 @@ fn analyzeDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerErr
     const decl_name = inst.positionals.name;
     const zir_module = scope.namespace().cast(Scope.ZIRModule).?;
     const src_decl = zir_module.contents.module.findDecl(decl_name) orelse
-        return mod.fail(scope, inst.base.src, "use of undeclared identifier '{}'", .{decl_name});
+        return mod.fail(scope, inst.base.src, "use of undeclared identifier '{s}'", .{decl_name});
 
     const decl = try resolveCompleteZirDecl(mod, scope, src_decl.decl);
 

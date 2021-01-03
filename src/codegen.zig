@@ -228,7 +228,7 @@ pub fn generateSymbol(
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
                     src,
-                    "TODO implement generateSymbol for type '{}'",
+                    "TODO implement generateSymbol for type '{s}'",
                     .{@tagName(t)},
                 ),
             };
@@ -2029,7 +2029,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             });
                             break :blk 0x84;
                         },
-                        else => return self.fail(inst.base.src, "TODO implement condbr {} when condition is {}", .{ self.target.cpu.arch, @tagName(cond) }),
+                        else => return self.fail(inst.base.src, "TODO implement condbr {s} when condition is {s}", .{ self.target.cpu.arch, @tagName(cond) }),
                     };
                     self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
                     const reloc = Reloc{ .rel32 = self.code.items.len };
@@ -2376,11 +2376,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .arm, .armeb => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{s}'", .{input});
                         }
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
@@ -2393,11 +2393,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     if (inst.output) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
                         const reg_name = output[2 .. output.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         return MCValue{ .register = reg };
                     } else {
                         return MCValue.none;
@@ -2406,11 +2406,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .aarch64 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{s}'", .{input});
                         }
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
@@ -2425,11 +2425,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     if (inst.output) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
                         const reg_name = output[2 .. output.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         return MCValue{ .register = reg };
                     } else {
                         return MCValue.none;
@@ -2438,11 +2438,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .riscv64 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{s}'", .{input});
                         }
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
@@ -2455,11 +2455,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     if (inst.output) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
                         const reg_name = output[2 .. output.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         return MCValue{ .register = reg };
                     } else {
                         return MCValue.none;
@@ -2468,11 +2468,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64, .i386 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{s}'", .{input});
                         }
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
@@ -2485,11 +2485,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     if (inst.output) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
                         const reg_name = output[2 .. output.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         return MCValue{ .register = reg };
                     } else {
                         return MCValue.none;
@@ -3417,7 +3417,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                             next_int_reg += 1;
                                         }
                                     },
-                                    else => return self.fail(src, "TODO implement function parameters of type {}", .{@tagName(ty.zigTypeTag())}),
+                                    else => return self.fail(src, "TODO implement function parameters of type {s}", .{@tagName(ty.zigTypeTag())}),
                                 }
                             }
                             result.stack_byte_count = next_stack_offset;

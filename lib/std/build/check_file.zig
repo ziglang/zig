@@ -45,9 +45,9 @@ pub const CheckFileStep = struct {
                 warn(
                     \\
                     \\========= Expected to find: ===================
-                    \\{}
+                    \\{s}
                     \\========= But file does not contain it: =======
-                    \\{}
+                    \\{s}
                     \\
                 , .{ expected_match, contents });
                 return error.TestFailed;

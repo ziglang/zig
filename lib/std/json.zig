@@ -2642,9 +2642,9 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
             if (self.expected_remaining.len < bytes.len) {
                 std.debug.warn(
                     \\====== expected this output: =========
-                    \\{}
+                    \\{s}
                     \\======== instead found this: =========
-                    \\{}
+                    \\{s}
                     \\======================================
                 , .{
                     self.expected_remaining,
@@ -2655,9 +2655,9 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
             if (!mem.eql(u8, self.expected_remaining[0..bytes.len], bytes)) {
                 std.debug.warn(
                     \\====== expected this output: =========
-                    \\{}
+                    \\{s}
                     \\======== instead found this: =========
-                    \\{}
+                    \\{s}
                     \\======================================
                 , .{
                     self.expected_remaining[0..bytes.len],

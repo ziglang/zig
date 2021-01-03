@@ -385,7 +385,7 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpr
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (node.getLabel()) |break_label| {
                 const label_name = try identifierTokenString(mod, parent_scope, break_label);
-                return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+                return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
                 return mod.failTok(parent_scope, src, "break expression outside loop", .{});
             },
@@ -427,7 +427,7 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowE
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (node.getLabel()) |break_label| {
                 const label_name = try identifierTokenString(mod, parent_scope, break_label);
-                return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+                return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
                 return mod.failTok(parent_scope, src, "continue expression outside loop", .{});
             },
@@ -560,14 +560,14 @@ fn varDecl(
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
                 }
                 s = local_ptr.parent;
             },
@@ -578,7 +578,7 @@ fn varDecl(
 
     // Namespace vars shadowing detection
     if (mod.lookupDeclName(scope, ident_name)) |_| {
-        return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+        return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
     }
     const init_node = node.getInitNode() orelse
         return mod.fail(scope, name_src, "variables must be initialized", .{});
@@ -1955,7 +1955,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
                 error.Overflow => return mod.failNode(
                     scope,
                     &ident.base,
-                    "primitive integer type '{}' exceeds maximum bit width of 65535",
+                    "primitive integer type '{s}' exceeds maximum bit width of 65535",
                     .{ident_name},
                 ),
                 error.InvalidCharacter => break :integer,
@@ -2010,7 +2010,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
         return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{}));
     }
 
-    return mod.failNode(scope, &ident.base, "use of undeclared identifier '{}'", .{ident_name});
+    return mod.failNode(scope, &ident.base, "use of undeclared identifier '{s}'", .{ident_name});
 }
 
 fn stringLiteral(mod: *Module, scope: *Scope, str_lit: *ast.Node.OneToken) InnerError!*zir.Inst {
@@ -2204,7 +2204,7 @@ fn ensureBuiltinParamCount(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinC
         return;
 
     const s = if (count == 1) "" else "s";
-    return mod.failTok(scope, call.builtin_token, "expected {} parameter{}, found {}", .{ count, s, call.params_len });
+    return mod.failTok(scope, call.builtin_token, "expected {d} parameter{s}, found {d}", .{ count, s, call.params_len });
 }
 
 fn simpleCast(
@@ -2383,7 +2383,7 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
     } else if (mem.eql(u8, builtin_name, "@compileError")) {
         return compileError(mod, scope, call);
     } else {
-        return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{}'", .{builtin_name});
+        return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{s}'", .{builtin_name});
     }
 }
 
