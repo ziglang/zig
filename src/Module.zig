@@ -766,6 +766,8 @@ pub const Scope = struct {
         inlining: ?*Inlining,
         is_comptime: bool,
 
+        branch_count: u64,
+        branch_quota: u64,
         pub const InstTable = std.AutoHashMap(*zir.Inst, *Inst);
 
         /// This `Block` maps a block ZIR instruction to the corresponding
@@ -792,8 +794,6 @@ pub const Scope = struct {
 
             pub const Shared = struct {
                 caller: ?*Fn,
-                branch_count: u64,
-                branch_quota: u64,
             };
         };
 
@@ -1113,6 +1113,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .arena = &decl_arena.allocator,
                 .inlining = null,
                 .is_comptime = false,
+                .branch_count = 0,
+                .branch_quota = 1000,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -1306,6 +1308,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .arena = &decl_arena.allocator,
                 .inlining = null,
                 .is_comptime = true,
+                .branch_count = 0,
+                .branch_quota = 1000,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -1376,6 +1380,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .arena = &gen_scope_arena.allocator,
                     .inlining = null,
                     .is_comptime = true,
+                    .branch_count = 0,
+                    .branch_quota = 1000,
                 };
                 defer inner_block.instructions.deinit(self.gpa);
                 try zir_sema.analyzeBody(self, &inner_block, .{
@@ -1503,6 +1509,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .arena = &analysis_arena.allocator,
                 .inlining = null,
                 .is_comptime = true,
+                .branch_count = 0,
+                .branch_quota = 1000,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -1884,6 +1892,8 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
         .arena = &arena.allocator,
         .inlining = null,
         .is_comptime = false,
+        .branch_count = 0,
+        .branch_quota = 1000,
     };
     defer inner_block.instructions.deinit(self.gpa);
 
@@ -3466,7 +3476,10 @@ pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .branch_count = parent_block.branch_count,
+        .branch_quota = parent_block.branch_quota,
     };
+
     defer fail_block.instructions.deinit(mod.gpa);
 
     _ = try mod.safetyPanic(&fail_block, ok.src, panic_id);
@@ -3529,13 +3542,12 @@ pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex)
     return ident_name;
 }
 
-pub fn emitBackwardBranch(mod: *Module, block: *Scope.Block, src: usize) !void {
-    const shared = block.inlining.?.shared;
-    shared.branch_count += 1;
-    if (shared.branch_count > shared.branch_quota) {
+pub fn emitBackwardBranch(mod: *Module, block: *Scope.Block, number: u64, src: usize) !void {
+    block.branch_count += number;
+    if (block.branch_count > block.branch_quota) {
         // TODO show the "called from here" stack
         return mod.fail(&block.base, src, "evaluation exceeded {d} backwards branches", .{
-            shared.branch_quota,
+            block.branch_quota,
         });
     }
 }

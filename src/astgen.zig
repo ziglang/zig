@@ -2317,6 +2317,15 @@ fn compileError(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerE
     return addZIRUnOp(mod, scope, src, .compileerror, target);
 }
 
+fn setEvalBranchQuota(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
+    try ensureBuiltinParamCount(mod, scope, call, 1);
+    const tree = scope.tree();
+    const src = tree.token_locs[call.builtin_token].start;
+    const params = call.params();
+    const target = try expr(mod, scope, .none, params[0]);
+    return addZIRUnOp(mod, scope, src, .setevalbranchquota, target);
+}
+
 fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
     const tree = scope.tree();
     const arena = scope.arena();
@@ -2362,6 +2371,8 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
         return rlWrap(mod, scope, rl, try import(mod, scope, call));
     } else if (mem.eql(u8, builtin_name, "@compileError")) {
         return compileError(mod, scope, call);
+    } else if (mem.eql(u8, builtin_name, "@setEvalBranchQuota")) {
+        return setEvalBranchQuota(mod, scope, call);
     } else {
         return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{s}'", .{builtin_name});
     }

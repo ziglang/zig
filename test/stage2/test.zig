@@ -1477,4 +1477,64 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{":8:10: error: evaluation exceeded 1000 backwards branches"});
     }
+    {
+        var case = ctx.exe("@setEvalBranchQuota", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    @setEvalBranchQuota(100000);
+            \\    const y = fibonacci(18);
+            \\    assert(y == 4181);
+            \\    exit();
+            \\}
+            \\
+            \\inline fn fibonacci(n: usize) usize {
+            \\    if (n <= 2) return n;
+            \\    return fibonacci(n - 2) + fibonacci(n - 1);
+            \\}
+            \\
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    @setEvalBranchQuota(10);
+            \\    const y = fibonacci(18);
+            \\    assert(y == 4181);
+            \\    exit();
+            \\}
+            \\
+            \\inline fn fibonacci(n: usize) usize {
+            \\    if (n <= 2) return n;
+            \\    return fibonacci(n - 2) + fibonacci(n - 1);
+            \\}
+            \\
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":10:35: error: evaluation exceeded 10 backwards branches"});
+    }
 }
