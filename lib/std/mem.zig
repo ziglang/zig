@@ -2120,6 +2120,49 @@ test "replace" {
     try testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
+/// Replace all occurences of `needle` with `replacement`.
+pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) void {
+    for (slice) |e, i| {
+        if (e == needle) {
+            slice[i] = replacement;
+        }
+    }
+}
+
+/// Collapse consecutive duplicate elements into one entry.
+pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) usize {
+    if (slice.len == 0) return 0;
+    var write_idx: usize = 1;
+    var read_idx: usize = 1;
+    while (read_idx < slice.len) : (read_idx += 1) {
+        if (slice[read_idx - 1] != elem or slice[read_idx] != elem) {
+            slice[write_idx] = slice[read_idx];
+            write_idx += 1;
+        }
+    }
+    return write_idx;
+}
+
+fn testCollapseRepeats(str: []const u8, elem: u8, expected: []const u8) !void {
+    const mutable = try std.testing.allocator.dupe(u8, str);
+    defer std.testing.allocator.free(mutable);
+    const actual = mutable[0..collapseRepeats(u8, mutable, elem)];
+    testing.expect(std.mem.eql(u8, actual, expected));
+}
+test "collapseRepeats" {
+    try testCollapseRepeats("", '/', "");
+    try testCollapseRepeats("a", '/', "a");
+    try testCollapseRepeats("/", '/', "/");
+    try testCollapseRepeats("//", '/', "/");
+    try testCollapseRepeats("/a", '/', "/a");
+    try testCollapseRepeats("//a", '/', "/a");
+    try testCollapseRepeats("a/", '/', "a/");
+    try testCollapseRepeats("a//", '/', "a/");
+    try testCollapseRepeats("a/a", '/', "a/a");
+    try testCollapseRepeats("a//a", '/', "a/a");
+    try testCollapseRepeats("//a///a////", '/', "/a/a/");
+}
+
 /// Calculate the size needed in an output buffer to perform a replacement.
 /// The needle must not be empty.
 pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, replacement: []const T) usize {

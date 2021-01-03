@@ -1723,6 +1723,81 @@ pub const PathSpace = struct {
     }
 };
 
+/// The error type for `removeDotDirsSanitized`
+pub const RemoveDotDirsError = error{TooManyParentDirs};
+
+/// Removes '.' and '..' path components from a "sanitized relative path".
+/// A "sanitized path" is one where:
+///    1) all forward slashes have been replaced with back slashes
+///    2) all repeating back slashes have been collapsed
+///    3) the path is a relative one (does not start with a back slash)
+pub fn removeDotDirsSanitized(comptime T: type, path: []T) RemoveDotDirsError!usize {
+    std.debug.assert(path.len == 0 or path[0] != '\\');
+
+    var write_idx: usize = 0;
+    var read_idx: usize = 0;
+    while (read_idx < path.len) {
+        if (path[read_idx] == '.') {
+            if (read_idx + 1 == path.len)
+                return write_idx;
+
+            const after_dot = path[read_idx + 1];
+            if (after_dot == '\\') {
+                read_idx += 2;
+                continue;
+            }
+            if (after_dot == '.' and (read_idx + 2 == path.len or path[read_idx + 2] == '\\')) {
+                if (write_idx == 0) return error.TooManyParentDirs;
+                std.debug.assert(write_idx >= 2);
+                write_idx -= 1;
+                while (true) {
+                    write_idx -= 1;
+                    if (write_idx == 0) break;
+                    if (path[write_idx] == '\\') {
+                        write_idx += 1;
+                        break;
+                    }
+                }
+                if (read_idx + 2 == path.len)
+                    return write_idx;
+                read_idx += 3;
+                continue;
+            }
+        }
+
+        // skip to the next path separator
+        while (true) : (read_idx += 1) {
+            if (read_idx == path.len)
+                return write_idx;
+            path[write_idx] = path[read_idx];
+            write_idx += 1;
+            if (path[read_idx] == '\\')
+                break;
+        }
+        read_idx += 1;
+    }
+    return write_idx;
+}
+
+/// Normalizes a Windows path with the following steps:
+///     1) convert all forward slashes to back slashes
+///     2) collapse duplicate back slashes
+///     3) remove '.' and '..' directory parts
+/// Returns the length of the new path.
+pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
+    mem.replaceScalar(T, path, '/', '\\');
+    const new_len = mem.collapseRepeats(T, path, '\\');
+
+    const prefix_len: usize = init: {
+        if (new_len >= 1 and path[0] == '\\') break :init 1;
+        if (new_len >= 2 and path[1] == ':')
+            break :init if (new_len >= 3 and path[2] == '\\') @as(usize, 3) else @as(usize, 2);
+        break :init 0;
+    };
+
+    return prefix_len + try removeDotDirsSanitized(T, path[prefix_len..new_len]);
+}
+
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated path.
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
@@ -1749,17 +1824,9 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
     if (path_space.len > path_space.data.len) return error.NameTooLong;
-    // > File I/O functions in the Windows API convert "/" to "\" as part of
-    // > converting the name to an NT-style name, except when using the "\\?\"
-    // > prefix as detailed in the following sections.
-    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-    // Because we want the larger maximum path length for absolute paths, we
-    // convert forward slashes to backward slashes here.
-    for (path_space.data[0..path_space.len]) |*elem| {
-        if (elem.* == '/') {
-            elem.* = '\\';
-        }
-    }
+    path_space.len = start_index + (normalizePath(u16, path_space.data[start_index..path_space.len]) catch |err| switch (err) {
+        error.TooManyParentDirs => return error.BadPathName,
+    });
     path_space.data[path_space.len] = 0;
     return path_space;
 }
@@ -1863,4 +1930,10 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+test "" {
+    if (builtin.os.tag == .windows) {
+        _ = @import("windows/test.zig");
+    }
 }
