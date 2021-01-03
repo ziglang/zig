@@ -51,9 +51,9 @@ fn unwrapArg(arg: UnwrapArgError![]u8) UnwrapArgError![]u8 {
 }
 
 fn printCmd(cwd: []const u8, argv: []const []const u8) void {
-    std.debug.warn("cd {} && ", .{cwd});
+    std.debug.warn("cd {s} && ", .{cwd});
     for (argv) |arg| {
-        std.debug.warn("{} ", .{arg});
+        std.debug.warn("{s} ", .{arg});
     }
     std.debug.warn("\n", .{});
 }
@@ -75,14 +75,14 @@ fn exec(cwd: []const u8, expect_0: bool, argv: []const []const u8) !ChildProcess
             if ((code != 0) == expect_0) {
                 std.debug.warn("The following command exited with error code {}:\n", .{code});
                 printCmd(cwd, argv);
-                std.debug.warn("stderr:\n{}\n", .{result.stderr});
+                std.debug.warn("stderr:\n{s}\n", .{result.stderr});
                 return error.CommandFailed;
             }
         },
         else => {
             std.debug.warn("The following command terminated unexpectedly:\n", .{});
             printCmd(cwd, argv);
-            std.debug.warn("stderr:\n{}\n", .{result.stderr});
+            std.debug.warn("stderr:\n{s}\n", .{result.stderr});
             return error.CommandFailed;
         },
     }

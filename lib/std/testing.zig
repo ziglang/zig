@@ -29,7 +29,7 @@ pub var zig_exe_path: []const u8 = undefined;
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) void {
     if (actual_error_union) |actual_payload| {
-        std.debug.panic("expected error.{s}, found {}", .{ @errorName(expected_error), actual_payload });
+        std.debug.panic("expected error.{s}, found {any}", .{ @errorName(expected_error), actual_payload });
     } else |actual_error| {
         if (expected_error != actual_error) {
             std.debug.panic("expected error.{s}, found error.{s}", .{
@@ -88,7 +88,7 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
                 },
                 .Slice => {
                     if (actual.ptr != expected.ptr) {
-                        std.debug.panic("expected slice ptr {}, found {}", .{ expected.ptr, actual.ptr });
+                        std.debug.panic("expected slice ptr {*}, found {*}", .{ expected.ptr, actual.ptr });
                     }
                     if (actual.len != expected.len) {
                         std.debug.panic("expected slice len {}, found {}", .{ expected.len, actual.len });
@@ -145,11 +145,11 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
                 if (actual) |actual_payload| {
                     expectEqual(expected_payload, actual_payload);
                 } else {
-                    std.debug.panic("expected {}, found null", .{expected_payload});
+                    std.debug.panic("expected {any}, found null", .{expected_payload});
                 }
             } else {
                 if (actual) |actual_payload| {
-                    std.debug.panic("expected null, found {}", .{actual_payload});
+                    std.debug.panic("expected null, found {any}", .{actual_payload});
                 }
             }
         },
@@ -159,11 +159,11 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
                 if (actual) |actual_payload| {
                     expectEqual(expected_payload, actual_payload);
                 } else |actual_err| {
-                    std.debug.panic("expected {}, found {}", .{ expected_payload, actual_err });
+                    std.debug.panic("expected {any}, found {}", .{ expected_payload, actual_err });
                 }
             } else |expected_err| {
                 if (actual) |actual_payload| {
-                    std.debug.panic("expected {}, found {}", .{ expected_err, actual_payload });
+                    std.debug.panic("expected {}, found {any}", .{ expected_err, actual_payload });
                 } else |actual_err| {
                     expectEqual(expected_err, actual_err);
                 }
@@ -279,7 +279,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     var i: usize = 0;
     while (i < expected.len) : (i += 1) {
         if (!std.meta.eql(expected[i], actual[i])) {
-            std.debug.panic("index {} incorrect. expected {}, found {}", .{ i, expected[i], actual[i] });
+            std.debug.panic("index {} incorrect. expected {any}, found {any}", .{ i, expected[i], actual[i] });
         }
     }
 }

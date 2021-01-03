@@ -41,6 +41,6 @@ pub fn main() !void {
 }
 
 fn usage(exe: []const u8) !void {
-    warn("Usage: {} [FILE]...\n", .{exe});
+    warn("Usage: {s} [FILE]...\n", .{exe});
     return error.Invalid;
 }

@@ -739,7 +739,7 @@ pub const Builder = struct {
                 return args.default_target;
             },
             else => |e| {
-                warn("Unable to parse target '{}': {s}\n\n", .{ triple, @errorName(e) });
+                warn("Unable to parse target '{s}': {s}\n\n", .{ triple, @errorName(e) });
                 self.markInvalidUserInput();
                 return args.default_target;
             },
