@@ -612,8 +612,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // jump
                             self.code.items.len -= 4;
                         } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
-                            const amt = self.code.items.len - (jmp_reloc + 4);
-                            if (amt == 0) {
+                            const amt = @intCast(i32, self.code.items.len) - @intCast(i32, jmp_reloc + 8);
+                            if (amt == -4) {
                                 // This return is at the end of the
                                 // code block. We can't just delete
                                 // the space because there may be
