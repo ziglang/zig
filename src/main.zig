@@ -3292,7 +3292,6 @@ fn detectNativeTargetInfo(gpa: *Allocator, cross_target: std.zig.CrossTarget) !s
 /// calls exit(0), and does not return.
 pub fn cleanExit() void {
     if (std.builtin.mode == .Debug) {
-        Cache.deinitDebugMap();
         return;
     } else {
         process.exit(0);
