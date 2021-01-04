@@ -134,8 +134,8 @@ pub fn main() !void {
         }
     }
 
-    try runBuild(builder);
     builder.resolveInstallPrefix();
+    try runBuild(builder);
 
     if (builder.validateUserInputDidItFail())
         return usageAndErr(builder, true, stderr_stream);
