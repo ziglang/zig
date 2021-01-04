@@ -67,7 +67,22 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+    {
+        var case = ctx.exeFromCompiledC("@setEvalBranchQuota", .{});
 
+        case.addCompareOutput(
+            \\export fn main() i32 {
+            \\    @setEvalBranchQuota(1001);
+            \\    const y = rec(1001);
+            \\    return y - 1;
+            \\}
+            \\
+            \\inline fn rec(n: usize) usize {
+            \\    if (n <= 1) return n;
+            \\    return rec(n - 1);
+            \\}
+        , "");
+    }
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {
         \\    unreachable;

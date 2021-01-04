@@ -81,6 +81,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .mut_slice_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.mut_slice_type).?, true, .Slice),
         .ptr_type => return analyzeInstPtrType(mod, scope, old_inst.castTag(.ptr_type).?),
         .store => return analyzeInstStore(mod, scope, old_inst.castTag(.store).?),
+        .set_eval_branch_quota => return analyzeInstSetEvalBranchQuota(mod, scope, old_inst.castTag(.set_eval_branch_quota).?),
         .str => return analyzeInstStr(mod, scope, old_inst.castTag(.str).?),
         .int => {
             const big_int = old_inst.castTag(.int).?.positionals.int;
@@ -278,6 +279,24 @@ fn resolveType(mod: *Module, scope: *Scope, old_inst: *zir.Inst) !Type {
     const coerced_inst = try mod.coerce(scope, wanted_type, new_inst);
     const val = try mod.resolveConstValue(scope, coerced_inst);
     return val.toType(scope.arena());
+}
+
+/// Appropriate to call when the coercion has already been done by result
+/// location semantics. Asserts the value fits in the provided `Int` type.
+/// Only supports `Int` types 64 bits or less.
+fn resolveAlreadyCoercedInt(
+    mod: *Module,
+    scope: *Scope,
+    old_inst: *zir.Inst,
+    comptime Int: type,
+) !Int {
+    comptime assert(@typeInfo(Int).Int.bits <= 64);
+    const new_inst = try resolveInst(mod, scope, old_inst);
+    const val = try mod.resolveConstValue(scope, new_inst);
+    switch (@typeInfo(Int).Int.signedness) {
+        .signed => return @intCast(Int, val.toSignedInt()),
+        .unsigned => return @intCast(Int, val.toUnsignedInt()),
+    }
 }
 
 fn resolveInt(mod: *Module, scope: *Scope, old_inst: *zir.Inst, dest_type: Type) !u64 {
@@ -486,6 +505,18 @@ fn analyzeInstStoreToInferredPtr(
     return mod.storePtr(scope, inst.base.src, bitcasted_ptr, value);
 }
 
+fn analyzeInstSetEvalBranchQuota(
+    mod: *Module,
+    scope: *Scope,
+    inst: *zir.Inst.UnOp,
+) InnerError!*Inst {
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
+    const quota = try resolveAlreadyCoercedInt(mod, scope, inst.positionals.operand, u32);
+    if (b.branch_quota.* < quota)
+        b.branch_quota.* = quota;
+    return mod.constVoid(scope, inst.base.src);
+}
+
 fn analyzeInstStore(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     const ptr = try resolveInst(mod, scope, inst.positionals.lhs);
     const value = try resolveInst(mod, scope, inst.positionals.rhs);
@@ -594,6 +625,7 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .branch_quota = parent_block.branch_quota,
     };
     defer child_block.instructions.deinit(mod.gpa);
 
@@ -619,6 +651,7 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
         .label = null,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime or is_comptime,
+        .branch_quota = parent_block.branch_quota,
     };
     defer child_block.instructions.deinit(mod.gpa);
 
@@ -666,6 +699,7 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_compt
         }),
         .inlining = parent_block.inlining,
         .is_comptime = is_comptime or parent_block.is_comptime,
+        .branch_quota = parent_block.branch_quota,
     };
     const merges = &child_block.label.?.merges;
 
@@ -867,7 +901,6 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
         // Otherwise we pass on the shared data from the parent scope.
         var shared_inlining = Scope.Block.Inlining.Shared{
             .branch_count = 0,
-            .branch_quota = 1000,
             .caller = b.func,
         };
         // This one is shared among sub-blocks within the same callee, but not
@@ -896,7 +929,9 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
             .label = null,
             .inlining = &inlining,
             .is_comptime = is_comptime_call,
+            .branch_quota = b.branch_quota,
         };
+
         const merges = &child_block.inlining.?.merges;
 
         defer child_block.instructions.deinit(mod.gpa);
@@ -1417,6 +1452,7 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .branch_quota = parent_block.branch_quota,
     };
     defer case_block.instructions.deinit(mod.gpa);
 
@@ -1960,6 +1996,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .branch_quota = parent_block.branch_quota,
     };
     defer true_block.instructions.deinit(mod.gpa);
     try analyzeBody(mod, &true_block, inst.positionals.then_body);
@@ -1973,6 +2010,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .branch_quota = parent_block.branch_quota,
     };
     defer false_block.instructions.deinit(mod.gpa);
     try analyzeBody(mod, &false_block, inst.positionals.else_body);
