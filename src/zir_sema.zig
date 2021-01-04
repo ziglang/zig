@@ -83,10 +83,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .store => return analyzeInstStore(mod, scope, old_inst.castTag(.store).?),
         .set_eval_branch_quota => return analyzeInstSetEvalBranchQuota(mod, scope, old_inst.castTag(.set_eval_branch_quota).?),
         .str => return analyzeInstStr(mod, scope, old_inst.castTag(.str).?),
-        .int => {
-            const big_int = old_inst.castTag(.int).?.positionals.int;
-            return mod.constIntBig(scope, old_inst.src, Type.initTag(.comptime_int), big_int);
-        },
+        .int => return analyzeInstInt(mod, scope, old_inst.castTag(.int).?),
         .inttype => return analyzeInstIntType(mod, scope, old_inst.castTag(.inttype).?),
         .loop => return analyzeInstLoop(mod, scope, old_inst.castTag(.loop).?),
         .param_type => return analyzeInstParamType(mod, scope, old_inst.castTag(.param_type).?),
@@ -161,6 +158,9 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
 }
 
 pub fn analyzeBody(mod: *Module, block: *Scope.Block, body: zir.Module.Body) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     for (body.instructions) |src_inst| {
         const analyzed_inst = try analyzeInst(mod, &block.base, src_inst);
         try block.inst_table.putNoClobber(src_inst, analyzed_inst);
@@ -317,6 +317,8 @@ pub fn resolveInstConst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerE
 }
 
 fn analyzeInstConst(mod: *Module, scope: *Scope, const_inst: *zir.Inst.Const) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     // Move the TypedValue from old memory to new memory. This allows freeing the ZIR instructions
     // after analysis.
     const typed_value_copy = try const_inst.positionals.typed_value.copy(scope.arena());
@@ -336,29 +338,41 @@ fn analyzeInstCoerceResultBlockPtr(
     scope: *Scope,
     inst: *zir.Inst.CoerceResultBlockPtr,
 ) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceResultBlockPtr", .{});
 }
 
 fn analyzeInstBitCastRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitCastRef", .{});
 }
 
 fn analyzeInstBitCastResultPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitCastResultPtr", .{});
 }
 
 fn analyzeInstCoerceResultPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceResultPtr", .{});
 }
 
 /// Equivalent to `as(ptr_child_type(typeof(ptr)), value)`.
 fn analyzeInstCoerceToPtrElem(mod: *Module, scope: *Scope, inst: *zir.Inst.CoerceToPtrElem) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const ptr = try resolveInst(mod, scope, inst.positionals.ptr);
     const operand = try resolveInst(mod, scope, inst.positionals.value);
     return mod.coerce(scope, ptr.ty.elemType(), operand);
 }
 
 fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
     const ret_type = fn_ty.fnReturnType();
@@ -367,6 +381,8 @@ fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerErr
 }
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     const ptr_type = try mod.simplePtrType(scope, inst.base.src, operand.ty, false, .One);
 
@@ -382,6 +398,8 @@ fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!
 }
 
 fn analyzeInstRetType(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
     const ret_type = fn_ty.fnReturnType();
@@ -389,6 +407,8 @@ fn analyzeInstRetType(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerEr
 }
 
 fn analyzeInstEnsureResultUsed(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     switch (operand.ty.zigTypeTag()) {
         .Void, .NoReturn => return mod.constVoid(scope, operand.src),
@@ -397,6 +417,8 @@ fn analyzeInstEnsureResultUsed(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp
 }
 
 fn analyzeInstEnsureResultNonError(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     switch (operand.ty.zigTypeTag()) {
         .ErrorSet, .ErrorUnion => return mod.fail(scope, operand.src, "error is discarded", .{}),
@@ -405,6 +427,8 @@ fn analyzeInstEnsureResultNonError(mod: *Module, scope: *Scope, inst: *zir.Inst.
 }
 
 fn analyzeInstEnsureIndexable(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     const elem_ty = operand.ty.elemType();
     if (elem_ty.isIndexable()) {
@@ -418,6 +442,8 @@ fn analyzeInstEnsureIndexable(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp)
 }
 
 fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
     const ptr_type = try mod.simplePtrType(scope, inst.base.src, var_type, true, .One);
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
@@ -425,6 +451,8 @@ fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErro
 }
 
 fn analyzeInstAllocMut(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
     try mod.validateVarType(scope, inst.base.src, var_type);
     const ptr_type = try mod.simplePtrType(scope, inst.base.src, var_type, true, .One);
@@ -438,6 +466,8 @@ fn analyzeInstAllocInferred(
     inst: *zir.Inst.NoOp,
     mut_tag: Type.Tag,
 ) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const val_payload = try scope.arena().create(Value.Payload.InferredAlloc);
     val_payload.* = .{
         .data = .{},
@@ -464,6 +494,8 @@ fn analyzeInstResolveInferredAlloc(
     scope: *Scope,
     inst: *zir.Inst.UnOp,
 ) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const ptr = try resolveInst(mod, scope, inst.positionals.operand);
     const ptr_val = ptr.castTag(.constant).?.val;
     const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
@@ -491,6 +523,8 @@ fn analyzeInstStoreToInferredPtr(
     scope: *Scope,
     inst: *zir.Inst.BinOp,
 ) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const ptr = try resolveInst(mod, scope, inst.positionals.lhs);
     const value = try resolveInst(mod, scope, inst.positionals.rhs);
     const inferred_alloc = ptr.castTag(.constant).?.val.castTag(.inferred_alloc).?;
@@ -518,12 +552,16 @@ fn analyzeInstSetEvalBranchQuota(
 }
 
 fn analyzeInstStore(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const ptr = try resolveInst(mod, scope, inst.positionals.lhs);
     const value = try resolveInst(mod, scope, inst.positionals.rhs);
     return mod.storePtr(scope, inst.base.src, ptr, value);
 }
 
 fn analyzeInstParamType(mod: *Module, scope: *Scope, inst: *zir.Inst.ParamType) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const fn_inst = try resolveInst(mod, scope, inst.positionals.func);
     const arg_index = inst.positionals.arg_index;
 
@@ -553,6 +591,8 @@ fn analyzeInstParamType(mod: *Module, scope: *Scope, inst: *zir.Inst.ParamType) 
 }
 
 fn analyzeInstStr(mod: *Module, scope: *Scope, str_inst: *zir.Inst.Str) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     // The bytes references memory inside the ZIR module, which can get deallocated
     // after semantic analysis is complete. We need the memory to be in the new anonymous Decl's arena.
     var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
@@ -566,7 +606,16 @@ fn analyzeInstStr(mod: *Module, scope: *Scope, str_inst: *zir.Inst.Str) InnerErr
     return mod.analyzeDeclRef(scope, str_inst.base.src, new_decl);
 }
 
+fn analyzeInstInt(mod: *Module, scope: *Scope, inst: *zir.Inst.Int) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    return mod.constIntBig(scope, inst.base.src, Type.initTag(.comptime_int), inst.positionals.int);
+}
+
 fn analyzeInstExport(mod: *Module, scope: *Scope, export_inst: *zir.Inst.Export) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const symbol_name = try resolveConstString(mod, scope, export_inst.positionals.symbol_name);
     const exported_decl = mod.lookupDeclName(scope, export_inst.positionals.decl_name) orelse
         return mod.fail(scope, export_inst.base.src, "decl '{s}' not found", .{export_inst.positionals.decl_name});
@@ -575,11 +624,15 @@ fn analyzeInstExport(mod: *Module, scope: *Scope, export_inst: *zir.Inst.Export)
 }
 
 fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const msg = try resolveConstString(mod, scope, inst.positionals.operand);
     return mod.fail(scope, inst.base.src, "{s}", .{msg});
 }
 
 fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
     if (b.inlining) |inlining| {
         const param_index = inlining.param_index;
@@ -601,6 +654,8 @@ fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*
 }
 
 fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const parent_block = scope.cast(Scope.Block).?;
 
     // Reserve space for a Loop instruction so that generated Break instructions can
@@ -639,6 +694,8 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
 }
 
 fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime: bool) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const parent_block = scope.cast(Scope.Block).?;
 
     var child_block: Scope.Block = .{
@@ -667,6 +724,8 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
 }
 
 fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime: bool) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const parent_block = scope.cast(Scope.Block).?;
 
     // Reserve space for a Block instruction so that generated Break instructions can
@@ -717,6 +776,9 @@ fn analyzeBlockBody(
     child_block: *Scope.Block,
     merges: *Scope.Block.Merges,
 ) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const parent_block = scope.cast(Scope.Block).?;
 
     // Blocks must terminate with noreturn instruction.
@@ -755,23 +817,31 @@ fn analyzeBlockBody(
 }
 
 fn analyzeInstBreakpoint(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addNoOp(b, inst.base.src, Type.initTag(.void), .breakpoint);
 }
 
 fn analyzeInstBreak(mod: *Module, scope: *Scope, inst: *zir.Inst.Break) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     const block = inst.positionals.block;
     return analyzeBreak(mod, scope, inst.base.src, block, operand);
 }
 
 fn analyzeInstBreakVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.BreakVoid) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const block = inst.positionals.block;
     const void_inst = try mod.constVoid(scope, inst.base.src);
     return analyzeBreak(mod, scope, inst.base.src, block, void_inst);
 }
 
 fn analyzeInstDbgStmt(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     if (scope.cast(Scope.Block)) |b| {
         if (!b.is_comptime) {
             return mod.addNoOp(b, inst.base.src, Type.initTag(.void), .dbg_stmt);
@@ -781,26 +851,37 @@ fn analyzeInstDbgStmt(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerEr
 }
 
 fn analyzeInstDeclRefStr(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclRefStr) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const decl_name = try resolveConstString(mod, scope, inst.positionals.name);
     return mod.analyzeDeclRefByName(scope, inst.base.src, decl_name);
 }
 
 fn analyzeInstDeclRef(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclRef) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.analyzeDeclRefByName(scope, inst.base.src, inst.positionals.name);
 }
 
 fn analyzeInstDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const decl = try analyzeDeclVal(mod, scope, inst);
     const ptr = try mod.analyzeDeclRef(scope, inst.base.src, decl);
     return mod.analyzeDeref(scope, inst.base.src, ptr, inst.base.src);
 }
 
 fn analyzeInstDeclValInModule(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclValInModule) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const decl = inst.positionals.decl;
     return mod.analyzeDeclRef(scope, inst.base.src, decl);
 }
 
 fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const func = try resolveInst(mod, scope, inst.positionals.func);
     if (func.ty.zigTypeTag() != .Fn)
         return mod.fail(scope, inst.positionals.func.src, "type '{}' not a function", .{func.ty});
@@ -943,19 +1024,15 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
         // the block_inst above.
         try analyzeBody(mod, &child_block, module_fn.zir);
 
-        const result = try analyzeBlockBody(mod, scope, &child_block, merges);
-        if (result.castTag(.constant)) |constant| {
-            log.debug("inline call resulted in {}", .{constant.val});
-        } else {
-            log.debug("inline call resulted in {}", .{result});
-        }
-        return result;
+        return analyzeBlockBody(mod, scope, &child_block, merges);
     }
 
     return mod.addCall(b, inst.base.src, ret_type, func, casted_args);
 }
 
 fn analyzeInstFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const fn_type = try resolveType(mod, scope, fn_inst.positionals.fn_type);
     const new_func = try scope.arena().create(Module.Fn);
     new_func.* = .{
@@ -971,16 +1048,22 @@ fn analyzeInstFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!
 }
 
 fn analyzeInstIntType(mod: *Module, scope: *Scope, inttype: *zir.Inst.IntType) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inttype.base.src, "TODO implement inttype", .{});
 }
 
 fn analyzeInstOptionalType(mod: *Module, scope: *Scope, optional: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const child_type = try resolveType(mod, scope, optional.positionals.operand);
 
     return mod.constType(scope, optional.base.src, try mod.optionalType(scope, child_type));
 }
 
 fn analyzeInstArrayType(mod: *Module, scope: *Scope, array: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     // TODO these should be lazily evaluated
     const len = try resolveInstConst(mod, scope, array.positionals.lhs);
     const elem_type = try resolveType(mod, scope, array.positionals.rhs);
@@ -989,6 +1072,8 @@ fn analyzeInstArrayType(mod: *Module, scope: *Scope, array: *zir.Inst.BinOp) Inn
 }
 
 fn analyzeInstArrayTypeSentinel(mod: *Module, scope: *Scope, array: *zir.Inst.ArrayTypeSentinel) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     // TODO these should be lazily evaluated
     const len = try resolveInstConst(mod, scope, array.positionals.len);
     const sentinel = try resolveInstConst(mod, scope, array.positionals.sentinel);
@@ -998,6 +1083,8 @@ fn analyzeInstArrayTypeSentinel(mod: *Module, scope: *Scope, array: *zir.Inst.Ar
 }
 
 fn analyzeInstErrorUnionType(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const error_union = try resolveType(mod, scope, inst.positionals.lhs);
     const payload = try resolveType(mod, scope, inst.positionals.rhs);
 
@@ -1009,12 +1096,16 @@ fn analyzeInstErrorUnionType(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
 }
 
 fn analyzeInstAnyframeType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const return_type = try resolveType(mod, scope, inst.positionals.operand);
 
     return mod.constType(scope, inst.base.src, try mod.anyframeType(scope, return_type));
 }
 
 fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     // The declarations arena will store the hashmap.
     var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
     errdefer new_decl_arena.deinit();
@@ -1045,10 +1136,14 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
 }
 
 fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement merge_error_sets", .{});
 }
 
 fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const duped_name = try scope.arena().dupe(u8, inst.positionals.name);
     return mod.constInst(scope, inst.base.src, .{
         .ty = Type.initTag(.enum_literal),
@@ -1057,6 +1152,8 @@ fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiter
 }
 
 fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
     assert(operand.ty.zigTypeTag() == .Pointer);
 
@@ -1087,18 +1184,26 @@ fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp
 }
 
 fn analyzeInstUnwrapErr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstUnwrapErr", .{});
 }
 
 fn analyzeInstUnwrapErrCode(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstUnwrapErrCode", .{});
 }
 
 fn analyzeInstEnsureErrPayloadVoid(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstEnsureErrPayloadVoid", .{});
 }
 
 fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const return_type = try resolveType(mod, scope, fntype.positionals.return_type);
 
     // Hot path for some common function types.
@@ -1140,16 +1245,22 @@ fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) Inne
 }
 
 fn analyzeInstPrimitive(mod: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.constInst(scope, primitive.base.src, primitive.positionals.tag.toTypedValue());
 }
 
 fn analyzeInstAs(mod: *Module, scope: *Scope, as: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const dest_type = try resolveType(mod, scope, as.positionals.lhs);
     const new_inst = try resolveInst(mod, scope, as.positionals.rhs);
     return mod.coerce(scope, dest_type, new_inst);
 }
 
 fn analyzeInstPtrToInt(mod: *Module, scope: *Scope, ptrtoint: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const ptr = try resolveInst(mod, scope, ptrtoint.positionals.operand);
     if (ptr.ty.zigTypeTag() != .Pointer) {
         return mod.fail(scope, ptrtoint.positionals.operand.src, "expected pointer, found '{}'", .{ptr.ty});
@@ -1161,6 +1272,8 @@ fn analyzeInstPtrToInt(mod: *Module, scope: *Scope, ptrtoint: *zir.Inst.UnOp) In
 }
 
 fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const object_ptr = try resolveInst(mod, scope, fieldptr.positionals.object_ptr);
     const field_name = try resolveConstString(mod, scope, fieldptr.positionals.field_name);
 
@@ -1263,6 +1376,8 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
 }
 
 fn analyzeInstIntCast(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const dest_type = try resolveType(mod, scope, inst.positionals.lhs);
     const operand = try resolveInst(mod, scope, inst.positionals.rhs);
 
@@ -1299,12 +1414,16 @@ fn analyzeInstIntCast(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerE
 }
 
 fn analyzeInstBitCast(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const dest_type = try resolveType(mod, scope, inst.positionals.lhs);
     const operand = try resolveInst(mod, scope, inst.positionals.rhs);
     return mod.bitcast(scope, dest_type, operand);
 }
 
 fn analyzeInstFloatCast(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const dest_type = try resolveType(mod, scope, inst.positionals.lhs);
     const operand = try resolveInst(mod, scope, inst.positionals.rhs);
 
@@ -1341,6 +1460,8 @@ fn analyzeInstFloatCast(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inne
 }
 
 fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const array_ptr = try resolveInst(mod, scope, inst.positionals.array_ptr);
     const uncasted_index = try resolveInst(mod, scope, inst.positionals.index);
     const elem_index = try mod.coerce(scope, Type.initTag(.usize), uncasted_index);
@@ -1377,6 +1498,8 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
 }
 
 fn analyzeInstSlice(mod: *Module, scope: *Scope, inst: *zir.Inst.Slice) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const array_ptr = try resolveInst(mod, scope, inst.positionals.array_ptr);
     const start = try resolveInst(mod, scope, inst.positionals.start);
     const end = if (inst.kw_args.end) |end| try resolveInst(mod, scope, end) else null;
@@ -1386,6 +1509,8 @@ fn analyzeInstSlice(mod: *Module, scope: *Scope, inst: *zir.Inst.Slice) InnerErr
 }
 
 fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const array_ptr = try resolveInst(mod, scope, inst.positionals.lhs);
     const start = try resolveInst(mod, scope, inst.positionals.rhs);
 
@@ -1393,6 +1518,8 @@ fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 }
 
 fn analyzeInstSwitchRange(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const start = try resolveInst(mod, scope, inst.positionals.lhs);
     const end = try resolveInst(mod, scope, inst.positionals.rhs);
 
@@ -1415,6 +1542,8 @@ fn analyzeInstSwitchRange(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) In
 }
 
 fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const target_ptr = try resolveInst(mod, scope, inst.positionals.target_ptr);
     const target = try mod.analyzeDeref(scope, inst.base.src, target_ptr, inst.positionals.target_ptr.src);
     try validateSwitch(mod, scope, target, inst);
@@ -1616,6 +1745,8 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
 }
 
 fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveConstString(mod, scope, inst.positionals.operand);
 
     const file_scope = mod.analyzeImport(scope, inst.base.src, operand) catch |err| switch (err) {
@@ -1634,10 +1765,14 @@ fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErr
 }
 
 fn analyzeInstShl(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstShl", .{});
 }
 
 fn analyzeInstShr(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstShr", .{});
 }
 
@@ -1705,14 +1840,20 @@ fn analyzeInstBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerE
 }
 
 fn analyzeInstBitNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitNot", .{});
 }
 
 fn analyzeInstArrayCat(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstArrayCat", .{});
 }
 
 fn analyzeInstArrayMul(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstArrayMul", .{});
 }
 
@@ -1818,11 +1959,15 @@ fn analyzeInstComptimeOp(mod: *Module, scope: *Scope, res_type: Type, inst: *zir
 }
 
 fn analyzeInstDeref(mod: *Module, scope: *Scope, deref: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const ptr = try resolveInst(mod, scope, deref.positionals.operand);
     return mod.analyzeDeref(scope, deref.base.src, ptr, deref.positionals.operand.src);
 }
 
 fn analyzeInstAsm(mod: *Module, scope: *Scope, assembly: *zir.Inst.Asm) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const return_type = try resolveType(mod, scope, assembly.positionals.return_type);
     const asm_source = try resolveConstString(mod, scope, assembly.positionals.asm_source);
     const output = if (assembly.kw_args.output) |o| try resolveConstString(mod, scope, o) else null;
@@ -1867,6 +2012,8 @@ fn analyzeInstCmp(
     inst: *zir.Inst.BinOp,
     op: std.math.CompareOperator,
 ) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const lhs = try resolveInst(mod, scope, inst.positionals.lhs);
     const rhs = try resolveInst(mod, scope, inst.positionals.rhs);
 
@@ -1918,11 +2065,15 @@ fn analyzeInstCmp(
 }
 
 fn analyzeInstTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.constType(scope, inst.base.src, operand.ty);
 }
 
 fn analyzeInstTypeOfPeer(mod: *Module, scope: *Scope, inst: *zir.Inst.TypeOfPeer) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     var insts_to_res = try mod.gpa.alloc(*ir.Inst, inst.positionals.items.len);
     defer mod.gpa.free(insts_to_res);
     for (inst.positionals.items) |item, i| {
@@ -1933,6 +2084,8 @@ fn analyzeInstTypeOfPeer(mod: *Module, scope: *Scope, inst: *zir.Inst.TypeOfPeer
 }
 
 fn analyzeInstBoolNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const uncasted_operand = try resolveInst(mod, scope, inst.positionals.operand);
     const bool_type = Type.initTag(.bool);
     const operand = try mod.coerce(scope, bool_type, uncasted_operand);
@@ -1944,6 +2097,8 @@ fn analyzeInstBoolNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerEr
 }
 
 fn analyzeInstBoolOp(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const bool_type = Type.initTag(.bool);
     const uncasted_lhs = try resolveInst(mod, scope, inst.positionals.lhs);
     const lhs = try mod.coerce(scope, bool_type, uncasted_lhs);
@@ -1966,16 +2121,22 @@ fn analyzeInstBoolOp(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerEr
 }
 
 fn analyzeInstIsNonNull(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.analyzeIsNull(scope, inst.base.src, operand, invert_logic);
 }
 
 fn analyzeInstIsErr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.analyzeIsErr(scope, inst.base.src, operand);
 }
 
 fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const uncasted_cond = try resolveInst(mod, scope, inst.positionals.condition);
     const cond = try mod.coerce(scope, Type.initTag(.bool), uncasted_cond);
 
@@ -2026,6 +2187,8 @@ fn analyzeInstUnreachable(
     unreach: *zir.Inst.NoOp,
     safety_check: bool,
 ) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const b = try mod.requireRuntimeBlock(scope, unreach.base.src);
     // TODO Add compile error for @optimizeFor occurring too late in a scope.
     if (safety_check and mod.wantSafety(scope)) {
@@ -2036,6 +2199,8 @@ fn analyzeInstUnreachable(
 }
 
 fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
 
@@ -2049,6 +2214,8 @@ fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!
 }
 
 fn analyzeInstRetVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
     if (b.inlining) |inlining| {
         // We are inlining a function call; rewrite the `retvoid` as a `breakvoid`.
@@ -2109,12 +2276,16 @@ fn analyzeDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerErr
 }
 
 fn analyzeInstSimplePtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     const elem_type = try resolveType(mod, scope, inst.positionals.operand);
     const ty = try mod.simplePtrType(scope, inst.base.src, elem_type, mutable, size);
     return mod.constType(scope, inst.base.src, ty);
 }
 
 fn analyzeInstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.PtrType) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
     // TODO lazy values
     const @"align" = if (inst.kw_args.@"align") |some|
         @truncate(u32, try resolveInt(mod, scope, some, Type.initTag(.u32)))
