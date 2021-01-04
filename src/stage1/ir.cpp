@@ -24207,6 +24207,8 @@ static IrInstGen *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstSrcSwi
             ref_type->data.pointer.allow_zero);
         return ir_analyze_ptr_cast(ira, &instruction->base.base, target_value_ptr,
                 &instruction->target_value_ptr->base, new_target_value_ptr_type, &instruction->base.base, false, false);
+    } else if (instruction->prongs_len > 1) {
+        return target_value_ptr;
     } else {
         ir_add_error(ira, &instruction->base.base,
             buf_sprintf("switch on type '%s' provides no expression parameter", buf_ptr(&target_type->name)));

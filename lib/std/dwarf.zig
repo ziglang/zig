@@ -413,10 +413,7 @@ pub const DwarfInfo = struct {
         var this_unit_offset: u64 = 0;
 
         while (this_unit_offset < try seekable.getEndPos()) {
-            seekable.seekTo(this_unit_offset) catch |err| switch (err) {
-                error.EndOfStream => unreachable,
-                else => return err,
-            };
+            try seekable.seekTo(this_unit_offset);
 
             var is_64: bool = undefined;
             const unit_length = try readUnitLength(in, di.endian, &is_64);
@@ -520,10 +517,7 @@ pub const DwarfInfo = struct {
         var this_unit_offset: u64 = 0;
 
         while (this_unit_offset < try seekable.getEndPos()) {
-            seekable.seekTo(this_unit_offset) catch |err| switch (err) {
-                error.EndOfStream => unreachable,
-                else => return err,
-            };
+            try seekable.seekTo(this_unit_offset);
 
             var is_64: bool = undefined;
             const unit_length = try readUnitLength(in, di.endian, &is_64);
