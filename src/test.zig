@@ -518,6 +518,7 @@ pub const TestContext = struct {
             case.updates.deinit();
         }
         self.cases.deinit();
+        @import("Cache.zig").deinitDebugMap();
         self.* = undefined;
     }
 

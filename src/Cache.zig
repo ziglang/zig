@@ -16,8 +16,8 @@ const Allocator = std.mem.Allocator;
 /// This protection is conditionally compiled depending on `want_debug_deadlock`.
 var all_cache_digest_set: std.AutoHashMapUnmanaged(BinDigest, void) = .{};
 var all_cache_digest_lock: std.Mutex = .{};
-// TODO: Figure out how to make sure that `all_cache_digest_set` does not leak memory!
-pub const want_debug_deadlock = false;
+var all_cache_digest_allocator: ?*Allocator = null;
+const want_debug_deadlock = std.debug.runtime_safety;
 const DebugBinDigest = if (want_debug_deadlock) BinDigest else void;
 const null_debug_bin_digest = if (want_debug_deadlock) ([1]u8{0} ** bin_digest_len) else {};
 
@@ -272,6 +272,14 @@ pub const Manifest = struct {
 
             const held = all_cache_digest_lock.acquire();
             defer held.release();
+
+            if (all_cache_digest_allocator) |prev_gpa| {
+                if (prev_gpa != self.cache.gpa) {
+                    @panic("The deadlock debug code in Cache depends on using the same allocator for everything");
+                }
+            } else {
+                all_cache_digest_allocator = self.cache.gpa;
+            }
 
             const gop = try all_cache_digest_set.getOrPut(self.cache.gpa, bin_digest);
             if (gop.found_existing) {
@@ -717,15 +725,22 @@ fn isProblematicTimestamp(fs_clock: i128) bool {
     return wall_nsec == fs_nsec and wall_sec == fs_sec;
 }
 
+pub fn deinitDebugMap() void {
+    if (!want_debug_deadlock) return;
+
+    if (all_cache_digest_set.count() != 0) {
+        @panic("there's a Cache not deinitialized somewhere");
+    }
+    const gpa = all_cache_digest_allocator orelse return;
+    all_cache_digest_set.clearAndFree(gpa);
+}
+
 test "cache file and then recall it" {
     if (std.Target.current.os.tag == .wasi) {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
-    defer if (want_debug_deadlock) {
-        testing.expect(all_cache_digest_set.count() == 0);
-        all_cache_digest_set.clearAndFree(testing.allocator);
-    };
+    defer deinitDebugMap();
 
     const cwd = fs.cwd();
 
@@ -804,10 +819,7 @@ test "check that changing a file makes cache fail" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
-    defer if (want_debug_deadlock) {
-        testing.expect(all_cache_digest_set.count() == 0);
-        all_cache_digest_set.clearAndFree(testing.allocator);
-    };
+    defer deinitDebugMap();
     const cwd = fs.cwd();
 
     const temp_file = "cache_hash_change_file_test.txt";
@@ -884,10 +896,7 @@ test "no file inputs" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
-    defer if (want_debug_deadlock) {
-        testing.expect(all_cache_digest_set.count() == 0);
-        all_cache_digest_set.clearAndFree(testing.allocator);
-    };
+    defer deinitDebugMap();
     const cwd = fs.cwd();
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
     defer cwd.deleteTree(temp_manifest_dir) catch {};
@@ -933,10 +942,7 @@ test "Manifest with files added after initial hash work" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
-    defer if (want_debug_deadlock) {
-        testing.expect(all_cache_digest_set.count() == 0);
-        all_cache_digest_set.clearAndFree(testing.allocator);
-    };
+    defer deinitDebugMap();
     const cwd = fs.cwd();
 
     const temp_file1 = "cache_hash_post_file_test1.txt";
