@@ -8189,8 +8189,17 @@ static void do_code_gen(CodeGen *g) {
                 ZigType *child_type = ptr_type->data.pointer.child_type;
                 if (type_resolve(g, child_type, ResolveStatusSizeKnown))
                     zig_unreachable();
-                if (!type_has_bits(g, child_type))
-                    continue;
+                if (!type_has_bits(g, child_type)) {
+                    switch (type_requires_comptime(g, child_type)) {
+                        case ReqCompTimeInvalid:
+                            zig_unreachable();
+                        case ReqCompTimeNo:
+                            instruction->base.llvm_value = LLVMGetUndef(get_llvm_type(g, ptr_type));
+                            continue;
+                        case ReqCompTimeYes:
+                            continue;
+                    }
+                }
                 if (instruction->base.base.ref_count == 0)
                     continue;
                 if (instruction->base.value->special != ConstValSpecialRuntime) {
