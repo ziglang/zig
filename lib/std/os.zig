@@ -4853,6 +4853,7 @@ pub fn send(
         error.NotDir => unreachable,
         error.NetworkUnreachable => unreachable,
         error.AddressNotAvailable => unreachable,
+        error.SocketNotConnected => unreachable,
         else => |e| return e,
     };
 }
