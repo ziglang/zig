@@ -1512,18 +1512,12 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addError(
             \\export fn _start() noreturn {
             \\    @setEvalBranchQuota(10);
-            \\    const y = fibonacci(18);
-            \\    assert(y == 4181);
+            \\    const y = rec(18);
             \\    exit();
             \\}
             \\
-            \\inline fn fibonacci(n: usize) usize {
-            \\    if (n <= 2) return n;
-            \\    return fibonacci(n - 2) + fibonacci(n - 1);
-            \\}
-            \\
-            \\fn assert(b: bool) void {
-            \\    if (!b) unreachable;
+            \\inline fn rec(n: usize) usize {
+            \\    return rec(n);
             \\}
             \\
             \\fn exit() noreturn {
@@ -1535,6 +1529,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-        , &[_][]const u8{":10:35: error: evaluation exceeded 10 backwards branches"});
+        , &[_][]const u8{":8:12: error: evaluation exceeded 10 backwards branches"});
     }
 }

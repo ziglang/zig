@@ -493,8 +493,8 @@ fn analyzeInstSetEvalBranchQuota(
     inst: *zir.Inst.UnOp,
 ) InnerError!*Inst {
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
-    const quota = try resolveInt(mod, scope, inst.positionals.operand, Type.initTag(.u32));
-    b.branch_quota = quota;
+    const quota = @truncate(u32, try resolveInt(mod, scope, inst.positionals.operand, Type.initTag(.u32)));
+    b.shared.branch_quota = quota;
     return mod.constVoid(scope, inst.base.src);
 }
 
@@ -606,8 +606,7 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
-        .branch_count = parent_block.branch_count,
-        .branch_quota = parent_block.branch_quota,
+        .shared = parent_block.shared,
     };
     defer child_block.instructions.deinit(mod.gpa);
 
@@ -633,8 +632,7 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
         .label = null,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime or is_comptime,
-        .branch_count = parent_block.branch_count,
-        .branch_quota = parent_block.branch_quota,
+        .shared = parent_block.shared,
     };
     defer child_block.instructions.deinit(mod.gpa);
 
@@ -682,8 +680,7 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_compt
         }),
         .inlining = parent_block.inlining,
         .is_comptime = is_comptime or parent_block.is_comptime,
-        .branch_count = parent_block.branch_count,
-        .branch_quota = parent_block.branch_quota,
+        .shared = parent_block.shared,
     };
     const merges = &child_block.label.?.merges;
 
@@ -883,7 +880,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
         };
         // If this is the top of the inline/comptime call stack, we use this data.
         // Otherwise we pass on the shared data from the parent scope.
-        var shared_inlining = Scope.Block.Inlining.Shared{
+        var shared_inlining = Scope.Block.Inlining.IShared{
             .caller = b.func,
         };
         // This one is shared among sub-blocks within the same callee, but not
@@ -912,8 +909,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
             .label = null,
             .inlining = &inlining,
             .is_comptime = is_comptime_call,
-            .branch_count = b.branch_count,
-            .branch_quota = b.branch_quota,
+            .shared = b.shared,
         };
 
         const merges = &child_block.inlining.?.merges;
@@ -921,13 +917,11 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
         defer child_block.instructions.deinit(mod.gpa);
         defer merges.results.deinit(mod.gpa);
 
+        try mod.emitBackwardBranch(&child_block, inst.base.src);
+
         // This will have return instructions analyzed as break instructions to
         // the block_inst above.
         try analyzeBody(mod, &child_block, module_fn.zir);
-
-        // bubble up how many backwards branches the child used
-        // + 1 because calling the child is 1
-        try mod.emitBackwardBranch(b, child_block.branch_count - b.branch_count + 1, inst.base.src);
 
         const result = try analyzeBlockBody(mod, scope, &child_block, merges);
         if (result.castTag(.constant)) |constant| {
@@ -1438,8 +1432,7 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
-        .branch_count = parent_block.branch_count,
-        .branch_quota = parent_block.branch_quota,
+        .shared = parent_block.shared,
     };
     defer case_block.instructions.deinit(mod.gpa);
 
@@ -1983,8 +1976,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
-        .branch_count = parent_block.branch_count,
-        .branch_quota = parent_block.branch_quota,
+        .shared = parent_block.shared,
     };
     defer true_block.instructions.deinit(mod.gpa);
     try analyzeBody(mod, &true_block, inst.positionals.then_body);
@@ -1998,8 +1990,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
-        .branch_count = parent_block.branch_count,
-        .branch_quota = parent_block.branch_quota,
+        .shared = parent_block.shared,
     };
     defer false_block.instructions.deinit(mod.gpa);
     try analyzeBody(mod, &false_block, inst.positionals.else_body);
