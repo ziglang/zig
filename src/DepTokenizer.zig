@@ -927,7 +927,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     try out.writeAll("\n");
     try printSection(out, "<<<< input", input);
     try printSection(out, "==== expect", expect);
-    try printSection(out, ">>>> got", got);
+    try printSection(out, ">>>> got", buffer.items);
     try printRuler(out);
 
     testing.expect(false);

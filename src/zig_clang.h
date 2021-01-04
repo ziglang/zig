@@ -8,13 +8,31 @@
 #ifndef ZIG_ZIG_CLANG_H
 #define ZIG_ZIG_CLANG_H
 
-#include "stage1/stage2.h"
 #include <inttypes.h>
 #include <stdbool.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+#define ZIG_EXTERN_C extern "C"
+#else
+#define ZIG_EXTERN_C
+#endif
 
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler file
 // src/clang.zig.
+
+// ABI warning
+struct Stage2ErrorMsg {
+    const char *filename_ptr; // can be null
+    size_t filename_len;
+    const char *msg_ptr;
+    size_t msg_len;
+    const char *source; // valid until the ASTUnit is freed. can be null
+    unsigned line; // 0 based
+    unsigned column; // 0 based
+    unsigned offset; // byte offset into source
+};
 
 struct ZigClangSourceLocation {
     unsigned ID;

@@ -43,8 +43,14 @@ pub const TypeRef = opaque {
     pub const constAllOnes = LLVMConstAllOnes;
     extern fn LLVMConstAllOnes(Ty: *const TypeRef) *const ValueRef;
 
+    pub const constInt = LLVMConstInt;
+    extern fn LLVMConstInt(IntTy: *const TypeRef, N: c_ulonglong, SignExtend: LLVMBool) *const ValueRef;
+
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *const TypeRef) *const ValueRef;
+
+    pub const pointerType = LLVMPointerType;
+    extern fn LLVMPointerType(ElementType: *const TypeRef, AddressSpace: c_uint) *const TypeRef;
 };
 
 pub const ModuleRef = opaque {
@@ -63,9 +69,15 @@ pub const ModuleRef = opaque {
     pub const getNamedFunction = LLVMGetNamedFunction;
     extern fn LLVMGetNamedFunction(*const ModuleRef, Name: [*:0]const u8) ?*const ValueRef;
 
+    pub const getIntrinsicDeclaration = LLVMGetIntrinsicDeclaration;
+    extern fn LLVMGetIntrinsicDeclaration(Mod: *const ModuleRef, ID: c_uint, ParamTypes: ?[*]*const TypeRef, ParamCount: usize) *const ValueRef;
+
     pub const printToString = LLVMPrintModuleToString;
     extern fn LLVMPrintModuleToString(*const ModuleRef) [*:0]const u8;
 };
+
+pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
+extern fn LLVMLookupIntrinsicID(Name: [*]const u8, NameLen: usize) c_uint;
 
 pub const disposeMessage = LLVMDisposeMessage;
 extern fn LLVMDisposeMessage(Message: [*:0]const u8) void;
@@ -76,8 +88,14 @@ pub const VerifierFailureAction = extern enum {
     ReturnStatus,
 };
 
+pub const constNeg = LLVMConstNeg;
+extern fn LLVMConstNeg(ConstantVal: *const ValueRef) *const ValueRef;
+
 pub const voidType = LLVMVoidType;
 extern fn LLVMVoidType() *const TypeRef;
+
+pub const getParam = LLVMGetParam;
+extern fn LLVMGetParam(Fn: *const ValueRef, Index: c_uint) *const ValueRef;
 
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;
@@ -117,11 +135,41 @@ pub const BuilderRef = opaque {
     pub const buildRetVoid = LLVMBuildRetVoid;
     extern fn LLVMBuildRetVoid(*const BuilderRef) *const ValueRef;
 
+    pub const buildRet = LLVMBuildRet;
+    extern fn LLVMBuildRet(*const BuilderRef, V: *const ValueRef) *const ValueRef;
+
     pub const buildUnreachable = LLVMBuildUnreachable;
     extern fn LLVMBuildUnreachable(*const BuilderRef) *const ValueRef;
 
     pub const buildAlloca = LLVMBuildAlloca;
     extern fn LLVMBuildAlloca(*const BuilderRef, Ty: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildStore = LLVMBuildStore;
+    extern fn LLVMBuildStore(*const BuilderRef, Val: *const ValueRef, Ptr: *const ValueRef) *const ValueRef;
+
+    pub const buildLoad = LLVMBuildLoad;
+    extern fn LLVMBuildLoad(*const BuilderRef, PointerVal: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNot = LLVMBuildNot;
+    extern fn LLVMBuildNot(*const BuilderRef, V: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNSWAdd = LLVMBuildNSWAdd;
+    extern fn LLVMBuildNSWAdd(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNUWAdd = LLVMBuildNUWAdd;
+    extern fn LLVMBuildNUWAdd(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNSWSub = LLVMBuildNSWSub;
+    extern fn LLVMBuildNSWSub(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildNUWSub = LLVMBuildNUWSub;
+    extern fn LLVMBuildNUWSub(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildIntCast2 = LLVMBuildIntCast2;
+    extern fn LLVMBuildIntCast2(*const BuilderRef, Val: *const ValueRef, DestTy: *const TypeRef, IsSigned: LLVMBool, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildBitCast = LLVMBuildBitCast;
+    extern fn LLVMBuildBitCast(*const BuilderRef, Val: *const ValueRef, DestTy: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
 };
 
 pub const BasicBlockRef = opaque {

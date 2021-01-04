@@ -31,6 +31,7 @@ pub fn addCases(ctx: *TestContext) !void {
     try @import("spu-ii.zig").addCases(ctx);
     try @import("arm.zig").addCases(ctx);
     try @import("aarch64.zig").addCases(ctx);
+    try @import("llvm_backend.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);

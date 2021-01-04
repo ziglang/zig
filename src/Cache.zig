@@ -16,7 +16,8 @@ const Allocator = std.mem.Allocator;
 /// This protection is conditionally compiled depending on `want_debug_deadlock`.
 var all_cache_digest_set: std.AutoHashMapUnmanaged(BinDigest, void) = .{};
 var all_cache_digest_lock: std.Mutex = .{};
-const want_debug_deadlock = std.debug.runtime_safety;
+// TODO: Figure out how to make sure that `all_cache_digest_set` does not leak memory!
+pub const want_debug_deadlock = false;
 const DebugBinDigest = if (want_debug_deadlock) BinDigest else void;
 const null_debug_bin_digest = if (want_debug_deadlock) ([1]u8{0} ** bin_digest_len) else {};
 
