@@ -298,7 +298,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     self.base.file = file;
 
     // Create dSYM bundle.
-    const d_sym_path = try fmt.allocPrint(allocator, "{}.dSYM/Contents/Resources/DWARF/", .{sub_path});
+    const d_sym_path = try fmt.allocPrint(allocator, "{s}.dSYM/Contents/Resources/DWARF/", .{sub_path});
     defer allocator.free(d_sym_path);
     var d_sym_bundle = try options.emit.?.directory.handle.makeOpenPath(d_sym_path, .{});
     defer d_sym_bundle.close();
