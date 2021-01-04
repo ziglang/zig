@@ -125,7 +125,6 @@ pub fn build(b: *Builder) !void {
             try addCmakeCfgOptionsToExe(b, cfg, tracy, test_stage2);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
-
             try addStaticLlvmOptionsToExe(exe);
             try addStaticLlvmOptionsToExe(test_stage2);
         }
@@ -194,6 +193,7 @@ pub fn build(b: *Builder) !void {
     exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
     exe.addBuildOption(bool, "enable_tracy", tracy != null);
     exe.addBuildOption(bool, "is_stage1", is_stage1);
+    exe.addBuildOption(bool, "omit_stage2", false);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,
@@ -216,6 +216,7 @@ pub fn build(b: *Builder) !void {
 
     test_stage2.addBuildOption(bool, "skip_non_native", skip_non_native);
     test_stage2.addBuildOption(bool, "is_stage1", is_stage1);
+    test_stage2.addBuildOption(bool, "omit_stage2", false);
     test_stage2.addBuildOption(bool, "have_llvm", enable_llvm);
     test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
     test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);

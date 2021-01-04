@@ -1461,6 +1461,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             => continue,
 
             .complete, .codegen_failure_retryable => {
+                if (build_options.omit_stage2)
+                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 const module = self.bin_file.options.module.?;
                 if (decl.typed_value.most_recent.typed_value.val.castTag(.function)) |payload| {
                     const func = payload.data;
@@ -1532,6 +1534,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             },
         },
         .analyze_decl => |decl| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = self.bin_file.options.module.?;
             module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -1539,6 +1543,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .update_line_number => |decl| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = self.bin_file.options.module.?;
             self.bin_file.updateDeclLineNumber(module, decl) catch |err| {
                 try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
