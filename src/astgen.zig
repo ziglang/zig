@@ -2322,12 +2322,12 @@ fn setEvalBranchQuota(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) 
     const tree = scope.tree();
     const src = tree.token_locs[call.builtin_token].start;
     const params = call.params();
-    const target = try expr(mod, scope, .none, params[0]);
     const u32_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.u32_type),
     });
-    return addZIRUnOp(mod, scope, src, .setevalbranchquota, try rlWrap(mod, scope, .{ .ty = u32_type }, target));
+    const quota = try expr(mod, scope, .{ .ty = u32_type }, params[0]);
+    return addZIRUnOp(mod, scope, src, .set_eval_branch_quota, quota);
 }
 
 fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {

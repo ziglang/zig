@@ -81,7 +81,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .mut_slice_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.mut_slice_type).?, true, .Slice),
         .ptr_type => return analyzeInstPtrType(mod, scope, old_inst.castTag(.ptr_type).?),
         .store => return analyzeInstStore(mod, scope, old_inst.castTag(.store).?),
-        .setevalbranchquota => return analyzeInstSetEvalBranchQuota(mod, scope, old_inst.castTag(.setevalbranchquota).?),
+        .set_eval_branch_quota => return analyzeInstSetEvalBranchQuota(mod, scope, old_inst.castTag(.set_eval_branch_quota).?),
         .str => return analyzeInstStr(mod, scope, old_inst.castTag(.str).?),
         .int => {
             const big_int = old_inst.castTag(.int).?.positionals.int;
@@ -279,6 +279,24 @@ fn resolveType(mod: *Module, scope: *Scope, old_inst: *zir.Inst) !Type {
     const coerced_inst = try mod.coerce(scope, wanted_type, new_inst);
     const val = try mod.resolveConstValue(scope, coerced_inst);
     return val.toType(scope.arena());
+}
+
+/// Appropriate to call when the coercion has already been done by result
+/// location semantics. Asserts the value fits in the provided `Int` type.
+/// Only supports `Int` types 64 bits or less.
+fn resolveAlreadyCoercedInt(
+    mod: *Module,
+    scope: *Scope,
+    old_inst: *zir.Inst,
+    comptime Int: type,
+) !Int {
+    comptime assert(@typeInfo(Int).Int.bits <= 64);
+    const new_inst = try resolveInst(mod, scope, old_inst);
+    const val = try mod.resolveConstValue(scope, new_inst);
+    switch (@typeInfo(Int).Int.signedness) {
+        .signed => return @intCast(Int, val.toSignedInt()),
+        .unsigned => return @intCast(Int, val.toUnsignedInt()),
+    }
 }
 
 fn resolveInt(mod: *Module, scope: *Scope, old_inst: *zir.Inst, dest_type: Type) !u64 {
@@ -493,7 +511,7 @@ fn analyzeInstSetEvalBranchQuota(
     inst: *zir.Inst.UnOp,
 ) InnerError!*Inst {
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
-    const quota = @truncate(u32, try resolveInt(mod, scope, inst.positionals.operand, Type.initTag(.u32)));
+    const quota = try resolveAlreadyCoercedInt(mod, scope, inst.positionals.operand, u32);
     if (b.branch_quota.* < quota)
         b.branch_quota.* = quota;
     return mod.constVoid(scope, inst.base.src);

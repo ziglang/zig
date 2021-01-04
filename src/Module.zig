@@ -23,6 +23,8 @@ const trace = @import("tracy.zig").trace;
 const astgen = @import("astgen.zig");
 const zir_sema = @import("zir_sema.zig");
 
+const default_eval_branch_quota = 1000;
+
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
 comp: *Compilation,
@@ -1105,7 +1107,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             var inst_table = Scope.Block.InstTable.init(self.gpa);
             defer inst_table.deinit();
 
-            var branch_quota: u32 = 1000;
+            var branch_quota: u32 = default_eval_branch_quota;
 
             var block_scope: Scope.Block = .{
                 .parent = null,
@@ -1301,7 +1303,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             var decl_inst_table = Scope.Block.InstTable.init(self.gpa);
             defer decl_inst_table.deinit();
 
-            var branch_quota: u32 = 1000;
+            var branch_quota: u32 = default_eval_branch_quota;
 
             var block_scope: Scope.Block = .{
                 .parent = null,
@@ -1374,7 +1376,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 var var_inst_table = Scope.Block.InstTable.init(self.gpa);
                 defer var_inst_table.deinit();
 
-                var branch_quota_vi: u32 = 1000;
+                var branch_quota_vi: u32 = default_eval_branch_quota;
                 var inner_block: Scope.Block = .{
                     .parent = null,
                     .inst_table = &var_inst_table,
@@ -1503,7 +1505,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             var inst_table = Scope.Block.InstTable.init(self.gpa);
             defer inst_table.deinit();
 
-            var branch_quota: u32 = 1000;
+            var branch_quota: u32 = default_eval_branch_quota;
 
             var block_scope: Scope.Block = .{
                 .parent = null,
@@ -1887,7 +1889,7 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     defer decl.typed_value.most_recent.arena.?.* = arena.state;
     var inst_table = Scope.Block.InstTable.init(self.gpa);
     defer inst_table.deinit();
-    var branch_quota: u32 = 1000;
+    var branch_quota: u32 = default_eval_branch_quota;
 
     var inner_block: Scope.Block = .{
         .parent = null,
