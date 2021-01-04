@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const llvm = @import("llvm_bindings.zig");
 const link = @import("link.zig");
+const log = std.log.scoped(.codegen);
 
 const Module = @import("Module.zig");
 const TypedValue = @import("TypedValue.zig");
@@ -288,8 +289,7 @@ pub const LLVMIRModule = struct {
     }
 
     pub fn updateDecl(self: *LLVMIRModule, module: *Module, decl: *Module.Decl) !void {
-        const typed_value = decl.typed_value.most_recent.typed_value;
-        self.gen(module, typed_value, decl.src()) catch |err| switch (err) {
+        self.gen(module, decl) catch |err| switch (err) {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
                 try module.failed_decls.put(module.gpa, decl, self.err_msg.?);
@@ -300,11 +300,16 @@ pub const LLVMIRModule = struct {
         };
     }
 
-    fn gen(self: *LLVMIRModule, module: *Module, typed_value: TypedValue, src: usize) !void {
-        if (typed_value.val.castTag(.function)) |func_inst| {
-            const func = func_inst.data;
+    fn gen(self: *LLVMIRModule, module: *Module, decl: *Module.Decl) !void {
+        const typed_value = decl.typed_value.most_recent.typed_value;
+        const src = decl.src();
 
-            const llvm_func = try self.resolveLLVMFunction(func, src);
+        log.debug("gen: {s} type: {}, value: {}", .{ decl.name, typed_value.ty, typed_value.val });
+
+        if (typed_value.val.castTag(.function)) |func_payload| {
+            const func = func_payload.data;
+
+            const llvm_func = try self.resolveLLVMFunction(func.owner_decl, src);
 
             // This gets the LLVM values from the function and stores them in `self.args`.
             const fn_param_len = func.owner_decl.typed_value.most_recent.typed_value.ty.fnParamLen();
@@ -355,48 +360,55 @@ pub const LLVMIRModule = struct {
                 };
                 if (opt_llvm_val) |llvm_val| try self.func_inst_table.putNoClobber(self.gpa, inst, llvm_val);
             }
+        } else if (typed_value.val.castTag(.extern_fn)) |extern_fn| {
+            _ = try self.resolveLLVMFunction(extern_fn.data, src);
         } else {
-            return self.fail(src, "TODO implement LLVM codegen for top-level decl type: {}", .{typed_value.ty});
+            _ = try self.resolveGlobalDecl(decl, src);
         }
     }
 
     fn genCall(self: *LLVMIRModule, inst: *Inst.Call) !?*const llvm.ValueRef {
         if (inst.func.value()) |func_value| {
-            if (func_value.castTag(.function)) |func_payload| {
-                const func = func_payload.data;
-                const zig_fn_type = func.owner_decl.typed_value.most_recent.typed_value.ty;
-                const llvm_fn = try self.resolveLLVMFunction(func, inst.base.src);
+            const fn_decl = if (func_value.castTag(.extern_fn)) |extern_fn|
+                extern_fn.data
+            else if (func_value.castTag(.function)) |func_payload|
+                func_payload.data.owner_decl
+            else
+                unreachable;
 
-                const num_args = inst.args.len;
+            const zig_fn_type = fn_decl.typed_value.most_recent.typed_value.ty;
+            const llvm_fn = try self.resolveLLVMFunction(fn_decl, inst.base.src);
 
-                const llvm_param_vals = try self.gpa.alloc(*const llvm.ValueRef, num_args);
-                defer self.gpa.free(llvm_param_vals);
+            const num_args = inst.args.len;
 
-                for (inst.args) |arg, i| {
-                    llvm_param_vals[i] = try self.resolveInst(arg);
-                }
+            const llvm_param_vals = try self.gpa.alloc(*const llvm.ValueRef, num_args);
+            defer self.gpa.free(llvm_param_vals);
 
-                // TODO: LLVMBuildCall2 handles opaque function pointers, according to llvm docs
-                //       Do we need that?
-                const call = self.builder.buildCall(
-                    llvm_fn,
-                    if (num_args == 0) null else llvm_param_vals.ptr,
-                    @intCast(c_uint, num_args),
-                    "",
-                );
-
-                const return_type = zig_fn_type.fnReturnType();
-                if (return_type.tag() == .noreturn) {
-                    _ = self.builder.buildUnreachable();
-                }
-
-                // No need to store the LLVM value if the return type is void or noreturn
-                if (!return_type.hasCodeGenBits()) return null;
-
-                return call;
+            for (inst.args) |arg, i| {
+                llvm_param_vals[i] = try self.resolveInst(arg);
             }
+
+            // TODO: LLVMBuildCall2 handles opaque function pointers, according to llvm docs
+            //       Do we need that?
+            const call = self.builder.buildCall(
+                llvm_fn,
+                if (num_args == 0) null else llvm_param_vals.ptr,
+                @intCast(c_uint, num_args),
+                "",
+            );
+
+            const return_type = zig_fn_type.fnReturnType();
+            if (return_type.tag() == .noreturn) {
+                _ = self.builder.buildUnreachable();
+            }
+
+            // No need to store the LLVM value if the return type is void or noreturn
+            if (!return_type.hasCodeGenBits()) return null;
+
+            return call;
+        } else {
+            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer LLVM backend", .{});
         }
-        return self.fail(inst.base.src, "TODO implement calling runtime known function pointer LLVM backend", .{});
     }
 
     fn genRetVoid(self: *LLVMIRModule, inst: *Inst.NoOp) ?*const llvm.ValueRef {
@@ -515,7 +527,7 @@ pub const LLVMIRModule = struct {
         return self.fail(inst.src, "TODO implement global llvm values (or the value is not in the func_inst_table table)", .{});
     }
 
-    fn genTypedValue(self: *LLVMIRModule, src: usize, tv: TypedValue) !*const llvm.ValueRef {
+    fn genTypedValue(self: *LLVMIRModule, src: usize, tv: TypedValue) error{ OutOfMemory, CodegenFail }!*const llvm.ValueRef {
         const llvm_type = try self.getLLVMType(tv.ty, src);
 
         if (tv.val.isUndef())
@@ -538,16 +550,89 @@ pub const LLVMIRModule = struct {
                 }
                 return llvm_int;
             },
+            .Pointer => switch (tv.val.tag()) {
+                .decl_ref => {
+                    const decl = tv.val.castTag(.decl_ref).?.data;
+                    const val = try self.resolveGlobalDecl(decl, src);
+
+                    const usize_type = try self.getLLVMType(Type.initTag(.usize), src);
+
+                    // TODO: second index should be the index into the memory!
+                    var indices: [2]*const llvm.ValueRef = .{
+                        usize_type.constNull(),
+                        usize_type.constNull(),
+                    };
+
+                    // TODO: consider using buildInBoundsGEP2 for opaque pointers
+                    return self.builder.buildInBoundsGEP(val, &indices, 2, "");
+                },
+                else => return self.fail(src, "TODO implement const of pointer type '{}'", .{tv.ty}),
+            },
+            .Array => {
+                if (tv.val.castTag(.bytes)) |payload| {
+                    const zero_sentinel = if (tv.ty.sentinel()) |sentinel| blk: {
+                        if (sentinel.tag() == .zero) break :blk true;
+                        return self.fail(src, "TODO handle other sentinel values", .{});
+                    } else false;
+
+                    return llvm.constString(payload.data.ptr, @intCast(c_uint, payload.data.len), !zero_sentinel);
+                } else {
+                    return self.fail(src, "TODO handle more array values", .{});
+                }
+            },
             else => return self.fail(src, "TODO implement const of type '{}'", .{tv.ty}),
         }
     }
 
-    /// If the llvm function does not exist, create it
-    fn resolveLLVMFunction(self: *LLVMIRModule, func: *Module.Fn, src: usize) !*const llvm.ValueRef {
-        // TODO: do we want to store this in our own datastructure?
-        if (self.llvm_module.getNamedFunction(func.owner_decl.name)) |llvm_fn| return llvm_fn;
+    fn getLLVMType(self: *LLVMIRModule, t: Type, src: usize) error{ OutOfMemory, CodegenFail }!*const llvm.TypeRef {
+        switch (t.zigTypeTag()) {
+            .Void => return llvm.voidType(),
+            .NoReturn => return llvm.voidType(),
+            .Int => {
+                const info = t.intInfo(self.module.getTarget());
+                return llvm.intType(info.bits);
+            },
+            .Bool => return llvm.intType(1),
+            .Pointer => {
+                if (t.isSlice()) {
+                    return self.fail(src, "TODO: LLVM backend: implement slices", .{});
+                } else {
+                    const elem_type = try self.getLLVMType(t.elemType(), src);
+                    return elem_type.pointerType(0);
+                }
+            },
+            .Array => {
+                const elem_type = try self.getLLVMType(t.elemType(), src);
+                return elem_type.arrayType(@intCast(c_uint, t.abiSize(self.module.getTarget())));
+            },
+            else => return self.fail(src, "TODO implement getLLVMType for type '{}'", .{t}),
+        }
+    }
 
-        const zig_fn_type = func.owner_decl.typed_value.most_recent.typed_value.ty;
+    fn resolveGlobalDecl(self: *LLVMIRModule, decl: *Module.Decl, src: usize) error{ OutOfMemory, CodegenFail }!*const llvm.ValueRef {
+        // TODO: do we want to store this in our own datastructure?
+        if (self.llvm_module.getNamedGlobal(decl.name)) |val| return val;
+
+        const typed_value = decl.typed_value.most_recent.typed_value;
+
+        // TODO: remove this redundant `getLLVMType`, it is also called in `genTypedValue`.
+        const llvm_type = try self.getLLVMType(typed_value.ty, src);
+        const val = try self.genTypedValue(src, typed_value);
+        const global = self.llvm_module.addGlobal(llvm_type, decl.name);
+        llvm.setInitializer(global, val);
+
+        // TODO ask the Decl if it is const
+        // https://github.com/ziglang/zig/issues/7582
+
+        return global;
+    }
+
+    /// If the llvm function does not exist, create it
+    fn resolveLLVMFunction(self: *LLVMIRModule, func: *Module.Decl, src: usize) !*const llvm.ValueRef {
+        // TODO: do we want to store this in our own datastructure?
+        if (self.llvm_module.getNamedFunction(func.name)) |llvm_fn| return llvm_fn;
+
+        const zig_fn_type = func.typed_value.most_recent.typed_value.ty;
         const return_type = zig_fn_type.fnReturnType();
 
         const fn_param_len = zig_fn_type.fnParamLen();
@@ -569,31 +654,13 @@ pub const LLVMIRModule = struct {
             @intCast(c_uint, fn_param_len),
             false,
         );
-        const llvm_fn = self.llvm_module.addFunction(func.owner_decl.name, fn_type);
+        const llvm_fn = self.llvm_module.addFunction(func.name, fn_type);
 
         if (return_type.tag() == .noreturn) {
             llvm_fn.addFnAttr("noreturn");
         }
 
         return llvm_fn;
-    }
-
-    fn getLLVMType(self: *LLVMIRModule, t: Type, src: usize) error{ OutOfMemory, CodegenFail }!*const llvm.TypeRef {
-        switch (t.zigTypeTag()) {
-            .Void => return llvm.voidType(),
-            .NoReturn => return llvm.voidType(),
-            .Int => {
-                const info = t.intInfo(self.module.getTarget());
-                return llvm.intType(info.bits);
-            },
-            .Bool => return llvm.intType(1),
-            .Pointer => {
-                const pointer = t.castPointer().?;
-                const elem_type = try self.getLLVMType(pointer.data, src);
-                return elem_type.pointerType(0);
-            },
-            else => return self.fail(src, "TODO implement getLLVMType for type '{}'", .{t}),
-        }
     }
 
     pub fn fail(self: *LLVMIRModule, src: usize, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {

@@ -46,11 +46,17 @@ pub const TypeRef = opaque {
     pub const constInt = LLVMConstInt;
     extern fn LLVMConstInt(IntTy: *const TypeRef, N: c_ulonglong, SignExtend: LLVMBool) *const ValueRef;
 
+    pub const constArray = LLVMConstArray;
+    extern fn LLVMConstArray(ElementTy: *const TypeRef, ConstantVals: ?[*]*const ValueRef, Length: c_uint) *const ValueRef;
+
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *const TypeRef) *const ValueRef;
 
     pub const pointerType = LLVMPointerType;
     extern fn LLVMPointerType(ElementType: *const TypeRef, AddressSpace: c_uint) *const TypeRef;
+
+    pub const arrayType = LLVMArrayType;
+    extern fn LLVMArrayType(ElementType: *const TypeRef, ElementCount: c_uint) *const TypeRef;
 };
 
 pub const ModuleRef = opaque {
@@ -74,6 +80,12 @@ pub const ModuleRef = opaque {
 
     pub const printToString = LLVMPrintModuleToString;
     extern fn LLVMPrintModuleToString(*const ModuleRef) [*:0]const u8;
+
+    pub const addGlobal = LLVMAddGlobal;
+    extern fn LLVMAddGlobal(M: *const ModuleRef, Ty: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const getNamedGlobal = LLVMGetNamedGlobal;
+    extern fn LLVMGetNamedGlobal(M: *const ModuleRef, Name: [*:0]const u8) ?*const ValueRef;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
@@ -90,6 +102,12 @@ pub const VerifierFailureAction = extern enum {
 
 pub const constNeg = LLVMConstNeg;
 extern fn LLVMConstNeg(ConstantVal: *const ValueRef) *const ValueRef;
+
+pub const constString = LLVMConstString;
+extern fn LLVMConstString(Str: [*]const u8, Length: c_uint, DontNullTerminate: LLVMBool) *const ValueRef;
+
+pub const setInitializer = LLVMSetInitializer;
+extern fn LLVMSetInitializer(GlobalVar: *const ValueRef, ConstantVal: *const ValueRef) void;
 
 pub const voidType = LLVMVoidType;
 extern fn LLVMVoidType() *const TypeRef;
@@ -170,6 +188,9 @@ pub const BuilderRef = opaque {
 
     pub const buildBitCast = LLVMBuildBitCast;
     extern fn LLVMBuildBitCast(*const BuilderRef, Val: *const ValueRef, DestTy: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
+
+    pub const buildInBoundsGEP = LLVMBuildInBoundsGEP;
+    extern fn LLVMBuildInBoundsGEP(B: *const BuilderRef, Pointer: *const ValueRef, Indices: [*]*const ValueRef, NumIndices: c_uint, Name: [*:0]const u8) *const ValueRef;
 };
 
 pub const BasicBlockRef = opaque {
