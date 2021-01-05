@@ -41,12 +41,11 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     if (options.use_lld) return error.LLDHasNoCBackend;
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
-        .truncate = true,
+        // Truncation is done on `flush`.
+        .truncate = false,
         .mode = link.determineMode(options),
     });
     errdefer file.close();
-
-    try file.writeAll(zig_h);
 
     var c_file = try allocator.create(C);
     errdefer allocator.destroy(c_file);
@@ -133,40 +132,61 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const file = self.base.file.?;
+    const module = self.base.options.module orelse
+        return error.LinkingWithoutZigSourceUnimplemented;
 
-    // The header is written upon opening; here we truncate and seek to after the header.
-    // TODO: use writev
-    try file.seekTo(zig_h.len);
-    try file.setEndPos(zig_h.len);
+    // We collect a list of buffers to write, and write them all at once with pwritev 😎
+    var all_buffers = std.ArrayList(std.os.iovec_const).init(comp.gpa);
+    defer all_buffers.deinit();
 
-    var buffered_writer = std.io.bufferedWriter(file.writer());
-    const writer = buffered_writer.writer();
+    // This is at least enough until we get to the function bodies without error handling.
+    try all_buffers.ensureCapacity(module.decl_table.count() + 1);
 
-    const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    var file_size: u64 = zig_h.len;
+    all_buffers.appendAssumeCapacity(.{
+        .iov_base = zig_h,
+        .iov_len = zig_h.len,
+    });
+
+    var fn_count: usize = 0;
 
     // Forward decls and non-functions first.
-    // TODO: use writev
     for (module.decl_table.items()) |kv| {
         const decl = kv.value;
         const decl_tv = decl.typed_value.most_recent.typed_value;
-        if (decl_tv.val.castTag(.function)) |_| {
-            try writer.writeAll(decl.fn_link.c.fwd_decl.items);
-        } else {
-            try writer.writeAll(decl.link.c.code.items);
-        }
+        const buf = buf: {
+            if (decl_tv.val.castTag(.function)) |_| {
+                fn_count += 1;
+                break :buf decl.fn_link.c.fwd_decl.items;
+            } else {
+                break :buf decl.link.c.code.items;
+            }
+        };
+        all_buffers.appendAssumeCapacity(.{
+            .iov_base = buf.ptr,
+            .iov_len = buf.len,
+        });
+        file_size += buf.len;
     }
 
     // Now the function bodies.
+    try all_buffers.ensureCapacity(all_buffers.items.len + fn_count);
     for (module.decl_table.items()) |kv| {
         const decl = kv.value;
         const decl_tv = decl.typed_value.most_recent.typed_value;
         if (decl_tv.val.castTag(.function)) |_| {
-            try writer.writeAll(decl.link.c.code.items);
+            const buf = decl.link.c.code.items;
+            all_buffers.appendAssumeCapacity(.{
+                .iov_base = buf.ptr,
+                .iov_len = buf.len,
+            });
+            file_size += buf.len;
         }
     }
 
-    try buffered_writer.flush();
+    const file = self.base.file.?;
+    try file.setEndPos(file_size);
+    try file.pwritevAll(all_buffers.items, 0);
 }
 
 pub fn updateDeclExports(

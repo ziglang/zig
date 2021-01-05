@@ -459,6 +459,7 @@ pub const File = struct {
         return index;
     }
 
+    /// See https://github.com/ziglang/zig/issues/7699
     pub fn readv(self: File, iovecs: []const os.iovec) ReadError!usize {
         if (is_windows) {
             // TODO improve this to use ReadFileScatter
@@ -479,6 +480,7 @@ pub const File = struct {
     /// is not an error condition.
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
+    /// See https://github.com/ziglang/zig/issues/7699
     pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!usize {
         if (iovecs.len == 0) return;
 
@@ -500,6 +502,7 @@ pub const File = struct {
         }
     }
 
+    /// See https://github.com/ziglang/zig/issues/7699
     pub fn preadv(self: File, iovecs: []const os.iovec, offset: u64) PReadError!usize {
         if (is_windows) {
             // TODO improve this to use ReadFileScatter
@@ -520,6 +523,7 @@ pub const File = struct {
     /// is not an error condition.
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
+    /// See https://github.com/ziglang/zig/issues/7699
     pub fn preadvAll(self: File, iovecs: []const os.iovec, offset: u64) PReadError!void {
         if (iovecs.len == 0) return;
 
@@ -582,6 +586,7 @@ pub const File = struct {
         }
     }
 
+    /// See https://github.com/ziglang/zig/issues/7699
     pub fn writev(self: File, iovecs: []const os.iovec_const) WriteError!usize {
         if (is_windows) {
             // TODO improve this to use WriteFileScatter
@@ -599,6 +604,7 @@ pub const File = struct {
 
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial writes from the underlying OS layer.
+    /// See https://github.com/ziglang/zig/issues/7699
     pub fn writevAll(self: File, iovecs: []os.iovec_const) WriteError!void {
         if (iovecs.len == 0) return;
 
@@ -615,6 +621,7 @@ pub const File = struct {
         }
     }
 
+    /// See https://github.com/ziglang/zig/issues/7699
     pub fn pwritev(self: File, iovecs: []os.iovec_const, offset: u64) PWriteError!usize {
         if (is_windows) {
             // TODO improve this to use WriteFileScatter
@@ -632,6 +639,7 @@ pub const File = struct {
 
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial writes from the underlying OS layer.
+    /// See https://github.com/ziglang/zig/issues/7699
     pub fn pwritevAll(self: File, iovecs: []os.iovec_const, offset: u64) PWriteError!void {
         if (iovecs.len == 0) return;
 
