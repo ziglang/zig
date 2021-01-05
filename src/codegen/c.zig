@@ -341,9 +341,10 @@ pub fn genDecl(o: *Object) !void {
         const func: *Module.Fn = func_payload.data;
         const instructions = func.body.instructions;
         const writer = o.code.writer();
+        try writer.writeAll("\n");
         try o.dg.renderFunctionSignature(writer);
         if (instructions.len == 0) {
-            try writer.writeAll(" {}\n\n");
+            try writer.writeAll(" {}\n");
             return;
         }
 
@@ -382,7 +383,7 @@ pub fn genDecl(o: *Object) !void {
             }
         }
 
-        try writer.writeAll("}\n\n");
+        try writer.writeAll("}\n");
     } else if (tv.val.tag() == .extern_fn) {
         const writer = o.code.writer();
         try o.dg.renderFunctionSignature(writer);
