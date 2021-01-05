@@ -148,6 +148,9 @@ pub const LLVMIRModule = struct {
     gpa: *Allocator,
     err_msg: ?*Compilation.ErrorMsg = null,
 
+    // TODO: The fields below should really move into a different struct,
+    //       because they are only valid when generating a function
+
     /// This stores the LLVM values used in a function, such that they can be
     /// referred to in other instructions. This table is cleared before every function is generated.
     func_inst_table: std.AutoHashMapUnmanaged(*Inst, *const llvm.Value) = .{},
@@ -155,6 +158,11 @@ pub const LLVMIRModule = struct {
     /// These fields are used to refer to the LLVM value of the function paramaters in an Arg instruction.
     args: []*const llvm.Value = &[_]*const llvm.Value{},
     arg_index: usize = 0,
+
+    entry_block: *const llvm.BasicBlock = undefined,
+    /// This fields stores the last alloca instruction, such that we can append more alloca instructions
+    /// to the top of the function.
+    latest_alloca_inst: ?*const llvm.Value = null,
 
     pub fn create(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*LLVMIRModule {
         const self = try allocator.create(LLVMIRModule);
@@ -332,8 +340,9 @@ pub const LLVMIRModule = struct {
                 bb.deleteBasicBlock();
             }
 
-            const entry_block = llvm_func.appendBasicBlock("Entry");
-            self.builder.positionBuilderAtEnd(entry_block);
+            self.entry_block = llvm_func.appendBasicBlock("Entry");
+            self.builder.positionBuilderAtEnd(self.entry_block);
+            self.latest_alloca_inst = null;
 
             const instructions = func.body.instructions;
             for (instructions) |inst| {
@@ -476,7 +485,7 @@ pub const LLVMIRModule = struct {
         const arg_val = self.args[self.arg_index];
         self.arg_index += 1;
 
-        const ptr_val = self.builder.buildAlloca(try self.getLLVMType(inst.base.ty, inst.base.src), "");
+        const ptr_val = self.buildAlloca(try self.getLLVMType(inst.base.ty, inst.base.src));
         _ = self.builder.buildStore(arg_val, ptr_val);
         return self.builder.buildLoad(ptr_val, "");
     }
@@ -488,7 +497,29 @@ pub const LLVMIRModule = struct {
 
         // TODO: figure out a way to get the name of the var decl.
         // TODO: set alignment and volatile
-        return self.builder.buildAlloca(try self.getLLVMType(pointee_type, inst.base.src), "");
+        return self.buildAlloca(try self.getLLVMType(pointee_type, inst.base.src));
+    }
+
+    /// Use this instead of builder.buildAlloca, because this function makes sure to
+    /// put the alloca instruction at the top of the function!
+    fn buildAlloca(self: *LLVMIRModule, t: *const llvm.Type) *const llvm.Value {
+        if (self.latest_alloca_inst) |latest_alloc| {
+            // builder.positionBuilder adds it before the instruction,
+            // but we want to put it after the last alloca instruction.
+            self.builder.positionBuilder(self.entry_block, latest_alloc.getNextInstruction().?);
+        } else {
+            // There might have been other instructions emitted before the
+            // first alloca has been generated. However the alloca should still
+            // be first in the function.
+            if (self.entry_block.getFirstInstruction()) |first_inst| {
+                self.builder.positionBuilder(self.entry_block, first_inst);
+            }
+        }
+        defer self.builder.positionBuilderAtEnd(self.entry_block);
+
+        const val = self.builder.buildAlloca(t, "");
+        self.latest_alloca_inst = val;
+        return val;
     }
 
     fn genStore(self: *LLVMIRModule, inst: *Inst.BinOp) !?*const llvm.Value {

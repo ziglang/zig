@@ -17,6 +17,9 @@ pub const Value = opaque {
     pub const getFirstBasicBlock = LLVMGetFirstBasicBlock;
     extern fn LLVMGetFirstBasicBlock(Fn: *const Value) ?*const BasicBlock;
 
+    pub const getNextInstruction = LLVMGetNextInstruction;
+    extern fn LLVMGetNextInstruction(Inst: *const Value) ?*const Value;
+
     // Helper functions
     // TODO: Do we want to put these functions here? It allows for convienient function calls
     //       on Value: llvm_fn.addFnAttr("noreturn")
@@ -138,6 +141,9 @@ pub const Builder = opaque {
     pub const disposeBuilder = LLVMDisposeBuilder;
     extern fn LLVMDisposeBuilder(Builder: *const Builder) void;
 
+    pub const positionBuilder = LLVMPositionBuilder;
+    extern fn LLVMPositionBuilder(Builder: *const Builder, Block: *const BasicBlock, Instr: *const Value) void;
+
     pub const positionBuilderAtEnd = LLVMPositionBuilderAtEnd;
     extern fn LLVMPositionBuilderAtEnd(Builder: *const Builder, Block: *const BasicBlock) void;
 
@@ -196,6 +202,9 @@ pub const Builder = opaque {
 pub const BasicBlock = opaque {
     pub const deleteBasicBlock = LLVMDeleteBasicBlock;
     extern fn LLVMDeleteBasicBlock(BB: *const BasicBlock) void;
+
+    pub const getFirstInstruction = LLVMGetFirstInstruction;
+    extern fn LLVMGetFirstInstruction(BB: *const BasicBlock) ?*const Value;
 };
 
 pub const TargetMachine = opaque {
