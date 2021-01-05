@@ -102,7 +102,7 @@ pub fn parse(text: []const u8) !Version {
     if (extra_index == null) return ver;
 
     // Slice optional pre-release or build metadata components.
-    const extra = text[extra_index.?..text.len];
+    const extra: []const u8 = text[extra_index.?..text.len];
     if (extra[0] == '-') {
         const build_index = std.mem.indexOfScalar(u8, extra, '+');
         ver.pre = extra[1..(build_index orelse extra.len)];
@@ -292,4 +292,13 @@ fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !
     std.debug.warn("{s}", .{result});
     std.debug.warn("\n======================================\n", .{});
     return error.TestFailed;
+}
+
+test "zig_version" {
+    // An approximate Zig build that predates this test.
+    const older_version = .{ .major = 0, .minor = 8, .patch = 0, .pre = "dev.874" };
+
+    // Simulated compatibility check using Zig version.
+    const compatible = comptime @import("builtin").zig_version.order(older_version) == .gt;
+    if (!compatible) @compileError("zig_version test failed");
 }

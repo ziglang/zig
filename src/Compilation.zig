@@ -2703,6 +2703,11 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const arch = Target.current.cpu.arch;
         \\/// Deprecated
         \\pub const endian = Target.current.cpu.arch.endian();
+        \\
+        \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
+        \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
+        \\pub const zig_version = try @import("std").SemanticVersion.parse("{s}");
+        \\
         \\pub const output_mode = OutputMode.{};
         \\pub const link_mode = LinkMode.{};
         \\pub const is_test = {};
@@ -2714,6 +2719,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\    .features = Target.{}.featureSet(&[_]Target.{}.Feature{{
         \\
     , .{
+        build_options.version,
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,
