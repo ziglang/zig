@@ -52,6 +52,8 @@ load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 pagezero_segment_cmd_index: ?u16 = null,
 /// __TEXT segment
 text_segment_cmd_index: ?u16 = null,
+/// __DATA_CONST segment
+data_const_segment_cmd_index: ?u16 = null,
 /// __DATA segment
 data_segment_cmd_index: ?u16 = null,
 /// __LINKEDIT segment
@@ -1519,6 +1521,64 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.header_dirty = true;
         self.load_commands_dirty = true;
     }
+    if (self.data_const_segment_cmd_index == null) {
+        self.data_const_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
+        const initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE;
+        const address_and_offset = self.nextSegmentAddressAndOffset();
+
+        const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+
+        log.debug("found __DATA_CONST segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
+
+        try self.load_commands.append(self.base.allocator, .{
+            .Segment = SegmentCommand.empty(.{
+                .cmd = macho.LC_SEGMENT_64,
+                .cmdsize = @sizeOf(macho.segment_command_64),
+                .segname = makeStaticString("__DATA_CONST"),
+                .vmaddr = address_and_offset.address,
+                .vmsize = needed_size,
+                .fileoff = address_and_offset.offset,
+                .filesize = needed_size,
+                .maxprot = maxprot,
+                .initprot = initprot,
+                .nsects = 0,
+                .flags = 0,
+            }),
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
+    if (self.data_segment_cmd_index == null) {
+        self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
+        const initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE;
+        const address_and_offset = self.nextSegmentAddressAndOffset();
+
+        const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+
+        log.debug("found __DATA segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
+
+        try self.load_commands.append(self.base.allocator, .{
+            .Segment = SegmentCommand.empty(.{
+                .cmd = macho.LC_SEGMENT_64,
+                .cmdsize = @sizeOf(macho.segment_command_64),
+                .segname = makeStaticString("__DATA"),
+                .vmaddr = address_and_offset.address,
+                .vmsize = needed_size,
+                .fileoff = address_and_offset.offset,
+                .filesize = needed_size,
+                .maxprot = maxprot,
+                .initprot = initprot,
+                .nsects = 0,
+                .flags = 0,
+            }),
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
 
@@ -1907,16 +1967,13 @@ const NextSegmentAddressAndOffset = struct {
 };
 
 fn nextSegmentAddressAndOffset(self: *MachO) NextSegmentAddressAndOffset {
-    const prev_segment_idx = blk: {
-        if (self.data_segment_cmd_index) |idx| {
-            break :blk idx;
-        } else if (self.text_segment_cmd_index) |idx| {
-            break :blk idx;
-        } else {
-            unreachable; // unhandled LC_SEGMENT_64 load command before __TEXT
+    var prev_segment_idx: ?usize = null; // We use optional here for safety.
+    for (self.load_commands.items) |cmd, i| {
+        if (cmd == .Segment) {
+            prev_segment_idx = i;
         }
-    };
-    const prev_segment = self.load_commands.items[prev_segment_idx].Segment;
+    }
+    const prev_segment = self.load_commands.items[prev_segment_idx.?].Segment;
     const address = prev_segment.inner.vmaddr + prev_segment.inner.vmsize;
     const offset = prev_segment.inner.fileoff + prev_segment.inner.filesize;
     return .{
@@ -2464,6 +2521,8 @@ fn parseFromFile(self: *MachO, file: fs.File) !void {
                     }
                 } else if (parseAndCmpName(&x.inner.segname, "__DATA")) {
                     self.data_segment_cmd_index = i;
+                } else if (parseAndCmpName(&x.inner.segname, "__DATA_CONST")) {
+                    self.data_const_segment_cmd_index = i;
                 }
             },
             macho.LC_DYLD_INFO_ONLY => {
