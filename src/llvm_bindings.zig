@@ -7,85 +7,85 @@ const assert = std.debug.assert;
 const LLVMBool = bool;
 pub const LLVMAttributeIndex = c_uint;
 
-pub const ValueRef = opaque {
+pub const Value = opaque {
     pub const addAttributeAtIndex = LLVMAddAttributeAtIndex;
-    extern fn LLVMAddAttributeAtIndex(*const ValueRef, Idx: LLVMAttributeIndex, A: *const AttributeRef) void;
+    extern fn LLVMAddAttributeAtIndex(*const Value, Idx: LLVMAttributeIndex, A: *const Attribute) void;
 
     pub const appendBasicBlock = LLVMAppendBasicBlock;
-    extern fn LLVMAppendBasicBlock(Fn: *const ValueRef, Name: [*:0]const u8) *const BasicBlockRef;
+    extern fn LLVMAppendBasicBlock(Fn: *const Value, Name: [*:0]const u8) *const BasicBlock;
 
     pub const getFirstBasicBlock = LLVMGetFirstBasicBlock;
-    extern fn LLVMGetFirstBasicBlock(Fn: *const ValueRef) ?*const BasicBlockRef;
+    extern fn LLVMGetFirstBasicBlock(Fn: *const Value) ?*const BasicBlock;
 
     // Helper functions
     // TODO: Do we want to put these functions here? It allows for convienient function calls
-    //       on ValueRef: llvm_fn.addFnAttr("noreturn")
-    fn addAttr(val: *const ValueRef, index: LLVMAttributeIndex, name: []const u8) void {
+    //       on Value: llvm_fn.addFnAttr("noreturn")
+    fn addAttr(val: *const Value, index: LLVMAttributeIndex, name: []const u8) void {
         const kind_id = getEnumAttributeKindForName(name.ptr, name.len);
         assert(kind_id != 0);
-        const llvm_attr = ContextRef.getGlobal().createEnumAttribute(kind_id, 0);
+        const llvm_attr = Context.getGlobal().createEnumAttribute(kind_id, 0);
         val.addAttributeAtIndex(index, llvm_attr);
     }
 
-    pub fn addFnAttr(val: *const ValueRef, attr_name: []const u8) void {
+    pub fn addFnAttr(val: *const Value, attr_name: []const u8) void {
         // TODO: improve this API, `addAttr(-1, attr_name)`
         val.addAttr(std.math.maxInt(LLVMAttributeIndex), attr_name);
     }
 };
 
-pub const TypeRef = opaque {
+pub const Type = opaque {
     pub const functionType = LLVMFunctionType;
-    extern fn LLVMFunctionType(ReturnType: *const TypeRef, ParamTypes: ?[*]*const TypeRef, ParamCount: c_uint, IsVarArg: LLVMBool) *const TypeRef;
+    extern fn LLVMFunctionType(ReturnType: *const Type, ParamTypes: ?[*]*const Type, ParamCount: c_uint, IsVarArg: LLVMBool) *const Type;
 
     pub const constNull = LLVMConstNull;
-    extern fn LLVMConstNull(Ty: *const TypeRef) *const ValueRef;
+    extern fn LLVMConstNull(Ty: *const Type) *const Value;
 
     pub const constAllOnes = LLVMConstAllOnes;
-    extern fn LLVMConstAllOnes(Ty: *const TypeRef) *const ValueRef;
+    extern fn LLVMConstAllOnes(Ty: *const Type) *const Value;
 
     pub const constInt = LLVMConstInt;
-    extern fn LLVMConstInt(IntTy: *const TypeRef, N: c_ulonglong, SignExtend: LLVMBool) *const ValueRef;
+    extern fn LLVMConstInt(IntTy: *const Type, N: c_ulonglong, SignExtend: LLVMBool) *const Value;
 
     pub const constArray = LLVMConstArray;
-    extern fn LLVMConstArray(ElementTy: *const TypeRef, ConstantVals: ?[*]*const ValueRef, Length: c_uint) *const ValueRef;
+    extern fn LLVMConstArray(ElementTy: *const Type, ConstantVals: ?[*]*const Value, Length: c_uint) *const Value;
 
     pub const getUndef = LLVMGetUndef;
-    extern fn LLVMGetUndef(Ty: *const TypeRef) *const ValueRef;
+    extern fn LLVMGetUndef(Ty: *const Type) *const Value;
 
     pub const pointerType = LLVMPointerType;
-    extern fn LLVMPointerType(ElementType: *const TypeRef, AddressSpace: c_uint) *const TypeRef;
+    extern fn LLVMPointerType(ElementType: *const Type, AddressSpace: c_uint) *const Type;
 
     pub const arrayType = LLVMArrayType;
-    extern fn LLVMArrayType(ElementType: *const TypeRef, ElementCount: c_uint) *const TypeRef;
+    extern fn LLVMArrayType(ElementType: *const Type, ElementCount: c_uint) *const Type;
 };
 
-pub const ModuleRef = opaque {
+pub const Module = opaque {
     pub const createWithName = LLVMModuleCreateWithName;
-    extern fn LLVMModuleCreateWithName(ModuleID: [*:0]const u8) *const ModuleRef;
+    extern fn LLVMModuleCreateWithName(ModuleID: [*:0]const u8) *const Module;
 
     pub const disposeModule = LLVMDisposeModule;
-    extern fn LLVMDisposeModule(*const ModuleRef) void;
+    extern fn LLVMDisposeModule(*const Module) void;
 
     pub const verifyModule = LLVMVerifyModule;
-    extern fn LLVMVerifyModule(*const ModuleRef, Action: VerifierFailureAction, OutMessage: *[*:0]const u8) LLVMBool;
+    extern fn LLVMVerifyModule(*const Module, Action: VerifierFailureAction, OutMessage: *[*:0]const u8) LLVMBool;
 
     pub const addFunction = LLVMAddFunction;
-    extern fn LLVMAddFunction(*const ModuleRef, Name: [*:0]const u8, FunctionTy: *const TypeRef) *const ValueRef;
+    extern fn LLVMAddFunction(*const Module, Name: [*:0]const u8, FunctionTy: *const Type) *const Value;
 
     pub const getNamedFunction = LLVMGetNamedFunction;
-    extern fn LLVMGetNamedFunction(*const ModuleRef, Name: [*:0]const u8) ?*const ValueRef;
+    extern fn LLVMGetNamedFunction(*const Module, Name: [*:0]const u8) ?*const Value;
 
     pub const getIntrinsicDeclaration = LLVMGetIntrinsicDeclaration;
-    extern fn LLVMGetIntrinsicDeclaration(Mod: *const ModuleRef, ID: c_uint, ParamTypes: ?[*]*const TypeRef, ParamCount: usize) *const ValueRef;
+    extern fn LLVMGetIntrinsicDeclaration(Mod: *const Module, ID: c_uint, ParamTypes: ?[*]*const Type, ParamCount: usize) *const Value;
 
     pub const printToString = LLVMPrintModuleToString;
-    extern fn LLVMPrintModuleToString(*const ModuleRef) [*:0]const u8;
+    extern fn LLVMPrintModuleToString(*const Module) [*:0]const u8;
 
     pub const addGlobal = LLVMAddGlobal;
-    extern fn LLVMAddGlobal(M: *const ModuleRef, Ty: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMAddGlobal(M: *const Module, Ty: *const Type, Name: [*:0]const u8) *const Value;
 
     pub const getNamedGlobal = LLVMGetNamedGlobal;
-    extern fn LLVMGetNamedGlobal(M: *const ModuleRef, Name: [*:0]const u8) ?*const ValueRef;
+    extern fn LLVMGetNamedGlobal(M: *const Module, Name: [*:0]const u8) ?*const Value;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
@@ -101,120 +101,120 @@ pub const VerifierFailureAction = extern enum {
 };
 
 pub const constNeg = LLVMConstNeg;
-extern fn LLVMConstNeg(ConstantVal: *const ValueRef) *const ValueRef;
+extern fn LLVMConstNeg(ConstantVal: *const Value) *const Value;
 
 pub const constString = LLVMConstString;
-extern fn LLVMConstString(Str: [*]const u8, Length: c_uint, DontNullTerminate: LLVMBool) *const ValueRef;
+extern fn LLVMConstString(Str: [*]const u8, Length: c_uint, DontNullTerminate: LLVMBool) *const Value;
 
 pub const setInitializer = LLVMSetInitializer;
-extern fn LLVMSetInitializer(GlobalVar: *const ValueRef, ConstantVal: *const ValueRef) void;
+extern fn LLVMSetInitializer(GlobalVar: *const Value, ConstantVal: *const Value) void;
 
 pub const voidType = LLVMVoidType;
-extern fn LLVMVoidType() *const TypeRef;
+extern fn LLVMVoidType() *const Type;
 
 pub const getParam = LLVMGetParam;
-extern fn LLVMGetParam(Fn: *const ValueRef, Index: c_uint) *const ValueRef;
+extern fn LLVMGetParam(Fn: *const Value, Index: c_uint) *const Value;
 
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;
 
-pub const AttributeRef = opaque {};
+pub const Attribute = opaque {};
 
-pub const ContextRef = opaque {
+pub const Context = opaque {
     pub const createEnumAttribute = LLVMCreateEnumAttribute;
-    extern fn LLVMCreateEnumAttribute(*const ContextRef, KindID: c_uint, Val: u64) *const AttributeRef;
+    extern fn LLVMCreateEnumAttribute(*const Context, KindID: c_uint, Val: u64) *const Attribute;
 
     pub const getGlobal = LLVMGetGlobalContext;
-    extern fn LLVMGetGlobalContext() *const ContextRef;
+    extern fn LLVMGetGlobalContext() *const Context;
 };
 
 pub const intType = LLVMIntType;
-extern fn LLVMIntType(NumBits: c_uint) *const TypeRef;
+extern fn LLVMIntType(NumBits: c_uint) *const Type;
 
-pub const BuilderRef = opaque {
+pub const Builder = opaque {
     pub const createBuilder = LLVMCreateBuilder;
-    extern fn LLVMCreateBuilder() *const BuilderRef;
+    extern fn LLVMCreateBuilder() *const Builder;
 
     pub const disposeBuilder = LLVMDisposeBuilder;
-    extern fn LLVMDisposeBuilder(Builder: *const BuilderRef) void;
+    extern fn LLVMDisposeBuilder(Builder: *const Builder) void;
 
     pub const positionBuilderAtEnd = LLVMPositionBuilderAtEnd;
-    extern fn LLVMPositionBuilderAtEnd(Builder: *const BuilderRef, Block: *const BasicBlockRef) void;
+    extern fn LLVMPositionBuilderAtEnd(Builder: *const Builder, Block: *const BasicBlock) void;
 
     pub const getInsertBlock = LLVMGetInsertBlock;
-    extern fn LLVMGetInsertBlock(Builder: *const BuilderRef) *const BasicBlockRef;
+    extern fn LLVMGetInsertBlock(Builder: *const Builder) *const BasicBlock;
 
     pub const buildCall = LLVMBuildCall;
-    extern fn LLVMBuildCall(*const BuilderRef, Fn: *const ValueRef, Args: ?[*]*const ValueRef, NumArgs: c_uint, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildCall(*const Builder, Fn: *const Value, Args: ?[*]*const Value, NumArgs: c_uint, Name: [*:0]const u8) *const Value;
 
     pub const buildCall2 = LLVMBuildCall2;
-    extern fn LLVMBuildCall2(*const BuilderRef, *const TypeRef, Fn: *const ValueRef, Args: [*]*const ValueRef, NumArgs: c_uint, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildCall2(*const Builder, *const Type, Fn: *const Value, Args: [*]*const Value, NumArgs: c_uint, Name: [*:0]const u8) *const Value;
 
     pub const buildRetVoid = LLVMBuildRetVoid;
-    extern fn LLVMBuildRetVoid(*const BuilderRef) *const ValueRef;
+    extern fn LLVMBuildRetVoid(*const Builder) *const Value;
 
     pub const buildRet = LLVMBuildRet;
-    extern fn LLVMBuildRet(*const BuilderRef, V: *const ValueRef) *const ValueRef;
+    extern fn LLVMBuildRet(*const Builder, V: *const Value) *const Value;
 
     pub const buildUnreachable = LLVMBuildUnreachable;
-    extern fn LLVMBuildUnreachable(*const BuilderRef) *const ValueRef;
+    extern fn LLVMBuildUnreachable(*const Builder) *const Value;
 
     pub const buildAlloca = LLVMBuildAlloca;
-    extern fn LLVMBuildAlloca(*const BuilderRef, Ty: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildAlloca(*const Builder, Ty: *const Type, Name: [*:0]const u8) *const Value;
 
     pub const buildStore = LLVMBuildStore;
-    extern fn LLVMBuildStore(*const BuilderRef, Val: *const ValueRef, Ptr: *const ValueRef) *const ValueRef;
+    extern fn LLVMBuildStore(*const Builder, Val: *const Value, Ptr: *const Value) *const Value;
 
     pub const buildLoad = LLVMBuildLoad;
-    extern fn LLVMBuildLoad(*const BuilderRef, PointerVal: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildLoad(*const Builder, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNot = LLVMBuildNot;
-    extern fn LLVMBuildNot(*const BuilderRef, V: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildNot(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNSWAdd = LLVMBuildNSWAdd;
-    extern fn LLVMBuildNSWAdd(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildNSWAdd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNUWAdd = LLVMBuildNUWAdd;
-    extern fn LLVMBuildNUWAdd(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildNUWAdd(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNSWSub = LLVMBuildNSWSub;
-    extern fn LLVMBuildNSWSub(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildNSWSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNUWSub = LLVMBuildNUWSub;
-    extern fn LLVMBuildNUWSub(*const BuilderRef, LHS: *const ValueRef, RHS: *const ValueRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildNUWSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildIntCast2 = LLVMBuildIntCast2;
-    extern fn LLVMBuildIntCast2(*const BuilderRef, Val: *const ValueRef, DestTy: *const TypeRef, IsSigned: LLVMBool, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildIntCast2(*const Builder, Val: *const Value, DestTy: *const Type, IsSigned: LLVMBool, Name: [*:0]const u8) *const Value;
 
     pub const buildBitCast = LLVMBuildBitCast;
-    extern fn LLVMBuildBitCast(*const BuilderRef, Val: *const ValueRef, DestTy: *const TypeRef, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildBitCast(*const Builder, Val: *const Value, DestTy: *const Type, Name: [*:0]const u8) *const Value;
 
     pub const buildInBoundsGEP = LLVMBuildInBoundsGEP;
-    extern fn LLVMBuildInBoundsGEP(B: *const BuilderRef, Pointer: *const ValueRef, Indices: [*]*const ValueRef, NumIndices: c_uint, Name: [*:0]const u8) *const ValueRef;
+    extern fn LLVMBuildInBoundsGEP(B: *const Builder, Pointer: *const Value, Indices: [*]*const Value, NumIndices: c_uint, Name: [*:0]const u8) *const Value;
 };
 
-pub const BasicBlockRef = opaque {
+pub const BasicBlock = opaque {
     pub const deleteBasicBlock = LLVMDeleteBasicBlock;
-    extern fn LLVMDeleteBasicBlock(BB: *const BasicBlockRef) void;
+    extern fn LLVMDeleteBasicBlock(BB: *const BasicBlock) void;
 };
 
-pub const TargetMachineRef = opaque {
+pub const TargetMachine = opaque {
     pub const createTargetMachine = LLVMCreateTargetMachine;
     extern fn LLVMCreateTargetMachine(
-        T: *const TargetRef,
+        T: *const Target,
         Triple: [*:0]const u8,
         CPU: [*:0]const u8,
         Features: [*:0]const u8,
         Level: CodeGenOptLevel,
         Reloc: RelocMode,
         CodeModel: CodeMode,
-    ) *const TargetMachineRef;
+    ) *const TargetMachine;
 
     pub const disposeTargetMachine = LLVMDisposeTargetMachine;
-    extern fn LLVMDisposeTargetMachine(T: *const TargetMachineRef) void;
+    extern fn LLVMDisposeTargetMachine(T: *const TargetMachine) void;
 
     pub const emitToFile = LLVMTargetMachineEmitToFile;
-    extern fn LLVMTargetMachineEmitToFile(*const TargetMachineRef, M: *const ModuleRef, Filename: [*:0]const u8, codegen: CodeGenFileType, ErrorMessage: *[*:0]const u8) LLVMBool;
+    extern fn LLVMTargetMachineEmitToFile(*const TargetMachine, M: *const Module, Filename: [*:0]const u8, codegen: CodeGenFileType, ErrorMessage: *[*:0]const u8) LLVMBool;
 };
 
 pub const CodeMode = extern enum {
@@ -249,9 +249,9 @@ pub const CodeGenFileType = extern enum {
     ObjectFile,
 };
 
-pub const TargetRef = opaque {
+pub const Target = opaque {
     pub const getTargetFromTriple = LLVMGetTargetFromTriple;
-    extern fn LLVMGetTargetFromTriple(Triple: [*:0]const u8, T: **const TargetRef, ErrorMessage: *[*:0]const u8) LLVMBool;
+    extern fn LLVMGetTargetFromTriple(Triple: [*:0]const u8, T: **const Target, ErrorMessage: *[*:0]const u8) LLVMBool;
 };
 
 extern fn LLVMInitializeAArch64TargetInfo() void;
