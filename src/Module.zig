@@ -94,6 +94,8 @@ stage1_flags: packed struct {
     reserved: u2 = 0,
 } = .{},
 
+emit_h: ?Compilation.EmitLoc,
+
 pub const Export = struct {
     options: std.builtin.ExportOptions,
     /// Byte offset into the file that contains the export directive.
@@ -1943,14 +1945,14 @@ fn allocateNewDecl(
             .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
-            .c => .{ .c = {} },
+            .c => .{ .c = link.File.C.DeclBlock.empty },
             .wasm => .{ .wasm = {} },
         },
         .fn_link = switch (self.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
-            .c => .{ .c = {} },
+            .c => .{ .c = link.File.C.FnBlock.empty },
             .wasm => .{ .wasm = null },
         },
         .generation = 0,

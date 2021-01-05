@@ -13,7 +13,7 @@ const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_d
 const ThreadPool = @import("ThreadPool.zig");
 const CrossTarget = std.zig.CrossTarget;
 
-const c_header = @embedFile("link/cbe.h");
+const zig_h = link.File.C.zig_h;
 
 test "self-hosted" {
     var ctx = TestContext.init();
@@ -324,11 +324,11 @@ pub const TestContext = struct {
     }
 
     pub fn c(ctx: *TestContext, name: []const u8, target: CrossTarget, src: [:0]const u8, comptime out: [:0]const u8) void {
-        ctx.addC(name, target, .Zig).addCompareObjectFile(src, c_header ++ out);
+        ctx.addC(name, target, .Zig).addCompareObjectFile(src, zig_h ++ out);
     }
 
     pub fn h(ctx: *TestContext, name: []const u8, target: CrossTarget, src: [:0]const u8, comptime out: [:0]const u8) void {
-        ctx.addC(name, target, .Zig).addHeader(src, c_header ++ out);
+        ctx.addC(name, target, .Zig).addHeader(src, zig_h ++ out);
     }
 
     pub fn addCompareOutput(
@@ -700,11 +700,12 @@ pub const TestContext = struct {
                             },
                         }
                     }
-                    if (comp.bin_file.cast(link.File.C)) |c_file| {
-                        std.debug.print("Generated C: \n===============\n{s}\n\n===========\n\n", .{
-                            c_file.main.items,
-                        });
-                    }
+                    // TODO print generated C code
+                    //if (comp.bin_file.cast(link.File.C)) |c_file| {
+                    //    std.debug.print("Generated C: \n===============\n{s}\n\n===========\n\n", .{
+                    //        c_file.main.items,
+                    //    });
+                    //}
                     std.debug.print("Test failed.\n", .{});
                     std.process.exit(1);
                 }

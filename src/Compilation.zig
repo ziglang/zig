@@ -138,8 +138,6 @@ emit_llvm_ir: ?EmitLoc,
 emit_analysis: ?EmitLoc,
 emit_docs: ?EmitLoc,
 
-c_header: ?c_link.Header,
-
 work_queue_wait_group: WaitGroup,
 
 pub const InnerError = Module.InnerError;
@@ -866,9 +864,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .root_pkg = root_pkg,
                 .root_scope = root_scope,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
+                .emit_h = options.emit_h,
             };
             break :blk module;
-        } else null;
+        } else blk: {
+            if (options.emit_h != null) return error.NoZigModuleForCHeader;
+            break :blk null;
+        };
         errdefer if (module) |zm| zm.deinit();
 
         const error_return_tracing = !strip and switch (options.optimize_mode) {
@@ -996,7 +998,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .local_cache_directory = options.local_cache_directory,
             .global_cache_directory = options.global_cache_directory,
             .bin_file = bin_file,
-            .c_header = if (!use_llvm and options.emit_h != null) c_link.Header.init(gpa, options.emit_h) else null,
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_analysis = options.emit_analysis,
@@ -1218,10 +1219,6 @@ pub fn destroy(self: *Compilation) void {
     }
     self.failed_c_objects.deinit(gpa);
 
-    if (self.c_header) |*header| {
-        header.deinit();
-    }
-
     self.cache_parent.manifest_dir.close();
     if (self.owned_link_dir) |*dir| dir.close();
 
@@ -1324,20 +1321,6 @@ pub fn update(self: *Compilation) !void {
         if (self.bin_file.options.module) |module| {
             module.root_scope.unload(self.gpa);
         }
-    }
-
-    // If we've chosen to emit a C header, flush the header to the disk.
-    if (self.c_header) |header| {
-        const header_path = header.emit_loc.?;
-        // If a directory has been provided, write the header there. Otherwise, just write it to the
-        // cache directory.
-        const header_dir = if (header_path.directory) |dir|
-            dir.handle
-        else
-            self.local_cache_directory.handle;
-        const header_file = try header_dir.createFile(header_path.basename, .{});
-        defer header_file.close();
-        try header.flush(header_file.writer());
     }
 }
 
@@ -1497,7 +1480,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
                         error.AnalysisFail => {
-                            decl.analysis = .dependency_failure;
+                            decl.analysis = .codegen_failure;
                         },
                         else => {
                             try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
@@ -1512,25 +1495,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     }
                     return;
                 };
-
-                if (self.c_header) |*header| {
-                    c_codegen.generateHeader(self, module, header, decl) catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        error.AnalysisFail => {
-                            decl.analysis = .dependency_failure;
-                        },
-                        else => {
-                            try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
-                            module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
-                                module.gpa,
-                                decl.src(),
-                                "unable to generate C header: {s}",
-                                .{@errorName(err)},
-                            ));
-                            decl.analysis = .codegen_failure_retryable;
-                        },
-                    };
-                }
             },
         },
         .analyze_decl => |decl| {
@@ -2998,9 +2962,9 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.add(comp.bin_file.options.function_sections);
     man.hash.add(comp.bin_file.options.is_test);
     man.hash.add(comp.bin_file.options.emit != null);
-    man.hash.add(comp.c_header != null);
-    if (comp.c_header) |header| {
-        man.hash.addEmitLoc(header.emit_loc.?);
+    man.hash.add(mod.emit_h != null);
+    if (mod.emit_h) |emit_h| {
+        man.hash.addEmitLoc(emit_h);
     }
     man.hash.addOptionalEmitLoc(comp.emit_asm);
     man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
@@ -3105,10 +3069,10 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         });
         break :blk try directory.join(arena, &[_][]const u8{bin_basename});
     } else "";
-    if (comp.c_header != null) {
+    if (comp.emit_h != null) {
         log.warn("-femit-h is not available in the stage1 backend; no .h file will be produced", .{});
     }
-    const emit_h_path = try stage1LocPath(arena, if (comp.c_header) |header| header.emit_loc else null, directory);
+    const emit_h_path = try stage1LocPath(arena, mod.emit_h, directory);
     const emit_asm_path = try stage1LocPath(arena, comp.emit_asm, directory);
     const emit_llvm_ir_path = try stage1LocPath(arena, comp.emit_llvm_ir, directory);
     const emit_analysis_path = try stage1LocPath(arena, comp.emit_analysis, directory);

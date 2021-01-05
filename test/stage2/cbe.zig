@@ -22,8 +22,6 @@ pub fn addCases(ctx: *TestContext) !void {
         , "hello world!" ++ std.cstr.line_sep);
 
         // Now change the message only
-        // TODO fix C backend not supporting updates
-        // https://github.com/ziglang/zig/issues/7589
         case.addCompareOutput(
             \\extern fn puts(s: [*:0]const u8) c_int;
             \\export fn main() c_int {
