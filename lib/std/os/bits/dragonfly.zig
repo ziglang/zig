@@ -20,6 +20,7 @@ pub const off_t = c_long;
 pub const mode_t = c_uint;
 pub const uid_t = u32;
 pub const gid_t = u32;
+pub const suseconds_t = c_long;
 
 pub const ENOTSUP = EOPNOTSUPP;
 pub const EWOULDBLOCK = EAGAIN;
@@ -188,6 +189,13 @@ pub const libc_stat = extern struct {
 pub const timespec = extern struct {
     tv_sec: c_long,
     tv_nsec: c_long,
+};
+
+pub const timeval = extern struct {
+    /// seconds
+    tv_sec: time_t,
+    /// microseconds
+    tv_usec: suseconds_t,
 };
 
 pub const CTL_UNSPEC = 0;
