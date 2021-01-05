@@ -89,6 +89,16 @@ code_signature_cmd_index: ?u16 = null,
 text_section_index: ?u16 = null,
 /// Index into __TEXT,__ziggot section.
 got_section_index: ?u16 = null,
+/// Index into __TEXT,__stubs section.
+stubs_section_index: ?u16 = null,
+/// Index into __TEXT,__stub_helper section.
+stub_helper_section_index: ?u16 = null,
+/// Index into __DATA_CONST,__got section.
+data_got_section_index: ?u16 = null,
+/// Index into __DATA,__la_symbol_ptr section.
+la_symbol_ptr_section_index: ?u16 = null,
+/// Index into __DATA,__data section.
+data_section_index: ?u16 = null,
 /// The absolute address of the entry point.
 entry_addr: ?u64 = null,
 
@@ -1437,7 +1447,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         const program_code_size_hint = self.base.options.program_code_size_hint;
         const offset_table_size_hint = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const ideal_size = self.header_pad + program_code_size_hint + offset_table_size_hint;
+        const ideal_size = self.header_pad + program_code_size_hint + 3 * offset_table_size_hint;
         const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
 
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
@@ -1494,9 +1504,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (self.got_section_index == null) {
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        const text_section = &text_segment.sections.items[self.text_section_index.?];
         self.got_section_index = @intCast(u16, text_segment.sections.items.len);
 
+        const alignment: u2 = switch (self.base.options.target.cpu.arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => unreachable, // unhandled architecture type
+        };
         const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
@@ -1510,7 +1524,73 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .addr = text_segment.inner.vmaddr + off,
             .size = needed_size,
             .offset = @intCast(u32, off),
-            .@"align" = 3, // 2^@sizeOf(u64)
+            .@"align" = alignment,
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = flags,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
+    if (self.stubs_section_index == null) {
+        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        self.stubs_section_index = @intCast(u16, text_segment.sections.items.len);
+
+        const alignment: u2 = switch (self.base.options.target.cpu.arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => unreachable, // unhandled architecture type
+        };
+        const flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
+        assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
+
+        log.debug("found __stubs section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try text_segment.addSection(self.base.allocator, .{
+            .sectname = makeStaticString("__stubs"),
+            .segname = makeStaticString("__TEXT"),
+            .addr = text_segment.inner.vmaddr + off,
+            .size = 0, // This will be populated later in tandem with .reserved2 field.
+            .offset = @intCast(u32, off),
+            .@"align" = alignment,
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = flags,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
+    if (self.stub_helper_section_index == null) {
+        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        self.stub_helper_section_index = @intCast(u16, text_segment.sections.items.len);
+
+        const alignment: u2 = switch (self.base.options.target.cpu.arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => unreachable, // unhandled architecture type
+        };
+        const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
+        assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
+
+        log.debug("found __stubs section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try text_segment.addSection(self.base.allocator, .{
+            .sectname = makeStaticString("__stub_helper"),
+            .segname = makeStaticString("__TEXT"),
+            .addr = text_segment.inner.vmaddr + off,
+            .size = needed_size,
+            .offset = @intCast(u32, off),
+            .@"align" = alignment,
             .reloff = 0,
             .nreloc = 0,
             .flags = flags,
@@ -1550,13 +1630,41 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.header_dirty = true;
         self.load_commands_dirty = true;
     }
+    if (self.data_got_section_index == null) {
+        const dc_segment = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        self.data_got_section_index = @intCast(u16, dc_segment.sections.items.len);
+
+        const flags = macho.S_NON_LAZY_SYMBOL_POINTERS;
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = dc_segment.findFreeSpace(needed_size, @alignOf(u64), null);
+        assert(off + needed_size <= dc_segment.inner.fileoff + dc_segment.inner.filesize); // TODO Must expand __DATA_CONST segment.
+
+        log.debug("found __got section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try dc_segment.addSection(self.base.allocator, .{
+            .sectname = makeStaticString("__got"),
+            .segname = makeStaticString("__DATA_CONST"),
+            .addr = dc_segment.inner.vmaddr + off - dc_segment.inner.fileoff,
+            .size = needed_size,
+            .offset = @intCast(u32, off),
+            .@"align" = 3, // 2^3 = @sizeOf(u64)
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = flags,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
     if (self.data_segment_cmd_index == null) {
         self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
         const initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE;
         const address_and_offset = self.nextSegmentAddressAndOffset();
 
-        const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const ideal_size = 2 * @sizeOf(u64) * self.base.options.symbol_count_hint;
         const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
 
         log.debug("found __DATA segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
@@ -1575,6 +1683,62 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .nsects = 0,
                 .flags = 0,
             }),
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
+    if (self.la_symbol_ptr_section_index == null) {
+        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        self.la_symbol_ptr_section_index = @intCast(u16, data_segment.sections.items.len);
+
+        const flags = macho.S_LAZY_SYMBOL_POINTERS;
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
+        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
+
+        log.debug("found __la_symbol_ptr section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try data_segment.addSection(self.base.allocator, .{
+            .sectname = makeStaticString("__la_symbol_ptr"),
+            .segname = makeStaticString("__DATA"),
+            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
+            .size = needed_size,
+            .offset = @intCast(u32, off),
+            .@"align" = 3, // 2^3 = @sizeOf(u64)
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = flags,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
+    if (self.data_section_index == null) {
+        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        self.data_section_index = @intCast(u16, data_segment.sections.items.len);
+
+        const flags = macho.S_REGULAR;
+        const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
+        const off = data_segment.findFreeSpace(needed_size, @alignOf(u64), null);
+        assert(off + needed_size <= data_segment.inner.fileoff + data_segment.inner.filesize); // TODO Must expand __DATA segment.
+
+        log.debug("found __data section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+
+        try data_segment.addSection(self.base.allocator, .{
+            .sectname = makeStaticString("__data"),
+            .segname = makeStaticString("__DATA"),
+            .addr = data_segment.inner.vmaddr + off - data_segment.inner.fileoff,
+            .size = needed_size,
+            .offset = @intCast(u32, off),
+            .@"align" = 3, // 2^3 = @sizeOf(u64)
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = flags,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
         });
         self.header_dirty = true;
         self.load_commands_dirty = true;
