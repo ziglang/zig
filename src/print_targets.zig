@@ -18,7 +18,7 @@ pub fn cmdTargets(
     native_target: Target,
 ) !void {
     var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {
-        fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
+        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
     defer zig_lib_directory.handle.close();
     defer allocator.free(zig_lib_directory.path.?);
@@ -61,7 +61,7 @@ pub fn cmdTargets(
     try jws.objectField("libc");
     try jws.beginArray();
     for (target.available_libcs) |libc| {
-        const tmp = try std.fmt.allocPrint(allocator, "{}-{}-{}", .{
+        const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
             @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
         });
         defer allocator.free(tmp);

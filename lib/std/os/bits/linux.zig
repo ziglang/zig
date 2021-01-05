@@ -1284,6 +1284,9 @@ pub const IORING_SETUP_CLAMP = 1 << 4;
 /// attach to existing wq
 pub const IORING_SETUP_ATTACH_WQ = 1 << 5;
 
+/// start with ring disabled
+pub const IORING_SETUP_R_DISABLED = 1 << 6;
+
 pub const io_sqring_offsets = extern struct {
     /// offset of ring head
     head: u32,
@@ -1430,6 +1433,11 @@ pub const io_uring_cqe = extern struct {
     flags: u32,
 };
 
+// io_uring_cqe.flags
+
+/// If set, the upper 16 bits are the buffer ID
+pub const IORING_CQE_F_BUFFER = 1 << 0;
+
 pub const IORING_OFF_SQ_RING = 0;
 pub const IORING_OFF_CQ_RING = 0x8000000;
 pub const IORING_OFF_SQES = 0x10000000;
@@ -1439,7 +1447,7 @@ pub const IORING_ENTER_GETEVENTS = 1 << 0;
 pub const IORING_ENTER_SQ_WAKEUP = 1 << 1;
 
 // io_uring_register opcodes and arguments
-pub const IORING_REGISTER = extern enum(u32) {
+pub const IORING_REGISTER = extern enum(u8) {
     REGISTER_BUFFERS,
     UNREGISTER_BUFFERS,
     REGISTER_FILES,
@@ -1451,11 +1459,13 @@ pub const IORING_REGISTER = extern enum(u32) {
     REGISTER_PROBE,
     REGISTER_PERSONALITY,
     UNREGISTER_PERSONALITY,
+    REGISTER_RESTRICTIONS,
+    REGISTER_ENABLE_RINGS,
 
     _,
 };
 
-pub const io_uring_files_update = struct {
+pub const io_uring_files_update = extern struct {
     offset: u32,
     resv: u32,
     fds: u64,
@@ -1463,7 +1473,7 @@ pub const io_uring_files_update = struct {
 
 pub const IO_URING_OP_SUPPORTED = 1 << 0;
 
-pub const io_uring_probe_op = struct {
+pub const io_uring_probe_op = extern struct {
     op: IORING_OP,
 
     resv: u8,
@@ -1474,7 +1484,7 @@ pub const io_uring_probe_op = struct {
     resv2: u32,
 };
 
-pub const io_uring_probe = struct {
+pub const io_uring_probe = extern struct {
     /// last opcode supported
     last_op: IORING_OP,
 
@@ -1485,6 +1495,39 @@ pub const io_uring_probe = struct {
     resv2: u32[3],
 
     // Followed by up to `ops_len` io_uring_probe_op structures
+};
+
+pub const io_uring_restriction = extern struct {
+    opcode: u16,
+    arg: extern union {
+        /// IORING_RESTRICTION_REGISTER_OP
+        register_op: IORING_REGISTER,
+
+        /// IORING_RESTRICTION_SQE_OP
+        sqe_op: IORING_OP,
+
+        /// IORING_RESTRICTION_SQE_FLAGS_*
+        sqe_flags: u8,
+    },
+    resv: u8,
+    resv2: u32[3],
+};
+
+/// io_uring_restriction->opcode values
+pub const IORING_RESTRICTION = extern enum(u8) {
+    /// Allow an io_uring_register(2) opcode
+    REGISTER_OP = 0,
+
+    /// Allow an sqe opcode
+    SQE_OP = 1,
+
+    /// Allow sqe flags
+    SQE_FLAGS_ALLOWED = 2,
+
+    /// Require sqe flags (these flags must be set on each submission)
+    SQE_FLAGS_REQUIRED = 3,
+
+    _,
 };
 
 pub const utsname = extern struct {

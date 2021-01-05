@@ -102,7 +102,11 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
     };
 }
 
+const please_windows_dont_oom = std.Target.current.os.tag == .windows;
+
 test "crc32 ieee" {
+    if (please_windows_dont_oom) return error.SkipZigTest;
+
     const Crc32Ieee = Crc32WithPoly(.IEEE);
 
     testing.expect(Crc32Ieee.hash("") == 0x00000000);
@@ -111,6 +115,8 @@ test "crc32 ieee" {
 }
 
 test "crc32 castagnoli" {
+    if (please_windows_dont_oom) return error.SkipZigTest;
+
     const Crc32Castagnoli = Crc32WithPoly(.Castagnoli);
 
     testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
@@ -167,6 +173,8 @@ pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
 }
 
 test "small crc32 ieee" {
+    if (please_windows_dont_oom) return error.SkipZigTest;
+
     const Crc32Ieee = Crc32SmallWithPoly(.IEEE);
 
     testing.expect(Crc32Ieee.hash("") == 0x00000000);
@@ -175,6 +183,8 @@ test "small crc32 ieee" {
 }
 
 test "small crc32 castagnoli" {
+    if (please_windows_dont_oom) return error.SkipZigTest;
+
     const Crc32Castagnoli = Crc32SmallWithPoly(.Castagnoli);
 
     testing.expect(Crc32Castagnoli.hash("") == 0x00000000);

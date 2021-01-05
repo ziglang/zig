@@ -228,7 +228,7 @@ pub fn generateSymbol(
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
                     src,
-                    "TODO implement generateSymbol for type '{}'",
+                    "TODO implement generateSymbol for type '{s}'",
                     .{@tagName(t)},
                 ),
             };
@@ -532,7 +532,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         self.code.items.len += 4;
 
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.analysis.success);
+                        try self.genBody(self.mod_fn.body);
 
                         const stack_end = self.max_end_stack;
                         if (stack_end > math.maxInt(i32))
@@ -543,13 +543,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (self.code.items.len >= math.maxInt(i32)) {
                             return self.fail(self.src, "unable to perform relocation: jump too far", .{});
                         }
-                        for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+                        if (self.exitlude_jump_relocs.items.len == 1) {
+                            self.code.items.len -= 5;
+                        } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
                             const amt = self.code.items.len - (jmp_reloc + 4);
-                            // If it wouldn't jump at all, elide it.
-                            if (amt == 0) {
-                                self.code.items.len -= 5;
-                                continue;
-                            }
                             const s32_amt = @intCast(i32, amt);
                             mem.writeIntLittle(i32, self.code.items[jmp_reloc..][0..4], s32_amt);
                         }
@@ -576,7 +573,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         });
                     } else {
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.analysis.success);
+                        try self.genBody(self.mod_fn.body);
                         try self.dbgSetEpilogueBegin();
                     }
                 },
@@ -593,7 +590,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         try self.dbgSetPrologueEnd();
 
-                        try self.genBody(self.mod_fn.analysis.success);
+                        try self.genBody(self.mod_fn.body);
 
                         // Backpatch stack offset
                         const stack_end = self.max_end_stack;
@@ -638,13 +635,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
                     } else {
                         try self.dbgSetPrologueEnd();
-                        try self.genBody(self.mod_fn.analysis.success);
+                        try self.genBody(self.mod_fn.body);
                         try self.dbgSetEpilogueBegin();
                     }
                 },
                 else => {
                     try self.dbgSetPrologueEnd();
-                    try self.genBody(self.mod_fn.analysis.success);
+                    try self.genBody(self.mod_fn.body);
                     try self.dbgSetEpilogueBegin();
                 },
             }
@@ -2029,7 +2026,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             });
                             break :blk 0x84;
                         },
-                        else => return self.fail(inst.base.src, "TODO implement condbr {} when condition is {}", .{ self.target.cpu.arch, @tagName(cond) }),
+                        else => return self.fail(inst.base.src, "TODO implement condbr {s} when condition is {s}", .{ self.target.cpu.arch, @tagName(cond) }),
                     };
                     self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
                     const reloc = Reloc{ .rel32 = self.code.items.len };
@@ -2376,11 +2373,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .arm, .armeb => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{s}'", .{input});
                         }
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
@@ -2393,11 +2390,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     if (inst.output) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
                         const reg_name = output[2 .. output.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         return MCValue{ .register = reg };
                     } else {
                         return MCValue.none;
@@ -2406,11 +2403,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .aarch64 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{s}'", .{input});
                         }
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
@@ -2425,11 +2422,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     if (inst.output) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
                         const reg_name = output[2 .. output.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         return MCValue{ .register = reg };
                     } else {
                         return MCValue.none;
@@ -2438,11 +2435,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .riscv64 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{s}'", .{input});
                         }
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
@@ -2455,11 +2452,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     if (inst.output) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
                         const reg_name = output[2 .. output.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         return MCValue{ .register = reg };
                     } else {
                         return MCValue.none;
@@ -2468,11 +2465,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64, .i386 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{s}'", .{input});
                         }
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
@@ -2485,11 +2482,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     if (inst.output) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
                         const reg_name = output[2 .. output.len - 1];
                         const reg = parseRegName(reg_name) orelse
-                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                            return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         return MCValue{ .register = reg };
                     } else {
                         return MCValue.none;
@@ -2837,7 +2834,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 48), 48).toU32());
                         }
                     },
-                    .register => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
+                    .register => |src_reg| {
+                        // If the registers are the same, nothing to do.
+                        if (src_reg.id() == reg.id())
+                            return;
+
+                        // mov reg, src_reg
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(
+                            reg,
+                            .xzr,
+                            src_reg,
+                            Instruction.Shift.none,
+                        ).toU32());
+                    },
                     .memory => |addr| {
                         if (self.bin_file.options.pie) {
                             // For MachO, the binary, with the exception of object files, has to be a PIE.
@@ -3417,7 +3426,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                             next_int_reg += 1;
                                         }
                                     },
-                                    else => return self.fail(src, "TODO implement function parameters of type {}", .{@tagName(ty.zigTypeTag())}),
+                                    else => return self.fail(src, "TODO implement function parameters of type {s}", .{@tagName(ty.zigTypeTag())}),
                                 }
                             }
                             result.stack_byte_count = next_stack_offset;
@@ -3473,6 +3482,59 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             result.stack_align = 4;
                         },
                         else => return self.fail(src, "TODO implement function parameters for {} on arm", .{cc}),
+                    }
+                },
+                .aarch64 => {
+                    switch (cc) {
+                        .Naked => {
+                            assert(result.args.len == 0);
+                            result.return_value = .{ .unreach = {} };
+                            result.stack_byte_count = 0;
+                            result.stack_align = 1;
+                            return result;
+                        },
+                        .Unspecified, .C => {
+                            // ARM64 Procedure Call Standard
+                            var ncrn: usize = 0; // Next Core Register Number
+                            var nsaa: u32 = 0; // Next stacked argument address
+
+                            for (param_types) |ty, i| {
+                                // We round up NCRN only for non-Apple platforms which allow the 16-byte aligned
+                                // values to spread across odd-numbered registers.
+                                if (ty.abiAlignment(self.target.*) == 16 and !self.target.isDarwin()) {
+                                    // Round up NCRN to the next even number
+                                    ncrn += ncrn % 2;
+                                }
+
+                                const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                                if (std.math.divCeil(u32, param_size, 8) catch unreachable <= 8 - ncrn) {
+                                    if (param_size <= 8) {
+                                        result.args[i] = .{ .register = c_abi_int_param_regs[ncrn] };
+                                        ncrn += 1;
+                                    } else {
+                                        return self.fail(src, "TODO MCValues with multiple registers", .{});
+                                    }
+                                } else if (ncrn < 8 and nsaa == 0) {
+                                    return self.fail(src, "TODO MCValues split between registers and stack", .{});
+                                } else {
+                                    ncrn = 8;
+                                    // TODO Apple allows the arguments on the stack to be non-8-byte aligned provided
+                                    // that the entire stack space consumed by the arguments is 8-byte aligned.
+                                    if (ty.abiAlignment(self.target.*) == 8) {
+                                        if (nsaa % 8 != 0) {
+                                            nsaa += 8 - (nsaa % 8);
+                                        }
+                                    }
+
+                                    result.args[i] = .{ .stack_offset = nsaa };
+                                    nsaa += param_size;
+                                }
+                            }
+
+                            result.stack_byte_count = nsaa;
+                            result.stack_align = 16;
+                        },
+                        else => return self.fail(src, "TODO implement function parameters for {} on aarch64", .{cc}),
                     }
                 },
                 else => if (param_types.len != 0)

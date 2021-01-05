@@ -596,7 +596,7 @@ fn testWindowsCmdLine(input_cmd_line: [*]const u16, expected_args: []const []con
     for (expected_args) |expected_arg| {
         const arg = it.next(std.testing.allocator).? catch unreachable;
         defer std.testing.allocator.free(arg);
-        testing.expectEqualSlices(u8, expected_arg, arg);
+        testing.expectEqualStrings(expected_arg, arg);
     }
     testing.expect(it.next(std.testing.allocator) == null);
 }

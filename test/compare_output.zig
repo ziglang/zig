@@ -453,7 +453,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
             \\        const arg = try arg_or_err;
-            \\        try stdout.print("{}: {}\n", .{index, arg});
+            \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}
         ,
@@ -492,7 +492,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
             \\        const arg = try arg_or_err;
-            \\        try stdout.print("{}: {}\n", .{index, arg});
+            \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}
         ,

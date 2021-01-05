@@ -236,7 +236,7 @@ const std = @import("std");
 
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("Hello, {}!\n", .{"world"});
+    try stdout.print("Hello, {s}!\n", .{"world"});
 }
       {#code_end#}
       <p>
@@ -308,7 +308,7 @@ pub fn main() !void {
         multiple arguments passed to a function, they are separated by commas <code>,</code>.
       </p>
       <p>
-        The two arguments passed to the <code>stdout.print()</code> function, <code>"Hello, {}!\n"</code>
+        The two arguments passed to the <code>stdout.print()</code> function, <code>"Hello, {s}!\n"</code>
         and <code>.{"world"}</code>, are evaluated at {#link|compile-time|comptime#}. The code sample is
         purposely written to show how to perform {#link|string|String Literals and Character Literals#}
         substitution in the <code>print</code> function. The curly-braces inside of the first argument
@@ -435,7 +435,7 @@ pub fn main() void {
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
 
-    print("\noptional 1\ntype: {}\nvalue: {}\n", .{
+    print("\noptional 1\ntype: {s}\nvalue: {s}\n", .{
         @typeName(@TypeOf(optional_value)),
         optional_value,
     });
@@ -443,7 +443,7 @@ pub fn main() void {
     optional_value = "hi";
     assert(optional_value != null);
 
-    print("\noptional 2\ntype: {}\nvalue: {}\n", .{
+    print("\noptional 2\ntype: {s}\nvalue: {s}\n", .{
         @typeName(@TypeOf(optional_value)),
         optional_value,
     });
@@ -451,14 +451,14 @@ pub fn main() void {
     // error union
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
-    print("\nerror union 1\ntype: {}\nvalue: {}\n", .{
+    print("\nerror union 1\ntype: {s}\nvalue: {}\n", .{
         @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
 
     number_or_error = 1234;
 
-    print("\nerror union 2\ntype: {}\nvalue: {}\n", .{
+    print("\nerror union 2\ntype: {s}\nvalue: {}\n", .{
         @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
@@ -2339,7 +2339,7 @@ test "using slices for strings" {
     // You can use slice syntax on an array to convert an array into a slice.
     const all_together_slice = all_together[0..];
     // String concatenation example.
-    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", .{ hello, world });
+    const hello_world = try fmt.bufPrint(all_together_slice, "{s} {s}", .{ hello, world });
 
     // Generally, you can use UTF-8 and not worry about whether something is a
     // string. If you don't need to deal with individual characters, no need
@@ -2772,9 +2772,9 @@ const std = @import("std");
 
 pub fn main() void {
     const Foo = struct {};
-    std.debug.print("variable: {}\n", .{@typeName(Foo)});
-    std.debug.print("anonymous: {}\n", .{@typeName(struct {})});
-    std.debug.print("function: {}\n", .{@typeName(List(i32))});
+    std.debug.print("variable: {s}\n", .{@typeName(Foo)});
+    std.debug.print("anonymous: {s}\n", .{@typeName(struct {})});
+    std.debug.print("function: {s}\n", .{@typeName(List(i32))});
 }
 
 fn List(comptime T: type) type {
@@ -6110,7 +6110,7 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 
 pub fn main() void {
-    print("here is a string: '{}' here is a number: {}\n", .{a_string, a_number});
+    print("here is a string: '{s}' here is a number: {}\n", .{a_string, a_number});
 }
       {#code_end#}
 
@@ -6230,7 +6230,7 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 
 test "printf too many arguments" {
-    print("here is a string: '{}' here is a number: {}\n", .{
+    print("here is a string: '{s}' here is a number: {}\n", .{
         a_string,
         a_number,
         a_number,
@@ -6249,7 +6249,7 @@ const print = @import("std").debug.print;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
-const fmt = "here is a string: '{}' here is a number: {}\n";
+const fmt = "here is a string: '{s}' here is a number: {}\n";
 
 pub fn main() void {
     print(fmt, .{a_string, a_number});
@@ -6720,8 +6720,8 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.print("download_text: {}\n", .{download_text});
-    std.debug.print("file_text: {}\n", .{file_text});
+    std.debug.print("download_text: {s}\n", .{download_text});
+    std.debug.print("file_text: {s}\n", .{file_text});
 }
 
 var global_download_frame: anyframe = undefined;
@@ -6790,8 +6790,8 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.print("download_text: {}\n", .{download_text});
-    std.debug.print("file_text: {}\n", .{file_text});
+    std.debug.print("download_text: {s}\n", .{download_text});
+    std.debug.print("file_text: {s}\n", .{file_text});
 }
 
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
@@ -8848,7 +8848,7 @@ pub fn main() !void {
     var byte: u8 = 255;
 
     byte = if (math.add(u8, byte, 1)) |result| result else |err| {
-        print("unable to add one: {}\n", .{@errorName(err)});
+        print("unable to add one: {s}\n", .{@errorName(err)});
         return err;
     };
 
@@ -9078,7 +9078,7 @@ pub fn main() void {
     if (result) |number| {
         print("got number: {}\n", .{number});
     } else |err| {
-        print("got error: {}\n", .{@errorName(err)});
+        print("got error: {s}\n", .{@errorName(err)});
     }
 }
 
@@ -9135,7 +9135,7 @@ const Foo = enum {
 pub fn main() void {
     var a: u2 = 3;
     var b = @intToEnum(Foo, a);
-    std.debug.print("value: {}\n", .{@tagName(b)});
+    std.debug.print("value: {s}\n", .{@tagName(b)});
 }
       {#code_end#}
       {#header_close#}
@@ -10025,7 +10025,7 @@ pub fn main() !void {
     defer std.process.argsFree(gpa, args);
 
     for (args) |arg, i| {
-        std.debug.print("{}: {}\n", .{ i, arg });
+        std.debug.print("{}: {s}\n", .{ i, arg });
     }
 }
       {#code_end#}

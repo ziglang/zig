@@ -46,7 +46,7 @@
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-#define ZIG_PRI_usize "I64u"
+#define ZIG_PRI_usize "Iu"
 #define ZIG_PRI_i64 "I64d"
 #define ZIG_PRI_u64 "I64u"
 #define ZIG_PRI_llu "I64u"

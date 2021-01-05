@@ -1173,6 +1173,7 @@ pub fn destroy(self: *Compilation) void {
 
     const gpa = self.gpa;
     self.work_queue.deinit();
+    self.c_object_work_queue.deinit();
 
     {
         var it = self.crt_files.iterator();
@@ -1200,6 +1201,10 @@ pub fn destroy(self: *Compilation) void {
     }
     if (self.libc_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
+    }
+
+    if (self.glibc_so_files) |*glibc_file| {
+        glibc_file.deinit(gpa);
     }
 
     for (self.c_object_table.items()) |entry| {
@@ -1456,27 +1461,34 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             => continue,
 
             .complete, .codegen_failure_retryable => {
+                if (build_options.omit_stage2)
+                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 const module = self.bin_file.options.module.?;
                 if (decl.typed_value.most_recent.typed_value.val.castTag(.function)) |payload| {
                     const func = payload.data;
-                    switch (func.analysis) {
+                    switch (func.state) {
                         .queued => module.analyzeFnBody(decl, func) catch |err| switch (err) {
                             error.AnalysisFail => {
-                                assert(func.analysis != .in_progress);
+                                assert(func.state != .in_progress);
                                 continue;
                             },
                             error.OutOfMemory => return error.OutOfMemory,
                         },
                         .in_progress => unreachable,
+                        .inline_only => unreachable, // don't queue work for this
                         .sema_failure, .dependency_failure => continue,
                         .success => {},
                     }
-                    // Here we tack on additional allocations to the Decl's arena. The allocations are
-                    // lifetime annotations in the ZIR.
+                    // Here we tack on additional allocations to the Decl's arena. The allocations
+                    // are lifetime annotations in the ZIR.
                     var decl_arena = decl.typed_value.most_recent.arena.?.promote(module.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
-                    log.debug("analyze liveness of {}\n", .{decl.name});
-                    try liveness.analyze(module.gpa, &decl_arena.allocator, func.analysis.success);
+                    log.debug("analyze liveness of {s}\n", .{decl.name});
+                    try liveness.analyze(module.gpa, &decl_arena.allocator, func.body);
+
+                    if (std.builtin.mode == .Debug and self.verbose_ir) {
+                        func.dump(module.*);
+                    }
                 }
 
                 assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());
@@ -1492,7 +1504,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                             module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                                 module.gpa,
                                 decl.src(),
-                                "unable to codegen: {}",
+                                "unable to codegen: {s}",
                                 .{@errorName(err)},
                             ));
                             decl.analysis = .codegen_failure_retryable;
@@ -1512,7 +1524,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                             module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                                 module.gpa,
                                 decl.src(),
-                                "unable to generate C header: {}",
+                                "unable to generate C header: {s}",
                                 .{@errorName(err)},
                             ));
                             decl.analysis = .codegen_failure_retryable;
@@ -1522,6 +1534,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             },
         },
         .analyze_decl => |decl| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = self.bin_file.options.module.?;
             module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -1529,13 +1543,15 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .update_line_number => |decl| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = self.bin_file.options.module.?;
             self.bin_file.updateDeclLineNumber(module, decl) catch |err| {
                 try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                     module.gpa,
                     decl.src(),
-                    "unable to update line number: {}",
+                    "unable to update line number: {s}",
                     .{@errorName(err)},
                 ));
                 decl.analysis = .codegen_failure_retryable;
@@ -1544,56 +1560,56 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         .glibc_crt_file => |crt_file| {
             glibc.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build glibc CRT file: {}", .{@errorName(err)});
+                fatal("unable to build glibc CRT file: {s}", .{@errorName(err)});
             };
         },
         .glibc_shared_objects => {
             glibc.buildSharedObjects(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build glibc shared objects: {}", .{@errorName(err)});
+                fatal("unable to build glibc shared objects: {s}", .{@errorName(err)});
             };
         },
         .musl_crt_file => |crt_file| {
             musl.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build musl CRT file: {}", .{@errorName(err)});
+                fatal("unable to build musl CRT file: {s}", .{@errorName(err)});
             };
         },
         .mingw_crt_file => |crt_file| {
             mingw.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build mingw-w64 CRT file: {}", .{@errorName(err)});
+                fatal("unable to build mingw-w64 CRT file: {s}", .{@errorName(err)});
             };
         },
         .windows_import_lib => |index| {
             const link_lib = self.bin_file.options.system_libs.items()[index].key;
             mingw.buildImportLib(self, link_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to generate DLL import .lib file: {}", .{@errorName(err)});
+                fatal("unable to generate DLL import .lib file: {s}", .{@errorName(err)});
             };
         },
         .libunwind => {
             libunwind.buildStaticLib(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build libunwind: {}", .{@errorName(err)});
+                fatal("unable to build libunwind: {s}", .{@errorName(err)});
             };
         },
         .libcxx => {
             libcxx.buildLibCXX(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build libcxx: {}", .{@errorName(err)});
+                fatal("unable to build libcxx: {s}", .{@errorName(err)});
             };
         },
         .libcxxabi => {
             libcxx.buildLibCXXABI(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build libcxxabi: {}", .{@errorName(err)});
+                fatal("unable to build libcxxabi: {s}", .{@errorName(err)});
             };
         },
         .libtsan => {
             libtsan.buildTsan(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build TSAN library: {}", .{@errorName(err)});
+                fatal("unable to build TSAN library: {s}", .{@errorName(err)});
             };
         },
         .compiler_rt_lib => {
@@ -1611,20 +1627,20 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         .libssp => {
             self.buildOutputFromZig("ssp.zig", .Lib, &self.libssp_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build libssp: {}", .{@errorName(err)});
+                fatal("unable to build libssp: {s}", .{@errorName(err)});
             };
         },
         .zig_libc => {
             self.buildOutputFromZig("c.zig", .Lib, &self.libc_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build zig's multitarget libc: {}", .{@errorName(err)});
+                fatal("unable to build zig's multitarget libc: {s}", .{@errorName(err)});
             };
         },
         .generate_builtin_zig => {
             // This Job is only queued up if there is a zig module.
             self.updateBuiltinZigFile(self.bin_file.options.module.?) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to update builtin.zig file: {}", .{@errorName(err)});
+                fatal("unable to update builtin.zig file: {s}", .{@errorName(err)});
             };
         },
         .stage1_module => {
@@ -1704,11 +1720,11 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         const out_h_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
             tmp_dir_sub_path, cimport_basename,
         });
-        const out_dep_path = try std.fmt.allocPrint(arena, "{}.d", .{out_h_path});
+        const out_dep_path = try std.fmt.allocPrint(arena, "{s}.d", .{out_h_path});
 
         try zig_cache_tmp_dir.writeFile(cimport_basename, c_src);
         if (comp.verbose_cimport) {
-            log.info("C import source: {}", .{out_h_path});
+            log.info("C import source: {s}", .{out_h_path});
         }
 
         var argv = std.ArrayList([]const u8).init(comp.gpa);
@@ -1755,7 +1771,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         defer tree.deinit();
 
         if (comp.verbose_cimport) {
-            log.info("C import .d file: {}", .{out_dep_path});
+            log.info("C import .d file: {s}", .{out_dep_path});
         }
 
         const dep_basename = std.fs.path.basename(out_dep_path);
@@ -1775,7 +1791,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         try bos.flush();
 
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest for C import: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
         };
 
         break :digest digest;
@@ -1785,7 +1801,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         "o", &digest, cimport_zig_basename,
     });
     if (comp.verbose_cimport) {
-        log.info("C import output: {}\n", .{out_zig_path});
+        log.info("C import output: {s}\n", .{out_zig_path});
     }
     return CImportResult{
         .out_zig_path = out_zig_path,
@@ -1946,7 +1962,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
             child.stderr_behavior = .Inherit;
 
             const term = child.spawnAndWait() catch |err| {
-                return comp.failCObj(c_object, "unable to spawn {}: {}", .{ argv.items[0], @errorName(err) });
+                return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
             };
             switch (term) {
                 .Exited => |code| {
@@ -1974,7 +1990,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
             const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
 
             const term = child.wait() catch |err| {
-                return comp.failCObj(c_object, "unable to spawn {}: {}", .{ argv.items[0], @errorName(err) });
+                return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
             };
 
             switch (term) {
@@ -1982,12 +1998,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
                     if (code != 0) {
                         // TODO parse clang stderr and turn it into an error message
                         // and then call failCObjWithOwnedErrorMsg
-                        log.err("clang failed with stderr: {}", .{stderr});
-                        return comp.failCObj(c_object, "clang exited with code {}", .{code});
+                        log.err("clang failed with stderr: {s}", .{stderr});
+                        return comp.failCObj(c_object, "clang exited with code {d}", .{code});
                     }
                 },
                 else => {
-                    log.err("clang terminated with stderr: {}", .{stderr});
+                    log.err("clang terminated with stderr: {s}", .{stderr});
                     return comp.failCObj(c_object, "clang terminated unexpectedly", .{});
                 },
             }
@@ -1999,7 +2015,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                log.warn("failed to delete '{}': {}", .{ dep_file_path, @errorName(err) });
+                log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
             };
         }
 
@@ -2015,7 +2031,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
         try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, o_basename);
 
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when compiling '{}': {}", .{ c_object.src.src_path, @errorName(err) });
+            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
         };
         break :blk digest;
     };
@@ -2034,7 +2050,7 @@ pub fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) er
     const s = std.fs.path.sep_str;
     const rand_int = std.crypto.random.int(u64);
     if (comp.local_cache_directory.path) |p| {
-        return std.fmt.allocPrint(arena, "{}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
+        return std.fmt.allocPrint(arena, "{s}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
     } else {
         return std.fmt.allocPrint(arena, "tmp" ++ s ++ "{x}-{s}", .{ rand_int, suffix });
     }
@@ -2077,12 +2093,6 @@ pub fn addCCArgs(
 
     if (comp.bin_file.options.function_sections) {
         try argv.append("-ffunction-sections");
-    }
-
-    try argv.ensureCapacity(argv.items.len + comp.bin_file.options.framework_dirs.len * 2);
-    for (comp.bin_file.options.framework_dirs) |framework_dir| {
-        argv.appendAssumeCapacity("-iframework");
-        argv.appendAssumeCapacity(framework_dir);
     }
 
     if (comp.bin_file.options.link_libcpp) {
@@ -2150,7 +2160,7 @@ pub fn addCCArgs(
             }
             const mcmodel = comp.bin_file.options.machine_code_model;
             if (mcmodel != .default) {
-                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={}", .{@tagName(mcmodel)}));
+                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mcmodel)}));
             }
 
             switch (target.os.tag) {
@@ -2503,22 +2513,22 @@ fn detectLibCIncludeDirs(
         const s = std.fs.path.sep_str;
         const arch_include_dir = try std.fmt.allocPrint(
             arena,
-            "{}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{}-{}-{}",
+            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
             .{ zig_lib_dir, arch_name, os_name, abi_name },
         );
         const generic_include_dir = try std.fmt.allocPrint(
             arena,
-            "{}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{}",
+            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
             .{ zig_lib_dir, generic_name },
         );
         const arch_os_include_dir = try std.fmt.allocPrint(
             arena,
-            "{}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{}-{}-any",
+            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
             .{ zig_lib_dir, @tagName(target.cpu.arch), os_name },
         );
         const generic_os_include_dir = try std.fmt.allocPrint(
             arena,
-            "{}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{}-any",
+            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
             .{ zig_lib_dir, os_name },
         );
 
@@ -2637,9 +2647,9 @@ fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) !void {
 
 pub fn dump_argv(argv: []const []const u8) void {
     for (argv[0 .. argv.len - 1]) |arg| {
-        std.debug.print("{} ", .{arg});
+        std.debug.print("{s} ", .{arg});
     }
-    std.debug.print("{}\n", .{argv[argv.len - 1]});
+    std.debug.print("{s}\n", .{argv[argv.len - 1]});
 }
 
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
@@ -2659,15 +2669,15 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const arch = Target.current.cpu.arch;
         \\/// Deprecated
         \\pub const endian = Target.current.cpu.arch.endian();
-        \\pub const output_mode = OutputMode.{};
-        \\pub const link_mode = LinkMode.{};
+        \\pub const output_mode = OutputMode.{z};
+        \\pub const link_mode = LinkMode.{z};
         \\pub const is_test = {};
         \\pub const single_threaded = {};
-        \\pub const abi = Abi.{};
+        \\pub const abi = Abi.{z};
         \\pub const cpu: Cpu = Cpu{{
-        \\    .arch = .{},
-        \\    .model = &Target.{}.cpu.{},
-        \\    .features = Target.{}.featureSet(&[_]Target.{}.Feature{{
+        \\    .arch = .{z},
+        \\    .model = &Target.{z}.cpu.{z},
+        \\    .features = Target.{z}.featureSet(&[_]Target.{z}.Feature{{
         \\
     , .{
         @tagName(comp.bin_file.options.output_mode),
@@ -2698,7 +2708,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\    }}),
         \\}};
         \\pub const os = Os{{
-        \\    .tag = .{},
+        \\    .tag = .{z},
         \\    .version_range = .{{
     ,
         .{@tagName(target.os.tag)},
@@ -2784,8 +2794,8 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         (comp.bin_file.options.skip_linker_dependencies and comp.bin_file.options.parent_compilation_link_libc);
 
     try buffer.writer().print(
-        \\pub const object_format = ObjectFormat.{};
-        \\pub const mode = Mode.{};
+        \\pub const object_format = ObjectFormat.{z};
+        \\pub const mode = Mode.{z};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -2793,7 +2803,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
-        \\pub const code_model = CodeModel.{};
+        \\pub const code_model = CodeModel.{z};
         \\
     , .{
         @tagName(comp.bin_file.options.object_format),
@@ -3019,7 +3029,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("stage1 {} new_digest={} error: {}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
+            log.debug("stage1 {s} new_digest={} error: {s}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -3027,7 +3037,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             if (!mem.eql(u8, prev_digest[0..digest.len], &digest))
                 break :hit;
 
-            log.debug("stage1 {} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
+            log.debug("stage1 {s} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
             var flags_bytes: [1]u8 = undefined;
             _ = std.fmt.hexToBytes(&flags_bytes, prev_digest[digest.len..]) catch {
                 log.warn("bad cache stage1 digest: '{s}'", .{prev_digest});
@@ -3050,7 +3060,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             mod.stage1_flags = @bitCast(@TypeOf(mod.stage1_flags), flags_bytes[0]);
             return;
         }
-        log.debug("stage1 {} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
+        log.debug("stage1 {s} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
         man.unhit(prev_hash_state, input_file_count);
     }
 
@@ -3195,7 +3205,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     // Update the small file with the digest. If it fails we can continue; it only
     // means that the next invocation will have an unnecessary cache miss.
     const stage1_flags_byte = @bitCast(u8, mod.stage1_flags);
-    log.debug("stage1 {} final digest={} flags={x}", .{
+    log.debug("stage1 {s} final digest={} flags={x}", .{
         mod.root_pkg.root_src_path, digest, stage1_flags_byte,
     });
     var digest_plus_flags: [digest.len + 2]u8 = undefined;
@@ -3208,11 +3218,11 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         digest_plus_flags, stage1_flags_byte, mod.stage1_flags.have_winmain_crt_startup,
     });
     Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest_plus_flags) catch |err| {
-        log.warn("failed to save stage1 hash digest file: {}", .{@errorName(err)});
+        log.warn("failed to save stage1 hash digest file: {s}", .{@errorName(err)});
     };
     // Failure here only means an unnecessary cache miss.
     man.writeManifest() catch |err| {
-        log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+        log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
     };
     // We hang on to this lock so that the output file path can be used without
     // other processes clobbering it.

@@ -135,6 +135,7 @@ pub const TestContext = struct {
         extension: Extension,
         object_format: ?std.builtin.ObjectFormat = null,
         emit_h: bool = false,
+        llvm_backend: bool = false,
 
         files: std.ArrayList(File),
 
@@ -262,6 +263,21 @@ pub const TestContext = struct {
             .extension = .Zig,
             .object_format = .c,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
+        }) catch unreachable;
+        return &ctx.cases.items[ctx.cases.items.len - 1];
+    }
+
+    /// Adds a test case that uses the LLVM backend to emit an executable.
+    /// Currently this implies linking libc, because only then we can generate a testable executable.
+    pub fn exeUsingLlvmBackend(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
+        ctx.cases.append(Case{
+            .name = name,
+            .target = target,
+            .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+            .output_mode = .Exe,
+            .extension = .Zig,
+            .files = std.ArrayList(File).init(ctx.cases.allocator),
+            .llvm_backend = true,
         }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -518,8 +534,28 @@ pub const TestContext = struct {
         try thread_pool.init(std.testing.allocator);
         defer thread_pool.deinit();
 
+        // Use the same global cache dir for all the tests, such that we for example don't have to
+        // rebuild musl libc for every case (when LLVM backend is enabled).
+        var global_tmp = std.testing.tmpDir(.{});
+        defer global_tmp.cleanup();
+
+        var cache_dir = try global_tmp.dir.makeOpenPath("zig-cache", .{});
+        defer cache_dir.close();
+        const tmp_dir_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ ".", "zig-cache", "tmp", &global_tmp.sub_path });
+        defer std.testing.allocator.free(tmp_dir_path);
+
+        const global_cache_directory: Compilation.Directory = .{
+            .handle = cache_dir,
+            .path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ tmp_dir_path, "zig-cache" }),
+        };
+        defer std.testing.allocator.free(global_cache_directory.path.?);
+
         for (self.cases.items) |case| {
             if (build_options.skip_non_native and case.target.getCpuArch() != std.Target.current.cpu.arch)
+                continue;
+
+            // Skip tests that require LLVM backend when it is not available
+            if (!build_options.have_llvm and case.llvm_backend)
                 continue;
 
             var prg_node = root_node.start(case.name, case.updates.items.len);
@@ -537,6 +573,7 @@ pub const TestContext = struct {
                 case,
                 zig_lib_directory,
                 &thread_pool,
+                global_cache_directory,
             );
         }
     }
@@ -548,6 +585,7 @@ pub const TestContext = struct {
         case: Case,
         zig_lib_directory: Compilation.Directory,
         thread_pool: *ThreadPool,
+        global_cache_directory: Compilation.Directory,
     ) !void {
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
@@ -601,7 +639,7 @@ pub const TestContext = struct {
             null;
         const comp = try Compilation.create(allocator, .{
             .local_cache_directory = zig_cache_directory,
-            .global_cache_directory = zig_cache_directory,
+            .global_cache_directory = global_cache_directory,
             .zig_lib_directory = zig_lib_directory,
             .thread_pool = thread_pool,
             .root_name = "test_case",
@@ -619,6 +657,9 @@ pub const TestContext = struct {
             .object_format = case.object_format,
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
+            .link_libc = case.llvm_backend,
+            .use_llvm = case.llvm_backend,
+            .self_exe_path = std.testing.zig_exe_path,
         });
         defer comp.destroy();
 
@@ -660,7 +701,7 @@ pub const TestContext = struct {
                         }
                     }
                     if (comp.bin_file.cast(link.File.C)) |c_file| {
-                        std.debug.print("Generated C: \n===============\n{}\n\n===========\n\n", .{
+                        std.debug.print("Generated C: \n===============\n{s}\n\n===========\n\n", .{
                             c_file.main.items,
                         });
                     }

@@ -25,12 +25,13 @@ pub const Decl = struct {
 
 /// These are instructions that correspond to the ZIR text format. See `ir.Inst` for
 /// in-memory, analyzed instructions with types and values.
+/// We use a table to map these instruction to their respective semantically analyzed
+/// instructions because it is possible to have multiple analyses on the same ZIR
+/// happening at the same time.
 pub const Inst = struct {
     tag: Tag,
     /// Byte offset into the source.
     src: usize,
-    /// Pre-allocated field for mapping ZIR text instructions to post-analysis instructions.
-    analyzed_inst: ?*ir.Inst = null,
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
@@ -126,6 +127,9 @@ pub const Inst = struct {
         coerce_to_ptr_elem,
         /// Emit an error message and fail compilation.
         compileerror,
+        /// Changes the maximum number of backwards branches that compile-time
+        /// code execution can use before giving up and making a compile error.
+        set_eval_branch_quota,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         condbr,
         /// Special case, has no textual representation.
@@ -346,6 +350,7 @@ pub const Inst = struct {
                 .anyframe_type,
                 .bitnot,
                 .import,
+                .set_eval_branch_quota,
                 => UnOp,
 
                 .add,
@@ -534,6 +539,7 @@ pub const Inst = struct {
                 .switch_range,
                 .typeof_peer,
                 .resolve_inferred_alloc,
+                .set_eval_branch_quota,
                 => false,
 
                 .@"break",
@@ -793,7 +799,9 @@ pub const Inst = struct {
             fn_type: *Inst,
             body: Module.Body,
         },
-        kw_args: struct {},
+        kw_args: struct {
+            is_inline: bool = false,
+        },
     };
 
     pub const FnType = struct {
@@ -1150,7 +1158,7 @@ pub const Module = struct {
 
         for (self.decls) |decl, i| {
             write.next_instr_index = 0;
-            try stream.print("@{} ", .{decl.name});
+            try stream.print("@{s} ", .{decl.name});
             try write.writeInstToStream(stream, decl.inst);
             try stream.writeByte('\n');
         }
@@ -1206,13 +1214,13 @@ const Writer = struct {
             if (@typeInfo(arg_field.field_type) == .Optional) {
                 if (@field(inst.kw_args, arg_field.name)) |non_optional| {
                     if (need_comma) try stream.writeAll(", ");
-                    try stream.print("{}=", .{arg_field.name});
+                    try stream.print("{s}=", .{arg_field.name});
                     try self.writeParamToStream(stream, &non_optional);
                     need_comma = true;
                 }
             } else {
                 if (need_comma) try stream.writeAll(", ");
-                try stream.print("{}=", .{arg_field.name});
+                try stream.print("{s}=", .{arg_field.name});
                 try self.writeParamToStream(stream, &@field(inst.kw_args, arg_field.name));
                 need_comma = true;
             }
@@ -1257,12 +1265,12 @@ const Writer = struct {
                     self.next_instr_index += 1;
                     try self.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = undefined });
                     try stream.writeByteNTimes(' ', self.indent);
-                    try stream.print("%{} ", .{my_i});
+                    try stream.print("%{d} ", .{my_i});
                     if (inst.cast(Inst.Block)) |block| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{}", .{my_i});
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{d}", .{my_i});
                         try self.block_table.put(block, name);
                     } else if (inst.cast(Inst.Loop)) |loop| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{}", .{my_i});
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{d}", .{my_i});
                         try self.loop_table.put(loop, name);
                     }
                     self.indent += 2;
@@ -1332,18 +1340,18 @@ const Writer = struct {
     fn writeInstParamToStream(self: *Writer, stream: anytype, inst: *Inst) !void {
         if (self.inst_table.get(inst)) |info| {
             if (info.index) |i| {
-                try stream.print("%{}", .{info.index});
+                try stream.print("%{d}", .{info.index});
             } else {
-                try stream.print("@{}", .{info.name});
+                try stream.print("@{s}", .{info.name});
             }
         } else if (inst.cast(Inst.DeclVal)) |decl_val| {
-            try stream.print("@{}", .{decl_val.positionals.name});
+            try stream.print("@{s}", .{decl_val.positionals.name});
         } else if (inst.cast(Inst.DeclValInModule)) |decl_val| {
-            try stream.print("@{}", .{decl_val.positionals.decl.name});
+            try stream.print("@{s}", .{decl_val.positionals.decl.name});
         } else {
             // This should be unreachable in theory, but since ZIR is used for debugging the compiler
             // we output some debug text instead.
-            try stream.print("?{}?", .{@tagName(inst.tag)});
+            try stream.print("?{s}?", .{@tagName(inst.tag)});
         }
     }
 };
@@ -1424,7 +1432,7 @@ const Parser = struct {
                 const decl = try parseInstruction(self, &body_context, ident);
                 const ident_index = body_context.instructions.items.len;
                 if (try body_context.name_map.fetchPut(ident, decl.inst)) |_| {
-                    return self.fail("redefinition of identifier '{}'", .{ident});
+                    return self.fail("redefinition of identifier '{s}'", .{ident});
                 }
                 try body_context.instructions.append(decl.inst);
                 continue;
@@ -1510,7 +1518,7 @@ const Parser = struct {
                     const decl = try parseInstruction(self, null, ident);
                     const ident_index = self.decls.items.len;
                     if (try self.global_name_map.fetchPut(ident, decl.inst)) |_| {
-                        return self.fail("redefinition of identifier '{}'", .{ident});
+                        return self.fail("redefinition of identifier '{s}'", .{ident});
                     }
                     try self.decls.append(self.allocator, decl);
                 },
@@ -1538,7 +1546,7 @@ const Parser = struct {
         for (bytes) |byte| {
             if (self.source[self.i] != byte) {
                 self.i = start;
-                return self.fail("expected '{}'", .{bytes});
+                return self.fail("expected '{s}'", .{bytes});
             }
             self.i += 1;
         }
@@ -1585,7 +1593,7 @@ const Parser = struct {
                 return parseInstructionGeneric(self, field.name, tag.Type(), tag, body_ctx, name, contents_start);
             }
         }
-        return self.fail("unknown instruction '{}'", .{fn_name});
+        return self.fail("unknown instruction '{s}'", .{fn_name});
     }
 
     fn parseInstructionGeneric(
@@ -1621,7 +1629,7 @@ const Parser = struct {
                 self.i += 1;
                 skipSpace(self);
             } else if (self.source[self.i] == ')') {
-                return self.fail("expected positional parameter '{}'", .{arg_field.name});
+                return self.fail("expected positional parameter '{s}'", .{arg_field.name});
             }
             @field(inst_specific.positionals, arg_field.name) = try parseParameterGeneric(
                 self,
@@ -1648,7 +1656,7 @@ const Parser = struct {
                     break;
                 }
             } else {
-                return self.fail("unrecognized keyword parameter: '{}'", .{name});
+                return self.fail("unrecognized keyword parameter: '{s}'", .{name});
             }
             skipSpace(self);
         }
@@ -1660,7 +1668,6 @@ const Parser = struct {
             .contents_hash = std.zig.hashSrc(self.source[contents_start..self.i]),
             .inst = &inst_specific.base,
         };
-        //std.debug.warn("parsed {} = '{}'\n", .{ inst_specific.base.name, inst_specific.base.contents });
 
         return decl;
     }
@@ -1672,7 +1679,7 @@ const Parser = struct {
                 ' ', '\n', ',', ')' => {
                     const enum_name = self.source[start..self.i];
                     return std.meta.stringToEnum(T, enum_name) orelse {
-                        return self.fail("tag '{}' not a member of enum '{}'", .{ enum_name, @typeName(T) });
+                        return self.fail("tag '{s}' not a member of enum '{s}'", .{ enum_name, @typeName(T) });
                     };
                 },
                 0 => return self.failByte(0),
@@ -1710,7 +1717,7 @@ const Parser = struct {
             BigIntConst => return self.parseIntegerLiteral(),
             usize => {
                 const big_int = try self.parseIntegerLiteral();
-                return big_int.to(usize) catch |err| return self.fail("integer literal: {}", .{@errorName(err)});
+                return big_int.to(usize) catch |err| return self.fail("integer literal: {s}", .{@errorName(err)});
             },
             TypedValue => return self.fail("'const' is a special instruction; not legal in ZIR text", .{}),
             *IrModule.Decl => return self.fail("'declval_in_module' is a special instruction; not legal in ZIR text", .{}),
@@ -1759,7 +1766,7 @@ const Parser = struct {
             },
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
-        return self.fail("TODO parse parameter {}", .{@typeName(T)});
+        return self.fail("TODO parse parameter {s}", .{@typeName(T)});
     }
 
     fn parseParameterInst(self: *Parser, body_ctx: ?*Body) !*Inst {
@@ -1788,7 +1795,7 @@ const Parser = struct {
             const src = name_start - 1;
             if (local_ref) {
                 self.i = src;
-                return self.fail("unrecognized identifier: {}", .{bad_name});
+                return self.fail("unrecognized identifier: {s}", .{bad_name});
             } else {
                 const declval = try self.arena.allocator.create(Inst.DeclVal);
                 declval.* = .{
@@ -1805,7 +1812,7 @@ const Parser = struct {
     }
 
     fn generateName(self: *Parser) ![]u8 {
-        const result = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${}", .{self.unnamed_index});
+        const result = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${d}", .{self.unnamed_index});
         self.unnamed_index += 1;
         return result;
     }
@@ -1848,43 +1855,324 @@ pub fn emit(allocator: *Allocator, old_module: *IrModule) !Module {
 /// For debugging purposes, prints a function representation to stderr.
 pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
     const allocator = old_module.gpa;
-    var ctx: EmitZIR = .{
+    var ctx: DumpTzir = .{
         .allocator = allocator,
-        .decls = .{},
         .arena = std.heap.ArenaAllocator.init(allocator),
         .old_module = &old_module,
-        .next_auto_name = 0,
-        .names = std.StringArrayHashMap(void).init(allocator),
-        .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
-        .indent = 0,
-        .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
-        .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
-        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
-        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
+        .module_fn = module_fn,
+        .indent = 2,
+        .inst_table = DumpTzir.InstTable.init(allocator),
+        .partial_inst_table = DumpTzir.InstTable.init(allocator),
+        .const_table = DumpTzir.InstTable.init(allocator),
     };
-    defer ctx.metadata.deinit();
-    defer ctx.body_metadata.deinit();
-    defer ctx.block_table.deinit();
-    defer ctx.loop_table.deinit();
-    defer ctx.decls.deinit(allocator);
-    defer ctx.names.deinit();
-    defer ctx.primitive_table.deinit();
+    defer ctx.inst_table.deinit();
+    defer ctx.partial_inst_table.deinit();
+    defer ctx.const_table.deinit();
     defer ctx.arena.deinit();
 
-    const fn_ty = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
-    _ = ctx.emitFn(module_fn, 0, fn_ty) catch |err| {
-        std.debug.print("unable to dump function: {}\n", .{err});
-        return;
-    };
-    var module = Module{
-        .decls = ctx.decls.items,
-        .arena = ctx.arena,
-        .metadata = ctx.metadata,
-        .body_metadata = ctx.body_metadata,
-    };
-
-    module.dump();
+    switch (module_fn.state) {
+        .queued => std.debug.print("(queued)", .{}),
+        .inline_only => std.debug.print("(inline_only)", .{}),
+        .in_progress => std.debug.print("(in_progress)", .{}),
+        .sema_failure => std.debug.print("(sema_failure)", .{}),
+        .dependency_failure => std.debug.print("(dependency_failure)", .{}),
+        .success => {
+            const writer = std.io.getStdErr().writer();
+            ctx.dump(module_fn.body, writer) catch @panic("failed to dump TZIR");
+        },
+    }
 }
+
+const DumpTzir = struct {
+    allocator: *Allocator,
+    arena: std.heap.ArenaAllocator,
+    old_module: *const IrModule,
+    module_fn: *IrModule.Fn,
+    indent: usize,
+    inst_table: InstTable,
+    partial_inst_table: InstTable,
+    const_table: InstTable,
+    next_index: usize = 0,
+    next_partial_index: usize = 0,
+    next_const_index: usize = 0,
+
+    const InstTable = std.AutoArrayHashMap(*ir.Inst, usize);
+
+    fn dump(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
+        // First pass to pre-populate the table so that we can show even invalid references.
+        // Must iterate the same order we iterate the second time.
+        // We also look for constants and put them in the const_table.
+        for (body.instructions) |inst| {
+            try dtz.inst_table.put(inst, dtz.next_index);
+            dtz.next_index += 1;
+            switch (inst.tag) {
+                .alloc,
+                .retvoid,
+                .unreach,
+                .breakpoint,
+                .dbg_stmt,
+                => {},
+
+                .ref,
+                .ret,
+                .bitcast,
+                .not,
+                .isnonnull,
+                .isnull,
+                .iserr,
+                .ptrtoint,
+                .floatcast,
+                .intcast,
+                .load,
+                .unwrap_optional,
+                .wrap_optional,
+                => {
+                    const un_op = inst.cast(ir.Inst.UnOp).?;
+                    try dtz.findConst(un_op.operand);
+                },
+
+                .add,
+                .sub,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                .store,
+                .booland,
+                .boolor,
+                .bitand,
+                .bitor,
+                .xor,
+                => {
+                    const bin_op = inst.cast(ir.Inst.BinOp).?;
+                    try dtz.findConst(bin_op.lhs);
+                    try dtz.findConst(bin_op.rhs);
+                },
+
+                .arg => {},
+
+                .br => {
+                    const br = inst.castTag(.br).?;
+                    try dtz.findConst(&br.block.base);
+                    try dtz.findConst(br.operand);
+                },
+
+                .brvoid => {
+                    const brvoid = inst.castTag(.brvoid).?;
+                    try dtz.findConst(&brvoid.block.base);
+                },
+
+                // TODO fill out this debug printing
+                .assembly,
+                .block,
+                .call,
+                .condbr,
+                .constant,
+                .loop,
+                .varptr,
+                .switchbr,
+                => {},
+            }
+        }
+
+        std.debug.print("Module.Function(name={s}):\n", .{dtz.module_fn.owner_decl.name});
+
+        for (dtz.const_table.items()) |entry| {
+            const constant = entry.key.castTag(.constant).?;
+            try writer.print("  @{d}: {} = {};\n", .{
+                entry.value, constant.base.ty, constant.val,
+            });
+        }
+
+        return dtz.dumpBody(body, writer);
+    }
+
+    fn dumpBody(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
+        for (body.instructions) |inst| {
+            const my_index = dtz.next_partial_index;
+            try dtz.partial_inst_table.put(inst, my_index);
+            dtz.next_partial_index += 1;
+
+            try writer.writeByteNTimes(' ', dtz.indent);
+            try writer.print("%{d}: {} = {s}(", .{
+                my_index, inst.ty, @tagName(inst.tag),
+            });
+            switch (inst.tag) {
+                .alloc,
+                .retvoid,
+                .unreach,
+                .breakpoint,
+                .dbg_stmt,
+                => try writer.writeAll(")\n"),
+
+                .ref,
+                .ret,
+                .bitcast,
+                .not,
+                .isnonnull,
+                .isnull,
+                .iserr,
+                .ptrtoint,
+                .floatcast,
+                .intcast,
+                .load,
+                .unwrap_optional,
+                .wrap_optional,
+                => {
+                    const un_op = inst.cast(ir.Inst.UnOp).?;
+                    if (dtz.partial_inst_table.get(un_op.operand)) |operand_index| {
+                        try writer.print("%{d})\n", .{operand_index});
+                    } else if (dtz.const_table.get(un_op.operand)) |operand_index| {
+                        try writer.print("@{d})\n", .{operand_index});
+                    } else if (dtz.inst_table.get(un_op.operand)) |operand_index| {
+                        try writer.print("%{d}) // Instruction does not dominate all uses!\n", .{
+                            operand_index,
+                        });
+                    } else {
+                        try writer.writeAll("!BADREF!)\n");
+                    }
+                },
+
+                .add,
+                .sub,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                .store,
+                .booland,
+                .boolor,
+                .bitand,
+                .bitor,
+                .xor,
+                => {
+                    var lhs_kinky: ?usize = null;
+                    var rhs_kinky: ?usize = null;
+
+                    const bin_op = inst.cast(ir.Inst.BinOp).?;
+                    if (dtz.partial_inst_table.get(bin_op.lhs)) |operand_index| {
+                        try writer.print("%{d}, ", .{operand_index});
+                    } else if (dtz.const_table.get(bin_op.lhs)) |operand_index| {
+                        try writer.print("@{d}, ", .{operand_index});
+                    } else if (dtz.inst_table.get(bin_op.lhs)) |operand_index| {
+                        lhs_kinky = operand_index;
+                        try writer.print("%{d}, ", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!, ");
+                    }
+                    if (dtz.partial_inst_table.get(bin_op.rhs)) |operand_index| {
+                        try writer.print("%{d}", .{operand_index});
+                    } else if (dtz.const_table.get(bin_op.rhs)) |operand_index| {
+                        try writer.print("@{d}", .{operand_index});
+                    } else if (dtz.inst_table.get(bin_op.rhs)) |operand_index| {
+                        rhs_kinky = operand_index;
+                        try writer.print("%{d}", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!");
+                    }
+                    if (lhs_kinky != null or rhs_kinky != null) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!");
+                        if (lhs_kinky) |lhs| {
+                            try writer.print(" %{d}", .{lhs});
+                        }
+                        if (rhs_kinky) |rhs| {
+                            try writer.print(" %{d}", .{rhs});
+                        }
+                        try writer.writeAll("\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                .arg => {
+                    const arg = inst.castTag(.arg).?;
+                    try writer.print("{s})\n", .{arg.name});
+                },
+
+                .br => {
+                    const br = inst.castTag(.br).?;
+
+                    var lhs_kinky: ?usize = null;
+                    var rhs_kinky: ?usize = null;
+
+                    if (dtz.partial_inst_table.get(&br.block.base)) |operand_index| {
+                        try writer.print("%{d}, ", .{operand_index});
+                    } else if (dtz.const_table.get(&br.block.base)) |operand_index| {
+                        try writer.print("@{d}, ", .{operand_index});
+                    } else if (dtz.inst_table.get(&br.block.base)) |operand_index| {
+                        lhs_kinky = operand_index;
+                        try writer.print("%{d}, ", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!, ");
+                    }
+
+                    if (dtz.partial_inst_table.get(br.operand)) |operand_index| {
+                        try writer.print("%{d}", .{operand_index});
+                    } else if (dtz.const_table.get(br.operand)) |operand_index| {
+                        try writer.print("@{d}", .{operand_index});
+                    } else if (dtz.inst_table.get(br.operand)) |operand_index| {
+                        rhs_kinky = operand_index;
+                        try writer.print("%{d}", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!");
+                    }
+
+                    if (lhs_kinky != null or rhs_kinky != null) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!");
+                        if (lhs_kinky) |lhs| {
+                            try writer.print(" %{d}", .{lhs});
+                        }
+                        if (rhs_kinky) |rhs| {
+                            try writer.print(" %{d}", .{rhs});
+                        }
+                        try writer.writeAll("\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                .brvoid => {
+                    const brvoid = inst.castTag(.brvoid).?;
+                    if (dtz.partial_inst_table.get(&brvoid.block.base)) |operand_index| {
+                        try writer.print("%{d})\n", .{operand_index});
+                    } else if (dtz.const_table.get(&brvoid.block.base)) |operand_index| {
+                        try writer.print("@{d})\n", .{operand_index});
+                    } else if (dtz.inst_table.get(&brvoid.block.base)) |operand_index| {
+                        try writer.print("%{d}) // Instruction does not dominate all uses!\n", .{
+                            operand_index,
+                        });
+                    } else {
+                        try writer.writeAll("!BADREF!)\n");
+                    }
+                },
+
+                // TODO fill out this debug printing
+                .assembly,
+                .block,
+                .call,
+                .condbr,
+                .constant,
+                .loop,
+                .varptr,
+                .switchbr,
+                => {
+                    try writer.writeAll("!TODO!)\n");
+                },
+            }
+        }
+    }
+
+    fn findConst(dtz: *DumpTzir, operand: *ir.Inst) !void {
+        if (operand.tag == .constant) {
+            try dtz.const_table.put(operand, dtz.next_const_index);
+            dtz.next_const_index += 1;
+        }
+    }
+};
 
 const EmitZIR = struct {
     allocator: *Allocator,
@@ -2073,11 +2361,12 @@ const EmitZIR = struct {
         var instructions = std.ArrayList(*Inst).init(self.allocator);
         defer instructions.deinit();
 
-        switch (module_fn.analysis) {
+        switch (module_fn.state) {
             .queued => unreachable,
             .in_progress => unreachable,
-            .success => |body| {
-                try self.emitBody(body, &inst_table, &instructions);
+            .inline_only => unreachable,
+            .success => {
+                try self.emitBody(module_fn.body, &inst_table, &instructions);
             },
             .sema_failure => {
                 const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
@@ -2155,7 +2444,9 @@ const EmitZIR = struct {
                 .fn_type = fn_type.inst,
                 .body = .{ .instructions = arena_instrs },
             },
-            .kw_args = .{},
+            .kw_args = .{
+                .is_inline = module_fn.state == .inline_only,
+            },
         };
         return self.emitUnnamedDecl(&fn_inst.base);
     }
@@ -2203,7 +2494,7 @@ const EmitZIR = struct {
                         };
                         return self.emitStringLiteral(src, bytes);
                     },
-                    else => |t| std.debug.panic("TODO implement emitTypedValue for pointer to {}", .{@tagName(t)}),
+                    else => |t| std.debug.panic("TODO implement emitTypedValue for pointer to {s}", .{@tagName(t)}),
                 }
             },
             .ComptimeInt => return self.emitComptimeIntVal(src, typed_value.val),
@@ -2274,7 +2565,7 @@ const EmitZIR = struct {
                 };
                 return self.emitUnnamedDecl(&inst.base);
             },
-            else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
+            else => |t| std.debug.panic("TODO implement emitTypedValue for {s}", .{@tagName(t)}),
         }
     }
 
@@ -2865,7 +3156,7 @@ const EmitZIR = struct {
 
     fn autoName(self: *EmitZIR) ![]u8 {
         while (true) {
-            const proposed_name = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${}", .{self.next_auto_name});
+            const proposed_name = try std.fmt.allocPrint(&self.arena.allocator, "unnamed${d}", .{self.next_auto_name});
             self.next_auto_name += 1;
             const gop = try self.names.getOrPut(proposed_name);
             if (!gop.found_existing) {
@@ -2947,25 +3238,25 @@ pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8
     try write.inst_table.ensureCapacity(@intCast(u32, instructions.len));
 
     const stderr = std.io.getStdErr().outStream();
-    try stderr.print("{} {s} {{ // unanalyzed\n", .{ kind, decl_name });
+    try stderr.print("{s} {s} {{ // unanalyzed\n", .{ kind, decl_name });
 
     for (instructions) |inst| {
         const my_i = write.next_instr_index;
         write.next_instr_index += 1;
 
         if (inst.cast(Inst.Block)) |block| {
-            const name = try std.fmt.allocPrint(&write.arena.allocator, "label_{}", .{my_i});
+            const name = try std.fmt.allocPrint(&write.arena.allocator, "label_{d}", .{my_i});
             try write.block_table.put(block, name);
         } else if (inst.cast(Inst.Loop)) |loop| {
-            const name = try std.fmt.allocPrint(&write.arena.allocator, "loop_{}", .{my_i});
+            const name = try std.fmt.allocPrint(&write.arena.allocator, "loop_{d}", .{my_i});
             try write.loop_table.put(loop, name);
         }
 
         try write.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = "inst" });
-        try stderr.print("  %{} ", .{my_i});
+        try stderr.print("  %{d} ", .{my_i});
         try write.writeInstToStream(stderr, inst);
         try stderr.writeByte('\n');
     }
 
-    try stderr.print("}} // {} {s}\n\n", .{ kind, decl_name });
+    try stderr.print("}} // {s} {s}\n\n", .{ kind, decl_name });
 }

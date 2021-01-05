@@ -80,14 +80,14 @@ pub const WriteFileStep = struct {
         });
         // TODO replace with something like fs.makePathAndOpenDir
         fs.cwd().makePath(self.output_dir) catch |err| {
-            warn("unable to make path {}: {}\n", .{ self.output_dir, @errorName(err) });
+            warn("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });
             return err;
         };
         var dir = try fs.cwd().openDir(self.output_dir, .{});
         defer dir.close();
         for (self.files.items) |file| {
             dir.writeFile(file.basename, file.bytes) catch |err| {
-                warn("unable to write {} into {}: {}\n", .{
+                warn("unable to write {s} into {s}: {s}\n", .{
                     file.basename,
                     self.output_dir,
                     @errorName(err),

@@ -23,6 +23,8 @@ const trace = @import("tracy.zig").trace;
 const astgen = @import("astgen.zig");
 const zir_sema = @import("zir_sema.zig");
 
+const default_eval_branch_quota = 1000;
+
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
 comp: *Compilation,
@@ -248,7 +250,7 @@ pub const Decl = struct {
 
     pub fn dump(self: *Decl) void {
         const loc = std.zig.findLineColumn(self.scope.source.bytes, self.src);
-        std.debug.print("{}:{}:{} name={} status={}", .{
+        std.debug.print("{s}:{d}:{d} name={s} status={s}", .{
             self.scope.sub_file_path,
             loc.line + 1,
             loc.column + 1,
@@ -268,6 +270,11 @@ pub const Decl = struct {
         }
     }
 
+    /// Asserts that the `Decl` is part of AST and not ZIRModule.
+    pub fn getFileScope(self: *Decl) *Scope.File {
+        return self.scope.cast(Scope.Container).?.file_scope;
+    }
+
     fn removeDependant(self: *Decl, other: *Decl) void {
         self.dependants.removeAssertDiscard(other);
     }
@@ -281,46 +288,32 @@ pub const Decl = struct {
 /// Extern functions do not have this data structure; they are represented by
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
-    /// This memory owned by the Decl's TypedValue.Managed arena allocator.
-    analysis: union(enum) {
-        queued: *ZIR,
+    owner_decl: *Decl,
+    /// Contains un-analyzed ZIR instructions generated from Zig source AST.
+    /// Even after we finish analysis, the ZIR is kept in memory, so that
+    /// comptime and inline function calls can happen.
+    zir: zir.Module.Body,
+    /// undefined unless analysis state is `success`.
+    body: Body,
+    state: Analysis,
+
+    pub const Analysis = enum {
+        queued,
+        /// This function intentionally only has ZIR generated because it is marked
+        /// inline, which means no runtime version of the function will be generated.
+        inline_only,
         in_progress,
         /// There will be a corresponding ErrorMsg in Module.failed_decls
         sema_failure,
-        /// This Fn might be OK but it depends on another Decl which did not successfully complete
-        /// semantic analysis.
+        /// This Fn might be OK but it depends on another Decl which did not
+        /// successfully complete semantic analysis.
         dependency_failure,
-        success: Body,
-    },
-    owner_decl: *Decl,
-
-    /// This memory is temporary and points to stack memory for the duration
-    /// of Fn analysis.
-    pub const Analysis = struct {
-        inner_block: Scope.Block,
-    };
-
-    /// Contains un-analyzed ZIR instructions generated from Zig source AST.
-    pub const ZIR = struct {
-        body: zir.Module.Body,
-        arena: std.heap.ArenaAllocator.State,
+        success,
     };
 
     /// For debugging purposes.
     pub fn dump(self: *Fn, mod: Module) void {
-        std.debug.print("Module.Function(name={}) ", .{self.owner_decl.name});
-        switch (self.analysis) {
-            .queued => {
-                std.debug.print("queued\n", .{});
-            },
-            .in_progress => {
-                std.debug.print("in_progress\n", .{});
-            },
-            else => {
-                std.debug.print("\n", .{});
-                zir.dumpFn(mod, self);
-            },
-        }
+        zir.dumpFn(mod, self);
     }
 };
 
@@ -632,7 +625,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *File, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{s}:{d}:{d}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *File, module: *Module) ![:0]const u8 {
@@ -730,7 +723,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *ZIRModule, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{s}:{d}:{d}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *ZIRModule, module: *Module) ![:0]const u8 {
@@ -761,21 +754,61 @@ pub const Scope = struct {
     /// during semantic analysis of the block.
     pub const Block = struct {
         pub const base_tag: Tag = .block;
+
         base: Scope = Scope{ .tag = base_tag },
         parent: ?*Block,
+        /// Maps ZIR to TZIR. Shared to sub-blocks.
+        inst_table: *InstTable,
         func: ?*Fn,
         decl: *Decl,
         instructions: ArrayListUnmanaged(*Inst),
         /// Points to the arena allocator of DeclAnalysis
         arena: *Allocator,
         label: ?Label = null,
+        inlining: ?*Inlining,
         is_comptime: bool,
+        /// Shared to sub-blocks.
+        branch_quota: *u32,
 
+        pub const InstTable = std.AutoHashMap(*zir.Inst, *Inst);
+
+        /// This `Block` maps a block ZIR instruction to the corresponding
+        /// TZIR instruction for break instruction analysis.
         pub const Label = struct {
             zir_block: *zir.Inst.Block,
+            merges: Merges,
+        };
+
+        /// This `Block` indicates that an inline function call is happening
+        /// and return instructions should be analyzed as a break instruction
+        /// to this TZIR block instruction.
+        /// It is shared among all the blocks in an inline or comptime called
+        /// function.
+        pub const Inlining = struct {
+            /// Shared state among the entire inline/comptime call stack.
+            shared: *Shared,
+            /// We use this to count from 0 so that arg instructions know
+            /// which parameter index they are, without having to store
+            /// a parameter index with each arg instruction.
+            param_index: usize,
+            casted_args: []*Inst,
+            merges: Merges,
+
+            pub const Shared = struct {
+                caller: ?*Fn,
+                branch_count: u32,
+            };
+        };
+
+        pub const Merges = struct {
             results: ArrayListUnmanaged(*Inst),
             block_inst: *Inst.Block,
         };
+
+        /// For debugging purposes.
+        pub fn dump(self: *Block, mod: Module) void {
+            zir.dumpBlock(mod, self);
+        }
     };
 
     /// This is a temporary structure, references to it are valid only
@@ -918,7 +951,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
         .complete => return,
 
         .outdated => blk: {
-            log.debug("re-analyzing {}\n", .{decl.name});
+            log.debug("re-analyzing {s}\n", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
@@ -953,7 +986,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
                 self.failed_decls.putAssumeCapacityNoClobber(decl, try Compilation.ErrorMsg.create(
                     self.gpa,
                     decl.src(),
-                    "unable to analyze: {}",
+                    "unable to analyze: {s}",
                     .{@errorName(err)},
                 ));
                 decl.analysis = .sema_failure_retryable;
@@ -992,11 +1025,11 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
     defer tracy.end();
 
     const container_scope = decl.scope.cast(Scope.Container).?;
-    const tree = try self.getAstTree(container_scope);
+    const tree = try self.getAstTree(container_scope.file_scope);
     const ast_node = tree.root_node.decls()[decl.src_index];
     switch (ast_node.tag) {
         .FnProto => {
-            const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", ast_node);
+            const fn_proto = ast_node.castTag(.FnProto).?;
 
             decl.analysis = .in_progress;
 
@@ -1062,7 +1095,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .param_types = param_types,
             }, .{});
 
-            if (self.comp.verbose_ir) {
+            if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                 zir.dumpZir(self.gpa, "fn_type", decl.name, fn_type_scope.instructions.items) catch {};
             }
 
@@ -1071,13 +1104,21 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             errdefer decl_arena.deinit();
             const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
+            var inst_table = Scope.Block.InstTable.init(self.gpa);
+            defer inst_table.deinit();
+
+            var branch_quota: u32 = default_eval_branch_quota;
+
             var block_scope: Scope.Block = .{
                 .parent = null,
+                .inst_table = &inst_table,
                 .func = null,
                 .decl = decl,
                 .instructions = .{},
                 .arena = &decl_arena.allocator,
+                .inlining = null,
                 .is_comptime = false,
+                .branch_quota = &branch_quota,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -1113,14 +1154,11 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const new_func = try decl_arena.allocator.create(Fn);
             const fn_payload = try decl_arena.allocator.create(Value.Payload.Function);
 
-            const fn_zir = blk: {
-                // This scope's arena memory is discarded after the ZIR generation
-                // pass completes, and semantic analysis of it completes.
-                var gen_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
-                errdefer gen_scope_arena.deinit();
+            const fn_zir: zir.Module.Body = blk: {
+                // We put the ZIR inside the Decl arena.
                 var gen_scope: Scope.GenZIR = .{
                     .decl = decl,
-                    .arena = &gen_scope_arena.allocator,
+                    .arena = &decl_arena.allocator,
                     .parent = decl.scope,
                 };
                 defer gen_scope.instructions.deinit(self.gpa);
@@ -1131,8 +1169,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 for (fn_proto.params()) |param, i| {
                     const name_token = param.name_token.?;
                     const src = tree.token_locs[name_token].start;
-                    const param_name = tree.tokenSlice(name_token); // TODO: call identifierTokenString
-                    const arg = try gen_scope_arena.allocator.create(zir.Inst.Arg);
+                    const param_name = try self.identifierTokenString(&gen_scope.base, name_token);
+                    const arg = try decl_arena.allocator.create(zir.Inst.Arg);
                     arg.* = .{
                         .base = .{
                             .tag = .arg,
@@ -1144,7 +1182,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                         .kw_args = .{},
                     };
                     gen_scope.instructions.items[i] = &arg.base;
-                    const sub_scope = try gen_scope_arena.allocator.create(Scope.LocalVal);
+                    const sub_scope = try decl_arena.allocator.create(Scope.LocalVal);
                     sub_scope.* = .{
                         .parent = params_scope,
                         .gen_zir = &gen_scope,
@@ -1165,22 +1203,29 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);
                 }
 
-                if (self.comp.verbose_ir) {
+                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "fn_body", decl.name, gen_scope.instructions.items) catch {};
                 }
 
-                const fn_zir = try gen_scope_arena.allocator.create(Fn.ZIR);
-                fn_zir.* = .{
-                    .body = .{
-                        .instructions = try gen_scope.arena.dupe(*zir.Inst, gen_scope.instructions.items),
-                    },
-                    .arena = gen_scope_arena.state,
+                break :blk .{
+                    .instructions = try gen_scope.arena.dupe(*zir.Inst, gen_scope.instructions.items),
                 };
-                break :blk fn_zir;
             };
 
+            const is_inline = blk: {
+                if (fn_proto.getExternExportInlineToken()) |maybe_inline_token| {
+                    if (tree.token_ids[maybe_inline_token] == .Keyword_inline) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+            const anal_state = ([2]Fn.Analysis{ .queued, .inline_only })[@boolToInt(is_inline)];
+
             new_func.* = .{
-                .analysis = .{ .queued = fn_zir },
+                .state = anal_state,
+                .zir = fn_zir,
+                .body = undefined,
                 .owner_decl = decl,
             };
             fn_payload.* = .{
@@ -1189,11 +1234,16 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
 
             var prev_type_has_bits = false;
+            var prev_is_inline = false;
             var type_changed = true;
 
             if (decl.typedValueManaged()) |tvm| {
                 prev_type_has_bits = tvm.typed_value.ty.hasCodeGenBits();
                 type_changed = !tvm.typed_value.ty.eql(fn_type);
+                if (tvm.typed_value.val.castTag(.function)) |payload| {
+                    const prev_func = payload.data;
+                    prev_is_inline = prev_func.state == .inline_only;
+                }
 
                 tvm.deinit(self.gpa);
             }
@@ -1211,18 +1261,26 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             decl.analysis = .complete;
             decl.generation = self.generation;
 
-            if (fn_type.hasCodeGenBits()) {
+            if (!is_inline and fn_type.hasCodeGenBits()) {
                 // We don't fully codegen the decl until later, but we do need to reserve a global
                 // offset table index for it. This allows us to codegen decls out of dependency order,
                 // increasing how many computations can be done in parallel.
                 try self.comp.bin_file.allocateDeclIndexes(decl);
                 try self.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-            } else if (prev_type_has_bits) {
+            } else if (!prev_is_inline and prev_type_has_bits) {
                 self.comp.bin_file.freeDecl(decl);
             }
 
             if (fn_proto.getExternExportInlineToken()) |maybe_export_token| {
                 if (tree.token_ids[maybe_export_token] == .Keyword_export) {
+                    if (is_inline) {
+                        return self.failTok(
+                            &block_scope.base,
+                            maybe_export_token,
+                            "export of inline function",
+                            .{},
+                        );
+                    }
                     const export_src = tree.token_locs[maybe_export_token].start;
                     const name_loc = tree.token_locs[fn_proto.getNameToken().?];
                     const name = tree.tokenSliceLoc(name_loc);
@@ -1230,7 +1288,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     try self.analyzeExport(&block_scope.base, export_src, name, decl);
                 }
             }
-            return type_changed;
+            return type_changed or is_inline != prev_is_inline;
         },
         .VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", ast_node);
@@ -1242,13 +1300,21 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             errdefer decl_arena.deinit();
             const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
+            var decl_inst_table = Scope.Block.InstTable.init(self.gpa);
+            defer decl_inst_table.deinit();
+
+            var branch_quota: u32 = default_eval_branch_quota;
+
             var block_scope: Scope.Block = .{
                 .parent = null,
+                .inst_table = &decl_inst_table,
                 .func = null,
                 .decl = decl,
                 .instructions = .{},
                 .arena = &decl_arena.allocator,
+                .inlining = null,
                 .is_comptime = true,
+                .branch_quota = &branch_quota,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -1303,23 +1369,32 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 const src = tree.token_locs[init_node.firstToken()].start;
                 const init_inst = try astgen.expr(self, &gen_scope.base, init_result_loc, init_node);
-                if (self.comp.verbose_ir) {
+                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "var_init", decl.name, gen_scope.instructions.items) catch {};
                 }
 
+                var var_inst_table = Scope.Block.InstTable.init(self.gpa);
+                defer var_inst_table.deinit();
+
+                var branch_quota_vi: u32 = default_eval_branch_quota;
                 var inner_block: Scope.Block = .{
                     .parent = null,
+                    .inst_table = &var_inst_table,
                     .func = null,
                     .decl = decl,
                     .instructions = .{},
                     .arena = &gen_scope_arena.allocator,
+                    .inlining = null,
                     .is_comptime = true,
+                    .branch_quota = &branch_quota_vi,
                 };
                 defer inner_block.instructions.deinit(self.gpa);
-                try zir_sema.analyzeBody(self, &inner_block.base, .{ .instructions = gen_scope.instructions.items });
+                try zir_sema.analyzeBody(self, &inner_block, .{
+                    .instructions = gen_scope.instructions.items,
+                });
 
                 // The result location guarantees the type coercion.
-                const analyzed_init_inst = init_inst.analyzed_inst.?;
+                const analyzed_init_inst = var_inst_table.get(init_inst).?;
                 // The is_comptime in the Scope.Block guarantees the result is comptime-known.
                 const val = analyzed_init_inst.value().?;
 
@@ -1347,7 +1422,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .val = Value.initTag(.type_type),
                 });
                 const var_type = try astgen.expr(self, &type_scope.base, .{ .ty = type_type }, type_node);
-                if (self.comp.verbose_ir) {
+                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "var_type", decl.name, type_scope.instructions.items) catch {};
                 }
 
@@ -1423,21 +1498,29 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             defer gen_scope.instructions.deinit(self.gpa);
 
             _ = try astgen.comptimeExpr(self, &gen_scope.base, .none, comptime_decl.expr);
-            if (self.comp.verbose_ir) {
+            if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                 zir.dumpZir(self.gpa, "comptime_block", decl.name, gen_scope.instructions.items) catch {};
             }
 
+            var inst_table = Scope.Block.InstTable.init(self.gpa);
+            defer inst_table.deinit();
+
+            var branch_quota: u32 = default_eval_branch_quota;
+
             var block_scope: Scope.Block = .{
                 .parent = null,
+                .inst_table = &inst_table,
                 .func = null,
                 .decl = decl,
                 .instructions = .{},
                 .arena = &analysis_arena.allocator,
+                .inlining = null,
                 .is_comptime = true,
+                .branch_quota = &branch_quota,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
-            _ = try zir_sema.analyzeBody(self, &block_scope.base, .{
+            _ = try zir_sema.analyzeBody(self, &block_scope, .{
                 .instructions = gen_scope.instructions.items,
             });
 
@@ -1475,7 +1558,7 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
             if (zir_module.error_msg) |src_err_msg| {
                 self.failed_files.putAssumeCapacityNoClobber(
                     &root_scope.base,
-                    try Compilation.ErrorMsg.create(self.gpa, src_err_msg.byte_offset, "{}", .{src_err_msg.msg}),
+                    try Compilation.ErrorMsg.create(self.gpa, src_err_msg.byte_offset, "{s}", .{src_err_msg.msg}),
                 );
                 root_scope.status = .unloaded_parse_failure;
                 return error.AnalysisFail;
@@ -1496,11 +1579,9 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
     }
 }
 
-fn getAstTree(self: *Module, container_scope: *Scope.Container) !*ast.Tree {
+pub fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
     const tracy = trace(@src());
     defer tracy.end();
-
-    const root_scope = container_scope.file_scope;
 
     switch (root_scope.status) {
         .never_loaded, .unloaded_success => {
@@ -1549,7 +1630,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
 
     // We may be analyzing it for the first time, or this may be
     // an incremental update. This code handles both cases.
-    const tree = try self.getAstTree(container_scope);
+    const tree = try self.getAstTree(container_scope.file_scope);
     const decls = tree.root_node.decls();
 
     try self.comp.work_queue.ensureUnusedCapacity(decls.len);
@@ -1581,7 +1662,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                 decl.src_index = decl_i;
                 if (deleted_decls.remove(decl) == null) {
                     decl.analysis = .sema_failure;
-                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, tree.token_locs[name_tok].start, "redefinition of '{}'", .{decl.name});
+                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, tree.token_locs[name_tok].start, "redefinition of '{s}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
                     try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
                 } else {
@@ -1623,7 +1704,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                 decl.src_index = decl_i;
                 if (deleted_decls.remove(decl) == null) {
                     decl.analysis = .sema_failure;
-                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{}'", .{decl.name});
+                    const err_msg = try Compilation.ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{s}'", .{decl.name});
                     errdefer err_msg.destroy(self.gpa);
                     try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
                 } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
@@ -1641,7 +1722,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
             }
         } else if (src_decl.castTag(.Comptime)) |comptime_node| {
             const name_index = self.getNextAnonNameIndex();
-            const name = try std.fmt.allocPrint(self.gpa, "__comptime_{}", .{name_index});
+            const name = try std.fmt.allocPrint(self.gpa, "__comptime_{d}", .{name_index});
             defer self.gpa.free(name);
 
             const name_hash = container_scope.fullyQualifiedNameHash(name);
@@ -1663,7 +1744,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug("noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{s}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1716,7 +1797,7 @@ pub fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug("noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{s}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1728,7 +1809,7 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
     // not be present in the set, and this does nothing.
     decl.scope.removeDecl(decl);
 
-    log.debug("deleting decl '{}'\n", .{decl.name});
+    log.debug("deleting decl '{s}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -1806,30 +1887,36 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     // Use the Decl's arena for function memory.
     var arena = decl.typed_value.most_recent.arena.?.promote(self.gpa);
     defer decl.typed_value.most_recent.arena.?.* = arena.state;
+    var inst_table = Scope.Block.InstTable.init(self.gpa);
+    defer inst_table.deinit();
+    var branch_quota: u32 = default_eval_branch_quota;
+
     var inner_block: Scope.Block = .{
         .parent = null,
+        .inst_table = &inst_table,
         .func = func,
         .decl = decl,
         .instructions = .{},
         .arena = &arena.allocator,
+        .inlining = null,
         .is_comptime = false,
+        .branch_quota = &branch_quota,
     };
     defer inner_block.instructions.deinit(self.gpa);
 
-    const fn_zir = func.analysis.queued;
-    defer fn_zir.arena.promote(self.gpa).deinit();
-    func.analysis = .{ .in_progress = {} };
-    log.debug("set {} to in_progress\n", .{decl.name});
+    func.state = .in_progress;
+    log.debug("set {s} to in_progress\n", .{decl.name});
 
-    try zir_sema.analyzeBody(self, &inner_block.base, fn_zir.body);
+    try zir_sema.analyzeBody(self, &inner_block, func.zir);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
-    func.analysis = .{ .success = .{ .instructions = instructions } };
-    log.debug("set {} to success\n", .{decl.name});
+    func.state = .success;
+    func.body = .{ .instructions = instructions };
+    log.debug("set {s} to success\n", .{decl.name});
 }
 
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
-    log.debug("mark {} outdated\n", .{decl.name});
+    log.debug("mark {s} outdated\n", .{decl.name});
     try self.comp.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.gpa);
@@ -1991,7 +2078,7 @@ pub fn analyzeExport(
         self.failed_exports.putAssumeCapacityNoClobber(new_export, try Compilation.ErrorMsg.create(
             self.gpa,
             src,
-            "exported symbol collision: {}",
+            "exported symbol collision: {s}",
             .{symbol_name},
         ));
         // TODO: add a note
@@ -2007,7 +2094,7 @@ pub fn analyzeExport(
             self.failed_exports.putAssumeCapacityNoClobber(new_export, try Compilation.ErrorMsg.create(
                 self.gpa,
                 src,
-                "unable to export: {}",
+                "unable to export: {s}",
                 .{@errorName(err)},
             ));
             new_export.status = .failed_retryable;
@@ -2277,7 +2364,7 @@ pub fn createAnonymousDecl(
 ) !*Decl {
     const name_index = self.getNextAnonNameIndex();
     const scope_decl = scope.decl().?;
-    const name = try std.fmt.allocPrint(self.gpa, "{}__anon_{}", .{ scope_decl.name, name_index });
+    const name = try std.fmt.allocPrint(self.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
     defer self.gpa.free(name);
     const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
@@ -2321,7 +2408,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     self.ensureDeclAnalyzed(decl) catch |err| {
         if (scope.cast(Scope.Block)) |block| {
             if (block.func) |func| {
-                func.analysis = .dependency_failure;
+                func.state = .dependency_failure;
             } else {
                 block.decl.analysis = .dependency_failure;
             }
@@ -2384,7 +2471,7 @@ pub fn analyzeDeref(self: *Module, scope: *Scope, src: usize, ptr: *Inst, ptr_sr
 
 pub fn analyzeDeclRefByName(self: *Module, scope: *Scope, src: usize, decl_name: []const u8) InnerError!*Inst {
     const decl = self.lookupDeclName(scope, decl_name) orelse
-        return self.fail(scope, src, "decl '{}' not found", .{decl_name});
+        return self.fail(scope, src, "decl '{s}' not found", .{decl_name});
     return self.analyzeDeclRef(scope, src, decl);
 }
 
@@ -2555,7 +2642,7 @@ pub fn cmpNumeric(
 
     if (lhs_ty_tag == .Vector and rhs_ty_tag == .Vector) {
         if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
-            return self.fail(scope, src, "vector length mismatch: {} and {}", .{
+            return self.fail(scope, src, "vector length mismatch: {d} and {d}", .{
                 lhs.ty.arrayLen(),
                 rhs.ty.arrayLen(),
             });
@@ -2700,7 +2787,7 @@ pub fn cmpNumeric(
     const dest_type = if (dest_float_type) |ft| ft else blk: {
         const max_bits = std.math.max(lhs_bits, rhs_bits);
         const casted_bits = std.math.cast(u16, max_bits) catch |err| switch (err) {
-            error.Overflow => return self.fail(scope, src, "{} exceeds maximum integer bit count", .{max_bits}),
+            error.Overflow => return self.fail(scope, src, "{d} exceeds maximum integer bit count", .{max_bits}),
         };
         break :blk try self.makeIntType(scope, dest_int_is_signed, casted_bits);
     };
@@ -3029,11 +3116,20 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Com
         },
         .block => {
             const block = scope.cast(Scope.Block).?;
-            if (block.func) |func| {
-                func.analysis = .sema_failure;
+            if (block.inlining) |inlining| {
+                if (inlining.shared.caller) |func| {
+                    func.state = .sema_failure;
+                } else {
+                    block.decl.analysis = .sema_failure;
+                    block.decl.generation = self.generation;
+                }
             } else {
-                block.decl.analysis = .sema_failure;
-                block.decl.generation = self.generation;
+                if (block.func) |func| {
+                    func.state = .sema_failure;
+                } else {
+                    block.decl.analysis = .sema_failure;
+                    block.decl.generation = self.generation;
+                }
             }
             self.failed_decls.putAssumeCapacityNoClobber(block.decl, err_msg);
         },
@@ -3328,7 +3424,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
     const source = zir_module.getSource(self) catch @panic("dumpInst failed to get source");
     const loc = std.zig.findLineColumn(source, inst.src);
     if (inst.tag == .constant) {
-        std.debug.print("constant ty={} val={} src={}:{}:{}\n", .{
+        std.debug.print("constant ty={} val={} src={s}:{d}:{d}\n", .{
             inst.ty,
             inst.castTag(.constant).?.val,
             zir_module.subFilePath(),
@@ -3336,7 +3432,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else if (inst.deaths == 0) {
-        std.debug.print("{} ty={} src={}:{}:{}\n", .{
+        std.debug.print("{s} ty={} src={s}:{d}:{d}\n", .{
             @tagName(inst.tag),
             inst.ty,
             zir_module.subFilePath(),
@@ -3344,7 +3440,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else {
-        std.debug.print("{} ty={} deaths={b} src={}:{}:{}\n", .{
+        std.debug.print("{s} ty={} deaths={b} src={s}:{d}:{d}\n", .{
             @tagName(inst.tag),
             inst.ty,
             inst.deaths,
@@ -3389,12 +3485,16 @@ pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic
 
     var fail_block: Scope.Block = .{
         .parent = parent_block,
+        .inst_table = parent_block.inst_table,
         .func = parent_block.func,
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .branch_quota = parent_block.branch_quota,
     };
+
     defer fail_block.instructions.deinit(mod.gpa);
 
     _ = try mod.safetyPanic(&fail_block, ok.src, panic_id);
@@ -3434,5 +3534,36 @@ pub fn optimizeMode(self: Module) std.builtin.Mode {
 pub fn validateVarType(mod: *Module, scope: *Scope, src: usize, ty: Type) !void {
     if (!ty.isValidVarType(false)) {
         return mod.fail(scope, src, "variable of type '{}' must be const or comptime", .{ty});
+    }
+}
+
+/// Identifier token -> String (allocated in scope.arena())
+pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
+    const tree = scope.tree();
+
+    const ident_name = tree.tokenSlice(token);
+    if (mem.startsWith(u8, ident_name, "@")) {
+        const raw_string = ident_name[1..];
+        var bad_index: usize = undefined;
+        return std.zig.parseStringLiteral(scope.arena(), raw_string, &bad_index) catch |err| switch (err) {
+            error.InvalidCharacter => {
+                const bad_byte = raw_string[bad_index];
+                const src = tree.token_locs[token].start;
+                return mod.fail(scope, src + 1 + bad_index, "invalid string literal character: '{c}'\n", .{bad_byte});
+            },
+            else => |e| return e,
+        };
+    }
+    return ident_name;
+}
+
+pub fn emitBackwardBranch(mod: *Module, block: *Scope.Block, src: usize) !void {
+    const shared = block.inlining.?.shared;
+    shared.branch_count += 1;
+    if (shared.branch_count > block.branch_quota.*) {
+        // TODO show the "called from here" stack
+        return mod.fail(&block.base, src, "evaluation exceeded {d} backwards branches", .{
+            block.branch_quota.*,
+        });
     }
 }

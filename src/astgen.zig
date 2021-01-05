@@ -384,8 +384,8 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpr
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (node.getLabel()) |break_label| {
-                const label_name = try identifierTokenString(mod, parent_scope, break_label);
-                return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+                const label_name = try mod.identifierTokenString(parent_scope, break_label);
+                return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
                 return mod.failTok(parent_scope, src, "break expression outside loop", .{});
             },
@@ -426,8 +426,8 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowE
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (node.getLabel()) |break_label| {
-                const label_name = try identifierTokenString(mod, parent_scope, break_label);
-                return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+                const label_name = try mod.identifierTokenString(parent_scope, break_label);
+                return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
                 return mod.failTok(parent_scope, src, "continue expression outside loop", .{});
             },
@@ -551,7 +551,7 @@ fn varDecl(
     }
     const tree = scope.tree();
     const name_src = tree.token_locs[node.name_token].start;
-    const ident_name = try identifierTokenString(mod, scope, node.name_token);
+    const ident_name = try mod.identifierTokenString(scope, node.name_token);
 
     // Local variables shadowing detection, including function parameters.
     {
@@ -560,14 +560,14 @@ fn varDecl(
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+                    return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
                 }
                 s = local_ptr.parent;
             },
@@ -578,7 +578,7 @@ fn varDecl(
 
     // Namespace vars shadowing detection
     if (mod.lookupDeclName(scope, ident_name)) |_| {
-        return mod.fail(scope, name_src, "redefinition of '{}'", .{ident_name});
+        return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
     }
     const init_node = node.getInitNode() orelse
         return mod.fail(scope, name_src, "variables must be initialized", .{});
@@ -843,7 +843,7 @@ fn typeInixOp(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp, op_ins
 fn enumLiteral(mod: *Module, scope: *Scope, node: *ast.Node.EnumLiteral) !*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.name].start;
-    const name = try identifierTokenString(mod, scope, node.name);
+    const name = try mod.identifierTokenString(scope, node.name);
 
     return addZIRInst(mod, scope, src, zir.Inst.EnumLiteral, .{ .name = name }, .{});
 }
@@ -864,7 +864,7 @@ fn errorSetDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Erro
 
     for (decls) |decl, i| {
         const tag = decl.castTag(.ErrorTag).?;
-        fields[i] = try identifierTokenString(mod, scope, tag.name_token);
+        fields[i] = try mod.identifierTokenString(scope, tag.name_token);
     }
 
     // analyzing the error set results in a decl ref, so we might need to dereference it
@@ -988,36 +988,16 @@ fn orelseCatchExpr(
 /// Return whether the identifier names of two tokens are equal. Resolves @"" tokens without allocating.
 /// OK in theory it could do it without allocating. This implementation allocates when the @"" form is used.
 fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: ast.TokenIndex) !bool {
-    const ident_name_1 = try identifierTokenString(mod, scope, token1);
-    const ident_name_2 = try identifierTokenString(mod, scope, token2);
+    const ident_name_1 = try mod.identifierTokenString(scope, token1);
+    const ident_name_2 = try mod.identifierTokenString(scope, token2);
     return mem.eql(u8, ident_name_1, ident_name_2);
-}
-
-/// Identifier token -> String (allocated in scope.arena())
-fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
-    const tree = scope.tree();
-
-    const ident_name = tree.tokenSlice(token);
-    if (mem.startsWith(u8, ident_name, "@")) {
-        const raw_string = ident_name[1..];
-        var bad_index: usize = undefined;
-        return std.zig.parseStringLiteral(scope.arena(), raw_string, &bad_index) catch |err| switch (err) {
-            error.InvalidCharacter => {
-                const bad_byte = raw_string[bad_index];
-                const src = tree.token_locs[token].start;
-                return mod.fail(scope, src + 1 + bad_index, "invalid string literal character: '{c}'\n", .{bad_byte});
-            },
-            else => |e| return e,
-        };
-    }
-    return ident_name;
 }
 
 pub fn identifierStringInst(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.token].start;
 
-    const ident_name = try identifierTokenString(mod, scope, node.token);
+    const ident_name = try mod.identifierTokenString(scope, node.token);
 
     return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = ident_name }, .{});
 }
@@ -1936,7 +1916,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
     defer tracy.end();
 
     const tree = scope.tree();
-    const ident_name = try identifierTokenString(mod, scope, ident.token);
+    const ident_name = try mod.identifierTokenString(scope, ident.token);
     const src = tree.token_locs[ident.token].start;
     if (mem.eql(u8, ident_name, "_")) {
         return mod.failNode(scope, &ident.base, "TODO implement '_' identifier", .{});
@@ -1955,7 +1935,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
                 error.Overflow => return mod.failNode(
                     scope,
                     &ident.base,
-                    "primitive integer type '{}' exceeds maximum bit width of 65535",
+                    "primitive integer type '{s}' exceeds maximum bit width of 65535",
                     .{ident_name},
                 ),
                 error.InvalidCharacter => break :integer,
@@ -2010,7 +1990,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
         return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{}));
     }
 
-    return mod.failNode(scope, &ident.base, "use of undeclared identifier '{}'", .{ident_name});
+    return mod.failNode(scope, &ident.base, "use of undeclared identifier '{s}'", .{ident_name});
 }
 
 fn stringLiteral(mod: *Module, scope: *Scope, str_lit: *ast.Node.OneToken) InnerError!*zir.Inst {
@@ -2204,7 +2184,7 @@ fn ensureBuiltinParamCount(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinC
         return;
 
     const s = if (count == 1) "" else "s";
-    return mod.failTok(scope, call.builtin_token, "expected {} parameter{}, found {}", .{ count, s, call.params_len });
+    return mod.failTok(scope, call.builtin_token, "expected {d} parameter{s}, found {d}", .{ count, s, call.params_len });
 }
 
 fn simpleCast(
@@ -2337,6 +2317,19 @@ fn compileError(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerE
     return addZIRUnOp(mod, scope, src, .compileerror, target);
 }
 
+fn setEvalBranchQuota(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
+    try ensureBuiltinParamCount(mod, scope, call, 1);
+    const tree = scope.tree();
+    const src = tree.token_locs[call.builtin_token].start;
+    const params = call.params();
+    const u32_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.u32_type),
+    });
+    const quota = try expr(mod, scope, .{ .ty = u32_type }, params[0]);
+    return addZIRUnOp(mod, scope, src, .set_eval_branch_quota, quota);
+}
+
 fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
     const tree = scope.tree();
     const arena = scope.arena();
@@ -2382,8 +2375,10 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
         return rlWrap(mod, scope, rl, try import(mod, scope, call));
     } else if (mem.eql(u8, builtin_name, "@compileError")) {
         return compileError(mod, scope, call);
+    } else if (mem.eql(u8, builtin_name, "@setEvalBranchQuota")) {
+        return setEvalBranchQuota(mod, scope, call);
     } else {
-        return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{}'", .{builtin_name});
+        return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{s}'", .{builtin_name});
     }
 }
 

@@ -366,14 +366,14 @@ pub const Token = union(enum) {
             .incomplete_quoted_prerequisite,
             .incomplete_target,
             => |index_and_bytes| {
-                try writer.print("{} '", .{self.errStr()});
+                try writer.print("{s} '", .{self.errStr()});
                 if (self == .incomplete_target) {
                     const tmp = Token{ .target_must_resolve = index_and_bytes.bytes };
                     try tmp.resolve(writer);
                 } else {
                     try printCharValues(writer, index_and_bytes.bytes);
                 }
-                try writer.print("' at position {}", .{index_and_bytes.index});
+                try writer.print("' at position {d}", .{index_and_bytes.index});
             },
             .invalid_target,
             .bad_target_escape,
@@ -383,7 +383,7 @@ pub const Token = union(enum) {
             => |index_and_char| {
                 try writer.writeAll("illegal char ");
                 try printUnderstandableChar(writer, index_and_char.char);
-                try writer.print(" at position {}: {}", .{ index_and_char.index, self.errStr() });
+                try writer.print(" at position {d}: {s}", .{ index_and_char.index, self.errStr() });
             },
         }
     }
@@ -927,7 +927,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     try out.writeAll("\n");
     try printSection(out, "<<<< input", input);
     try printSection(out, "==== expect", expect);
-    try printSection(out, ">>>> got", got);
+    try printSection(out, ">>>> got", buffer.items);
     try printRuler(out);
 
     testing.expect(false);
@@ -943,7 +943,7 @@ fn printSection(out: anytype, label: []const u8, bytes: []const u8) !void {
 
 fn printLabel(out: anytype, label: []const u8, bytes: []const u8) !void {
     var buf: [80]u8 = undefined;
-    var text = try std.fmt.bufPrint(buf[0..], "{} {} bytes ", .{ label, bytes.len });
+    var text = try std.fmt.bufPrint(buf[0..], "{s} {d} bytes ", .{ label, bytes.len });
     try out.writeAll(text);
     var i: usize = text.len;
     const end = 79;

@@ -136,7 +136,7 @@ const Scope = struct {
             var proposed_name = name_copy;
             while (scope.contains(proposed_name)) {
                 scope.mangle_count += 1;
-                proposed_name = try std.fmt.allocPrint(c.arena, "{}_{}", .{ name, scope.mangle_count });
+                proposed_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, scope.mangle_count });
             }
             try scope.variables.append(.{ .name = name_copy, .alias = proposed_name });
             return proposed_name;
@@ -290,7 +290,7 @@ pub const Context = struct {
 
         const line = c.source_manager.getSpellingLineNumber(spelling_loc);
         const column = c.source_manager.getSpellingColumnNumber(spelling_loc);
-        return std.fmt.allocPrint(c.arena, "{}:{}:{}", .{ filename, line, column });
+        return std.fmt.allocPrint(c.arena, "{s}:{d}:{d}", .{ filename, line, column });
     }
 
     fn createCall(c: *Context, fn_expr: *ast.Node, params_len: ast.NodeIndex) !*ast.Node.Call {
@@ -440,7 +440,7 @@ pub fn translate(
     mem.copy(*ast.Node, root_node.decls(), context.root_decls.items);
 
     if (false) {
-        std.debug.warn("debug source:\n{}\n==EOF==\ntokens:\n", .{source_buffer.items});
+        std.debug.warn("debug source:\n{s}\n==EOF==\ntokens:\n", .{source_buffer.items});
         for (context.token_ids.items) |token| {
             std.debug.warn("{}\n", .{token});
         }
@@ -530,7 +530,7 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
         },
         else => {
             const decl_name = try c.str(decl.getDeclKindName());
-            try emitWarning(c, decl.getLocation(), "ignoring {} declaration", .{decl_name});
+            try emitWarning(c, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
         },
     }
 }
@@ -625,7 +625,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         const param_name = if (param.name_token) |name_tok|
             tokenSlice(c, name_tok)
         else
-            return failDecl(c, fn_decl_loc, fn_name, "function {} parameter has no name", .{fn_name});
+            return failDecl(c, fn_decl_loc, fn_name, "function {s} parameter has no name", .{fn_name});
 
         const c_param = fn_decl.getParamDecl(param_id);
         const qual_type = c_param.getOriginalType();
@@ -634,7 +634,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         const mangled_param_name = try block_scope.makeMangledName(c, param_name);
 
         if (!is_const) {
-            const bare_arg_name = try std.fmt.allocPrint(c.arena, "arg_{}", .{mangled_param_name});
+            const bare_arg_name = try std.fmt.allocPrint(c.arena, "arg_{s}", .{mangled_param_name});
             const arg_name = try block_scope.makeMangledName(c, bare_arg_name);
 
             const mut_tok = try appendToken(c, .Keyword_var, "var");
@@ -727,7 +727,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.arena, "{}_{}", .{ var_name, c.getMangle() }) else var_name;
+    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ var_name, c.getMangle() }) else var_name;
     const var_decl_loc = var_decl.getLocation();
 
     const qual_type = var_decl.getTypeSourceInfo_getType();
@@ -808,7 +808,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
             _ = try appendToken(rp.c, .LParen, "(");
             const expr = try transCreateNodeStringLiteral(
                 rp.c,
-                try std.fmt.allocPrint(rp.c.arena, "\"{}\"", .{str_ptr[0..str_len]}),
+                try std.fmt.allocPrint(rp.c.arena, "\"{s}\"", .{str_ptr[0..str_len]}),
             );
             _ = try appendToken(rp.c, .RParen, ")");
 
@@ -887,7 +887,7 @@ fn transTypeDef(c: *Context, typedef_decl: *const clang.TypedefNameDecl, top_lev
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.arena, "{}_{}", .{ typedef_name, c.getMangle() }) else typedef_name;
+    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ typedef_name, c.getMangle() }) else typedef_name;
     if (checkForBuiltinTypedef(checked_name)) |builtin| {
         return transTypeDefAsBuiltin(c, typedef_decl, builtin);
     }
@@ -945,7 +945,7 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*as
     // Record declarations such as `struct {...} x` have no name but they're not
     // anonymous hence here isAnonymousStructOrUnion is not needed
     if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{}", .{c.getMangle()});
+        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
         is_unnamed = true;
     }
 
@@ -958,11 +958,11 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*as
         container_kind_name = "struct";
         container_kind = .Keyword_struct;
     } else {
-        try emitWarning(c, record_loc, "record {} is not a struct or union", .{bare_name});
+        try emitWarning(c, record_loc, "record {s} is not a struct or union", .{bare_name});
         return null;
     }
 
-    const name = try std.fmt.allocPrint(c.arena, "{}_{}", .{ container_kind_name, bare_name });
+    const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
     _ = try c.decl_table.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
 
     const visib_tok = if (!is_unnamed) try appendToken(c, .Keyword_pub, "pub") else null;
@@ -1003,7 +1003,7 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*as
                 _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
                 const opaque_type = try transCreateNodeOpaqueType(c);
                 semicolon = try appendToken(c, .Semicolon, ";");
-                try emitWarning(c, field_loc, "{} demoted to opaque type - has bitfield", .{container_kind_name});
+                try emitWarning(c, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
                 break :blk opaque_type;
             }
 
@@ -1011,7 +1011,7 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*as
                 _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
                 const opaque_type = try transCreateNodeOpaqueType(c);
                 semicolon = try appendToken(c, .Semicolon, ";");
-                try emitWarning(c, field_loc, "{} demoted to opaque type - has variable length array", .{container_kind_name});
+                try emitWarning(c, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
                 break :blk opaque_type;
             }
 
@@ -1019,7 +1019,7 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*as
             var raw_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
             if (field_decl.isAnonymousStructOrUnion() or raw_name.len == 0) {
                 // Context.getMangle() is not used here because doing so causes unpredictable field names for anonymous fields.
-                raw_name = try std.fmt.allocPrint(c.arena, "unnamed_{}", .{unnamed_field_count});
+                raw_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{unnamed_field_count});
                 unnamed_field_count += 1;
                 is_anon = true;
             }
@@ -1030,7 +1030,7 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*as
                     _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
                     const opaque_type = try transCreateNodeOpaqueType(c);
                     semicolon = try appendToken(c, .Semicolon, ";");
-                    try emitWarning(c, record_loc, "{} demoted to opaque type - unable to translate type of field {}", .{ container_kind_name, raw_name });
+                    try emitWarning(c, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, raw_name });
                     break :blk opaque_type;
                 },
                 else => |e| return e,
@@ -1110,11 +1110,11 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?*ast.Node
     var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
     var is_unnamed = false;
     if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{}", .{c.getMangle()});
+        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
         is_unnamed = true;
     }
 
-    const name = try std.fmt.allocPrint(c.arena, "enum_{}", .{bare_name});
+    const name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     _ = try c.decl_table.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
 
     const visib_tok = if (!is_unnamed) try appendToken(c, .Keyword_pub, "pub") else null;
@@ -1385,7 +1385,7 @@ fn transStmt(
                 rp,
                 error.UnsupportedTranslation,
                 stmt.getBeginLoc(),
-                "TODO implement translation of stmt class {}",
+                "TODO implement translation of stmt class {s}",
                 .{@tagName(sc)},
             );
         },
@@ -1684,7 +1684,7 @@ fn transDeclStmtOne(
             rp,
             error.UnsupportedTranslation,
             decl.getLocation(),
-            "TODO implement translation of DeclStmt kind {}",
+            "TODO implement translation of DeclStmt kind {s}",
             .{@tagName(kind)},
         ),
     }
@@ -1782,7 +1782,7 @@ fn transImplicitCastExpr(
             rp,
             error.UnsupportedTranslation,
             @ptrCast(*const clang.Stmt, expr).getBeginLoc(),
-            "TODO implement translation of CastKind {}",
+            "TODO implement translation of CastKind {s}",
             .{@tagName(kind)},
         ),
     }
@@ -2043,7 +2043,7 @@ fn transStringLiteral(
             rp,
             error.UnsupportedTranslation,
             @ptrCast(*const clang.Stmt, stmt).getBeginLoc(),
-            "TODO: support string literal kind {}",
+            "TODO: support string literal kind {s}",
             .{kind},
         ),
     }
@@ -2168,7 +2168,6 @@ fn transCCast(
         // @boolToInt returns either a comptime_int or a u1
         // TODO: if dst_type is 1 bit & signed (bitfield) we need @bitCast
         // instead of @as
-
         const builtin_node = try rp.c.createBuiltinCall("@boolToInt", 1);
         builtin_node.params()[0] = expr;
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
@@ -2455,7 +2454,7 @@ fn transInitListExpr(
         );
     } else {
         const type_name = rp.c.str(qual_type.getTypeClassName());
-        return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported initlist type: '{}'", .{type_name});
+        return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported initlist type: '{s}'", .{type_name});
     }
 }
 
@@ -3957,7 +3956,7 @@ fn qualTypeToLog2IntRef(rp: RestorePoint, qt: clang.QualType, source_loc: clang.
         const node = try rp.c.arena.create(ast.Node.OneToken);
         node.* = .{
             .base = .{ .tag = .IntegerLiteral },
-            .token = try appendTokenFmt(rp.c, .Identifier, "u{}", .{cast_bit_width}),
+            .token = try appendTokenFmt(rp.c, .Identifier, "u{d}", .{cast_bit_width}),
         };
         return &node.base;
     }
@@ -4433,7 +4432,8 @@ fn transCreateNodeBoolLiteral(c: *Context, value: bool) !*ast.Node {
 }
 
 fn transCreateNodeInt(c: *Context, int: anytype) !*ast.Node {
-    const token = try appendTokenFmt(c, .IntegerLiteral, "{}", .{int});
+    const fmt_s = if (comptime std.meta.trait.isIntegerNumber(@TypeOf(int))) "{d}" else "{s}";
+    const token = try appendTokenFmt(c, .IntegerLiteral, fmt_s, .{int});
     const node = try c.arena.create(ast.Node.OneToken);
     node.* = .{
         .base = .{ .tag = .IntegerLiteral },
@@ -4442,8 +4442,8 @@ fn transCreateNodeInt(c: *Context, int: anytype) !*ast.Node {
     return &node.base;
 }
 
-fn transCreateNodeFloat(c: *Context, int: anytype) !*ast.Node {
-    const token = try appendTokenFmt(c, .FloatLiteral, "{}", .{int});
+fn transCreateNodeFloat(c: *Context, str: []const u8) !*ast.Node {
+    const token = try appendTokenFmt(c, .FloatLiteral, "{s}", .{str});
     const node = try c.arena.create(ast.Node.OneToken);
     node.* = .{
         .base = .{ .tag = .FloatLiteral },
@@ -4484,7 +4484,7 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
             _ = try appendToken(c, .Comma, ",");
         }
         const param_name_tok = param.name_token orelse
-            try appendTokenFmt(c, .Identifier, "arg_{}", .{c.getMangle()});
+            try appendTokenFmt(c, .Identifier, "arg_{d}", .{c.getMangle()});
 
         _ = try appendToken(c, .Colon, ":");
 
@@ -4916,7 +4916,7 @@ fn transType(rp: RestorePoint, ty: *const clang.Type, source_loc: clang.SourceLo
         },
         else => {
             const type_name = rp.c.str(ty.getTypeClassName());
-            return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", .{type_name});
+            return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{s}'", .{type_name});
         },
     }
 }
@@ -4999,7 +4999,7 @@ fn transCC(
             rp,
             error.UnsupportedType,
             source_loc,
-            "unsupported calling convention: {}",
+            "unsupported calling convention: {s}",
             .{@tagName(clang_cc)},
         ),
     }
@@ -5027,7 +5027,7 @@ fn transFnNoProto(
     is_pub: bool,
 ) !*ast.Node.FnProto {
     const cc = try transCC(rp, fn_ty, source_loc);
-    const is_var_args = if (fn_decl_context) |ctx| !ctx.is_export else true;
+    const is_var_args = if (fn_decl_context) |ctx| (!ctx.is_export and ctx.storage_class != .Static) else true;
     return finishTransFnProto(rp, null, null, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 
@@ -5117,7 +5117,7 @@ fn finishTransFnProto(
                 _ = try appendToken(rp.c, .LParen, "(");
                 const expr = try transCreateNodeStringLiteral(
                     rp.c,
-                    try std.fmt.allocPrint(rp.c.arena, "\"{}\"", .{str_ptr[0..str_len]}),
+                    try std.fmt.allocPrint(rp.c.arena, "\"{s}\"", .{str_ptr[0..str_len]}),
                 );
                 _ = try appendToken(rp.c, .RParen, ")");
 
@@ -5214,7 +5214,7 @@ fn revertAndWarn(
 
 fn emitWarning(c: *Context, loc: clang.SourceLocation, comptime format: []const u8, args: anytype) !void {
     const args_prefix = .{c.locStr(loc)};
-    _ = try appendTokenFmt(c, .LineComment, "// {}: warning: " ++ format, args_prefix ++ args);
+    _ = try appendTokenFmt(c, .LineComment, "// {s}: warning: " ++ format, args_prefix ++ args);
 }
 
 pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, comptime format: []const u8, args: anytype) !void {
@@ -5228,7 +5228,7 @@ pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, compti
     const msg_tok = try appendTokenFmt(c, .StringLiteral, "\"" ++ format ++ "\"", args);
     const rparen_tok = try appendToken(c, .RParen, ")");
     const semi_tok = try appendToken(c, .Semicolon, ";");
-    _ = try appendTokenFmt(c, .LineComment, "// {}", .{c.locStr(loc)});
+    _ = try appendTokenFmt(c, .LineComment, "// {s}", .{c.locStr(loc)});
 
     const msg_node = try c.arena.create(ast.Node.OneToken);
     msg_node.* = .{
@@ -5258,7 +5258,7 @@ pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, compti
 
 fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenIndex {
     std.debug.assert(token_id != .Identifier); // use appendIdentifier
-    return appendTokenFmt(c, token_id, "{}", .{bytes});
+    return appendTokenFmt(c, token_id, "{s}", .{bytes});
 }
 
 fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: anytype) !ast.TokenIndex {
@@ -5329,7 +5329,7 @@ fn transCreateNodeIdentifier(c: *Context, name: []const u8) !*ast.Node {
 }
 
 fn transCreateNodeIdentifierUnchecked(c: *Context, name: []const u8) !*ast.Node {
-    const token_index = try appendTokenFmt(c, .Identifier, "{}", .{name});
+    const token_index = try appendTokenFmt(c, .Identifier, "{s}", .{name});
     const identifier = try c.arena.create(ast.Node.OneToken);
     identifier.* = .{
         .base = .{ .tag = .Identifier },
@@ -5390,7 +5390,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const name = try c.str(raw_name);
                 // TODO https://github.com/ziglang/zig/issues/3756
                 // TODO https://github.com/ziglang/zig/issues/1802
-                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.arena, "{}_{}", .{ name, c.getMangle() }) else name;
+                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, c.getMangle() }) else name;
                 if (scope.containsNow(mangled_name)) {
                     continue;
                 }
@@ -5468,7 +5468,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
-        return m.fail(c, "unable to translate C expr: unexpected token .{}", .{@tagName(last)});
+        return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
 
     const semicolon_token = try appendToken(c, .Semicolon, ";");
     const node = try ast.Node.VarDecl.create(c.arena, .{
@@ -5540,7 +5540,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
-        return m.fail(c, "unable to translate C expr: unexpected token .{}", .{@tagName(last)});
+        return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
     _ = try appendToken(c, .Semicolon, ";");
     const type_of_arg = if (!expr.tag.isBlock()) expr else blk: {
         const stmts = expr.blockStatements();
@@ -5623,11 +5623,11 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!*ast.Node {
                 switch (lit_bytes[1]) {
                     '0'...'7' => {
                         // Octal
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{}", .{lit_bytes});
+                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes});
                     },
                     'X' => {
                         // Hexadecimal with capital X, valid in C but not in Zig
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0x{}", .{lit_bytes[2..]});
+                        lit_bytes = try std.fmt.allocPrint(c.arena, "0x{s}", .{lit_bytes[2..]});
                     },
                     else => {},
                 }
@@ -5659,7 +5659,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!*ast.Node {
         },
         .FloatLiteral => |suffix| {
             if (lit_bytes[0] == '.')
-                lit_bytes = try std.fmt.allocPrint(c.arena, "0{}", .{lit_bytes});
+                lit_bytes = try std.fmt.allocPrint(c.arena, "0{s}", .{lit_bytes});
             if (suffix == .none) {
                 return transCreateNodeFloat(c, lit_bytes);
             }
@@ -5916,11 +5916,11 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
             // struct Foo will be declared as struct_Foo by transRecordDecl
             const next_id = m.next().?;
             if (next_id != .Identifier) {
-                try m.fail(c, "unable to translate C expr: expected Identifier instead got: {}", .{@tagName(next_id)});
+                try m.fail(c, "unable to translate C expr: expected Identifier instead got: {s}", .{@tagName(next_id)});
                 return error.ParseError;
             }
 
-            const ident_token = try appendTokenFmt(c, .Identifier, "{}_{}", .{ slice, m.slice() });
+            const ident_token = try appendTokenFmt(c, .Identifier, "{s}_{s}", .{ slice, m.slice() });
             const identifier = try c.arena.create(ast.Node.OneToken);
             identifier.* = .{
                 .base = .{ .tag = .Identifier },
@@ -5937,7 +5937,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
 
             const next_id = m.next().?;
             if (next_id != .RParen) {
-                try m.fail(c, "unable to translate C expr: expected ')' instead got: {}", .{@tagName(next_id)});
+                try m.fail(c, "unable to translate C expr: expected ')' instead got: {s}", .{@tagName(next_id)});
                 return error.ParseError;
             }
             var saw_l_paren = false;
@@ -5995,7 +5995,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
             return &group_node.base;
         },
         else => {
-            try m.fail(c, "unable to translate C expr: unexpected token .{}", .{@tagName(tok)});
+            try m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(tok)});
             return error.ParseError;
         },
     }

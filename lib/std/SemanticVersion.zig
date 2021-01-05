@@ -163,9 +163,9 @@ pub fn format(
     out_stream: anytype,
 ) !void {
     if (fmt.len != 0) @compileError("Unknown format string: '" ++ fmt ++ "'");
-    try std.fmt.format(out_stream, "{}.{}.{}", .{ self.major, self.minor, self.patch });
-    if (self.pre) |pre| try std.fmt.format(out_stream, "-{}", .{pre});
-    if (self.build) |build| try std.fmt.format(out_stream, "+{}", .{build});
+    try std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
+    if (self.pre) |pre| try std.fmt.format(out_stream, "-{s}", .{pre});
+    if (self.build) |build| try std.fmt.format(out_stream, "+{s}", .{build});
 }
 
 const expect = std.testing.expect;
@@ -287,9 +287,9 @@ fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !
     if (std.mem.eql(u8, result, expected)) return;
 
     std.debug.warn("\n====== expected this output: =========\n", .{});
-    std.debug.warn("{}", .{expected});
+    std.debug.warn("{s}", .{expected});
     std.debug.warn("\n======== instead found this: =========\n", .{});
-    std.debug.warn("{}", .{result});
+    std.debug.warn("{s}", .{result});
     std.debug.warn("\n======================================\n", .{});
     return error.TestFailed;
 }

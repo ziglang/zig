@@ -686,7 +686,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         if (need_realloc) {
             const curr_vaddr = self.getDeclVAddr(decl);
             const vaddr = try self.growTextBlock(&decl.link.coff, code.len, required_alignment);
-            log.debug("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, curr_vaddr, vaddr });
+            log.debug("growing {s} from 0x{x} to 0x{x}\n", .{ decl.name, curr_vaddr, vaddr });
             if (vaddr != curr_vaddr) {
                 log.debug("  (writing new offset table entry)\n", .{});
                 self.offset_table.items[decl.link.coff.offset_table_index] = vaddr;
@@ -697,7 +697,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         }
     } else {
         const vaddr = try self.allocateTextBlock(&decl.link.coff, code.len, required_alignment);
-        log.debug("allocated text block for {} at 0x{x} (size: {Bi})\n", .{ mem.spanZ(decl.name), vaddr, code.len });
+        log.debug("allocated text block for {s} at 0x{x} (size: {Bi})\n", .{ mem.spanZ(decl.name), vaddr, code.len });
         errdefer self.freeTextBlock(&decl.link.coff);
         self.offset_table.items[decl.link.coff.offset_table_index] = vaddr;
         try self.writeOffsetTableEntry(decl.link.coff.offset_table_index);
@@ -811,8 +811,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        const use_stage1 = build_options.is_stage1 and self.base.options.use_llvm;
-        if (use_stage1) {
+        // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
+        if (self.base.options.use_llvm) {
+            // Stage2 has to call flushModule since that outputs the LLVM object file.
+            if (!build_options.is_stage1) try self.flushModule(comp);
+
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
                 .target = self.base.options.target,
@@ -880,7 +883,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("COFF LLD new_digest={} error: {}", .{ digest, @errorName(err) });
+            log.debug("COFF LLD new_digest={} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -1236,11 +1239,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.

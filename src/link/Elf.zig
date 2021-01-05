@@ -1251,8 +1251,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        const use_stage1 = build_options.is_stage1 and self.base.options.use_llvm;
-        if (use_stage1) {
+        // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
+        if (self.base.options.use_llvm) {
+            // Stage2 has to call flushModule since that outputs the LLVM object file.
+            if (!build_options.is_stage1) try self.flushModule(comp);
+
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
                 .target = self.base.options.target,
@@ -1362,7 +1365,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("ELF LLD new_digest={} error: {}", .{ digest, @errorName(err) });
+            log.debug("ELF LLD new_digest={} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -1396,7 +1399,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     if (self.base.options.output_mode == .Exe) {
         try argv.append("-z");
-        try argv.append(try std.fmt.allocPrint(arena, "stack-size={}", .{stack_size}));
+        try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
     }
 
     if (self.base.options.image_base_override) |image_base| {
@@ -1438,7 +1441,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     if (getLDMOption(target)) |ldm| {
         // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
         const arg = if (target.os.tag == .freebsd)
-            try std.fmt.allocPrint(arena, "{}_fbsd", .{ldm})
+            try std.fmt.allocPrint(arena, "{s}_fbsd", .{ldm})
         else
             ldm;
         try argv.append("-m");
@@ -1599,7 +1602,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             // (the check for that needs to be earlier), but they could be full paths to .so files, in which
             // case we want to avoid prepending "-l".
             const ext = Compilation.classifyFileExt(link_lib);
-            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
+            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
             argv.appendAssumeCapacity(arg);
         }
 
@@ -1733,11 +1736,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
@@ -2082,10 +2085,10 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     if (self.local_symbol_free_list.popOrNull()) |i| {
-        log.debug("reusing symbol index {} for {}\n", .{ i, decl.name });
+        log.debug("reusing symbol index {d} for {s}\n", .{ i, decl.name });
         decl.link.elf.local_sym_index = i;
     } else {
-        log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
+        log.debug("allocating symbol index {d} for {s}\n", .{ self.local_symbols.items.len, decl.name });
         decl.link.elf.local_sym_index = @intCast(u32, self.local_symbols.items.len);
         _ = self.local_symbols.addOneAssumeCapacity();
     }
@@ -2178,16 +2181,6 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         else => false,
     };
     if (is_fn) {
-        const zir_dumps = if (std.builtin.is_test) &[0][]const u8{} else build_options.zir_dumps;
-        if (zir_dumps.len != 0) {
-            for (zir_dumps) |fn_name| {
-                if (mem.eql(u8, mem.spanZ(decl.name), fn_name)) {
-                    std.debug.print("\n{}\n", .{decl.name});
-                    typed_value.val.castTag(.function).?.data.dump(module.*);
-                }
-            }
-        }
-
         // For functions we need to add a prologue to the debug line program.
         try dbg_line_buffer.ensureCapacity(26);
 
@@ -2300,7 +2293,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growTextBlock(&decl.link.elf, code.len, required_alignment);
-            log.debug("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
+            log.debug("growing {s} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
             if (vaddr != local_sym.st_value) {
                 local_sym.st_value = vaddr;
 
@@ -2322,7 +2315,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         const decl_name = mem.spanZ(decl.name);
         const name_str_index = try self.makeString(decl_name);
         const vaddr = try self.allocateTextBlock(&decl.link.elf, code.len, required_alignment);
-        log.debug("allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
+        log.debug("allocated text block for {s} at 0x{x}\n", .{ decl_name, vaddr });
         errdefer self.freeTextBlock(&decl.link.elf);
 
         local_sym.* = .{
@@ -2432,7 +2425,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             if (needed_size > self.allocatedSize(debug_line_sect.sh_offset)) {
                 const new_offset = self.findFreeSpace(needed_size, 1);
                 const existing_size = last_src_fn.off;
-                log.debug("moving .debug_line section: {} bytes from 0x{x} to 0x{x}\n", .{
+                log.debug("moving .debug_line section: {d} bytes from 0x{x} to 0x{x}\n", .{
                     existing_size,
                     debug_line_sect.sh_offset,
                     new_offset,

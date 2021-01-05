@@ -27,11 +27,11 @@ const wasi = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    try @import("zir.zig").addCases(ctx);
     try @import("cbe.zig").addCases(ctx);
     try @import("spu-ii.zig").addCases(ctx);
     try @import("arm.zig").addCases(ctx);
     try @import("aarch64.zig").addCases(ctx);
+    try @import("llvm_backend.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);
@@ -534,7 +534,8 @@ pub fn addCases(ctx: *TestContext) !void {
         );
     }
     {
-        var case = ctx.exe("adding numbers at runtime", linux_x64);
+        var case = ctx.exe("adding numbers at runtime and comptime", linux_x64);
+
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    add(3, 4);
@@ -551,6 +552,54 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        :
             \\        : [number] "{rax}" (231),
             \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        // comptime function call
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    exit();
+            \\}
+            \\
+            \\fn add(a: u32, b: u32) u32 {
+            \\    return a + b;
+            \\}
+            \\
+            \\const x = add(3, 4);
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (x - 7)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        // Inline function call
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var x: usize = 3;
+            \\    const y = add(1, 2, x);
+            \\    exit(y - 6);
+            \\}
+            \\
+            \\inline fn add(a: usize, b: usize, c: usize) usize {
+            \\    return a + b + c;
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    unreachable;
@@ -1546,5 +1595,103 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var x = null;
             \\}
         , &[_][]const u8{":2:9: error: variable of type '@Type(.Null)' must be const or comptime"});
+    }
+
+    {
+        var case = ctx.exe("compile error in inline fn call fixed", linux_x64);
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    var x: usize = 3;
+            \\    const y = add(10, 2, x);
+            \\    exit(y - 6);
+            \\}
+            \\
+            \\inline fn add(a: usize, b: usize, c: usize) usize {
+            \\    if (a == 10) @compileError("bad");
+            \\    return a + b + c;
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":8:18: error: bad"});
+
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var x: usize = 3;
+            \\    const y = add(1, 2, x);
+            \\    exit(y - 6);
+            \\}
+            \\
+            \\inline fn add(a: usize, b: usize, c: usize) usize {
+            \\    if (a == 10) @compileError("bad");
+            \\    return a + b + c;
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+    {
+        var case = ctx.exe("recursive inline function", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const y = fibonacci(7);
+            \\    exit(y - 21);
+            \\}
+            \\
+            \\inline fn fibonacci(n: usize) usize {
+            \\    if (n <= 2) return n;
+            \\    return fibonacci(n - 2) + fibonacci(n - 1);
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const y = fibonacci(999);
+            \\    exit(y - 21);
+            \\}
+            \\
+            \\inline fn fibonacci(n: usize) usize {
+            \\    if (n <= 2) return n;
+            \\    return fibonacci(n - 2) + fibonacci(n - 1);
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":8:10: error: evaluation exceeded 1000 backwards branches"});
     }
 }

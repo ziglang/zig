@@ -235,7 +235,7 @@ fn renderFunctionSignature(
                 try writer.writeAll(", ");
             }
             try renderType(ctx, writer, tv.ty.fnParamType(index));
-            try writer.print(" arg{}", .{index});
+            try writer.print(" arg{d}", .{index});
         }
     }
     try writer.writeByte(')');
@@ -275,7 +275,7 @@ pub fn generate(file: *C, module: *Module, decl: *Decl) !void {
         try writer.writeAll(" {");
 
         const func: *Module.Fn = func_payload.data;
-        const instructions = func.analysis.success.instructions;
+        const instructions = func.body.instructions;
         if (instructions.len > 0) {
             try writer.writeAll("\n");
             for (instructions) |inst| {
@@ -383,7 +383,7 @@ const Context = struct {
     }
 
     fn name(self: *Context) ![]u8 {
-        const val = try std.fmt.allocPrint(&self.arena.allocator, "__temp_{}", .{self.unnamed_index});
+        const val = try std.fmt.allocPrint(&self.arena.allocator, "__temp_{d}", .{self.unnamed_index});
         self.unnamed_index += 1;
         return val;
     }
@@ -420,7 +420,7 @@ fn genAlloc(ctx: *Context, file: *C, alloc: *Inst.NoOp) !?[]u8 {
 }
 
 fn genArg(ctx: *Context) !?[]u8 {
-    const name = try std.fmt.allocPrint(&ctx.arena.allocator, "arg{}", .{ctx.argdex});
+    const name = try std.fmt.allocPrint(&ctx.arena.allocator, "arg{d}", .{ctx.argdex});
     ctx.argdex += 1;
     return name;
 }
@@ -528,7 +528,7 @@ fn genCall(ctx: *Context, file: *C, inst: *Inst.Call) !?[]u8 {
                     try renderValue(ctx, writer, arg.ty, val);
                 } else {
                     const val = try ctx.resolveInst(arg);
-                    try writer.print("{}", .{val});
+                    try writer.print("{s}", .{val});
                 }
             }
         }
@@ -587,7 +587,7 @@ fn genAsm(ctx: *Context, file: *C, as: *Inst.Assembly) !?[]u8 {
             const arg = as.args[index];
             try writer.writeAll("register ");
             try renderType(ctx, writer, arg.ty);
-            try writer.print(" {}_constant __asm__(\"{}\") = ", .{ reg, reg });
+            try writer.print(" {s}_constant __asm__(\"{s}\") = ", .{ reg, reg });
             // TODO merge constant handling into inst_map as well
             if (arg.castTag(.constant)) |c| {
                 try renderValue(ctx, writer, arg.ty, c.val);
@@ -597,13 +597,13 @@ fn genAsm(ctx: *Context, file: *C, as: *Inst.Assembly) !?[]u8 {
                 if (!gop.found_existing) {
                     return ctx.fail(ctx.decl.src(), "Internal error in C backend: asm argument not found in inst_map", .{});
                 }
-                try writer.print("{};\n    ", .{gop.entry.value});
+                try writer.print("{s};\n    ", .{gop.entry.value});
             }
         } else {
             return ctx.fail(ctx.decl.src(), "TODO non-explicit inline asm regs", .{});
         }
     }
-    try writer.print("__asm {} (\"{}\"", .{ if (as.is_volatile) @as([]const u8, "volatile") else "", as.asm_source });
+    try writer.print("__asm {s} (\"{s}\"", .{ if (as.is_volatile) @as([]const u8, "volatile") else "", as.asm_source });
     if (as.output) |o| {
         return ctx.fail(ctx.decl.src(), "TODO inline asm output", .{});
     }
@@ -619,7 +619,7 @@ fn genAsm(ctx: *Context, file: *C, as: *Inst.Assembly) !?[]u8 {
                 if (index > 0) {
                     try writer.writeAll(", ");
                 }
-                try writer.print("\"\"({}_constant)", .{reg});
+                try writer.print("\"\"({s}_constant)", .{reg});
             } else {
                 // This is blocked by the earlier test
                 unreachable;

@@ -108,11 +108,11 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
             return;
         }
         const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
         writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(), start_addr) catch |err| {
-            stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
+            stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
     }
@@ -129,7 +129,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
             return;
         }
         const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
         const tty_config = detectTTYConfig();
@@ -199,11 +199,11 @@ pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
             return;
         }
         const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
         writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig()) catch |err| {
-            stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
+            stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
     }
@@ -611,7 +611,7 @@ fn printLineInfo(
         tty_config.setColor(out_stream, .White);
 
         if (line_info) |*li| {
-            try out_stream.print("{}:{}:{}", .{ li.file_name, li.line, li.column });
+            try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
         } else {
             try out_stream.writeAll("???:?:?");
         }
@@ -619,7 +619,7 @@ fn printLineInfo(
         tty_config.setColor(out_stream, .Reset);
         try out_stream.writeAll(": ");
         tty_config.setColor(out_stream, .Dim);
-        try out_stream.print("0x{x} in {} ({})", .{ address, symbol_name, compile_unit_name });
+        try out_stream.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
         tty_config.setColor(out_stream, .Reset);
         try out_stream.writeAll("\n");
 

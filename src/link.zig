@@ -523,7 +523,7 @@ pub const File = struct {
                 id_symlink_basename,
                 &prev_digest_buf,
             ) catch |err| b: {
-                log.debug("archive new_digest={} readFile error: {}", .{ digest, @errorName(err) });
+                log.debug("archive new_digest={} readFile error: {s}", .{ digest, @errorName(err) });
                 break :b prev_digest_buf[0..0];
             };
             if (mem.eql(u8, prev_digest, &digest)) {
@@ -560,9 +560,9 @@ pub const File = struct {
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
         if (base.options.verbose_link) {
-            std.debug.print("ar rcs {}", .{full_out_path_z});
+            std.debug.print("ar rcs {s}", .{full_out_path_z});
             for (object_files.items) |arg| {
-                std.debug.print(" {}", .{arg});
+                std.debug.print(" {s}", .{arg});
             }
             std.debug.print("\n", .{});
         }
@@ -574,11 +574,11 @@ pub const File = struct {
 
         if (!base.options.disable_lld_caching) {
             Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-                log.warn("failed to save archive hash digest file: {}", .{@errorName(err)});
+                log.warn("failed to save archive hash digest file: {s}", .{@errorName(err)});
             };
 
             man.writeManifest() catch |err| {
-                log.warn("failed to write cache manifest when archiving: {}", .{@errorName(err)});
+                log.warn("failed to write cache manifest when archiving: {s}", .{@errorName(err)});
             };
 
             base.lock = man.toOwnedLock();

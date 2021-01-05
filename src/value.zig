@@ -330,11 +330,14 @@ pub const Value = extern union {
             .int_type => return self.copyPayloadShallow(allocator, Payload.IntType),
             .int_u64 => return self.copyPayloadShallow(allocator, Payload.U64),
             .int_i64 => return self.copyPayloadShallow(allocator, Payload.I64),
-            .int_big_positive => {
-                @panic("TODO implement copying of big ints");
-            },
-            .int_big_negative => {
-                @panic("TODO implement copying of big ints");
+            .int_big_positive, .int_big_negative => {
+                const old_payload = self.cast(Payload.BigInt).?;
+                const new_payload = try allocator.create(Payload.BigInt);
+                new_payload.* = .{
+                    .base = .{ .tag = self.ptr_otherwise.tag },
+                    .data = try allocator.dupe(std.math.big.Limb, old_payload.data),
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
             },
             .function => return self.copyPayloadShallow(allocator, Payload.Function),
             .extern_fn => return self.copyPayloadShallow(allocator, Payload.Decl),
@@ -464,7 +467,7 @@ pub const Value = extern union {
             .ty => return val.castTag(.ty).?.data.format("", options, out_stream),
             .int_type => {
                 const int_type = val.castTag(.int_type).?.data;
-                return out_stream.print("{}{}", .{
+                return out_stream.print("{s}{d}", .{
                     if (int_type.signed) "s" else "u",
                     int_type.bits,
                 });
@@ -507,7 +510,7 @@ pub const Value = extern union {
                 }
                 return out_stream.writeAll("}");
             },
-            .@"error" => return out_stream.print("error.{}", .{val.castTag(.@"error").?.data.name}),
+            .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
         };
     }
