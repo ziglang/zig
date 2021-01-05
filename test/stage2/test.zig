@@ -535,7 +535,6 @@ pub fn addCases(ctx: *TestContext) !void {
     }
     {
         var case = ctx.exe("adding numbers at runtime and comptime", linux_x64);
-
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    add(3, 4);
