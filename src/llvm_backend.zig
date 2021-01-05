@@ -140,6 +140,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
 pub const LLVMIRModule = struct {
     module: *Module,
     llvm_module: *const llvm.Module,
+    context: *const llvm.Context,
     target_machine: *const llvm.TargetMachine,
     builder: *const llvm.Builder,
 
@@ -181,19 +182,22 @@ pub const LLVMIRModule = struct {
         const object_path = try o_directory.join(gpa, &[_][]const u8{obj_basename});
         errdefer gpa.free(object_path);
 
+        const context = llvm.Context.create();
+        errdefer context.dispose();
+
         initializeLLVMTargets();
 
         const root_nameZ = try gpa.dupeZ(u8, options.root_name);
         defer gpa.free(root_nameZ);
-        const llvm_module = llvm.Module.createWithName(root_nameZ.ptr);
-        errdefer llvm_module.disposeModule();
+        const llvm_module = llvm.Module.createWithName(root_nameZ.ptr, context);
+        errdefer llvm_module.dispose();
 
         const llvm_target_triple = try targetTriple(gpa, options.target);
         defer gpa.free(llvm_target_triple);
 
         var error_message: [*:0]const u8 = undefined;
         var target: *const llvm.Target = undefined;
-        if (llvm.Target.getTargetFromTriple(llvm_target_triple.ptr, &target, &error_message)) {
+        if (llvm.Target.getFromTriple(llvm_target_triple.ptr, &target, &error_message)) {
             defer llvm.disposeMessage(error_message);
 
             const stderr = std.io.getStdErr().outStream();
@@ -213,7 +217,7 @@ pub const LLVMIRModule = struct {
         }
 
         const opt_level: llvm.CodeGenOptLevel = if (options.optimize_mode == .Debug) .None else .Aggressive;
-        const target_machine = llvm.TargetMachine.createTargetMachine(
+        const target_machine = llvm.TargetMachine.create(
             target,
             llvm_target_triple.ptr,
             "",
@@ -222,14 +226,15 @@ pub const LLVMIRModule = struct {
             .Static,
             .Default,
         );
-        errdefer target_machine.disposeTargetMachine();
+        errdefer target_machine.dispose();
 
-        const builder = llvm.Builder.createBuilder();
-        errdefer builder.disposeBuilder();
+        const builder = context.createBuilder();
+        errdefer builder.dispose();
 
         self.* = .{
             .module = options.module.?,
             .llvm_module = llvm_module,
+            .context = context,
             .target_machine = target_machine,
             .builder = builder,
             .object_path = object_path,
@@ -239,9 +244,10 @@ pub const LLVMIRModule = struct {
     }
 
     pub fn deinit(self: *LLVMIRModule, allocator: *Allocator) void {
-        self.builder.disposeBuilder();
-        self.target_machine.disposeTargetMachine();
-        self.llvm_module.disposeModule();
+        self.builder.dispose();
+        self.target_machine.dispose();
+        self.llvm_module.dispose();
+        self.context.dispose();
 
         self.func_inst_table.deinit(self.gpa);
         self.gpa.free(self.object_path);
@@ -271,7 +277,7 @@ pub const LLVMIRModule = struct {
             // verifyModule always allocs the error_message even if there is no error
             defer llvm.disposeMessage(error_message);
 
-            if (self.llvm_module.verifyModule(.ReturnStatus, &error_message)) {
+            if (self.llvm_module.verify(.ReturnStatus, &error_message)) {
                 const stderr = std.io.getStdErr().outStream();
                 try stderr.print("broken LLVM module found: {s}\nThis is a bug in the Zig compiler.", .{error_message});
                 return error.BrokenLLVMModule;
@@ -340,7 +346,7 @@ pub const LLVMIRModule = struct {
                 bb.deleteBasicBlock();
             }
 
-            self.entry_block = llvm_func.appendBasicBlock("Entry");
+            self.entry_block = self.context.appendBasicBlock(llvm_func, "Entry");
             self.builder.positionBuilderAtEnd(self.entry_block);
             self.latest_alloca_inst = null;
 
@@ -606,7 +612,7 @@ pub const LLVMIRModule = struct {
                         return self.fail(src, "TODO handle other sentinel values", .{});
                     } else false;
 
-                    return llvm.constString(payload.data.ptr, @intCast(c_uint, payload.data.len), !zero_sentinel);
+                    return self.context.constString(payload.data.ptr, @intCast(c_uint, payload.data.len), !zero_sentinel);
                 } else {
                     return self.fail(src, "TODO handle more array values", .{});
                 }
@@ -617,13 +623,13 @@ pub const LLVMIRModule = struct {
 
     fn getLLVMType(self: *LLVMIRModule, t: Type, src: usize) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
         switch (t.zigTypeTag()) {
-            .Void => return llvm.voidType(),
-            .NoReturn => return llvm.voidType(),
+            .Void => return self.context.voidType(),
+            .NoReturn => return self.context.voidType(),
             .Int => {
                 const info = t.intInfo(self.module.getTarget());
-                return llvm.intType(info.bits);
+                return self.context.intType(info.bits);
             },
-            .Bool => return llvm.intType(1),
+            .Bool => return self.context.intType(1),
             .Pointer => {
                 if (t.isSlice()) {
                     return self.fail(src, "TODO: LLVM backend: implement slices", .{});
@@ -688,10 +694,23 @@ pub const LLVMIRModule = struct {
         const llvm_fn = self.llvm_module.addFunction(func.name, fn_type);
 
         if (return_type.tag() == .noreturn) {
-            llvm_fn.addFnAttr("noreturn");
+            self.addFnAttr(llvm_fn, "noreturn");
         }
 
         return llvm_fn;
+    }
+
+    // Helper functions
+    fn addAttr(self: LLVMIRModule, val: *const llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
+        const kind_id = llvm.getEnumAttributeKindForName(name.ptr, name.len);
+        assert(kind_id != 0);
+        const llvm_attr = self.context.createEnumAttribute(kind_id, 0);
+        val.addAttributeAtIndex(index, llvm_attr);
+    }
+
+    fn addFnAttr(self: *LLVMIRModule, val: *const llvm.Value, attr_name: []const u8) void {
+        // TODO: improve this API, `addAttr(-1, attr_name)`
+        self.addAttr(val, std.math.maxInt(llvm.AttributeIndex), attr_name);
     }
 
     pub fn fail(self: *LLVMIRModule, src: usize, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {

@@ -5,35 +5,44 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const LLVMBool = bool;
-pub const LLVMAttributeIndex = c_uint;
+pub const AttributeIndex = c_uint;
+
+/// Make sure to use the *InContext functions instead of the global ones.
+pub const Context = opaque {
+    pub const create = LLVMContextCreate;
+    extern fn LLVMContextCreate() *const Context;
+
+    pub const dispose = LLVMContextDispose;
+    extern fn LLVMContextDispose(C: *const Context) void;
+
+    pub const createEnumAttribute = LLVMCreateEnumAttribute;
+    extern fn LLVMCreateEnumAttribute(*const Context, KindID: c_uint, Val: u64) *const Attribute;
+
+    pub const intType = LLVMIntTypeInContext;
+    extern fn LLVMIntTypeInContext(C: *const Context, NumBits: c_uint) *const Type;
+
+    pub const voidType = LLVMVoidTypeInContext;
+    extern fn LLVMVoidTypeInContext(C: *const Context) *const Type;
+
+    pub const constString = LLVMConstStringInContext;
+    extern fn LLVMConstStringInContext(C: *const Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: LLVMBool) *const Value;
+
+    pub const appendBasicBlock = LLVMAppendBasicBlockInContext;
+    extern fn LLVMAppendBasicBlockInContext(C: *const Context, Fn: *const Value, Name: [*:0]const u8) *const BasicBlock;
+
+    pub const createBuilder = LLVMCreateBuilderInContext;
+    extern fn LLVMCreateBuilderInContext(C: *const Context) *const Builder;
+};
 
 pub const Value = opaque {
     pub const addAttributeAtIndex = LLVMAddAttributeAtIndex;
-    extern fn LLVMAddAttributeAtIndex(*const Value, Idx: LLVMAttributeIndex, A: *const Attribute) void;
-
-    pub const appendBasicBlock = LLVMAppendBasicBlock;
-    extern fn LLVMAppendBasicBlock(Fn: *const Value, Name: [*:0]const u8) *const BasicBlock;
+    extern fn LLVMAddAttributeAtIndex(*const Value, Idx: AttributeIndex, A: *const Attribute) void;
 
     pub const getFirstBasicBlock = LLVMGetFirstBasicBlock;
     extern fn LLVMGetFirstBasicBlock(Fn: *const Value) ?*const BasicBlock;
 
     pub const getNextInstruction = LLVMGetNextInstruction;
     extern fn LLVMGetNextInstruction(Inst: *const Value) ?*const Value;
-
-    // Helper functions
-    // TODO: Do we want to put these functions here? It allows for convienient function calls
-    //       on Value: llvm_fn.addFnAttr("noreturn")
-    fn addAttr(val: *const Value, index: LLVMAttributeIndex, name: []const u8) void {
-        const kind_id = getEnumAttributeKindForName(name.ptr, name.len);
-        assert(kind_id != 0);
-        const llvm_attr = Context.getGlobal().createEnumAttribute(kind_id, 0);
-        val.addAttributeAtIndex(index, llvm_attr);
-    }
-
-    pub fn addFnAttr(val: *const Value, attr_name: []const u8) void {
-        // TODO: improve this API, `addAttr(-1, attr_name)`
-        val.addAttr(std.math.maxInt(LLVMAttributeIndex), attr_name);
-    }
 };
 
 pub const Type = opaque {
@@ -63,13 +72,13 @@ pub const Type = opaque {
 };
 
 pub const Module = opaque {
-    pub const createWithName = LLVMModuleCreateWithName;
-    extern fn LLVMModuleCreateWithName(ModuleID: [*:0]const u8) *const Module;
+    pub const createWithName = LLVMModuleCreateWithNameInContext;
+    extern fn LLVMModuleCreateWithNameInContext(ModuleID: [*:0]const u8, C: *const Context) *const Module;
 
-    pub const disposeModule = LLVMDisposeModule;
+    pub const dispose = LLVMDisposeModule;
     extern fn LLVMDisposeModule(*const Module) void;
 
-    pub const verifyModule = LLVMVerifyModule;
+    pub const verify = LLVMVerifyModule;
     extern fn LLVMVerifyModule(*const Module, Action: VerifierFailureAction, OutMessage: *[*:0]const u8) LLVMBool;
 
     pub const addFunction = LLVMAddFunction;
@@ -106,14 +115,8 @@ pub const VerifierFailureAction = extern enum {
 pub const constNeg = LLVMConstNeg;
 extern fn LLVMConstNeg(ConstantVal: *const Value) *const Value;
 
-pub const constString = LLVMConstString;
-extern fn LLVMConstString(Str: [*]const u8, Length: c_uint, DontNullTerminate: LLVMBool) *const Value;
-
 pub const setInitializer = LLVMSetInitializer;
 extern fn LLVMSetInitializer(GlobalVar: *const Value, ConstantVal: *const Value) void;
-
-pub const voidType = LLVMVoidType;
-extern fn LLVMVoidType() *const Type;
 
 pub const getParam = LLVMGetParam;
 extern fn LLVMGetParam(Fn: *const Value, Index: c_uint) *const Value;
@@ -123,22 +126,8 @@ extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint
 
 pub const Attribute = opaque {};
 
-pub const Context = opaque {
-    pub const createEnumAttribute = LLVMCreateEnumAttribute;
-    extern fn LLVMCreateEnumAttribute(*const Context, KindID: c_uint, Val: u64) *const Attribute;
-
-    pub const getGlobal = LLVMGetGlobalContext;
-    extern fn LLVMGetGlobalContext() *const Context;
-};
-
-pub const intType = LLVMIntType;
-extern fn LLVMIntType(NumBits: c_uint) *const Type;
-
 pub const Builder = opaque {
-    pub const createBuilder = LLVMCreateBuilder;
-    extern fn LLVMCreateBuilder() *const Builder;
-
-    pub const disposeBuilder = LLVMDisposeBuilder;
+    pub const dispose = LLVMDisposeBuilder;
     extern fn LLVMDisposeBuilder(Builder: *const Builder) void;
 
     pub const positionBuilder = LLVMPositionBuilder;
@@ -208,7 +197,7 @@ pub const BasicBlock = opaque {
 };
 
 pub const TargetMachine = opaque {
-    pub const createTargetMachine = LLVMCreateTargetMachine;
+    pub const create = LLVMCreateTargetMachine;
     extern fn LLVMCreateTargetMachine(
         T: *const Target,
         Triple: [*:0]const u8,
@@ -219,7 +208,7 @@ pub const TargetMachine = opaque {
         CodeModel: CodeMode,
     ) *const TargetMachine;
 
-    pub const disposeTargetMachine = LLVMDisposeTargetMachine;
+    pub const dispose = LLVMDisposeTargetMachine;
     extern fn LLVMDisposeTargetMachine(T: *const TargetMachine) void;
 
     pub const emitToFile = LLVMTargetMachineEmitToFile;
@@ -259,7 +248,7 @@ pub const CodeGenFileType = extern enum {
 };
 
 pub const Target = opaque {
-    pub const getTargetFromTriple = LLVMGetTargetFromTriple;
+    pub const getFromTriple = LLVMGetTargetFromTriple;
     extern fn LLVMGetTargetFromTriple(Triple: [*:0]const u8, T: **const Target, ErrorMessage: *[*:0]const u8) LLVMBool;
 };
 
