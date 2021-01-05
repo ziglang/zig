@@ -101,14 +101,12 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     defer object.dg.fwd_decl.deinit();
 
     codegen.genDecl(&object) catch |err| switch (err) {
-        error.AnalysisFail => {},
+        error.AnalysisFail => {
+            try module.failed_decls.put(module.gpa, decl, object.dg.error_msg.?);
+            return;
+        },
         else => |e| return e,
     };
-    // The code may populate this error without returning error.AnalysisFail.
-    if (object.dg.error_msg) |msg| {
-        try module.failed_decls.put(module.gpa, decl, msg);
-        return;
-    }
 
     fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
     code.* = object.code.moveToUnmanaged();

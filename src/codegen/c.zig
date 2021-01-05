@@ -27,42 +27,6 @@ pub const CValue = union(enum) {
     arg: usize,
     /// By-value
     decl: *Decl,
-
-    pub fn printed(value: CValue, object: *Object) Printed {
-        return .{
-            .value = value,
-            .object = object,
-        };
-    }
-
-    pub const Printed = struct {
-        value: CValue,
-        object: *Object,
-
-        /// TODO this got unwieldly, I want to remove the ability to print this way
-        pub fn format(
-            self: Printed,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) error{OutOfMemory}!void {
-            if (fmt.len != 0) @compileError("Unknown format string: '" ++ fmt ++ "'");
-            switch (self.value) {
-                .none => unreachable,
-                .local => |i| return std.fmt.format(writer, "t{d}", .{i}),
-                .local_ref => |i| return std.fmt.format(writer, "&t{d}", .{i}),
-                .constant => |inst| {
-                    const o = self.object;
-                    o.dg.renderValue(writer, inst.ty, inst.value().?) catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        error.AnalysisFail => return,
-                    };
-                },
-                .arg => |i| return std.fmt.format(writer, "a{d}", .{i}),
-                .decl => |decl| return writer.writeAll(mem.span(decl.name)),
-            }
-        }
-    };
 };
 
 pub const CValueMap = std.AutoHashMap(*Inst, CValue);
@@ -103,6 +67,17 @@ pub const Object = struct {
         try o.code.writer().writeByteNTimes(' ', indent_amt);
     }
 
+    fn writeCValue(o: *Object, writer: Writer, c_value: CValue) !void {
+        switch (c_value) {
+            .none => unreachable,
+            .local => |i| return writer.print("t{d}", .{i}),
+            .local_ref => |i| return writer.print("&t{d}", .{i}),
+            .constant => |inst| return o.dg.renderValue(writer, inst.ty, inst.value().?),
+            .arg => |i| return writer.print("a{d}", .{i}),
+            .decl => |decl| return writer.writeAll(mem.span(decl.name)),
+        }
+    }
+
     fn renderTypeAndName(
         o: *Object,
         writer: Writer,
@@ -127,7 +102,9 @@ pub const Object = struct {
             .Const => "const ",
             .Mut => "",
         };
-        try writer.print(" {s}{}{s}", .{ const_prefix, name.printed(o), suffix.items });
+        try writer.print(" {s}", .{const_prefix});
+        try o.writeCValue(writer, name);
+        try writer.writeAll(suffix.items);
     }
 };
 
@@ -353,7 +330,7 @@ pub fn genDecl(o: *Object) !void {
         try writer.writeAll("\n");
         for (instructions) |inst| {
             const result_value = switch (inst.tag) {
-                .add => try genBinOp(o, inst.castTag(.add).?, "+"),
+                .add => try genBinOp(o, inst.castTag(.add).?, " + "),
                 .alloc => try genAlloc(o, inst.castTag(.alloc).?),
                 .arg => genArg(o),
                 .assembly => try genAsm(o, inst.castTag(.assembly).?),
@@ -361,19 +338,19 @@ pub fn genDecl(o: *Object) !void {
                 .bitcast => try genBitcast(o, inst.castTag(.bitcast).?),
                 .breakpoint => try genBreakpoint(o, inst.castTag(.breakpoint).?),
                 .call => try genCall(o, inst.castTag(.call).?),
-                .cmp_eq => try genBinOp(o, inst.castTag(.cmp_eq).?, "=="),
-                .cmp_gt => try genBinOp(o, inst.castTag(.cmp_gt).?, ">"),
-                .cmp_gte => try genBinOp(o, inst.castTag(.cmp_gte).?, ">="),
-                .cmp_lt => try genBinOp(o, inst.castTag(.cmp_lt).?, "<"),
-                .cmp_lte => try genBinOp(o, inst.castTag(.cmp_lte).?, "<="),
-                .cmp_neq => try genBinOp(o, inst.castTag(.cmp_neq).?, "!="),
+                .cmp_eq => try genBinOp(o, inst.castTag(.cmp_eq).?, " == "),
+                .cmp_gt => try genBinOp(o, inst.castTag(.cmp_gt).?, " > "),
+                .cmp_gte => try genBinOp(o, inst.castTag(.cmp_gte).?, " >= "),
+                .cmp_lt => try genBinOp(o, inst.castTag(.cmp_lt).?, " < "),
+                .cmp_lte => try genBinOp(o, inst.castTag(.cmp_lte).?, " <= "),
+                .cmp_neq => try genBinOp(o, inst.castTag(.cmp_neq).?, " != "),
                 .dbg_stmt => try genDbgStmt(o, inst.castTag(.dbg_stmt).?),
                 .intcast => try genIntCast(o, inst.castTag(.intcast).?),
                 .load => try genLoad(o, inst.castTag(.load).?),
                 .ret => try genRet(o, inst.castTag(.ret).?),
                 .retvoid => try genRetVoid(o),
                 .store => try genStore(o, inst.castTag(.store).?),
-                .sub => try genBinOp(o, inst.castTag(.sub).?, "-"),
+                .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
                 .unreach => try genUnreach(o, inst.castTag(.unreach).?),
                 else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
             };
@@ -457,10 +434,14 @@ fn genLoad(o: *Object, inst: *Inst.UnOp) !CValue {
     switch (operand) {
         .local_ref => |i| {
             const wrapped: CValue = .{ .local = i };
-            try writer.print(" = {};\n", .{wrapped.printed(o)});
+            try writer.writeAll(" = ");
+            try o.writeCValue(writer, wrapped);
+            try writer.writeAll(";\n");
         },
         else => {
-            try writer.print(" = *{};\n", .{operand.printed(o)});
+            try writer.writeAll(" = *");
+            try o.writeCValue(writer, operand);
+            try writer.writeAll(";\n");
         },
     }
     return local;
@@ -469,7 +450,10 @@ fn genLoad(o: *Object, inst: *Inst.UnOp) !CValue {
 fn genRet(o: *Object, inst: *Inst.UnOp) !CValue {
     const operand = try o.resolveInst(inst.operand);
     try o.indent();
-    try o.code.writer().print("return {};\n", .{operand.printed(o)});
+    const writer = o.code.writer();
+    try writer.writeAll("return ");
+    try o.writeCValue(writer, operand);
+    try writer.writeAll(";\n");
     return CValue.none;
 }
 
@@ -484,7 +468,9 @@ fn genIntCast(o: *Object, inst: *Inst.UnOp) !CValue {
     const local = try o.allocLocal(inst.base.ty, .Const);
     try writer.writeAll(" = (");
     try o.dg.renderType(writer, inst.base.ty);
-    try writer.print("){};\n", .{from.printed(o)});
+    try writer.writeAll(")");
+    try o.writeCValue(writer, from);
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -498,10 +484,17 @@ fn genStore(o: *Object, inst: *Inst.BinOp) !CValue {
     switch (dest_ptr) {
         .local_ref => |i| {
             const dest: CValue = .{ .local = i };
-            try writer.print("{} = {};\n", .{ dest.printed(o), src_val.printed(o) });
+            try o.writeCValue(writer, dest);
+            try writer.writeAll(" = ");
+            try o.writeCValue(writer, src_val);
+            try writer.writeAll(";\n");
         },
         else => {
-            try writer.print("*{} = {};\n", .{ dest_ptr.printed(o), src_val.printed(o) });
+            try writer.writeAll("*");
+            try o.writeCValue(writer, dest_ptr);
+            try writer.writeAll(" = ");
+            try o.writeCValue(writer, src_val);
+            try writer.writeAll(";\n");
         },
     }
     return CValue.none;
@@ -517,7 +510,13 @@ fn genBinOp(o: *Object, inst: *Inst.BinOp, operator: []const u8) !CValue {
     try o.indent();
     const writer = o.code.writer();
     const local = try o.allocLocal(inst.base.ty, .Const);
-    try writer.print(" = {} {s} {};\n", .{ lhs.printed(o), operator, rhs.printed(o) });
+
+    try writer.writeAll(" = ");
+    try o.writeCValue(writer, lhs);
+    try writer.writeAll(operator);
+    try o.writeCValue(writer, rhs);
+    try writer.writeAll(";\n");
+
     return local;
 }
 
@@ -556,7 +555,7 @@ fn genCall(o: *Object, inst: *Inst.Call) !CValue {
                     try o.dg.renderValue(writer, arg.ty, val);
                 } else {
                     const val = try o.resolveInst(arg);
-                    try writer.print("{}", .{val.printed(o)});
+                    try o.writeCValue(writer, val);
                 }
             }
         }
@@ -585,16 +584,25 @@ fn genBitcast(o: *Object, inst: *Inst.UnOp) !CValue {
         const local = try o.allocLocal(inst.base.ty, .Const);
         try writer.writeAll(" = (");
         try o.dg.renderType(writer, inst.base.ty);
-        try writer.print("){};\n", .{operand.printed(o)});
+
+        try writer.writeAll(")");
+        try o.writeCValue(writer, operand);
+        try writer.writeAll(";\n");
         return local;
     }
 
     const local = try o.allocLocal(inst.base.ty, .Mut);
     try writer.writeAll(";\n");
     try o.indent();
-    try writer.print("memcpy(&{}, &{}, sizeof {});\n", .{
-        local.printed(o), operand.printed(o), local.printed(o),
-    });
+
+    try writer.writeAll("memcpy(&");
+    try o.writeCValue(writer, local);
+    try writer.writeAll(", &");
+    try o.writeCValue(writer, operand);
+    try writer.writeAll(", sizeof ");
+    try o.writeCValue(writer, local);
+    try writer.writeAll(");\n");
+
     return local;
 }
 
@@ -623,9 +631,10 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
             try o.indent();
             try writer.writeAll("register ");
             try o.dg.renderType(writer, arg.ty);
-            try writer.print(" {s}_constant __asm__(\"{s}\") = {};\n", .{
-                reg, reg, arg_c_value.printed(o),
-            });
+
+            try writer.print(" {s}_constant __asm__(\"{s}\") = ", .{ reg, reg });
+            try o.writeCValue(writer, arg_c_value);
+            try writer.writeAll(";\n");
         } else {
             return o.dg.fail(o.dg.decl.src(), "TODO non-explicit inline asm regs", .{});
         }
@@ -648,7 +657,7 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
                 if (index > 0) {
                     try writer.writeAll(", ");
                 }
-                try writer.print("\"\"({s}_constant)", .{reg});
+                try writer.print("\"r\"({s}_constant)", .{reg});
             } else {
                 // This is blocked by the earlier test
                 unreachable;

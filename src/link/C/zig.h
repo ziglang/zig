@@ -22,24 +22,31 @@
 #define zig_unreachable()
 #endif
 
-#if defined(_MSC_VER)
-#define zig_breakpoint __debugbreak()
-#else
-#if defined(__MINGW32__) || defined(__MINGW64__)
-#define zig_breakpoint __debugbreak()
-#elif defined(__clang__)
-#define zig_breakpoint __builtin_debugtrap()
+#if __STDC_VERSION__ >= 199901L
+#define zig_restrict restrict
 #elif defined(__GNUC__)
-#define zig_breakpoint __builtin_trap()
-#elif defined(__i386__) || defined(__x86_64__)
-#define zig_breakpoint __asm__ volatile("int $0x03");
+#define zig_restrict __restrict
 #else
-#define zig_breakpoint raise(SIGTRAP)
+#define zig_restrict
 #endif
+
+#if defined(_MSC_VER)
+#define zig_breakpoint() __debugbreak()
+#elif defined(__MINGW32__) || defined(__MINGW64__)
+#define zig_breakpoint() __debugbreak()
+#elif defined(__clang__)
+#define zig_breakpoint() __builtin_debugtrap()
+#elif defined(__GNUC__)
+#define zig_breakpoint() __builtin_trap()
+#elif defined(__i386__) || defined(__x86_64__)
+#define zig_breakpoint() __asm__ volatile("int $0x03");
+#else
+#define zig_breakpoint() raise(SIGTRAP)
 #endif
 
 #include <stdint.h>
+#include <stddef.h>
 #define int128_t __int128
 #define uint128_t unsigned __int128
-#include <string.h>
+void *memcpy (void *zig_restrict, const void *zig_restrict, size_t);
 
