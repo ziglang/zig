@@ -527,6 +527,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (options.root_pkg == null)
                 break :blk false;
 
+            // If we are outputting .c code we must use Zig backend.
+            if (ofmt == .c)
+                break :blk false;
+
             // If we are the stage1 compiler, we depend on the stage1 c++ llvm backend
             // to compile zig code.
             if (build_options.is_stage1)

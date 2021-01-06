@@ -151,36 +151,46 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     var fn_count: usize = 0;
 
     // Forward decls and non-functions first.
+    // TODO: performance investigation: would keeping a list of Decls that we should
+    // generate, rather than querying here, be faster?
     for (module.decl_table.items()) |kv| {
         const decl = kv.value;
-        const decl_tv = decl.typed_value.most_recent.typed_value;
-        const buf = buf: {
-            if (decl_tv.val.castTag(.function)) |_| {
-                fn_count += 1;
-                break :buf decl.fn_link.c.fwd_decl.items;
-            } else {
-                break :buf decl.link.c.code.items;
-            }
-        };
-        all_buffers.appendAssumeCapacity(.{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
-        });
-        file_size += buf.len;
+        switch (decl.typed_value) {
+            .most_recent => |tvm| {
+                const buf = buf: {
+                    if (tvm.typed_value.val.castTag(.function)) |_| {
+                        fn_count += 1;
+                        break :buf decl.fn_link.c.fwd_decl.items;
+                    } else {
+                        break :buf decl.link.c.code.items;
+                    }
+                };
+                all_buffers.appendAssumeCapacity(.{
+                    .iov_base = buf.ptr,
+                    .iov_len = buf.len,
+                });
+                file_size += buf.len;
+            },
+            .never_succeeded => continue,
+        }
     }
 
     // Now the function bodies.
     try all_buffers.ensureCapacity(all_buffers.items.len + fn_count);
     for (module.decl_table.items()) |kv| {
         const decl = kv.value;
-        const decl_tv = decl.typed_value.most_recent.typed_value;
-        if (decl_tv.val.castTag(.function)) |_| {
-            const buf = decl.link.c.code.items;
-            all_buffers.appendAssumeCapacity(.{
-                .iov_base = buf.ptr,
-                .iov_len = buf.len,
-            });
-            file_size += buf.len;
+        switch (decl.typed_value) {
+            .most_recent => |tvm| {
+                if (tvm.typed_value.val.castTag(.function)) |_| {
+                    const buf = decl.link.c.code.items;
+                    all_buffers.appendAssumeCapacity(.{
+                        .iov_base = buf.ptr,
+                        .iov_len = buf.len,
+                    });
+                    file_size += buf.len;
+                }
+            },
+            .never_succeeded => continue,
         }
     }
 

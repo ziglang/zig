@@ -29,6 +29,16 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return 0;
             \\}
         , "yo" ++ std.cstr.line_sep);
+
+        // Add an unused Decl
+        case.addCompareOutput(
+            \\extern fn puts(s: [*:0]const u8) c_int;
+            \\export fn main() c_int {
+            \\    _ = puts("yo!");
+            \\    return 0;
+            \\}
+            \\fn unused() void {}
+        , "yo!" ++ std.cstr.line_sep);
     }
 
     {
