@@ -4701,6 +4701,9 @@ pub const SendError = error{
 
     /// The local network interface used to reach the destination is down.
     NetworkSubsystemFailed,
+
+    /// The socket is not connected (connection-oriented sockets only).
+    SocketNotConnected,
 } || UnexpectedError;
 
 pub const SendToError = SendError || error{
@@ -4717,8 +4720,6 @@ pub const SendToError = SendError || error{
     FileNotFound,
     NotDir,
 
-    /// The socket is not connected (connection-oriented sockets only).
-    SocketNotConnected,
     AddressNotAvailable,
 };
 
