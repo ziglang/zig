@@ -991,6 +991,40 @@ test "mem.count" {
     testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
+/// Returns true if the haystack contains expected_count or more needles
+/// needle.len must be > 0
+/// does not count overlapping needles
+pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
+    assert(needle.len > 0);
+    if (expected_count == 0) return true;
+
+    var i: usize = 0;
+    var found: usize = 0;
+
+    while (indexOfPos(T, haystack, i, needle)) |idx| {
+        i = idx + needle.len;
+        found += 1;
+        if (found == expected_count) return true;
+    }
+    return false;
+}
+
+test "mem.containsAtLeast" {
+    testing.expect(containsAtLeast(u8, "aa", 0, "a"));
+    testing.expect(containsAtLeast(u8, "aa", 1, "a"));
+    testing.expect(containsAtLeast(u8, "aa", 2, "a"));
+    testing.expect(!containsAtLeast(u8, "aa", 3, "a"));
+
+    testing.expect(containsAtLeast(u8, "radaradar", 1, "radar"));
+    testing.expect(!containsAtLeast(u8, "radaradar", 2, "radar"));
+
+    testing.expect(containsAtLeast(u8, "radarradaradarradar", 3, "radar"));
+    testing.expect(!containsAtLeast(u8, "radarradaradarradar", 4, "radar"));
+
+    testing.expect(containsAtLeast(u8, "   radar      radar   ", 2, "radar"));
+    testing.expect(!containsAtLeast(u8, "   radar      radar   ", 3, "radar"));
+}
+
 /// Reads an integer from memory with size equal to bytes.len.
 /// T specifies the return type, which must be large enough to store
 /// the result.
