@@ -7,7 +7,7 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 
 pub const SpinLock = struct {
-    state: State,
+    state: State = .Unlocked,
 
     const State = enum(u8) {
         Unlocked,
