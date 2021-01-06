@@ -567,7 +567,7 @@ pub const File = struct {
             std.debug.print("\n", .{});
         }
 
-        const llvm = @import("llvm_bindings.zig");
+        const llvm = @import("codegen/llvm/bindings.zig");
         const os_type = @import("target.zig").osToLLVM(base.options.target.os.tag);
         const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
         if (bad) return error.UnableToWriteArchive;

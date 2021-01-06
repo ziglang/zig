@@ -405,7 +405,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
     errdefer comp.gpa.free(lib_final_path);
 
-    const llvm = @import("llvm_bindings.zig");
+    const llvm = @import("codegen/llvm/bindings.zig");
     const arch_type = @import("target.zig").archToLLVM(target.cpu.arch);
     const def_final_path_z = try arena.dupeZ(u8, def_final_path);
     const lib_final_path_z = try arena.dupeZ(u8, lib_final_path);

@@ -1,9 +1,6 @@
 //! We do this instead of @cImport because the self-hosted compiler is easier
 //! to bootstrap if it does not depend on translate-c.
 
-const std = @import("std");
-const assert = std.debug.assert;
-
 const LLVMBool = bool;
 pub const AttributeIndex = c_uint;
 

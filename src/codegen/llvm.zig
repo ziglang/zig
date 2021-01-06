@@ -1,18 +1,18 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Compilation = @import("Compilation.zig");
-const llvm = @import("llvm_bindings.zig");
-const link = @import("link.zig");
+const Compilation = @import("../Compilation.zig");
+const llvm = @import("llvm/bindings.zig");
+const link = @import("../link.zig");
 const log = std.log.scoped(.codegen);
 
-const Module = @import("Module.zig");
-const TypedValue = @import("TypedValue.zig");
-const ir = @import("ir.zig");
+const Module = @import("../Module.zig");
+const TypedValue = @import("../TypedValue.zig");
+const ir = @import("../ir.zig");
 const Inst = ir.Inst;
 
-const Value = @import("value.zig").Value;
-const Type = @import("type.zig").Type;
+const Value = @import("../value.zig").Value;
+const Type = @import("../type.zig").Type;
 
 pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
     const llvm_arch = switch (target.cpu.arch) {
