@@ -3123,7 +3123,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         });
         break :blk try directory.join(arena, &[_][]const u8{bin_basename});
     } else "";
-    if (comp.emit_h != null) {
+    if (mod.emit_h != null) {
         log.warn("-femit-h is not available in the stage1 backend; no .h file will be produced", .{});
     }
     const emit_h_path = try stage1LocPath(arena, mod.emit_h, directory);
