@@ -1129,7 +1129,7 @@ fn swap(
     }
 }
 
-/// Use to generate a comparator function for a given type. e.g. `sort(u8, slice, asc(u8))`.
+/// Use to generate a comparator function for a given type. e.g. `sort(u8, slice, {}, comptime asc(u8))`.
 pub fn asc(comptime T: type) fn (void, T, T) bool {
     const impl = struct {
         fn inner(context: void, a: T, b: T) bool {
@@ -1140,7 +1140,7 @@ pub fn asc(comptime T: type) fn (void, T, T) bool {
     return impl.inner;
 }
 
-/// Use to generate a comparator function for a given type. e.g. `sort(u8, slice, asc(u8))`.
+/// Use to generate a comparator function for a given type. e.g. `sort(u8, slice, {}, comptime desc(u8))`.
 pub fn desc(comptime T: type) fn (void, T, T) bool {
     const impl = struct {
         fn inner(context: void, a: T, b: T) bool {
