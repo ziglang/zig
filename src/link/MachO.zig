@@ -123,6 +123,8 @@ string_table: std.ArrayListUnmanaged(u8) = .{},
 /// Table of trampolines to the actual symbols in __text section.
 offset_table: std.ArrayListUnmanaged(u64) = .{},
 
+/// Table of rebase info entries.
+rebase_info_table: RebaseInfoTable = .{},
 /// Table of binding info entries.
 binding_info_table: BindingInfoTable = .{},
 /// Table of lazy binding info entries.
@@ -133,6 +135,7 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 offset_table_count_dirty: bool = false,
 header_dirty: bool = false,
 load_commands_dirty: bool = false,
+rebase_info_dirty: bool = false,
 binding_info_dirty: bool = false,
 lazy_binding_info_dirty: bool = false,
 export_info_dirty: bool = false,
@@ -400,6 +403,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 main_cmd.entryoff = addr - text_segment.inner.vmaddr;
                 self.load_commands_dirty = true;
             }
+            try self.writeRebaseInfoTable();
             try self.writeBindingInfoTable();
             try self.writeLazyBindingInfoTable();
             try self.writeExportTrie();
@@ -425,6 +429,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 
+    {
+        const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+        dysymtab.nindirectsyms = 0;
+    }
+
     try self.writeLoadCommands();
     try self.writeHeader();
 
@@ -439,6 +448,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     assert(!self.offset_table_count_dirty);
     assert(!self.header_dirty);
     assert(!self.load_commands_dirty);
+    assert(!self.rebase_info_dirty);
     assert(!self.binding_info_dirty);
     assert(!self.lazy_binding_info_dirty);
     assert(!self.export_info_dirty);
@@ -1289,6 +1299,12 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         mem.writeIntLittle(u32, cccode[8..12], 0);
         try self.base.file.?.pwriteAll(&cccode, self.next_stub_helper_off.?);
         self.next_stub_helper_off = self.next_stub_helper_off.? + 3 * @sizeOf(u32);
+
+        try self.rebase_info_table.symbols.append(self.base.allocator, .{
+            .segment = 3,
+            .offset = 0,
+        });
+        self.rebase_info_dirty = true;
     }
 
     const text_section = text_segment.sections.items[self.text_section_index.?];
@@ -1821,12 +1837,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.dyld_info_cmd_index == null) {
         self.dyld_info_cmd_index = @intCast(u16, self.load_commands.items.len);
 
-        // TODO Preallocate rebase, binding, and lazy binding info.
-        const export_size = 2;
-        const export_off = self.findFreeSpaceLinkedit(export_size, 1);
-
-        log.debug("found export info free space 0x{x} to 0x{x}", .{ export_off, export_off + export_size });
-
         try self.load_commands.append(self.base.allocator, .{
             .DyldInfoOnly = .{
                 .cmd = macho.LC_DYLD_INFO_ONLY,
@@ -1839,37 +1849,67 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .weak_bind_size = 0,
                 .lazy_bind_off = 0,
                 .lazy_bind_size = 0,
-                .export_off = @intCast(u32, export_off),
-                .export_size = export_size,
+                .export_off = 0,
+                .export_size = 0,
             },
         });
+
+        const dyld = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+
+        // Preallocate rebase, binding, lazy binding info, and export info.
+        const expected_size = 48; // TODO This is totally random.
+        const rebase_off = self.findFreeSpaceLinkedit(expected_size, 1);
+        log.debug("found rebase info free space 0x{x} to 0x{x}", .{ rebase_off, rebase_off + expected_size });
+        dyld.rebase_off = @intCast(u32, rebase_off);
+        dyld.rebase_size = expected_size;
+
+        const bind_off = self.findFreeSpaceLinkedit(expected_size, 1);
+        log.debug("found binding info free space 0x{x} to 0x{x}", .{ bind_off, bind_off + expected_size });
+        dyld.bind_off = @intCast(u32, bind_off);
+        dyld.bind_size = expected_size;
+
+        const lazy_bind_off = self.findFreeSpaceLinkedit(expected_size, 1);
+        log.debug("found lazy binding info free space 0x{x} to 0x{x}", .{ lazy_bind_off, lazy_bind_off + expected_size });
+        dyld.lazy_bind_off = @intCast(u32, lazy_bind_off);
+        dyld.lazy_bind_size = expected_size;
+
+        const export_off = self.findFreeSpaceLinkedit(expected_size, 1);
+        log.debug("found export info free space 0x{x} to 0x{x}", .{ export_off, export_off + expected_size });
+        dyld.export_off = @intCast(u32, export_off);
+        dyld.export_size = expected_size;
+
         self.header_dirty = true;
         self.load_commands_dirty = true;
     }
     if (self.symtab_cmd_index == null) {
         self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
 
-        const symtab_size = self.base.options.symbol_count_hint * @sizeOf(macho.nlist_64);
-        const symtab_off = self.findFreeSpaceLinkedit(symtab_size, @sizeOf(macho.nlist_64));
-
-        log.debug("found symbol table free space 0x{x} to 0x{x}", .{ symtab_off, symtab_off + symtab_size });
-
-        try self.string_table.append(self.base.allocator, 0); // Need a null at position 0.
-        const strtab_size = self.string_table.items.len;
-        const strtab_off = self.findFreeSpaceLinkedit(strtab_size, 1);
-
-        log.debug("found string table free space 0x{x} to 0x{x}", .{ strtab_off, strtab_off + strtab_size });
-
         try self.load_commands.append(self.base.allocator, .{
             .Symtab = .{
                 .cmd = macho.LC_SYMTAB,
                 .cmdsize = @sizeOf(macho.symtab_command),
-                .symoff = @intCast(u32, symtab_off),
-                .nsyms = @intCast(u32, self.base.options.symbol_count_hint),
-                .stroff = @intCast(u32, strtab_off),
-                .strsize = @intCast(u32, strtab_size),
+                .symoff = 0,
+                .nsyms = 0,
+                .stroff = 0,
+                .strsize = 0,
             },
         });
+
+        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+
+        const symtab_size = self.base.options.symbol_count_hint * @sizeOf(macho.nlist_64);
+        const symtab_off = self.findFreeSpaceLinkedit(symtab_size, @sizeOf(macho.nlist_64));
+        log.debug("found symbol table free space 0x{x} to 0x{x}", .{ symtab_off, symtab_off + symtab_size });
+        symtab.symoff = @intCast(u32, symtab_off);
+        symtab.nsyms = @intCast(u32, self.base.options.symbol_count_hint);
+
+        try self.string_table.append(self.base.allocator, 0); // Need a null at position 0.
+        const strtab_size = self.string_table.items.len;
+        const strtab_off = self.findFreeSpaceLinkedit(strtab_size, 1);
+        log.debug("found string table free space 0x{x} to 0x{x}", .{ strtab_off, strtab_off + strtab_size });
+        symtab.stroff = @intCast(u32, strtab_off);
+        symtab.strsize = @intCast(u32, strtab_size);
+
         self.header_dirty = true;
         self.load_commands_dirty = true;
         self.string_table_dirty = true;
@@ -1877,7 +1917,11 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.dysymtab_cmd_index == null) {
         self.dysymtab_cmd_index = @intCast(u16, self.load_commands.items.len);
 
-        // TODO Preallocate space for indirect symbol table.
+        // Preallocate space for indirect symbol table.
+        const indsymtab_size = self.base.options.symbol_count_hint * @sizeOf(u64); // Each entry is just a u64.
+        const indsymtab_off = self.findFreeSpaceLinkedit(indsymtab_size, @sizeOf(u64));
+
+        log.debug("found indirect symbol table free space 0x{x} to 0x{x}", .{ indsymtab_off, indsymtab_off + indsymtab_size });
 
         try self.load_commands.append(self.base.allocator, .{
             .Dysymtab = .{
@@ -1895,8 +1939,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .nmodtab = 0,
                 .extrefsymoff = 0,
                 .nextrefsyms = 0,
-                .indirectsymoff = 0,
-                .nindirectsyms = 0,
+                .indirectsymoff = @intCast(u32, indsymtab_off),
+                .nindirectsyms = @intCast(u32, self.base.options.symbol_count_hint),
                 .extreloff = 0,
                 .nextrel = 0,
                 .locreloff = 0,
@@ -2563,6 +2607,37 @@ fn writeExportTrie(self: *MachO) !void {
     try self.base.file.?.pwriteAll(buffer, dyld_info.export_off);
     self.load_commands_dirty = true;
     self.export_info_dirty = false;
+}
+
+fn writeRebaseInfoTable(self: *MachO) !void {
+    if (!self.rebase_info_dirty) return;
+
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const size = try self.rebase_info_table.calcSize();
+    var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
+    defer self.base.allocator.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    try self.rebase_info_table.write(stream.writer());
+
+    const linkedit_segment = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
+    const allocated_size = self.allocatedSizeLinkedit(dyld_info.rebase_off);
+    const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
+
+    if (needed_size > allocated_size) {
+        dyld_info.rebase_off = 0;
+        dyld_info.rebase_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
+    }
+
+    dyld_info.rebase_size = @intCast(u32, needed_size);
+    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
+
+    try self.base.file.?.pwriteAll(buffer, dyld_info.rebase_off);
+    self.load_commands_dirty = true;
+    self.rebase_info_dirty = false;
 }
 
 fn writeBindingInfoTable(self: *MachO) !void {

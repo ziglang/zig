@@ -6,6 +6,49 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 
+pub const RebaseInfoTable = struct {
+    rebase_type: u8 = macho.REBASE_TYPE_POINTER,
+    symbols: std.ArrayListUnmanaged(Symbol) = .{},
+
+    pub const Symbol = struct {
+        segment: u8,
+        offset: i64,
+    };
+
+    pub fn deinit(self: *RebaseInfoTable, allocator: *Allocator) void {
+        self.symbols.deinit(allocator);
+    }
+
+    /// Write the rebase info table to byte stream.
+    pub fn write(self: RebaseInfoTable, writer: anytype) !void {
+        try writer.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @truncate(u4, self.rebase_type));
+
+        for (self.symbols.items) |symbol| {
+            try writer.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
+            try leb.writeILEB128(writer, symbol.offset);
+            try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES | @truncate(u4, 1));
+        }
+
+        try writer.writeByte(macho.REBASE_OPCODE_DONE);
+    }
+
+    /// Calculate size in bytes of this rebase info table.
+    pub fn calcSize(self: *RebaseInfoTable) !u64 {
+        var stream = std.io.countingWriter(std.io.null_writer);
+        var writer = stream.writer();
+        var size: u64 = 1;
+
+        for (self.symbols.items) |symbol| {
+            size += 1;
+            try leb.writeILEB128(writer, symbol.offset);
+            size += 1;
+        }
+
+        size += 1 + stream.bytes_written;
+        return size;
+    }
+};
+
 /// Table of binding info entries used to tell the dyld which
 /// symbols to bind at loading time.
 pub const BindingInfoTable = struct {
