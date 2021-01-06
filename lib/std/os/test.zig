@@ -639,12 +639,12 @@ test "shutdown socket" {
             std.os.windows.WSACleanup() catch unreachable;
         }
     }
-    const sock = try os.socket(os.AF_INET, os.SOCK_STREAM, 0);
-    os.shutdown(sock, .both) catch |err| switch (err) {
-        error.SocketNotConnected => {},
-        else => |e| return e,
-    };
-    os.closeSocket(sock);
+    const sock = try os.socket(os.AF_INET, os.SOCK_DGRAM, 0);
+    defer os.closeSocket(sock);
+
+    const addr = try std.net.Address.parseIp4("127.0.0.1", 80);
+    try os.connect(sock, &addr.any, addr.getOsSockLen());
+    try os.shutdown(sock, .both);
 }
 
 var signal_test_failed = true;

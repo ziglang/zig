@@ -2637,8 +2637,6 @@ pub const ShutdownError = error{
     /// The network subsystem has failed.
     NetworkSubsystemFailed,
 
-    /// The socket is not connected (connection-oriented sockets only).
-    SocketNotConnected,
     SystemResources,
 } || UnexpectedError;
 
@@ -2658,7 +2656,7 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
             .WSAEINPROGRESS => return error.BlockingOperationInProgress,
             .WSAEINVAL => unreachable,
             .WSAENETDOWN => return error.NetworkSubsystemFailed,
-            .WSAENOTCONN => return error.SocketNotConnected,
+            .WSAENOTCONN => unreachable,
             .WSAENOTSOCK => unreachable,
             .WSANOTINITIALISED => unreachable,
             else => |err| return windows.unexpectedWSAError(err),
@@ -2673,7 +2671,7 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
             0 => return,
             EBADF => unreachable,
             EINVAL => unreachable,
-            ENOTCONN => return error.SocketNotConnected,
+            ENOTCONN => unreachable,
             ENOTSOCK => unreachable,
             ENOBUFS => return error.SystemResources,
             else => |err| return unexpectedErrno(err),
@@ -4717,8 +4715,6 @@ pub const SendToError = SendError || error{
     FileNotFound,
     NotDir,
 
-    /// The socket is not connected (connection-oriented sockets only).
-    SocketNotConnected,
     AddressNotAvailable,
 };
 
@@ -4776,7 +4772,7 @@ pub fn sendto(
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENETUNREACH => return error.NetworkUnreachable,
-                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTCONN => unreachable,
                     .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
@@ -4812,7 +4808,7 @@ pub fn sendto(
                 ENOTDIR => return error.NotDir,
                 EHOSTUNREACH => return error.NetworkUnreachable,
                 ENETUNREACH => return error.NetworkUnreachable,
-                ENOTCONN => return error.SocketNotConnected,
+                ENOTCONN => unreachable,
                 ENETDOWN => return error.NetworkSubsystemFailed,
                 else => |err| return unexpectedErrno(err),
             }
@@ -4853,7 +4849,6 @@ pub fn send(
         error.NotDir => unreachable,
         error.NetworkUnreachable => unreachable,
         error.AddressNotAvailable => unreachable,
-        error.SocketNotConnected => unreachable,
         else => |e| return e,
     };
 }
@@ -5347,8 +5342,6 @@ pub const RecvFromError = error{
     /// The network subsystem has failed.
     NetworkSubsystemFailed,
 
-    /// The socket is not connected (connection-oriented sockets only).
-    SocketNotConnected,
 } || UnexpectedError;
 
 pub fn recv(sock: socket_t, buf: []u8, flags: u32) RecvFromError!usize {
@@ -5374,7 +5367,7 @@ pub fn recvfrom(
                     .WSAEINVAL => return error.SocketNotBound,
                     .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTCONN => unreachable,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
