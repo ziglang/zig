@@ -1305,6 +1305,18 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             .offset = 0,
         });
         self.rebase_info_dirty = true;
+
+        const sym = self.undef_symbols.items[fixup.symbol];
+        const name_str = self.getString(sym.n_strx);
+        var name = try self.base.allocator.alloc(u8, name_str.len);
+        mem.copy(u8, name, name_str);
+        try self.lazy_binding_info_table.symbols.append(self.base.allocator, .{
+            .segment = 3,
+            .offset = 0,
+            .dylib_ordinal = 1,
+            .name = name,
+        });
+        self.lazy_binding_info_dirty = true;
     }
 
     const text_section = text_segment.sections.items[self.text_section_index.?];
@@ -2078,6 +2090,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
             .n_value = 0,
         });
+
+        self.binding_info_table.dylib_ordinal = 1;
+        const nn = self.getString(name);
+        var n = try self.base.allocator.alloc(u8, nn.len);
+        mem.copy(u8, n, nn);
+        try self.binding_info_table.symbols.append(self.base.allocator, .{
+            .name = n,
+            .segment = 2,
+            .offset = 0,
+        });
+        self.binding_info_dirty = true;
     }
     if (self.next_stub_helper_off == null) {
         const text = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
