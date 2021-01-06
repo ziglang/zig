@@ -130,7 +130,7 @@ pub const File = struct {
         elf: Elf.TextBlock,
         coff: Coff.TextBlock,
         macho: MachO.TextBlock,
-        c: void,
+        c: C.DeclBlock,
         wasm: void,
     };
 
@@ -138,7 +138,7 @@ pub const File = struct {
         elf: Elf.SrcFn,
         coff: Coff.SrcFn,
         macho: MachO.SrcFn,
-        c: void,
+        c: C.FnBlock,
         wasm: ?Wasm.FnData,
     };
 
@@ -301,7 +301,8 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
-            .c, .wasm => {},
+            .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl),
+            .wasm => {},
         }
     }
 
@@ -312,7 +313,8 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
-            .c, .wasm => {},
+            .c => return @fieldParentPtr(C, "base", base).allocateDeclIndexes(decl),
+            .wasm => {},
         }
     }
 
@@ -407,12 +409,13 @@ pub const File = struct {
         }
     }
 
+    /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
             .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
-            .c => unreachable,
+            .c => @fieldParentPtr(C, "base", base).freeDecl(decl),
             .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
         }
     }
@@ -432,14 +435,14 @@ pub const File = struct {
     pub fn updateDeclExports(
         base: *File,
         module: *Module,
-        decl: *const Module.Decl,
+        decl: *Module.Decl,
         exports: []const *Module.Export,
     ) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
-            .c => return {},
+            .c => return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl, exports),
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl, exports),
         }
     }

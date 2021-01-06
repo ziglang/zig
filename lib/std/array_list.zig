@@ -100,8 +100,18 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Initializes an ArrayListUnmanaged with the `items` and `capacity` fields
         /// of this ArrayList. This ArrayList retains ownership of underlying memory.
+        /// Deprecated: use `moveToUnmanaged` which has different semantics.
         pub fn toUnmanaged(self: Self) ArrayListAlignedUnmanaged(T, alignment) {
             return .{ .items = self.items, .capacity = self.capacity };
+        }
+
+        /// Initializes an ArrayListUnmanaged with the `items` and `capacity` fields
+        /// of this ArrayList. Empties this ArrayList.
+        pub fn moveToUnmanaged(self: *Self) ArrayListAlignedUnmanaged(T, alignment) {
+            const allocator = self.allocator;
+            const result = .{ .items = self.items, .capacity = self.capacity };
+            self.* = init(allocator);
+            return result;
         }
 
         /// The caller owns the returned memory. Empties this ArrayList.
@@ -549,14 +559,6 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
             self.items.len = newlen;
             mem.copy(T, self.items[oldlen..], items);
-        }
-
-        /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
-        /// This function may be called only when `T` is `u8`.
-        fn appendWrite(self: *Self, allocator: *Allocator, m: []const u8) !usize {
-            try self.appendSlice(allocator, m);
-            return m.len;
         }
 
         /// Append a value to the list `n` times.
@@ -1129,13 +1131,13 @@ test "std.ArrayList/ArrayListUnmanaged: ArrayList(T) of struct T" {
     }
 }
 
-test "std.ArrayList(u8) implements outStream" {
+test "std.ArrayList(u8) implements writer" {
     var buffer = ArrayList(u8).init(std.testing.allocator);
     defer buffer.deinit();
 
     const x: i32 = 42;
     const y: i32 = 1234;
-    try buffer.outStream().print("x: {}\ny: {}\n", .{ x, y });
+    try buffer.writer().print("x: {}\ny: {}\n", .{ x, y });
 
     testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
 }
