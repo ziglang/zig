@@ -910,7 +910,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
             },
             else => {
                 try buffer.appendSlice("ERROR: ");
-                try token.printError(buffer.outStream());
+                try token.printError(buffer.writer());
                 break;
             },
         }

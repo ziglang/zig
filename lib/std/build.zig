@@ -1042,7 +1042,7 @@ pub const Builder = struct {
 
         try child.spawn();
 
-        const stdout = try child.stdout.?.inStream().readAllAlloc(self.allocator, max_output_size);
+        const stdout = try child.stdout.?.reader().readAllAlloc(self.allocator, max_output_size);
         errdefer self.allocator.free(stdout);
 
         const term = try child.wait();
@@ -1849,7 +1849,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
-        const out = self.build_options_contents.outStream();
+        const out = self.build_options_contents.writer();
         switch (T) {
             []const []const u8 => {
                 out.print("pub const {z}: []const []const u8 = &[_][]const u8{{\n", .{name}) catch unreachable;
@@ -2295,16 +2295,16 @@ pub const LibExeObjStep = struct {
             } else {
                 var mcpu_buffer = std.ArrayList(u8).init(builder.allocator);
 
-                try mcpu_buffer.outStream().print("-mcpu={s}", .{cross.cpu.model.name});
+                try mcpu_buffer.writer().print("-mcpu={s}", .{cross.cpu.model.name});
 
                 for (all_features) |feature, i_usize| {
                     const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
                     const in_cpu_set = populated_cpu_features.isEnabled(i);
                     const in_actual_set = cross.cpu.features.isEnabled(i);
                     if (in_cpu_set and !in_actual_set) {
-                        try mcpu_buffer.outStream().print("-{s}", .{feature.name});
+                        try mcpu_buffer.writer().print("-{s}", .{feature.name});
                     } else if (!in_cpu_set and in_actual_set) {
-                        try mcpu_buffer.outStream().print("+{s}", .{feature.name});
+                        try mcpu_buffer.writer().print("+{s}", .{feature.name});
                     }
                 }
 

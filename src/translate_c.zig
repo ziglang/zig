@@ -5268,7 +5268,7 @@ fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, 
     try c.token_locs.ensureCapacity(c.gpa, c.token_locs.items.len + 1);
 
     const start_index = c.source_buffer.items.len;
-    try c.source_buffer.outStream().print(format ++ " ", args);
+    try c.source_buffer.writer().print(format ++ " ", args);
 
     c.token_ids.appendAssumeCapacity(token_id);
     c.token_locs.appendAssumeCapacity(.{

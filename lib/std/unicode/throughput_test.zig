@@ -45,7 +45,7 @@ fn benchmarkCodepointCount(buf: []const u8) !ResultCount {
 }
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().outStream();
+    const stdout = std.io.getStdOut().writer();
 
     const args = try std.process.argsAlloc(std.heap.page_allocator);
 

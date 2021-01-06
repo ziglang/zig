@@ -922,7 +922,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    file.outStream().writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
+    file.writer().writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {

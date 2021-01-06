@@ -1649,7 +1649,7 @@ pub fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
                 var msg = std.ArrayList(u8).init(self.gpa);
                 defer msg.deinit();
 
-                try parse_err.render(tree.token_ids, msg.outStream());
+                try parse_err.render(tree.token_ids, msg.writer());
                 const err_msg = try self.gpa.create(Compilation.ErrorMsg);
                 err_msg.* = .{
                     .msg = msg.toOwnedSlice(),

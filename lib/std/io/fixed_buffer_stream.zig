@@ -45,7 +45,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return .{ .context = self };
         }
 
-        /// Deprecated: use `inStream`
+        /// Deprecated: use `reader`
         pub fn inStream(self: *Self) InStream {
             return .{ .context = self };
         }

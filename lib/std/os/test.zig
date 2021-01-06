@@ -475,7 +475,7 @@ test "mmap" {
         const file = try tmp.dir.createFile(test_out_file, .{});
         defer file.close();
 
-        const stream = file.outStream();
+        const stream = file.writer();
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
@@ -499,7 +499,7 @@ test "mmap" {
         defer os.munmap(data);
 
         var mem_stream = io.fixedBufferStream(data);
-        const stream = mem_stream.inStream();
+        const stream = mem_stream.reader();
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
@@ -523,7 +523,7 @@ test "mmap" {
         defer os.munmap(data);
 
         var mem_stream = io.fixedBufferStream(data);
-        const stream = mem_stream.inStream();
+        const stream = mem_stream.reader();
 
         var i: u32 = alloc_size / 2 / @sizeOf(u32);
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {

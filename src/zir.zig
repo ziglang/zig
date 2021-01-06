@@ -1116,7 +1116,7 @@ pub const Module = struct {
 
     /// This is a debugging utility for rendering the tree to stderr.
     pub fn dump(self: Module) void {
-        self.writeToStream(std.heap.page_allocator, std.io.getStdErr().outStream()) catch {};
+        self.writeToStream(std.heap.page_allocator, std.io.getStdErr().writer()) catch {};
     }
 
     const DeclAndIndex = struct {
@@ -3254,7 +3254,7 @@ pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8
 
     try write.inst_table.ensureCapacity(@intCast(u32, instructions.len));
 
-    const stderr = std.io.getStdErr().outStream();
+    const stderr = std.io.getStdErr().writer();
     try stderr.print("{s} {s} {{ // unanalyzed\n", .{ kind, decl_name });
 
     for (instructions) |inst| {

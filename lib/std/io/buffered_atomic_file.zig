@@ -38,7 +38,7 @@ pub const BufferedAtomicFile = struct {
         self.atomic_file = try dir.atomicFile(dest_path, atomic_file_options);
         errdefer self.atomic_file.deinit();
 
-        self.file_stream = self.atomic_file.file.outStream();
+        self.file_stream = self.atomic_file.file.writer();
         self.buffered_stream = .{ .unbuffered_writer = self.file_stream };
         return self;
     }

@@ -40,9 +40,9 @@ pub fn main() !void {
     var out_file = try fs.cwd().createFile(out_file_name, .{});
     defer out_file.close();
 
-    const input_file_bytes = try in_file.inStream().readAllAlloc(allocator, max_doc_file_size);
+    const input_file_bytes = try in_file.reader().readAllAlloc(allocator, max_doc_file_size);
 
-    var buffered_out_stream = io.bufferedOutStream(out_file.writer());
+    var buffered_writer = io.bufferedWriter(out_file.writer());
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
@@ -50,8 +50,8 @@ pub fn main() !void {
     try fs.cwd().makePath(tmp_dir_name);
     defer fs.cwd().deleteTree(tmp_dir_name) catch {};
 
-    try genHtml(allocator, &tokenizer, &toc, buffered_out_stream.writer(), zig_exe);
-    try buffered_out_stream.flush();
+    try genHtml(allocator, &tokenizer, &toc, buffered_writer.writer(), zig_exe);
+    try buffered_writer.flush();
 }
 
 const Token = struct {

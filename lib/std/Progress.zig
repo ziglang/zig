@@ -271,7 +271,7 @@ fn refreshWithHeldLock(self: *Progress) void {
 pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
     const file = self.terminal orelse return;
     self.refresh();
-    file.outStream().print(format, args) catch {
+    file.writer().print(format, args) catch {
         self.terminal = null;
         return;
     };
