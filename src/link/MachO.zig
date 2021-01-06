@@ -408,6 +408,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.writeLazyBindingInfoTable();
             try self.writeExportTrie();
             try self.writeAllGlobalAndUndefSymbols();
+            try self.writeIndirectSymbolTable();
             try self.writeStringTable();
             try self.updateLinkeditSegmentSizes();
 
@@ -427,11 +428,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         },
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
-    }
-
-    {
-        const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
-        dysymtab.nindirectsyms = 0;
     }
 
     try self.writeLoadCommands();
@@ -2532,6 +2528,32 @@ fn writeAllGlobalAndUndefSymbols(self: *MachO) !void {
     dysymtab.iundefsym = @intCast(u32, nlocals + nglobals);
     dysymtab.nundefsym = @intCast(u32, nundefs);
     self.load_commands_dirty = true;
+}
+
+fn writeIndirectSymbolTable(self: *MachO) !void {
+    const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const stubs = &text_seg.sections.items[self.stubs_section_index.?];
+    const dc_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+    const got = &dc_seg.sections.items[self.data_got_section_index.?];
+    const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+    const la = &data_seg.sections.items[self.la_symbol_ptr_section_index.?];
+    const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+    dysymtab.nindirectsyms = 0;
+    for (self.undef_symbols.items) |sym, i| {
+        const idx = @intCast(u32, dysymtab.iundefsym + i);
+        var buf: [@sizeOf(u32)]u8 = undefined;
+        mem.writeIntLittle(u32, &buf, idx);
+        try self.base.file.?.pwriteAll(&buf, dysymtab.indirectsymoff + i * @sizeOf(u32));
+        dysymtab.nindirectsyms += 1;
+        if (i == self.dyld_stub_binder_index.?) {
+            got.reserved1 = @intCast(u32, i);
+            continue;
+        }
+        stubs.reserved1 = @intCast(u32, i);
+        try self.base.file.?.pwriteAll(&buf, dysymtab.indirectsymoff + (i + 1) * @sizeOf(u32));
+        la.reserved1 = @intCast(u32, i + 1);
+        dysymtab.nindirectsyms += 1;
+    }
 }
 
 fn writeCodeSignaturePadding(self: *MachO) !void {
