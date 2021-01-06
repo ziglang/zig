@@ -408,7 +408,7 @@ pub const DwarfInfo = struct {
 
     fn scanAllFunctions(di: *DwarfInfo) !void {
         var stream = io.fixedBufferStream(di.debug_info);
-        const in = &stream.inStream();
+        const in = &stream.reader();
         const seekable = &stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
@@ -512,7 +512,7 @@ pub const DwarfInfo = struct {
 
     fn scanAllCompileUnits(di: *DwarfInfo) !void {
         var stream = io.fixedBufferStream(di.debug_info);
-        const in = &stream.inStream();
+        const in = &stream.reader();
         const seekable = &stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
@@ -585,7 +585,7 @@ pub const DwarfInfo = struct {
             if (di.debug_ranges) |debug_ranges| {
                 if (compile_unit.die.getAttrSecOffset(AT_ranges)) |ranges_offset| {
                     var stream = io.fixedBufferStream(debug_ranges);
-                    const in = &stream.inStream();
+                    const in = &stream.reader();
                     const seekable = &stream.seekableStream();
 
                     // All the addresses in the list are relative to the value
@@ -640,7 +640,7 @@ pub const DwarfInfo = struct {
 
     fn parseAbbrevTable(di: *DwarfInfo, offset: u64) !AbbrevTable {
         var stream = io.fixedBufferStream(di.debug_abbrev);
-        const in = &stream.inStream();
+        const in = &stream.reader();
         const seekable = &stream.seekableStream();
 
         try seekable.seekTo(offset);
@@ -691,7 +691,7 @@ pub const DwarfInfo = struct {
 
     pub fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !debug.LineInfo {
         var stream = io.fixedBufferStream(di.debug_line);
-        const in = &stream.inStream();
+        const in = &stream.reader();
         const seekable = &stream.seekableStream();
 
         const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT_comp_dir);

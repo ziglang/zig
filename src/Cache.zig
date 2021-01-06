@@ -285,7 +285,7 @@ pub const Manifest = struct {
             };
         }
 
-        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.cache.gpa, manifest_file_size_max);
+        const file_contents = try self.manifest_file.?.reader().readAllAlloc(self.cache.gpa, manifest_file_size_max);
         defer self.cache.gpa.free(file_contents);
 
         const input_file_count = self.files.items.len;

@@ -652,9 +652,9 @@ pub const StackTracesContext = struct {
             }
             child.spawn() catch |err| debug.panic("Unable to spawn {s}: {s}\n", .{ full_exe_path, @errorName(err) });
 
-            const stdout = child.stdout.?.inStream().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
+            const stdout = child.stdout.?.reader().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
             defer b.allocator.free(stdout);
-            const stderrFull = child.stderr.?.inStream().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
+            const stderrFull = child.stderr.?.reader().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
             defer b.allocator.free(stderrFull);
             var stderr = stderrFull;
 
@@ -875,8 +875,8 @@ pub const CompileErrorContext = struct {
             var stdout_buf = ArrayList(u8).init(b.allocator);
             var stderr_buf = ArrayList(u8).init(b.allocator);
 
-            child.stdout.?.inStream().readAllArrayList(&stdout_buf, max_stdout_size) catch unreachable;
-            child.stderr.?.inStream().readAllArrayList(&stderr_buf, max_stdout_size) catch unreachable;
+            child.stdout.?.reader().readAllArrayList(&stdout_buf, max_stdout_size) catch unreachable;
+            child.stderr.?.reader().readAllArrayList(&stderr_buf, max_stdout_size) catch unreachable;
 
             const term = child.wait() catch |err| {
                 debug.panic("Unable to spawn {s}: {s}\n", .{ zig_args.items[0], @errorName(err) });

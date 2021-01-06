@@ -200,7 +200,7 @@ pub const RunStep = struct {
 
         switch (self.stdout_action) {
             .expect_exact, .expect_matches => {
-                stdout = child.stdout.?.inStream().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
+                stdout = child.stdout.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
             },
             .inherit, .ignore => {},
         }
@@ -210,7 +210,7 @@ pub const RunStep = struct {
 
         switch (self.stderr_action) {
             .expect_exact, .expect_matches => {
-                stderr = child.stderr.?.inStream().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
+                stderr = child.stderr.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
             },
             .inherit, .ignore => {},
         }

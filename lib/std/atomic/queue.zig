@@ -122,7 +122,7 @@ pub fn Queue(comptime T: type) type {
 
         /// Dumps the contents of the queue to `stderr`.
         pub fn dump(self: *Self) void {
-            self.dumpToStream(std.io.getStdErr().outStream()) catch return;
+            self.dumpToStream(std.io.getStdErr().writer()) catch return;
         }
 
         /// Dumps the contents of the queue to `stream`.
@@ -351,7 +351,7 @@ test "std.atomic.Queue dump" {
 
     // Test empty stream
     fbs.reset();
-    try queue.dumpToStream(fbs.outStream());
+    try queue.dumpToStream(fbs.writer());
     expect(mem.eql(u8, buffer[0..fbs.pos],
         \\head: (null)
         \\tail: (null)
@@ -367,7 +367,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_0);
 
     fbs.reset();
-    try queue.dumpToStream(fbs.outStream());
+    try queue.dumpToStream(fbs.writer());
 
     var expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
@@ -387,7 +387,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_1);
 
     fbs.reset();
-    try queue.dumpToStream(fbs.outStream());
+    try queue.dumpToStream(fbs.writer());
 
     expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1

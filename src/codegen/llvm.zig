@@ -200,7 +200,7 @@ pub const LLVMIRModule = struct {
         if (llvm.Target.getFromTriple(llvm_target_triple.ptr, &target, &error_message)) {
             defer llvm.disposeMessage(error_message);
 
-            const stderr = std.io.getStdErr().outStream();
+            const stderr = std.io.getStdErr().writer();
             try stderr.print(
                 \\Zig is expecting LLVM to understand this target: '{s}'
                 \\However LLVM responded with: "{s}"
@@ -268,7 +268,7 @@ pub const LLVMIRModule = struct {
             const dump = self.llvm_module.printToString();
             defer llvm.disposeMessage(dump);
 
-            const stderr = std.io.getStdErr().outStream();
+            const stderr = std.io.getStdErr().writer();
             try stderr.writeAll(std.mem.spanZ(dump));
         }
 
@@ -278,7 +278,7 @@ pub const LLVMIRModule = struct {
             defer llvm.disposeMessage(error_message);
 
             if (self.llvm_module.verify(.ReturnStatus, &error_message)) {
-                const stderr = std.io.getStdErr().outStream();
+                const stderr = std.io.getStdErr().writer();
                 try stderr.print("broken LLVM module found: {s}\nThis is a bug in the Zig compiler.", .{error_message});
                 return error.BrokenLLVMModule;
             }
@@ -296,7 +296,7 @@ pub const LLVMIRModule = struct {
         )) {
             defer llvm.disposeMessage(error_message);
 
-            const stderr = std.io.getStdErr().outStream();
+            const stderr = std.io.getStdErr().writer();
             try stderr.print("LLVM failed to emit file: {s}\n", .{error_message});
             return error.FailedToEmit;
         }

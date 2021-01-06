@@ -249,6 +249,6 @@ fn testServer(server: *net.StreamServer) anyerror!void {
 
     var client = try server.accept();
 
-    const stream = client.file.outStream();
+    const stream = client.file.writer();
     try stream.print("hello from server\n", .{});
 }

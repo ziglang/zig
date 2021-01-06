@@ -738,7 +738,7 @@ pub const TestContext = struct {
                     write_node.activate();
                     var out_zir = std.ArrayList(u8).init(allocator);
                     defer out_zir.deinit();
-                    try new_zir_module.writeToStream(allocator, out_zir.outStream());
+                    try new_zir_module.writeToStream(allocator, out_zir.writer());
                     write_node.end();
 
                     var test_node = update_node.start("assert", 0);

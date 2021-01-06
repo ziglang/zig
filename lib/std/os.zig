@@ -191,7 +191,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    const stream = file.inStream();
+    const stream = file.reader();
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 

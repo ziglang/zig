@@ -238,7 +238,7 @@ pub fn writeStream(
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
-    const out = slice_stream.outStream();
+    const out = slice_stream.writer();
 
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();

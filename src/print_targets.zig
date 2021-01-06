@@ -26,9 +26,9 @@ pub fn cmdTargets(
     const glibc_abi = try glibc.loadMetaData(allocator, zig_lib_directory.handle);
     defer glibc_abi.destroy(allocator);
 
-    var bos = io.bufferedOutStream(stdout);
-    const bos_stream = bos.outStream();
-    var jws = std.json.WriteStream(@TypeOf(bos_stream), 6).init(bos_stream);
+    var bw = io.bufferedWriter(stdout);
+    const w = bw.writer();
+    var jws = std.json.WriteStream(@TypeOf(w), 6).init(w);
 
     try jws.beginObject();
 
@@ -156,6 +156,6 @@ pub fn cmdTargets(
 
     try jws.endObject();
 
-    try bos_stream.writeByte('\n');
-    return bos.flush();
+    try w.writeByte('\n');
+    return bw.flush();
 }

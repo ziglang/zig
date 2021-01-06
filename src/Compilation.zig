@@ -1820,7 +1820,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
         defer out_zig_file.close();
 
-        var bos = std.io.bufferedOutStream(out_zig_file.writer());
+        var bos = std.io.bufferedWriter(out_zig_file.writer());
         _ = try std.zig.render(comp.gpa, bos.writer(), tree);
         try bos.flush();
 
@@ -2750,7 +2750,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
 
     switch (target.os.getVersionRange()) {
         .none => try buffer.appendSlice(" .none = {} }\n"),
-        .semver => |semver| try buffer.outStream().print(
+        .semver => |semver| try buffer.writer().print(
             \\ .semver = .{{
             \\        .min = .{{
             \\            .major = {},
@@ -2773,7 +2773,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
             semver.max.minor,
             semver.max.patch,
         }),
-        .linux => |linux| try buffer.outStream().print(
+        .linux => |linux| try buffer.writer().print(
             \\ .linux = .{{
             \\        .range = .{{
             \\            .min = .{{
@@ -2807,7 +2807,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
             linux.glibc.minor,
             linux.glibc.patch,
         }),
-        .windows => |windows| try buffer.outStream().print(
+        .windows => |windows| try buffer.writer().print(
             \\ .windows = .{{
             \\        .min = {s},
             \\        .max = {s},

@@ -57,8 +57,8 @@ pub fn main() !void {
 
     var targets = ArrayList([]const u8).init(allocator);
 
-    const stderr_stream = io.getStdErr().outStream();
-    const stdout_stream = io.getStdOut().outStream();
+    const stderr_stream = io.getStdErr().writer();
+    const stdout_stream = io.getStdOut().writer();
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {

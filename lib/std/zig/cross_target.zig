@@ -519,29 +519,29 @@ pub const CrossTarget = struct {
         var result = std.ArrayList(u8).init(allocator);
         defer result.deinit();
 
-        try result.outStream().print("{s}-{s}", .{ arch_name, os_name });
+        try result.writer().print("{s}-{s}", .{ arch_name, os_name });
 
         // The zig target syntax does not allow specifying a max os version with no min, so
         // if either are present, we need the min.
         if (self.os_version_min != null or self.os_version_max != null) {
             switch (self.getOsVersionMin()) {
                 .none => {},
-                .semver => |v| try result.outStream().print(".{}", .{v}),
-                .windows => |v| try result.outStream().print("{s}", .{v}),
+                .semver => |v| try result.writer().print(".{}", .{v}),
+                .windows => |v| try result.writer().print("{s}", .{v}),
             }
         }
         if (self.os_version_max) |max| {
             switch (max) {
                 .none => {},
-                .semver => |v| try result.outStream().print("...{}", .{v}),
-                .windows => |v| try result.outStream().print("..{s}", .{v}),
+                .semver => |v| try result.writer().print("...{}", .{v}),
+                .windows => |v| try result.writer().print("..{s}", .{v}),
             }
         }
 
         if (self.glibc_version) |v| {
-            try result.outStream().print("-{s}.{}", .{ @tagName(self.getAbi()), v });
+            try result.writer().print("-{s}.{}", .{ @tagName(self.getAbi()), v });
         } else if (self.abi) |abi| {
-            try result.outStream().print("-{s}", .{@tagName(abi)});
+            try result.writer().print("-{s}", .{@tagName(abi)});
         }
 
         return result.toOwnedSlice();

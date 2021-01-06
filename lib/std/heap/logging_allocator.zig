@@ -89,7 +89,7 @@ test "LoggingAllocator" {
 
     var allocator_buf: [10]u8 = undefined;
     var fixedBufferAllocator = std.mem.validationWrap(std.heap.FixedBufferAllocator.init(&allocator_buf));
-    const allocator = &loggingAllocator(&fixedBufferAllocator.allocator, fbs.outStream()).allocator;
+    const allocator = &loggingAllocator(&fixedBufferAllocator.allocator, fbs.writer()).allocator;
 
     var a = try allocator.alloc(u8, 10);
     a = allocator.shrink(a, 5);
