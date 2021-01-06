@@ -115,6 +115,7 @@ global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
 offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 dyld_stub_binder_index: ?u16 = null,
+next_stub_helper_off: ?u64 = null,
 
 /// Table of symbol names aka the string table.
 string_table: std.ArrayListUnmanaged(u8) = .{},
@@ -161,6 +162,14 @@ last_text_block: ?*TextBlock = null,
 /// prior to calling `generateSymbol`, and then immediately deallocated
 /// rather than sitting in the global scope.
 pie_fixups: std.ArrayListUnmanaged(PieFixup) = .{},
+
+stub_fixups: std.ArrayListUnmanaged(StubFixup) = .{},
+
+pub const StubFixup = struct {
+    symbol: usize,
+    start: usize,
+    len: usize,
+};
 
 pub const PieFixup = struct {
     /// Target address we wanted to address in absolute terms.
@@ -1223,7 +1232,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     }
 
     // Perform PIE fixups (if any)
-    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const got_section = text_segment.sections.items[self.got_section_index.?];
     while (self.pie_fixups.popOrNull()) |fixup| {
         const target_addr = fixup.address;
@@ -1241,6 +1250,45 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
             else => unreachable, // unsupported target architecture
         }
+    }
+
+    // Resolve stubs (if any)
+    const stubs = &text_segment.sections.items[self.stubs_section_index.?];
+    const stub_h = &text_segment.sections.items[self.stub_helper_section_index.?];
+    const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+    const la_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
+    while (self.stub_fixups.popOrNull()) |fixup| {
+        // TODO increment offset for stub writing
+        const stub_addr = stubs.addr;
+        const text_addr = symbol.n_value + fixup.start;
+        const displacement = @intCast(u32, stub_addr - text_addr);
+        var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
+        mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(@intCast(i28, displacement)).toU32());
+
+        const end = stub_h.addr + self.next_stub_helper_off.? - stub_h.offset;
+        var buf: [@sizeOf(u64)]u8 = undefined;
+        mem.writeIntLittle(u64, &buf, end);
+        try self.base.file.?.pwriteAll(&buf, la_ptr.offset);
+
+        const displacement2 = la_ptr.addr - stubs.addr;
+        var ccode: [2 * @sizeOf(u32)]u8 = undefined;
+        mem.writeIntLittle(u32, ccode[0..4], aarch64.Instruction.ldr(.x16, .{
+            .literal = @intCast(u19, displacement2 / 4),
+        }).toU32());
+        mem.writeIntLittle(u32, ccode[4..8], aarch64.Instruction.br(.x16).toU32());
+        try self.base.file.?.pwriteAll(&ccode, stubs.offset);
+        stubs.size = 2 * @sizeOf(u32);
+        stubs.reserved2 = 2 * @sizeOf(u32);
+
+        const displacement3 = @intCast(i64, stub_h.addr) - @intCast(i64, end + 4);
+        var cccode: [3 * @sizeOf(u32)]u8 = undefined;
+        mem.writeIntLittle(u32, cccode[0..4], aarch64.Instruction.ldr(.w16, .{
+            .literal = 0x2,
+        }).toU32());
+        mem.writeIntLittle(u32, cccode[4..8], aarch64.Instruction.b(@intCast(i28, displacement3)).toU32());
+        mem.writeIntLittle(u32, cccode[8..12], 0);
+        try self.base.file.?.pwriteAll(&cccode, self.next_stub_helper_off.?);
+        self.next_stub_helper_off = self.next_stub_helper_off.? + 3 * @sizeOf(u32);
     }
 
     const text_section = text_segment.sections.items[self.text_section_index.?];
@@ -1555,7 +1603,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .sectname = makeStaticString("__stubs"),
             .segname = makeStaticString("__TEXT"),
             .addr = text_segment.inner.vmaddr + off,
-            .size = 0, // This will be populated later in tandem with .reserved2 field.
+            .size = needed_size,
             .offset = @intCast(u32, off),
             .@"align" = alignment,
             .reloff = 0,
@@ -1582,7 +1630,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
         assert(off + needed_size <= text_segment.inner.fileoff + text_segment.inner.filesize); // TODO Must expand __TEXT segment.
 
-        log.debug("found __stubs section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
+        log.debug("found __stub_helper section free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
         try text_segment.addSection(self.base.allocator, .{
             .sectname = makeStaticString("__stub_helper"),
@@ -1987,6 +2035,30 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .n_value = 0,
         });
     }
+    if (self.next_stub_helper_off == null) {
+        const text = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const sh = &text.sections.items[self.stub_helper_section_index.?];
+        const data = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const data_data = &data.sections.items[self.data_section_index.?];
+        const displacement = data_data.addr - sh.addr;
+        var code: [4 * @sizeOf(u32)]u8 = undefined;
+        mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x17, @intCast(i21, displacement)).toU32());
+        mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.stp(
+            .x16,
+            .x17,
+            aarch64.Register.sp,
+            aarch64.Instruction.LoadStorePairOffset.pre_index(-16),
+        ).toU32());
+        const dc = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const got = &dc.sections.items[self.data_got_section_index.?];
+        const displacement2 = got.addr - sh.addr - 2 * @sizeOf(u32);
+        mem.writeIntLittle(u32, code[8..12], aarch64.Instruction.ldr(.x16, .{
+            .literal = @intCast(u19, displacement2 / 4),
+        }).toU32());
+        mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.br(.x16).toU32());
+        self.next_stub_helper_off = sh.offset + 4 * @sizeOf(u32);
+        try self.base.file.?.pwriteAll(&code, sh.offset);
+    }
 }
 
 fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
@@ -2101,7 +2173,7 @@ pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
     return buf;
 }
 
-fn makeString(self: *MachO, bytes: []const u8) !u32 {
+pub fn makeString(self: *MachO, bytes: []const u8) !u32 {
     try self.string_table.ensureCapacity(self.base.allocator, self.string_table.items.len + bytes.len + 1);
     const result = @intCast(u32, self.string_table.items.len);
     self.string_table.appendSliceAssumeCapacity(bytes);

@@ -1859,8 +1859,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             },
                             else => unreachable, // unsupported architecture on MachO
                         }
-                    } else if (func_value.castTag(.extern_fn)) |_| {
-                        return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
+                    } else if (func_value.castTag(.extern_fn)) |func_payload| {
+                        const decl = func_payload.data;
+                        const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
+                        defer self.bin_file.allocator.free(decl_name);
+                        const name = try macho_file.makeString(decl_name);
+                        const symbol = macho_file.undef_symbols.items.len;
+                        try macho_file.undef_symbols.append(self.bin_file.allocator, .{
+                            .n_strx = name,
+                            .n_type = std.macho.N_UNDF | std.macho.N_EXT,
+                            .n_sect = 0,
+                            .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
+                            .n_value = 0,
+                        });
+                        try macho_file.stub_fixups.append(self.bin_file.allocator, .{
+                            .symbol = symbol,
+                            .start = self.code.items.len,
+                            .len = 4,
+                        });
+                        // We mark the space and fix it up later.
+                        writeInt(u32, try self.code.addManyAsArray(4), 0);
                     } else {
                         return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                     }
