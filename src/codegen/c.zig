@@ -9,6 +9,7 @@ const Compilation = @import("../Compilation.zig");
 const Inst = @import("../ir.zig").Inst;
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
+const TypedValue = @import("../TypedValue.zig");
 const C = link.File.C;
 const Decl = Module.Decl;
 const trace = @import("../tracy.zig").trace;
@@ -109,7 +110,7 @@ pub const Object = struct {
 };
 
 /// This data is available both when outputting .c code and when outputting an .h file.
-const DeclGen = struct {
+pub const DeclGen = struct {
     module: *Module,
     decl: *Decl,
     fwd_decl: std.ArrayList(u8),
@@ -199,22 +200,11 @@ const DeclGen = struct {
         }
     }
 
-    fn renderFunctionSignature(dg: *DeclGen, w: Writer) !void {
-        const tv = dg.decl.typed_value.most_recent.typed_value;
-        // Determine whether the function is globally visible.
-        const is_global = blk: {
-            switch (tv.val.tag()) {
-                .extern_fn => break :blk true,
-                .function => {
-                    const func = tv.val.castTag(.function).?.data;
-                    break :blk dg.module.decl_exports.contains(func.owner_decl);
-                },
-                else => unreachable,
-            }
-        };
+    fn renderFunctionSignature(dg: *DeclGen, w: Writer, is_global: bool) !void {
         if (!is_global) {
             try w.writeAll("static ");
         }
+        const tv = dg.decl.typed_value.most_recent.typed_value;
         try dg.renderType(w, tv.ty.fnReturnType());
         const decl_name = mem.span(dg.decl.name);
         try w.print(" {s}(", .{decl_name});
@@ -302,6 +292,17 @@ const DeclGen = struct {
             }),
         }
     }
+
+    fn functionIsGlobal(dg: *DeclGen, tv: TypedValue) bool {
+        switch (tv.val.tag()) {
+            .extern_fn => return true,
+            .function => {
+                const func = tv.val.castTag(.function).?.data;
+                return dg.module.decl_exports.contains(func.owner_decl);
+            },
+            else => unreachable,
+        }
+    }
 };
 
 pub fn genDecl(o: *Object) !void {
@@ -311,15 +312,19 @@ pub fn genDecl(o: *Object) !void {
     const tv = o.dg.decl.typed_value.most_recent.typed_value;
 
     if (tv.val.castTag(.function)) |func_payload| {
+        const is_global = o.dg.functionIsGlobal(tv);
         const fwd_decl_writer = o.dg.fwd_decl.writer();
-        try o.dg.renderFunctionSignature(fwd_decl_writer);
+        if (is_global) {
+            try fwd_decl_writer.writeAll("ZIG_EXTERN_C ");
+        }
+        try o.dg.renderFunctionSignature(fwd_decl_writer, is_global);
         try fwd_decl_writer.writeAll(";\n");
 
         const func: *Module.Fn = func_payload.data;
         const instructions = func.body.instructions;
         const writer = o.code.writer();
         try writer.writeAll("\n");
-        try o.dg.renderFunctionSignature(writer);
+        try o.dg.renderFunctionSignature(writer, is_global);
         if (instructions.len == 0) {
             try writer.writeAll(" {}\n");
             return;
@@ -363,7 +368,8 @@ pub fn genDecl(o: *Object) !void {
         try writer.writeAll("}\n");
     } else if (tv.val.tag() == .extern_fn) {
         const writer = o.code.writer();
-        try o.dg.renderFunctionSignature(writer);
+        try writer.writeAll("ZIG_EXTERN_C ");
+        try o.dg.renderFunctionSignature(writer, true);
         try writer.writeAll(";\n");
     } else {
         const writer = o.code.writer();
@@ -381,20 +387,20 @@ pub fn genDecl(o: *Object) !void {
     }
 }
 
-pub fn genHeader(comp: *Compilation, dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
+pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    switch (decl.typed_value.most_recent.typed_value.ty.zigTypeTag()) {
+    const tv = dg.decl.typed_value.most_recent.typed_value;
+    const writer = dg.fwd_decl.writer();
+
+    switch (tv.ty.zigTypeTag()) {
         .Fn => {
-            dg.renderFunctionSignature() catch |err| switch (err) {
-                error.AnalysisFail => {
-                    try dg.module.failed_decls.put(dg.module.gpa, decl, dg.error_msg.?);
-                    dg.error_msg = null;
-                    return error.AnalysisFail;
-                },
-                else => |e| return e,
-            };
+            const is_global = dg.functionIsGlobal(tv);
+            if (is_global) {
+                try writer.writeAll("ZIG_EXTERN_C ");
+            }
+            try dg.renderFunctionSignature(writer, is_global);
             try dg.fwd_decl.appendSlice(";\n");
         },
         else => {},

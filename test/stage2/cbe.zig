@@ -180,7 +180,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    unreachable;
         \\}
     ,
-        \\zig_noreturn void _start(void);
+        \\ZIG_EXTERN_C zig_noreturn void _start(void);
         \\
         \\zig_noreturn void _start(void) {
         \\    zig_breakpoint();
@@ -191,37 +191,37 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.h("simple header", linux_x64,
         \\export fn start() void{}
     ,
-        \\void start(void);
+        \\ZIG_EXTERN_C void start(void);
         \\
     );
     ctx.h("header with single param function", linux_x64,
         \\export fn start(a: u8) void{}
     ,
-        \\void start(uint8_t arg0);
+        \\ZIG_EXTERN_C void start(uint8_t a0);
         \\
     );
     ctx.h("header with multiple param function", linux_x64,
         \\export fn start(a: u8, b: u8, c: u8) void{}
     ,
-        \\void start(uint8_t arg0, uint8_t arg1, uint8_t arg2);
+        \\ZIG_EXTERN_C void start(uint8_t a0, uint8_t a1, uint8_t a2);
         \\
     );
     ctx.h("header with u32 param function", linux_x64,
         \\export fn start(a: u32) void{}
     ,
-        \\void start(uint32_t arg0);
+        \\ZIG_EXTERN_C void start(uint32_t a0);
         \\
     );
     ctx.h("header with usize param function", linux_x64,
         \\export fn start(a: usize) void{}
     ,
-        \\void start(uintptr_t arg0);
+        \\ZIG_EXTERN_C void start(uintptr_t a0);
         \\
     );
     ctx.h("header with bool param function", linux_x64,
         \\export fn start(a: bool) void{}
     ,
-        \\void start(bool arg0);
+        \\ZIG_EXTERN_C void start(bool a0);
         \\
     );
     ctx.h("header with noreturn function", linux_x64,
@@ -229,7 +229,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    unreachable;
         \\}
     ,
-        \\zig_noreturn void start(void);
+        \\ZIG_EXTERN_C zig_noreturn void start(void);
         \\
     );
     ctx.h("header with multiple functions", linux_x64,
@@ -237,15 +237,15 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn b() void{}
         \\export fn c() void{}
     ,
-        \\void a(void);
-        \\void b(void);
-        \\void c(void);
+        \\ZIG_EXTERN_C void a(void);
+        \\ZIG_EXTERN_C void b(void);
+        \\ZIG_EXTERN_C void c(void);
         \\
     );
     ctx.h("header with multiple includes", linux_x64,
         \\export fn start(a: u32, b: usize) void{}
     ,
-        \\void start(uint32_t arg0, uintptr_t arg1);
+        \\ZIG_EXTERN_C void start(uint32_t a0, uintptr_t a1);
         \\
     );
 }

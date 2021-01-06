@@ -130,8 +130,10 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const module = self.base.options.module orelse
-        return error.LinkingWithoutZigSourceUnimplemented;
+    const module = self.base.options.module.?;
+
+    // This code path happens exclusively with -ofmt=c. The flush logic for
+    // emit-h is in `flushEmitH` below.
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
     var all_buffers = std.ArrayList(std.os.iovec_const).init(comp.gpa);
@@ -183,6 +185,46 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     }
 
     const file = self.base.file.?;
+    try file.setEndPos(file_size);
+    try file.pwritevAll(all_buffers.items, 0);
+}
+
+pub fn flushEmitH(module: *Module) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const emit_h_loc = module.emit_h orelse return;
+
+    // We collect a list of buffers to write, and write them all at once with pwritev 😎
+    var all_buffers = std.ArrayList(std.os.iovec_const).init(module.gpa);
+    defer all_buffers.deinit();
+
+    try all_buffers.ensureCapacity(module.decl_table.count() + 1);
+
+    var file_size: u64 = zig_h.len;
+    all_buffers.appendAssumeCapacity(.{
+        .iov_base = zig_h,
+        .iov_len = zig_h.len,
+    });
+
+    for (module.decl_table.items()) |kv| {
+        const emit_h = kv.value.getEmitH(module);
+        const buf = emit_h.fwd_decl.items;
+        all_buffers.appendAssumeCapacity(.{
+            .iov_base = buf.ptr,
+            .iov_len = buf.len,
+        });
+        file_size += buf.len;
+    }
+
+    const directory = emit_h_loc.directory orelse module.comp.local_cache_directory;
+    const file = try directory.handle.createFile(emit_h_loc.basename, .{
+        // We set the end position explicitly below; by not truncating the file, we possibly
+        // make it easier on the file system by doing 1 reallocation instead of two.
+        .truncate = false,
+    });
+    defer file.close();
+
     try file.setEndPos(file_size);
     try file.pwritevAll(all_buffers.items, 0);
 }

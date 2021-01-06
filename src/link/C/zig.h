@@ -23,11 +23,17 @@
 #endif
 
 #if __STDC_VERSION__ >= 199901L
-#define zig_restrict restrict
+#define ZIG_RESTRICT restrict
 #elif defined(__GNUC__)
-#define zig_restrict __restrict
+#define ZIG_RESTRICT __restrict
 #else
-#define zig_restrict
+#define ZIG_RESTRICT
+#endif
+
+#ifdef __cplusplus
+#define ZIG_EXTERN_C extern "C"
+#else
+#define ZIG_EXTERN_C
 #endif
 
 #if defined(_MSC_VER)
@@ -48,5 +54,5 @@
 #include <stddef.h>
 #define int128_t __int128
 #define uint128_t unsigned __int128
-void *memcpy (void *zig_restrict, const void *zig_restrict, size_t);
+ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
 

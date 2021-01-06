@@ -27,7 +27,6 @@ const Cache = @import("Cache.zig");
 const stage1 = @import("stage1.zig");
 const translate_c = @import("translate_c.zig");
 const c_codegen = @import("codegen/c.zig");
-const c_link = @import("link/C.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
@@ -162,6 +161,8 @@ pub const CSourceFile = struct {
 const Job = union(enum) {
     /// Write the machine code for a Decl to the output file.
     codegen_decl: *Module.Decl,
+    /// Render the .h file snippet for the Decl.
+    emit_h_decl: *Module.Decl,
     /// The Decl needs to be analyzed and possibly export itself.
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
@@ -1312,8 +1313,13 @@ pub fn update(self: *Compilation) !void {
 
     // This is needed before reading the error flags.
     try self.bin_file.flush(self);
-
     self.link_error_flags = self.bin_file.errorFlags();
+
+    if (!use_stage1) {
+        if (self.bin_file.options.module) |module| {
+            try link.File.C.flushEmitH(module);
+        }
+    }
 
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
@@ -1340,7 +1346,8 @@ pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.items().len;
 
     if (self.bin_file.options.module) |module| {
-        total += module.failed_decls.items().len +
+        total += module.failed_decls.count() +
+            module.emit_h_failed_decls.count() +
             module.failed_exports.items().len +
             module.failed_files.items().len +
             @boolToInt(module.failed_root_src_file != null);
@@ -1374,6 +1381,12 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             try AllErrors.add(&arena, &errors, scope.subFilePath(), source, err_msg.*);
         }
         for (module.failed_decls.items()) |entry| {
+            const decl = entry.key;
+            const err_msg = entry.value;
+            const source = try decl.scope.getSource(module);
+            try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
+        }
+        for (module.emit_h_failed_decls.items()) |entry| {
             const decl = entry.key;
             const err_msg = entry.value;
             const source = try decl.scope.getSource(module);
@@ -1476,25 +1489,66 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 
                 assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());
 
-                self.bin_file.updateDecl(module, decl) catch |err| {
-                    switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        error.AnalysisFail => {
-                            decl.analysis = .codegen_failure;
-                        },
-                        else => {
-                            try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
-                            module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
-                                module.gpa,
-                                decl.src(),
-                                "unable to codegen: {s}",
-                                .{@errorName(err)},
-                            ));
-                            decl.analysis = .codegen_failure_retryable;
-                        },
-                    }
-                    return;
+                self.bin_file.updateDecl(module, decl) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.AnalysisFail => {
+                        decl.analysis = .codegen_failure;
+                        continue;
+                    },
+                    else => {
+                        try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
+                        module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                            module.gpa,
+                            decl.src(),
+                            "unable to codegen: {s}",
+                            .{@errorName(err)},
+                        ));
+                        decl.analysis = .codegen_failure_retryable;
+                        continue;
+                    },
                 };
+            },
+        },
+        .emit_h_decl => |decl| switch (decl.analysis) {
+            .unreferenced => unreachable,
+            .in_progress => unreachable,
+            .outdated => unreachable,
+
+            .sema_failure,
+            .dependency_failure,
+            .sema_failure_retryable,
+            => continue,
+
+            // emit-h only requires semantic analysis of the Decl to be complete,
+            // it does not depend on machine code generation to succeed.
+            .codegen_failure, .codegen_failure_retryable, .complete => {
+                if (build_options.omit_stage2)
+                    @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+                const module = self.bin_file.options.module.?;
+                const emit_loc = module.emit_h.?;
+                const tv = decl.typed_value.most_recent.typed_value;
+                const emit_h = decl.getEmitH(module);
+                const fwd_decl = &emit_h.fwd_decl;
+                fwd_decl.shrinkRetainingCapacity(0);
+
+                var dg: c_codegen.DeclGen = .{
+                    .module = module,
+                    .error_msg = null,
+                    .decl = decl,
+                    .fwd_decl = fwd_decl.toManaged(module.gpa),
+                };
+                defer dg.fwd_decl.deinit();
+
+                c_codegen.genHeader(&dg) catch |err| switch (err) {
+                    error.AnalysisFail => {
+                        try module.emit_h_failed_decls.put(module.gpa, decl, dg.error_msg.?);
+                        continue;
+                    },
+                    else => |e| return e,
+                };
+
+                fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
+                fwd_decl.shrink(module.gpa, fwd_decl.items.len);
             },
         },
         .analyze_decl => |decl| {
