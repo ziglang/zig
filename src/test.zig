@@ -817,6 +817,10 @@ pub const TestContext = struct {
                         // child process.
                         const exe_path = try std.fmt.allocPrint(arena, "." ++ std.fs.path.sep_str ++ "{s}", .{bin_name});
                         if (case.object_format != null and case.object_format.? == .c) {
+                            if (case.target.getExternalExecutor() != .native) {
+                                // We wouldn't be able to run the compiled C code.
+                                return; // Pass test.
+                            }
                             try argv.appendSlice(&[_][]const u8{
                                 std.testing.zig_exe_path,
                                 "run",
