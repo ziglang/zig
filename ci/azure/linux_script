@@ -73,7 +73,10 @@ tidy -qe ../zig-cache/langref.html
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   # Produce the experimental std lib documentation.
   mkdir -p release/docs/std
-  release/bin/zig test ../lib/std/std.zig -femit-docs=release/docs/std -fno-emit-bin
+  release/bin/zig test ../lib/std/std.zig \
+    --override-lib-dir ../lib \
+    -femit-docs=release/docs/std \
+    -fno-emit-bin
 
   mv ../LICENSE release/
   mv ../zig-cache/langref.html release/docs/
