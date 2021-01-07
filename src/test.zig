@@ -657,8 +657,10 @@ pub const TestContext = struct {
             .object_format = case.object_format,
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
+            .dynamic_linker = target_info.dynamic_linker.get(),
             .link_libc = case.llvm_backend,
             .use_llvm = case.llvm_backend,
+            .use_lld = case.llvm_backend,
             .self_exe_path = std.testing.zig_exe_path,
         });
         defer comp.destroy();
