@@ -24,6 +24,7 @@ packages:
   - xz
 secrets:
   - 51bfddf5-86a6-4e01-8576-358c72a4a0a4
+  - 8d5f230b-78d9-4e7c-b583-8cbb1b15807c
 sources:
   - https://github.com/ziglang/zig
 tasks:

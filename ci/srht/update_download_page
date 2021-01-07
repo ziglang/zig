@@ -35,7 +35,7 @@ wget "https://ziglang.org/builds/$NATIVE_TARBALL"
 tar xf "$NATIVE_TARBALL"
 ZIGDIR=$(basename $NATIVE_TARBALL .tar.xz)
 ZIG="$ZIGDIR/zig"
-LANGREF="$ZIGDIR/langref.html"
+LANGREF="$ZIGDIR/docs/langref.html"
 SRCTARBALLDIR="zig-$VERSION"
 export SRC_TARBALL="$SRCTARBALLDIR.tar.xz"
 mv "$SRCDIR" "$SRCTARBALLDIR"
@@ -68,13 +68,24 @@ export X86_64_FREEBSD_TARBALL="$(echo "$X86_64_FREEBSD_JSON" | jq .tarball -r)"
 export X86_64_FREEBSD_BYTESIZE="$(echo "$X86_64_FREEBSD_JSON" | jq .size -r)"
 export X86_64_FREEBSD_SHASUM="$(echo "$X86_64_FREEBSD_JSON" | jq .shasum -r)"
 
-git clone https://github.com/ziglang/www.ziglang.org --depth 1
+git clone git@github.com:ziglang/www.ziglang.org.git
 cd www.ziglang.org
+git checkout hugo-redesign
 export MASTER_DATE="$(date +%Y-%m-%d)"
 export MASTER_VERSION="$VERSION"
 "../$ZIG" run update-download-page.zig
 
 $S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "../$SRC_TARBALL" s3://ziglang.org/builds/
+
 $S3CMD put -P --no-mime-magic "../$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P --no-mime-magic www/download/index.html s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P --no-mime-magic www/download/index.json s3://ziglang.org/download/index.json --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic "../$ZIGDIR/docs/std/index.html" s3://ziglang.org/documentation/master/std/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic "../$ZIGDIR/docs/std/data.js" s3://ziglang.org/documentation/master/std/data.js --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic "../$ZIGDIR/docs/std/main.js" s3://ziglang.org/documentation/master/std/main.js --add-header="Cache-Control: max-age=0, must-revalidate"
+
+$S3CMD put -P --no-mime-magic ci/out/index.html s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic ci/out/index.json s3://ziglang.org/download/index.json --add-header="Cache-Control: max-age=0, must-revalidate"
+
+cp ci/out/index.json data/releases.json
+git add data/releases.json
+git commit -m "CI: update releases.json"
+git push origin hugo-redesign
