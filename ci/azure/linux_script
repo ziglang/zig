@@ -4,7 +4,7 @@ set -x
 set -e
 
 sudo apt-get update -q
-sudo apt-get install -y cmake s3cmd ninja-build tidy
+sudo apt-get install -y cmake s3cmd tidy
 
 ZIGDIR="$(pwd)"
 ARCH="$(uname -m)"
@@ -12,6 +12,7 @@ TARGET="$ARCH-linux-musl"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.859+f1ef0a80f"
 PREFIX="$HOME/$CACHE_BASENAME"
 MCPU="baseline"
+JOBS="-j$(nproc)"
 
 rm -rf $PREFIX
 cd $HOME
@@ -49,21 +50,20 @@ cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON \
-  -GNinja
+  -DZIG_STATIC=ON
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
 unset CC
 unset CXX
 
-ninja install
+make $JOBS install
 
 # Here we rebuild zig but this time using the Zig binary we just now produced to
 # build zig1.o rather than relying on the one built with stage0. See
 # https://github.com/ziglang/zig/issues/6830 for more details.
 cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
-ninja install
+make $JOBS install
 
 release/bin/zig build test -Denable-qemu -Denable-wasmtime
 
