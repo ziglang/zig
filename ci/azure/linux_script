@@ -8,8 +8,10 @@ sudo apt-get install -y cmake s3cmd ninja-build tidy
 
 ZIGDIR="$(pwd)"
 ARCH="$(uname -m)"
-CACHE_BASENAME="zig+llvm+lld+clang-$ARCH-linux-musl-0.8.0-dev.859+f1ef0a80f"
+TARGET="$ARCH-linux-musl"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.859+f1ef0a80f"
 PREFIX="$HOME/$CACHE_BASENAME"
+MCPU="baseline"
 
 rm -rf $PREFIX
 cd $HOME
@@ -28,8 +30,8 @@ tar xf "$WASMTIME.tar.xz"
 export PATH="$(pwd)/$WASMTIME:$PATH"
 
 ZIG="$PREFIX/bin/zig"
-export CC="$ZIG cc"
-export CXX="$ZIG c++"
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 cd $ZIGDIR
 
@@ -45,8 +47,8 @@ cmake .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
-  -DZIG_TARGET_TRIPLE="$ARCH-linux-musl" \
-  -DZIG_TARGET_MCPU="baseline" \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
   -GNinja
 
