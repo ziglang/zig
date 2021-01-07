@@ -8414,41 +8414,6 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
         if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
     }
 
-    if (!type_has_bits(g, child_type)) {
-        LLVMTypeRef element_types[] = {
-            usize_llvm_type,
-        };
-        LLVMStructSetBody(type->llvm_type, element_types, 1, false);
-
-        uint64_t len_debug_size_in_bits = usize_type->size_in_bits;
-        uint64_t len_debug_align_in_bits = 8*usize_type->abi_align;
-        uint64_t len_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, type->llvm_type, 0);
-
-        uint64_t debug_size_in_bits = type->size_in_bits;
-        uint64_t debug_align_in_bits = 8*type->abi_align;
-
-        ZigLLVMDIType *di_element_types[] = {
-            ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
-                    "len", di_file, line,
-                    len_debug_size_in_bits,
-                    len_debug_align_in_bits,
-                    len_offset_in_bits,
-                    ZigLLVM_DIFlags_Zero,
-                    usize_llvm_di_type),
-        };
-        ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-                compile_unit_scope,
-                buf_ptr(&type->name),
-                di_file, line, debug_size_in_bits, debug_align_in_bits,
-                ZigLLVM_DIFlags_Zero,
-                nullptr, di_element_types, 1, 0, nullptr, "");
-
-        ZigLLVMReplaceTemporary(g->dbuilder, type->llvm_di_type, replacement_di_type);
-        type->llvm_di_type = replacement_di_type;
-        type->data.structure.resolve_status = ResolveStatusLLVMFull;
-        return;
-    }
-
     LLVMTypeRef element_types[2];
     element_types[slice_ptr_index] = get_llvm_type(g, ptr_type);
     element_types[slice_len_index] = get_llvm_type(g, g->builtin_types.entry_usize);
