@@ -1038,6 +1038,7 @@ pub const Builder = struct {
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = stderr_behavior;
+        child.env_map = self.env_map;
 
         try child.spawn();
 
