@@ -493,7 +493,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/udivmodti4.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/udivti3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/umodti3.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/spinlock.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/SpinLock.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/start.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/std.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/target.zig"
