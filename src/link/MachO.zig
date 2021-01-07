@@ -1263,9 +1263,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     const stub_h = &text_segment.sections.items[self.stub_helper_section_index.?];
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const la_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
-    while (self.stub_fixups.popOrNull()) |fixup| {
+    for (self.stub_fixups.items) |fixup, idx| {
+        const i = @intCast(u32, idx);
         // TODO increment offset for stub writing
-        const stub_addr = stubs.addr;
+        const stub_addr = stubs.addr + i * stubs.reserved2;
         const text_addr = symbol.n_value + fixup.start;
         const displacement = @intCast(u32, stub_addr - text_addr);
         var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
@@ -1274,17 +1275,16 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const end = stub_h.addr + self.next_stub_helper_off.? - stub_h.offset;
         var buf: [@sizeOf(u64)]u8 = undefined;
         mem.writeIntLittle(u64, &buf, end);
-        try self.base.file.?.pwriteAll(&buf, la_ptr.offset);
+        try self.base.file.?.pwriteAll(&buf, la_ptr.offset + i * @sizeOf(u64));
 
-        const displacement2 = la_ptr.addr - stubs.addr;
+        const la_ptr_addr = la_ptr.addr + i * @sizeOf(u64);
+        const displacement2 = la_ptr_addr - stub_addr;
         var ccode: [2 * @sizeOf(u32)]u8 = undefined;
         mem.writeIntLittle(u32, ccode[0..4], aarch64.Instruction.ldr(.x16, .{
             .literal = @intCast(u19, displacement2 / 4),
         }).toU32());
         mem.writeIntLittle(u32, ccode[4..8], aarch64.Instruction.br(.x16).toU32());
-        try self.base.file.?.pwriteAll(&ccode, stubs.offset);
-        stubs.size = 2 * @sizeOf(u32);
-        stubs.reserved2 = 2 * @sizeOf(u32);
+        try self.base.file.?.pwriteAll(&ccode, stubs.offset + i * stubs.reserved2);
 
         const displacement3 = @intCast(i64, stub_h.addr) - @intCast(i64, end + 4);
         var cccode: [3 * @sizeOf(u32)]u8 = undefined;
@@ -1292,13 +1292,13 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             .literal = 0x2,
         }).toU32());
         mem.writeIntLittle(u32, cccode[4..8], aarch64.Instruction.b(@intCast(i28, displacement3)).toU32());
-        mem.writeIntLittle(u32, cccode[8..12], 0);
+        mem.writeIntLittle(u32, cccode[8..12], i * 0xd);
         try self.base.file.?.pwriteAll(&cccode, self.next_stub_helper_off.?);
         self.next_stub_helper_off = self.next_stub_helper_off.? + 3 * @sizeOf(u32);
 
         try self.rebase_info_table.symbols.append(self.base.allocator, .{
             .segment = 3,
-            .offset = 0,
+            .offset = i * stubs.reserved2,
         });
         self.rebase_info_dirty = true;
 
@@ -1308,12 +1308,13 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         mem.copy(u8, name, name_str);
         try self.lazy_binding_info_table.symbols.append(self.base.allocator, .{
             .segment = 3,
-            .offset = 0,
+            .offset = i * @sizeOf(u64),
             .dylib_ordinal = 1,
             .name = name,
         });
         self.lazy_binding_info_dirty = true;
     }
+    self.stub_fixups.shrinkRetainingCapacity(0);
 
     const text_section = text_segment.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
@@ -1634,7 +1635,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .nreloc = 0,
             .flags = flags,
             .reserved1 = 0,
-            .reserved2 = 0,
+            .reserved2 = 2 * @sizeOf(u32),
             .reserved3 = 0,
         });
         self.header_dirty = true;
@@ -2539,20 +2540,45 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     const la = &data_seg.sections.items[self.la_symbol_ptr_section_index.?];
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
     dysymtab.nindirectsyms = 0;
+
+    var buf: [@sizeOf(u32)]u8 = undefined;
+    var off = dysymtab.indirectsymoff;
+    var idx: u32 = 0;
+
+    stubs.reserved1 = 0;
     for (self.undef_symbols.items) |sym, i| {
-        const idx = @intCast(u32, dysymtab.iundefsym + i);
-        var buf: [@sizeOf(u32)]u8 = undefined;
-        mem.writeIntLittle(u32, &buf, idx);
-        try self.base.file.?.pwriteAll(&buf, dysymtab.indirectsymoff + i * @sizeOf(u32));
-        dysymtab.nindirectsyms += 1;
         if (i == self.dyld_stub_binder_index.?) {
-            got.reserved1 = @intCast(u32, i);
             continue;
         }
-        stubs.reserved1 = @intCast(u32, i);
-        try self.base.file.?.pwriteAll(&buf, dysymtab.indirectsymoff + (i + 1) * @sizeOf(u32));
-        la.reserved1 = @intCast(u32, i + 1);
+        const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
+        mem.writeIntLittle(u32, &buf, symtab_idx);
+        try self.base.file.?.pwriteAll(&buf, off);
+        off += @sizeOf(u32);
         dysymtab.nindirectsyms += 1;
+        idx += 1;
+    }
+
+    got.reserved1 = @intCast(u32, self.undef_symbols.items.len - 1);
+    if (self.dyld_stub_binder_index) |i| {
+        const symtab_idx = i + dysymtab.iundefsym;
+        mem.writeIntLittle(u32, &buf, symtab_idx);
+        try self.base.file.?.pwriteAll(&buf, off);
+        off += @sizeOf(u32);
+        dysymtab.nindirectsyms += 1;
+        idx += 1;
+    }
+
+    la.reserved1 = got.reserved1 + 1;
+    for (self.undef_symbols.items) |sym, i| {
+        if (i == self.dyld_stub_binder_index.?) {
+            continue;
+        }
+        const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
+        mem.writeIntLittle(u32, &buf, symtab_idx);
+        try self.base.file.?.pwriteAll(&buf, off);
+        off += @sizeOf(u32);
+        dysymtab.nindirectsyms += 1;
+        idx += 1;
     }
 }
 

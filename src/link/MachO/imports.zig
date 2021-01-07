@@ -21,9 +21,8 @@ pub const RebaseInfoTable = struct {
 
     /// Write the rebase info table to byte stream.
     pub fn write(self: RebaseInfoTable, writer: anytype) !void {
-        try writer.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @truncate(u4, self.rebase_type));
-
         for (self.symbols.items) |symbol| {
+            try writer.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @truncate(u4, self.rebase_type));
             try writer.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
             try leb.writeILEB128(writer, symbol.offset);
             try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES | @truncate(u4, 1));
@@ -36,10 +35,10 @@ pub const RebaseInfoTable = struct {
     pub fn calcSize(self: *RebaseInfoTable) !u64 {
         var stream = std.io.countingWriter(std.io.null_writer);
         var writer = stream.writer();
-        var size: u64 = 1;
+        var size: u64 = 0;
 
         for (self.symbols.items) |symbol| {
-            size += 1;
+            size += 2;
             try leb.writeILEB128(writer, symbol.offset);
             size += 1;
         }
