@@ -112,8 +112,8 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     code.* = object.code.moveToUnmanaged();
 
     // Free excess allocated memory for this Decl.
-    fwd_decl.shrink(module.gpa, fwd_decl.items.len);
-    code.shrink(module.gpa, code.items.len);
+    fwd_decl.shrinkAndFree(module.gpa, fwd_decl.items.len);
+    code.shrinkAndFree(module.gpa, code.items.len);
 }
 
 pub fn updateDeclLineNumber(self: *C, module: *Module, decl: *Module.Decl) !void {

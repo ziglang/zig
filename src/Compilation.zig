@@ -1564,7 +1564,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 };
 
                 fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
-                fwd_decl.shrink(module.gpa, fwd_decl.items.len);
+                fwd_decl.shrinkAndFree(module.gpa, fwd_decl.items.len);
             },
         },
         .analyze_decl => |decl| {

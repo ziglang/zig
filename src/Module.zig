@@ -1885,10 +1885,10 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
     if (self.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(self.gpa);
     }
-    if (self.emit_h_failed_decls.remove(decl)) |entry| {
+    if (self.emit_h_failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(self.gpa);
     }
-    if (self.compile_log_decls.remove(decl)) |*entry| {
+    if (self.compile_log_decls.swapRemove(decl)) |*entry| {
         entry.value.deinit(self.gpa);
     }
     self.deleteDeclExports(decl);
@@ -1978,10 +1978,10 @@ fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     if (self.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(self.gpa);
     }
-    if (self.emit_h_failed_decls.remove(decl)) |entry| {
+    if (self.emit_h_failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(self.gpa);
     }
-    if (self.compile_log_decls.remove(decl)) |*entry| {
+    if (self.compile_log_decls.swapRemove(decl)) |*entry| {
         entry.value.deinit(self.gpa);
     }
     decl.analysis = .outdated;
