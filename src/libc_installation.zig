@@ -337,7 +337,7 @@ pub const LibCInstallation = struct {
         defer result_buf.deinit();
 
         for (searches) |search| {
-            result_buf.shrink(0);
+            result_buf.shrinkAndFree(0);
             try result_buf.outStream().print("{s}\\Include\\{s}\\ucrt", .{ search.path, search.version });
 
             var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
@@ -383,7 +383,7 @@ pub const LibCInstallation = struct {
         };
 
         for (searches) |search| {
-            result_buf.shrink(0);
+            result_buf.shrinkAndFree(0);
             try result_buf.outStream().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ search.path, search.version, arch_sub_dir });
 
             var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
@@ -437,7 +437,7 @@ pub const LibCInstallation = struct {
         };
 
         for (searches) |search| {
-            result_buf.shrink(0);
+            result_buf.shrinkAndFree(0);
             const stream = result_buf.outStream();
             try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ search.path, search.version, arch_sub_dir });
 

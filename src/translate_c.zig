@@ -2846,7 +2846,7 @@ fn transCase(
 
     // take all pending statements
     try switch_scope.pending_block.statements.appendSlice(block_scope.statements.items);
-    block_scope.statements.shrink(0);
+    block_scope.statements.shrinkAndFree(0);
 
     const pending_node = try switch_scope.pending_block.complete(rp.c);
     switch_scope.pending_block.deinit();
@@ -2884,7 +2884,7 @@ fn transDefault(
 
     // take all pending statements
     try switch_scope.pending_block.statements.appendSlice(block_scope.statements.items);
-    block_scope.statements.shrink(0);
+    block_scope.statements.shrinkAndFree(0);
 
     const pending_node = try switch_scope.pending_block.complete(rp.c);
     switch_scope.pending_block.deinit();
@@ -4773,9 +4773,9 @@ const RestorePoint = struct {
     src_buf_index: usize,
 
     fn activate(self: RestorePoint) void {
-        self.c.token_ids.shrink(self.c.gpa, self.token_index);
-        self.c.token_locs.shrink(self.c.gpa, self.token_index);
-        self.c.source_buffer.shrink(self.src_buf_index);
+        self.c.token_ids.shrinkAndFree(self.c.gpa, self.token_index);
+        self.c.token_locs.shrinkAndFree(self.c.gpa, self.token_index);
+        self.c.source_buffer.shrinkAndFree(self.src_buf_index);
     }
 };
 

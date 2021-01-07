@@ -99,6 +99,16 @@ pub fn ArrayHashMap(
             };
         }
 
+        /// `ArrayHashMap` takes ownership of the passed in array list. The array list must have
+        /// been allocated with `allocator`.
+        /// Deinitialize with `deinit`.
+        pub fn fromOwnedArrayList(allocator: *Allocator, entries: std.ArrayListUnmanaged(Entry)) !Self {
+            return Self{
+                .unmanaged = try Unmanaged.fromOwnedArrayList(allocator, entries),
+                .allocator = allocator,
+            };
+        }
+
         pub fn deinit(self: *Self) void {
             self.unmanaged.deinit(self.allocator);
             self.* = undefined;
@@ -214,9 +224,19 @@ pub fn ArrayHashMap(
         }
 
         /// If there is an `Entry` with a matching key, it is deleted from
-        /// the hash map, and then returned from this function.
-        pub fn remove(self: *Self, key: K) ?Entry {
-            return self.unmanaged.remove(key);
+        /// the hash map, and then returned from this function. The entry is
+        /// removed from the underlying array by swapping it with the last
+        /// element.
+        pub fn swapRemove(self: *Self, key: K) ?Entry {
+            return self.unmanaged.swapRemove(key);
+        }
+
+        /// If there is an `Entry` with a matching key, it is deleted from
+        /// the hash map, and then returned from this function. The entry is
+        /// removed from the underlying array by shifting all elements forward
+        /// thereby maintaining the current ordering.
+        pub fn orderedRemove(self: *Self, key: K) ?Entry {
+            return self.unmanaged.orderedRemove(key);
         }
 
         /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
@@ -232,6 +252,29 @@ pub fn ArrayHashMap(
         pub fn clone(self: Self) !Self {
             var other = try self.unmanaged.clone(self.allocator);
             return other.promote(self.allocator);
+        }
+
+        /// Rebuilds the key indexes. If the underlying entries has been modified directly, users
+        /// can call `reIndex` to update the indexes to account for these new entries.
+        pub fn reIndex(self: *Self) !void {
+            return self.unmanaged.reIndex(self.allocator);
+        }
+
+        /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
+        /// index entries. Keeps capacity the same.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            return self.unmanaged.shrinkRetainingCapacity(new_len);
+        }
+
+        /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
+        /// index entries. Reduces allocated capacity.
+        pub fn shrinkAndFree(self: *Self, new_len: usize) void {
+            return self.unmanaged.shrinkAndFree(self.allocator, new_len);
+        }
+
+        /// Removes the last inserted `Entry` in the hash map and returns it.
+        pub fn pop(self: *Self) Entry {
+            return self.unmanaged.pop();
         }
     };
 }
@@ -286,6 +329,7 @@ pub fn ArrayHashMapUnmanaged(
         pub const GetOrPutResult = struct {
             entry: *Entry,
             found_existing: bool,
+            index: usize,
         };
 
         pub const Managed = ArrayHashMap(K, V, hash, eql, store_hash);
@@ -294,11 +338,26 @@ pub fn ArrayHashMapUnmanaged(
 
         const linear_scan_max = 8;
 
+        const RemovalType = enum {
+            swap,
+            ordered,
+            index_only,
+        };
+
         pub fn promote(self: Self, allocator: *Allocator) Managed {
             return .{
                 .unmanaged = self,
                 .allocator = allocator,
             };
+        }
+
+        /// `ArrayHashMapUnmanaged` takes ownership of the passed in array list. The array list must
+        /// have been allocated with `allocator`.
+        /// Deinitialize with `deinit`.
+        pub fn fromOwnedArrayList(allocator: *Allocator, entries: std.ArrayListUnmanaged(Entry)) !Self {
+            var array_hash_map = Self{ .entries = entries };
+            try array_hash_map.reIndex(allocator);
+            return array_hash_map;
         }
 
         pub fn deinit(self: *Self, allocator: *Allocator) void {
@@ -323,7 +382,7 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
-            self.entries.shrink(allocator, 0);
+            self.entries.shrinkAndFree(allocator, 0);
             if (self.index_header) |header| {
                 header.free(allocator);
                 self.index_header = null;
@@ -343,9 +402,11 @@ pub fn ArrayHashMapUnmanaged(
         pub fn getOrPut(self: *Self, allocator: *Allocator, key: K) !GetOrPutResult {
             self.ensureCapacity(allocator, self.entries.items.len + 1) catch |err| {
                 // "If key exists this function cannot fail."
+                const index = self.getIndex(key) orelse return err;
                 return GetOrPutResult{
-                    .entry = self.getEntry(key) orelse return err,
+                    .entry = &self.entries.items[index],
                     .found_existing = true,
+                    .index = index,
                 };
             };
             return self.getOrPutAssumeCapacity(key);
@@ -362,11 +423,12 @@ pub fn ArrayHashMapUnmanaged(
             const header = self.index_header orelse {
                 // Linear scan.
                 const h = if (store_hash) hash(key) else {};
-                for (self.entries.items) |*item| {
+                for (self.entries.items) |*item, i| {
                     if (item.hash == h and eql(key, item.key)) {
                         return GetOrPutResult{
                             .entry = item,
                             .found_existing = true,
+                            .index = i,
                         };
                     }
                 }
@@ -379,6 +441,7 @@ pub fn ArrayHashMapUnmanaged(
                 return GetOrPutResult{
                     .entry = new_entry,
                     .found_existing = false,
+                    .index = self.entries.items.len - 1,
                 };
             };
 
@@ -524,30 +587,25 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         /// If there is an `Entry` with a matching key, it is deleted from
-        /// the hash map, and then returned from this function.
-        pub fn remove(self: *Self, key: K) ?Entry {
-            const header = self.index_header orelse {
-                // Linear scan.
-                const h = if (store_hash) hash(key) else {};
-                for (self.entries.items) |item, i| {
-                    if (item.hash == h and eql(key, item.key)) {
-                        return self.entries.swapRemove(i);
-                    }
-                }
-                return null;
-            };
-            switch (header.capacityIndexType()) {
-                .u8 => return self.removeInternal(key, header, u8),
-                .u16 => return self.removeInternal(key, header, u16),
-                .u32 => return self.removeInternal(key, header, u32),
-                .usize => return self.removeInternal(key, header, usize),
-            }
+        /// the hash map, and then returned from this function. The entry is
+        /// removed from the underlying array by swapping it with the last
+        /// element.
+        pub fn swapRemove(self: *Self, key: K) ?Entry {
+            return self.removeInternal(key, .swap);
+        }
+
+        /// If there is an `Entry` with a matching key, it is deleted from
+        /// the hash map, and then returned from this function. The entry is
+        /// removed from the underlying array by shifting all elements forward
+        /// thereby maintaining the current ordering.
+        pub fn orderedRemove(self: *Self, key: K) ?Entry {
+            return self.removeInternal(key, .ordered);
         }
 
         /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
         /// and discards it.
         pub fn removeAssertDiscard(self: *Self, key: K) void {
-            assert(self.remove(key) != null);
+            assert(self.swapRemove(key) != null);
         }
 
         pub fn items(self: Self) []Entry {
@@ -566,9 +624,85 @@ pub fn ArrayHashMapUnmanaged(
             return other;
         }
 
-        fn removeInternal(self: *Self, key: K, header: *IndexHeader, comptime I: type) ?Entry {
+        /// Rebuilds the key indexes. If the underlying entries has been modified directly, users
+        /// can call `reIndex` to update the indexes to account for these new entries.
+        pub fn reIndex(self: *Self, allocator: *Allocator) !void {
+            if (self.entries.capacity <= linear_scan_max) return;
+            // We're going to rebuild the index header and replace the existing one (if any). The
+            // indexes should sized such that they will be at most 60% full.
+            const needed_len = self.entries.capacity * 5 / 3;
+            const new_indexes_len = math.ceilPowerOfTwo(usize, needed_len) catch unreachable;
+            const new_header = try IndexHeader.alloc(allocator, new_indexes_len);
+            self.insertAllEntriesIntoNewHeader(new_header);
+            if (self.index_header) |header|
+                header.free(allocator);
+            self.index_header = new_header;
+        }
+
+        /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
+        /// index entries. Keeps capacity the same.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            // Remove index entries from the new length onwards.
+            // Explicitly choose to ONLY remove index entries and not the underlying array list
+            // entries as we're going to remove them in the subsequent shrink call.
+            var i: usize = new_len;
+            while (i < self.entries.items.len) : (i += 1)
+                _ = self.removeWithHash(self.entries.items[i].key, self.entries.items[i].hash, .index_only);
+            self.entries.shrinkRetainingCapacity(new_len);
+        }
+
+        /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
+        /// index entries. Reduces allocated capacity.
+        pub fn shrinkAndFree(self: *Self, allocator: *Allocator, new_len: usize) void {
+            // Remove index entries from the new length onwards.
+            // Explicitly choose to ONLY remove index entries and not the underlying array list
+            // entries as we're going to remove them in the subsequent shrink call.
+            var i: usize = new_len;
+            while (i < self.entries.items.len) : (i += 1)
+                _ = self.removeWithHash(self.entries.items[i].key, self.entries.items[i].hash, .index_only);
+            self.entries.shrinkAndFree(allocator, new_len);
+        }
+
+        /// Removes the last inserted `Entry` in the hash map and returns it.
+        pub fn pop(self: *Self) Entry {
+            const top = self.entries.pop();
+            _ = self.removeWithHash(top.key, top.hash, .index_only);
+            return top;
+        }
+
+        fn removeInternal(self: *Self, key: K, comptime removal_type: RemovalType) ?Entry {
+            const key_hash = if (store_hash) hash(key) else {};
+            return self.removeWithHash(key, key_hash, removal_type);
+        }
+
+        fn removeWithHash(self: *Self, key: K, key_hash: Hash, comptime removal_type: RemovalType) ?Entry {
+            const header = self.index_header orelse {
+                // If we're only removing index entries and we have no index header, there's no need
+                // to continue.
+                if (removal_type == .index_only) return null;
+                // Linear scan.
+                for (self.entries.items) |item, i| {
+                    if (item.hash == key_hash and eql(key, item.key)) {
+                        switch (removal_type) {
+                            .swap => return self.entries.swapRemove(i),
+                            .ordered => return self.entries.orderedRemove(i),
+                            .index_only => unreachable,
+                        }
+                    }
+                }
+                return null;
+            };
+            switch (header.capacityIndexType()) {
+                .u8 => return self.removeWithIndex(key, key_hash, header, u8, removal_type),
+                .u16 => return self.removeWithIndex(key, key_hash, header, u16, removal_type),
+                .u32 => return self.removeWithIndex(key, key_hash, header, u32, removal_type),
+                .usize => return self.removeWithIndex(key, key_hash, header, usize, removal_type),
+            }
+        }
+
+        fn removeWithIndex(self: *Self, key: K, key_hash: Hash, header: *IndexHeader, comptime I: type, comptime removal_type: RemovalType) ?Entry {
             const indexes = header.indexes(I);
-            const h = hash(key);
+            const h = if (store_hash) key_hash else hash(key);
             const start_index = header.constrainIndex(h);
             var roll_over: usize = 0;
             while (roll_over <= header.max_distance_from_start_index) : (roll_over += 1) {
@@ -583,11 +717,26 @@ pub fn ArrayHashMapUnmanaged(
                 if (!hash_match or !eql(key, entry.key))
                     continue;
 
-                const removed_entry = self.entries.swapRemove(index.entry_index);
-                if (self.entries.items.len > 0 and self.entries.items.len != index.entry_index) {
-                    // Because of the swap remove, now we need to update the index that was
-                    // pointing to the last entry and is now pointing to this removed item slot.
-                    self.updateEntryIndex(header, self.entries.items.len, index.entry_index, I, indexes);
+                var removed_entry: ?Entry = undefined;
+                switch (removal_type) {
+                    .swap => {
+                        removed_entry = self.entries.swapRemove(index.entry_index);
+                        if (self.entries.items.len > 0 and self.entries.items.len != index.entry_index) {
+                            // Because of the swap remove, now we need to update the index that was
+                            // pointing to the last entry and is now pointing to this removed item slot.
+                            self.updateEntryIndex(header, self.entries.items.len, index.entry_index, I, indexes);
+                        }
+                    },
+                    .ordered => {
+                        removed_entry = self.entries.orderedRemove(index.entry_index);
+                        var i: usize = index.entry_index;
+                        while (i < self.entries.items.len) : (i += 1) {
+                            // Because of the ordered remove, everything from the entry index onwards has
+                            // been shifted forward so we'll need to update the index entries.
+                            self.updateEntryIndex(header, i + 1, i, I, indexes);
+                        }
+                    },
+                    .index_only => removed_entry = null,
                 }
 
                 // Now we have to shift over the following indexes.
@@ -658,6 +807,7 @@ pub fn ArrayHashMapUnmanaged(
                     return .{
                         .found_existing = false,
                         .entry = new_entry,
+                        .index = self.entries.items.len - 1,
                     };
                 }
 
@@ -669,6 +819,7 @@ pub fn ArrayHashMapUnmanaged(
                     return .{
                         .found_existing = true,
                         .entry = entry,
+                        .index = index.entry_index,
                     };
                 }
                 if (index.distance_from_start_index < distance_from_start_index) {
@@ -710,6 +861,7 @@ pub fn ArrayHashMapUnmanaged(
                             return .{
                                 .found_existing = false,
                                 .entry = new_entry,
+                                .index = self.entries.items.len - 1,
                             };
                         }
                         if (next_index.distance_from_start_index < distance_from_start_index) {
@@ -901,11 +1053,13 @@ test "basic hash map usage" {
     const gop1 = try map.getOrPut(5);
     testing.expect(gop1.found_existing == true);
     testing.expect(gop1.entry.value == 55);
+    testing.expect(gop1.index == 4);
     gop1.entry.value = 77;
     testing.expect(map.getEntry(5).?.value == 77);
 
     const gop2 = try map.getOrPut(99);
     testing.expect(gop2.found_existing == false);
+    testing.expect(gop2.index == 5);
     gop2.entry.value = 42;
     testing.expect(map.getEntry(99).?.value == 42);
 
@@ -919,12 +1073,31 @@ test "basic hash map usage" {
     testing.expect(map.getEntry(2).?.value == 22);
     testing.expect(map.get(2).? == 22);
 
-    const rmv1 = map.remove(2);
+    const rmv1 = map.swapRemove(2);
     testing.expect(rmv1.?.key == 2);
     testing.expect(rmv1.?.value == 22);
-    testing.expect(map.remove(2) == null);
+    testing.expect(map.swapRemove(2) == null);
     testing.expect(map.getEntry(2) == null);
     testing.expect(map.get(2) == null);
+
+    // Since we've used `swapRemove` above, the index of this entry should remain unchanged.
+    testing.expect(map.getIndex(100).? == 1);
+    const gop5 = try map.getOrPut(5);
+    testing.expect(gop5.found_existing == true);
+    testing.expect(gop5.entry.value == 77);
+    testing.expect(gop5.index == 4);
+
+    // Whereas, if we do an `orderedRemove`, it should move the index forward one spot.
+    const rmv2 = map.orderedRemove(100);
+    testing.expect(rmv2.?.key == 100);
+    testing.expect(rmv2.?.value == 41);
+    testing.expect(map.orderedRemove(100) == null);
+    testing.expect(map.getEntry(100) == null);
+    testing.expect(map.get(100) == null);
+    const gop6 = try map.getOrPut(5);
+    testing.expect(gop6.found_existing == true);
+    testing.expect(gop6.entry.value == 77);
+    testing.expect(gop6.index == 3);
 
     map.removeAssertDiscard(3);
 }
@@ -1016,6 +1189,132 @@ test "clone" {
     i = 0;
     while (i < 10) : (i += 1) {
         testing.expect(copy.get(i).? == i * 10);
+    }
+}
+
+test "shrink" {
+    var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    // This test is more interesting if we insert enough entries to allocate the index header.
+    const num_entries = 20;
+    var i: i32 = 0;
+    while (i < num_entries) : (i += 1)
+        testing.expect((try map.fetchPut(i, i * 10)) == null);
+
+    testing.expect(map.unmanaged.index_header != null);
+    testing.expect(map.count() == num_entries);
+
+    // Test `shrinkRetainingCapacity`.
+    map.shrinkRetainingCapacity(17);
+    testing.expect(map.count() == 17);
+    testing.expect(map.capacity() == 20);
+    i = 0;
+    while (i < num_entries) : (i += 1) {
+        const gop = try map.getOrPut(i);
+        if (i < 17) {
+            testing.expect(gop.found_existing == true);
+            testing.expect(gop.entry.value == i * 10);
+        } else
+            testing.expect(gop.found_existing == false);
+    }
+
+    // Test `shrinkAndFree`.
+    map.shrinkAndFree(15);
+    testing.expect(map.count() == 15);
+    testing.expect(map.capacity() == 15);
+    i = 0;
+    while (i < num_entries) : (i += 1) {
+        const gop = try map.getOrPut(i);
+        if (i < 15) {
+            testing.expect(gop.found_existing == true);
+            testing.expect(gop.entry.value == i * 10);
+        } else
+            testing.expect(gop.found_existing == false);
+    }
+}
+
+test "pop" {
+    var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    testing.expect((try map.fetchPut(1, 11)) == null);
+    testing.expect((try map.fetchPut(2, 22)) == null);
+    testing.expect((try map.fetchPut(3, 33)) == null);
+    testing.expect((try map.fetchPut(4, 44)) == null);
+
+    const pop1 = map.pop();
+    testing.expect(pop1.key == 4 and pop1.value == 44);
+    const pop2 = map.pop();
+    testing.expect(pop2.key == 3 and pop2.value == 33);
+    const pop3 = map.pop();
+    testing.expect(pop3.key == 2 and pop3.value == 22);
+    const pop4 = map.pop();
+    testing.expect(pop4.key == 1 and pop4.value == 11);
+}
+
+test "reIndex" {
+    var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    // Populate via the API.
+    const num_indexed_entries = 20;
+    var i: i32 = 0;
+    while (i < num_indexed_entries) : (i += 1)
+        testing.expect((try map.fetchPut(i, i * 10)) == null);
+
+    // Make sure we allocated an index header.
+    testing.expect(map.unmanaged.index_header != null);
+
+    // Now write to the underlying array list directly.
+    const num_unindexed_entries = 20;
+    const hash = getAutoHashFn(i32);
+    var al = &map.unmanaged.entries;
+    while (i < num_indexed_entries + num_unindexed_entries) : (i += 1) {
+        try al.append(std.testing.allocator, .{
+            .key = i,
+            .value = i * 10,
+            .hash = hash(i),
+        });
+    }
+
+    // After reindexing, we should see everything.
+    try map.reIndex();
+    i = 0;
+    while (i < num_indexed_entries + num_unindexed_entries) : (i += 1) {
+        const gop = try map.getOrPut(i);
+        testing.expect(gop.found_existing == true);
+        testing.expect(gop.entry.value == i * 10);
+        testing.expect(gop.index == i);
+    }
+}
+
+test "fromOwnedArrayList" {
+    comptime const array_hash_map_type = AutoArrayHashMap(i32, i32);
+    var al = std.ArrayListUnmanaged(array_hash_map_type.Entry){};
+    const hash = getAutoHashFn(i32);
+
+    // Populate array list.
+    const num_entries = 20;
+    var i: i32 = 0;
+    while (i < num_entries) : (i += 1) {
+        try al.append(std.testing.allocator, .{
+            .key = i,
+            .value = i * 10,
+            .hash = hash(i),
+        });
+    }
+
+    // Now instantiate using `fromOwnedArrayList`.
+    var map = try array_hash_map_type.fromOwnedArrayList(std.testing.allocator, al);
+    defer map.deinit();
+
+    i = 0;
+    while (i < num_entries) : (i += 1) {
+        const gop = try map.getOrPut(i);
+        testing.expect(gop.found_existing == true);
+        testing.expect(gop.entry.value == i * 10);
+        testing.expect(gop.index == i);
     }
 }
 

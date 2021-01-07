@@ -279,7 +279,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Reduce allocated capacity to `new_len`.
         /// May invalidate element pointers.
-        pub fn shrink(self: *Self, new_len: usize) void {
+        pub fn shrinkAndFree(self: *Self, new_len: usize) void {
             assert(new_len <= self.items.len);
 
             self.items = self.allocator.realloc(self.allocatedSlice(), new_len) catch |e| switch (e) {
@@ -587,7 +587,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Reduce allocated capacity to `new_len`.
-        pub fn shrink(self: *Self, allocator: *Allocator, new_len: usize) void {
+        pub fn shrinkAndFree(self: *Self, allocator: *Allocator, new_len: usize) void {
             assert(new_len <= self.items.len);
 
             self.items = allocator.realloc(self.allocatedSlice(), new_len) catch |e| switch (e) {
@@ -1155,7 +1155,7 @@ test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMe
         try list.append(2);
         try list.append(3);
 
-        list.shrink(1);
+        list.shrinkAndFree(1);
         testing.expect(list.items.len == 1);
     }
     {
@@ -1165,7 +1165,7 @@ test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMe
         try list.append(a, 2);
         try list.append(a, 3);
 
-        list.shrink(a, 1);
+        list.shrinkAndFree(a, 1);
         testing.expect(list.items.len == 1);
     }
 }

@@ -76,12 +76,12 @@ pub fn Reader(
                 start_index += bytes_read;
 
                 if (start_index - original_len > max_append_size) {
-                    array_list.shrink(original_len + max_append_size);
+                    array_list.shrinkAndFree(original_len + max_append_size);
                     return error.StreamTooLong;
                 }
 
                 if (bytes_read != dest_slice.len) {
-                    array_list.shrink(start_index);
+                    array_list.shrinkAndFree(start_index);
                     return;
                 }
 
@@ -111,7 +111,7 @@ pub fn Reader(
             delimiter: u8,
             max_size: usize,
         ) !void {
-            array_list.shrink(0);
+            array_list.shrinkAndFree(0);
             while (true) {
                 var byte: u8 = try self.readByte();
 
