@@ -1703,7 +1703,7 @@ fn buildOutputType(
     if (build_options.have_llvm and emit_asm != .no) {
         // LLVM has no way to set this non-globally.
         const argv = [_][*:0]const u8{ "zig (LLVM option parsing)", "--x86-asm-syntax=intel" };
-        @import("llvm_bindings.zig").ParseCommandLineOptions(argv.len, &argv);
+        @import("codegen/llvm/bindings.zig").ParseCommandLineOptions(argv.len, &argv);
     }
 
     gimmeMoreOfThoseSweetSweetFileDescriptors();
@@ -2890,7 +2890,7 @@ pub fn punt_to_lld(arena: *Allocator, args: []const []const u8) error{OutOfMemor
         argv[i] = try arena.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
     }
     const exit_code = rc: {
-        const llvm = @import("llvm_bindings.zig");
+        const llvm = @import("codegen/llvm/bindings.zig");
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
             break :rc llvm.LinkELF(argc, argv.ptr, true);
@@ -3275,7 +3275,7 @@ fn detectNativeTargetInfo(gpa: *Allocator, cross_target: std.zig.CrossTarget) !s
         if (!build_options.have_llvm)
             fatal("CPU features detection is not yet available for {s} without LLVM extensions", .{@tagName(arch)});
 
-        const llvm = @import("llvm_bindings.zig");
+        const llvm = @import("codegen/llvm/bindings.zig");
         const llvm_cpu_name = llvm.GetHostCPUName();
         const llvm_cpu_features = llvm.GetNativeFeatures();
         info.target.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);

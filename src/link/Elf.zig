@@ -24,7 +24,7 @@ const build_options = @import("build_options");
 const target_util = @import("../target.zig");
 const glibc = @import("../glibc.zig");
 const Cache = @import("../Cache.zig");
-const llvm_backend = @import("../llvm_backend.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
 
 const default_entry_addr = 0x8000000;
 

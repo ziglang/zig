@@ -16,7 +16,7 @@ const link = @import("../link.zig");
 const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
 const mingw = @import("../mingw.zig");
-const llvm_backend = @import("../llvm_backend.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
 
 const allocation_padding = 4 / 3;
 const minimum_text_block_size = 64 * allocation_padding;
