@@ -77,7 +77,7 @@ cd www.ziglang.org
 git checkout hugo-redesign
 export MASTER_DATE="$(date +%Y-%m-%d)"
 export MASTER_VERSION="$VERSION"
-"../$ZIG" run update-download-page.zig
+"../$ZIG" run ci/update-download-page.zig
 
 $S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "../$SRC_TARBALL" s3://ziglang.org/builds/
 
