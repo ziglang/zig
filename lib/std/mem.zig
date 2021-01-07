@@ -2130,7 +2130,7 @@ pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) vo
 }
 
 /// Collapse consecutive duplicate elements into one entry.
-pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) usize {
+pub fn collapseRepeatsLen(comptime T: type, slice: []T, elem: T) usize {
     if (slice.len == 0) return 0;
     var write_idx: usize = 1;
     var read_idx: usize = 1;
@@ -2143,11 +2143,15 @@ pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) usize {
     return write_idx;
 }
 
+/// Collapse consecutive duplicate elements into one entry.
+pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) []T {
+    return slice[0 .. collapseRepeatsLen(T, slice, elem)];
+}
+
 fn testCollapseRepeats(str: []const u8, elem: u8, expected: []const u8) !void {
     const mutable = try std.testing.allocator.dupe(u8, str);
     defer std.testing.allocator.free(mutable);
-    const actual = mutable[0..collapseRepeats(u8, mutable, elem)];
-    testing.expect(std.mem.eql(u8, actual, expected));
+    testing.expect(std.mem.eql(u8, collapseRepeats(u8, mutable, elem), expected));
 }
 test "collapseRepeats" {
     try testCollapseRepeats("", '/', "");

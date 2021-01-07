@@ -1786,7 +1786,7 @@ pub fn removeDotDirsSanitized(comptime T: type, path: []T) RemoveDotDirsError!us
 /// Returns the length of the new path.
 pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
     mem.replaceScalar(T, path, '/', '\\');
-    const new_len = mem.collapseRepeats(T, path, '\\');
+    const new_len = mem.collapseRepeatsLen(T, path, '\\');
 
     const prefix_len: usize = init: {
         if (new_len >= 1 and path[0] == '\\') break :init 1;
