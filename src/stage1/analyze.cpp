@@ -9023,7 +9023,10 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
         return;
     }
 
-    if (type->data.pointer.host_int_bytes == 0) {
+    bool elem_type_has_bits;
+    assertNoError(type_has_bits2(g, elem_type, &elem_type_has_bits));
+
+    if (type->data.pointer.host_int_bytes == 0 && elem_type_has_bits) {
         assertNoError(type_resolve(g, elem_type, ResolveStatusLLVMFwdDecl));
         type->llvm_type = LLVMPointerType(elem_type->llvm_type, 0);
         uint64_t debug_size_in_bits = 8*get_store_size_bytes(type->size_in_bits);
@@ -9032,7 +9035,10 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
                 debug_size_in_bits, debug_align_in_bits, buf_ptr(&type->name));
         assertNoError(type_resolve(g, elem_type, wanted_resolve_status));
     } else {
-        ZigType *host_int_type = get_int_type(g, false, type->data.pointer.host_int_bytes * 8);
+        ZigType *host_int_type = elem_type_has_bits
+                ? get_int_type(g, false, type->data.pointer.host_int_bytes * 8)
+                : g->builtin_types.entry_u8;
+
         LLVMTypeRef host_int_llvm_type = get_llvm_type(g, host_int_type);
         type->llvm_type = LLVMPointerType(host_int_llvm_type, 0);
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, host_int_llvm_type);
