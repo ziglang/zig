@@ -225,6 +225,11 @@ pub fn assert(ok: bool) void {
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
+    if (comptime std.Target.current.isWasm() and std.Target.current.os.tag == .freestanding) {
+        // TODO unify this code path for all operating systems
+        std.log.emerg(format, args);
+        std.os.abort();
+    }
     // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
     const first_trace_addr = if (builtin.os.tag == .wasi) null else @returnAddress();
     panicExtra(null, first_trace_addr, format, args);
