@@ -1214,6 +1214,31 @@ pub fn addCases(ctx: *TestContext) !void {
         );
     }
 
+    {
+        var case = ctx.exe("wasm locals", wasi);
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var y: u32 = 5;
+            \\    return y;
+            \\}
+        ,
+            "5\n",
+        );
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var y: u32 = 5;
+            \\	  var x: u32 = 20;
+            \\    y = x;
+            \\
+            \\    return y;
+            \\}
+        ,
+            "20\n",
+        );
+    }
+
     ctx.compileError("function redefinition", linux_x64,
         \\fn entry() void {}
         \\fn entry() void {}

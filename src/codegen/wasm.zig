@@ -58,50 +58,43 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     // Calculate the locals of the body
     // We must calculate the occurance of each value type and emit the count of it
     const tv = decl.typed_value.most_recent.typed_value;
-    const mod_fn = tv.val.cast(Value.Payload.Function).?.func;
+    const mod_fn = tv.val.castTag(.function).?.data;
 
-    var locals: [4]u8 = [_]u8{0} ** 4;
-    for (mod_fn.analysis.success.instructions) |inst| {
+    var locals = std.AutoArrayHashMap(u8, u32).init(buf.allocator);
+    defer locals.deinit();
+
+    for (mod_fn.body.instructions) |inst| {
         if (inst.tag != .alloc) continue;
-        const ptr = inst.ty.castPointer().?;
-        const ptr_type = ptr.pointee_type.zigTypeTag();
 
-        if (ptr_type != .Int and ptr_type != .Float) return error.TODOImplementMoreWasmCodegen;
+        const alloc = inst.castTag(.alloc).?;
+        const elem_type = alloc.base.ty.elemType();
+        const zig_type = elem_type.zigTypeTag();
 
-        switch (genValtype(ptr.pointee_type)) {
-            0x7F => locals[0] += 1,
-            0x7E => locals[1] += 1,
-            0x7D => locals[2] += 1,
-            0x7C => locals[3] += 1,
-            else => return error.TODOImplementMoreWasmCodegen,
-        }
+        if (zig_type != .Int and zig_type != .Float) return error.TODOImplementMoreWasmCodegen;
 
-        var total_types: u32 = 0;
-        for (locals) |local_type| {
-            if (local_type != 0) total_types += 1;
-        }
+        const wasm_type = genValtype(elem_type);
+        const entry = try locals.getOrPut(wasm_type);
+        if (entry.found_existing)
+            entry.entry.value += 1
+        else
+            entry.entry.value = 1;
 
-        try leb.writeULEB128(writer, total_types);
+        // append the local to our list of locals so they can be set/retrieved later
+        try decl.fn_link.wasm.?.locals.append(buf.allocator, inst);
+    }
 
-        if (total_types != 0) {
-            for (locals) |local_count, i| {
-                if (local_count != 0) {
-                    try leb.writeULEB128(writer, local_count);
-                    try writer.writeByte(switch (i) {
-                        0 => 0x7F,
-                        1 => 0x7E,
-                        2 => 0x7D,
-                        3 => 0x7C,
-                        else => return error.TODOImplementMoreWasmCodegen,
-                    });
-                }
-            }
-        }
+    // write the amount of different types were found
+    try leb.writeULEB128(writer, @intCast(u32, locals.items().len));
+
+    // emit the actual locals amount per type
+    for (locals.items()) |entry| {
+        try leb.writeULEB128(writer, entry.value);
+        try leb.writeULEB128(writer, entry.key);
     }
 
     // Write instructions
     // TODO: check for and handle death of instructions
-    for (mod_fn.analysis.success.instructions) |inst| try genInst(buf, decl, inst);
+    for (mod_fn.body.instructions) |inst| try genInst(buf, decl, inst);
 
     // Write 'end' opcode
     try writer.writeByte(0x0B);
@@ -119,8 +112,10 @@ fn genInst(buf: *ArrayList(u8), decl: *Decl, inst: *Inst) !void {
         .dbg_stmt => {},
         .ret => genRet(buf, decl, inst.castTag(.ret).?),
         .retvoid => {},
-        .alloc => genAlloc(buf, decl, inst.castTag(.alloc)).?,
-        else => error.TODOImplementMoreWasmCodegen,
+        .alloc => {}, // already generated in 'genCode'
+        .store => genStore(buf, decl, inst.castTag(.store).?),
+        .load => genLoad(buf, decl, inst.castTag(.load).?),
+        else => return error.TODOImplementMoreWasmCodegen,
     };
 }
 
@@ -160,6 +155,7 @@ fn genConstant(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Constant) !void {
 
 fn genRet(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.UnOp) !void {
     try genInst(buf, decl, inst.operand);
+    try buf.append(0x0F);
 }
 
 fn genCall(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Call) !void {
@@ -178,4 +174,29 @@ fn genCall(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Call) !void {
         .offset = @intCast(u32, buf.items.len),
         .decl = target,
     });
+}
+
+fn genStore(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.BinOp) !void {
+    const idx = decl.fn_link.wasm.?.getLocalidx(inst.lhs) orelse
+        return error.LocalDoesNotExist; // this is a developer error in the Zig compiler
+
+    const writer = buf.writer();
+
+    // generate codegen for rhs before we store it
+    try genInst(buf, decl, inst.rhs);
+
+    // local.set
+    try writer.writeByte(0x21);
+    try leb.writeULEB128(writer, idx);
+}
+
+fn genLoad(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.UnOp) !void {
+    const idx = decl.fn_link.wasm.?.getLocalidx(inst.operand) orelse
+        return error.LocalDoesNotExist; // this is a developer error in the Zig compiler
+
+    const writer = buf.writer();
+
+    // load the local at index `idx` onto the stack
+    try writer.writeByte(0x20);
+    try leb.writeULEB128(writer, idx);
 }

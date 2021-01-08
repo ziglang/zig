@@ -15,6 +15,7 @@ const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
+const Inst = @import("../ir.zig").Inst;
 
 /// Various magic numbers defined by the wasm spec
 const spec = struct {
@@ -45,6 +46,15 @@ pub const FnData = struct {
     /// Locations in the generated code where function indexes must be filled in.
     /// This must be kept ordered by offset.
     idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }) = .{},
+    /// A list of `Inst` used to save and retrieve the indices of local variables
+    locals: std.ArrayListUnmanaged(*Inst) = .{},
+
+    /// Returns the index of a local given a pointer to an `Inst`
+    pub fn getLocalidx(self: *FnData, inst: *Inst) ?u32 {
+        return for (self.locals.items) |local, idx| {
+            if (local == inst) break @intCast(u32, idx);
+        } else null;
+    }
 };
 
 base: link.File,
@@ -93,6 +103,7 @@ pub fn deinit(self: *Wasm) void {
         decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.?.code.deinit(self.base.allocator);
         decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
+        decl.fn_link.wasm.?.locals.deinit(self.base.allocator);
     }
     self.funcs.deinit(self.base.allocator);
 }
@@ -107,6 +118,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         fn_data.functype.items.len = 0;
         fn_data.code.items.len = 0;
         fn_data.idx_refs.items.len = 0;
+        fn_data.locals.items.len = 0;
     } else {
         decl.fn_link.wasm = .{};
         try self.funcs.append(self.base.allocator, decl);
@@ -135,6 +147,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.?.code.deinit(self.base.allocator);
     decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
+    decl.fn_link.wasm.?.locals.deinit(self.base.allocator);
     decl.fn_link.wasm = null;
 }
 
