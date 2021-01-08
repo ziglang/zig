@@ -533,6 +533,59 @@ pub const SOL_TLS = 282;
 
 pub const SOMAXCONN = 128;
 
+pub const IP_TOS = 1;
+pub const IP_TTL = 2;
+pub const IP_HDRINCL = 3;
+pub const IP_OPTIONS = 4;
+pub const IP_ROUTER_ALERT = 5;
+pub const IP_RECVOPTS = 6;
+pub const IP_RETOPTS = 7;
+pub const IP_PKTINFO = 8;
+pub const IP_PKTOPTIONS = 9;
+pub const IP_PMTUDISC = 10;
+pub const IP_MTU_DISCOVER = 10;
+pub const IP_RECVERR = 11;
+pub const IP_RECVTTL = 12;
+pub const IP_RECVTOS = 13;
+pub const IP_MTU = 14;
+pub const IP_FREEBIND = 15;
+pub const IP_IPSEC_POLICY = 16;
+pub const IP_XFRM_POLICY = 17;
+pub const IP_PASSSEC = 18;
+pub const IP_TRANSPARENT = 19;
+pub const IP_ORIGDSTADDR = 20;
+pub const IP_RECVORIGDSTADDR = IP_ORIGDSTADDR;
+pub const IP_MINTTL = 21;
+pub const IP_NODEFRAG = 22;
+pub const IP_CHECKSUM = 23;
+pub const IP_BIND_ADDRESS_NO_PORT = 24;
+pub const IP_RECVFRAGSIZE = 25;
+pub const IP_MULTICAST_IF = 32;
+pub const IP_MULTICAST_TTL = 33;
+pub const IP_MULTICAST_LOOP = 34;
+pub const IP_ADD_MEMBERSHIP = 35;
+pub const IP_DROP_MEMBERSHIP = 36;
+pub const IP_UNBLOCK_SOURCE = 37;
+pub const IP_BLOCK_SOURCE = 38;
+pub const IP_ADD_SOURCE_MEMBERSHIP = 39;
+pub const IP_DROP_SOURCE_MEMBERSHIP = 40;
+pub const IP_MSFILTER = 41;
+pub const IP_MULTICAST_ALL = 49;
+pub const IP_UNICAST_IF = 50;
+
+pub const IP_RECVRETOPTS = IP_RETOPTS;
+
+pub const IP_PMTUDISC_DONT = 0;
+pub const IP_PMTUDISC_WANT = 1;
+pub const IP_PMTUDISC_DO = 2;
+pub const IP_PMTUDISC_PROBE = 3;
+pub const IP_PMTUDISC_INTERFACE = 4;
+pub const IP_PMTUDISC_OMIT = 5;
+
+pub const IP_DEFAULT_MULTICAST_TTL = 1;
+pub const IP_DEFAULT_MULTICAST_LOOP = 1;
+pub const IP_MAX_MEMBERSHIPS = 20;
+
 pub const MSG_OOB = 0x0001;
 pub const MSG_PEEK = 0x0002;
 pub const MSG_DONTROUTE = 0x0004;

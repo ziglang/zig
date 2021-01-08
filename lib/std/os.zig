@@ -5482,6 +5482,9 @@ pub const SetSockOptError = error{
     /// Insufficient resources are available in the system to complete the call.
     SystemResources,
 
+    // Setting the socket option requires more elevated permissions.
+    PermissionDenied,
+
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
     SocketNotBound,
@@ -5514,6 +5517,7 @@ pub fn setsockopt(fd: socket_t, level: u32, optname: u32, opt: []const u8) SetSo
             ENOPROTOOPT => return error.InvalidProtocolOption,
             ENOMEM => return error.SystemResources,
             ENOBUFS => return error.SystemResources,
+            EPERM => return error.PermissionDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
