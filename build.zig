@@ -58,6 +58,7 @@ pub fn build(b: *Builder) !void {
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
+    const disable_main_exe = b.option(bool, "disable-main-exe", "Don't build the zig compiler") orelse false;
 
     b.installDirectory(InstallDirectoryOptions{
         .source_dir = "lib",
@@ -84,6 +85,8 @@ pub fn build(b: *Builder) !void {
     const playground_exe = b.addStaticLibrary("playground", "src/playground.zig");
     if (enable_playground) {
         playground_exe.install();
+        b.installLibFile("src/playground/playground.js", "playground.js");
+        b.installLibFile("src/playground/index.html", "index.html");
     }
     playground_exe.setBuildMode(.ReleaseSmall);
     playground_exe.setTarget(.{
@@ -98,11 +101,12 @@ pub fn build(b: *Builder) !void {
     playground_exe.addBuildOption(bool, "omit_stage2", false);
 
     var exe = b.addExecutable("zig", main_file);
-    exe.install();
+    if (!disable_main_exe) {
+        exe.install();
+    }
     exe.setBuildMode(mode);
     exe.setTarget(target);
     test_step.dependOn(&exe.step);
-    b.default_step.dependOn(&exe.step);
 
     exe.addBuildOption(bool, "skip_non_native", skip_non_native);
     exe.addBuildOption(bool, "have_llvm", enable_llvm);
