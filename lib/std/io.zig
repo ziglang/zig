@@ -145,8 +145,12 @@ pub const autoIndentingStream = @import("io/auto_indenting_stream.zig").autoInde
 pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
 pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
 
-pub const FindByteOutStream = @import("io/find_byte_out_stream.zig").FindByteOutStream;
-pub const findByteOutStream = @import("io/find_byte_out_stream.zig").findByteOutStream;
+pub const FindByteWriter = @import("io/find_byte_writer.zig").FindByteWriter;
+pub const findByteWriter = @import("io/find_byte_writer.zig").findByteWriter;
+/// Deprecated: use `FindByteWriter`.
+pub const FindByteOutStream = FindByteWriter;
+/// Deprecated: use `findByteWriter`.
+pub const findByteOutStream = findByteWriter;
 
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 

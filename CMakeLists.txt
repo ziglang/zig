@@ -377,7 +377,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/io/change_detection_stream.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/counting_writer.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/counting_reader.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/io/find_byte_out_stream.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/io/find_byte_writer.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/fixed_buffer_stream.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/reader.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/seekable_stream.zig"
