@@ -2157,6 +2157,11 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     if (build_options.have_llvm)
         if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.updateDecl(module, decl);
 
+    const typed_value = decl.typed_value.most_recent.typed_value;
+    if (typed_value.val.tag() == .extern_fn) {
+        return; // TODO Should we do more when front-end analyzed extern decl?
+    }
+
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
@@ -2175,7 +2180,6 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         dbg_info_type_relocs.deinit(self.base.allocator);
     }
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
     const is_fn: bool = switch (typed_value.ty.zigTypeTag()) {
         .Fn => true,
         else => false,

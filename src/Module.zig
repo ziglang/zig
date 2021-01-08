@@ -22,6 +22,7 @@ const ast = std.zig.ast;
 const trace = @import("tracy.zig").trace;
 const astgen = @import("astgen.zig");
 const zir_sema = @import("zir_sema.zig");
+const target_util = @import("target.zig");
 
 const default_eval_branch_quota = 1000;
 
@@ -1109,8 +1110,48 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             if (fn_proto.getVarArgsToken()) |var_args_token| {
                 return self.failTok(&fn_type_scope.base, var_args_token, "TODO implement var args", .{});
             }
-            if (fn_proto.getLibName()) |lib_name| {
-                return self.failNode(&fn_type_scope.base, lib_name, "TODO implement function library name", .{});
+            if (fn_proto.getLibName()) |lib_name| blk: {
+                const lib_name_str = mem.trim(u8, tree.tokenSlice(lib_name.firstToken()), "\""); // TODO: call identifierTokenString
+                log.debug("extern fn symbol expected in lib '{s}'", .{lib_name_str});
+                const target = self.comp.getTarget();
+                if (target_util.is_libc_lib_name(target, lib_name_str)) {
+                    if (!self.comp.bin_file.options.link_libc) {
+                        return self.failNode(
+                            &fn_type_scope.base,
+                            lib_name,
+                            "dependency on libc must be explicitly specified in the build command",
+                            .{},
+                        );
+                    }
+                    break :blk;
+                }
+                if (target_util.is_libcpp_lib_name(target, lib_name_str)) {
+                    if (!self.comp.bin_file.options.link_libcpp) {
+                        return self.failNode(
+                            &fn_type_scope.base,
+                            lib_name,
+                            "dependency on libc++ must be explicitly specified in the build command",
+                            .{},
+                        );
+                    }
+                    break :blk;
+                }
+                if (!target.isWasm() and !self.comp.bin_file.options.pic) {
+                    return self.failNode(
+                        &fn_type_scope.base,
+                        lib_name,
+                        "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
+                        .{ lib_name, lib_name },
+                    );
+                }
+                self.comp.stage1AddLinkLib(lib_name_str) catch |err| {
+                    return self.failNode(
+                        &fn_type_scope.base,
+                        lib_name,
+                        "unable to add link lib '{s}': {s}",
+                        .{ lib_name, @errorName(err) },
+                    );
+                };
             }
             if (fn_proto.getAlignExpr()) |align_expr| {
                 return self.failNode(&fn_type_scope.base, align_expr, "TODO implement function align expression", .{});
