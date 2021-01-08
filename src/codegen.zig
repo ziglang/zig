@@ -1602,6 +1602,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 try self.code.ensureCapacity(self.code.items.len + 7);
                                 self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
                                 mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
+                            } else if (func_value.castTag(.extern_fn)) |_| {
+                                return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                             }
@@ -1628,6 +1630,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                                 try self.genSetReg(inst.base.src, .ra, .{ .memory = got_addr });
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.ra, 0, .ra).toU32());
+                            } else if (func_value.castTag(.extern_fn)) |_| {
+                                return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                             }
@@ -1672,6 +1676,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                         else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
                                     }
                                 }
+                            } else if (func_value.castTag(.extern_fn)) |_| {
+                                return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                             }
@@ -1733,6 +1739,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .lr, Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none)).toU32());
                                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.bx(.al, .lr).toU32());
                                 }
+                            } else if (func_value.castTag(.extern_fn)) |_| {
+                                return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                             }
@@ -1787,6 +1795,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 try self.genSetReg(inst.base.src, .x30, .{ .memory = got_addr });
 
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
+                            } else if (func_value.castTag(.extern_fn)) |_| {
+                                return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                             }
@@ -1849,6 +1859,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             },
                             else => unreachable, // unsupported architecture on MachO
                         }
+                    } else if (func_value.castTag(.extern_fn)) |_| {
+                        return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
                     } else {
                         return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                     }

@@ -1118,6 +1118,11 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const typed_value = decl.typed_value.most_recent.typed_value;
+    if (typed_value.val.tag() == .extern_fn) {
+        return; // TODO Should we do more when front-end analyzed extern decl?
+    }
+
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
@@ -1134,7 +1139,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         }
     }
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
     const res = if (debug_buffers) |*dbg|
         try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .{
             .dwarf = .{

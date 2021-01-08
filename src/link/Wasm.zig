@@ -100,8 +100,11 @@ pub fn deinit(self: *Wasm) void {
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
 pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
-    if (decl.typed_value.most_recent.typed_value.ty.zigTypeTag() != .Fn)
+    const typed_value = decl.typed_value.most_recent.typed_value;
+    if (typed_value.ty.zigTypeTag() != .Fn)
         return error.TODOImplementNonFnDeclsForWasm;
+    if (typed_value.val.tag() == .extern_fn)
+        return error.TODOImplementExternFnDeclsForWasm;
 
     if (decl.fn_link.wasm) |*fn_data| {
         fn_data.functype.items.len = 0;
