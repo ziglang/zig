@@ -30,38 +30,94 @@ const c_codegen = @import("codegen/c.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
+const browser = @import("playground/browser.zig");
+
+/// This is state that does not apply to WebAssembly browser builds of the compiler.
+const NonBrowser = if (browser.active) void else struct {
+    /// Arena-allocated memory used during initialization. Should be untouched until deinit.
+    arena_state: std.heap.ArenaAllocator.State,
+    c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
+    c_object_cache_digest_set: std.AutoHashMapUnmanaged(Cache.BinDigest, void) = .{},
+    stage1_lock: ?Cache.Lock = null,
+    stage1_cache_manifest: browserVoid(*Cache.Manifest) = undefined,
+    /// These jobs are to invoke the Clang compiler to create an object file, which
+    /// gets linked with the Compilation.
+    c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
+
+    /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
+    /// This data is accessed by multiple threads and is protected by `mutex`.
+    failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *ErrorMsg) = .{},
+
+    /// When this is `true` it means invoking clang as a sub-process is expected to inherit
+    /// stdin, stdout, stderr, and if it returns non success, to forward the exit code.
+    /// Otherwise we attempt to parse the error messages and expose them via the Compilation API.
+    /// This is `true` for `zig cc`, `zig c++`, and `zig translate-c`.
+    clang_passthrough_mode: bool,
+    clang_preprocessor_mode: ClangPreprocessorMode,
+    clang_argv: []const []const u8,
+    cache_parent: *Cache,
+    /// Path to own executable for invoking `zig clang`.
+    self_exe_path: ?[]const u8,
+    zig_lib_directory: Directory,
+    local_cache_directory: Directory,
+    global_cache_directory: Directory,
+    libc_include_dir_list: []const []const u8,
+    /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
+    /// and resolved before calling linker.flush().
+    libcxx_static_lib: ?CRTFile = null,
+    /// Populated when we build the libc++abi static library. A Job to build this is placed in the queue
+    /// and resolved before calling linker.flush().
+    libcxxabi_static_lib: ?CRTFile = null,
+    /// Populated when we build the libunwind static library. A Job to build this is placed in the queue
+    /// and resolved before calling linker.flush().
+    libunwind_static_lib: ?CRTFile = null,
+    /// Populated when we build the TSAN static library. A Job to build this is placed in the queue
+    /// and resolved before calling linker.flush().
+    tsan_static_lib: ?CRTFile = null,
+    /// Populated when we build the libssp static library. A Job to build this is placed in the queue
+    /// and resolved before calling linker.flush().
+    libssp_static_lib: ?CRTFile = null,
+    /// Populated when we build the libc static library. A Job to build this is placed in the queue
+    /// and resolved before calling linker.flush().
+    libc_static_lib: ?CRTFile = null,
+    /// Populated when we build the libcompiler_rt static library. A Job to build this is placed in the queue
+    /// and resolved before calling linker.flush().
+    compiler_rt_static_lib: ?CRTFile = null,
+    /// Populated when we build the compiler_rt_obj object. A Job to build this is placed in the queue
+    /// and resolved before calling linker.flush().
+    compiler_rt_obj: ?CRTFile = null,
+
+    glibc_so_files: ?glibc.BuiltSharedObjects = null,
+
+    /// For example `Scrt1.o` and `libc_nonshared.a`. These are populated after building libc from source,
+    /// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
+    /// The key is the basename, and the value is the absolute path to the completed build artifact.
+    crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
+
+    /// Keeping track of this possibly open resource so we can close it later.
+    owned_link_dir: ?std.fs.Dir,
+
+    test_filter: ?[]const u8,
+    test_name_prefix: ?[]const u8,
+    debug_compiler_runtime_libs: bool,
+
+    emit_asm: ?EmitLoc,
+    emit_llvm_ir: ?EmitLoc,
+    emit_analysis: ?EmitLoc,
+    emit_docs: ?EmitLoc,
+};
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
-/// Arena-allocated memory used during initialization. Should be untouched until deinit.
-arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
-c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
-c_object_cache_digest_set: std.AutoHashMapUnmanaged(Cache.BinDigest, void) = .{},
-stage1_lock: ?Cache.Lock = null,
-stage1_cache_manifest: *Cache.Manifest = undefined,
 
 link_error_flags: link.File.ErrorFlags = .{},
 
 work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 
-/// These jobs are to invoke the Clang compiler to create an object file, which
-/// gets linked with the Compilation.
-c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
-
-/// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
-/// This data is accessed by multiple threads and is protected by `mutex`.
-failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *ErrorMsg) = .{},
-
 keep_source_files_loaded: bool,
 use_clang: bool,
 sanitize_c: bool,
-/// When this is `true` it means invoking clang as a sub-process is expected to inherit
-/// stdin, stdout, stderr, and if it returns non success, to forward the exit code.
-/// Otherwise we attempt to parse the error messages and expose them via the Compilation API.
-/// This is `true` for `zig cc`, `zig c++`, and `zig translate-c`.
-clang_passthrough_mode: bool,
-clang_preprocessor_mode: ClangPreprocessorMode,
 /// Whether to print clang argvs to stdout.
 verbose_cc: bool,
 verbose_tokenize: bool,
@@ -73,52 +129,11 @@ verbose_llvm_cpu_features: bool,
 disable_c_depfile: bool,
 time_report: bool,
 stack_report: bool,
+test_evented_io: bool,
 
 c_source_files: []const CSourceFile,
-clang_argv: []const []const u8,
-cache_parent: *Cache,
-/// Path to own executable for invoking `zig clang`.
-self_exe_path: ?[]const u8,
-zig_lib_directory: Directory,
-local_cache_directory: Directory,
-global_cache_directory: Directory,
-libc_include_dir_list: []const []const u8,
+
 thread_pool: *ThreadPool,
-
-/// Populated when we build the libc++ static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-libcxx_static_lib: ?CRTFile = null,
-/// Populated when we build the libc++abi static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-libcxxabi_static_lib: ?CRTFile = null,
-/// Populated when we build the libunwind static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-libunwind_static_lib: ?CRTFile = null,
-/// Populated when we build the TSAN static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-tsan_static_lib: ?CRTFile = null,
-/// Populated when we build the libssp static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-libssp_static_lib: ?CRTFile = null,
-/// Populated when we build the libc static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-libc_static_lib: ?CRTFile = null,
-/// Populated when we build the libcompiler_rt static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-compiler_rt_static_lib: ?CRTFile = null,
-/// Populated when we build the compiler_rt_obj object. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-compiler_rt_obj: ?CRTFile = null,
-
-glibc_so_files: ?glibc.BuiltSharedObjects = null,
-
-/// For example `Scrt1.o` and `libc_nonshared.a`. These are populated after building libc from source,
-/// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
-/// The key is the basename, and the value is the absolute path to the completed build artifact.
-crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
-
-/// Keeping track of this possibly open resource so we can close it later.
-owned_link_dir: ?std.fs.Dir,
 
 /// This is for stage1 and should be deleted upon completion of self-hosting.
 /// Don't use this for anything other than stage1 compatibility.
@@ -126,16 +141,6 @@ color: @import("main.zig").Color = .auto,
 
 /// This mutex guards all `Compilation` mutable state.
 mutex: std.Mutex = .{},
-
-test_filter: ?[]const u8,
-test_name_prefix: ?[]const u8,
-test_evented_io: bool,
-debug_compiler_runtime_libs: bool,
-
-emit_asm: ?EmitLoc,
-emit_llvm_ir: ?EmitLoc,
-emit_analysis: ?EmitLoc,
-emit_docs: ?EmitLoc,
 
 work_queue_wait_group: WaitGroup,
 
@@ -158,7 +163,7 @@ pub const CSourceFile = struct {
     extra_flags: []const []const u8 = &[0][]const u8{},
 };
 
-const Job = union(enum) {
+pub const Job = union(enum) {
     /// Write the machine code for a Decl to the output file.
     codegen_decl: *Module.Decl,
     /// Render the .h file snippet for the Decl.
@@ -305,7 +310,9 @@ pub const AllErrors = struct {
     }
 };
 
-pub const Directory = struct {
+pub const Directory = if (browser.active) browser.Directory else RealDirectory;
+
+const RealDirectory = struct {
     /// This field is redundant for operations that can act on the open directory handle
     /// directly, but it is needed when passing the directory to a child process.
     /// `null` means cwd.
@@ -313,16 +320,20 @@ pub const Directory = struct {
     handle: std.fs.Dir,
 
     pub fn join(self: Directory, allocator: *Allocator, paths: []const []const u8) ![]u8 {
-        if (self.path) |p| {
-            // TODO clean way to do this with only 1 allocation
-            const part2 = try std.fs.path.join(allocator, paths);
-            defer allocator.free(part2);
-            return std.fs.path.join(allocator, &[_][]const u8{ p, part2 });
-        } else {
-            return std.fs.path.join(allocator, paths);
-        }
+        return joinPaths(self.path, allocator, paths);
     }
 };
+
+pub fn joinPaths(opt_path: ?[]const u8, allocator: *Allocator, paths: []const []const u8) ![]u8 {
+    if (opt_path) |p| {
+        // TODO clean way to do this with only 1 allocation
+        const part2 = try std.fs.path.join(allocator, paths);
+        defer allocator.free(part2);
+        return std.fs.path.join(allocator, &[_][]const u8{ p, part2 });
+    } else {
+        return std.fs.path.join(allocator, paths);
+    }
+}
 
 pub const EmitLoc = struct {
     /// If this is `null` it means the file will be output to the cache directory.
@@ -1242,13 +1253,15 @@ pub fn update(self: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    self.c_object_cache_digest_set.clearRetainingCapacity();
+    if (!browser.active) {
+        self.c_object_cache_digest_set.clearRetainingCapacity();
 
-    // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
-    // Add a Job for each C object.
-    try self.c_object_work_queue.ensureUnusedCapacity(self.c_object_table.items().len);
-    for (self.c_object_table.items()) |entry| {
-        self.c_object_work_queue.writeItemAssumeCapacity(entry.key);
+        // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
+        // Add a Job for each C object.
+        try self.c_object_work_queue.ensureUnusedCapacity(self.c_object_table.items().len);
+        for (self.c_object_table.items()) |entry| {
+            self.c_object_work_queue.writeItemAssumeCapacity(entry.key);
+        }
     }
 
     const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_llvm;
@@ -1270,14 +1283,6 @@ pub fn update(self: *Compilation) !void {
                     else => |e| {
                         module.failed_root_src_file = e;
                     },
-                };
-            } else if (module.root_scope.cast(Module.Scope.ZIRModule)) |zir_module| {
-                zir_module.unload(module.gpa);
-                module.analyzeRootZIRModule(zir_module) catch |err| switch (err) {
-                    error.AnalysisFail => {
-                        assert(self.totalErrorCount() != 0);
-                    },
-                    else => |e| return e,
                 };
             }
 
@@ -1319,7 +1324,7 @@ pub fn update(self: *Compilation) !void {
     try self.bin_file.flush(self);
     self.link_error_flags = self.bin_file.errorFlags();
 
-    if (!use_stage1) {
+    if (!use_stage1 and !browser.active) {
         if (self.bin_file.options.module) |module| {
             try link.File.C.flushEmitH(module);
         }
@@ -1347,7 +1352,11 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
 }
 
 pub fn totalErrorCount(self: *Compilation) usize {
-    var total: usize = self.failed_c_objects.items().len;
+    var total: usize = 0;
+
+    if (!browser.active) {
+        total += self.failed_c_objects.items().len;
+    }
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_decls.count() +
@@ -1375,10 +1384,12 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     var errors = std.ArrayList(AllErrors.Message).init(self.gpa);
     defer errors.deinit();
 
-    for (self.failed_c_objects.items()) |entry| {
-        const c_object = entry.key;
-        const err_msg = entry.value;
-        try AllErrors.add(&arena, &errors, c_object.src.src_path, "", err_msg.*);
+    if (!browser.active) {
+        for (self.failed_c_objects.items()) |entry| {
+            const c_object = entry.key;
+            const err_msg = entry.value;
+            try AllErrors.add(&arena, &errors, c_object.src.src_path, "", err_msg.*);
+        }
     }
     if (self.bin_file.options.module) |module| {
         for (module.failed_files.items()) |entry| {
@@ -1453,11 +1464,13 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     self.work_queue_wait_group.reset();
     defer self.work_queue_wait_group.wait();
 
-    while (self.c_object_work_queue.readItem()) |c_object| {
-        self.work_queue_wait_group.start();
-        try self.thread_pool.spawn(workerUpdateCObject, .{
-            self, c_object, &c_comp_progress_node, &self.work_queue_wait_group,
-        });
+    if (!browser.active) {
+        while (self.c_object_work_queue.readItem()) |c_object| {
+            self.work_queue_wait_group.start();
+            try self.thread_pool.spawn(workerUpdateCObject, .{
+                self, c_object, &c_comp_progress_node, &self.work_queue_wait_group,
+            });
+        }
     }
 
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
@@ -1538,6 +1551,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             // emit-h only requires semantic analysis of the Decl to be complete,
             // it does not depend on machine code generation to succeed.
             .codegen_failure, .codegen_failure_retryable, .complete => {
+                if (browser.active)
+                    unreachable;
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 const module = self.bin_file.options.module.?;
@@ -1592,30 +1607,35 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .glibc_crt_file => |crt_file| {
+            if (browser.active) unreachable;
             glibc.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build glibc CRT file: {s}", .{@errorName(err)});
             };
         },
         .glibc_shared_objects => {
+            if (browser.active) unreachable;
             glibc.buildSharedObjects(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build glibc shared objects: {s}", .{@errorName(err)});
             };
         },
         .musl_crt_file => |crt_file| {
+            if (browser.active) unreachable;
             musl.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build musl CRT file: {s}", .{@errorName(err)});
             };
         },
         .mingw_crt_file => |crt_file| {
+            if (browser.active) unreachable;
             mingw.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build mingw-w64 CRT file: {s}", .{@errorName(err)});
             };
         },
         .windows_import_lib => |index| {
+            if (browser.active) unreachable;
             const link_lib = self.bin_file.options.system_libs.items()[index].key;
             mingw.buildImportLib(self, link_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
@@ -1623,48 +1643,56 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .libunwind => {
+            if (browser.active) unreachable;
             libunwind.buildStaticLib(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build libunwind: {s}", .{@errorName(err)});
             };
         },
         .libcxx => {
+            if (browser.active) unreachable;
             libcxx.buildLibCXX(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build libcxx: {s}", .{@errorName(err)});
             };
         },
         .libcxxabi => {
+            if (browser.active) unreachable;
             libcxx.buildLibCXXABI(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build libcxxabi: {s}", .{@errorName(err)});
             };
         },
         .libtsan => {
+            if (browser.active) unreachable;
             libtsan.buildTsan(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build TSAN library: {s}", .{@errorName(err)});
             };
         },
         .compiler_rt_lib => {
+            if (browser.active) unreachable;
             self.buildOutputFromZig("compiler_rt.zig", .Lib, &self.compiler_rt_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build compiler_rt: {s}", .{@errorName(err)});
             };
         },
         .compiler_rt_obj => {
+            if (browser.active) unreachable;
             self.buildOutputFromZig("compiler_rt.zig", .Obj, &self.compiler_rt_obj) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build compiler_rt: {s}", .{@errorName(err)});
             };
         },
         .libssp => {
+            if (browser.active) unreachable;
             self.buildOutputFromZig("ssp.zig", .Lib, &self.libssp_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build libssp: {s}", .{@errorName(err)});
             };
         },
         .zig_libc => {
+            if (browser.active) unreachable;
             self.buildOutputFromZig("c.zig", .Lib, &self.libc_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build zig's multitarget libc: {s}", .{@errorName(err)});
@@ -1678,8 +1706,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .stage1_module => {
-            if (!build_options.is_stage1)
-                unreachable;
+            if (!build_options.is_stage1) unreachable;
 
             self.updateStage1Module(main_progress_node) catch |err| {
                 fatal("unable to build stage1 zig object: {s}", .{@errorName(err)});

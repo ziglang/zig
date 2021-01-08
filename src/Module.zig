@@ -22,6 +22,7 @@ const ast = std.zig.ast;
 const trace = @import("tracy.zig").trace;
 const astgen = @import("astgen.zig");
 const zir_sema = @import("zir_sema.zig");
+const browser = @import("playground/browser.zig");
 
 const default_eval_branch_quota = 1000;
 
@@ -1719,19 +1720,25 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                     if (!srcHashEql(decl.contents_hash, contents_hash)) {
                         try self.markOutdatedDecl(decl);
                         decl.contents_hash = contents_hash;
-                    } else switch (self.comp.bin_file.tag) {
-                        .coff => {
-                            // TODO Implement for COFF
-                        },
-                        .elf => if (decl.fn_link.elf.len != 0) {
-                            // TODO Look into detecting when this would be unnecessary by storing enough state
-                            // in `Decl` to notice that the line number did not change.
-                            self.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
-                        },
-                        .macho => {
-                            // TODO Implement for MachO
-                        },
-                        .c, .wasm => {},
+                    } else {
+                        const link_tag: link.File.Tag = if (browser.active)
+                            .wasm
+                        else
+                            self.comp.bin_file.tag;
+                        switch (link_tag) {
+                            .coff => {
+                                // TODO Implement for COFF
+                            },
+                            .elf => if (decl.fn_link.elf.len != 0) {
+                                // TODO Look into detecting when this would be unnecessary by storing enough state
+                                // in `Decl` to notice that the line number did not change.
+                                self.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
+                            },
+                            .macho => {
+                                // TODO Implement for MachO
+                            },
+                            .c, .wasm => {},
+                        }
                     }
                 }
             } else {
@@ -1921,12 +1928,7 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
                 self.decl_exports.removeAssertDiscard(exp.exported_decl);
             }
         }
-        if (self.comp.bin_file.cast(link.File.Elf)) |elf| {
-            elf.deleteExport(exp.link.elf);
-        }
-        if (self.comp.bin_file.cast(link.File.MachO)) |macho| {
-            macho.deleteExport(exp.link.macho);
-        }
+        self.comp.bin_file.deleteExport(exp);
         if (self.failed_exports.swapRemove(exp)) |entry| {
             entry.value.destroy(self.gpa);
         }
@@ -2003,6 +2005,10 @@ fn allocateNewDecl(
         break :blk &parent_struct.decl;
     } else try mod.gpa.create(Decl);
 
+    const link_tag: link.File.Tag = if (browser.active)
+        .wasm
+    else
+        mod.comp.bin_file.tag;
     new_decl.* = .{
         .name = "",
         .scope = scope.namespace(),
@@ -2011,14 +2017,14 @@ fn allocateNewDecl(
         .analysis = .unreferenced,
         .deletion_flag = false,
         .contents_hash = contents_hash,
-        .link = switch (mod.comp.bin_file.tag) {
+        .link = switch (link_tag) {
             .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .c => .{ .c = link.File.C.DeclBlock.empty },
             .wasm => .{ .wasm = {} },
         },
-        .fn_link = switch (mod.comp.bin_file.tag) {
+        .fn_link = switch (link_tag) {
             .coff => .{ .coff = {} },
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
@@ -2112,10 +2118,12 @@ pub fn analyzeExport(
 
     const owner_decl = scope.decl().?;
 
+    const link_tag: link.File.Tag = if (browser.active) .wasm else self.comp.bin_file.tag;
+
     new_export.* = .{
         .options = .{ .name = symbol_name },
         .src = src,
-        .link = switch (self.comp.bin_file.tag) {
+        .link = switch (link_tag) {
             .coff => .{ .coff = {} },
             .elf => .{ .elf = link.File.Elf.Export{} },
             .macho => .{ .macho = link.File.MachO.Export{} },
@@ -2644,7 +2652,23 @@ pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, 
     return self.fail(scope, src, "TODO implement analysis of slice", .{});
 }
 
-pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) !*Scope.File {
+pub const ImportError = error{
+    ImportOutsidePkgPath,
+    AnalysisFail,
+    FileNotFound,
+    OutOfMemory,
+};
+
+pub fn analyzeImport(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    target_string: []const u8,
+) ImportError!*Scope.File {
+    if (browser.active) {
+        return self.fail(scope, src, "TODO: implement @import in browser builds", .{});
+    }
+
     const cur_pkg = scope.getOwnerPkg();
     const cur_pkg_dir_path = cur_pkg.root_src_directory.path orelse ".";
     const found_pkg = cur_pkg.table.get(target_string);

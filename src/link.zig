@@ -13,6 +13,7 @@ const Type = @import("type.zig").Type;
 const Cache = @import("Cache.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const browser = @import("playground/browser.zig");
 
 pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
@@ -113,10 +114,12 @@ pub const Options = struct {
     }
 };
 
+pub const FsFile = if (browser.active) browser.File else fs.File;
+
 pub const File = struct {
     tag: Tag,
     options: Options,
-    file: ?fs.File,
+    file: ?FsFile,
     allocator: *Allocator,
     /// When linking with LLD, this linker code will output an object file only at
     /// this location, and then this path can be placed on the LLD linker line.
@@ -126,7 +129,14 @@ pub const File = struct {
     /// of this linking operation.
     lock: ?Cache.Lock = null,
 
-    pub const LinkBlock = union {
+    pub const LinkBlock = if (browser.active)
+        union {
+            wasm: void,
+        }
+    else
+        RealLinkBlock;
+
+    const RealLinkBlock = union {
         elf: Elf.TextBlock,
         coff: Coff.TextBlock,
         macho: MachO.TextBlock,
@@ -134,7 +144,15 @@ pub const File = struct {
         wasm: void,
     };
 
-    pub const LinkFn = union {
+    pub const LinkFn = if (browser.active)
+        union {
+            wasm: ?Wasm.FnData,
+        }
+    else
+        RealLinkFn;
+
+    const RealLinkFn =
+        union {
         elf: Elf.SrcFn,
         coff: Coff.SrcFn,
         macho: MachO.SrcFn,
@@ -142,7 +160,15 @@ pub const File = struct {
         wasm: ?Wasm.FnData,
     };
 
-    pub const Export = union {
+    pub const Export = if (browser.active)
+        union {
+            wasm: void,
+        }
+    else
+        RealExport;
+
+    const RealExport =
+        union {
         elf: Elf.Export,
         coff: void,
         macho: MachO.Export,
@@ -168,9 +194,15 @@ pub const File = struct {
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: *Allocator, options: Options) !*File {
+        // `ofmt` will be comptime known in some cases.
+        const ofmt: std.builtin.ObjectFormat = if (browser.active)
+            .wasm
+        else
+            options.object_format;
+
         const use_stage1 = build_options.is_stage1 and options.use_llvm;
-        if (use_stage1 or options.emit == null) {
-            return switch (options.object_format) {
+        if (use_stage1 or (!browser.active and options.emit == null)) {
+            return switch (ofmt) {
                 .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
                 .macho => &(try MachO.createEmpty(allocator, options)).base,
@@ -185,7 +217,7 @@ pub const File = struct {
         const sub_path = if (use_lld) blk: {
             if (options.module == null) {
                 // No point in opening a file, we would not write anything to it. Initialize with empty.
-                return switch (options.object_format) {
+                return switch (ofmt) {
                     .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
                     .macho => &(try MachO.createEmpty(allocator, options)).base,
@@ -200,7 +232,7 @@ pub const File = struct {
         } else emit.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 
-        const file: *File = switch (options.object_format) {
+        const file: *File = switch (ofmt) {
             .coff, .pe => &(try Coff.openPath(allocator, sub_path, options)).base,
             .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
             .macho => &(try MachO.openPath(allocator, sub_path, options)).base,
@@ -218,6 +250,10 @@ pub const File = struct {
     }
 
     pub fn cast(base: *File, comptime T: type) ?*T {
+        if (browser.active) {
+            assert(base.tag == .wasm);
+            return @fieldParentPtr(Wasm, "base", base);
+        }
         if (base.tag != T.base_tag)
             return null;
 
@@ -287,7 +323,8 @@ pub const File = struct {
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
@@ -297,7 +334,8 @@ pub const File = struct {
     }
 
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
@@ -309,7 +347,8 @@ pub const File = struct {
     /// Must be called before any call to updateDecl or updateDeclExports for
     /// any given Decl.
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
@@ -335,7 +374,8 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => {
                 const parent = @fieldParentPtr(Coff, "base", base);
                 parent.deinit();
@@ -369,7 +409,7 @@ pub const File = struct {
     pub fn flush(base: *File, comp: *Compilation) !void {
         const emit = base.options.emit orelse return; // -fno-emit-bin
 
-        if (comp.clang_preprocessor_mode == .yes) {
+        if (!browser.active and comp.clang_preprocessor_mode == .yes) {
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
@@ -388,7 +428,10 @@ pub const File = struct {
         {
             return base.linkAsArchive(comp);
         }
-        switch (base.tag) {
+        // Make the switch comptime known in the browser case so the other prongs
+        // become dead code.
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).flush(comp),
             .elf => return @fieldParentPtr(Elf, "base", base).flush(comp),
             .macho => return @fieldParentPtr(MachO, "base", base).flush(comp),
@@ -400,7 +443,8 @@ pub const File = struct {
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
     pub fn flushModule(base: *File, comp: *Compilation) !void {
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).flushModule(comp),
             .elf => return @fieldParentPtr(Elf, "base", base).flushModule(comp),
             .macho => return @fieldParentPtr(MachO, "base", base).flushModule(comp),
@@ -411,7 +455,8 @@ pub const File = struct {
 
     /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
             .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
@@ -421,7 +466,8 @@ pub const File = struct {
     }
 
     pub fn errorFlags(base: *File) ErrorFlags {
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).error_flags,
             .elf => return @fieldParentPtr(Elf, "base", base).error_flags,
             .macho => return @fieldParentPtr(MachO, "base", base).error_flags,
@@ -438,7 +484,8 @@ pub const File = struct {
         decl: *Module.Decl,
         exports: []const *Module.Export,
     ) !void {
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
@@ -447,8 +494,20 @@ pub const File = struct {
         }
     }
 
+    pub fn deleteExport(base: *File, exp: *Module.Export) void {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
+            .coff => {},
+            .elf => return base.castTag(.elf).?.deleteExport(exp.link.elf),
+            .macho => return base.castTag(.macho).?.deleteExport(exp.link.macho),
+            .c => {},
+            .wasm => {},
+        }
+    }
+
     pub fn getDeclVAddr(base: *File, decl: *const Module.Decl) u64 {
-        switch (base.tag) {
+        const tag: Tag = if (browser.active) .wasm else base.tag;
+        switch (tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl),
@@ -603,7 +662,7 @@ pub const File = struct {
     pub const C = @import("link/C.zig");
     pub const Coff = @import("link/Coff.zig");
     pub const Elf = @import("link/Elf.zig");
-    pub const MachO = @import("link/MachO.zig");
+    //pub const MachO = @import("link/MachO.zig");
     pub const Wasm = @import("link/Wasm.zig");
 };
 

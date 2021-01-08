@@ -25,6 +25,7 @@ const trace = @import("tracy.zig").trace;
 const Scope = Module.Scope;
 const InnerError = Module.InnerError;
 const Decl = Module.Decl;
+const browser = @import("playground/browser.zig");
 
 pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Inst {
     switch (old_inst.tag) {
@@ -632,6 +633,9 @@ fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) In
 }
 
 fn analyzeInstCompileLog(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileLog) InnerError!*Inst {
+    if (browser.active) {
+        return mod.fail(scope, inst.base.src, "TODO: implement @compileLog for browser builds", .{});
+    }
     std.debug.print("| ", .{});
     for (inst.positionals.to_log) |item, i| {
         const to_log = try resolveInst(mod, scope, item);

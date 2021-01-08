@@ -1,8 +1,7 @@
 gpa: *Allocator,
-manifest_dir: fs.Dir,
+manifest_dir: if (browser.active) void else fs.Dir,
 hash: HashHelper = .{},
 
-const Cache = @This();
 const std = @import("std");
 const crypto = std.crypto;
 const fs = std.fs;
@@ -11,6 +10,9 @@ const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
+
+const Cache = @This();
+const browser = @import("playground/browser.zig");
 
 /// Be sure to call `Manifest.deinit` after successful initialization.
 pub fn obtain(cache: *const Cache) Manifest {
@@ -158,7 +160,9 @@ pub const HashHelper = struct {
     }
 };
 
-pub const Lock = struct {
+pub const Lock = if (browser.active) browser.Cache.Lock else RealLock;
+
+const RealLock = struct {
     manifest_file: fs.File,
 
     pub fn release(lock: *Lock) void {
@@ -170,7 +174,7 @@ pub const Lock = struct {
 /// Manifest manages project-local `zig-cache` directories.
 /// This is not a general-purpose cache.
 /// It is designed to be fast and simple, not to withstand attacks using specially-crafted input.
-pub const Manifest = struct {
+pub const Manifest = if (browser.active) browser.Cache.Manifest else struct {
     cache: *const Cache,
     /// Current state for incremental hashing.
     hash: HashHelper,

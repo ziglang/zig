@@ -6,6 +6,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 
 const Compilation = @import("Compilation.zig");
+const browser = @import("playground/browser.zig");
 
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
@@ -32,10 +33,18 @@ pub fn create(
     const owned_src_path = try gpa.dupe(u8, root_src_path);
     errdefer gpa.free(owned_src_path);
 
+    const handle = if (browser.active) browser.Dir{} else blk: {
+        if (owned_dir_path) |p| {
+            break :blk try fs.cwd().openDir(p, .{});
+        } else {
+            break :blk fs.cwd();
+        }
+    };
+
     ptr.* = .{
         .root_src_directory = .{
             .path = owned_dir_path,
-            .handle = if (owned_dir_path) |p| try fs.cwd().openDir(p, .{}) else fs.cwd(),
+            .handle = handle,
         },
         .root_src_path = owned_src_path,
     };

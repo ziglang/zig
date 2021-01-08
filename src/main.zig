@@ -20,6 +20,7 @@ const translate_c = @import("translate_c.zig");
 const Cache = @import("Cache.zig");
 const target_util = @import("target.zig");
 const ThreadPool = @import("ThreadPool.zig");
+const browser = @import("playground/browser.zig");
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);

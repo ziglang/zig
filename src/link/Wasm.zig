@@ -97,9 +97,16 @@ pub fn deinit(self: *Wasm) void {
     self.funcs.deinit(self.base.allocator);
 }
 
+const Error = error{
+    AnalysisFail,
+    TODOImplementNonFnDeclsForWasm,
+    TODOImplementMoreWasmCodegen,
+    OutOfMemory,
+};
+
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
-pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
+pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) Error!void {
     if (decl.typed_value.most_recent.typed_value.ty.zigTypeTag() != .Fn)
         return error.TODOImplementNonFnDeclsForWasm;
 
@@ -483,7 +490,7 @@ fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
     } else null;
 }
 
-fn reserveVecSectionHeader(file: fs.File) !u64 {
+fn reserveVecSectionHeader(file: link.FsFile) !u64 {
     // section id + fixed leb contents size + fixed leb vector length
     const header_size = 1 + 5 + 5;
     // TODO: this should be a single lseek(2) call, but fs.File does not
@@ -492,7 +499,7 @@ fn reserveVecSectionHeader(file: fs.File) !u64 {
     return (try file.getPos()) - header_size;
 }
 
-fn writeVecSectionHeader(file: fs.File, offset: u64, section: u8, size: u32, items: u32) !void {
+fn writeVecSectionHeader(file: link.FsFile, offset: u64, section: u8, size: u32, items: u32) !void {
     var buf: [1 + 5 + 5]u8 = undefined;
     buf[0] = section;
     leb.writeUnsignedFixed(5, buf[1..6], size);

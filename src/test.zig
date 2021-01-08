@@ -952,10 +952,10 @@ pub const TestContext = struct {
         const spu = @import("codegen/spu-mk2.zig");
         if (case.target.os_tag) |os| {
             if (os != .freestanding) {
-                std.debug.panic("Only freestanding makes sense for SPU-II tests!", .{});
+                std.builtin.panic("Only freestanding makes sense for SPU-II tests!", .{});
             }
         } else {
-            std.debug.panic("SPU_2 has no native OS, check the test!", .{});
+            std.builtin.panic("SPU_2 has no native OS, check the test!", .{});
         }
 
         var interpreter = spu.Interpreter(struct {

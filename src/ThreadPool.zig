@@ -13,6 +13,8 @@ workers: []Worker,
 run_queue: RunQueue = .{},
 idle_queue: IdleQueue = .{},
 
+const Thread = if (std.builtin.single_threaded) void else std.Thread;
+
 const IdleQueue = std.SinglyLinkedList(std.ResetEvent);
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
@@ -21,7 +23,7 @@ const Runnable = struct {
 
 const Worker = struct {
     pool: *ThreadPool,
-    thread: *std.Thread,
+    thread: *Thread,
     /// The node is for this worker only and must have an already initialized event
     /// when the thread is spawned.
     idle_node: IdleQueue.Node,
@@ -79,6 +81,8 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
 }
 
 fn destroyWorkers(self: *ThreadPool, spawned: usize) void {
+    if (std.builtin.single_threaded)
+        return;
     for (self.workers[0..spawned]) |*worker| {
         worker.thread.wait();
         worker.idle_node.data.deinit();
