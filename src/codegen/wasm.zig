@@ -94,7 +94,12 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
 
     // Write instructions
     // TODO: check for and handle death of instructions
-    for (mod_fn.body.instructions) |inst| try genInst(buf, decl, inst);
+    for (mod_fn.body.instructions) |inst| {
+        // skip load as they should be triggered by other instructions
+        if (inst.tag != .load) {
+            try genInst(buf, decl, inst);
+        }
+    }
 
     // Write 'end' opcode
     try writer.writeByte(0x0B);
@@ -155,7 +160,6 @@ fn genConstant(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Constant) !void {
 
 fn genRet(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.UnOp) !void {
     try genInst(buf, decl, inst.operand);
-    try buf.append(0x0F);
 }
 
 fn genCall(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Call) !void {
