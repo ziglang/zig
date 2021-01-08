@@ -167,9 +167,11 @@ last_text_block: ?*TextBlock = null,
 pie_fixups: std.ArrayListUnmanaged(PieFixup) = .{},
 
 stub_fixups: std.ArrayListUnmanaged(StubFixup) = .{},
+externs: std.StringHashMapUnmanaged(u32) = .{},
 
 pub const StubFixup = struct {
-    symbol: usize,
+    symbol: u32,
+    exists: bool,
     start: usize,
     len: usize,
 };
@@ -1263,56 +1265,57 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     const stub_h = &text_segment.sections.items[self.stub_helper_section_index.?];
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const la_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
-    for (self.stub_fixups.items) |fixup, idx| {
-        const i = @intCast(u32, idx);
+    for (self.stub_fixups.items) |fixup| {
         // TODO increment offset for stub writing
-        const stub_addr = stubs.addr + i * stubs.reserved2;
+        const stub_addr = stubs.addr + fixup.symbol * stubs.reserved2;
         const text_addr = symbol.n_value + fixup.start;
         const displacement = @intCast(u32, stub_addr - text_addr);
         var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
         mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(@intCast(i28, displacement)).toU32());
 
-        const end = stub_h.addr + self.next_stub_helper_off.? - stub_h.offset;
-        var buf: [@sizeOf(u64)]u8 = undefined;
-        mem.writeIntLittle(u64, &buf, end);
-        try self.base.file.?.pwriteAll(&buf, la_ptr.offset + i * @sizeOf(u64));
+        if (!fixup.exists) {
+            const end = stub_h.addr + self.next_stub_helper_off.? - stub_h.offset;
+            var buf: [@sizeOf(u64)]u8 = undefined;
+            mem.writeIntLittle(u64, &buf, end);
+            try self.base.file.?.pwriteAll(&buf, la_ptr.offset + fixup.symbol * @sizeOf(u64));
 
-        const la_ptr_addr = la_ptr.addr + i * @sizeOf(u64);
-        const displacement2 = la_ptr_addr - stub_addr;
-        var ccode: [2 * @sizeOf(u32)]u8 = undefined;
-        mem.writeIntLittle(u32, ccode[0..4], aarch64.Instruction.ldr(.x16, .{
-            .literal = @intCast(u19, displacement2 / 4),
-        }).toU32());
-        mem.writeIntLittle(u32, ccode[4..8], aarch64.Instruction.br(.x16).toU32());
-        try self.base.file.?.pwriteAll(&ccode, stubs.offset + i * stubs.reserved2);
+            const la_ptr_addr = la_ptr.addr + fixup.symbol * @sizeOf(u64);
+            const displacement2 = la_ptr_addr - stub_addr;
+            var ccode: [2 * @sizeOf(u32)]u8 = undefined;
+            mem.writeIntLittle(u32, ccode[0..4], aarch64.Instruction.ldr(.x16, .{
+                .literal = @intCast(u19, displacement2 / 4),
+            }).toU32());
+            mem.writeIntLittle(u32, ccode[4..8], aarch64.Instruction.br(.x16).toU32());
+            try self.base.file.?.pwriteAll(&ccode, stubs.offset + fixup.symbol * stubs.reserved2);
 
-        const displacement3 = @intCast(i64, stub_h.addr) - @intCast(i64, end + 4);
-        var cccode: [3 * @sizeOf(u32)]u8 = undefined;
-        mem.writeIntLittle(u32, cccode[0..4], aarch64.Instruction.ldr(.w16, .{
-            .literal = 0x2,
-        }).toU32());
-        mem.writeIntLittle(u32, cccode[4..8], aarch64.Instruction.b(@intCast(i28, displacement3)).toU32());
-        mem.writeIntLittle(u32, cccode[8..12], i * 0xd);
-        try self.base.file.?.pwriteAll(&cccode, self.next_stub_helper_off.?);
-        self.next_stub_helper_off = self.next_stub_helper_off.? + 3 * @sizeOf(u32);
+            const displacement3 = @intCast(i64, stub_h.addr) - @intCast(i64, end + 4);
+            var cccode: [3 * @sizeOf(u32)]u8 = undefined;
+            mem.writeIntLittle(u32, cccode[0..4], aarch64.Instruction.ldr(.w16, .{
+                .literal = 0x2,
+            }).toU32());
+            mem.writeIntLittle(u32, cccode[4..8], aarch64.Instruction.b(@intCast(i28, displacement3)).toU32());
+            mem.writeIntLittle(u32, cccode[8..12], fixup.symbol * 0xd);
+            try self.base.file.?.pwriteAll(&cccode, self.next_stub_helper_off.?);
+            self.next_stub_helper_off = self.next_stub_helper_off.? + 3 * @sizeOf(u32);
 
-        try self.rebase_info_table.symbols.append(self.base.allocator, .{
-            .segment = 3,
-            .offset = i * stubs.reserved2,
-        });
-        self.rebase_info_dirty = true;
+            try self.rebase_info_table.symbols.append(self.base.allocator, .{
+                .segment = 3,
+                .offset = fixup.symbol * stubs.reserved2,
+            });
+            self.rebase_info_dirty = true;
 
-        const sym = self.undef_symbols.items[fixup.symbol];
-        const name_str = self.getString(sym.n_strx);
-        var name = try self.base.allocator.alloc(u8, name_str.len);
-        mem.copy(u8, name, name_str);
-        try self.lazy_binding_info_table.symbols.append(self.base.allocator, .{
-            .segment = 3,
-            .offset = i * @sizeOf(u64),
-            .dylib_ordinal = 1,
-            .name = name,
-        });
-        self.lazy_binding_info_dirty = true;
+            const sym = self.undef_symbols.items[fixup.symbol + 1];
+            const name_str = self.getString(sym.n_strx);
+            var name = try self.base.allocator.alloc(u8, name_str.len);
+            mem.copy(u8, name, name_str);
+            try self.lazy_binding_info_table.symbols.append(self.base.allocator, .{
+                .segment = 3,
+                .offset = fixup.symbol * @sizeOf(u64),
+                .dylib_ordinal = 1,
+                .name = name,
+            });
+            self.lazy_binding_info_dirty = true;
+        }
     }
     self.stub_fixups.shrinkRetainingCapacity(0);
 

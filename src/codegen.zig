@@ -1862,18 +1862,28 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     } else if (func_value.castTag(.extern_fn)) |func_payload| {
                         const decl = func_payload.data;
                         const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
-                        defer self.bin_file.allocator.free(decl_name);
-                        const name = try macho_file.makeString(decl_name);
-                        const symbol = macho_file.undef_symbols.items.len;
-                        try macho_file.undef_symbols.append(self.bin_file.allocator, .{
-                            .n_strx = name,
-                            .n_type = std.macho.N_UNDF | std.macho.N_EXT,
-                            .n_sect = 0,
-                            .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
-                            .n_value = 0,
-                        });
+                        const exists: bool = macho_file.externs.contains(decl_name);
+                        const symbol: u32 = blk: {
+                            if (macho_file.externs.get(decl_name)) |index| {
+                                self.bin_file.allocator.free(decl_name);
+                                break :blk index;
+                            } else {
+                                const extern_index = @intCast(u32, macho_file.undef_symbols.items.len - 1); // TODO
+                                try macho_file.externs.putNoClobber(self.bin_file.allocator, decl_name, extern_index);
+                                const name = try macho_file.makeString(decl_name);
+                                try macho_file.undef_symbols.append(self.bin_file.allocator, .{
+                                    .n_strx = name,
+                                    .n_type = std.macho.N_UNDF | std.macho.N_EXT,
+                                    .n_sect = 0,
+                                    .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
+                                    .n_value = 0,
+                                });
+                                break :blk extern_index;
+                            }
+                        };
                         try macho_file.stub_fixups.append(self.bin_file.allocator, .{
                             .symbol = symbol,
+                            .exists = exists,
                             .start = self.code.items.len,
                             .len = 4,
                         });
