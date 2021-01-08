@@ -38,33 +38,33 @@ pub fn _Qp_sub(c: *f128, a: *f128, b: *f128) callconv(.C) void {
 
 // Comparison
 
-pub fn _Qp_cmp(a: f128, b: f128) callconv(.C) i32 {
-    return @enumToInt(@import("compareXf2.zig").cmp(f128, FCMP, a, b));
+pub fn _Qp_cmp(a: *f128, b: *f128) callconv(.C) i32 {
+    return @enumToInt(@import("compareXf2.zig").cmp(f128, FCMP, a.*, b.*));
 }
 
 pub fn _Qp_feq(a: *f128, b: *f128) callconv(.C) bool {
-    return _Qp_cmp(a.*, b.*) == @enumToInt(FCMP.Equal);
+    return _Qp_cmp(a, b) == @enumToInt(FCMP.Equal);
 }
 
 pub fn _Qp_fne(a: *f128, b: *f128) callconv(.C) bool {
-    return _Qp_cmp(a.*, b.*) != @enumToInt(FCMP.Equal);
+    return _Qp_cmp(a, b) != @enumToInt(FCMP.Equal);
 }
 
 pub fn _Qp_flt(a: *f128, b: *f128) callconv(.C) bool {
-    return _Qp_cmp(a.*, b.*) == @enumToInt(FCMP.Less);
+    return _Qp_cmp(a, b) == @enumToInt(FCMP.Less);
 }
 
 pub fn _Qp_fle(a: *f128, b: *f128) callconv(.C) bool {
-    const cmp = _Qp_cmp(a.*, b.*);
+    const cmp = _Qp_cmp(a, b);
     return cmp == @enumToInt(FCMP.Less) or cmp == @enumToInt(FCMP.Equal);
 }
 
 pub fn _Qp_fgt(a: *f128, b: *f128) callconv(.C) bool {
-    return _Qp_cmp(a.*, b.*) == @enumToInt(FCMP.Greater);
+    return _Qp_cmp(a, b) == @enumToInt(FCMP.Greater);
 }
 
 pub fn _Qp_fge(a: *f128, b: *f128) callconv(.C) bool {
-    const cmp = _Qp_cmp(a.*, b.*);
+    const cmp = _Qp_cmp(a, b);
     return cmp == @enumToInt(FCMP.Greater) or cmp == @enumToInt(FCMP.Equal);
 }
 
