@@ -15,8 +15,6 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
 
         pub const Error = ReaderType.Error;
         pub const Reader = io.Reader(*Self, Error, read);
-        /// Deprecated: use `Reader`
-        pub const InStream = Reader;
 
         const Self = @This();
         const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
@@ -43,11 +41,6 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         }
 
         pub fn reader(self: *Self) Reader {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use `reader`
-        pub fn inStream(self: *Self) InStream {
             return .{ .context = self };
         }
     };

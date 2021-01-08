@@ -232,11 +232,6 @@ pub fn LinearFifo(
             return .{ .context = self };
         }
 
-        /// Deprecated: `use reader`
-        pub fn inStream(self: *Self) std.io.InStream(*Self, error{}, readFn) {
-            return .{ .context = self };
-        }
-
         /// Returns number of items available in fifo
         pub fn writableLength(self: Self) usize {
             return self.buf.len - self.count;
@@ -317,18 +312,13 @@ pub fn LinearFifo(
         }
 
         /// Same as `write` except it returns the number of bytes written, which is always the same
-        /// as `bytes.len`. The purpose of this function existing is to match `std.io.OutStream` API.
+        /// as `bytes.len`. The purpose of this function existing is to match `std.io.Writer` API.
         fn appendWrite(self: *Self, bytes: []const u8) error{OutOfMemory}!usize {
             try self.write(bytes);
             return bytes.len;
         }
 
         pub fn writer(self: *Self) std.io.Writer(*Self, error{OutOfMemory}, appendWrite) {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: `use writer`
-        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
             return .{ .context = self };
         }
 

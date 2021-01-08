@@ -791,7 +791,7 @@ fn renderExpression(
 
                         // Null stream for counting the printed length of each expression
                         var line_find_stream = std.io.findByteOutStream('\n', std.io.null_writer);
-                        var counting_stream = std.io.countingOutStream(line_find_stream.writer());
+                        var counting_stream = std.io.countingWriter(line_find_stream.writer());
                         var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, counting_stream.writer());
 
                         // Calculate size of columns in current section

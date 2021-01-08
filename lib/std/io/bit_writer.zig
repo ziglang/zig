@@ -21,8 +21,6 @@ pub fn BitWriter(endian: builtin.Endian, comptime WriterType: type) type {
 
         pub const Error = WriterType.Error;
         pub const Writer = io.Writer(*Self, Error, write);
-        /// Deprecated: use `Writer`
-        pub const OutStream = io.OutStream(*Self, Error, write);
 
         const Self = @This();
         const u8_bit_count = comptime meta.bitCount(u8);
@@ -139,10 +137,6 @@ pub fn BitWriter(endian: builtin.Endian, comptime WriterType: type) type {
         }
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-        /// Deprecated: use `writer`
-        pub fn outStream(self: *Self) OutStream {
             return .{ .context = self };
         }
     };

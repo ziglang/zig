@@ -15,8 +15,6 @@ pub fn CountingWriter(comptime WriterType: type) type {
 
         pub const Error = WriterType.Error;
         pub const Writer = io.Writer(*Self, Error, write);
-        /// Deprecated: use `Writer`
-        pub const OutStream = Writer;
 
         const Self = @This();
 
@@ -27,11 +25,6 @@ pub fn CountingWriter(comptime WriterType: type) type {
         }
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use `writer`
-        pub fn outStream(self: *Self) OutStream {
             return .{ .context = self };
         }
     };

@@ -22,15 +22,8 @@ pub fn MultiWriter(comptime Writers: type) type {
 
         pub const Error = ErrSet;
         pub const Writer = io.Writer(*Self, Error, write);
-        /// Deprecated: use `Writer`
-        pub const OutStream = Writer;
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use `writer`
-        pub fn outStream(self: *Self) OutStream {
             return .{ .context = self };
         }
 

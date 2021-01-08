@@ -2620,9 +2620,9 @@ pub fn stringify(
 }
 
 fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
-    const ValidationOutStream = struct {
+    const ValidationWriter = struct {
         const Self = @This();
-        pub const OutStream = std.io.OutStream(*Self, Error, write);
+        pub const Writer = std.io.Writer(*Self, Error, write);
         pub const Error = error{
             TooMuchData,
             DifferentData,
@@ -2634,7 +2634,7 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
             return .{ .expected_remaining = exp };
         }
 
-        pub fn outStream(self: *Self) OutStream {
+        pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
 
@@ -2670,8 +2670,8 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
         }
     };
 
-    var vos = ValidationOutStream.init(expected);
-    try stringify(value, options, vos.outStream());
+    var vos = ValidationWriter.init(expected);
+    try stringify(value, options, vos.writer());
     if (vos.expected_remaining.len > 0) return error.NotEnoughData;
 }
 
