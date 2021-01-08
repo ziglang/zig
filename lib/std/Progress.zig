@@ -20,7 +20,7 @@ const Progress = @This();
 
 /// `null` if the current node (and its children) should
 /// not print on update()
-terminal: ?std.fs.File = undefined,
+terminal: ?File = undefined,
 
 /// Whether the terminal supports ANSI escape codes.
 supports_ansi_escape_codes: bool = false,
@@ -29,7 +29,7 @@ root: Node = undefined,
 
 /// Keeps track of how much time has passed since the beginning.
 /// Used to compare with `initial_delay_ms` and `refresh_rate_ms`.
-timer: std.time.Timer = undefined,
+timer: Timer = undefined,
 
 /// When the previous refresh was written to the terminal.
 /// Used to compare with `refresh_rate_ms`.
@@ -55,6 +55,10 @@ update_lock: std.Mutex = .{},
 /// Keeps track of how many columns in the terminal have been output, so that
 /// we can move the cursor back later.
 columns_written: usize = undefined,
+
+const is_freestanding = std.Target.current.os.tag == .freestanding;
+const Timer = if (is_freestanding) void else std.time.Timer;
+const File = if (is_freestanding) void else std.fs.File;
 
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
@@ -87,6 +91,8 @@ pub const Node = struct {
 
     /// This is the same as calling `start` and then `end` on the returned `Node`. Thread-safe.
     pub fn completeOne(self: *Node) void {
+        if (is_freestanding) return;
+
         self.activate();
         _ = @atomicRmw(usize, &self.unprotected_completed_items, .Add, 1, .Monotonic);
         self.context.maybeRefresh();
@@ -94,6 +100,8 @@ pub const Node = struct {
 
     /// Finish a started `Node`. Thread-safe.
     pub fn end(self: *Node) void {
+        if (is_freestanding) return;
+
         self.context.maybeRefresh();
         if (self.parent) |parent| {
             {
@@ -110,6 +118,7 @@ pub const Node = struct {
 
     /// Tell the parent node that this node is actively being worked on. Thread-safe.
     pub fn activate(self: *Node) void {
+        if (is_freestanding) return;
         if (self.parent) |parent| {
             @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
         }
@@ -132,13 +141,18 @@ pub const Node = struct {
 /// API to return Progress rather than accept it as a parameter.
 /// `estimated_total_items` value of 0 means unknown.
 pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*Node {
-    const stderr = std.io.getStdErr();
     self.terminal = null;
-    if (stderr.supportsAnsiEscapeCodes()) {
-        self.terminal = stderr;
-        self.supports_ansi_escape_codes = true;
-    } else if (std.builtin.os.tag == .windows and stderr.isTty()) {
-        self.terminal = stderr;
+
+    if (is_freestanding) {
+        self.supports_ansi_escape_codes = false;
+    } else {
+        const stderr = std.io.getStdErr();
+        if (stderr.supportsAnsiEscapeCodes()) {
+            self.terminal = stderr;
+            self.supports_ansi_escape_codes = true;
+        } else if (std.builtin.os.tag == .windows and stderr.isTty()) {
+            self.terminal = stderr;
+        }
     }
     self.root = Node{
         .context = self,
@@ -149,13 +163,16 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*
     };
     self.columns_written = 0;
     self.prev_refresh_timestamp = 0;
-    self.timer = try std.time.Timer.start();
     self.done = false;
+    if (!is_freestanding) {
+        self.timer = try std.time.Timer.start();
+    }
     return &self.root;
 }
 
 /// Updates the terminal if enough time has passed since last update. Thread-safe.
 pub fn maybeRefresh(self: *Progress) void {
+    if (is_freestanding) return;
     const now = self.timer.read();
     if (now < self.initial_delay_ns) return;
     const held = self.update_lock.tryAcquire() orelse return;
@@ -169,6 +186,7 @@ pub fn maybeRefresh(self: *Progress) void {
 
 /// Updates the terminal and resets `self.next_refresh_timestamp`. Thread-safe.
 pub fn refresh(self: *Progress) void {
+    if (is_freestanding) return;
     const held = self.update_lock.tryAcquire() orelse return;
     defer held.release();
 
@@ -269,6 +287,7 @@ fn refreshWithHeldLock(self: *Progress) void {
 }
 
 pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
+    if (is_freestanding) return;
     const file = self.terminal orelse return;
     self.refresh();
     file.outStream().print(format, args) catch {
