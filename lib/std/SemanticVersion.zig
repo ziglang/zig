@@ -205,7 +205,7 @@ test "SemanticVersion format" {
         "1.2.3----R-S.12.9.1--.12+meta",
         "1.2.3----RC-SNAPSHOT.12.9.1--.12",
         "1.0.0+0.build.1-rc.10000aaa-kk-0.1",
-    }) |valid| try testFmt(valid, "{}", .{try parse(valid)});
+    }) |valid| try std.fmt.testFmt(valid, "{}", .{try parse(valid)});
 
     // Invalid version strings should be rejected.
     for ([_][]const u8{
@@ -253,7 +253,9 @@ test "SemanticVersion format" {
 
     // Valid version string that may overflow.
     const big_valid = "99999999999999999999999.999999999999999999.99999999999999999";
-    if (parse(big_valid)) |ver| try testFmt(big_valid, "{}", .{ver}) else |err| expect(err == error.Overflow);
+    if (parse(big_valid)) |ver| {
+        try std.fmt.testFmt(big_valid, "{}", .{ver});
+    } else |err| expect(err == error.Overflow);
 
     // Invalid version string that may overflow.
     const big_invalid = "99999999999999999999999.999999999999999999.99999999999999999----RC-SNAPSHOT.12.09.1--------------------------------..12";
@@ -278,20 +280,6 @@ test "SemanticVersion precedence" {
     expect(order(try parse("1.0.0-beta.2"), try parse("1.0.0-beta.11")) == .lt);
     expect(order(try parse("1.0.0-beta.11"), try parse("1.0.0-rc.1")) == .lt);
     expect(order(try parse("1.0.0-rc.1"), try parse("1.0.0")) == .lt);
-}
-
-// This is copy-pasted from fmt.zig since it is not public.
-fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
-    var buf: [100]u8 = undefined;
-    const result = try std.fmt.bufPrint(buf[0..], template, args);
-    if (std.mem.eql(u8, result, expected)) return;
-
-    std.debug.warn("\n====== expected this output: =========\n", .{});
-    std.debug.warn("{s}", .{expected});
-    std.debug.warn("\n======== instead found this: =========\n", .{});
-    std.debug.warn("{s}", .{result});
-    std.debug.warn("\n======================================\n", .{});
-    return error.TestFailed;
 }
 
 test "zig_version" {
