@@ -1257,6 +1257,24 @@ pub const VM_PROT_WRITE: vm_prot_t = 0x2;
 /// VM execute permission
 pub const VM_PROT_EXECUTE: vm_prot_t = 0x4;
 
+// The following are used to encode rebasing information
+pub const REBASE_TYPE_POINTER: u8 = 1;
+pub const REBASE_TYPE_TEXT_ABSOLUTE32: u8 = 2;
+pub const REBASE_TYPE_TEXT_PCREL32: u8 = 3;
+
+pub const REBASE_OPCODE_MASK: u8 = 0xF0;
+pub const REBASE_IMMEDIATE_MASK: u8 = 0x0F;
+pub const REBASE_OPCODE_DONE: u8 = 0x00;
+pub const REBASE_OPCODE_SET_TYPE_IMM: u8 = 0x10;
+pub const REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB: u8 = 0x20;
+pub const REBASE_OPCODE_ADD_ADDR_ULEB: u8 = 0x30;
+pub const REBASE_OPCODE_ADD_ADDR_IMM_SCALED: u8 = 0x40;
+pub const REBASE_OPCODE_DO_REBASE_IMM_TIMES: u8 = 0x50;
+pub const REBASE_OPCODE_DO_REBASE_ULEB_TIMES: u8 = 0x60;
+pub const REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB: u8 = 0x70;
+pub const REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB: u8 = 0x80;
+
+// The following are used to encode binding information
 pub const BIND_TYPE_POINTER: u8 = 1;
 pub const BIND_TYPE_TEXT_ABSOLUTE32: u8 = 2;
 pub const BIND_TYPE_TEXT_PCREL32: u8 = 3;
@@ -1360,7 +1378,7 @@ pub const N_WEAK_DEF: u16 = 0x80;
 /// This bit is only available in .o files (MH_OBJECT filetype)
 pub const N_SYMBOL_RESOLVER: u16 = 0x100;
 
-// The following are used on the flags byte of a terminal node // in the export information.
+// The following are used on the flags byte of a terminal node in the export information.
 pub const EXPORT_SYMBOL_FLAGS_KIND_MASK: u8 = 0x03;
 pub const EXPORT_SYMBOL_FLAGS_KIND_REGULAR: u8 = 0x00;
 pub const EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL: u8 = 0x01;
