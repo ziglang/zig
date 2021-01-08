@@ -44,6 +44,7 @@ pub fn build(b: *Builder) !void {
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
+    const enable_playground = b.option(bool, "enable-playground", "Build the WebAssembly browser-based compiler") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
@@ -79,6 +80,22 @@ pub fn build(b: *Builder) !void {
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
 
     const main_file = if (is_stage1) "src/stage1.zig" else "src/main.zig";
+
+    const playground_exe = b.addStaticLibrary("playground", "src/playground.zig");
+    if (enable_playground) {
+        playground_exe.install();
+    }
+    playground_exe.setBuildMode(.ReleaseSmall);
+    playground_exe.setTarget(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+    });
+    playground_exe.addBuildOption(bool, "skip_non_native", true);
+    playground_exe.addBuildOption(bool, "have_llvm", false);
+    playground_exe.addBuildOption([]const []const u8, "log_scopes", &[0][]const u8{});
+    playground_exe.addBuildOption(bool, "enable_tracy", false);
+    playground_exe.addBuildOption(bool, "is_stage1", false);
+    playground_exe.addBuildOption(bool, "omit_stage2", false);
 
     var exe = b.addExecutable("zig", main_file);
     exe.install();
@@ -186,9 +203,11 @@ pub fn build(b: *Builder) !void {
         }
     };
     exe.addBuildOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+    playground_exe.addBuildOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
 
     const semver = try std.SemanticVersion.parse(version);
     exe.addBuildOption(std.SemanticVersion, "semver", semver);
+    playground_exe.addBuildOption(std.SemanticVersion, "semver", semver);
 
     exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
     exe.addBuildOption(bool, "enable_tracy", tracy != null);
