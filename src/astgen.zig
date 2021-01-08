@@ -885,7 +885,7 @@ fn catchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Catch) 
 }
 
 fn orelseExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
-    return orelseCatchExpr(mod, scope, rl, node.lhs, node.op_token, .isnull, .unwrap_optional_unsafe, node.rhs, null);
+    return orelseCatchExpr(mod, scope, rl, node.lhs, node.op_token, .isnonnull, .unwrap_optional_unsafe, node.rhs, null);
 }
 
 fn orelseCatchExpr(
@@ -963,7 +963,7 @@ fn orelseCatchExpr(
 
     _ = try addZIRInst(mod, &then_scope.base, src, zir.Inst.Break, .{
         .block = block,
-        .operand = try expr(mod, then_sub_scope, branch_rl, rhs),
+        .operand = try rlWrap(mod, then_sub_scope, .{ .ref = {} }, try expr(mod, then_sub_scope, branch_rl, rhs)),
     }, .{});
 
     var else_scope: Scope.GenZIR = .{

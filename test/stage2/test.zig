@@ -1495,4 +1495,51 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{":8:10: error: evaluation exceeded 1000 backwards branches"});
     }
+    {
+        var case = ctx.exe("orelse at comptime", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const i: ?u64 = 0;
+            \\    const orelsed = i orelse 5;
+            \\    assert(orelsed == 0);
+            \\    exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const i: ?u64 = null;
+            \\    const orelsed = i orelse 5;
+            \\    assert(orelsed == 5);
+            \\    exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
