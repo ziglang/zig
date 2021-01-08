@@ -224,6 +224,13 @@ pub fn abort() noreturn {
         @breakpoint();
         exit(1);
     }
+    if (builtin.os.tag == .freestanding and std.Target.current.isWasm()) {
+        // TODO wasm has a trap instruction but we do not have an intrinsic
+        // to activate it.
+        while (true) {
+            @breakpoint();
+        }
+    }
 
     system.abort();
 }
