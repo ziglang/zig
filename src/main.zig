@@ -1007,6 +1007,11 @@ fn buildOutputType(
             ensure_libc_on_non_freestanding = true;
             ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
             want_native_include_dirs = true;
+            // Clang's driver enables this switch unconditionally.
+            // Disabling the emission of .eh_frame_hdr can unexpectedly break
+            // some functionality that depend on it, such as C++ exceptions and
+            // DWARF-based stack traces.
+            link_eh_frame_hdr = true;
 
             const COutMode = enum {
                 link,
@@ -1274,6 +1279,10 @@ fn buildOutputType(
                     image_base_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
+                } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
+                    link_eh_frame_hdr = true;
+                } else if (mem.eql(u8, arg, "--no-eh-frame-hdr")) {
+                    link_eh_frame_hdr = false;
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
