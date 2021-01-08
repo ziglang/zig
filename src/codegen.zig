@@ -1480,6 +1480,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genArg(self: *Self, inst: *ir.Inst.Arg) !MCValue {
+            const arg_index = self.arg_index;
+            self.arg_index += 1;
+
             if (FreeRegInt == u0) {
                 return self.fail(inst.base.src, "TODO implement Register enum for {}", .{self.target.cpu.arch});
             }
@@ -1488,8 +1491,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             try self.registers.ensureCapacity(self.gpa, self.registers.count() + 1);
 
-            const result = self.args[self.arg_index];
-            self.arg_index += 1;
+            const result = self.args[arg_index];
 
             const name_with_null = inst.name[0 .. mem.lenZ(inst.name) + 1];
             switch (result) {
