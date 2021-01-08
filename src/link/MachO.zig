@@ -115,7 +115,7 @@ global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
 offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 dyld_stub_binder_index: ?u16 = null,
-next_stub_helper_off: ?u64 = null,
+stub_helper_stubs_start_off: ?u64 = null,
 
 /// Table of symbol names aka the string table.
 string_table: std.ArrayListUnmanaged(u8) = .{},
@@ -1274,7 +1274,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(@intCast(i28, displacement)).toU32());
 
         if (!fixup.exists) {
-            const end = stub_h.addr + self.next_stub_helper_off.? - stub_h.offset;
+            const stub_off = self.stub_helper_stubs_start_off.? + fixup.symbol * 3 * @sizeOf(u32);
+            const end = stub_h.addr + stub_off - stub_h.offset;
             var buf: [@sizeOf(u64)]u8 = undefined;
             mem.writeIntLittle(u64, &buf, end);
             try self.base.file.?.pwriteAll(&buf, la_ptr.offset + fixup.symbol * @sizeOf(u64));
@@ -1295,8 +1296,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             }).toU32());
             mem.writeIntLittle(u32, cccode[4..8], aarch64.Instruction.b(@intCast(i28, displacement3)).toU32());
             mem.writeIntLittle(u32, cccode[8..12], fixup.symbol * 0xd);
-            try self.base.file.?.pwriteAll(&cccode, self.next_stub_helper_off.?);
-            self.next_stub_helper_off = self.next_stub_helper_off.? + 3 * @sizeOf(u32);
+            try self.base.file.?.pwriteAll(&cccode, stub_off);
 
             try self.rebase_info_table.symbols.append(self.base.allocator, .{
                 .segment = 3,
@@ -2102,7 +2102,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.binding_info_dirty = true;
     }
-    if (self.next_stub_helper_off == null) {
+    if (self.stub_helper_stubs_start_off == null) {
         const text = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         const sh = &text.sections.items[self.stub_helper_section_index.?];
         const data = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
@@ -2123,7 +2123,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .literal = @intCast(u19, displacement2 / 4),
         }).toU32());
         mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.br(.x16).toU32());
-        self.next_stub_helper_off = sh.offset + 4 * @sizeOf(u32);
+        self.stub_helper_stubs_start_off = sh.offset + 4 * @sizeOf(u32);
         try self.base.file.?.pwriteAll(&code, sh.offset);
     }
 }
