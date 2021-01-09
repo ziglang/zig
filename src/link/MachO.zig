@@ -159,19 +159,29 @@ last_text_block: ?*TextBlock = null,
 /// prior to calling `generateSymbol`, and then immediately deallocated
 /// rather than sitting in the global scope.
 pie_fixups: std.ArrayListUnmanaged(PieFixup) = .{},
-
+/// A list of all stub (extern decls) fixups required for this run of the linker.
+/// Warning, this is currently NOT thread-safe. See the TODO below.
+/// TODO Move this list inside `updateDecl` where it should be allocated
+/// prior to calling `generateSymbol`, and then immediately deallocated
+/// rather than sitting in the global scope.
 stub_fixups: std.ArrayListUnmanaged(StubFixup) = .{},
-
-pub const StubFixup = struct {
-    symbol: u32,
-    already_defined: bool,
-    start: usize,
-    len: usize,
-};
 
 pub const PieFixup = struct {
     /// Target address we wanted to address in absolute terms.
     address: u64,
+    /// Where in the byte stream we should perform the fixup.
+    start: usize,
+    /// The length of the byte stream. For x86_64, this will be
+    /// variable. For aarch64, it will be fixed at 4 bytes.
+    len: usize,
+};
+
+pub const StubFixup = struct {
+    /// Id of extern (lazy) symbol.
+    symbol: u32,
+    /// Signals whether the symbol has already been declared before. If so,
+    /// then there is no need to rewrite the stub entry and related.
+    already_defined: bool,
     /// Where in the byte stream we should perform the fixup.
     start: usize,
     /// The length of the byte stream. For x86_64, this will be
@@ -1030,13 +1040,20 @@ pub fn deinit(self: *MachO) void {
     if (self.d_sym) |*ds| {
         ds.deinit(self.base.allocator);
     }
+    for (self.extern_lazy_symbols.items()) |*entry| {
+        entry.value.deinit(self.base.allocator);
+    }
+    self.extern_lazy_symbols.deinit(self.base.allocator);
+    for (self.extern_nonlazy_symbols.items()) |*entry| {
+        entry.value.deinit(self.base.allocator);
+    }
+    self.extern_nonlazy_symbols.deinit(self.base.allocator);
     self.pie_fixups.deinit(self.base.allocator);
+    self.stub_fixups.deinit(self.base.allocator);
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
-    self.extern_lazy_symbols.deinit(self.base.allocator);
-    self.extern_nonlazy_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
     self.global_symbol_free_list.deinit(self.base.allocator);
     self.local_symbols.deinit(self.base.allocator);
@@ -2047,7 +2064,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         try self.extern_nonlazy_symbols.putNoClobber(self.base.allocator, name, .{
             .name = name,
             .dylib_ordinal = 1, // TODO this is currently hardcoded.
-            .index = index,
             .segment = self.data_const_segment_cmd_index.?,
             .offset = index * @sizeOf(u64),
         });
@@ -2582,12 +2598,12 @@ fn writeAllGlobalAndUndefSymbols(self: *MachO) !void {
 }
 
 fn writeIndirectSymbolTable(self: *MachO) !void {
-    const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const stubs = &text_seg.sections.items[self.stubs_section_index.?];
-    const dc_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const got = &dc_seg.sections.items[self.data_got_section_index.?];
-    const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const la = &data_seg.sections.items[self.la_symbol_ptr_section_index.?];
+    const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const stubs = &text_segment.sections.items[self.stubs_section_index.?];
+    const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+    const got = &data_const_seg.sections.items[self.data_got_section_index.?];
+    const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+    const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
     dysymtab.nindirectsyms = 0;
 
@@ -2595,8 +2611,8 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     var off = dysymtab.indirectsymoff;
 
     stubs.reserved1 = 0;
-    for (self.extern_lazy_symbols.items()) |entry| {
-        const symtab_idx = @intCast(u32, dysymtab.iundefsym + entry.value.index);
+    for (self.extern_lazy_symbols.items()) |_, i| {
+        const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
         mem.writeIntLittle(u32, &buf, symtab_idx);
         try self.base.file.?.pwriteAll(&buf, off);
         off += @sizeOf(u32);
@@ -2605,17 +2621,17 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
 
     const base_id = @intCast(u32, self.extern_lazy_symbols.items().len);
     got.reserved1 = base_id;
-    for (self.extern_nonlazy_symbols.items()) |entry| {
-        const symtab_idx = @intCast(u32, dysymtab.iundefsym + entry.value.index + base_id);
+    for (self.extern_nonlazy_symbols.items()) |_, i| {
+        const symtab_idx = @intCast(u32, dysymtab.iundefsym + i + base_id);
         mem.writeIntLittle(u32, &buf, symtab_idx);
         try self.base.file.?.pwriteAll(&buf, off);
         off += @sizeOf(u32);
         dysymtab.nindirectsyms += 1;
     }
 
-    la.reserved1 = got.reserved1 + @intCast(u32, self.extern_nonlazy_symbols.items().len);
-    for (self.extern_lazy_symbols.items()) |entry| {
-        const symtab_idx = @intCast(u32, dysymtab.iundefsym + entry.value.index);
+    la_symbol_ptr.reserved1 = got.reserved1 + @intCast(u32, self.extern_nonlazy_symbols.items().len);
+    for (self.extern_lazy_symbols.items()) |_, i| {
+        const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
         mem.writeIntLittle(u32, &buf, symtab_idx);
         try self.base.file.?.pwriteAll(&buf, off);
         off += @sizeOf(u32);

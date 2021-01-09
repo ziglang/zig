@@ -20,13 +20,15 @@ pub const ExternSymbol = struct {
     /// dylibs.
     dylib_ordinal: i64 = 0,
 
+    /// Id of the segment where this symbol is defined (will have its address
+    /// resolved).
     segment: u16 = 0,
+
+    /// Offset relative to the start address of the `segment`.
     offset: u32 = 0,
-    addend: ?i32 = null,
-    index: u32,
 
     pub fn deinit(self: *ExternSymbol, allocator: *Allocator) void {
-        if (self.name) |*name| {
+        if (self.name) |name| {
             allocator.free(name);
         }
     }
@@ -77,12 +79,6 @@ pub fn bindInfoSize(symbols: []*const ExternSymbol) !u64 {
 
         size += 1;
         try leb.writeILEB128(writer, symbol.offset);
-
-        if (symbol.addend) |addend| {
-            size += 1;
-            try leb.writeILEB128(writer, addend);
-        }
-
         size += 2;
     }
 
@@ -110,12 +106,6 @@ pub fn writeBindInfo(symbols: []*const ExternSymbol, writer: anytype) !void {
 
         try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
         try leb.writeILEB128(writer, symbol.offset);
-
-        if (symbol.addend) |addend| {
-            try writer.writeByte(macho.BIND_OPCODE_SET_ADDEND_SLEB);
-            try leb.writeILEB128(writer, addend);
-        }
-
         try writer.writeByte(macho.BIND_OPCODE_DO_BIND);
         try writer.writeByte(macho.BIND_OPCODE_DONE);
     }
@@ -129,12 +119,6 @@ pub fn lazyBindInfoSize(symbols: []*const ExternSymbol) !u64 {
     for (symbols) |symbol| {
         size += 1;
         try leb.writeILEB128(writer, symbol.offset);
-
-        if (symbol.addend) |addend| {
-            size += 1;
-            try leb.writeILEB128(writer, addend);
-        }
-
         size += 1;
         if (symbol.dylib_ordinal > 15) {
             try leb.writeULEB128(writer, @bitCast(u64, symbol.dylib_ordinal));
@@ -155,11 +139,6 @@ pub fn writeLazyBindInfo(symbols: []*const ExternSymbol, writer: anytype) !void 
     for (symbols) |symbol| {
         try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
         try leb.writeILEB128(writer, symbol.offset);
-
-        if (symbol.addend) |addend| {
-            try writer.writeByte(macho.BIND_OPCODE_SET_ADDEND_SLEB);
-            try leb.writeILEB128(writer, addend);
-        }
 
         if (symbol.dylib_ordinal > 15) {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
