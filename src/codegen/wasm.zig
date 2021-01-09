@@ -78,9 +78,6 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
             entry.entry.value += 1
         else
             entry.entry.value = 1;
-
-        // append the local to our list of locals so they can be set/retrieved later
-        try decl.fn_link.wasm.?.locals.append(buf.allocator, inst);
     }
 
     // write the amount of different types were found
@@ -117,7 +114,7 @@ fn genInst(buf: *ArrayList(u8), decl: *Decl, inst: *Inst) !void {
         .dbg_stmt => {},
         .ret => genRet(buf, decl, inst.castTag(.ret).?),
         .retvoid => {},
-        .alloc => {}, // already generated in 'genCode'
+        .alloc => genAlloc(buf, decl, inst.castTag(.alloc).?),
         .store => genStore(buf, decl, inst.castTag(.store).?),
         .load => genLoad(buf, decl, inst.castTag(.load).?),
         else => return error.TODOImplementMoreWasmCodegen,
@@ -181,8 +178,7 @@ fn genCall(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Call) !void {
 }
 
 fn genStore(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.BinOp) !void {
-    const idx = decl.fn_link.wasm.?.getLocalidx(inst.lhs) orelse
-        return error.LocalDoesNotExist; // this is a developer error in the Zig compiler
+    const idx = decl.fn_link.wasm.?.getLocalidx(inst.lhs).?;
 
     const writer = buf.writer();
 
@@ -195,12 +191,14 @@ fn genStore(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.BinOp) !void {
 }
 
 fn genLoad(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.UnOp) !void {
-    const idx = decl.fn_link.wasm.?.getLocalidx(inst.operand) orelse
-        return error.LocalDoesNotExist; // this is a developer error in the Zig compiler
-
+    const idx = decl.fn_link.wasm.?.getLocalidx(inst.operand).?;
     const writer = buf.writer();
 
     // load the local at index `idx` onto the stack
     try writer.writeByte(0x20);
     try leb.writeULEB128(writer, idx);
+}
+
+fn genAlloc(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.NoOp) !void {
+    try decl.fn_link.wasm.?.locals.append(buf.allocator, &inst.base);
 }
