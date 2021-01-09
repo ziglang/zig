@@ -2258,7 +2258,11 @@ pub fn addCCArgs(
             } else if (!comp.sanitize_c and comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=thread");
             }
-
+            
+            if (comp.bin_file.options.no_red_zone) {
+                try argv.append("-mno-red-zone");
+            }
+            
             switch (comp.bin_file.options.optimize_mode) {
                 .Debug => {
                     // windows c runtime requires -D_DEBUG if using debug libraries
