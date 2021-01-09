@@ -923,42 +923,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                     return error.NoSymbolTableFound;
                 }
 
-                // // Parse dyld info
-                // try self.parseBindingInfoTable();
-                // try self.parseLazyBindingInfoTable();
-
-                // // Update the dylib ordinals.
-                // self.binding_info_table.dylib_ordinal = next_ordinal;
-                // for (self.lazy_binding_info_table.symbols.items) |*symbol| {
-                //     symbol.dylib_ordinal = next_ordinal;
-                // }
-
-                // // Write updated dyld info.
-                // const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
-                // {
-                //     const size = try self.binding_info_table.calcSize();
-                //     assert(dyld_info.bind_size >= size);
-
-                //     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
-                //     defer self.base.allocator.free(buffer);
-
-                //     var stream = std.io.fixedBufferStream(buffer);
-                //     try self.binding_info_table.write(stream.writer());
-
-                //     try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
-                // }
-                // {
-                //     const size = try self.lazy_binding_info_table.calcSize();
-                //     assert(dyld_info.lazy_bind_size >= size);
-
-                //     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
-                //     defer self.base.allocator.free(buffer);
-
-                //     var stream = std.io.fixedBufferStream(buffer);
-                //     try self.lazy_binding_info_table.write(stream.writer());
-
-                //     try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
-                // }
+                // Patch dyld info
+                try self.fixupBindInfo(next_ordinal);
+                try self.fixupLazyBindInfo(next_ordinal);
 
                 // Write updated load commands and the header
                 try self.writeLoadCommands();
@@ -3068,24 +3035,61 @@ fn parseStringTable(self: *MachO) !void {
     self.string_table.appendSliceAssumeCapacity(buffer);
 }
 
-fn parseBindingInfoTable(self: *MachO) !void {
+fn fixupBindInfo(self: *MachO, dylib_ordinal: u32) !void {
     const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     var buffer = try self.base.allocator.alloc(u8, dyld_info.bind_size);
     defer self.base.allocator.free(buffer);
     const nread = try self.base.file.?.preadAll(buffer, dyld_info.bind_off);
     assert(nread == buffer.len);
-
-    var stream = std.io.fixedBufferStream(buffer);
-    // try self.binding_info_table.read(stream.reader(), self.base.allocator);
+    try self.fixupInfoCommon(buffer, dylib_ordinal);
+    try self.base.file.?.pwriteAll(buffer, dyld_info.bind_off);
 }
 
-fn parseLazyBindingInfoTable(self: *MachO) !void {
+fn fixupLazyBindInfo(self: *MachO, dylib_ordinal: u32) !void {
     const dyld_info = self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     var buffer = try self.base.allocator.alloc(u8, dyld_info.lazy_bind_size);
     defer self.base.allocator.free(buffer);
     const nread = try self.base.file.?.preadAll(buffer, dyld_info.lazy_bind_off);
     assert(nread == buffer.len);
+    try self.fixupInfoCommon(buffer, dylib_ordinal);
+    try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
+}
 
+fn fixupInfoCommon(self: *MachO, buffer: []u8, dylib_ordinal: u32) !void {
     var stream = std.io.fixedBufferStream(buffer);
-    // try self.lazy_binding_info_table.read(stream.reader(), self.base.allocator);
+    var reader = stream.reader();
+
+    while (true) {
+        const inst = reader.readByte() catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => return err,
+        };
+        const imm: u8 = inst & macho.BIND_IMMEDIATE_MASK;
+        const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
+
+        switch (opcode) {
+            macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                var next = try reader.readByte();
+                while (next != @as(u8, 0)) {
+                    next = try reader.readByte();
+                }
+            },
+            macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                _ = try std.leb.readULEB128(u64, reader);
+            },
+            macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM, macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
+                // Perform the fixup.
+                try stream.seekBy(-1);
+                var writer = stream.writer();
+                try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | @truncate(u4, dylib_ordinal));
+            },
+            macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB => {
+                _ = try std.leb.readULEB128(u64, reader);
+            },
+            macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                _ = try std.leb.readILEB128(i64, reader);
+            },
+            else => {},
+        }
+    }
 }
