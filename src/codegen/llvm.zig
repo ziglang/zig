@@ -397,6 +397,7 @@ pub const LLVMIRModule = struct {
                 .block => try self.genBlock(inst.castTag(.block).?),
                 .br => try self.genBr(inst.castTag(.br).?),
                 .breakpoint => try self.genBreakpoint(inst.castTag(.breakpoint).?),
+                .br_void => try self.genBrVoid(inst.castTag(.br_void).?),
                 .call => try self.genCall(inst.castTag(.call).?),
                 .cmp_eq => try self.genCmp(inst.castTag(.cmp_eq).?, .eq),
                 .cmp_gt => try self.genCmp(inst.castTag(.cmp_gt).?, .gt),
@@ -406,6 +407,10 @@ pub const LLVMIRModule = struct {
                 .cmp_neq => try self.genCmp(inst.castTag(.cmp_neq).?, .neq),
                 .condbr => try self.genCondBr(inst.castTag(.condbr).?),
                 .intcast => try self.genIntCast(inst.castTag(.intcast).?),
+                .is_non_null => try self.genIsNonNull(inst.castTag(.is_non_null).?, false),
+                .is_non_null_ptr => try self.genIsNonNull(inst.castTag(.is_non_null_ptr).?, true),
+                .is_null => try self.genIsNull(inst.castTag(.is_null).?, false),
+                .is_null_ptr => try self.genIsNull(inst.castTag(.is_null_ptr).?, true),
                 .load => try self.genLoad(inst.castTag(.load).?),
                 .loop => try self.genLoop(inst.castTag(.loop).?),
                 .not => try self.genNot(inst.castTag(.not).?),
@@ -414,6 +419,8 @@ pub const LLVMIRModule = struct {
                 .store => try self.genStore(inst.castTag(.store).?),
                 .sub => try self.genSub(inst.castTag(.sub).?),
                 .unreach => self.genUnreach(inst.castTag(.unreach).?),
+                .optional_payload => try self.genOptionalPayload(inst.castTag(.optional_payload).?, false),
+                .optional_payload_ptr => try self.genOptionalPayload(inst.castTag(.optional_payload_ptr).?, true),
                 .dbg_stmt => blk: {
                     // TODO: implement debug info
                     break :blk null;
@@ -534,21 +541,29 @@ pub const LLVMIRModule = struct {
     }
 
     fn genBr(self: *LLVMIRModule, inst: *Inst.Br) !?*const llvm.Value {
-        // Get the block that we want to break to.
         var block = self.blocks.get(inst.block).?;
-        _ = self.builder.buildBr(block.parent_bb);
 
         // If the break doesn't break a value, then we don't have to add
         // the values to the lists.
-        if (!inst.operand.ty.hasCodeGenBits()) return null;
+        if (!inst.operand.ty.hasCodeGenBits()) {
+            // TODO: in astgen these instructions should turn into `br_void` instructions.
+            _ = self.builder.buildBr(block.parent_bb);
+        } else {
+            const val = try self.resolveInst(inst.operand);
 
-        // For the phi node, we need the basic blocks and the values of the
-        // break instructions.
-        try block.break_bbs.append(self.gpa, self.builder.getInsertBlock());
+            // For the phi node, we need the basic blocks and the values of the
+            // break instructions.
+            try block.break_bbs.append(self.gpa, self.builder.getInsertBlock());
+            try block.break_vals.append(self.gpa, val);
 
-        const val = try self.resolveInst(inst.operand);
-        try block.break_vals.append(self.gpa, val);
+            _ = self.builder.buildBr(block.parent_bb);
+        }
+        return null;
+    }
 
+    fn genBrVoid(self: *LLVMIRModule, inst: *Inst.BrVoid) !?*const llvm.Value {
+        var block = self.blocks.get(inst.block).?;
+        _ = self.builder.buildBr(block.parent_bb);
         return null;
     }
 
@@ -589,6 +604,44 @@ pub const LLVMIRModule = struct {
     fn genUnreach(self: *LLVMIRModule, inst: *Inst.NoOp) ?*const llvm.Value {
         _ = self.builder.buildUnreachable();
         return null;
+    }
+
+    fn genIsNonNull(self: *LLVMIRModule, inst: *Inst.UnOp, operand_is_ptr: bool) !?*const llvm.Value {
+        const operand = try self.resolveInst(inst.operand);
+
+        if (operand_is_ptr) {
+            const index_type = self.context.intType(32);
+
+            var indices: [2]*const llvm.Value = .{
+                index_type.constNull(),
+                index_type.constInt(1, false),
+            };
+
+            return self.builder.buildLoad(self.builder.buildInBoundsGEP(operand, &indices, 2, ""), "");
+        } else {
+            return self.builder.buildExtractValue(operand, 1, "");
+        }
+    }
+
+    fn genIsNull(self: *LLVMIRModule, inst: *Inst.UnOp, operand_is_ptr: bool) !?*const llvm.Value {
+        return self.builder.buildNot((try self.genIsNonNull(inst, operand_is_ptr)).?, "");
+    }
+
+    fn genOptionalPayload(self: *LLVMIRModule, inst: *Inst.UnOp, operand_is_ptr: bool) !?*const llvm.Value {
+        const operand = try self.resolveInst(inst.operand);
+
+        if (operand_is_ptr) {
+            const index_type = self.context.intType(32);
+
+            var indices: [2]*const llvm.Value = .{
+                index_type.constNull(),
+                index_type.constNull(),
+            };
+
+            return self.builder.buildInBoundsGEP(operand, &indices, 2, "");
+        } else {
+            return self.builder.buildExtractValue(operand, 0, "");
+        }
     }
 
     fn genAdd(self: *LLVMIRModule, inst: *Inst.BinOp) !?*const llvm.Value {
@@ -751,6 +804,13 @@ pub const LLVMIRModule = struct {
                     // TODO: consider using buildInBoundsGEP2 for opaque pointers
                     return self.builder.buildInBoundsGEP(val, &indices, 2, "");
                 },
+                .ref_val => {
+                    const elem_value = tv.val.castTag(.ref_val).?.data;
+                    const elem_type = tv.ty.castPointer().?.data;
+                    const alloca = self.buildAlloca(try self.getLLVMType(elem_type, src));
+                    _ = self.builder.buildStore(try self.genTypedValue(src, .{ .ty = elem_type, .val = elem_value }), alloca);
+                    return alloca;
+                },
                 else => return self.fail(src, "TODO implement const of pointer type '{}'", .{tv.ty}),
             },
             .Array => {
@@ -763,6 +823,29 @@ pub const LLVMIRModule = struct {
                     return self.context.constString(payload.data.ptr, @intCast(c_uint, payload.data.len), !zero_sentinel);
                 } else {
                     return self.fail(src, "TODO handle more array values", .{});
+                }
+            },
+            .Optional => {
+                if (!tv.ty.isPtrLikeOptional()) {
+                    var buf: Type.Payload.ElemType = undefined;
+                    const child_type = tv.ty.optionalChild(&buf);
+                    const llvm_child_type = try self.getLLVMType(child_type, src);
+
+                    if (tv.val.tag() == .null_value) {
+                        var optional_values: [2]*const llvm.Value = .{
+                            llvm_child_type.constNull(),
+                            self.context.intType(1).constNull(),
+                        };
+                        return self.context.constStruct(&optional_values, 2, false);
+                    } else {
+                        var optional_values: [2]*const llvm.Value = .{
+                            try self.genTypedValue(src, .{ .ty = child_type, .val = tv.val }),
+                            self.context.intType(1).constAllOnes(),
+                        };
+                        return self.context.constStruct(&optional_values, 2, false);
+                    }
+                } else {
+                    return self.fail(src, "TODO implement const of optional pointer", .{});
                 }
             },
             else => return self.fail(src, "TODO implement const of type '{}'", .{tv.ty}),
@@ -789,6 +872,20 @@ pub const LLVMIRModule = struct {
             .Array => {
                 const elem_type = try self.getLLVMType(t.elemType(), src);
                 return elem_type.arrayType(@intCast(c_uint, t.abiSize(self.module.getTarget())));
+            },
+            .Optional => {
+                if (!t.isPtrLikeOptional()) {
+                    var buf: Type.Payload.ElemType = undefined;
+                    const child_type = t.optionalChild(&buf);
+
+                    var optional_types: [2]*const llvm.Type = .{
+                        try self.getLLVMType(child_type, src),
+                        self.context.intType(1),
+                    };
+                    return self.context.structType(&optional_types, 2, false);
+                } else {
+                    return self.fail(src, "TODO implement optional pointers as actual pointers", .{});
+                }
             },
             else => return self.fail(src, "TODO implement getLLVMType for type '{}'", .{t}),
         }

@@ -453,13 +453,23 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .unwrap_optional => {
-            const operand = try expr(mod, scope, rl, node_datas[node].lhs);
-            const op: zir.Inst.Tag = switch (rl) {
-                .ref => .optional_payload_safe_ptr,
-                else => .optional_payload_safe,
-            };
             const src = token_starts[main_tokens[node]];
-            return addZIRUnOp(mod, scope, src, op, operand);
+            switch (rl) {
+                .ref => return addZIRUnOp(
+                    mod,
+                    scope,
+                    src,
+                    .optional_payload_safe_ptr,
+                    try expr(mod, scope, .ref, node_datas[node].lhs),
+                ),
+                else => return rvalue(mod, scope, rl, try addZIRUnOp(
+                    mod,
+                    scope,
+                    src,
+                    .optional_payload_safe,
+                    try expr(mod, scope, .none, node_datas[node].lhs),
+                )),
+            }
         },
         .block_two, .block_two_semicolon => {
             const statements = [2]ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
@@ -1701,7 +1711,12 @@ fn orelseCatchExpr(
 
     // This could be a pointer or value depending on the `rl` parameter.
     block_scope.break_count += 1;
-    const operand = try expr(mod, &block_scope.base, block_scope.break_result_loc, lhs);
+    const operand = try expr(
+        mod,
+        &block_scope.base,
+        if (block_scope.break_result_loc == .ref) .ref else .none,
+        lhs,
+    );
     const cond = try addZIRUnOp(mod, &block_scope.base, src, cond_op, operand);
 
     const condbr = try addZIRInstSpecial(mod, &block_scope.base, src, zir.Inst.CondBr, .{

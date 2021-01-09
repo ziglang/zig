@@ -21,8 +21,14 @@ pub const Context = opaque {
     pub const voidType = LLVMVoidTypeInContext;
     extern fn LLVMVoidTypeInContext(C: *const Context) *const Type;
 
+    pub const structType = LLVMStructTypeInContext;
+    extern fn LLVMStructTypeInContext(C: *const Context, ElementTypes: [*]*const Type, ElementCount: c_uint, Packed: LLVMBool) *const Type;
+
     pub const constString = LLVMConstStringInContext;
     extern fn LLVMConstStringInContext(C: *const Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: LLVMBool) *const Value;
+
+    pub const constStruct = LLVMConstStructInContext;
+    extern fn LLVMConstStructInContext(C: *const Context, ConstantVals: [*]*const Value, Count: c_uint, Packed: LLVMBool) *const Value;
 
     pub const createBasicBlock = LLVMCreateBasicBlockInContext;
     extern fn LLVMCreateBasicBlockInContext(C: *const Context, Name: [*:0]const u8) *const BasicBlock;
@@ -204,6 +210,9 @@ pub const Builder = opaque {
 
     pub const buildPhi = LLVMBuildPhi;
     extern fn LLVMBuildPhi(*const Builder, Ty: *const Type, Name: [*:0]const u8) *const Value;
+
+    pub const buildExtractValue = LLVMBuildExtractValue;
+    extern fn LLVMBuildExtractValue(*const Builder, AggVal: *const Value, Index: c_uint, Name: [*:0]const u8) *const Value;
 };
 
 pub const IntPredicate = extern enum {
