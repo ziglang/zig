@@ -1241,14 +1241,18 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     for (self.stub_fixups.items) |fixup| {
         const stub_addr = stubs.addr + fixup.symbol * stubs.reserved2;
         const text_addr = symbol.n_value + fixup.start;
-        const displacement = @intCast(u32, stub_addr - text_addr);
-        var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
         switch (self.base.options.target.cpu.arch) {
-            .x86_64 => return error.TODOImplementStubFixupsForx86_64,
+            .x86_64 => {
+                const displacement = @intCast(u32, stub_addr - text_addr - fixup.len);
+                var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
+                mem.writeIntSliceLittle(u32, placeholder, displacement);
+            },
             .aarch64 => {
+                const displacement = @intCast(u32, stub_addr - text_addr);
+                var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
                 mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(@intCast(i28, displacement)).toU32());
             },
-            else => unreachable,
+            else => unreachable, // unsupported target architecture
         }
         if (!fixup.already_defined) {
             try self.writeStub(fixup.symbol);
@@ -1565,6 +1569,11 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
+        const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
+            .x86_64 => 6,
+            .aarch64 => 2 * @sizeOf(u32),
+            else => unreachable, // unhandled architecture type
+        };
         const flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
         const needed_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const off = text_segment.findFreeSpace(needed_size, @alignOf(u64), self.header_pad);
@@ -1583,7 +1592,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .nreloc = 0,
             .flags = flags,
             .reserved1 = 0,
-            .reserved2 = 2 * @sizeOf(u32),
+            .reserved2 = stub_size,
             .reserved3 = 0,
         });
         self.header_dirty = true;
@@ -2044,7 +2053,30 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const data_const_segment = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
         const got = &data_const_segment.sections.items[self.data_got_section_index.?];
         switch (self.base.options.target.cpu.arch) {
-            .x86_64 => return error.TODOImplementStubHelperForX86_64,
+            .x86_64 => {
+                const code_size = 15;
+                var code: [code_size]u8 = undefined;
+                // lea %r11, [rip + disp]
+                code[0] = 0x4c;
+                code[1] = 0x8d;
+                code[2] = 0x1d;
+                {
+                    const displacement = @intCast(u32, data.addr - stub_helper.addr - 7);
+                    mem.writeIntLittle(u32, code[3..7], displacement);
+                }
+                // push %r11
+                code[7] = 0x41;
+                code[8] = 0x53;
+                // jmp [rip + disp]
+                code[9] = 0xff;
+                code[10] = 0x25;
+                {
+                    const displacement = @intCast(u32, got.addr - stub_helper.addr - code_size);
+                    mem.writeIntLittle(u32, code[11..], displacement);
+                }
+                self.stub_helper_stubs_start_off = stub_helper.offset + code_size;
+                try self.base.file.?.pwriteAll(&code, stub_helper.offset);
+            },
             .aarch64 => {
                 var code: [4 * @sizeOf(u32)]u8 = undefined;
                 {
@@ -2410,7 +2442,12 @@ fn writeLazySymbolPointer(self: *MachO, index: u32) !void {
     const data_segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const la_symbol_ptr = data_segment.sections.items[self.la_symbol_ptr_section_index.?];
 
-    const stub_off = self.stub_helper_stubs_start_off.? + index * 3 * @sizeOf(u32);
+    const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
+        .x86_64 => 10,
+        .aarch64 => 3 * @sizeOf(u32),
+        else => unreachable,
+    };
+    const stub_off = self.stub_helper_stubs_start_off.? + index * stub_size;
     const end = stub_helper.addr + stub_off - stub_helper.offset;
     var buf: [@sizeOf(u64)]u8 = undefined;
     mem.writeIntLittle(u64, &buf, end);
@@ -2428,42 +2465,62 @@ fn writeStub(self: *MachO, index: u32) !void {
     const stub_off = stubs.offset + index * stubs.reserved2;
     const stub_addr = stubs.addr + index * stubs.reserved2;
     const la_ptr_addr = la_symbol_ptr.addr + index * @sizeOf(u64);
-    const displacement = la_ptr_addr - stub_addr;
     log.debug("writing stub at 0x{x}", .{stub_off});
+    var code = try self.base.allocator.alloc(u8, stubs.reserved2);
+    defer self.base.allocator.free(code);
     switch (self.base.options.target.cpu.arch) {
-        .x86_64 => return error.TODOImplementWritingStubsForx86_64,
+        .x86_64 => {
+            const displacement = @intCast(u32, la_ptr_addr - stub_addr - stubs.reserved2);
+            // jmp
+            code[0] = 0xff;
+            code[1] = 0x25;
+            mem.writeIntLittle(u32, code[2..][0..4], displacement);
+        },
         .aarch64 => {
-            var code: [2 * @sizeOf(u32)]u8 = undefined;
+            const displacement = la_ptr_addr - stub_addr;
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.x16, .{
                 .literal = @intCast(u19, displacement / 4),
             }).toU32());
             mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.br(.x16).toU32());
-            try self.base.file.?.pwriteAll(&code, stub_off);
         },
         else => unreachable,
     }
+    try self.base.file.?.pwriteAll(code, stub_off);
 }
 
 fn writeStubInStubHelper(self: *MachO, index: u32) !void {
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const stub_helper = text_segment.sections.items[self.stub_helper_section_index.?];
 
-    const stub_off = self.stub_helper_stubs_start_off.? + index * 3 * @sizeOf(u32);
-    const end = stub_helper.addr + stub_off - stub_helper.offset;
-    const displacement = @intCast(i64, stub_helper.addr) - @intCast(i64, end + 4);
+    const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
+        .x86_64 => 10,
+        .aarch64 => 3 * @sizeOf(u32),
+        else => unreachable,
+    };
+    const stub_off = self.stub_helper_stubs_start_off.? + index * stub_size;
+    var code = try self.base.allocator.alloc(u8, stub_size);
+    defer self.base.allocator.free(code);
     switch (self.base.options.target.cpu.arch) {
-        .x86_64 => return error.TODOImplementWritingStubsInStubHelperForx86_64,
+        .x86_64 => {
+            const displacement = @intCast(i32, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - stub_size);
+            // pushq
+            code[0] = 0x68;
+            mem.writeIntLittle(u32, code[1..][0..4], index * 0xd); // TODO
+            // jmpq
+            code[5] = 0xe9;
+            mem.writeIntLittle(u32, code[6..][0..4], @bitCast(u32, displacement));
+        },
         .aarch64 => {
-            var code: [3 * @sizeOf(u32)]u8 = undefined;
+            const displacement = @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - 4;
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.w16, .{
                 .literal = 0x2,
             }).toU32());
             mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(@intCast(i28, displacement)).toU32());
             mem.writeIntLittle(u32, code[8..12], index * 0xd); // TODO This is the size of lazy binding opcode block.
-            try self.base.file.?.pwriteAll(&code, stub_off);
         },
         else => unreachable,
     }
+    try self.base.file.?.pwriteAll(code, stub_off);
 }
 
 fn relocateSymbolTable(self: *MachO) !void {

@@ -1876,14 +1876,30 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             });
                             break :blk index;
                         };
+                        const start = self.code.items.len;
+                        const len: usize = blk: {
+                            switch (arch) {
+                                .x86_64 => {
+                                    // callq
+                                    try self.code.ensureCapacity(self.code.items.len + 5);
+                                    self.code.appendSliceAssumeCapacity(&[5]u8{ 0xe8, 0x0, 0x0, 0x0, 0x0 });
+                                    break :blk 5;
+                                },
+                                .aarch64 => {
+                                    // bl
+                                    writeInt(u32, try self.code.addManyAsArray(4), 0);
+                                    break :blk 4;
+                                },
+                                else => unreachable, // unsupported architecture on MachO
+                            }
+                        };
                         try macho_file.stub_fixups.append(self.bin_file.allocator, .{
                             .symbol = symbol,
                             .already_defined = already_defined,
-                            .start = self.code.items.len,
-                            .len = 4,
+                            .start = start,
+                            .len = len,
                         });
                         // We mark the space and fix it up later.
-                        writeInt(u32, try self.code.addManyAsArray(4), 0);
                     } else {
                         return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                     }
