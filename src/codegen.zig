@@ -1861,29 +1861,27 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     } else if (func_value.castTag(.extern_fn)) |func_payload| {
                         const decl = func_payload.data;
+                        // We don't free the decl_name immediately unless it already exists.
+                        // If it doesn't, it will get autofreed when we clean up the extern symbol table.
                         const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
-                        const exists: bool = macho_file.externs.contains(decl_name);
+                        const already_defined = macho_file.extern_lazy_symbols.contains(decl_name);
                         const symbol: u32 = blk: {
-                            if (macho_file.externs.get(decl_name)) |index| {
+                            if (macho_file.extern_lazy_symbols.get(decl_name)) |sym| {
                                 self.bin_file.allocator.free(decl_name);
-                                break :blk index;
+                                break :blk sym.index;
                             } else {
-                                const extern_index = @intCast(u32, macho_file.undef_symbols.items.len - 1); // TODO
-                                try macho_file.externs.putNoClobber(self.bin_file.allocator, decl_name, extern_index);
-                                const name = try macho_file.makeString(decl_name);
-                                try macho_file.undef_symbols.append(self.bin_file.allocator, .{
-                                    .n_strx = name,
-                                    .n_type = std.macho.N_UNDF | std.macho.N_EXT,
-                                    .n_sect = 0,
-                                    .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
-                                    .n_value = 0,
+                                const index = @intCast(u32, macho_file.extern_lazy_symbols.items().len);
+                                try macho_file.extern_lazy_symbols.putNoClobber(self.bin_file.allocator, decl_name, .{
+                                    .name = decl_name,
+                                    .dylib_ordinal = 1, // TODO this is now hardcoded, since we only support libSystem.
+                                    .index = index,
                                 });
-                                break :blk extern_index;
+                                break :blk index;
                             }
                         };
                         try macho_file.stub_fixups.append(self.bin_file.allocator, .{
                             .symbol = symbol,
-                            .exists = exists,
+                            .already_defined = already_defined,
                             .start = self.code.items.len,
                             .len = 4,
                         });
