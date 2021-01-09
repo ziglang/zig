@@ -813,29 +813,13 @@ pub const File = struct {
 
     pub const Reader = io.Reader(File, ReadError, read);
 
-    /// Deprecated: use `Reader`
-    pub const InStream = Reader;
-
     pub fn reader(file: File) Reader {
-        return .{ .context = file };
-    }
-
-    /// Deprecated: use `reader`
-    pub fn inStream(file: File) Reader {
         return .{ .context = file };
     }
 
     pub const Writer = io.Writer(File, WriteError, write);
 
-    /// Deprecated: use `Writer`
-    pub const OutStream = Writer;
-
     pub fn writer(file: File) Writer {
-        return .{ .context = file };
-    }
-
-    /// Deprecated: use `writer`
-    pub fn outStream(file: File) Writer {
         return .{ .context = file };
     }
 

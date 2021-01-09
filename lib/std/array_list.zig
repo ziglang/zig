@@ -242,9 +242,6 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                 return .{ .context = self };
             }
 
-            /// Deprecated: use `writer`
-            pub const outStream = writer;
-
             /// Same as `append` except it returns the number of bytes written, which is always the same
             /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
             fn appendWrite(self: *Self, m: []const u8) !usize {

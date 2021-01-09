@@ -716,8 +716,4 @@ const MsfStream = struct {
     pub fn reader(self: *MsfStream) std.io.Reader(*MsfStream, Error, read) {
         return .{ .context = self };
     }
-    /// Deprecated: use `reader`
-    pub fn inStream(self: *MsfStream) std.io.InStream(*MsfStream, Error, read) {
-        return .{ .context = self };
-    }
 };

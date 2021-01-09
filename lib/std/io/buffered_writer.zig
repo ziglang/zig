@@ -13,8 +13,6 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
 
         pub const Error = WriterType.Error;
         pub const Writer = io.Writer(*Self, Error, write);
-        /// Deprecated: use `Writer`
-        pub const OutStream = Writer;
 
         const Self = @This();
         const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
@@ -29,11 +27,6 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         }
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use writer
-        pub fn outStream(self: *Self) Writer {
             return .{ .context = self };
         }
 

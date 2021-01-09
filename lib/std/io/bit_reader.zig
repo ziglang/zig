@@ -21,8 +21,6 @@ pub fn BitReader(endian: builtin.Endian, comptime ReaderType: type) type {
 
         pub const Error = ReaderType.Error;
         pub const Reader = io.Reader(*Self, Error, read);
-        /// Deprecated: use `Reader`
-        pub const InStream = io.InStream(*Self, Error, read);
 
         const Self = @This();
         const u8_bit_count = comptime meta.bitCount(u8);
@@ -163,11 +161,6 @@ pub fn BitReader(endian: builtin.Endian, comptime ReaderType: type) type {
         }
 
         pub fn reader(self: *Self) Reader {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use `reader`
-        pub fn inStream(self: *Self) InStream {
             return .{ .context = self };
         }
     };

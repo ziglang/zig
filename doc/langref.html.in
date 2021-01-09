@@ -6120,7 +6120,7 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: *OutStream, comptime format: []const u8, args: anytype) anyerror!void {
+pub fn printf(self: *Writer, comptime format: []const u8, args: anytype) anyerror!void {
     const State = enum {
         start,
         open_brace,
@@ -6192,7 +6192,7 @@ pub fn printf(self: *OutStream, comptime format: []const u8, args: anytype) anye
       and emits a function that actually looks like this:
       </p>
       {#code_begin|syntax#}
-pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
+pub fn printf(self: *Writer, arg0: i32, arg1: []const u8) !void {
     try self.write("here is a string: '");
     try self.printValue(arg0);
     try self.write("' here is a number: ");
@@ -6206,7 +6206,7 @@ pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
       on the type:
       </p>
       {#code_begin|syntax#}
-pub fn printValue(self: *OutStream, value: anytype) !void {
+pub fn printValue(self: *Writer, value: anytype) !void {
     switch (@typeInfo(@TypeOf(value))) {
         .Int => {
             return self.printInt(T, value);

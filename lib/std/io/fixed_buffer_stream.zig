@@ -23,11 +23,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const GetSeekPosError = error{};
 
         pub const Reader = io.Reader(*Self, ReadError, read);
-        /// Deprecated: use `Reader`
-        pub const InStream = io.InStream(*Self, ReadError, read);
         pub const Writer = io.Writer(*Self, WriteError, write);
-        /// Deprecated: use `Writer`
-        pub const OutStream = Writer;
 
         pub const SeekableStream = io.SeekableStream(
             *Self,
@@ -45,17 +41,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return .{ .context = self };
         }
 
-        /// Deprecated: use `reader`
-        pub fn inStream(self: *Self) InStream {
-            return .{ .context = self };
-        }
-
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use `writer`
-        pub fn outStream(self: *Self) OutStream {
             return .{ .context = self };
         }
 

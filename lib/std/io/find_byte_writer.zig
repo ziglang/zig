@@ -8,9 +8,9 @@ const std = @import("../std.zig");
 const io = std.io;
 const assert = std.debug.assert;
 
-/// An OutStream that returns whether the given character has been written to it.
+/// A Writer that returns whether the given character has been written to it.
 /// The contents are not written to anything.
-pub fn FindByteOutStream(comptime UnderlyingWriter: type) type {
+pub fn FindByteWriter(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
         pub const Error = UnderlyingWriter.Error;
@@ -37,8 +37,8 @@ pub fn FindByteOutStream(comptime UnderlyingWriter: type) type {
     };
 }
 
-pub fn findByteOutStream(byte: u8, underlying_writer: anytype) FindByteOutStream(@TypeOf(underlying_writer)) {
-    return FindByteOutStream(@TypeOf(underlying_writer)){
+pub fn findByteWriter(byte: u8, underlying_writer: anytype) FindByteWriter(@TypeOf(underlying_writer)) {
+    return FindByteWriter(@TypeOf(underlying_writer)){
         .underlying_writer = underlying_writer,
         .byte = byte,
         .byte_found = false,

@@ -2024,7 +2024,7 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, 
         const baf = try io.BufferedAtomicFile.create(gpa, fs.cwd(), zop, .{});
         defer baf.destroy();
 
-        try new_zir_module.writeToStream(gpa, baf.stream());
+        try new_zir_module.writeToStream(gpa, baf.writer());
 
         try baf.finish();
     }

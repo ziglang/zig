@@ -107,26 +107,14 @@ pub fn getStdIn() File {
 }
 
 pub const Reader = @import("io/reader.zig").Reader;
-/// Deprecated: use `Reader`
-pub const InStream = Reader;
 pub const Writer = @import("io/writer.zig").Writer;
-/// Deprecated: use `Writer`
-pub const OutStream = Writer;
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
 pub const BufferedWriter = @import("io/buffered_writer.zig").BufferedWriter;
 pub const bufferedWriter = @import("io/buffered_writer.zig").bufferedWriter;
-/// Deprecated: use `BufferedWriter`
-pub const BufferedOutStream = BufferedWriter;
-/// Deprecated: use `bufferedWriter`
-pub const bufferedOutStream = bufferedWriter;
 
 pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
-/// Deprecated: use `BufferedReader`
-pub const BufferedInStream = BufferedReader;
-/// Deprecated: use `bufferedReader`
-pub const bufferedInStream = bufferedReader;
 
 pub const PeekStream = @import("io/peek_stream.zig").PeekStream;
 pub const peekStream = @import("io/peek_stream.zig").peekStream;
@@ -136,40 +124,20 @@ pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferS
 
 pub const CWriter = @import("io/c_writer.zig").CWriter;
 pub const cWriter = @import("io/c_writer.zig").cWriter;
-/// Deprecated: use `CWriter`
-pub const COutStream = CWriter;
-/// Deprecated: use `cWriter`
-pub const cOutStream = cWriter;
 
 pub const CountingWriter = @import("io/counting_writer.zig").CountingWriter;
 pub const countingWriter = @import("io/counting_writer.zig").countingWriter;
 pub const CountingReader = @import("io/counting_reader.zig").CountingReader;
 pub const countingReader = @import("io/counting_reader.zig").countingReader;
-/// Deprecated: use `CountingWriter`
-pub const CountingOutStream = CountingWriter;
-/// Deprecated: use `countingWriter`
-pub const countingOutStream = countingWriter;
 
 pub const MultiWriter = @import("io/multi_writer.zig").MultiWriter;
 pub const multiWriter = @import("io/multi_writer.zig").multiWriter;
-/// Deprecated: use `MultiWriter`
-pub const MultiOutStream = MultiWriter;
-/// Deprecated: use `multiWriter`
-pub const multiOutStream = multiWriter;
 
 pub const BitReader = @import("io/bit_reader.zig").BitReader;
 pub const bitReader = @import("io/bit_reader.zig").bitReader;
-/// Deprecated: use `BitReader`
-pub const BitInStream = BitReader;
-/// Deprecated: use `bitReader`
-pub const bitInStream = bitReader;
 
 pub const BitWriter = @import("io/bit_writer.zig").BitWriter;
 pub const bitWriter = @import("io/bit_writer.zig").bitWriter;
-/// Deprecated: use `BitWriter`
-pub const BitOutStream = BitWriter;
-/// Deprecated: use `bitWriter`
-pub const bitOutStream = bitWriter;
 
 pub const AutoIndentingStream = @import("io/auto_indenting_stream.zig").AutoIndentingStream;
 pub const autoIndentingStream = @import("io/auto_indenting_stream.zig").autoIndentingStream;
@@ -177,8 +145,12 @@ pub const autoIndentingStream = @import("io/auto_indenting_stream.zig").autoInde
 pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
 pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
 
-pub const FindByteOutStream = @import("io/find_byte_out_stream.zig").FindByteOutStream;
-pub const findByteOutStream = @import("io/find_byte_out_stream.zig").findByteOutStream;
+pub const FindByteWriter = @import("io/find_byte_writer.zig").FindByteWriter;
+pub const findByteWriter = @import("io/find_byte_writer.zig").findByteWriter;
+/// Deprecated: use `FindByteWriter`.
+pub const FindByteOutStream = FindByteWriter;
+/// Deprecated: use `findByteWriter`.
+pub const findByteOutStream = findByteWriter;
 
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
@@ -187,12 +159,7 @@ pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 /// A Writer that doesn't write to anything.
 pub const null_writer = @as(NullWriter, .{ .context = {} });
 
-/// Deprecated: use `null_writer`
-pub const null_out_stream = null_writer;
-
 const NullWriter = Writer(void, error{}, dummyWrite);
-/// Deprecated: use NullWriter
-const NullOutStream = NullWriter;
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     return data.len;
 }

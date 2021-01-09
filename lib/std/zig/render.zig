@@ -790,8 +790,8 @@ fn renderExpression(
                         const section_exprs = row_exprs[0..section_end];
 
                         // Null stream for counting the printed length of each expression
-                        var line_find_stream = std.io.findByteOutStream('\n', std.io.null_writer);
-                        var counting_stream = std.io.countingOutStream(line_find_stream.writer());
+                        var line_find_stream = std.io.findByteWriter('\n', std.io.null_writer);
+                        var counting_stream = std.io.countingWriter(line_find_stream.writer());
                         var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, counting_stream.writer());
 
                         // Calculate size of columns in current section
@@ -954,7 +954,7 @@ fn renderExpression(
             const expr_outputs_one_line = blk: {
                 // render field expressions until a LF is found
                 for (field_inits) |field_init| {
-                    var find_stream = std.io.findByteOutStream('\n', std.io.null_writer);
+                    var find_stream = std.io.findByteWriter('\n', std.io.null_writer);
                     var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, find_stream.writer());
 
                     try renderExpression(allocator, &auto_indenting_stream, tree, field_init, Space.None);
