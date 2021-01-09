@@ -40,4 +40,75 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "hello world!" ++ std.cstr.line_sep);
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("simple if statement", linux_x64);
+
+        case.addCompareOutput(
+            \\fn add(a: i32, b: i32) i32 {
+            \\    return a + b;
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\export fn main() c_int {
+            \\    assert(add(1,2) == 3);
+            \\    return 0;
+            \\}
+        , "");
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("blocks", linux_x64);
+
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn foo(ok: bool) i32 {
+            \\    const val: i32 = blk: {
+            \\        var x: i32 = 1;
+            \\        if (!ok) break :blk x + 9;
+            \\        break :blk x + 19;
+            \\    };
+            \\    return val + 10;
+            \\}
+            \\
+            \\export fn main() c_int {
+            \\    assert(foo(false) == 20);
+            \\    assert(foo(true) == 30);
+            \\    return 0;
+            \\}
+        , "");
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("nested blocks", linux_x64);
+
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn foo(ok: bool) i32 {
+            \\    var val: i32 = blk: {
+            \\        const val2: i32 = another: {
+            \\            if (!ok) break :blk 10;
+            \\            break :another 10;
+            \\        };
+            \\        break :blk val2 + 10;
+            \\    };
+            \\    return val;
+            \\}
+            \\
+            \\export fn main() c_int {
+            \\    assert(foo(false) == 10);
+            \\    assert(foo(true) == 20);
+            \\    return 0;
+            \\}
+        , "");
+    }
 }

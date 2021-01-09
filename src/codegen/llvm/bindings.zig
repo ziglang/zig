@@ -24,6 +24,9 @@ pub const Context = opaque {
     pub const constString = LLVMConstStringInContext;
     extern fn LLVMConstStringInContext(C: *const Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: LLVMBool) *const Value;
 
+    pub const createBasicBlock = LLVMCreateBasicBlockInContext;
+    extern fn LLVMCreateBasicBlockInContext(C: *const Context, Name: [*:0]const u8) *const BasicBlock;
+
     pub const appendBasicBlock = LLVMAppendBasicBlockInContext;
     extern fn LLVMAppendBasicBlockInContext(C: *const Context, Fn: *const Value, Name: [*:0]const u8) *const BasicBlock;
 
@@ -37,6 +40,12 @@ pub const Value = opaque {
 
     pub const getFirstBasicBlock = LLVMGetFirstBasicBlock;
     extern fn LLVMGetFirstBasicBlock(Fn: *const Value) ?*const BasicBlock;
+
+    pub const appendExistingBasicBlock = LLVMAppendExistingBasicBlock;
+    extern fn LLVMAppendExistingBasicBlock(Fn: *const Value, BB: *const BasicBlock) void;
+
+    pub const addIncoming = LLVMAddIncoming;
+    extern fn LLVMAddIncoming(PhiNode: *const Value, IncomingValues: [*]*const Value, IncomingBlocks: [*]*const BasicBlock, Count: c_uint) void;
 
     pub const getNextInstruction = LLVMGetNextInstruction;
     extern fn LLVMGetNextInstruction(Inst: *const Value) ?*const Value;
@@ -183,6 +192,31 @@ pub const Builder = opaque {
 
     pub const buildInBoundsGEP = LLVMBuildInBoundsGEP;
     extern fn LLVMBuildInBoundsGEP(B: *const Builder, Pointer: *const Value, Indices: [*]*const Value, NumIndices: c_uint, Name: [*:0]const u8) *const Value;
+
+    pub const buildICmp = LLVMBuildICmp;
+    extern fn LLVMBuildICmp(*const Builder, Op: IntPredicate, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildBr = LLVMBuildBr;
+    extern fn LLVMBuildBr(*const Builder, Dest: *const BasicBlock) *const Value;
+
+    pub const buildCondBr = LLVMBuildCondBr;
+    extern fn LLVMBuildCondBr(*const Builder, If: *const Value, Then: *const BasicBlock, Else: *const BasicBlock) *const Value;
+
+    pub const buildPhi = LLVMBuildPhi;
+    extern fn LLVMBuildPhi(*const Builder, Ty: *const Type, Name: [*:0]const u8) *const Value;
+};
+
+pub const IntPredicate = extern enum {
+    EQ = 32,
+    NE = 33,
+    UGT = 34,
+    UGE = 35,
+    ULT = 36,
+    ULE = 37,
+    SGT = 38,
+    SGE = 39,
+    SLT = 40,
+    SLE = 41,
 };
 
 pub const BasicBlock = opaque {

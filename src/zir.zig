@@ -1915,10 +1915,28 @@ const DumpTzir = struct {
 
     const InstTable = std.AutoArrayHashMap(*ir.Inst, usize);
 
+    /// TODO: Improve this code to include a stack of ir.Body and store the instructions
+    /// in there. Now we are putting all the instructions in a function local table,
+    /// however instructions that are in a Body can be thown away when the Body ends.
     fn dump(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
         // First pass to pre-populate the table so that we can show even invalid references.
         // Must iterate the same order we iterate the second time.
         // We also look for constants and put them in the const_table.
+        try dtz.fetchInstsAndResolveConsts(body);
+
+        std.debug.print("Module.Function(name={s}):\n", .{dtz.module_fn.owner_decl.name});
+
+        for (dtz.const_table.items()) |entry| {
+            const constant = entry.key.castTag(.constant).?;
+            try writer.print("  @{d}: {} = {};\n", .{
+                entry.value, constant.base.ty, constant.val,
+            });
+        }
+
+        return dtz.dumpBody(body, writer);
+    }
+
+    fn fetchInstsAndResolveConsts(dtz: *DumpTzir, body: ir.Body) error{OutOfMemory}!void {
         for (body.instructions) |inst| {
             try dtz.inst_table.put(inst, dtz.next_index);
             dtz.next_index += 1;
@@ -1981,11 +1999,21 @@ const DumpTzir = struct {
                     try dtz.findConst(&brvoid.block.base);
                 },
 
+                .block => {
+                    const block = inst.castTag(.block).?;
+                    try dtz.fetchInstsAndResolveConsts(block.body);
+                },
+
+                .condbr => {
+                    const condbr = inst.castTag(.condbr).?;
+                    try dtz.findConst(condbr.condition);
+                    try dtz.fetchInstsAndResolveConsts(condbr.then_body);
+                    try dtz.fetchInstsAndResolveConsts(condbr.else_body);
+                },
+
                 // TODO fill out this debug printing
                 .assembly,
-                .block,
                 .call,
-                .condbr,
                 .constant,
                 .loop,
                 .varptr,
@@ -1993,20 +2021,9 @@ const DumpTzir = struct {
                 => {},
             }
         }
-
-        std.debug.print("Module.Function(name={s}):\n", .{dtz.module_fn.owner_decl.name});
-
-        for (dtz.const_table.items()) |entry| {
-            const constant = entry.key.castTag(.constant).?;
-            try writer.print("  @{d}: {} = {};\n", .{
-                entry.value, constant.base.ty, constant.val,
-            });
-        }
-
-        return dtz.dumpBody(body, writer);
     }
 
-    fn dumpBody(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
+    fn dumpBody(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) (std.fs.File.WriteError || error{OutOfMemory})!void {
         for (body.instructions) |inst| {
             const my_index = dtz.next_partial_index;
             try dtz.partial_inst_table.put(inst, my_index);
@@ -2167,11 +2184,54 @@ const DumpTzir = struct {
                     }
                 },
 
+                .block => {
+                    const block = inst.castTag(.block).?;
+
+                    try writer.writeAll("\n");
+
+                    const old_indent = dtz.indent;
+                    dtz.indent += 2;
+                    try dtz.dumpBody(block.body, writer);
+                    dtz.indent = old_indent;
+
+                    try writer.writeByteNTimes(' ', dtz.indent);
+                    try writer.writeAll(")\n");
+                },
+
+                .condbr => {
+                    const condbr = inst.castTag(.condbr).?;
+
+                    if (dtz.partial_inst_table.get(condbr.condition)) |operand_index| {
+                        try writer.print("%{d},", .{operand_index});
+                    } else if (dtz.const_table.get(condbr.condition)) |operand_index| {
+                        try writer.print("@{d},", .{operand_index});
+                    } else if (dtz.inst_table.get(condbr.condition)) |operand_index| {
+                        try writer.print("%{d}, // Instruction does not dominate all uses!", .{operand_index});
+                    } else {
+                        try writer.writeAll("!BADREF!,");
+                    }
+                    try writer.writeAll("\n");
+
+                    try writer.writeByteNTimes(' ', dtz.indent);
+                    try writer.writeAll("then:\n");
+
+                    const old_indent = dtz.indent;
+                    dtz.indent += 2;
+                    try dtz.dumpBody(condbr.then_body, writer);
+
+                    try writer.writeByteNTimes(' ', old_indent);
+                    try writer.writeAll("else:\n");
+
+                    try dtz.dumpBody(condbr.else_body, writer);
+                    dtz.indent = old_indent;
+
+                    try writer.writeByteNTimes(' ', old_indent);
+                    try writer.writeAll(")\n");
+                },
+
                 // TODO fill out this debug printing
                 .assembly,
-                .block,
                 .call,
-                .condbr,
                 .constant,
                 .loop,
                 .varptr,
