@@ -396,6 +396,7 @@ pub const LLVMIRModule = struct {
                 .condbr => try self.genCondBr(inst.castTag(.condbr).?),
                 .intcast => try self.genIntCast(inst.castTag(.intcast).?),
                 .load => try self.genLoad(inst.castTag(.load).?),
+                .loop => try self.genLoop(inst.castTag(.loop).?),
                 .not => try self.genNot(inst.castTag(.not).?),
                 .ret => try self.genRet(inst.castTag(.ret).?),
                 .retvoid => self.genRetVoid(inst.castTag(.retvoid).?),
@@ -556,6 +557,17 @@ pub const LLVMIRModule = struct {
             try self.genBody(inst.else_body);
         }
         _ = self.builder.buildCondBr(condition_value, then_block, else_block);
+        return null;
+    }
+
+    fn genLoop(self: *LLVMIRModule, inst: *Inst.Loop) !?*const llvm.Value {
+        const loop_block = self.context.appendBasicBlock(self.llvm_func, "Loop");
+        _ = self.builder.buildBr(loop_block);
+
+        self.builder.positionBuilderAtEnd(loop_block);
+        try self.genBody(inst.body);
+
+        _ = self.builder.buildBr(loop_block);
         return null;
     }
 

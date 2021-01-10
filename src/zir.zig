@@ -2011,11 +2011,15 @@ const DumpTzir = struct {
                     try dtz.fetchInstsAndResolveConsts(condbr.else_body);
                 },
 
+                .loop => {
+                    const loop = inst.castTag(.loop).?;
+                    try dtz.fetchInstsAndResolveConsts(loop.body);
+                },
+
                 // TODO fill out this debug printing
                 .assembly,
                 .call,
                 .constant,
-                .loop,
                 .varptr,
                 .switchbr,
                 => {},
@@ -2229,11 +2233,24 @@ const DumpTzir = struct {
                     try writer.writeAll(")\n");
                 },
 
+                .loop => {
+                    const loop = inst.castTag(.loop).?;
+
+                    try writer.writeAll("\n");
+
+                    const old_indent = dtz.indent;
+                    dtz.indent += 2;
+                    try dtz.dumpBody(loop.body, writer);
+                    dtz.indent = old_indent;
+
+                    try writer.writeByteNTimes(' ', dtz.indent);
+                    try writer.writeAll(")\n");
+                },
+
                 // TODO fill out this debug printing
                 .assembly,
                 .call,
                 .constant,
-                .loop,
                 .varptr,
                 .switchbr,
                 => {

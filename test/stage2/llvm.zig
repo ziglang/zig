@@ -111,4 +111,25 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("while loops", linux_x64);
+
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\export fn main() c_int {
+            \\    var sum: u32 = 0;
+            \\    var i: u32 = 0;
+            \\    while (i < 5) : (i += 1) {
+            \\        sum += i;
+            \\    }
+            \\    assert(sum == 10);
+            \\    assert(i == 5);
+            \\    return 0;
+            \\}
+        , "");
+    }
 }
