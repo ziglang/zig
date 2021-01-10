@@ -2579,21 +2579,34 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .register => |reg| {
                         const abi_size = ty.abiSize(self.target.*);
                         const adj_off = stack_offset + abi_size;
-                        const offset = if (adj_off <= math.maxInt(u12)) blk: {
-                            break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
-                        } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
 
                         switch (abi_size) {
-                            1 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.strb(.al, reg, .fp, .{
-                                .offset = offset,
-                                .positive = false,
-                            }).toU32()),
-                            2 => return self.fail(src, "TODO implement strh", .{}),
-                            4 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.str(.al, reg, .fp, .{
-                                .offset = offset,
-                                .positive = false,
-                            }).toU32()),
-                            else => return self.fail(src, "TODO a type of size {} is not allowed in a register", .{abi_size}),
+                            1, 4 => {
+                                const offset = if (adj_off <= math.maxInt(u12)) blk: {
+                                    break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
+                                } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
+                                const str = switch (abi_size) {
+                                    1 => Instruction.strb,
+                                    4 => Instruction.str,
+                                    else => unreachable,
+                                };
+
+                                writeInt(u32, try self.code.addManyAsArray(4), str(.al, reg, .fp, .{
+                                    .offset = offset,
+                                    .positive = false,
+                                }).toU32());
+                            },
+                            2 => {
+                                const offset = if (adj_off <= math.maxInt(u8)) blk: {
+                                    break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, adj_off));
+                                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
+
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.strh(.al, reg, .fp, .{
+                                    .offset = offset,
+                                    .positive = false,
+                                }).toU32());
+                            },
+                            else => return self.fail(src, "TODO implement storing other types abi_size={}", .{abi_size}),
                         }
                     },
                     .memory => |vaddr| {
@@ -2785,20 +2798,33 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // const abi_size = ty.abiSize(self.target.*);
                         const abi_size = 4;
                         const adj_off = unadjusted_off + abi_size;
-                        const offset = if (adj_off <= math.maxInt(u12)) blk: {
-                            break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
-                        } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
 
                         switch (abi_size) {
-                            1 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldrb(.al, reg, .fp, .{
-                                .offset = offset,
-                                .positive = false,
-                            }).toU32()),
-                            2 => return self.fail(src, "TODO implement ldrh", .{}),
-                            4 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, .fp, .{
-                                .offset = offset,
-                                .positive = false,
-                            }).toU32()),
+                            1, 4 => {
+                                const offset = if (adj_off <= math.maxInt(u12)) blk: {
+                                    break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
+                                } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
+                                const ldr = switch (abi_size) {
+                                    1 => Instruction.ldrb,
+                                    4 => Instruction.ldr,
+                                    else => unreachable,
+                                };
+
+                                writeInt(u32, try self.code.addManyAsArray(4), ldr(.al, reg, .fp, .{
+                                    .offset = offset,
+                                    .positive = false,
+                                }).toU32());
+                            },
+                            2 => {
+                                const offset = if (adj_off <= math.maxInt(u8)) blk: {
+                                    break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, adj_off));
+                                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
+
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldrh(.al, reg, .fp, .{
+                                    .offset = offset,
+                                    .positive = false,
+                                }).toU32());
+                            },
                             else => return self.fail(src, "TODO a type of size {} is not allowed in a register", .{abi_size}),
                         }
                     },
