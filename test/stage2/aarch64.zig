@@ -209,7 +209,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\extern "c" fn exit(usize) noreturn;
             \\
             \\export fn _start() noreturn {
-            \\    write(1, @ptrToInt("Hello, World!\n"), 14);
+            \\    write(1, @ptrToInt("Hello,"), 6);
+            \\    write(1, @ptrToInt(" World!\n,"), 8);
             \\    exit(0);
             \\}
         ,
