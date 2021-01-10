@@ -639,6 +639,7 @@ fn printLineInfo(
             } else |err| switch (err) {
                 error.EndOfFile, error.FileNotFound => {},
                 error.BadPathName => {},
+                error.AccessDenied => {},
                 else => return err,
             }
         }
