@@ -2505,7 +2505,7 @@ fn writeStubInStubHelper(self: *MachO, index: u32) !void {
             const displacement = @intCast(i32, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - stub_size);
             // pushq
             code[0] = 0x68;
-            mem.writeIntLittle(u32, code[1..][0..4], index * 0xd); // TODO
+            mem.writeIntLittle(u32, code[1..][0..4], 0x0); // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
             // jmpq
             code[5] = 0xe9;
             mem.writeIntLittle(u32, code[6..][0..4], @bitCast(u32, displacement));
@@ -2516,7 +2516,7 @@ fn writeStubInStubHelper(self: *MachO, index: u32) !void {
                 .literal = 0x2,
             }).toU32());
             mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(@intCast(i28, displacement)).toU32());
-            mem.writeIntLittle(u32, code[8..12], index * 0xd); // TODO This is the size of lazy binding opcode block.
+            mem.writeIntLittle(u32, code[8..12], 0x0); // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
         },
         else => unreachable,
     }
@@ -2630,6 +2630,7 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
     dysymtab.nindirectsyms = 0;
+    // TODO check if we have allocated enough size.
 
     var buf: [@sizeOf(u32)]u8 = undefined;
     var off = dysymtab.indirectsymoff;
@@ -2868,8 +2869,76 @@ fn writeLazyBindingInfoTable(self: *MachO) !void {
     log.debug("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
 
     try self.base.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
+    try self.populateLazyBindOffsetsInStubHelper(buffer);
     self.load_commands_dirty = true;
     self.lazy_binding_info_dirty = false;
+}
+
+fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
+    if (self.extern_lazy_symbols.items().len == 0) return;
+
+    var stream = std.io.fixedBufferStream(buffer);
+    var reader = stream.reader();
+    var offsets = std.ArrayList(u32).init(self.base.allocator);
+    try offsets.append(0);
+    defer offsets.deinit();
+    var valid_block = false;
+
+    while (true) {
+        const inst = reader.readByte() catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => return err,
+        };
+        const imm: u8 = inst & macho.BIND_IMMEDIATE_MASK;
+        const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
+
+        switch (opcode) {
+            macho.BIND_OPCODE_DO_BIND => {
+                valid_block = true;
+            },
+            macho.BIND_OPCODE_DONE => {
+                if (valid_block) {
+                    const offset = try stream.getPos();
+                    try offsets.append(@intCast(u32, offset));
+                }
+                valid_block = false;
+            },
+            macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                var next = try reader.readByte();
+                while (next != @as(u8, 0)) {
+                    next = try reader.readByte();
+                }
+            },
+            macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                _ = try std.leb.readULEB128(u64, reader);
+            },
+            macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB => {
+                _ = try std.leb.readULEB128(u64, reader);
+            },
+            macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                _ = try std.leb.readILEB128(i64, reader);
+            },
+            else => {},
+        }
+    }
+    assert(self.extern_lazy_symbols.items().len <= offsets.items.len);
+
+    const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
+        .x86_64 => 10,
+        .aarch64 => 3 * @sizeOf(u32),
+        else => unreachable,
+    };
+    const off: u4 = switch (self.base.options.target.cpu.arch) {
+        .x86_64 => 1,
+        .aarch64 => 2 * @sizeOf(u32),
+        else => unreachable,
+    };
+    var buf: [@sizeOf(u32)]u8 = undefined;
+    for (self.extern_lazy_symbols.items()) |_, i| {
+        const placeholder_off = self.stub_helper_stubs_start_off.? + i * stub_size + off;
+        mem.writeIntLittle(u32, &buf, offsets.items[i]);
+        try self.base.file.?.pwriteAll(&buf, placeholder_off);
+    }
 }
 
 fn writeStringTable(self: *MachO) !void {
@@ -2979,8 +3048,6 @@ fn writeHeader(self: *MachO) !void {
 }
 
 /// Parse MachO contents from existing binary file.
-/// TODO This method is incomplete and currently parses only the header
-/// plus the load commands.
 fn parseFromFile(self: *MachO, file: fs.File) !void {
     self.base.file = file;
     var reader = file.reader();
