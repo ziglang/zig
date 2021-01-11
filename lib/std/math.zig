@@ -1070,14 +1070,50 @@ test "std.math.log2_int_ceil" {
     testing.expect(log2_int_ceil(u32, 10) == 4);
 }
 
+///Cast a value to a different type. If the value doesn't fit in, or can't be perfectly represented by,
+///the new type, it will be converted to the closest possible representation.
 pub fn lossyCast(comptime T: type, value: anytype) T {
-    switch (@typeInfo(@TypeOf(value))) {
-        .Int => return @intToFloat(T, value),
-        .Float => return @floatCast(T, value),
-        .ComptimeInt => return @as(T, value),
-        .ComptimeFloat => return @as(T, value),
-        else => @compileError("bad type"),
+    switch (@typeInfo(T)) {
+        .Float => {
+            switch (@typeInfo(@TypeOf(value))) {
+                .Int => return @intToFloat(T, value),
+                .Float => return @floatCast(T, value),
+                .ComptimeInt => return @as(T, value),
+                .ComptimeFloat => return @as(T, value),
+                else => @compileError("bad type"),
+            }
+        },
+        .Int => {
+            switch (@typeInfo(@TypeOf(value))) {
+                .Int, .ComptimeInt => {
+                    if (value > maxInt(T)) {
+                        return @as(T, maxInt(T));
+                    } else if (value < minInt(T)) {
+                        return @as(T, minInt(T));
+                    } else {
+                        return @intCast(T, value);
+                    }
+                },
+                .Float, .ComptimeFloat => {
+                    if (value > maxInt(T)) {
+                        return @as(T, maxInt(T));
+                    } else if (value < minInt(T)) {
+                        return @as(T, minInt(T));
+                    } else {
+                        return @floatToInt(T, value);
+                    }
+                },
+                else => @compileError("bad type"),
+            }
+        },
+        else => @compileError("bad result type"),
     }
+}
+
+test "math.lossyCast" {
+    testing.expect(lossyCast(i16, 70000.0) == @as(i16, 32767));
+    testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
+    testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
 }
 
 test "math.f64_min" {
