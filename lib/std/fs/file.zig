@@ -698,7 +698,7 @@ pub const File = struct {
         header_count: usize = 0,
     };
 
-    pub const WriteFileError = ReadError || WriteError;
+    pub const WriteFileError = ReadError || error{EndOfStream} || WriteError;
 
     pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFileError!void {
         return self.writeFileAllSendfile(in_file, args) catch |err| switch (err) {
@@ -722,23 +722,14 @@ pub const File = struct {
 
         try self.writevAll(headers);
 
-        var buffer: [4096]u8 = undefined;
-        {
-            var index: usize = 0;
-            // Skip in_offset bytes.
-            while (index < args.in_offset) {
-                const ask = math.min(buffer.len, args.in_offset - index);
-                const amt = try in_file.read(buffer[0..ask]);
-                index += amt;
-            }
-        }
-        const in_len = args.in_len orelse math.maxInt(u64);
-        var index: usize = 0;
-        while (index < in_len) {
-            const ask = math.min(buffer.len, in_len - index);
-            const amt = try in_file.read(buffer[0..ask]);
-            if (amt == 0) break;
-            index += try self.write(buffer[0..amt]);
+        try in_file.reader().skipBytes(args.in_offset, .{ .buf_size = 4096 });
+
+        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+        if (args.in_len) |len| {
+            var stream = std.io.limitedReader(in_file.reader(), len);
+            try fifo.pump(stream.reader(), self.writer());
+        } else {
+            try fifo.pump(in_file.reader(), self.writer());
         }
 
         try self.writevAll(trailers);
