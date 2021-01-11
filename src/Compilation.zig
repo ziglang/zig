@@ -264,9 +264,13 @@ pub const AllErrors = struct {
         },
 
         pub fn renderToStdErr(self: Message) void {
+            self.renderToWriter(std.io.getStdErr().writer()) catch {};
+        }
+
+        pub fn renderToWriter(self: Message, writer: anytype) !void {
             switch (self) {
                 .src => |src| {
-                    std.debug.print("{s}:{d}:{d}: error: {s}\n", .{
+                    try writer.print("{s}:{d}:{d}: error: {s}\n", .{
                         src.src_path,
                         src.line + 1,
                         src.column + 1,
@@ -274,7 +278,7 @@ pub const AllErrors = struct {
                     });
                 },
                 .plain => |plain| {
-                    std.debug.print("error: {s}\n", .{plain.msg});
+                    try writer.print("error: {s}\n", .{plain.msg});
                 },
             }
         }

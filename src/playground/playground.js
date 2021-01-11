@@ -10,24 +10,54 @@
                     runCallback(err, null);
                 });
             },
+            getFile: function(ptr, len) {
+                var encodedSrc = (new TextEncoder()).encode(domSrc.value);
+                if (len < encodedSrc.length) return encodedSrc.length;
+                var dv = new DataView(zig.exports.memory.buffer, ptr, len);
+                for (var i = 0; i < len; i += 1) {
+                    dv.setUint8(i, encodedSrc[i]);
+                }
+                return 0;
+            },
             stderr: function(msg_ptr, msg_len) {
-                console.log(makeString(msg_ptr, msg_len));
+                domOutput.textContent += makeString(msg_ptr, msg_len) + "\n";
             },
         },
     };
+    var domStatus = document.getElementById('status');
+    var domOutput = document.getElementById('output');
+    var domSrc = document.getElementById('src');
+    var domRun = document.getElementById('run');
+    var playground_wasm = null;
 
-    WebAssembly.instantiateStreaming(fetch("playground.wasm"), options).then(function(result) {
-        zigCallback(null, result);
+    fetch("playground.wasm").then(function(result) {
+        result.arrayBuffer().then(function(array_buffer) {
+            playground_wasm = array_buffer;
+            domStatus.textContent = "Ready";
+        }, function(err) {
+            domStatus.textContent = "unable to fetch compiler array buffer: " + err;
+        });
     }, function(err) {
-        zigCallback(err, null);
+        domStatus.textContent = "unable to fetch compiler: " + err;
     });
-    function zigCallback(err, result) {
-        if (err) {
-            document.getElementById('status').textContent = "error: " + err;
+
+    domRun.addEventListener('click', onRun, false);
+
+    function onRun(ev) {
+        if (playground_wasm == null) {
+            domStatus.textContent = "Compiler not loaded";
             return;
         }
-        zig = result.instance;
-        zig.exports.zigEval();
+        domStatus.textContent = "Compiling...";
+
+        WebAssembly.instantiate(playground_wasm, options).then(function(result) {
+            domStatus.textContent = "Ready";
+            domOutput.textContent = "";
+            zig = result.instance;
+            zig.exports.zigEval();
+        }, function(err) {
+            domStatus.textContent = "error: " + err;
+        });
     }
 
     function makeString(ptr, len) {
@@ -37,9 +67,10 @@
 
     function runCallback(err, result) {
         if (err) {
-            document.getElementById('status').textContent = "error: " + err;
+            domOutput.textContent = "error: " + err;
             return;
         }
-        console.log(result.instance.exports._start());
+        var result = result.instance.exports._start();
+        domOutput.textContent = result.toString();
     }
 })();

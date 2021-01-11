@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
@@ -9,6 +10,7 @@ const link = @import("link.zig");
 
 extern fn wasmEval(code_ptr: [*]const u8, code_len: usize) f64;
 extern fn stderr(msg_ptr: [*]const u8, msg_len: usize) void;
+extern fn getFile(buf_ptr: [*]u8, buf_len: usize) usize;
 
 pub const os = struct {
     pub const system = struct {
@@ -202,10 +204,12 @@ fn eval(arena: *std.mem.Allocator, code: []const u8) !f64 {
 
     var errors = try comp.getAllErrorsAlloc();
     if (errors.list.len != 0) {
-        // TODO report compile errors
-        //for (errors.list) |full_err_msg| {
-        //    full_err_msg.renderToStdErr();
-        //}
+        var errors_buffer = std.ArrayList(u8).init(arena);
+        const writer = errors_buffer.writer();
+        for (errors.list) |full_err_msg| {
+            try full_err_msg.renderToWriter(writer);
+        }
+        stderr(errors_buffer.items.ptr, errors_buffer.items.len);
         return error.SemanticAnalyzeFail;
     }
 
@@ -219,4 +223,12 @@ fn eval(arena: *std.mem.Allocator, code: []const u8) !f64 {
     );
 
     return wasmEval(wasm_binary.ptr, wasm_binary.len);
+}
+
+pub fn getMainFile() ![:0]u8 {
+    const arena = &arena_allocator.allocator;
+    const len = getFile(undefined, 0);
+    const buffer = try arena.allocSentinel(u8, len, 0);
+    assert(getFile(buffer.ptr, buffer.len) == 0);
+    return buffer;
 }

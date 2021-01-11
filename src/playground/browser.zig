@@ -117,11 +117,7 @@ pub const Dir = struct {
         comptime optional_sentinel: ?u8,
     ) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
         if (std.mem.eql(u8, file_path, "main.zig")) {
-            return allocator.dupeZ(u8,
-                \\export fn _start() f64 {
-                \\    return 42.0;
-                \\}
-            );
+            return playground.getMainFile();
         } else if (std.mem.eql(u8, file_path, "main.wasm")) {
             const af = &actual_files[main_wasm_index];
             if (optional_sentinel) |s| {

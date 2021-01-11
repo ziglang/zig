@@ -5,7 +5,14 @@
   <title>Zig Playground (experimental)</title>
 </head>
 <body>
-  <div id="status"></div>
+  <div id="status">Loading...</div>
+  <textarea id="src">
+export fn _start() f64 {
+    return 42.0;
+}
+  </textarea>
+  <input type="button" id="run" value="Run">
+  <div id="output"></div>
   <script src="playground.js"></script>
 </body>
 </html>
