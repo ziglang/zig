@@ -8,15 +8,7 @@ const ThreadPool = @import("ThreadPool.zig");
 const link = @import("link.zig");
 
 extern fn wasmEval(code_ptr: [*]const u8, code_len: usize) f64;
-
-export fn zigEval(code_ptr: [*]const u8, code_len: usize) f64 {
-    if (eval(code_ptr[0..code_len])) |result| {
-        return result;
-    } else |err| {
-        // TODO figure out how to handle errors
-        return 99.99;
-    }
-}
+extern fn stderr(msg_ptr: [*]const u8, msg_len: usize) void;
 
 pub const os = struct {
     pub const system = struct {
@@ -39,22 +31,47 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    // TODO capture these messages
+    // We only recognize 4 log levels in this application.
+    const level_txt = switch (level) {
+        .emerg, .alert, .crit, .err => "error",
+        .warn => "warning",
+        .notice, .info => "info",
+        .debug => "debug",
+    };
+    const arena = &arena_allocator.allocator;
+    const msg = std.fmt.allocPrint(arena, level_txt ++ ": " ++ format, args) catch
+        "log: out of memory";
+    stderr(msg.ptr, msg.len);
 }
 
+// TODO recover from panic by having the js re-instantiate the wasm
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
-    // TODO capture this message
+    const arena = &arena_allocator.allocator;
+    const full_msg = std.fmt.allocPrint(arena, "panic: {s}", .{msg}) catch
+        "panic: out of memory";
+    stderr(full_msg.ptr, full_msg.len);
     std.os.abort();
 }
 
-fn eval(code: []const u8) !f64 {
-    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+var arena_allocator: std.heap.ArenaAllocator = undefined;
+
+export fn zigEval(code_ptr: [*]const u8, code_len: usize) f64 {
+    arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
+
+    if (eval(arena, code_ptr[0..code_len])) |result| {
+        return result;
+    } else |err| {
+        const msg = @errorName(err);
+        stderr(msg.ptr, msg.len);
+        return 1.0;
+    }
+}
+
+fn eval(arena: *std.mem.Allocator, code: []const u8) !f64 {
     const gpa = arena;
-
     const comp = try arena.create(Compilation);
-
     const root_pkg = try Package.create(arena, null, "main.zig");
     const root_scope = try arena.create(Module.Scope.File);
     const struct_ty = try Type.Tag.empty_struct.create(arena, &root_scope.root_container);
