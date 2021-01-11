@@ -1138,7 +1138,7 @@ pub const TokenStream = struct {
     }
 };
 
-fn checkNext(p: *TokenStream, id: std.meta.TagType(Token)) void {
+fn checkNext(p: *TokenStream, id: std.meta.Tag(Token)) void {
     const token = (p.next() catch unreachable).?;
     debug.assert(std.meta.activeTag(token) == id);
 }

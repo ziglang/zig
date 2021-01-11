@@ -600,15 +600,18 @@ test "std.meta.FieldEnum" {
     expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
 }
 
-pub fn TagType(comptime T: type) type {
+// Deprecated: use Tag
+pub const TagType = Tag;
+
+pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Enum => |info| info.tag_type,
-        .Union => |info| if (info.tag_type) |Tag| Tag else null,
+        .Union => |info| if (info.tag_type) |TheTag| TheTag else null,
         else => @compileError("expected enum or union type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
-test "std.meta.TagType" {
+test "std.meta.Tag" {
     const E = enum(u8) {
         C = 33,
         D,
@@ -618,8 +621,8 @@ test "std.meta.TagType" {
         D: u16,
     };
 
-    testing.expect(TagType(E) == u8);
-    testing.expect(TagType(U) == E);
+    testing.expect(Tag(E) == u8);
+    testing.expect(Tag(U) == E);
 }
 
 ///Returns the active tag of a tagged union
@@ -694,13 +697,13 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
             }
         },
         .Union => |info| {
-            if (info.tag_type) |Tag| {
+            if (info.tag_type) |UnionTag| {
                 const tag_a = activeTag(a);
                 const tag_b = activeTag(b);
                 if (tag_a != tag_b) return false;
 
                 inline for (info.fields) |field_info| {
-                    if (@field(Tag, field_info.name) == tag_a) {
+                    if (@field(UnionTag, field_info.name) == tag_a) {
                         return eql(@field(a, field_info.name), @field(b, field_info.name));
                     }
                 }
@@ -822,9 +825,9 @@ test "intToEnum with error return" {
 
 pub const IntToEnumError = error{InvalidEnumTag};
 
-pub fn intToEnum(comptime Tag: type, tag_int: anytype) IntToEnumError!Tag {
-    inline for (@typeInfo(Tag).Enum.fields) |f| {
-        const this_tag_value = @field(Tag, f.name);
+pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTag {
+    inline for (@typeInfo(EnumTag).Enum.fields) |f| {
+        const this_tag_value = @field(EnumTag, f.name);
         if (tag_int == @enumToInt(this_tag_value)) {
             return this_tag_value;
         }
