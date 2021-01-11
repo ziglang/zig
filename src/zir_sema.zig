@@ -155,6 +155,14 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .switch_range => return analyzeInstSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
         .booland => return analyzeInstBoolOp(mod, scope, old_inst.castTag(.booland).?),
         .boolor => return analyzeInstBoolOp(mod, scope, old_inst.castTag(.boolor).?),
+
+        .container_field_named,
+        .container_field_typed,
+        .container_field,
+        .enum_type,
+        .union_type,
+        .struct_type,
+        => return mod.fail(scope, old_inst.src, "TODO analyze container instructions", .{}),
     }
 }
 
