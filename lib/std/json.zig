@@ -2077,7 +2077,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayloadType(Token, Token.String), input: []const u8, i: usize) !Value {
+    fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayload(Token, Token.String), input: []const u8, i: usize) !Value {
         const slice = s.slice(input, i);
         switch (s.escapes) {
             .None => return Value{ .String = if (p.copy_strings) try allocator.dupe(u8, slice) else slice },
@@ -2090,7 +2090,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parseNumber(p: *Parser, n: std.meta.TagPayloadType(Token, Token.Number), input: []const u8, i: usize) !Value {
+    fn parseNumber(p: *Parser, n: std.meta.TagPayload(Token, Token.Number), input: []const u8, i: usize) !Value {
         return if (n.is_integer)
             Value{ .Integer = try std.fmt.parseInt(i64, n.slice(input, i), 10) }
         else

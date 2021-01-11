@@ -649,9 +649,11 @@ test "std.meta.activeTag" {
     testing.expect(activeTag(u) == UE.Float);
 }
 
+const TagPayloadType = TagPayload;
+
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
-pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
+pub fn TagPayload(comptime U: type, tag: @TagType(U)) type {
     testing.expect(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
@@ -665,14 +667,14 @@ pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
     unreachable;
 }
 
-test "std.meta.TagPayloadType" {
+test "std.meta.TagPayload" {
     const Event = union(enum) {
         Moved: struct {
             from: i32,
             to: i32,
         },
     };
-    const MovedEvent = TagPayloadType(Event, Event.Moved);
+    const MovedEvent = TagPayload(Event, Event.Moved);
     var e: Event = undefined;
     testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
