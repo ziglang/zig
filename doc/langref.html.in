@@ -4240,9 +4240,9 @@ fn _start() callconv(.Naked) noreturn {
     abort();
 }
 
-// The inline specifier forces a function to be inlined at all call sites.
+// The inline calling convention forces a function to be inlined at all call sites.
 // If the function cannot be inlined, it is a compile-time error.
-inline fn shiftLeftOne(a: u32) u32 {
+fn shiftLeftOne(a: u32) callconv(.Inline) u32 {
     return a << 1;
 }
 
