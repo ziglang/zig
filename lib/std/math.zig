@@ -1073,7 +1073,7 @@ test "std.math.log2_int_ceil" {
 ///Cast a value to a different type. If the value doesn't fit in, or can't be perfectly represented by,
 ///the new type, it will be converted to the closest possible representation.
 pub fn lossyCast(comptime T: type, value: anytype) T {
-    switch(@typeInfo(T)) {
+    switch (@typeInfo(T)) {
         .Float => {
             switch (@typeInfo(@TypeOf(value))) {
                 .Int => return @intToFloat(T, value),
@@ -1084,16 +1084,24 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
             }
         },
         .Int => {
-            switch(@typeInfo(@TypeOf(value))) {
+            switch (@typeInfo(@TypeOf(value))) {
                 .Int, .ComptimeInt => {
-                    if (value > maxInt(T)) { return @as(T, maxInt(T)); }
-                    else if (value < minInt(T)) { return @as(T, minInt(T)); }
-                    else { return @intCast(T, value); }
+                    if (value > maxInt(T)) {
+                        return @as(T, maxInt(T));
+                    } else if (value < minInt(T)) {
+                        return @as(T, minInt(T));
+                    } else {
+                        return @intCast(T, value);
+                    }
                 },
                 .Float, .ComptimeFloat => {
-                    if (value > maxInt(T)) { return @as(T, maxInt(T)); }
-                    else if (value < minInt(T)) { return @as(T, minInt(T)); }
-                    else { return @floatToInt(T, value); }
+                    if (value > maxInt(T)) {
+                        return @as(T, maxInt(T));
+                    } else if (value < minInt(T)) {
+                        return @as(T, minInt(T));
+                    } else {
+                        return @floatToInt(T, value);
+                    }
                 },
                 else => @compileError("bad type"),
             }
