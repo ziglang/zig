@@ -146,7 +146,7 @@ test "TrailerFlags" {
         b: bool,
         c: u64,
     });
-    testing.expectEqual(u2, @TagType(Flags.FieldEnum));
+    testing.expectEqual(u2, meta.Tag(Flags.FieldEnum));
 
     var flags = Flags.init(.{
         .b = true,

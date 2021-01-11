@@ -74,7 +74,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn main() void {
             \\    var u: U = undefined;
             \\    @memset(@ptrCast([*]u8, &u), 0x55, @sizeOf(U));
-            \\    var t: @TagType(U) = u;
+            \\    var t: @typeInfo(U).Union.tag_type.? = u;
             \\    var n = @tagName(t);
             \\}
         );

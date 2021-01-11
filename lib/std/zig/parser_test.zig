@@ -3822,7 +3822,7 @@ fn testCanonical(source: []const u8) !void {
     return testTransform(source, source);
 }
 
-const Error = @TagType(std.zig.ast.Error);
+const Error = std.meta.Tag(std.zig.ast.Error);
 
 fn testError(source: []const u8, expected_errors: []const Error) !void {
     const tree = try std.zig.parse(std.testing.allocator, source);

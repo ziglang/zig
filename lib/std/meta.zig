@@ -606,7 +606,7 @@ pub const TagType = Tag;
 pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Enum => |info| info.tag_type,
-        .Union => |info| if (info.tag_type) |TheTag| TheTag else null,
+        .Union => |info| info.tag_type orelse @compileError(@typeName(T) ++ " has no tag type"),
         else => @compileError("expected enum or union type, found '" ++ @typeName(T) ++ "'"),
     };
 }
@@ -626,9 +626,9 @@ test "std.meta.Tag" {
 }
 
 ///Returns the active tag of a tagged union
-pub fn activeTag(u: anytype) @TagType(@TypeOf(u)) {
+pub fn activeTag(u: anytype) Tag(@TypeOf(u)) {
     const T = @TypeOf(u);
-    return @as(@TagType(T), u);
+    return @as(Tag(T), u);
 }
 
 test "std.meta.activeTag" {
@@ -653,11 +653,11 @@ const TagPayloadType = TagPayload;
 
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
-pub fn TagPayload(comptime U: type, tag: @TagType(U)) type {
+pub fn TagPayload(comptime U: type, tag: Tag(U)) type {
     testing.expect(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
-    const tag_info = @typeInfo(@TagType(U)).Enum;
+    const tag_info = @typeInfo(Tag(U)).Enum;
 
     inline for (info.fields) |field_info| {
         if (comptime mem.eql(u8, field_info.name, @tagName(tag)))

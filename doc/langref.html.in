@@ -2909,15 +2909,15 @@ test "enum variant switch" {
     expect(mem.eql(u8, what_is_it, "this is a number"));
 }
 
-// @TagType can be used to access the integer tag type of an enum.
+// @typeInfo can be used to access the integer tag type of an enum.
 const Small = enum {
     one,
     two,
     three,
     four,
 };
-test "@TagType" {
-    expect(@TagType(Small) == u2);
+test "std.meta.Tag" {
+    expect(@typeInfo(Small).Enum.tag_type == u2);
 }
 
 // @typeInfo tells us the field count and the fields names:

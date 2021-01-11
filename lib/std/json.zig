@@ -246,7 +246,7 @@ pub const StreamingParser = struct {
         // Only call this function to generate array/object final state.
         pub fn fromInt(x: anytype) State {
             debug.assert(x == 0 or x == 1);
-            const T = @TagType(State);
+            const T = std.meta.Tag(State);
             return @intToEnum(State, @intCast(T, x));
         }
     };
@@ -1782,7 +1782,7 @@ test "parseFree descends into tagged union" {
     };
     // use a string with unicode escape so we know result can't be a reference to global constant
     const r = try parse(T, &TokenStream.init("\"with\\u0105unicode\""), options);
-    testing.expectEqual(@TagType(T).string, @as(@TagType(T), r));
+    testing.expectEqual(std.meta.Tag(T).string, @as(std.meta.Tag(T), r));
     testing.expectEqualSlices(u8, "withąunicode", r.string);
     testing.expectEqual(@as(usize, 0), fail_alloc.deallocations);
     parseFree(T, r, options);
