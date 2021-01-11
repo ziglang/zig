@@ -155,6 +155,7 @@ pub const CallingConvention = enum {
     C,
     Naked,
     Async,
+    Inline,
     Interrupt,
     Signal,
     Stdcall,
@@ -404,21 +405,13 @@ pub const TypeInfo = union(enum) {
             /// therefore must be kept in sync with the compiler implementation.
             pub const FnDecl = struct {
                 fn_type: type,
-                inline_type: Inline,
+                is_noinline: bool,
                 is_var_args: bool,
                 is_extern: bool,
                 is_export: bool,
                 lib_name: ?[]const u8,
                 return_type: type,
                 arg_names: []const []const u8,
-
-                /// This data structure is used by the Zig language code generation and
-                /// therefore must be kept in sync with the compiler implementation.
-                pub const Inline = enum {
-                    Auto,
-                    Always,
-                    Never,
-                };
             };
         };
     };

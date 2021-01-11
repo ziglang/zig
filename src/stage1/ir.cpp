@@ -19000,7 +19000,7 @@ static IrInstGen *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstSrcDeclV
             } else if (init_val->type->id == ZigTypeIdFn &&
                 init_val->special != ConstValSpecialUndef &&
                 init_val->data.x_ptr.special == ConstPtrSpecialFunction &&
-                init_val->data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
+                init_val->data.x_ptr.data.fn.fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionInline)
             {
                 var_class_requires_const = true;
                 if (!var->src_is_const && !is_comptime_var) {
@@ -19180,6 +19180,11 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
                 case CallingConventionAsync: {
                     ErrorMsg *msg = ir_add_error(ira, &target->base,
                         buf_sprintf("exported function cannot be async"));
+                    add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
+                } break;
+                case CallingConventionInline: {
+                    ErrorMsg *msg = ir_add_error(ira, &target->base,
+                        buf_sprintf("exported function cannot be inline"));
                     add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
                 } break;
                 case CallingConventionC:
@@ -21120,7 +21125,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
     if (type_is_invalid(return_type))
         return ira->codegen->invalid_inst_gen;
 
-    if (fn_entry != nullptr && fn_entry->fn_inline == FnInlineAlways && modifier == CallModifierNeverInline) {
+    if (fn_entry != nullptr && fn_type_id->cc == CallingConventionInline && modifier == CallModifierNeverInline) {
         ir_add_error(ira, source_instr,
             buf_sprintf("no-inline call of inline function"));
         return ira->codegen->invalid_inst_gen;
@@ -25219,10 +25224,6 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
     if ((err = type_resolve(ira->codegen, type_info_fn_decl_type, ResolveStatusSizeKnown)))
         return err;
 
-    ZigType *type_info_fn_decl_inline_type = ir_type_info_get_type(ira, "Inline", type_info_fn_decl_type);
-    if ((err = type_resolve(ira->codegen, type_info_fn_decl_inline_type, ResolveStatusSizeKnown)))
-        return err;
-
     resolve_container_usingnamespace_decls(ira->codegen, decls_scope);
 
     // The unresolved declarations are collected in a separate queue to avoid
@@ -25365,11 +25366,11 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                     fn_decl_fields[0]->special = ConstValSpecialStatic;
                     fn_decl_fields[0]->type = ira->codegen->builtin_types.entry_type;
                     fn_decl_fields[0]->data.x_type = fn_entry->type_entry;
-                    // inline_type: Data.FnDecl.Inline
-                    ensure_field_index(fn_decl_val->type, "inline_type", 1);
+                    // is_noinline: bool
+                    ensure_field_index(fn_decl_val->type, "is_noinline", 1);
                     fn_decl_fields[1]->special = ConstValSpecialStatic;
-                    fn_decl_fields[1]->type = type_info_fn_decl_inline_type;
-                    bigint_init_unsigned(&fn_decl_fields[1]->data.x_enum_tag, fn_entry->fn_inline);
+                    fn_decl_fields[1]->type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[1]->data.x_bool = fn_entry->is_noinline;
                     // is_var_args: bool
                     ensure_field_index(fn_decl_val->type, "is_var_args", 2);
                     bool is_varargs = fn_node->is_var_args;
@@ -30957,7 +30958,7 @@ static IrInstGen *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstS
         return ira->codegen->invalid_inst_gen;
     }
 
-    if (fn_entry->fn_inline == FnInlineAlways) {
+    if (fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionInline) {
         ir_add_error(ira, &instruction->base.base, buf_sprintf("@setAlignStack in inline function"));
         return ira->codegen->invalid_inst_gen;
     }
