@@ -1558,7 +1558,7 @@ fn renderExpression(
             }
 
             if (fn_proto.getExternExportInlineToken()) |extern_export_inline_token| {
-                if (fn_proto.getIsExternPrototype() == null)
+                if (fn_proto.getIsExternPrototype() == null and fn_proto.getIsInline() == null)
                     try renderToken(tree, ais, extern_export_inline_token, Space.Space); // extern/export/inline
             }
 
@@ -1664,6 +1664,8 @@ fn renderExpression(
                 try ais.writer().writeAll("callconv(.C) ");
             } else if (fn_proto.getIsAsync() != null) {
                 try ais.writer().writeAll("callconv(.Async) ");
+            } else if (fn_proto.getIsInline() != null) {
+                try ais.writer().writeAll("callconv(.Inline) ");
             }
 
             switch (fn_proto.return_type) {
