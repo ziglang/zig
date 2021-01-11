@@ -552,7 +552,9 @@ pub const Type = extern union {
                         if (i != 0) try out_stream.writeAll(", ");
                         try param_type.format("", .{}, out_stream);
                     }
-                    try out_stream.writeAll(") ");
+                    try out_stream.writeAll(") callconv(.");
+                    try out_stream.writeAll(@tagName(payload.cc));
+                    try out_stream.writeAll(")");
                     ty = payload.return_type;
                     continue;
                 },

@@ -1087,14 +1087,23 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             if (fn_proto.getSectionExpr()) |sect_expr| {
                 return self.failNode(&fn_type_scope.base, sect_expr, "TODO implement function section expression", .{});
             }
-            if (fn_proto.getCallconvExpr()) |callconv_expr| {
-                return self.failNode(
-                    &fn_type_scope.base,
-                    callconv_expr,
-                    "TODO implement function calling convention expression",
-                    .{},
-                );
-            }
+
+            const enum_literal_type = try astgen.addZIRInstConst(self, &fn_type_scope.base, fn_src, .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.enum_literal_type),
+            });
+            const enum_literal_type_rl: astgen.ResultLoc = .{ .ty = enum_literal_type };
+            const cc = if (fn_proto.getCallconvExpr()) |callconv_expr|
+                try astgen.expr(self, &fn_type_scope.base, enum_literal_type_rl, callconv_expr)
+            else
+                try astgen.addZIRInstConst(self, &fn_type_scope.base, fn_src, .{
+                    .ty = Type.initTag(.enum_literal),
+                    .val = try Value.Tag.enum_literal.create(
+                        &fn_type_scope_arena.allocator,
+                        try fn_type_scope_arena.allocator.dupe(u8, "Unspecified"),
+                    ),
+                });
+
             const return_type_expr = switch (fn_proto.return_type) {
                 .Explicit => |node| node,
                 .InferErrorSet => |node| return self.failNode(&fn_type_scope.base, node, "TODO implement inferred error sets", .{}),
@@ -1105,6 +1114,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const fn_type_inst = try astgen.addZIRInst(self, &fn_type_scope.base, fn_src, zir.Inst.FnType, .{
                 .return_type = return_type_inst,
                 .param_types = param_types,
+                .cc = cc,
             }, .{});
 
             if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
@@ -1230,14 +1240,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 };
             };
 
-            const is_inline = blk: {
-                if (fn_proto.getExternExportInlineToken()) |maybe_inline_token| {
-                    if (tree.token_ids[maybe_inline_token] == .Keyword_inline) {
-                        break :blk true;
-                    }
-                }
-                break :blk false;
-            };
+            const is_inline = fn_type.fnCallingConvention() == .Inline;
             const anal_state = ([2]Fn.Analysis{ .queued, .inline_only })[@boolToInt(is_inline)];
 
             new_func.* = .{

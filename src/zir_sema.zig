@@ -980,18 +980,8 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
 
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
     const is_comptime_call = b.is_comptime or inst.kw_args.modifier == .compile_time;
-    const is_inline_call = is_comptime_call or inst.kw_args.modifier == .always_inline or blk: {
-        // This logic will get simplified by
-        // https://github.com/ziglang/zig/issues/6429
-        if (try mod.resolveDefinedValue(scope, func)) |func_val| {
-            const module_fn = switch (func_val.tag()) {
-                .function => func_val.castTag(.function).?.data,
-                else => break :blk false,
-            };
-            break :blk module_fn.state == .inline_only;
-        }
-        break :blk false;
-    };
+    const is_inline_call = is_comptime_call or inst.kw_args.modifier == .always_inline or
+        func.ty.fnCallingConvention() == .Inline;
     if (is_inline_call) {
         const func_val = try mod.resolveConstValue(scope, func);
         const module_fn = switch (func_val.tag()) {
@@ -1075,7 +1065,7 @@ fn zirFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!*Inst {
     const fn_type = try resolveType(mod, scope, fn_inst.positionals.fn_type);
     const new_func = try scope.arena().create(Module.Fn);
     new_func.* = .{
-        .state = if (fn_inst.kw_args.is_inline) .inline_only else .queued,
+        .state = if (fn_type.fnCallingConvention() == .Inline) .inline_only else .queued,
         .zir = fn_inst.positionals.body,
         .body = undefined,
         .owner_decl = scope.ownerDecl().?,
@@ -1305,22 +1295,26 @@ fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*
     const tracy = trace(@src());
     defer tracy.end();
     const return_type = try resolveType(mod, scope, fntype.positionals.return_type);
+    const cc_tv = try resolveInstConst(mod, scope, fntype.positionals.cc);
+    const cc_str = cc_tv.val.castTag(.enum_literal).?.data;
+    const cc = std.meta.stringToEnum(std.builtin.CallingConvention, cc_str) orelse
+        return mod.fail(scope, fntype.positionals.cc.src, "Unknown calling convention {s}", .{cc_str});
 
     // Hot path for some common function types.
     if (fntype.positionals.param_types.len == 0) {
-        if (return_type.zigTypeTag() == .NoReturn and fntype.kw_args.cc == .Unspecified) {
+        if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
             return mod.constType(scope, fntype.base.src, Type.initTag(.fn_noreturn_no_args));
         }
 
-        if (return_type.zigTypeTag() == .Void and fntype.kw_args.cc == .Unspecified) {
+        if (return_type.zigTypeTag() == .Void and cc == .Unspecified) {
             return mod.constType(scope, fntype.base.src, Type.initTag(.fn_void_no_args));
         }
 
-        if (return_type.zigTypeTag() == .NoReturn and fntype.kw_args.cc == .Naked) {
+        if (return_type.zigTypeTag() == .NoReturn and cc == .Naked) {
             return mod.constType(scope, fntype.base.src, Type.initTag(.fn_naked_noreturn_no_args));
         }
 
-        if (return_type.zigTypeTag() == .Void and fntype.kw_args.cc == .C) {
+        if (return_type.zigTypeTag() == .Void and cc == .C) {
             return mod.constType(scope, fntype.base.src, Type.initTag(.fn_ccc_void_no_args));
         }
     }
@@ -1337,9 +1331,9 @@ fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*
     }
 
     const fn_ty = try Type.Tag.function.create(arena, .{
-        .cc = fntype.kw_args.cc,
-        .return_type = return_type,
         .param_types = param_types,
+        .return_type = return_type,
+        .cc = cc,
     });
     return mod.constType(scope, fntype.base.src, fn_ty);
 }
