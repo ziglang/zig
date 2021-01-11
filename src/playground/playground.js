@@ -1,8 +1,14 @@
 (function() {
+    var zig;
     var options = {
         env: {
             wasmEval: function(code_ptr, code_len) {
-                console.log("code_ptr", code_ptr, "code_len", code_len);
+                var bytes = new Uint8Array(zig.exports.memory.buffer, code_ptr, code_len);
+                WebAssembly.instantiate(bytes).then(function(result) {
+                    runCallback(null, result);
+                }, function (err) {
+                    runCallback(err, null);
+                });
             },
             stderr: function(msg_ptr, msg_len) {
                 console.log(makeString(msg_ptr, msg_len));
@@ -11,22 +17,29 @@
     };
 
     WebAssembly.instantiateStreaming(fetch("playground.wasm"), options).then(function(result) {
-        callback(null, result);
+        zigCallback(null, result);
     }, function(err) {
-        callback(err, null);
+        zigCallback(err, null);
     });
-    function callback(err, result) {
+    function zigCallback(err, result) {
         if (err) {
             document.getElementById('status').textContent = "error: " + err;
             return;
         }
-        // for debugging
-        window._wasm = result.instance;
-        console.log(result.instance.exports.zigEval());
+        zig = result.instance;
+        zig.exports.zigEval();
     }
 
     function makeString(ptr, len) {
-        var bytes = new Uint8Array(window._wasm.exports.memory.buffer, ptr, len);
+        var bytes = new Uint8Array(zig.exports.memory.buffer, ptr, len);
         return new TextDecoder().decode(bytes);
+    }
+
+    function runCallback(err, result) {
+        if (err) {
+            document.getElementById('status').textContent = "error: " + err;
+            return;
+        }
+        console.log(result.instance.exports._start());
     }
 })();

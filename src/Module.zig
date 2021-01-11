@@ -25,6 +25,7 @@ const zir_sema = @import("zir_sema.zig");
 const browser = @import("playground/browser.zig");
 
 const default_eval_branch_quota = 1000;
+const dump_zir = std.builtin.mode == .Debug and !browser.active;
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -1139,7 +1140,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .param_types = param_types,
             }, .{});
 
-            if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
+            if (dump_zir and self.comp.verbose_ir) {
                 zir.dumpZir(self.gpa, "fn_type", decl.name, fn_type_scope.instructions.items) catch {};
             }
 
@@ -1251,7 +1252,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);
                 }
 
-                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
+                if (dump_zir and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "fn_body", decl.name, gen_scope.instructions.items) catch {};
                 }
 
@@ -1420,7 +1421,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 const src = tree.token_locs[init_node.firstToken()].start;
                 const init_inst = try astgen.expr(self, &gen_scope.base, init_result_loc, init_node);
-                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
+                if (dump_zir and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "var_init", decl.name, gen_scope.instructions.items) catch {};
                 }
 
@@ -1473,7 +1474,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .val = Value.initTag(.type_type),
                 });
                 const var_type = try astgen.expr(self, &type_scope.base, .{ .ty = type_type }, type_node);
-                if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
+                if (dump_zir and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "var_type", decl.name, type_scope.instructions.items) catch {};
                 }
 
@@ -1549,7 +1550,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             defer gen_scope.instructions.deinit(self.gpa);
 
             _ = try astgen.comptimeExpr(self, &gen_scope.base, .none, comptime_decl.expr);
-            if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
+            if (dump_zir and self.comp.verbose_ir) {
                 zir.dumpZir(self.gpa, "comptime_block", decl.name, gen_scope.instructions.items) catch {};
             }
 

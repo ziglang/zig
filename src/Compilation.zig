@@ -32,6 +32,8 @@ const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
 const browser = @import("playground/browser.zig");
 
+const dump_zir = std.builtin.mode == .Debug and !browser.active;
+
 /// This is state that does not apply to WebAssembly browser builds of the compiler.
 const NonBrowser = if (browser.active) void else struct {
     /// Arena-allocated memory used during initialization. Should be untouched until deinit.
@@ -1511,7 +1513,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     log.debug("analyze liveness of {s}\n", .{decl.name});
                     try liveness.analyze(module.gpa, &decl_arena.allocator, func.body);
 
-                    if (std.builtin.mode == .Debug and self.verbose_ir) {
+                    if (dump_zir and self.verbose_ir) {
                         func.dump(module.*);
                     }
                 }

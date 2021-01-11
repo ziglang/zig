@@ -57,5 +57,6 @@ pub fn wait(self: *WaitGroup) void {
 }
 
 pub fn reset(self: *WaitGroup) void {
+    self.counter = 0;
     self.event.reset();
 }

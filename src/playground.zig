@@ -46,14 +46,11 @@ pub fn log(
 
 // TODO recover from panic by having the js re-instantiate the wasm
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
-    const arena = &arena_allocator.allocator;
-    const full_msg = std.fmt.allocPrint(arena, "panic: {s}", .{msg}) catch
-        "panic: out of memory";
-    stderr(full_msg.ptr, full_msg.len);
+    stderr(msg.ptr, msg.len);
     std.os.abort();
 }
 
-var arena_allocator: std.heap.ArenaAllocator = undefined;
+pub var arena_allocator: std.heap.ArenaAllocator = undefined;
 
 export fn zigEval(code_ptr: [*]const u8, code_len: usize) f64 {
     arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
