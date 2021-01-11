@@ -569,6 +569,9 @@ pub const EV_ONESHOT = 0x0010;
 /// clear event state after reporting
 pub const EV_CLEAR = 0x0020;
 
+/// error, event data contains errno
+pub const EV_ERROR = 0x4000;
+
 /// force immediate event output
 /// ... with or without EV_ERROR
 /// ... use KEVENT_FLAG_ERROR_EVENTS
