@@ -366,7 +366,7 @@ fn SMHasherTest(comptime hash_fn: anytype) u32 {
 
         // comptime can't really do reinterpret casting yet,
         // so we need to write the bytes manually.
-        for (hashes_bytes[i*@sizeOf(HashResult)..][0..@sizeOf(HashResult)]) |*byte| {
+        for (hashes_bytes[i * @sizeOf(HashResult) ..][0..@sizeOf(HashResult)]) |*byte| {
             byte.* = @truncate(u8, h);
             h = h >> 8;
         }
@@ -389,8 +389,10 @@ test "cityhash32" {
         }
     };
     Test.doTest();
-    @setEvalBranchQuota(50000);
-    comptime Test.doTest();
+    // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
+    // case once we ship stage2.
+    //@setEvalBranchQuota(50000);
+    //comptime Test.doTest();
 }
 
 test "cityhash64" {
@@ -402,6 +404,8 @@ test "cityhash64" {
         }
     };
     Test.doTest();
-    @setEvalBranchQuota(50000);
-    comptime Test.doTest();
+    // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
+    // case once we ship stage2.
+    //@setEvalBranchQuota(50000);
+    //comptime Test.doTest();
 }
