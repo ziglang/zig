@@ -8,7 +8,7 @@ const io = std.io;
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub fn EarlyEOFReader(comptime ReaderType: type) type {
+pub fn LimitedReader(comptime ReaderType: type) type {
     return struct {
         inner_reader: ReaderType,
         bytes_left: u64,
@@ -31,16 +31,16 @@ pub fn EarlyEOFReader(comptime ReaderType: type) type {
     };
 }
 
-/// Returns an initialised `EarlyEOFReader`
+/// Returns an initialised `LimitedReader`
 /// `bytes_left` is a `u64` to be able to take 64 bit file offsets
-pub fn earlyEOFReader(inner_reader: anytype, bytes_left: u64) EarlyEOFReader(@TypeOf(inner_reader)) {
+pub fn limitedReader(inner_reader: anytype, bytes_left: u64) LimitedReader(@TypeOf(inner_reader)) {
     return .{ .inner_reader = inner_reader, .bytes_left = bytes_left };
 }
 
-test "io.EarlyEOFReader" {
+test "basic usage" {
     const data = "hello world";
     var fbs = std.io.fixedBufferStream(data);
-    var early_stream = earlyEOFReader(fbs.reader(), 3);
+    var early_stream = limitedReader(fbs.reader(), 3);
 
     var buf: [5]u8 = undefined;
     testing.expectEqual(@as(usize, 3), try early_stream.reader().read(&buf));

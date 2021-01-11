@@ -726,7 +726,7 @@ pub const File = struct {
 
         var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
         if (args.in_len) |len| {
-            var stream = std.io.earlyEOFReader(in_file.reader(), len);
+            var stream = std.io.limitedReader(in_file.reader(), len);
             try fifo.pump(stream.reader(), self.writer());
         } else {
             try fifo.pump(in_file.reader(), self.writer());
