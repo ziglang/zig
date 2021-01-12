@@ -9,7 +9,7 @@ const mem = std.mem;
 const testing = std.testing;
 
 /// Detect macOS version.
-/// On error `os` will not be modified.
+/// `os` is not modified in case of error.
 pub fn detect(os: *std.Target.Os) !void {
     // Drop use of osproductversion sysctl because:
     //   1. only available 10.13.4 High Sierra and later
@@ -22,9 +22,8 @@ pub fn detect(os: *std.Target.Os) !void {
     // NOTE: Historically `SystemVersion.plist` first appeared circa '2003
     // with the release of Mac OS X 10.3.0 Panther.
     //
-    // and if it contains a `10.16` value where the `16` is `>= 16` then it is a red herring
-    // and is discarded, and move on to next step. Otherwise we accept this is the
-    // canonical file for versioning.
+    // and if it contains a `10.16` value where the `16` is `>= 16` then it is non-canonical,
+    // discarded, and we move on to next step. Otherwise we accept the version.
     //
     // BACKGROUND: `10.(16+)` is not a proper version and does not have enough fidelity to
     // indicate minor/point version of Big Sur and later. It is a context-sensitive result
@@ -49,8 +48,6 @@ pub fn detect(os: *std.Target.Os) !void {
     // such that I am comfortable with implementing a minimalistic parser.
     // Things like string and general escapes are not supported.
     const prefixSlash = "/System/Library/CoreServices/";
-    const format_failure = "macOS detect: failed to {s} '{s}': {}";
-
     const paths = [_][]const u8{
         prefixSlash ++ "SystemVersion.plist",
         prefixSlash ++ ".SystemVersionPlatform.plist",
@@ -61,7 +58,7 @@ pub fn detect(os: *std.Target.Os) !void {
 
         if (std.fs.cwd().readFile(path, &buf)) |bytes| {
             if (parseSystemVersion(bytes)) |ver| {
-                // never return red herring
+                // never return non-canonical `10.(16+)`
                 if (!(ver.major == 10 and ver.minor >= 16)) {
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
@@ -69,11 +66,9 @@ pub fn detect(os: *std.Target.Os) !void {
                 }
                 continue;
             } else |err| {
-                std.log.err(format_failure, .{ "parse", path, err });
                 return error.OSVersionDetectionFail;
             }
         } else |err| {
-            std.log.err(format_failure, .{ "read", path, err });
             return error.OSVersionDetectionFail;
         }
     }

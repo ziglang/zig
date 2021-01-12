@@ -222,6 +222,7 @@ pub const NativeTargetInfo = struct {
         ProcessFdQuotaExceeded,
         SystemFdQuotaExceeded,
         DeviceBusy,
+        OSVersionDetectionFail,
     };
 
     /// Given a `CrossTarget`, which specifies in detail which parts of the target should be detected
@@ -254,7 +255,7 @@ pub const NativeTargetInfo = struct {
                     os.version_range.windows.min = detected_version;
                     os.version_range.windows.max = detected_version;
                 },
-                .macos => macos.detect(&os) catch {}, // valid to ignore any error and keep os defaults
+                .macos => try macos.detect(&os),
                 .freebsd => {
                     var osreldate: u32 = undefined;
                     var len: usize = undefined;
