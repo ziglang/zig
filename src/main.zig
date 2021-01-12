@@ -267,6 +267,8 @@ const usage_build_generic =
     \\  -mcmodel=[default|tiny|   Limit range of code and data virtual addresses
     \\            small|kernel|
     \\            medium|large]
+    \\  -mred-zone                Force-enable the "red-zone"
+    \\  -mno-red-zone             Force-disable the "red-zone"
     \\  --name [name]             Override root name (not a file path)
     \\  -O [mode]                 Choose what to optimize for
     \\    Debug                   (default) Optimizations off, safety on
@@ -505,6 +507,7 @@ fn buildOutputType(
     var want_pie: ?bool = null;
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
+    var want_red_zone: ?bool = null;
     var want_valgrind: ?bool = null;
     var want_tsan: ?bool = null;
     var want_compiler_rt: ?bool = null;
@@ -843,6 +846,10 @@ fn buildOutputType(
                         want_stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
                         want_stack_check = false;
+                    } else if (mem.eql(u8, arg, "-mred-zone")) {
+                        want_red_zone = true;
+                    } else if (mem.eql(u8, arg, "-mno-red-zone")) {
+                        want_red_zone = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
                         want_sanitize_c = true;
                     } else if (mem.eql(u8, arg, "-fno-sanitize-c")) {
@@ -1068,6 +1075,8 @@ fn buildOutputType(
                     .no_pic => want_pic = false,
                     .pie => want_pie = true,
                     .no_pie => want_pie = false,
+                    .red_zone => want_red_zone = true,
+                    .no_red_zone => want_red_zone = false,
                     .nostdlib => ensure_libc_on_non_freestanding = false,
                     .nostdlib_cpp => ensure_libcpp_on_non_freestanding = false,
                     .shared => {
@@ -1760,6 +1769,7 @@ fn buildOutputType(
         .want_pie = want_pie,
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
+        .want_red_zone = want_red_zone,
         .want_valgrind = want_valgrind,
         .want_tsan = want_tsan,
         .want_compiler_rt = want_compiler_rt,
@@ -2969,6 +2979,8 @@ pub const ClangArgIterator = struct {
         framework_dir,
         framework,
         nostdlibinc,
+        red_zone,
+        no_red_zone,
     };
 
     const Args = struct {

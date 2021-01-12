@@ -108,6 +108,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .link_mode = link_mode,
         .want_sanitize_c = false,
         .want_stack_check = false,
+        .want_red_zone = comp.bin_file.options.red_zone,
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,

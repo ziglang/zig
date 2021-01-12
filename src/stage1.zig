@@ -119,6 +119,7 @@ pub const Module = extern struct {
     tsan_enabled: bool,
     function_sections: bool,
     enable_stack_probing: bool,
+    red_zone: bool,
     enable_time_report: bool,
     enable_stack_report: bool,
     test_is_evented: bool,

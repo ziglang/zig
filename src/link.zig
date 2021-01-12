@@ -77,6 +77,7 @@ pub const Options = struct {
     valgrind: bool,
     tsan: bool,
     stack_check: bool,
+    red_zone: bool,
     single_threaded: bool,
     verbose_link: bool,
     dll_export_fns: bool,

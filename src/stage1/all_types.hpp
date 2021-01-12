@@ -2195,6 +2195,7 @@ struct CodeGen {
     bool link_mode_dynamic;
     bool dll_export_fns;
     bool have_stack_probing;
+    bool red_zone;
     bool function_sections;
     bool test_is_evented;
     bool valgrind_enabled;

@@ -1332,6 +1332,8 @@ pub const LibExeObjStep = struct {
     /// Position Independent Executable
     pie: ?bool = null,
 
+    red_zone: ?bool = null,
+
     subsystem: ?builtin.SubSystem = null,
 
     /// Overrides the default stack size
@@ -2259,6 +2261,13 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_stack_probing) {
             try zig_args.append("-fno-stack-check");
+        }
+        if (self.red_zone) |red_zone| {
+            if (red_zone) {
+                try zig_args.append("-mred-zone");
+            } else {
+                try zig_args.append("-mno-red-zone");
+            }
         }
         if (self.disable_sanitize_c) {
             try zig_args.append("-fno-sanitize-c");
