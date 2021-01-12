@@ -3,6 +3,7 @@
     "version": "{{MASTER_VERSION}}",
     "date": "{{MASTER_DATE}}",
     "docs": "https://ziglang.org/documentation/master/",
+    "stdDocs": "https://ziglang.org/documentation/master/std/",
     "src": {
       "tarball": "https://ziglang.org/builds/{{SRC_TARBALL}}",
       "shasum": "{{SRC_SHASUM}}",
