@@ -88,7 +88,6 @@ CIDIR="$(pwd)"
 cd "$HOME"
 git clone git@github.com:ziglang/www.ziglang.org.git
 cd www.ziglang.org
-git checkout hugo-redesign
 WWWDIR="$(pwd)"
 
 $S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "$HOME/$SRC_TARBALL" s3://ziglang.org/builds/
@@ -103,6 +102,12 @@ $S3CMD put -P --no-mime-magic "$CIDIR/out/index.json" s3://ziglang.org/download/
 
 cd "$WWWDIR"
 cp "$CIDIR/out/index.json" data/releases.json
+mkdir -p content/documentation/master/std
+cp "$LANGREF" content/documentation/master/index.html
+cp "$ZIGDIR/docs/std/index.html" content/documentation/master/std/index.html
+cp "$ZIGDIR/docs/std/data.js" content/documentation/master/std/data.js
+cp "$ZIGDIR/docs/std/main.js" content/documentation/master/std/main.js
 git add data/releases.json
-git commit -m "CI: update releases.json"
-git push origin hugo-redesign
+git add content/
+git commit -m "CI: update releases and docs"
+git push origin master
