@@ -14981,20 +14981,95 @@ static IrInstGen *ir_analyze_enum_literal(IrAnalyze *ira, IrInst* source_instr, 
 }
 
 static IrInstGen *ir_analyze_struct_literal_to_array(IrAnalyze *ira, IrInst* source_instr,
-        IrInstGen *value, ZigType *wanted_type)
-{
-    ir_add_error(ira, source_instr, buf_sprintf("TODO: type coercion of anon list literal to array"));
-    return ira->codegen->invalid_inst_gen;
-}
-
-static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* source_instr,
-        IrInstGen *struct_operand, ZigType *wanted_type)
+        IrInstGen *struct_ptr, ZigType *actual_type, ZigType *wanted_type)
 {
     Error err;
 
-    IrInstGen *struct_ptr = ir_get_ref(ira, source_instr, struct_operand, true, false);
-    if (type_is_invalid(struct_ptr->value->type))
+    if ((err = type_resolve(ira->codegen, wanted_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_inst_gen;
+    
+    size_t array_len = wanted_type->data.array.len;
+    size_t instr_field_count = actual_type->data.structure.src_field_count;
+    assert(array_len == instr_field_count);
+
+    bool need_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope)
+        || type_requires_comptime(ira->codegen, wanted_type) == ReqCompTimeYes;
+    bool is_comptime = true;
+
+    ZigType *elem_type = wanted_type->data.array.child_type;
+
+    // Determine if the struct_operand will be comptime.
+    ZigValue *elem_values = heap::c_allocator.allocate<ZigValue>(array_len);
+    IrInstGen **casted_fields = heap::c_allocator.allocate<IrInstGen *>(array_len);
+    IrInstGen *const_result = ir_const(ira, source_instr, wanted_type);
+
+    for (size_t i = 0; i < array_len; i += 1) {
+        TypeStructField *src_field = actual_type->data.structure.fields[i];
+
+        IrInstGen *field_ptr = ir_analyze_struct_field_ptr(ira, source_instr, src_field, struct_ptr,
+                actual_type, false);
+        if (type_is_invalid(field_ptr->value->type))
+            return ira->codegen->invalid_inst_gen;
+        IrInstGen *field_value = ir_get_deref(ira, source_instr, field_ptr, nullptr);
+        if (type_is_invalid(field_value->value->type))
+            return ira->codegen->invalid_inst_gen;
+        IrInstGen *casted_value = ir_implicit_cast(ira, field_value, elem_type);
+        if (type_is_invalid(casted_value->value->type))
+            return ira->codegen->invalid_inst_gen;
+
+        casted_fields[i] = casted_value;
+        if (need_comptime || instr_is_comptime(casted_value)) {
+            ZigValue *field_val = ir_resolve_const(ira, casted_value, UndefOk);
+            if (field_val == nullptr)
+                return ira->codegen->invalid_inst_gen;
+
+            field_val->parent.id = ConstParentIdArray;
+            field_val->parent.data.p_array.array_val = const_result->value;
+            field_val->parent.data.p_array.elem_index = i;
+            elem_values[i] = *field_val;
+            if (field_val->type->id == ZigTypeIdUndefined) {
+                elem_values[i].special = ConstValSpecialUndef;
+            }
+        } else {
+            is_comptime = false;
+        }
+    }
+
+    if (is_comptime) {
+        IrInstGen *const_result = ir_const(ira, source_instr, wanted_type);
+        const_result->value->data.x_array.special = ConstArraySpecialNone;
+        const_result->value->data.x_array.data.s_none.elements = elem_values;
+        return const_result;
+    }
+
+    IrInstGen *result_loc_inst = ir_resolve_result(ira, source_instr, no_result_loc(),
+        wanted_type, nullptr, true, true);
+    if (type_is_invalid(result_loc_inst->value->type) || result_loc_inst->value->type->id == ZigTypeIdUnreachable) {
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    ZigType *elem_type_ptr = get_pointer_to_type(ira->codegen, elem_type, false);
+    for (size_t i = 0; i < array_len; i += 1) {
+        IrInstGen *index_val = ir_const(ira, source_instr, ira->codegen->builtin_types.entry_usize);
+        bigint_init_unsigned(&index_val->value->data.x_bigint, i);
+
+        IrInstGen *elem_ptr = ir_build_elem_ptr_gen(ira, source_instr->scope, source_instr->source_node,
+            result_loc_inst, index_val, false, elem_type_ptr);
+        IrInstGen *store_ptr_inst = ir_analyze_store_ptr(ira, source_instr, elem_ptr, casted_fields[i], true);
+        if (type_is_invalid(store_ptr_inst->value->type))
+            return ira->codegen->invalid_inst_gen;
+    }
+
+    heap::c_allocator.deallocate(elem_values, array_len);
+    heap::c_allocator.deallocate(casted_fields, array_len);
+
+    return result_loc_inst;
+}
+
+static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* source_instr,
+        IrInstGen *struct_ptr, ZigType *actual_type, ZigType *wanted_type)
+{
+    Error err;
 
     if (wanted_type->data.structure.resolve_status == ResolveStatusBeingInferred) {
         ir_add_error(ira, source_instr, buf_sprintf("type coercion of anon struct literal to inferred struct"));
@@ -15005,7 +15080,7 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* so
         return ira->codegen->invalid_inst_gen;
 
     size_t actual_field_count = wanted_type->data.structure.src_field_count;
-    size_t instr_field_count = struct_operand->value->type->data.structure.src_field_count;
+    size_t instr_field_count = actual_type->data.structure.src_field_count;
 
     bool need_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope)
         || type_requires_comptime(ira->codegen, wanted_type) == ReqCompTimeYes;
@@ -15019,7 +15094,7 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* so
     IrInstGen *const_result = ir_const(ira, source_instr, wanted_type);
 
     for (size_t i = 0; i < instr_field_count; i += 1) {
-        TypeStructField *src_field = struct_operand->value->type->data.structure.fields[i];
+        TypeStructField *src_field = actual_type->data.structure.fields[i];
         TypeStructField *dst_field = find_struct_type_field(wanted_type, src_field->name);
         if (dst_field == nullptr) {
             ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("no field named '%s' in struct '%s'",
@@ -15043,7 +15118,7 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* so
         field_assign_nodes[dst_field->src_index] = src_field->decl_node;
 
         IrInstGen *field_ptr = ir_analyze_struct_field_ptr(ira, source_instr, src_field, struct_ptr,
-                struct_operand->value->type, false);
+                actual_type, false);
         if (type_is_invalid(field_ptr->value->type))
             return ira->codegen->invalid_inst_gen;
         IrInstGen *field_value = ir_get_deref(ira, source_instr, field_ptr, nullptr);
@@ -15123,14 +15198,13 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* so
     heap::c_allocator.deallocate(field_values, actual_field_count);
     heap::c_allocator.deallocate(casted_fields, actual_field_count);
 
-    return ir_get_deref(ira, source_instr, result_loc_inst, nullptr);
+    return result_loc_inst;
 }
 
 static IrInstGen *ir_analyze_struct_literal_to_union(IrAnalyze *ira, IrInst* source_instr,
-        IrInstGen *value, ZigType *union_type)
+        IrInstGen *struct_ptr, ZigType *struct_type, ZigType *union_type)
 {
     Error err;
-    ZigType *struct_type = value->value->type;
 
     assert(struct_type->id == ZigTypeIdStruct);
     assert(union_type->id == ZigTypeIdUnion);
@@ -15153,7 +15227,11 @@ static IrInstGen *ir_analyze_struct_literal_to_union(IrAnalyze *ira, IrInst* sou
     if (payload_type == nullptr)
         return ira->codegen->invalid_inst_gen;
 
-    IrInstGen *field_value = ir_analyze_struct_value_field_value(ira, source_instr, value, only_field);
+    IrInstGen *field_ptr = ir_analyze_struct_field_ptr(ira, source_instr, only_field, struct_ptr,
+            struct_type, false);
+    if (type_is_invalid(field_ptr->value->type))
+        return ira->codegen->invalid_inst_gen;
+    IrInstGen *field_value =  ir_get_deref(ira, source_instr, field_ptr, nullptr);
     if (type_is_invalid(field_value->value->type))
         return ira->codegen->invalid_inst_gen;
 
@@ -15191,7 +15269,7 @@ static IrInstGen *ir_analyze_struct_literal_to_union(IrAnalyze *ira, IrInst* sou
     if (type_is_invalid(store_ptr_inst->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    return ir_get_deref(ira, source_instr, result_loc_inst, nullptr);
+    return result_loc_inst;
 }
 
 // Add a compile error and return ErrorSemanticAnalyzeFail if the pointer alignment does not work,
@@ -15824,13 +15902,84 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         if (wanted_type->id == ZigTypeIdArray && (is_array_init || field_count == 0) &&
             wanted_type->data.array.len == field_count)
         {
-            return ir_analyze_struct_literal_to_array(ira, source_instr, value, wanted_type);
+            IrInstGen *struct_ptr = ir_get_ref(ira, source_instr, value, true, false);
+            if (type_is_invalid(struct_ptr->value->type))
+                return ira->codegen->invalid_inst_gen;
+
+            IrInstGen *ptr = ir_analyze_struct_literal_to_array(ira, source_instr, struct_ptr, actual_type, wanted_type);
+            if (ptr->value->type->id != ZigTypeIdPointer)
+                return ptr;
+            return ir_get_deref(ira, source_instr, ptr, nullptr);
         } else if (wanted_type->id == ZigTypeIdStruct && !is_slice(wanted_type) &&
                 (!is_array_init || field_count == 0))
         {
-            return ir_analyze_struct_literal_to_struct(ira, source_instr, value, wanted_type);
+            IrInstGen *struct_ptr = ir_get_ref(ira, source_instr, value, true, false);
+            if (type_is_invalid(struct_ptr->value->type))
+                return ira->codegen->invalid_inst_gen;
+
+            IrInstGen *ptr = ir_analyze_struct_literal_to_struct(ira, source_instr, struct_ptr, actual_type, wanted_type);
+            if (ptr->value->type->id != ZigTypeIdPointer)
+                return ptr;
+            return ir_get_deref(ira, source_instr, ptr, nullptr);
         } else if (wanted_type->id == ZigTypeIdUnion && !is_array_init && field_count == 1) {
-            return ir_analyze_struct_literal_to_union(ira, source_instr, value, wanted_type);
+            IrInstGen *struct_ptr = ir_get_ref(ira, source_instr, value, true, false);
+            if (type_is_invalid(struct_ptr->value->type))
+                return ira->codegen->invalid_inst_gen;
+
+            IrInstGen *ptr = ir_analyze_struct_literal_to_union(ira, source_instr, struct_ptr, actual_type, wanted_type);
+            if (ptr->value->type->id != ZigTypeIdPointer)
+                return ptr;
+            return ir_get_deref(ira, source_instr, ptr, nullptr);
+        }
+    }
+
+    // cast from pointer to inferred struct type to pointer to array, union, or struct
+    if (actual_type->id == ZigTypeIdPointer && is_anon_container(actual_type->data.pointer.child_type)) {
+        ZigType *anon_type = actual_type->data.pointer.child_type;
+        const bool is_array_init =
+            anon_type->data.structure.special == StructSpecialInferredTuple;
+        const uint32_t field_count = anon_type->data.structure.src_field_count;
+
+        if (wanted_type->id == ZigTypeIdPointer &&
+            (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile))
+        {
+            ZigType *wanted_child = wanted_type->data.pointer.child_type;
+            bool const_ok = (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const);
+            if (wanted_child->id == ZigTypeIdArray && (is_array_init || field_count == 0) &&
+                wanted_child->data.array.len == field_count && (const_ok || field_count == 0))
+            {
+                IrInstGen *res = ir_analyze_struct_literal_to_array(ira, source_instr, value, anon_type, wanted_child);
+                if (res->value->type->id == ZigTypeIdPointer)
+                    return res;
+                return ir_get_ref(ira, source_instr, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
+            } else if (wanted_child->id == ZigTypeIdStruct && !is_slice(wanted_type) &&
+                    (!is_array_init || field_count == 0) && const_ok)
+            {
+                IrInstGen *res = ir_analyze_struct_literal_to_struct(ira, source_instr, value, anon_type, wanted_child);
+                if (res->value->type->id == ZigTypeIdPointer)
+                    return res;
+                return ir_get_ref(ira, source_instr, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
+            } else if (wanted_child->id == ZigTypeIdUnion && !is_array_init && field_count == 1 && const_ok) {
+                IrInstGen *res =  ir_analyze_struct_literal_to_union(ira, source_instr, value, anon_type, wanted_child);
+                if (res->value->type->id == ZigTypeIdPointer)
+                    return res;
+                return ir_get_ref(ira, source_instr, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
+            }
+        } else if (is_slice(wanted_type) && (is_array_init || field_count == 0)) {
+            ZigType *slice_type = wanted_type->data.structure.fields[slice_ptr_index]->type_entry;
+            if ((!actual_type->data.pointer.is_const || slice_type->data.pointer.is_const || field_count == 0) &&
+                (!actual_type->data.pointer.is_volatile || slice_type->data.pointer.is_volatile))
+            {
+                ZigType *slice_child_type = slice_type->data.pointer.child_type;
+                ZigType *slice_array_type = get_array_type(ira->codegen, slice_child_type, field_count, nullptr);
+                IrInstGen *res = ir_analyze_struct_literal_to_array(ira, source_instr, value, anon_type, slice_array_type);
+                if (type_is_invalid(res->value->type))
+                    return ira->codegen->invalid_inst_gen;
+                if (res->value->type->id != ZigTypeIdPointer)
+                    res = ir_get_ref(ira, source_instr, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
+
+                return ir_resolve_ptr_of_array_to_slice(ira, source_instr, res, wanted_type, nullptr);
+            }
         }
     }
 

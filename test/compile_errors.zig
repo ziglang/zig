@@ -22,6 +22,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:4:17: error: integer value 1 cannot be coerced to type '*[10]u8'",
     });
 
+    cases.add("pointer attributes checked when coercing pointer to anon literal",
+        \\comptime {
+        \\    const c: [][]const u8 = &.{"hello", "world" };
+        \\}
+        \\comptime {
+        \\    const c: *[2][]const u8 = &.{"hello", "world" };
+        \\}
+        \\const S = struct {a: u8 = 1, b: u32 = 2};
+        \\comptime {
+        \\    const c: *S = &.{};
+        \\}
+    , &[_][]const u8{
+        "mp.zig:2:31: error: expected type '[][]const u8', found '*const struct:2:31'",
+        "mp.zig:5:33: error: expected type '*[2][]const u8', found '*const struct:5:33'",
+        "mp.zig:9:21: error: expected type '*S', found '*const struct:9:21'",
+    });
+
     cases.add("@Type() union payload is undefined",
         \\const Foo = @Type(@import("std").builtin.TypeInfo{
         \\    .Struct = undefined,
