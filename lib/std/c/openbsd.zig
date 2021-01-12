@@ -33,6 +33,7 @@ pub const pthread_spinlock_t = extern struct {
 pub const pthread_attr_t = extern struct {
     inner: ?*c_void = null,
 };
+pub const pthread_key_t = c_int;
 
 pub const sem_t = ?*opaque {};
 

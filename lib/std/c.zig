@@ -271,6 +271,10 @@ pub extern "c" fn pthread_atfork(
     parent: ?fn () callconv(.C) void,
     child: ?fn () callconv(.C) void,
 ) c_int;
+pub extern "c" fn pthread_key_create(key: *pthread_key_t, destructor: ?fn (value: *c_void) callconv(.C) void) c_int;
+pub extern "c" fn pthread_key_delete(key: pthread_key_t) c_int;
+pub extern "c" fn pthread_getspecific(key: pthread_key_t) ?*c_void;
+pub extern "c" fn pthread_setspecific(key: pthread_key_t, value: ?*c_void) c_int;
 pub extern "c" fn sem_init(sem: *sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *sem_t) c_int;
 pub extern "c" fn sem_post(sem: *sem_t) c_int;
