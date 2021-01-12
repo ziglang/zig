@@ -260,7 +260,7 @@ pub const Target = struct {
                     .macos => return .{
                         .semver = .{
                             .min = .{ .major = 10, .minor = 13 },
-                            .max = .{ .major = 10, .minor = 15, .patch = 7 },
+                            .max = .{ .major = 11, .minor = 1 },
                         },
                     },
                     .ios => return .{

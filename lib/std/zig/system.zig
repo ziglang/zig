@@ -254,38 +254,7 @@ pub const NativeTargetInfo = struct {
                     os.version_range.windows.min = detected_version;
                     os.version_range.windows.max = detected_version;
                 },
-                .macos => {
-                    var scbuf: [32]u8 = undefined;
-                    var size: usize = undefined;
-
-                    // The osproductversion sysctl was introduced first with 10.13.4 High Sierra.
-                    const key_osproductversion = "kern.osproductversion"; // eg. "10.15.4"
-                    size = scbuf.len;
-                    if (std.os.sysctlbynameZ(key_osproductversion, &scbuf, &size, null, 0)) |_| {
-                        const string_version = scbuf[0 .. size - 1];
-                        if (std.builtin.Version.parse(string_version)) |ver| {
-                            os.version_range.semver.min = ver;
-                            os.version_range.semver.max = ver;
-                        } else |err| switch (err) {
-                            error.Overflow => {},
-                            error.InvalidCharacter => {},
-                            error.InvalidVersion => {},
-                        }
-                    } else |err| switch (err) {
-                        error.UnknownName => {
-                            const key_osversion = "kern.osversion"; // eg. "19E287"
-                            size = scbuf.len;
-                            std.os.sysctlbynameZ(key_osversion, &scbuf, &size, null, 0) catch {
-                                @panic("unable to detect macOS version: " ++ key_osversion);
-                            };
-                            if (macos.version_from_build(scbuf[0 .. size - 1])) |ver| {
-                                os.version_range.semver.min = ver;
-                                os.version_range.semver.max = ver;
-                            } else |_| {}
-                        },
-                        else => @panic("unable to detect macOS version: " ++ key_osproductversion),
-                    }
-                },
+                .macos => macos.detect(&os) catch {}, // valid to ignore any error and keep os defaults
                 .freebsd => {
                     var osreldate: u32 = undefined;
                     var len: usize = undefined;
