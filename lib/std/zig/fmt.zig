@@ -60,12 +60,13 @@ pub fn fmtEscapes(bytes: []const u8) std.fmt.Formatter(formatEscapes) {
 }
 
 test "escape invalid identifiers" {
-    try std.fmt.testFmt("@\"while\"", "{}", .{fmtId("while")});
-    try std.fmt.testFmt("hello", "{}", .{fmtId("hello")});
-    try std.fmt.testFmt("@\"11\\\"23\"", "{}", .{fmtId("11\"23")});
-    try std.fmt.testFmt("@\"11\\x0f23\"", "{}", .{fmtId("11\x0F23")});
-    try std.fmt.testFmt("\\x0f", "{}", .{fmtEscapes("\x0f")});
-    try std.fmt.testFmt(
+    const expectFmt = std.testing.expectFmt;
+    try expectFmt("@\"while\"", "{}", .{fmtId("while")});
+    try expectFmt("hello", "{}", .{fmtId("hello")});
+    try expectFmt("@\"11\\\"23\"", "{}", .{fmtId("11\"23")});
+    try expectFmt("@\"11\\x0f23\"", "{}", .{fmtId("11\x0F23")});
+    try expectFmt("\\x0f", "{}", .{fmtEscapes("\x0f")});
+    try expectFmt(
         \\" \\ hi \x07 \x11 \" derp \'"
     , "\"{}\"", .{fmtEscapes(" \\ hi \x07 \x11 \" derp '")});
 }
