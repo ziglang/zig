@@ -167,6 +167,10 @@ comptime {
 
     @export(@import("compiler_rt/clzsi2.zig").__clzsi2, .{ .name = "__clzsi2", .linkage = linkage });
 
+    if (builtin.link_libc and builtin.os.tag == .openbsd) {
+        @export(@import("compiler_rt/emutls.zig").__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = linkage });
+    }
+
     if ((builtin.arch.isARM() or builtin.arch.isThumb()) and !is_test) {
         @export(@import("compiler_rt/arm.zig").__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = linkage });
         @export(@import("compiler_rt/arm.zig").__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = linkage });
