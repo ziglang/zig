@@ -55,48 +55,28 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     // Reserve space to write the size after generating the code
     try buf.resize(5);
 
-    // Calculate the locals of the body
-    // We must calculate the occurance of each value type and emit the count of it
     const tv = decl.typed_value.most_recent.typed_value;
     const mod_fn = tv.val.castTag(.function).?.data;
 
-    var locals: [4]u8 = [_]u8{0} ** 4;
+    // arraylist of types to ensure order remains intact when emitting types
+    var locals = std.ArrayList(u8).init(buf.allocator);
+    defer locals.deinit();
+
     for (mod_fn.body.instructions) |inst| {
         if (inst.tag != .alloc) continue;
 
         const alloc = inst.castTag(.alloc).?;
         const elem_type = alloc.base.ty.elemType();
 
-        switch (genValtype(elem_type)) {
-            0x7F => locals[0] += 1,
-            0x7E => locals[1] += 1,
-            0x7D => locals[2] += 1,
-            0x7C => locals[3] += 1,
-            else => unreachable,
-        }
+        try locals.append(genValtype(elem_type));
     }
 
-    // Calculate the total different types
-    var total_types: u32 = 0;
-    for (locals) |local_type| {
-        if (local_type != 0) total_types += 1;
-    }
-    try leb.writeULEB128(writer, total_types);
+    try leb.writeULEB128(writer, @intCast(u32, locals.items.len));
 
-    // emit the actual locals amount per type
-    if (total_types != 0) {
-        for (locals) |local_count, i| {
-            if (local_count != 0) {
-                try leb.writeULEB128(writer, local_count);
-                try writer.writeByte(switch (i) {
-                    0 => 0x7F,
-                    1 => 0x7E,
-                    2 => 0x7D,
-                    3 => 0x7C,
-                    else => unreachable,
-                });
-            }
-        }
+    // emit the actual locals
+    for (locals.items) |local, i| {
+        try leb.writeULEB128(writer, @as(u32, 1));
+        try writer.writeByte(local); // valtype
     }
 
     // Write instructions
@@ -207,5 +187,6 @@ fn genLoad(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.UnOp) !void {
 }
 
 fn genAlloc(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.NoOp) !void {
+    // type and index match are ensured during function body generation
     try decl.fn_link.wasm.?.locals.append(buf.allocator, &inst.base);
 }

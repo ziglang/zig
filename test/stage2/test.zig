@@ -1229,7 +1229,9 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addCompareOutput(
             \\export fn _start() u32 {
             \\    var y: u32 = 5;
-            \\	  var x: u32 = 20;
+            \\    var z: f32 = 42.0;
+            \\    var x: u32 = 20;
+            \\	
             \\    y = x;
             \\
             \\    return y;
