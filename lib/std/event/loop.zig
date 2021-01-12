@@ -796,9 +796,10 @@ pub const Loop = struct {
                 .waiters = DelayQueue.Waiters{
                     .entries = std.atomic.Queue(anyframe).init(),
                 },
-                .thread = try std.Thread.spawn(self, DelayQueue.run),
                 .event = std.AutoResetEvent{},
                 .is_running = true,
+                // Must be last so that it can read the other state, such as `is_running`.
+                .thread = try std.Thread.spawn(self, DelayQueue.run),
             };
         }
 
