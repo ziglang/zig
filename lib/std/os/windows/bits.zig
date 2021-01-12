@@ -1620,3 +1620,18 @@ pub const IOCTL_MOUNTMGR_QUERY_POINTS: ULONG = 0x6d0008;
 pub const SD_RECEIVE = 0;
 pub const SD_SEND = 1;
 pub const SD_BOTH = 2;
+
+pub const OBJECT_INFORMATION_CLASS = extern enum {
+    ObjectBasicInformation = 0,
+    ObjectNameInformation = 1,
+    ObjectTypeInformation = 2,
+    ObjectTypesInformation = 3,
+    ObjectHandleFlagInformation = 4,
+    ObjectSessionInformation = 5,
+    MaxObjectInfoClass,
+};
+
+pub const OBJECT_NAME_INFORMATION = extern struct {
+    Name: UNICODE_STRING,
+};
+pub const POBJECT_NAME_INFORMATION = *OBJECT_NAME_INFORMATION;

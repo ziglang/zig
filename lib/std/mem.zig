@@ -2436,3 +2436,46 @@ test "freeing empty string with null-terminated sentinel" {
     const empty_string = try dupeZ(testing.allocator, u8, "");
     testing.allocator.free(empty_string);
 }
+
+/// Returns a slice with the given new alignment,
+/// all other pointer attributes copied from `AttributeSource`.
+fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: u29) type {
+    const info = @typeInfo(AttributeSource).Pointer;
+    return @Type(.{
+        .Pointer = .{
+            .size = .Slice,
+            .is_const = info.is_const,
+            .is_volatile = info.is_volatile,
+            .is_allowzero = info.is_allowzero,
+            .alignment = new_alignment,
+            .child = info.child,
+            .sentinel = null,
+        },
+    });
+}
+
+/// Returns the largest slice in the given bytes that conforms to the new alignment,
+/// or `null` if the given bytes contain no conforming address.
+pub fn alignInBytes(bytes: []u8, comptime new_alignment: usize) ?[]align(new_alignment) u8 {
+    const begin_address = @ptrToInt(bytes.ptr);
+    const end_address = begin_address + bytes.len;
+
+    const begin_address_aligned = mem.alignForward(begin_address, new_alignment);
+    const new_length = std.math.sub(usize, end_address, begin_address_aligned) catch |e| switch (e) {
+        error.Overflow => return null,
+    };
+    const alignment_offset = begin_address_aligned - begin_address;
+    return @alignCast(new_alignment, bytes[alignment_offset .. alignment_offset + new_length]);
+}
+
+/// Returns the largest sub-slice within the given slice that conforms to the new alignment,
+/// or `null` if the given slice contains no conforming address.
+pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice(@TypeOf(slice), new_alignment) {
+    const bytes = sliceAsBytes(slice);
+    const aligned_bytes = alignInBytes(bytes, new_alignment) orelse return null;
+
+    const Element = @TypeOf(slice[0]);
+    const slice_length_bytes = aligned_bytes.len - (aligned_bytes.len % @sizeOf(Element));
+    const aligned_slice = bytesAsSlice(Element, aligned_bytes[0..slice_length_bytes]);
+    return @alignCast(new_alignment, aligned_slice);
+}

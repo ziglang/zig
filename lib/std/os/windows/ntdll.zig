@@ -113,3 +113,11 @@ pub extern "NtDll" fn NtWaitForKeyedEvent(
 ) callconv(WINAPI) NTSTATUS;
 
 pub extern "NtDll" fn RtlSetCurrentDirectory_U(PathName: *UNICODE_STRING) callconv(WINAPI) NTSTATUS;
+
+pub extern "NtDll" fn NtQueryObject(
+    Handle: HANDLE,
+    ObjectInformationClass: OBJECT_INFORMATION_CLASS,
+    ObjectInformation: PVOID,
+    ObjectInformationLength: ULONG,
+    ReturnLength: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
