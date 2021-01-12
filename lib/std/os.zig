@@ -3146,6 +3146,9 @@ pub const ConnectError = error{
 
     /// The given path for the unix socket does not exist.
     FileNotFound,
+
+    /// Connection was reset by peer before connect could complete.
+    ConnectionResetByPeer,
 } || UnexpectedError;
 
 /// Initiate a connection on a socket.
@@ -3223,6 +3226,7 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             ETIMEDOUT => return error.ConnectionTimedOut,
+            ECONNRESET => return error.ConnectionResetByPeer,
             else => |err| return unexpectedErrno(err),
         },
         EBADF => unreachable, // The argument sockfd is not a valid file descriptor.
