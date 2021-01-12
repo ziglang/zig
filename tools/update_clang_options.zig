@@ -249,6 +249,14 @@ const known_options = [_]KnownOpt{
         .ident = "mcpu",
     },
     .{
+        .name = "mred-zone",
+        .ident = "red_zone",
+    },
+    .{
+        .name = "mno-red-zone",
+        .ident = "no_red_zone",
+    },
+    .{
         .name = "MD",
         .ident = "dep_file",
     },
@@ -340,9 +348,9 @@ pub fn main() anyerror!void {
     const child_args = [_][]const u8{
         llvm_tblgen_exe,
         "--dump-json",
-        try std.fmt.allocPrint(allocator, "{}/clang/include/clang/Driver/Options.td", .{llvm_src_root}),
-        try std.fmt.allocPrint(allocator, "-I={}/llvm/include", .{llvm_src_root}),
-        try std.fmt.allocPrint(allocator, "-I={}/clang/include/clang/Driver", .{llvm_src_root}),
+        try std.fmt.allocPrint(allocator, "{s}/clang/include/clang/Driver/Options.td", .{llvm_src_root}),
+        try std.fmt.allocPrint(allocator, "-I={s}/llvm/include", .{llvm_src_root}),
+        try std.fmt.allocPrint(allocator, "-I={s}/clang/include/clang/Driver", .{llvm_src_root}),
     };
 
     const child_result = try std.ChildProcess.exec(.{
@@ -351,11 +359,11 @@ pub fn main() anyerror!void {
         .max_output_bytes = 100 * 1024 * 1024,
     });
 
-    std.debug.warn("{}\n", .{child_result.stderr});
+    std.debug.warn("{s}\n", .{child_result.stderr});
 
     const json_text = switch (child_result.term) {
         .Exited => |code| if (code == 0) child_result.stdout else {
-            std.debug.warn("llvm-tblgen exited with code {}\n", .{code});
+            std.debug.warn("llvm-tblgen exited with code {d}\n", .{code});
             std.process.exit(1);
         },
         else => {
@@ -412,7 +420,7 @@ pub fn main() anyerror!void {
             } else if (std.mem.eql(u8, prefix, "/")) {
                 pslash = true;
             } else {
-                std.debug.warn("{} has unrecognized prefix '{}'\n", .{ name, prefix });
+                std.debug.warn("{s} has unrecognized prefix '{s}'\n", .{ name, prefix });
                 std.process.exit(1);
             }
         }
@@ -422,7 +430,7 @@ pub fn main() anyerror!void {
             // `-MT foo` is ambiguous because there is also an -MT flag
             // The canonical way to specify the flag is with `/MT` and so we make this
             // the only way.
-            try stdout.print("flagpsl(\"{}\"),\n", .{name});
+            try stdout.print("flagpsl(\"{s}\"),\n", .{name});
         } else if (knownOption(name)) |ident| {
 
             // Workaround the fact that in 'Options.td'  -Ofast is listed as 'joined'
@@ -430,34 +438,34 @@ pub fn main() anyerror!void {
 
             try stdout.print(
                 \\.{{
-                \\    .name = "{}",
-                \\    .syntax = {},
-                \\    .zig_equivalent = .{},
-                \\    .pd1 = {},
-                \\    .pd2 = {},
-                \\    .psl = {},
+                \\    .name = "{s}",
+                \\    .syntax = {s},
+                \\    .zig_equivalent = .{s},
+                \\    .pd1 = {s},
+                \\    .pd2 = {s},
+                \\    .psl = {s},
                 \\}},
                 \\
             , .{ name, final_syntax, ident, pd1, pd2, pslash });
         } else if (pd1 and !pd2 and !pslash and syntax == .flag) {
-            try stdout.print("flagpd1(\"{}\"),\n", .{name});
+            try stdout.print("flagpd1(\"{s}\"),\n", .{name});
         } else if (!pd1 and !pd2 and pslash and syntax == .flag) {
-            try stdout.print("flagpsl(\"{}\"),\n", .{name});
+            try stdout.print("flagpsl(\"{s}\"),\n", .{name});
         } else if (pd1 and !pd2 and !pslash and syntax == .joined) {
-            try stdout.print("joinpd1(\"{}\"),\n", .{name});
+            try stdout.print("joinpd1(\"{s}\"),\n", .{name});
         } else if (pd1 and !pd2 and !pslash and syntax == .joined_or_separate) {
-            try stdout.print("jspd1(\"{}\"),\n", .{name});
+            try stdout.print("jspd1(\"{s}\"),\n", .{name});
         } else if (pd1 and !pd2 and !pslash and syntax == .separate) {
-            try stdout.print("sepd1(\"{}\"),\n", .{name});
+            try stdout.print("sepd1(\"{s}\"),\n", .{name});
         } else {
             try stdout.print(
                 \\.{{
-                \\    .name = "{}",
-                \\    .syntax = {},
+                \\    .name = "{s}",
+                \\    .syntax = {s},
                 \\    .zig_equivalent = .other,
-                \\    .pd1 = {},
-                \\    .pd2 = {},
-                \\    .psl = {},
+                \\    .pd1 = {s},
+                \\    .pd2 = {s},
+                \\    .psl = {s},
                 \\}},
                 \\
             , .{ name, syntax, pd1, pd2, pslash });
@@ -506,8 +514,8 @@ const Syntax = union(enum) {
         out_stream: anytype,
     ) !void {
         switch (self) {
-            .multi_arg => |n| return out_stream.print(".{{.{}={}}}", .{ @tagName(self), n }),
-            else => return out_stream.print(".{}", .{@tagName(self)}),
+            .multi_arg => |n| return out_stream.print(".{{.{s}={}}}", .{ @tagName(self), n }),
+            else => return out_stream.print(".{s}", .{@tagName(self)}),
         }
     }
 };
@@ -559,9 +567,9 @@ fn objSyntax(obj: *json.ObjectMap) Syntax {
         return .flag;
     }
     const key = obj.get("!name").?.String;
-    std.debug.warn("{} (key {}) has unrecognized superclasses:\n", .{ name, key });
+    std.debug.warn("{s} (key {s}) has unrecognized superclasses:\n", .{ name, key });
     for (obj.get("!superclasses").?.Array.items) |superclass_json| {
-        std.debug.warn(" {}\n", .{superclass_json.String});
+        std.debug.warn(" {s}\n", .{superclass_json.String});
     }
     std.process.exit(1);
 }
@@ -612,7 +620,7 @@ fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
 
 fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     file.writer().print(
-        \\Usage: {} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
+        \\Usage: {s} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\Alternative Usage: zig run /path/to/git/zig/tools/update_clang_options.zig -- /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\
         \\Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.

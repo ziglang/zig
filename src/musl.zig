@@ -206,7 +206,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .optimize_mode = comp.compilerRtOptMode(),
                 .want_sanitize_c = false,
                 .want_stack_check = false,
-                .no_red_zone = comp.bin_file.options.no_red_zone,
+                .want_red_zone = comp.bin_file.options.red_zone,
                 .want_valgrind = false,
                 .want_tsan = false,
                 .emit_h = null,
