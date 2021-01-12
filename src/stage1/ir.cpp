@@ -30093,9 +30093,9 @@ static IrInstGen *ir_align_cast(IrAnalyze *ira, IrInstGen *target, uint32_t alig
     }
 
     if (target_type->id == ZigTypeIdPointer) {
-        result_type = adjust_ptr_align(ira->codegen, target_type, align_bytes);
         if ((err = resolve_ptr_align(ira, target_type, &old_align_bytes)))
             return ira->codegen->invalid_inst_gen;
+        result_type = adjust_ptr_align(ira->codegen, target_type, align_bytes);
     } else if (target_type->id == ZigTypeIdFn) {
         FnTypeId fn_type_id = target_type->data.fn.fn_type_id;
         old_align_bytes = fn_type_id.alignment;
