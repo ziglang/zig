@@ -50,6 +50,8 @@ pub const FnData = struct {
     locals: std.ArrayListUnmanaged(*Inst) = .{},
 
     /// Returns the index of a local given a pointer to an `Inst`
+    /// TODO: Function arguments share the local index with local variables
+    /// meaning this will be out of sync once arguments are implemented.
     pub fn getLocalidx(self: *FnData, inst: *Inst) ?u32 {
         return for (self.locals.items) |local, idx| {
             if (local == inst) break @intCast(u32, idx);
