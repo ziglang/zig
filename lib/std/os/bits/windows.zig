@@ -243,6 +243,7 @@ pub const IPPROTO_UDP = ws2_32.IPPROTO_UDP;
 pub const IPPROTO_ICMPV6 = ws2_32.IPPROTO_ICMPV6;
 pub const IPPROTO_RM = ws2_32.IPPROTO_RM;
 
+pub const nfds_t = c_ulong;
 pub const pollfd = ws2_32.pollfd;
 
 pub const POLLRDNORM = ws2_32.POLLRDNORM;
