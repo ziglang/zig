@@ -360,45 +360,45 @@ pub const Header = struct {
             .file = file,
         };
     }
+
+    pub fn parse(hdr_buf: *align(@alignOf(Elf64_Ehdr)) const [@sizeOf(Elf64_Ehdr)]u8) !Header {
+        const hdr32 = @ptrCast(*const Elf32_Ehdr, hdr_buf);
+        const hdr64 = @ptrCast(*const Elf64_Ehdr, hdr_buf);
+        if (!mem.eql(u8, hdr32.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
+        if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
+
+        const endian: std.builtin.Endian = switch (hdr32.e_ident[EI_DATA]) {
+            ELFDATA2LSB => .Little,
+            ELFDATA2MSB => .Big,
+            else => return error.InvalidElfEndian,
+        };
+        const need_bswap = endian != std.builtin.endian;
+
+        const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
+            ELFCLASS32 => false,
+            ELFCLASS64 => true,
+            else => return error.InvalidElfClass,
+        };
+
+        return @as(Header, .{
+            .endian = endian,
+            .is_64 = is_64,
+            .entry = int(is_64, need_bswap, hdr32.e_entry, hdr64.e_entry),
+            .phoff = int(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff),
+            .shoff = int(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff),
+            .phentsize = int(is_64, need_bswap, hdr32.e_phentsize, hdr64.e_phentsize),
+            .phnum = int(is_64, need_bswap, hdr32.e_phnum, hdr64.e_phnum),
+            .shentsize = int(is_64, need_bswap, hdr32.e_shentsize, hdr64.e_shentsize),
+            .shnum = int(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum),
+            .shstrndx = int(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx),
+        });
+    }
 };
 
 pub fn readHeader(file: File) !Header {
     var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
     try preadNoEof(file, &hdr_buf, 0);
-    return parseHeader(hdr_buf);
-}
-
-pub fn parseHeader(hdr_buf: *align(@alignOf(Elf64_Ehdr)) const [@sizeOf(Elf64_Ehdr)]u8) !Header {
-    const hdr32 = @ptrCast(*const Elf32_Ehdr, hdr_buf);
-    const hdr64 = @ptrCast(*const Elf64_Ehdr, hdr_buf);
-    if (!mem.eql(u8, hdr32.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
-    if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
-
-    const endian: std.builtin.Endian = switch (hdr32.e_ident[EI_DATA]) {
-        ELFDATA2LSB => .Little,
-        ELFDATA2MSB => .Big,
-        else => return error.InvalidElfEndian,
-    };
-    const need_bswap = endian != std.builtin.endian;
-
-    const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
-        ELFCLASS32 => false,
-        ELFCLASS64 => true,
-        else => return error.InvalidElfClass,
-    };
-
-    return @as(Header, .{
-        .endian = endian,
-        .is_64 = is_64,
-        .entry = int(is_64, need_bswap, hdr32.e_entry, hdr64.e_entry),
-        .phoff = int(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff),
-        .shoff = int(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff),
-        .phentsize = int(is_64, need_bswap, hdr32.e_phentsize, hdr64.e_phentsize),
-        .phnum = int(is_64, need_bswap, hdr32.e_phnum, hdr64.e_phnum),
-        .shentsize = int(is_64, need_bswap, hdr32.e_shentsize, hdr64.e_shentsize),
-        .shnum = int(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum),
-        .shstrndx = int(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx),
-    });
+    return Header.parse(hdr_buf);
 }
 
 pub const ProgramHeaderIterator = struct {
