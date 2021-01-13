@@ -365,8 +365,12 @@ const Header = struct {
 pub fn readHeader(file: File) !Header {
     var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
     try preadNoEof(file, &hdr_buf, 0);
-    const hdr32 = @ptrCast(*Elf32_Ehdr, &hdr_buf);
-    const hdr64 = @ptrCast(*Elf64_Ehdr, &hdr_buf);
+    return parseHeader(hdr_buf);
+}
+
+pub fn parseHeader(hdr_buf: *align(@alignOf(Elf64_Ehdr)) const [@sizeOf(Elf64_Ehdr)]u8) !Header {
+    const hdr32 = @ptrCast(*const Elf32_Ehdr, hdr_buf);
+    const hdr64 = @ptrCast(*const Elf64_Ehdr, hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
     if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
