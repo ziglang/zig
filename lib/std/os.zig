@@ -4635,54 +4635,6 @@ pub fn uname() utsname {
     }
 }
 
-pub fn res_mkquery(
-    op: u4,
-    dname: []const u8,
-    class: u8,
-    ty: u8,
-    data: []const u8,
-    newrr: ?[*]const u8,
-    buf: []u8,
-) usize {
-    // This implementation is ported from musl libc.
-    // A more idiomatic "ziggy" implementation would be welcome.
-    var name = dname;
-    if (mem.endsWith(u8, name, ".")) name.len -= 1;
-    assert(name.len <= 253);
-    const n = 17 + name.len + @boolToInt(name.len != 0);
-
-    // Construct query template - ID will be filled later
-    var q: [280]u8 = undefined;
-    @memset(&q, 0, n);
-    q[2] = @as(u8, op) * 8 + 1;
-    q[5] = 1;
-    mem.copy(u8, q[13..], name);
-    var i: usize = 13;
-    var j: usize = undefined;
-    while (q[i] != 0) : (i = j + 1) {
-        j = i;
-        while (q[j] != 0 and q[j] != '.') : (j += 1) {}
-        // TODO determine the circumstances for this and whether or
-        // not this should be an error.
-        if (j - i - 1 > 62) unreachable;
-        q[i - 1] = @intCast(u8, j - i);
-    }
-    q[i + 1] = ty;
-    q[i + 3] = class;
-
-    // Make a reasonably unpredictable id
-    var ts: timespec = undefined;
-    clock_gettime(CLOCK_REALTIME, &ts) catch {};
-    const UInt = std.meta.Int(.unsigned, std.meta.bitCount(@TypeOf(ts.tv_nsec)));
-    const unsec = @bitCast(UInt, ts.tv_nsec);
-    const id = @truncate(u32, unsec + unsec / 65536);
-    q[0] = @truncate(u8, id / 256);
-    q[1] = @truncate(u8, id);
-
-    mem.copy(u8, buf, q[0..n]);
-    return n;
-}
-
 pub const SendError = error{
     /// (For UNIX domain sockets, which are identified by pathname) Write permission is  denied
     /// on  the destination socket file, or search permission is denied for one of the
