@@ -92,14 +92,6 @@ WWWDIR="$(pwd)"
 
 $S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "$HOME/$SRC_TARBALL" s3://ziglang.org/builds/
 
-$S3CMD put -P --no-mime-magic "$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P --no-mime-magic "$ZIGDIR/docs/std/index.html" s3://ziglang.org/documentation/master/std/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P --no-mime-magic "$ZIGDIR/docs/std/data.js" s3://ziglang.org/documentation/master/std/data.js --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P --no-mime-magic "$ZIGDIR/docs/std/main.js" s3://ziglang.org/documentation/master/std/main.js --add-header="Cache-Control: max-age=0, must-revalidate"
-
-$S3CMD put -P --no-mime-magic "$CIDIR/out/index.html" s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P --no-mime-magic "$CIDIR/out/index.json" s3://ziglang.org/download/index.json --add-header="Cache-Control: max-age=0, must-revalidate"
-
 cd "$WWWDIR"
 cp "$CIDIR/out/index.json" data/releases.json
 mkdir -p content/documentation/master/std
