@@ -398,7 +398,7 @@ pub const Header = struct {
 pub fn readHeader(file: File) !Header {
     var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
     try preadNoEof(file, &hdr_buf, 0);
-    return Header.parse(hdr_buf);
+    return Header.parse(&hdr_buf);
 }
 
 pub const ProgramHeaderIterator = struct {
