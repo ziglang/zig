@@ -296,6 +296,21 @@ pub fn exit(status: u8) noreturn {
     system.exit(status);
 }
 
+pub const AtExitError = error{SystemResources} || UnexpectedError;
+
+/// Registers a function to be called on exit.
+pub fn atexit(comptime function_ptr: anytype) AtExitError!void {
+    const ti = @typeInfo(@TypeOf(function_ptr));
+    if (ti != .Fn or ti.Fn.return_type.? != void or ti.Fn.args.len != 0 or ti.Fn.calling_convention != .C) {
+        @compileError("atexit registered function must have return type void, take no args, and use C calling convention");
+    }
+    switch (errno(system.atexit(function_ptr))) {
+        0 => return,
+        ENOMEM => return error.SystemResources,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub const ReadError = error{
     InputOutput,
     SystemResources,
