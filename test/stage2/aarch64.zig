@@ -199,4 +199,22 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("hello world linked to libc", macos_aarch64);
+
+        // TODO rewrite this test once we handle more int conversions and return args.
+        case.addCompareOutput(
+            \\extern "c" fn write(usize, usize, usize) void;
+            \\extern "c" fn exit(usize) noreturn;
+            \\
+            \\export fn _start() noreturn {
+            \\    write(1, @ptrToInt("Hello,"), 6);
+            \\    write(1, @ptrToInt(" World!\n,"), 8);
+            \\    exit(0);
+            \\}
+        ,
+            "Hello, World!\n",
+        );
+    }
 }

@@ -39,6 +39,8 @@ load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 pagezero_segment_cmd_index: ?u16 = null,
 /// __TEXT segment
 text_segment_cmd_index: ?u16 = null,
+/// __DATA_CONST segment
+data_const_segment_cmd_index: ?u16 = null,
 /// __DATA segment
 data_segment_cmd_index: ?u16 = null,
 /// __LINKEDIT segment
@@ -166,6 +168,15 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
     if (self.text_segment_cmd_index == null) {
         self.text_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const base_cmd = self.base.load_commands.items[self.base.text_segment_cmd_index.?].Segment;
+        const cmd = try self.copySegmentCommand(allocator, base_cmd);
+        try self.load_commands.append(allocator, .{ .Segment = cmd });
+        self.header_dirty = true;
+        self.load_commands_dirty = true;
+    }
+    if (self.data_const_segment_cmd_index == null) outer: {
+        if (self.base.data_const_segment_cmd_index == null) break :outer; // __DATA_CONST is optional
+        self.data_const_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const base_cmd = self.base.load_commands.items[self.base.data_const_segment_cmd_index.?].Segment;
         const cmd = try self.copySegmentCommand(allocator, base_cmd);
         try self.load_commands.append(allocator, .{ .Segment = cmd });
         self.header_dirty = true;
