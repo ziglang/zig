@@ -335,7 +335,7 @@ pub const ET = extern enum(u16) {
 };
 
 /// All integers are native endian.
-const Header = struct {
+pub const Header = struct {
     endian: builtin.Endian,
     is_64: bool,
     entry: u64,
