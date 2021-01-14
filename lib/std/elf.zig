@@ -388,8 +388,8 @@ pub const Header = struct {
         };
     }
 
-    pub fn section_header_iterator(self: Header, parse_source: anytype) SectionHeaderIterator {
-        return .{
+    pub fn section_header_iterator(self: Header, parse_source: anytype) SectionHeaderIterator(@TypeOf(parse_source)) {
+        return SectionHeaderIterator(@TypeOf(parse_source)){
             .elf_header = self,
             .parse_source = parse_source,
         };
@@ -500,74 +500,76 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
     };
 }
 
-pub const SectionHeaderIterator = struct {
-    elf_header: Header,
-    parse_source: ParseSource,
-    index: usize = 0,
+pub fn SectionHeaderIterator(ParseSource: anytype) type {
+    return struct {
+        elf_header: Header,
+        parse_source: ParseSource,
+        index: usize = 0,
 
-    pub fn next(self: *SectionHeaderIterator) !?Elf64_Shdr {
-        if (self.index >= self.elf_header.shnum) return null;
-        defer self.index += 1;
+        pub fn next(self: *@This()) !?Elf64_Shdr {
+            if (self.index >= self.elf_header.shnum) return null;
+            defer self.index += 1;
 
-        if (self.elf_header.is_64) {
-            var shdr: Elf64_Shdr = undefined;
+            if (self.elf_header.is_64) {
+                var shdr: Elf64_Shdr = undefined;
+                const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
+                try self.parse_source.readNoEof(mem.asBytes(&shdr), offset);
+
+                // ELF endianness matches native endianness.
+                if (self.elf_header.endian == std.builtin.endian) return shdr;
+
+                // Convert fields to native endianness.
+                return Elf64_Shdr{
+                    .sh_name = @byteSwap(@TypeOf(shdr.sh_name), shdr.sh_name),
+                    .sh_type = @byteSwap(@TypeOf(shdr.sh_type), shdr.sh_type),
+                    .sh_flags = @byteSwap(@TypeOf(shdr.sh_flags), shdr.sh_flags),
+                    .sh_addr = @byteSwap(@TypeOf(shdr.sh_addr), shdr.sh_addr),
+                    .sh_offset = @byteSwap(@TypeOf(shdr.sh_offset), shdr.sh_offset),
+                    .sh_size = @byteSwap(@TypeOf(shdr.sh_size), shdr.sh_size),
+                    .sh_link = @byteSwap(@TypeOf(shdr.sh_link), shdr.sh_link),
+                    .sh_info = @byteSwap(@TypeOf(shdr.sh_info), shdr.sh_info),
+                    .sh_addralign = @byteSwap(@TypeOf(shdr.sh_addralign), shdr.sh_addralign),
+                    .sh_entsize = @byteSwap(@TypeOf(shdr.sh_entsize), shdr.sh_entsize),
+                };
+            }
+
+            var shdr: Elf32_Shdr = undefined;
             const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
             try self.parse_source.readNoEof(mem.asBytes(&shdr), offset);
 
-            // ELF endianness matches native endianness.
-            if (self.elf_header.endian == std.builtin.endian) return shdr;
+            // ELF endianness does NOT match native endianness.
+            if (self.elf_header.endian != std.builtin.endian) {
+                // Convert fields to native endianness.
+                shdr = .{
+                    .sh_name = @byteSwap(@TypeOf(shdr.sh_name), shdr.sh_name),
+                    .sh_type = @byteSwap(@TypeOf(shdr.sh_type), shdr.sh_type),
+                    .sh_flags = @byteSwap(@TypeOf(shdr.sh_flags), shdr.sh_flags),
+                    .sh_addr = @byteSwap(@TypeOf(shdr.sh_addr), shdr.sh_addr),
+                    .sh_offset = @byteSwap(@TypeOf(shdr.sh_offset), shdr.sh_offset),
+                    .sh_size = @byteSwap(@TypeOf(shdr.sh_size), shdr.sh_size),
+                    .sh_link = @byteSwap(@TypeOf(shdr.sh_link), shdr.sh_link),
+                    .sh_info = @byteSwap(@TypeOf(shdr.sh_info), shdr.sh_info),
+                    .sh_addralign = @byteSwap(@TypeOf(shdr.sh_addralign), shdr.sh_addralign),
+                    .sh_entsize = @byteSwap(@TypeOf(shdr.sh_entsize), shdr.sh_entsize),
+                };
+            }
 
-            // Convert fields to native endianness.
+            // Convert 32-bit header to 64-bit.
             return Elf64_Shdr{
-                .sh_name = @byteSwap(@TypeOf(shdr.sh_name), shdr.sh_name),
-                .sh_type = @byteSwap(@TypeOf(shdr.sh_type), shdr.sh_type),
-                .sh_flags = @byteSwap(@TypeOf(shdr.sh_flags), shdr.sh_flags),
-                .sh_addr = @byteSwap(@TypeOf(shdr.sh_addr), shdr.sh_addr),
-                .sh_offset = @byteSwap(@TypeOf(shdr.sh_offset), shdr.sh_offset),
-                .sh_size = @byteSwap(@TypeOf(shdr.sh_size), shdr.sh_size),
-                .sh_link = @byteSwap(@TypeOf(shdr.sh_link), shdr.sh_link),
-                .sh_info = @byteSwap(@TypeOf(shdr.sh_info), shdr.sh_info),
-                .sh_addralign = @byteSwap(@TypeOf(shdr.sh_addralign), shdr.sh_addralign),
-                .sh_entsize = @byteSwap(@TypeOf(shdr.sh_entsize), shdr.sh_entsize),
+                .sh_name = shdr.sh_name,
+                .sh_type = shdr.sh_type,
+                .sh_flags = shdr.sh_flags,
+                .sh_addr = shdr.sh_addr,
+                .sh_offset = shdr.sh_offset,
+                .sh_size = shdr.sh_size,
+                .sh_link = shdr.sh_link,
+                .sh_info = shdr.sh_info,
+                .sh_addralign = shdr.sh_addralign,
+                .sh_entsize = shdr.sh_entsize,
             };
         }
-
-        var shdr: Elf32_Shdr = undefined;
-        const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
-        try self.parse_source.readNoEof(mem.asBytes(&shdr), offset);
-
-        // ELF endianness does NOT match native endianness.
-        if (self.elf_header.endian != std.builtin.endian) {
-            // Convert fields to native endianness.
-            shdr = .{
-                .sh_name = @byteSwap(@TypeOf(shdr.sh_name), shdr.sh_name),
-                .sh_type = @byteSwap(@TypeOf(shdr.sh_type), shdr.sh_type),
-                .sh_flags = @byteSwap(@TypeOf(shdr.sh_flags), shdr.sh_flags),
-                .sh_addr = @byteSwap(@TypeOf(shdr.sh_addr), shdr.sh_addr),
-                .sh_offset = @byteSwap(@TypeOf(shdr.sh_offset), shdr.sh_offset),
-                .sh_size = @byteSwap(@TypeOf(shdr.sh_size), shdr.sh_size),
-                .sh_link = @byteSwap(@TypeOf(shdr.sh_link), shdr.sh_link),
-                .sh_info = @byteSwap(@TypeOf(shdr.sh_info), shdr.sh_info),
-                .sh_addralign = @byteSwap(@TypeOf(shdr.sh_addralign), shdr.sh_addralign),
-                .sh_entsize = @byteSwap(@TypeOf(shdr.sh_entsize), shdr.sh_entsize),
-            };
-        }
-
-        // Convert 32-bit header to 64-bit.
-        return Elf64_Shdr{
-            .sh_name = shdr.sh_name,
-            .sh_type = shdr.sh_type,
-            .sh_flags = shdr.sh_flags,
-            .sh_addr = shdr.sh_addr,
-            .sh_offset = shdr.sh_offset,
-            .sh_size = shdr.sh_size,
-            .sh_link = shdr.sh_link,
-            .sh_info = shdr.sh_info,
-            .sh_addralign = shdr.sh_addralign,
-            .sh_entsize = shdr.sh_entsize,
-        };
-    }
-};
+    };
+}
 
 pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
