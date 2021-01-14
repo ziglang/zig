@@ -11,7 +11,6 @@ const Allocator = mem.Allocator;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const hash_size: u8 = 32;
-const page_size: u16 = 0x1000;
 
 const CodeDirectory = struct {
     inner: macho.CodeDirectory,
@@ -21,45 +20,53 @@ const CodeDirectory = struct {
         return self.inner.length;
     }
 
-    fn write(self: CodeDirectory, buffer: []u8) void {
-        assert(buffer.len >= self.inner.length);
-
-        mem.writeIntBig(u32, buffer[0..4], self.inner.magic);
-        mem.writeIntBig(u32, buffer[4..8], self.inner.length);
-        mem.writeIntBig(u32, buffer[8..12], self.inner.version);
-        mem.writeIntBig(u32, buffer[12..16], self.inner.flags);
-        mem.writeIntBig(u32, buffer[16..20], self.inner.hashOffset);
-        mem.writeIntBig(u32, buffer[20..24], self.inner.identOffset);
-        mem.writeIntBig(u32, buffer[24..28], self.inner.nSpecialSlots);
-        mem.writeIntBig(u32, buffer[28..32], self.inner.nCodeSlots);
-        mem.writeIntBig(u32, buffer[32..36], self.inner.codeLimit);
-        buffer[36] = self.inner.hashSize;
-        buffer[37] = self.inner.hashType;
-        buffer[38] = self.inner.platform;
-        buffer[39] = self.inner.pageSize;
-        mem.writeIntBig(u32, buffer[40..44], self.inner.spare2);
-        mem.writeIntBig(u32, buffer[44..48], self.inner.scatterOffset);
-        mem.writeIntBig(u32, buffer[48..52], self.inner.teamOffset);
-        mem.writeIntBig(u32, buffer[52..56], self.inner.spare3);
-        mem.writeIntBig(u64, buffer[56..64], self.inner.codeLimit64);
-        mem.writeIntBig(u64, buffer[64..72], self.inner.execSegBase);
-        mem.writeIntBig(u64, buffer[72..80], self.inner.execSegLimit);
-        mem.writeIntBig(u64, buffer[80..88], self.inner.execSegFlags);
-
-        mem.copy(u8, buffer[88..], self.data.items);
+    fn write(self: CodeDirectory, writer: anytype) !void {
+        try writer.writeIntBig(u32, self.inner.magic);
+        try writer.writeIntBig(u32, self.inner.length);
+        try writer.writeIntBig(u32, self.inner.version);
+        try writer.writeIntBig(u32, self.inner.flags);
+        try writer.writeIntBig(u32, self.inner.hashOffset);
+        try writer.writeIntBig(u32, self.inner.identOffset);
+        try writer.writeIntBig(u32, self.inner.nSpecialSlots);
+        try writer.writeIntBig(u32, self.inner.nCodeSlots);
+        try writer.writeIntBig(u32, self.inner.codeLimit);
+        try writer.writeByte(self.inner.hashSize);
+        try writer.writeByte(self.inner.hashType);
+        try writer.writeByte(self.inner.platform);
+        try writer.writeByte(self.inner.pageSize);
+        try writer.writeIntBig(u32, self.inner.spare2);
+        try writer.writeIntBig(u32, self.inner.scatterOffset);
+        try writer.writeIntBig(u32, self.inner.teamOffset);
+        try writer.writeIntBig(u32, self.inner.spare3);
+        try writer.writeIntBig(u64, self.inner.codeLimit64);
+        try writer.writeIntBig(u64, self.inner.execSegBase);
+        try writer.writeIntBig(u64, self.inner.execSegLimit);
+        try writer.writeIntBig(u64, self.inner.execSegFlags);
+        try writer.writeAll(self.data.items);
     }
 };
 
 allocator: *Allocator,
+
+/// Code signature blob header.
 inner: macho.SuperBlob = .{
     .magic = macho.CSMAGIC_EMBEDDED_SIGNATURE,
     .length = @sizeOf(macho.SuperBlob),
     .count = 0,
 },
+
+/// CodeDirectory header which holds the hash of the binary.
 cdir: ?CodeDirectory = null,
 
-pub fn init(allocator: *Allocator) CodeSignature {
-    return .{ .allocator = allocator };
+/// Page size is dependent on the target cpu architecture.
+/// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
+page_size: u16,
+
+pub fn init(allocator: *Allocator, page_size: u16) CodeSignature {
+    return .{
+        .allocator = allocator,
+        .page_size = page_size,
+    };
 }
 
 pub fn calcAdhocSignature(
@@ -88,7 +95,7 @@ pub fn calcAdhocSignature(
             .hashSize = hash_size,
             .hashType = macho.CS_HASHTYPE_SHA256,
             .platform = 0,
-            .pageSize = @truncate(u8, std.math.log2(page_size)),
+            .pageSize = @truncate(u8, std.math.log2(self.page_size)),
             .spare2 = 0,
             .scatterOffset = 0,
             .teamOffset = 0,
@@ -100,10 +107,10 @@ pub fn calcAdhocSignature(
         },
     };
 
-    const total_pages = mem.alignForward(file_size, page_size) / page_size;
+    const total_pages = mem.alignForward(file_size, self.page_size) / self.page_size;
 
     var hash: [hash_size]u8 = undefined;
-    var buffer = try self.allocator.alloc(u8, page_size);
+    var buffer = try self.allocator.alloc(u8, self.page_size);
     defer self.allocator.free(buffer);
 
     try cdir.data.ensureCapacity(self.allocator, total_pages * hash_size + id.len + 1);
@@ -119,8 +126,8 @@ pub fn calcAdhocSignature(
     cdir.inner.hashOffset = cdir.inner.identOffset + @intCast(u32, id.len) + 1;
     var i: usize = 0;
     while (i < total_pages) : (i += 1) {
-        const fstart = i * page_size;
-        const fsize = if (fstart + page_size > file_size) file_size - fstart else page_size;
+        const fstart = i * self.page_size;
+        const fsize = if (fstart + self.page_size > file_size) file_size - fstart else self.page_size;
         const len = try file.preadAll(buffer, fstart);
         assert(fsize <= len);
 
@@ -142,12 +149,11 @@ pub fn size(self: CodeSignature) u32 {
     return self.inner.length;
 }
 
-pub fn write(self: CodeSignature, buffer: []u8) void {
-    assert(buffer.len >= self.inner.length);
-    self.writeHeader(buffer);
+pub fn write(self: CodeSignature, writer: anytype) !void {
+    try self.writeHeader(writer);
     const offset: u32 = @sizeOf(macho.SuperBlob) + @sizeOf(macho.BlobIndex);
-    writeBlobIndex(macho.CSSLOT_CODEDIRECTORY, offset, buffer[@sizeOf(macho.SuperBlob)..]);
-    self.cdir.?.write(buffer[offset..]);
+    try writeBlobIndex(macho.CSSLOT_CODEDIRECTORY, offset, writer);
+    try self.cdir.?.write(writer);
 }
 
 pub fn deinit(self: *CodeSignature) void {
@@ -156,31 +162,30 @@ pub fn deinit(self: *CodeSignature) void {
     }
 }
 
-fn writeHeader(self: CodeSignature, buffer: []u8) void {
-    assert(buffer.len >= @sizeOf(macho.SuperBlob));
-    mem.writeIntBig(u32, buffer[0..4], self.inner.magic);
-    mem.writeIntBig(u32, buffer[4..8], self.inner.length);
-    mem.writeIntBig(u32, buffer[8..12], self.inner.count);
+fn writeHeader(self: CodeSignature, writer: anytype) !void {
+    try writer.writeIntBig(u32, self.inner.magic);
+    try writer.writeIntBig(u32, self.inner.length);
+    try writer.writeIntBig(u32, self.inner.count);
 }
 
-fn writeBlobIndex(tt: u32, offset: u32, buffer: []u8) void {
-    assert(buffer.len >= @sizeOf(macho.BlobIndex));
-    mem.writeIntBig(u32, buffer[0..4], tt);
-    mem.writeIntBig(u32, buffer[4..8], offset);
+fn writeBlobIndex(tt: u32, offset: u32, writer: anytype) !void {
+    try writer.writeIntBig(u32, tt);
+    try writer.writeIntBig(u32, offset);
 }
 
 test "CodeSignature header" {
-    var code_sig = CodeSignature.init(testing.allocator);
+    var code_sig = CodeSignature.init(testing.allocator, 0x1000);
     defer code_sig.deinit();
 
     var buffer: [@sizeOf(macho.SuperBlob)]u8 = undefined;
-    code_sig.writeHeader(&buffer);
+    var stream = std.io.fixedBufferStream(&buffer);
+    try code_sig.writeHeader(stream.writer());
 
     const expected = &[_]u8{ 0xfa, 0xde, 0x0c, 0xc0, 0x0, 0x0, 0x0, 0xc, 0x0, 0x0, 0x0, 0x0 };
     testing.expect(mem.eql(u8, expected, &buffer));
 }
 
-pub fn calcCodeSignaturePadding(id: []const u8, file_size: u64) u32 {
+pub fn calcCodeSignaturePaddingSize(id: []const u8, file_size: u64, page_size: u16) u32 {
     const ident_size = id.len + 1;
     const total_pages = mem.alignForwardGeneric(u64, file_size, page_size) / page_size;
     const hashed_size = total_pages * hash_size;
