@@ -989,9 +989,8 @@ pub const TestContext = struct {
             var file = try tmp_dir.openFile(bin_name, .{ .read = true });
             defer file.close();
 
-            const elf_source = std.elf.FileParseSource{ .file = file };
-            const header = try std.elf.Header.read(elf_source);
-            var iterator = header.program_header_iterator(elf_source);
+            const header = try std.elf.Header.read(&file);
+            var iterator = header.program_header_iterator(&file);
 
             var none_loaded = true;
 

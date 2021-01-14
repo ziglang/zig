@@ -334,40 +334,6 @@ pub const ET = extern enum(u16) {
     pub const HIPROC = 0xffff;
 };
 
-pub const FileParseSource = struct {
-    file: std.fs.File,
-
-    fn readNoEof(self: FileParseSource, buf: []u8, offset: u64) !void {
-        var i: usize = 0;
-        while (i < buf.len) {
-            const len = self.file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
-                error.SystemResources => return error.SystemResources,
-                error.IsDir => return error.UnableToReadElfFile,
-                error.OperationAborted => return error.UnableToReadElfFile,
-                error.BrokenPipe => return error.UnableToReadElfFile,
-                error.Unseekable => return error.UnableToReadElfFile,
-                error.ConnectionResetByPeer => return error.UnableToReadElfFile,
-                error.ConnectionTimedOut => return error.UnableToReadElfFile,
-                error.InputOutput => return error.FileSystem,
-                error.Unexpected => return error.Unexpected,
-                error.WouldBlock => return error.Unexpected,
-                error.NotOpenForReading => return error.Unexpected,
-                error.AccessDenied => return error.Unexpected,
-            };
-            if (len == 0) return error.UnexpectedEndOfFile;
-            i += len;
-        }
-    }
-};
-
-pub const BufferParseSource = struct {
-    buffer: []const u8,
-
-    fn readNoEof(self: BufferParseSource, buf: []u8, offset: u64) !void {
-        std.mem.copy(u8, buf, self.buffer[offset .. offset + buf.len]);
-    }
-};
-
 /// All integers are native endian.
 pub const Header = struct {
     endian: builtin.Endian,
@@ -397,7 +363,8 @@ pub const Header = struct {
 
     pub fn read(parse_source: anytype) !Header {
         var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
-        try parse_source.readNoEof(&hdr_buf, 0);
+        try parse_source.seekableStream().seekTo(0);
+        try parse_source.reader().readNoEof(&hdr_buf);
         return Header.parse(&hdr_buf);
     }
 
@@ -448,7 +415,8 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
             if (self.elf_header.is_64) {
                 var phdr: Elf64_Phdr = undefined;
                 const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
-                try self.parse_source.readNoEof(mem.asBytes(&phdr), offset);
+                try self.parse_source.seekableStream().seekTo(offset);
+                try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
 
                 // ELF endianness matches native endianness.
                 if (self.elf_header.endian == std.builtin.endian) return phdr;
@@ -468,7 +436,8 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
 
             var phdr: Elf32_Phdr = undefined;
             const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
-            try self.parse_source.readNoEof(mem.asBytes(&phdr), offset);
+            try self.parse_source.seekableStream().seekTo(offset);
+            try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
 
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != std.builtin.endian) {
@@ -513,7 +482,8 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
             if (self.elf_header.is_64) {
                 var shdr: Elf64_Shdr = undefined;
                 const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
-                try self.parse_source.readNoEof(mem.asBytes(&shdr), offset);
+                try self.parse_source.seekableStream().seekTo(offset);
+                try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
 
                 // ELF endianness matches native endianness.
                 if (self.elf_header.endian == std.builtin.endian) return shdr;
@@ -535,7 +505,8 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
 
             var shdr: Elf32_Shdr = undefined;
             const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
-            try self.parse_source.readNoEof(mem.asBytes(&shdr), offset);
+            try self.parse_source.seekableStream().seekTo(offset);
+            try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
 
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != std.builtin.endian) {
