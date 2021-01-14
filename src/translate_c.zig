@@ -2082,12 +2082,19 @@ fn transCCast(
         // 3. Bit-cast to correct signed-ness
         const src_type_is_signed = cIsSignedInteger(src_type) or cIsEnum(src_type);
         const src_int_type = if (cIsInteger(src_type)) src_type else cIntTypeForEnum(src_type);
-        const src_int_expr = if (cIsInteger(src_type)) expr else try transEnumToInt(rp.c, expr);
+        var src_int_expr = if (cIsInteger(src_type)) expr else try transEnumToInt(rp.c, expr);
 
         // @bitCast(dest_type, intermediate_value)
         const cast_node = try rp.c.createBuiltinCall("@bitCast", 2);
         cast_node.params()[0] = try transQualType(rp, dst_type, loc);
         _ = try appendToken(rp.c, .Comma, ",");
+
+        if (isBoolRes(src_int_expr)) {
+            const bool_to_int_node = try rp.c.createBuiltinCall("@boolToInt", 1);
+            bool_to_int_node.params()[0] = src_int_expr;
+            bool_to_int_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            src_int_expr = &bool_to_int_node.base;
+        }
 
         switch (cIntTypeCmp(dst_type, src_int_type)) {
             .lt => {
@@ -3113,7 +3120,26 @@ fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.CallExpr, r
         if (i != 0) {
             _ = try appendToken(rp.c, .Comma, ",");
         }
-        call_params[i] = try transExpr(rp, scope, args[i], .used, .r_value);
+        var call_param = try transExpr(rp, scope, args[i], .used, .r_value);
+
+        // In C the result type of a boolean expression is int. If this result is passed as
+        // an argument to a function whose parameter is also int, there is no cast. Therefore
+        // in Zig we'll need to cast it from bool to u1 (which will safely coerce to c_int).
+        if (fn_ty) |ty| {
+            switch (ty) {
+                .Proto => |fn_proto| {
+                    const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
+                    if (isBoolRes(call_param) and cIsNativeInt(param_qt)) {
+                        const builtin_node = try rp.c.createBuiltinCall("@boolToInt", 1);
+                        builtin_node.params()[0] = call_param;
+                        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+                        call_param = &builtin_node.base;
+                    }
+                },
+                else => {},
+            }
+        }
+        call_params[i] = call_param;
     }
     node.rtoken = try appendToken(rp.c, .RParen, ")");
 
@@ -4123,6 +4149,13 @@ fn cIsSignedInteger(qt: clang.QualType) bool {
         => true,
         else => false,
     };
+}
+
+fn cIsNativeInt(qt: clang.QualType) bool {
+    const c_type = qualTypeCanon(qt);
+    if (c_type.getTypeClass() != .Builtin) return false;
+    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    return builtin_ty.getKind() == .Int;
 }
 
 fn cIsFloating(qt: clang.QualType) bool {
