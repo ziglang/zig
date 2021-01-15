@@ -10,10 +10,10 @@
 //! and it requires no deinitialization. The downside is that it may not
 //! integrate as cleanly into other synchronization APIs, or, in a worst case,
 //! may be forced to fall back on spin locking. As a rule of thumb, prefer
-//! to use `std.ResetEvent` when possible, and use `StaticResetEvent` when
+//! to use `std.Thread.ResetEvent` when possible, and use `StaticResetEvent` when
 //! the logic needs stronger API guarantees.
 
-const std = @import("std.zig");
+const std = @import("../std.zig");
 const StaticResetEvent = @This();
 const SpinLock = std.SpinLock;
 const assert = std.debug.assert;
@@ -53,7 +53,7 @@ pub fn reset(ev: *StaticResetEvent) void {
     return ev.impl.reset();
 }
 
-pub const TimedWaitResult = std.ResetEvent.TimedWaitResult;
+pub const TimedWaitResult = std.Thread.ResetEvent.TimedWaitResult;
 
 /// Wait for the event to be set by blocking the current thread.
 /// A timeout in nanoseconds can be provided as a hint for how
@@ -78,13 +78,13 @@ pub const DebugEvent = struct {
     };
 
     /// This function is provided so that this type can be re-used inside
-    /// `std.ResetEvent`.
+    /// `std.Thread.ResetEvent`.
     pub fn init(ev: *DebugEvent) void {
         ev.* = .{};
     }
 
     /// This function is provided so that this type can be re-used inside
-    /// `std.ResetEvent`.
+    /// `std.Thread.ResetEvent`.
     pub fn deinit(ev: *DebugEvent) void {
         ev.* = undefined;
     }
@@ -125,13 +125,13 @@ pub const AtomicEvent = struct {
     const WAIT = 1 << 1;
 
     /// This function is provided so that this type can be re-used inside
-    /// `std.ResetEvent`.
+    /// `std.Thread.ResetEvent`.
     pub fn init(ev: *AtomicEvent) void {
         ev.* = .{};
     }
 
     /// This function is provided so that this type can be re-used inside
-    /// `std.ResetEvent`.
+    /// `std.Thread.ResetEvent`.
     pub fn deinit(ev: *AtomicEvent) void {
         ev.* = undefined;
     }

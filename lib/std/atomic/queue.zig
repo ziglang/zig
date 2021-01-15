@@ -16,7 +16,7 @@ pub fn Queue(comptime T: type) type {
     return struct {
         head: ?*Node,
         tail: ?*Node,
-        mutex: std.Mutex,
+        mutex: std.Thread.Mutex,
 
         pub const Self = @This();
         pub const Node = std.TailQueue(T).Node;
@@ -27,7 +27,7 @@ pub fn Queue(comptime T: type) type {
             return Self{
                 .head = null,
                 .tail = null,
-                .mutex = std.Mutex{},
+                .mutex = std.Thread.Mutex{},
             };
         }
 

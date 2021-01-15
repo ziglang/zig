@@ -6,9 +6,9 @@
 const std = @import("std");
 const WaitGroup = @This();
 
-lock: std.Mutex = .{},
+lock: std.Thread.Mutex = .{},
 counter: usize = 0,
-event: std.ResetEvent,
+event: std.Thread.ResetEvent,
 
 pub fn init(self: *WaitGroup) !void {
     self.* = .{

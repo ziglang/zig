@@ -6,14 +6,14 @@
 const std = @import("std");
 const ThreadPool = @This();
 
-lock: std.Mutex = .{},
+lock: std.Thread.Mutex = .{},
 is_running: bool = true,
 allocator: *std.mem.Allocator,
 workers: []Worker,
 run_queue: RunQueue = .{},
 idle_queue: IdleQueue = .{},
 
-const IdleQueue = std.SinglyLinkedList(std.ResetEvent);
+const IdleQueue = std.SinglyLinkedList(std.Thread.ResetEvent);
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
     runFn: fn (*Runnable) void,
