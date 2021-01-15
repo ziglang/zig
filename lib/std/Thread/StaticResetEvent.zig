@@ -15,7 +15,6 @@
 
 const std = @import("../std.zig");
 const StaticResetEvent = @This();
-const SpinLock = std.SpinLock;
 const assert = std.debug.assert;
 const os = std.os;
 const time = std.time;
@@ -183,7 +182,7 @@ pub const AtomicEvent = struct {
                 timer = time.Timer.start() catch return error.TimedOut;
 
             while (@atomicLoad(u32, waiters, .Acquire) != WAKE) {
-                SpinLock.yield();
+                std.os.sched_yield() catch std.Thread.spinLoopHint();
                 if (timeout) |timeout_ns| {
                     if (timer.read() >= timeout_ns)
                         return error.TimedOut;
@@ -294,7 +293,7 @@ pub const AtomicEvent = struct {
                         return @intToPtr(?windows.HANDLE, handle);
                     },
                     LOADING => {
-                        SpinLock.yield();
+                        std.os.sched_yield() catch std.Thread.spinLoopHint();
                         handle = @atomicLoad(usize, &event_handle, .Monotonic);
                     },
                     else => {
