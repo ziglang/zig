@@ -259,12 +259,12 @@ const WindowsMutex = struct {
         mutex: *WindowsMutex,
 
         pub fn release(held: Held) void {
-            windows.ReleaseSRWLockExclusive(&held.mutex.srwlock);
+            windows.kernel32.ReleaseSRWLockExclusive(&held.mutex.srwlock);
         }
     };
 
     pub fn tryAcquire(m: *WindowsMutex) ?Held {
-        if (windows.TryAcquireSRWLockExclusive(&m.srwlock) != windows.FALSE) {
+        if (windows.kernel32.TryAcquireSRWLockExclusive(&m.srwlock) != windows.FALSE) {
             return Held{ .mutex = m };
         } else {
             return null;
@@ -272,7 +272,7 @@ const WindowsMutex = struct {
     }
 
     pub fn acquire(m: *WindowsMutex) Held {
-        windows.AcquireSRWLockExclusive(&m.srwlock);
+        windows.kernel32.AcquireSRWLockExclusive(&m.srwlock);
         return Held{ .mutex = m };
     }
 };

@@ -40,7 +40,7 @@ pub const WindowsCondition = struct {
     cond: windows.CONDITION_VARIABLE = windows.CONDITION_VARIABLE_INIT,
 
     pub fn wait(cond: *WindowsCondition, mutex: *Mutex) void {
-        const rc = windows.SleepConditionVariableSRW(
+        const rc = windows.kernel32.SleepConditionVariableSRW(
             &cond.cond,
             &mutex.srwlock,
             windows.INFINITE,
@@ -50,11 +50,11 @@ pub const WindowsCondition = struct {
     }
 
     pub fn signal(cond: *WindowsCondition) void {
-        windows.WakeConditionVariable(&cond.cond);
+        windows.kernel32.WakeConditionVariable(&cond.cond);
     }
 
     pub fn broadcast(cond: *WindowsCondition) void {
-        windows.WakeAllConditionVariable(&cond.cond);
+        windows.kernel32.WakeAllConditionVariable(&cond.cond);
     }
 };
 
