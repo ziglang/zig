@@ -119,7 +119,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     var managed_functype = fn_data.functype.toManaged(self.base.allocator);
     var managed_code = fn_data.code.toManaged(self.base.allocator);
 
-    var code = codegen.Code{
+    var context = codegen.Context{
         .gpa = self.base.allocator,
         .values = codegen.ValueTable.init(self.base.allocator),
         .bytes = managed_code,
@@ -127,20 +127,20 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .decl = decl,
         .err_msg = undefined,
     };
-    defer code.values.deinit();
+    defer context.values.deinit();
 
     // generate the 'code' section for the function declaration
-    code.gen() catch |err| switch (err) {
+    context.gen() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, code.err_msg);
+            try module.failed_decls.put(module.gpa, decl, context.err_msg);
             return;
         },
         else => |e| return err,
     };
 
-    fn_data.functype = code.func_type_data.toUnmanaged();
-    fn_data.code = code.bytes.toUnmanaged();
+    fn_data.functype = context.func_type_data.toUnmanaged();
+    fn_data.code = context.bytes.toUnmanaged();
 }
 
 pub fn updateDeclExports(
