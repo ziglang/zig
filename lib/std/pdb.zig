@@ -662,6 +662,7 @@ const MsfStream = struct {
 
     fn read(self: *MsfStream, buffer: []u8) !usize {
         var block_id = @intCast(usize, self.pos / self.block_size);
+        if (block_id >= self.blocks.len) return 0; // End of Stream
         var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
 
@@ -680,6 +681,7 @@ const MsfStream = struct {
             if (offset == self.block_size) {
                 offset = 0;
                 block_id += 1;
+                if (block_id >= self.blocks.len) break; // End of Stream
                 block = self.blocks[block_id];
                 try self.in_file.seekTo(block * self.block_size);
             }
