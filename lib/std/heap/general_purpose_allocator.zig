@@ -150,12 +150,12 @@ pub const Config = struct {
 
     /// What type of mutex you'd like to use, for thread safety.
     /// when specfied, the mutex type must have the same shape as `std.Thread.Mutex` and
-    /// `std.mutex.Dummy`, and have no required fields. Specifying this field causes
+    /// `std.Thread.Mutex.Dummy`, and have no required fields. Specifying this field causes
     /// the `thread_safe` field to be ignored.
     ///
     /// when null (default):
     /// * the mutex type defaults to `std.Thread.Mutex` when thread_safe is enabled.
-    /// * the mutex type defaults to `std.mutex.Dummy` otherwise.
+    /// * the mutex type defaults to `std.Thread.Mutex.Dummy` otherwise.
     MutexType: ?type = null,
 
     /// This is a temporary debugging trick you can use to turn segfaults into more helpful
@@ -189,7 +189,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         else if (config.thread_safe)
             std.Thread.Mutex{}
         else
-            std.mutex.Dummy{};
+            std.Thread.Mutex.Dummy{};
 
         const stack_n = config.stack_trace_frames;
         const one_trace_size = @sizeOf(usize) * stack_n;

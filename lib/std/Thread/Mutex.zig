@@ -38,30 +38,16 @@ const linux = os.linux;
 const testing = std.testing;
 const StaticResetEvent = std.thread.StaticResetEvent;
 
-pub const Held = struct {
-    impl: *Impl,
-
-    pub fn release(held: Held) void {
-        held.impl.release();
-    }
-};
-
-/// Try to acquire the mutex without blocking. Returns null if
-/// the mutex is unavailable. Otherwise returns Held. Call
-/// release on Held.
-pub fn tryAcquire(m: *Mutex) ?Held {
-    if (m.impl.tryAcquire()) {
-        return Held{ .impl = &m.impl };
-    } else {
-        return null;
-    }
+/// Try to acquire the mutex without blocking. Returns `null` if the mutex is
+/// unavailable. Otherwise returns `Held`. Call `release` on `Held`.
+pub fn tryAcquire(m: *Mutex) ?Impl.Held {
+    return m.impl.tryAcquire();
 }
 
 /// Acquire the mutex. Deadlocks if the mutex is already
 /// held by the calling thread.
-pub fn acquire(m: *Mutex) Held {
-    m.impl.acquire();
-    return .{ .impl = &m.impl };
+pub fn acquire(m: *Mutex) Impl.Held {
+    return m.impl.acquire();
 }
 
 const Impl = if (builtin.single_threaded)
@@ -82,25 +68,42 @@ pub const AtomicMutex = struct {
         waiting,
     };
 
-    pub fn tryAcquire(self: *AtomicMutex) bool {
-        return @cmpxchgStrong(
+    pub const Held = struct {
+        mutex: *AtomicMutex,
+
+        pub fn release(held: Held) void {
+            switch (@atomicRmw(State, &held.mutex.state, .Xchg, .unlocked, .Release)) {
+                .unlocked => unreachable,
+                .locked => {},
+                .waiting => held.mutex.unlockSlow(),
+            }
+        }
+    };
+
+    pub fn tryAcquire(m: *AtomicMutex) ?Held {
+        if (@cmpxchgStrong(
             State,
-            &self.state,
+            &m.state,
             .unlocked,
             .locked,
             .Acquire,
             .Monotonic,
-        ) == null;
-    }
-
-    pub fn acquire(self: *AtomicMutex) void {
-        switch (@atomicRmw(State, &self.state, .Xchg, .locked, .Acquire)) {
-            .unlocked => {},
-            else => |s| self.lockSlow(s),
+        ) == null) {
+            return Held{ .mutex = m };
+        } else {
+            return null;
         }
     }
 
-    fn lockSlow(self: *AtomicMutex, current_state: State) void {
+    pub fn acquire(m: *AtomicMutex) Held {
+        switch (@atomicRmw(State, &m.state, .Xchg, .locked, .Acquire)) {
+            .unlocked => {},
+            else => |s| m.lockSlow(s),
+        }
+        return Held{ .mutex = m };
+    }
+
+    fn lockSlow(m: *AtomicMutex, current_state: State) void {
         @setCold(true);
         var new_state = current_state;
 
@@ -108,7 +111,7 @@ pub const AtomicMutex = struct {
         while (spin < 100) : (spin += 1) {
             const state = @cmpxchgWeak(
                 State,
-                &self.state,
+                &m.state,
                 .unlocked,
                 new_state,
                 .Acquire,
@@ -128,14 +131,14 @@ pub const AtomicMutex = struct {
 
         new_state = .waiting;
         while (true) {
-            switch (@atomicRmw(State, &self.state, .Xchg, new_state, .Acquire)) {
+            switch (@atomicRmw(State, &m.state, .Xchg, new_state, .Acquire)) {
                 .unlocked => return,
                 else => {},
             }
             switch (std.Target.current.os.tag) {
                 .linux => {
                     switch (linux.getErrno(linux.futex_wait(
-                        @ptrCast(*const i32, &self.state),
+                        @ptrCast(*const i32, &m.state),
                         linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAIT,
                         @enumToInt(new_state),
                         null,
@@ -151,21 +154,13 @@ pub const AtomicMutex = struct {
         }
     }
 
-    pub fn release(self: *AtomicMutex) void {
-        switch (@atomicRmw(State, &self.state, .Xchg, .unlocked, .Release)) {
-            .unlocked => unreachable,
-            .locked => {},
-            .waiting => self.unlockSlow(),
-        }
-    }
-
-    fn unlockSlow(self: *AtomicMutex) void {
+    fn unlockSlow(m: *AtomicMutex) void {
         @setCold(true);
 
         switch (std.Target.current.os.tag) {
             .linux => {
                 switch (linux.getErrno(linux.futex_wake(
-                    @ptrCast(*const i32, &self.state),
+                    @ptrCast(*const i32, &m.state),
                     linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
                     1,
                 ))) {
@@ -182,32 +177,40 @@ pub const AtomicMutex = struct {
 pub const PthreadMutex = struct {
     pthread_mutex: std.c.pthread_mutex_t = .{},
 
+    pub const Held = struct {
+        mutex: *PthreadMutex,
+
+        pub fn release(held: Held) void {
+            switch (std.c.pthread_mutex_unlock(&held.mutex.pthread_mutex)) {
+                0 => return,
+                std.c.EINVAL => unreachable,
+                std.c.EAGAIN => unreachable,
+                std.c.EPERM => unreachable,
+                else => unreachable,
+            }
+        }
+    };
+
     /// Try to acquire the mutex without blocking. Returns null if
     /// the mutex is unavailable. Otherwise returns Held. Call
     /// release on Held.
-    pub fn tryAcquire(self: *PthreadMutex) bool {
-        return std.c.pthread_mutex_trylock(&self.pthread_mutex) == 0;
+    pub fn tryAcquire(m: *PthreadMutex) ?Held {
+        if (std.c.pthread_mutex_trylock(&m.pthread_mutex) == 0) {
+            return Held{ .mutex = m };
+        } else {
+            return null;
+        }
     }
 
     /// Acquire the mutex. Will deadlock if the mutex is already
     /// held by the calling thread.
-    pub fn acquire(self: *PthreadMutex) void {
-        switch (std.c.pthread_mutex_lock(&self.pthread_mutex)) {
-            0 => return,
+    pub fn acquire(m: *PthreadMutex) Held {
+        switch (std.c.pthread_mutex_lock(&m.pthread_mutex)) {
+            0 => return Held{ .mutex = m },
             std.c.EINVAL => unreachable,
             std.c.EBUSY => unreachable,
             std.c.EAGAIN => unreachable,
             std.c.EDEADLK => unreachable,
-            std.c.EPERM => unreachable,
-            else => unreachable,
-        }
-    }
-
-    pub fn release(self: *PthreadMutex) void {
-        switch (std.c.pthread_mutex_unlock(&self.pthread_mutex)) {
-            0 => return,
-            std.c.EINVAL => unreachable,
-            std.c.EAGAIN => unreachable,
             std.c.EPERM => unreachable,
             else => unreachable,
         }
@@ -221,43 +224,56 @@ pub const Dummy = struct {
 
     const lock_init = if (std.debug.runtime_safety) false else {};
 
+    pub const Held = struct {
+        mutex: *Dummy,
+
+        pub fn release(held: Held) void {
+            if (std.debug.runtime_safety) {
+                held.mutex.lock = false;
+            }
+        }
+    };
+
     /// Try to acquire the mutex without blocking. Returns null if
     /// the mutex is unavailable. Otherwise returns Held. Call
     /// release on Held.
-    pub fn tryAcquire(self: *Dummy) bool {
+    pub fn tryAcquire(m: *Dummy) ?Held {
         if (std.debug.runtime_safety) {
-            if (self.lock) return false;
-            self.lock = true;
+            if (m.lock) return null;
+            m.lock = true;
         }
-        return true;
+        return Held{ .mutex = m };
     }
 
     /// Acquire the mutex. Will deadlock if the mutex is already
     /// held by the calling thread.
-    pub fn acquire(self: *Dummy) void {
-        return self.tryAcquire() orelse @panic("deadlock detected");
-    }
-
-    pub fn release(self: *Dummy) void {
-        if (std.debug.runtime_safety) {
-            self.mutex.lock = false;
-        }
+    pub fn acquire(m: *Dummy) Held {
+        return m.tryAcquire() orelse @panic("deadlock detected");
     }
 };
 
 const WindowsMutex = struct {
     srwlock: windows.SRWLOCK = windows.SRWLOCK_INIT,
 
-    pub fn tryAcquire(self: *WindowsMutex) bool {
-        return TryAcquireSRWLockExclusive(&self.srwlock) != system.FALSE;
+    pub const Held = struct {
+        mutex: *WindowsMutex,
+
+        pub fn release(held: Held) void {
+            windows.ReleaseSRWLockExclusive(&held.mutex.srwlock);
+        }
+    };
+
+    pub fn tryAcquire(m: *WindowsMutex) ?Held {
+        if (windows.TryAcquireSRWLockExclusive(&m.srwlock) != windows.FALSE) {
+            return Held{ .mutex = m };
+        } else {
+            return null;
+        }
     }
 
-    pub fn acquire(self: *WindowsMutex) void {
-        AcquireSRWLockExclusive(&self.srwlock);
-    }
-
-    pub fn release(self: *WindowsMutex) void {
-        ReleaseSRWLockExclusive(&self.srwlock);
+    pub fn acquire(m: *WindowsMutex) Held {
+        windows.AcquireSRWLockExclusive(&m.srwlock);
+        return Held{ .mutex = m };
     }
 };
 
