@@ -43,6 +43,9 @@ pub const pthread_mutex_t = extern struct {
 pub const pthread_cond_t = extern struct {
     inner: ?*c_void = null,
 };
+pub const pthread_rwlock_t = extern struct {
+    ptr: ?*c_void = null,
+};
 
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,

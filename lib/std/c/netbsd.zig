@@ -54,6 +54,22 @@ pub const pthread_cond_t = extern struct {
     ptc_private: ?*c_void = null,
 };
 
+pub const pthread_rwlock_t = extern struct {
+    ptr_magic: c_uint = 0x99990009,
+    ptr_interlock: switch (std.builtin.arch) {
+        .aarch64, .sparc, .x86_64, .i386 => u8,
+        .arm, .powerpc => c_int,
+        else => unreachable,
+    } = 0,
+    ptr_rblocked_first: ?*u8 = null,
+    ptr_rblocked_last: ?*u8 = null,
+    ptr_wblocked_first: ?*u8 = null,
+    ptr_wblocked_last: ?*u8 = null,
+    ptr_nreaders: c_uint = 0,
+    ptr_owner: std.c.pthread_t = null,
+    ptr_private: ?*c_void = null,
+};
+
 const pthread_spin_t = switch (builtin.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => u8,
     .mips, .mipsel, .mips64, .mips64el => u32,

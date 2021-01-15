@@ -10,12 +10,11 @@
 //! and it requires no deinitialization. The downside is that it may not
 //! integrate as cleanly into other synchronization APIs, or, in a worst case,
 //! may be forced to fall back on spin locking. As a rule of thumb, prefer
-//! to use `std.ResetEvent` when possible, and use `StaticResetEvent` when
+//! to use `std.Thread.ResetEvent` when possible, and use `StaticResetEvent` when
 //! the logic needs stronger API guarantees.
 
-const std = @import("std.zig");
+const std = @import("../std.zig");
 const StaticResetEvent = @This();
-const SpinLock = std.SpinLock;
 const assert = std.debug.assert;
 const os = std.os;
 const time = std.time;
@@ -53,7 +52,7 @@ pub fn reset(ev: *StaticResetEvent) void {
     return ev.impl.reset();
 }
 
-pub const TimedWaitResult = std.ResetEvent.TimedWaitResult;
+pub const TimedWaitResult = std.Thread.ResetEvent.TimedWaitResult;
 
 /// Wait for the event to be set by blocking the current thread.
 /// A timeout in nanoseconds can be provided as a hint for how
@@ -78,13 +77,13 @@ pub const DebugEvent = struct {
     };
 
     /// This function is provided so that this type can be re-used inside
-    /// `std.ResetEvent`.
+    /// `std.Thread.ResetEvent`.
     pub fn init(ev: *DebugEvent) void {
         ev.* = .{};
     }
 
     /// This function is provided so that this type can be re-used inside
-    /// `std.ResetEvent`.
+    /// `std.Thread.ResetEvent`.
     pub fn deinit(ev: *DebugEvent) void {
         ev.* = undefined;
     }
@@ -125,13 +124,13 @@ pub const AtomicEvent = struct {
     const WAIT = 1 << 1;
 
     /// This function is provided so that this type can be re-used inside
-    /// `std.ResetEvent`.
+    /// `std.Thread.ResetEvent`.
     pub fn init(ev: *AtomicEvent) void {
         ev.* = .{};
     }
 
     /// This function is provided so that this type can be re-used inside
-    /// `std.ResetEvent`.
+    /// `std.Thread.ResetEvent`.
     pub fn deinit(ev: *AtomicEvent) void {
         ev.* = undefined;
     }
@@ -183,7 +182,7 @@ pub const AtomicEvent = struct {
                 timer = time.Timer.start() catch return error.TimedOut;
 
             while (@atomicLoad(u32, waiters, .Acquire) != WAKE) {
-                SpinLock.yield();
+                std.os.sched_yield() catch std.Thread.spinLoopHint();
                 if (timeout) |timeout_ns| {
                     if (timer.read() >= timeout_ns)
                         return error.TimedOut;
@@ -294,7 +293,7 @@ pub const AtomicEvent = struct {
                         return @intToPtr(?windows.HANDLE, handle);
                     },
                     LOADING => {
-                        SpinLock.yield();
+                        std.os.sched_yield() catch std.Thread.spinLoopHint();
                         handle = @atomicLoad(usize, &event_handle, .Monotonic);
                     },
                     else => {

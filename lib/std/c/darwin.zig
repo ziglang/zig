@@ -177,6 +177,10 @@ pub const pthread_cond_t = extern struct {
     __sig: c_long = 0x3CB0B1BB,
     __opaque: [__PTHREAD_COND_SIZE__]u8 = [_]u8{0} ** __PTHREAD_COND_SIZE__,
 };
+pub const pthread_rwlock_t = extern struct {
+    __sig: c_long = 0x2DA8B3B4,
+    __opaque: [192]u8 = [_]u8{0} ** 192,
+};
 pub const sem_t = c_int;
 const __PTHREAD_MUTEX_SIZE__ = if (@sizeOf(usize) == 8) 56 else 40;
 const __PTHREAD_COND_SIZE__ = if (@sizeOf(usize) == 8) 40 else 24;
@@ -192,7 +196,7 @@ pub extern "c" fn pthread_threadid_np(thread: ?pthread_t, thread_id: *u64) c_int
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 // Grand Central Dispatch is exposed by libSystem.
-pub const dispatch_semaphore_t = *opaque{};
+pub const dispatch_semaphore_t = *opaque {};
 pub const dispatch_time_t = u64;
 pub const DISPATCH_TIME_NOW = @as(dispatch_time_t, 0);
 pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
