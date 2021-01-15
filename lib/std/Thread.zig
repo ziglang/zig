@@ -554,5 +554,7 @@ pub fn getCurrentThreadId() u64 {
 }
 
 test "" {
-    std.testing.refAllDecls(@This());
+    if (!builtin.single_threaded) {
+        std.testing.refAllDecls(@This());
+    }
 }
