@@ -634,12 +634,7 @@ pub fn formatIntValue(
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
         }
     } else if (comptime std.mem.eql(u8, fmt, "Z")) {
-        if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
-            const c: u8 = int_value;
-            return formatZigEscapes(@as(*const [1]u8, &c), options, writer);
-        } else {
-            @compileError("Cannot escape character with more than 8 bits");
-        }
+        @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
             return formatUnicodeCodepoint(@as(u21, int_value), options, writer);
