@@ -217,4 +217,20 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
     }
+
+    {
+        var case = ctx.exe("only libc exit", macos_aarch64);
+
+        // This test case covers an infrequent scenarion where the string table *may* be relocated
+        // into the position preceeding the symbol table which results in a dyld error.
+        case.addCompareOutput(
+            \\extern "c" fn exit(usize) noreturn;
+            \\
+            \\export fn _start() noreturn {
+            \\    exit(0);
+            \\}
+        ,
+            "",
+        );
+    }
 }

@@ -135,6 +135,8 @@ lazy_binding_info_dirty: bool = false,
 export_info_dirty: bool = false,
 string_table_dirty: bool = false,
 
+string_table_needs_relocation: bool = false,
+
 /// A list of text blocks that have surplus capacity. This list can have false
 /// positives, as functions grow and shrink over time, only sometimes being added
 /// or removed from the freelist.
@@ -454,6 +456,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     assert(!self.lazy_binding_info_dirty);
     assert(!self.export_info_dirty);
     assert(!self.string_table_dirty);
+    assert(!self.string_table_needs_relocation);
 
     if (target.cpu.arch == .aarch64) {
         switch (output_mode) {
@@ -1824,22 +1827,22 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         // Preallocate rebase, binding, lazy binding info, and export info.
         const expected_size = 48; // TODO This is totally random.
-        const rebase_off = self.findFreeSpaceLinkedit(expected_size, 1);
+        const rebase_off = self.findFreeSpaceLinkedit(expected_size, 1, null);
         log.debug("found rebase info free space 0x{x} to 0x{x}", .{ rebase_off, rebase_off + expected_size });
         dyld.rebase_off = @intCast(u32, rebase_off);
         dyld.rebase_size = expected_size;
 
-        const bind_off = self.findFreeSpaceLinkedit(expected_size, 1);
+        const bind_off = self.findFreeSpaceLinkedit(expected_size, 1, null);
         log.debug("found binding info free space 0x{x} to 0x{x}", .{ bind_off, bind_off + expected_size });
         dyld.bind_off = @intCast(u32, bind_off);
         dyld.bind_size = expected_size;
 
-        const lazy_bind_off = self.findFreeSpaceLinkedit(expected_size, 1);
+        const lazy_bind_off = self.findFreeSpaceLinkedit(expected_size, 1, null);
         log.debug("found lazy binding info free space 0x{x} to 0x{x}", .{ lazy_bind_off, lazy_bind_off + expected_size });
         dyld.lazy_bind_off = @intCast(u32, lazy_bind_off);
         dyld.lazy_bind_size = expected_size;
 
-        const export_off = self.findFreeSpaceLinkedit(expected_size, 1);
+        const export_off = self.findFreeSpaceLinkedit(expected_size, 1, null);
         log.debug("found export info free space 0x{x} to 0x{x}", .{ export_off, export_off + expected_size });
         dyld.export_off = @intCast(u32, export_off);
         dyld.export_size = expected_size;
@@ -1864,14 +1867,14 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
 
         const symtab_size = self.base.options.symbol_count_hint * @sizeOf(macho.nlist_64);
-        const symtab_off = self.findFreeSpaceLinkedit(symtab_size, @sizeOf(macho.nlist_64));
+        const symtab_off = self.findFreeSpaceLinkedit(symtab_size, @sizeOf(macho.nlist_64), null);
         log.debug("found symbol table free space 0x{x} to 0x{x}", .{ symtab_off, symtab_off + symtab_size });
         symtab.symoff = @intCast(u32, symtab_off);
         symtab.nsyms = @intCast(u32, self.base.options.symbol_count_hint);
 
         try self.string_table.append(self.base.allocator, 0); // Need a null at position 0.
         const strtab_size = self.string_table.items.len;
-        const strtab_off = self.findFreeSpaceLinkedit(strtab_size, 1);
+        const strtab_off = self.findFreeSpaceLinkedit(strtab_size, 1, symtab_off);
         log.debug("found string table free space 0x{x} to 0x{x}", .{ strtab_off, strtab_off + strtab_size });
         symtab.stroff = @intCast(u32, strtab_off);
         symtab.strsize = @intCast(u32, strtab_size);
@@ -1885,7 +1888,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         // Preallocate space for indirect symbol table.
         const indsymtab_size = self.base.options.symbol_count_hint * @sizeOf(u64); // Each entry is just a u64.
-        const indsymtab_off = self.findFreeSpaceLinkedit(indsymtab_size, @sizeOf(u64));
+        const indsymtab_off = self.findFreeSpaceLinkedit(indsymtab_size, @sizeOf(u64), null);
 
         log.debug("found indirect symbol table free space 0x{x} to 0x{x}", .{ indsymtab_off, indsymtab_off + indsymtab_size });
 
@@ -2383,13 +2386,13 @@ fn detectAllocCollisionLinkedit(self: *MachO, start: u64, size: u64) ?u64 {
     return null;
 }
 
-fn findFreeSpaceLinkedit(self: *MachO, object_size: u64, min_alignment: u16) u64 {
+fn findFreeSpaceLinkedit(self: *MachO, object_size: u64, min_alignment: u16, start: ?u64) u64 {
     const linkedit = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-    var start: u64 = linkedit.inner.fileoff;
-    while (self.detectAllocCollisionLinkedit(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+    var st: u64 = start orelse linkedit.inner.fileoff;
+    while (self.detectAllocCollisionLinkedit(st, object_size)) |item_end| {
+        st = mem.alignForwardGeneric(u64, item_end, min_alignment);
     }
-    return start;
+    return st;
 }
 
 /// Saturating multiplication
@@ -2535,7 +2538,7 @@ fn relocateSymbolTable(self: *MachO) !void {
         const needed_size = nsyms * @sizeOf(macho.nlist_64);
         if (needed_size > self.allocatedSizeLinkedit(symtab.symoff)) {
             // Move the entire symbol table to a new location
-            const new_symoff = self.findFreeSpaceLinkedit(needed_size, @alignOf(macho.nlist_64));
+            const new_symoff = self.findFreeSpaceLinkedit(needed_size, @alignOf(macho.nlist_64), null);
             const existing_size = symtab.nsyms * @sizeOf(macho.nlist_64);
 
             log.debug("relocating symbol table from 0x{x}-0x{x} to 0x{x}-0x{x}", .{
@@ -2548,6 +2551,7 @@ fn relocateSymbolTable(self: *MachO) !void {
             const amt = try self.base.file.?.copyRangeAll(symtab.symoff, self.base.file.?, new_symoff, existing_size);
             if (amt != existing_size) return error.InputOutput;
             symtab.symoff = @intCast(u32, new_symoff);
+            self.string_table_needs_relocation = true;
         }
         symtab.nsyms = @intCast(u32, nsyms);
         self.load_commands_dirty = true;
@@ -2757,7 +2761,8 @@ fn writeExportTrie(self: *MachO) !void {
 
     if (needed_size > allocated_size) {
         dyld_info.export_off = 0;
-        dyld_info.export_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
+        dyld_info.export_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
+        // TODO this might require relocating all following LC_DYLD_INFO_ONLY sections too.
     }
     dyld_info.export_size = @intCast(u32, needed_size);
     log.debug("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
@@ -2794,7 +2799,8 @@ fn writeRebaseInfoTable(self: *MachO) !void {
 
     if (needed_size > allocated_size) {
         dyld_info.rebase_off = 0;
-        dyld_info.rebase_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
+        dyld_info.rebase_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
+        // TODO this might require relocating all following LC_DYLD_INFO_ONLY sections too.
     }
 
     dyld_info.rebase_size = @intCast(u32, needed_size);
@@ -2832,7 +2838,8 @@ fn writeBindingInfoTable(self: *MachO) !void {
 
     if (needed_size > allocated_size) {
         dyld_info.bind_off = 0;
-        dyld_info.bind_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
+        dyld_info.bind_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
+        // TODO this might require relocating all following LC_DYLD_INFO_ONLY sections too.
     }
 
     dyld_info.bind_size = @intCast(u32, needed_size);
@@ -2867,7 +2874,8 @@ fn writeLazyBindingInfoTable(self: *MachO) !void {
 
     if (needed_size > allocated_size) {
         dyld_info.lazy_bind_off = 0;
-        dyld_info.lazy_bind_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
+        dyld_info.lazy_bind_off = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, null));
+        // TODO this might require relocating all following LC_DYLD_INFO_ONLY sections too.
     }
 
     dyld_info.lazy_bind_size = @intCast(u32, needed_size);
@@ -2956,9 +2964,10 @@ fn writeStringTable(self: *MachO) !void {
     const allocated_size = self.allocatedSizeLinkedit(symtab.stroff);
     const needed_size = mem.alignForwardGeneric(u64, self.string_table.items.len, @alignOf(u64));
 
-    if (needed_size > allocated_size) {
+    if (needed_size > allocated_size or self.string_table_needs_relocation) {
         symtab.strsize = 0;
-        symtab.stroff = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1));
+        symtab.stroff = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, 1, symtab.symoff));
+        self.string_table_needs_relocation = false;
     }
     symtab.strsize = @intCast(u32, needed_size);
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
