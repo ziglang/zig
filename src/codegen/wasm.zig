@@ -264,7 +264,15 @@ pub const Context = struct {
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
-        try self.code.append(0x6A); // i32.add
+        const opcode: u8 = switch (inst.base.ty.tag()) {
+            .u32, .i32 => 0x6A, //i32.add
+            .u64, .i64 => 0x7C, //i64.add
+            .f32 => 0x92, //f32.add
+            .f64 => 0xA0, //f64.add
+            else => return self.fail(inst.base.src, "TODO - Implement wasm genAdd for type '{s}'", .{inst.base.ty.tag()}),
+        };
+
+        try self.code.append(opcode);
         return WValue.none;
     }
 
