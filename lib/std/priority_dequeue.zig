@@ -191,6 +191,7 @@ pub fn PriorityDequeue(comptime T: type) type {
         /// same order as iterator, which is not necessarily priority
         /// order.
         pub fn removeIndex(self: *Self, index: usize) T {
+            assert(self.len > index);
             const item = self.items[index];
             const last = self.items[self.len - 1];
 
