@@ -147,14 +147,16 @@ test "listen on a port, send bytes, receive bytes" {
     // configured.
     const localhost = try net.Address.parseIp("127.0.0.1", 0);
 
-    var server = net.StreamServer.init(.{});
-    defer server.deinit();
-
-    try server.listen(localhost);
+    var server = try net.TcpListener.listen(localhost, .{});
+    defer server.close();
 
     const S = struct {
         fn clientFn(server_address: net.Address) !void {
-            const socket = try net.tcpConnectToAddress(server_address);
+            var socket = try net.TcpClient.connectToAddress(
+                testing.allocator,
+                server_address,
+                .{},
+            );
             defer socket.close();
 
             _ = try socket.writer().writeAll("Hello world!");
@@ -165,9 +167,9 @@ test "listen on a port, send bytes, receive bytes" {
     defer t.wait();
 
     var client = try server.accept();
-    defer client.stream.close();
+    defer client.client.close();
     var buf: [16]u8 = undefined;
-    const n = try client.stream.reader().read(&buf);
+    const n = try client.client.reader().read(&buf);
 
     testing.expectEqual(@as(usize, 12), n);
     testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
@@ -250,7 +252,7 @@ fn testServer(server: *net.StreamServer) anyerror!void {
 
     var client = try server.accept();
 
-    const stream = client.stream.writer();
+    const stream = client.client.writer();
     try stream.print("hello from server\n", .{});
 }
 
@@ -267,18 +269,21 @@ test "listen on a unix socket, send bytes, receive bytes" {
         }
     }
 
-    var server = net.StreamServer.init(.{});
-    defer server.deinit();
-
     const socket_path = "socket.unix";
 
     var socket_addr = try net.Address.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
-    try server.listen(socket_addr);
+
+    var server = try net.UnixListener.listen(socket_addr, .{});
+    defer server.close();
 
     const S = struct {
         fn clientFn(_: void) !void {
-            const socket = try net.connectUnixSocket(socket_path);
+            var socket = try net.UnixClient.connectToPath(
+                testing.allocator,
+                socket_path,
+                .{},
+            );
             defer socket.close();
 
             _ = try socket.writer().writeAll("Hello world!");
@@ -289,9 +294,9 @@ test "listen on a unix socket, send bytes, receive bytes" {
     defer t.wait();
 
     var client = try server.accept();
-    defer client.stream.close();
+    defer client.client.close();
     var buf: [16]u8 = undefined;
-    const n = try client.stream.reader().read(&buf);
+    const n = try client.client.reader().read(&buf);
 
     testing.expectEqual(@as(usize, 12), n);
     testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);

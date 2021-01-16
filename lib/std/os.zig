@@ -4064,7 +4064,7 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
     }
 }
 
-fn setSockFlags(sock: socket_t, flags: u32) !void {
+pub fn setSockFlags(sock: socket_t, flags: u32) !void {
     if ((flags & SOCK_CLOEXEC) != 0) {
         if (builtin.os.tag == .windows) {
             // TODO: Find out if this is supported for sockets
@@ -5511,6 +5511,64 @@ pub const MemFdCreateError = error{
     /// for older kernel versions.
     SystemOutdated,
 } || UnexpectedError;
+
+pub const GetSockOptError = error{
+    /// The socket is already connected, and a specified option cannot be set while the socket is connected.
+    AlreadyConnected,
+
+    /// The option is not supported by the protocol.
+    InvalidProtocolOption,
+
+    /// The send and receive timeout values are too big to fit into the timeout fields in the socket structure.
+    TimeoutTooBig,
+
+    /// Insufficient resources are available in the system to complete the call.
+    SystemResources,
+
+    // Getting the socket option requires more elevated permissions.
+    PermissionDenied,
+
+    NetworkSubsystemFailed,
+    FileDescriptorNotASocket,
+    SocketNotBound,
+} || UnexpectedError;
+
+/// Get a socket's options.
+pub fn getsockopt(fd: socket_t, level: u32, optname: u32, opt: []u8) GetSockOptError![]const u8 {
+    // Updated after the call to getsockopt.
+    var opt_len = @intCast(socklen_t, opt.len);
+
+    if (builtin.os.tag == .windows) {
+        const rc = windows.ws2_32.getsockopt(fd, level, optname, opt.ptr, &opt_len);
+        if (rc == windows.ws2_32.SOCKET_ERROR) {
+            switch (windows.ws2_32.WSAGetLastError()) {
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAEFAULT => unreachable,
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEINVAL => return error.SocketNotBound,
+                else => |err| return windows.unexpectedWSAError(err),
+            }
+        }
+    } else {
+        switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &opt_len))) {
+            0 => {},
+            EBADF => unreachable, // always a race condition
+            ENOTSOCK => unreachable, // always a race condition
+            EINVAL => unreachable,
+            EFAULT => unreachable,
+            EDOM => return error.TimeoutTooBig,
+            EISCONN => return error.AlreadyConnected,
+            ENOPROTOOPT => return error.InvalidProtocolOption,
+            ENOMEM => return error.SystemResources,
+            ENOBUFS => return error.SystemResources,
+            EPERM => return error.PermissionDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    return opt[0..opt_len];
+}
 
 pub const memfd_createC = @compileError("deprecated: renamed to memfd_createZ");
 

@@ -12,13 +12,54 @@ const os = std.os;
 const fs = std.fs;
 const io = std.io;
 
+const windows = os.windows;
+const ws2_32 = os.windows.ws2_32;
+
 const dns = @import("net/dns.zig");
+
+const is_windows = builtin.os.tag == .windows;
 
 // Windows 10 added support for unix sockets in build 17063, redstone 4 is the
 // first release to support them.
 pub const has_unix_sockets = @hasDecl(os, "sockaddr_un") and
     (builtin.os.tag != .windows or
     std.Target.current.os.version_range.windows.isAtLeast(.win10_rs4) orelse false);
+
+// Platform-independent socket descriptor.
+// Note that on some platforms this may not be interchangeable with a regular
+// files descriptor.
+pub const Socket = extern struct {
+    handle: os.socket_t,
+};
+
+fn setSocketNonBlocking(handle: os.socket_t, nonblocking: bool) !void {
+    if (is_windows) {
+        var mode: c_ulong = @boolToInt(nonblocking);
+        if (ws2_32.ioctlsocket(handle, ws2_32.FIONBIO, &mode) == ws2_32.SOCKET_ERROR)
+            return windows.unexpectedWSAError(ws2_32.WSAGetLastError());
+        return;
+    }
+
+    var fl_flags = os.fcntl(handle, os.F_GETFL, 0) catch |err| switch (err) {
+        error.FileBusy => unreachable,
+        error.Locked => unreachable,
+        error.PermissionDenied => unreachable,
+        error.ProcessFdQuotaExceeded => unreachable,
+        else => |e| return e,
+    };
+    if (nonblocking) {
+        fl_flags |= os.O_NONBLOCK;
+    } else {
+        fl_flags &= ~@as(u32, os.O_NONBLOCK);
+    }
+    _ = os.fcntl(handle, os.F_SETFL, fl_flags) catch |err| switch (err) {
+        error.FileBusy => unreachable,
+        error.Locked => unreachable,
+        error.PermissionDenied => unreachable,
+        error.ProcessFdQuotaExceeded => unreachable,
+        else => |e| return e,
+    };
+}
 
 pub const Address = extern union {
     any: os.sockaddr,
@@ -603,29 +644,6 @@ pub const Ip6Address = extern struct {
     }
 };
 
-pub fn connectUnixSocket(path: []const u8) !Stream {
-    const opt_non_block = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-    const sockfd = try os.socket(
-        os.AF_UNIX,
-        os.SOCK_STREAM | os.SOCK_CLOEXEC | opt_non_block,
-        0,
-    );
-    errdefer os.closeSocket(sockfd);
-
-    var addr = try std.net.Address.initUnix(path);
-
-    if (std.io.is_async) {
-        const loop = std.event.Loop.instance orelse return error.WouldBlock;
-        try loop.connect(sockfd, &addr.any, addr.getOsSockLen());
-    } else {
-        try os.connect(sockfd, &addr.any, addr.getOsSockLen());
-    }
-
-    return Stream{
-        .handle = sockfd,
-    };
-}
-
 fn if_nametoindex(name: []const u8) !u32 {
     var ifr: os.ifreq = undefined;
     var sockfd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM | os.SOCK_CLOEXEC, 0);
@@ -654,41 +672,6 @@ pub const AddressList = struct {
     }
 };
 
-/// All memory allocated with `allocator` will be freed before this function returns.
-pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) !Stream {
-    const list = try getAddressList(allocator, name, port);
-    defer list.deinit();
-
-    if (list.addrs.len == 0) return error.UnknownHostName;
-
-    for (list.addrs) |addr| {
-        return tcpConnectToAddress(addr) catch |err| switch (err) {
-            error.ConnectionRefused => {
-                continue;
-            },
-            else => return err,
-        };
-    }
-    return std.os.ConnectError.ConnectionRefused;
-}
-
-pub fn tcpConnectToAddress(address: Address) !Stream {
-    const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-    const sock_flags = os.SOCK_STREAM | nonblock |
-        (if (builtin.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
-    const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
-    errdefer os.closeSocket(sockfd);
-
-    if (std.io.is_async) {
-        const loop = std.event.Loop.instance orelse return error.WouldBlock;
-        try loop.connect(sockfd, &address.any, address.getOsSockLen());
-    } else {
-        try os.connect(sockfd, &address.any, address.getOsSockLen());
-    }
-
-    return Stream{ .handle = sockfd };
-}
-
 /// Call `AddressList.deinit` on the result.
 pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*AddressList {
     const result = blk: {
@@ -706,14 +689,14 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
     const arena = &result.arena.allocator;
     errdefer result.arena.deinit();
 
-    if (builtin.os.tag == .windows or builtin.link_libc) {
+    if (is_windows or builtin.link_libc) {
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
         const port_c = try std.fmt.allocPrint(allocator, "{}\x00", .{port});
         defer allocator.free(port_c);
 
-        const sys = if (builtin.os.tag == .windows) os.windows.ws2_32 else os.system;
+        const sys = if (is_windows) os.windows.ws2_32 else os.system;
         const hints = os.addrinfo{
             .flags = sys.AI_NUMERICSERV,
             .family = os.AF_UNSPEC,
@@ -726,7 +709,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         };
         var res: *os.addrinfo = undefined;
         const rc = sys.getaddrinfo(name_c.ptr, std.meta.assumeSentinel(port_c.ptr, 0), &hints, &res);
-        if (builtin.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
+        if (is_windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
             @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
             .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
             .WSANO_RECOVERY => return error.NameServerFailure,
@@ -810,128 +793,489 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
     @compileError("std.net.getAddresses unimplemented for this OS");
 }
 
-pub const Stream = struct {
-    // Underlying socket descriptor.
-    // Note that on some platforms this may not be interchangeable with a
-    // regular files descriptor.
-    handle: os.socket_t,
+pub const TcpClient = struct {
+    socket: Socket,
 
-    pub fn close(self: Stream) void {
-        os.closeSocket(self.handle);
+    pub const ReadError = os.RecvFromError;
+    pub const WriteError = os.SendError;
+
+    pub const Reader = io.Reader(TcpClient, ReadError, read);
+    pub const Writer = io.Writer(TcpClient, WriteError, write);
+
+    pub const ConnectOptions = struct {
+        /// Enable SO_REUSEPORT on the socket.
+        /// This parameter is ignored on some platforms.
+        reuse_port: bool = false,
+
+        /// Enable SO_REUSEADDR on the socket.
+        /// This parameter is ignored on some platforms.
+        reuse_address: bool = false,
+
+        /// Timeout in ms for a successful connection.
+        /// If null the connection operation waits forever.
+        timeout: ?u32 = null,
+    };
+
+    pub fn connectToHost(
+        allocator: *mem.Allocator,
+        name: []const u8,
+        port: u16,
+        options: ConnectOptions,
+    ) !TcpClient {
+        const list = try getAddressList(allocator, name, port);
+        defer list.deinit();
+
+        if (list.addrs.len == 0) return error.UnknownHostName;
+
+        for (list.addrs) |addr| {
+            return connectToAddress(addr) catch |err| switch (err) {
+                error.ConnectionRefused => {
+                    continue;
+                },
+                else => return err,
+            };
+        }
+
+        return os.ConnectError.ConnectionRefused;
     }
+    pub fn connectToAddress(
+        allocator: *mem.Allocator,
+        address: Address, // XXX: Accept a []Address instead?
+        options: ConnectOptions,
+    ) !TcpClient {
+        const sock_flags = os.SOCK_STREAM |
+            (if (is_windows) 0 else os.SOCK_CLOEXEC);
+        const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
+        errdefer os.closeSocket(sockfd);
 
-    pub const ReadError = os.ReadError;
-    pub const WriteError = os.WriteError;
-
-    pub const Reader = io.Reader(Stream, ReadError, read);
-    pub const Writer = io.Writer(Stream, WriteError, write);
-
-    pub fn reader(self: Stream) Reader {
-        return .{ .context = self };
-    }
-
-    pub fn writer(self: Stream) Writer {
-        return .{ .context = self };
-    }
-
-    pub fn read(self: Stream, buffer: []u8) ReadError!usize {
-        if (std.Target.current.os.tag == .windows) {
-            return os.windows.ReadFile(self.handle, buffer, null, io.default_mode);
+        if (comptime std.Target.current.isDarwin()) {
+            // Darwin doesn't support the MSG_NOSIGNAL flag.
+            try os.setsockopt(
+                sockfd,
+                os.SOL_SOCKET,
+                os.SO_NOSIGPIPE,
+                &mem.toBytes(@as(i32, 1)),
+            );
         }
 
         if (std.io.is_async) {
-            return std.event.Loop.instance.?.read(self.handle, buffer, false);
+            @panic("implement me");
+        } else if (options.timeout) |timeout_ms| {
+            try setSocketNonBlocking(sockfd, true);
+
+            os.connect(sockfd, &address.any, address.getOsSockLen()) catch |err| switch (err) {
+                error.WouldBlock => {},
+                else => |e| return e,
+            };
+            var poll_fd = os.pollfd{
+                .fd = sockfd,
+                .events = os.POLLOUT | os.POLLERR,
+                .revents = undefined,
+            };
+
+            const events = try os.poll(&.{poll_fd}, @bitCast(i32, timeout_ms));
+            // No events are available, the connect() call timed out.
+            if (events == 0)
+                return error.ConnectionTimedOut;
+            try setSocketNonBlocking(sockfd, false);
         } else {
-            return os.read(self.handle, buffer);
+            try os.connect(sockfd, &address.any, address.getOsSockLen());
+        }
+
+        return TcpClient{ .socket = .{ .handle = sockfd } };
+    }
+
+    pub fn read(self: TcpClient, buffer: []u8) ReadError!usize {
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            const flags: u32 = if (@hasDecl(os, "MSG_NOSIGNAL")) os.MSG_NOSIGNAL else 0;
+            return os.recv(self.socket.handle, buffer, flags);
+        }
+    }
+    pub fn write(self: TcpClient, buffer: []const u8) WriteError!usize {
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            const flags: u32 = if (@hasDecl(os, "MSG_NOSIGNAL")) os.MSG_NOSIGNAL else 0;
+            return os.send(self.socket.handle, buffer, flags);
         }
     }
 
-    pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
-        if (std.Target.current.os.tag == .windows) {
-            return os.windows.WriteFile(self.handle, buffer, null, io.default_mode);
-        }
+    pub fn shutdown(self: TcpClient, endpoint: os.ShutdownHow) !void {
+        return os.shutdown(self.socket.handle, endpoint);
+    }
+    pub fn close(self: *TcpClient) void {
+        os.closeSocket(self.socket.handle);
+    }
 
-        if (std.io.is_async) {
-            return std.event.Loop.instance.?.write(self.handle, buffer, false);
-        } else {
-            return os.write(self.handle, buffer);
-        }
+    pub fn reader(self: TcpClient) Reader {
+        return .{ .context = self };
+    }
+    pub fn writer(self: TcpClient) Writer {
+        return .{ .context = self };
+    }
+
+    pub fn setNodelay(self: TcpClient, nodelay: bool) !void {
+        try os.setsockopt(
+            self.socket.handle,
+            os.SOL_SOCKET,
+            if (is_windows) os.TCP_NODELAY else os.SO_NODELAY,
+            &mem.toBytes(@as(i32, @boolToInt(nodelay))),
+        );
+    }
+    pub fn getNodelay(self: TcpClient) !bool {
+        var value: u32 = undefined;
+        _ = try os.getsockopt(
+            self.socket.handle,
+            os.SOL_SOCKET,
+            if (is_windows) os.TCP_NODELAY else os.SO_NODELAY,
+            mem.asBytes(&value),
+        );
+        return value != 0;
+    }
+
+    pub fn setKeepalive(self: TcpClient, keepalive: bool) !void {
+        try os.setsockopt(
+            self.socket.handle,
+            os.SOL_SOCKET,
+            os.SO_KEEPALIVE,
+            &mem.toBytes(@as(i32, @boolToInt(keepalive))),
+        );
+    }
+    pub fn getKeepalive(self: TcpClient) !bool {
+        var value: u32 = undefined;
+        _ = try os.getsockopt(
+            self.socket.handle,
+            os.SOL_SOCKET,
+            os.SO_KEEPALIVE,
+            mem.asBytes(&value),
+        );
+        return value != 0;
+    }
+
+    pub fn setReadTimeout(self: TcpClient, timeout_ms: u32) !void {
+        try os.setsockopt(
+            self.socket.handle,
+            os.SOL_SOCKET,
+            os.SO_RCVTIMEO,
+            &mem.toBytes(@bitCast(i32, timeout_ms)),
+        );
+    }
+    pub fn getReadTimeout(self: TcpClient) !u32 {
+        if (is_windows) return error.Unsupported;
+
+        var value: u32 = undefined;
+        _ = try os.getsockopt(
+            self.socket.handle,
+            os.SOL_SOCKET,
+            os.SO_RCVTIMEO,
+            mem.asBytes(&value),
+        );
+        return value;
+    }
+
+    pub fn setWriteTimeout(self: TcpClient, timeout_ms: u32) !void {
+        try os.setsockopt(
+            self.socket.handle,
+            os.SOL_SOCKET,
+            os.SO_SNDTIMEO,
+            &mem.toBytes(@bitCast(i32, timeout_ms)),
+        );
+    }
+    pub fn getWriteTimeout(self: TcpClient) !u32 {
+        if (is_windows) return error.Unsupported;
+
+        var value: u32 = undefined;
+        _ = try os.getsockopt(
+            self.socket.handle,
+            os.SOL_SOCKET,
+            os.SO_SNDTIMEO,
+            mem.asBytes(&value),
+        );
+        return value;
     }
 };
 
-pub const StreamServer = struct {
-    /// Copied from `Options` on `init`.
-    kernel_backlog: u31,
-    reuse_address: bool,
+pub const UnixClient = struct {
+    socket: Socket,
 
-    /// `undefined` until `listen` returns successfully.
+    pub const ReadError = os.RecvFromError;
+    pub const WriteError = os.SendError;
+
+    pub const Reader = io.Reader(UnixClient, ReadError, read);
+    pub const Writer = io.Writer(UnixClient, WriteError, write);
+
+    pub const ConnectOptions = struct {
+        //
+    };
+
+    pub fn connectToPath(
+        allocator: *mem.Allocator,
+        path: []const u8,
+        options: ConnectOptions,
+    ) !UnixClient {
+        return connectToAddress(allocator, try Address.initUnix(path), options);
+    }
+    pub fn connectToAddress(
+        allocator: *mem.Allocator,
+        address: Address, // XXX: Accept a []Address instead?
+        options: ConnectOptions,
+    ) !UnixClient {
+        const sock_flags = os.SOCK_STREAM |
+            (if (is_windows) 0 else os.SOCK_CLOEXEC);
+        const sockfd = try os.socket(os.AF_UNIX, sock_flags, 0);
+        errdefer os.closeSocket(sockfd);
+
+        if (comptime std.Target.current.isDarwin()) {
+            // Darwin doesn't support the MSG_NOSIGNAL flag.
+            try os.setsockopt(
+                sockfd,
+                os.SOL_SOCKET,
+                os.SO_NOSIGPIPE,
+                &mem.toBytes(@as(i32, 1)),
+            );
+        }
+
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            try os.connect(sockfd, &address.any, address.getOsSockLen());
+        }
+
+        return UnixClient{ .socket = .{ .handle = sockfd } };
+    }
+
+    pub fn read(self: UnixClient, buffer: []u8) ReadError!usize {
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            const flags: u32 = if (@hasDecl(os, "MSG_NOSIGNAL")) os.MSG_NOSIGNAL else 0;
+            return os.recv(self.socket.handle, buffer, flags);
+        }
+    }
+    pub fn write(self: UnixClient, buffer: []const u8) WriteError!usize {
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            const flags: u32 = if (@hasDecl(os, "MSG_NOSIGNAL")) os.MSG_NOSIGNAL else 0;
+            return os.send(self.socket.handle, buffer, flags);
+        }
+    }
+
+    pub fn close(self: *UnixClient) void {
+        os.closeSocket(self.socket.handle);
+    }
+
+    pub fn reader(self: UnixClient) Reader {
+        return .{ .context = self };
+    }
+    pub fn writer(self: UnixClient) Writer {
+        return .{ .context = self };
+    }
+};
+
+pub const UdpClient = struct {
+    socket: Socket,
+    is_bound: bool,
+
+    pub const ConnectOptions = struct {
+        //
+    };
+
+    pub fn connectToHost(
+        allocator: *mem.Allocator,
+        name: []const u8,
+        port: u16,
+        options: ConnectOptions,
+    ) !UdpClient {
+        const list = try getAddressList(allocator, name, port);
+        defer list.deinit();
+
+        if (list.addrs.len == 0) return error.UnknownHostName;
+
+        for (list.addrs) |addr| {
+            return connectToAddress(addr) catch |err| switch (err) {
+                error.ConnectionRefused => {
+                    continue;
+                },
+                else => return err,
+            };
+        }
+
+        return os.ConnectError.ConnectionRefused;
+    }
+    pub fn connectToAddress(
+        allocator: *mem.Allocator,
+        address: Address, // XXX: Accept a []Address instead?
+        options: ConnectOptions,
+    ) !UdpClient {
+        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
+        const sock_flags = os.SOCK_DGRAM | nonblock |
+            (if (is_windows) 0 else os.SOCK_CLOEXEC);
+        const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_UDP);
+        errdefer os.closeSocket(sockfd);
+
+        if (comptime std.Target.current.isDarwin()) {
+            // Darwin doesn't support the MSG_NOSIGNAL flag.
+            try os.setsockopt(
+                sockfd,
+                os.SOL_SOCKET,
+                os.SO_NOSIGPIPE,
+                &mem.toBytes(@as(u32, 1)),
+            );
+        }
+
+        if (std.io.is_async) {
+            const loop = std.event.Loop.instance orelse return error.WouldBlock;
+            try loop.connect(sockfd, &address.any, address.getOsSockLen());
+        } else {
+            try os.connect(sockfd, &address.any, address.getOsSockLen());
+        }
+
+        return UdpClient{
+            .socket = .{ .handle = sockfd },
+            .is_bound = true,
+        };
+    }
+
+    pub fn bindToHost(allocator: *mem.Allocator, name: []const u8, port: u16) !UdpClient {
+        const list = try getAddressList(allocator, name, port);
+        defer list.deinit();
+
+        if (list.addrs.len == 0) return error.UnknownHostName;
+
+        for (list.addrs) |addr| {
+            return bindToAddress(addr) catch |err| switch (err) {
+                error.ConnectionRefused => {
+                    continue;
+                },
+                else => return err,
+            };
+        }
+
+        return os.ConnectError.ConnectionRefused;
+    }
+    pub fn bindToAddress(allocator: *mem.Allocator, address: Address) !UdpClient {
+        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
+        const sock_flags = os.SOCK_DGRAM | nonblock |
+            (if (is_windows) 0 else os.SOCK_CLOEXEC);
+        const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_UDP);
+        errdefer os.closeSocket(sockfd);
+
+        if (comptime std.Target.current.isDarwin()) {
+            // Darwin doesn't support the MSG_NOSIGNAL flag.
+            try os.setsockopt(
+                sockfd,
+                os.SOL_SOCKET,
+                os.SO_NOSIGPIPE,
+                &mem.toBytes(@as(u32, 1)),
+            );
+        }
+
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            try os.bind(sockfd, &address.any, address.getOsSockLen());
+        }
+
+        return UdpClient{
+            .socket = .{ .handle = sockfd },
+            .is_bound = false,
+        };
+    }
+
+    pub fn receive(self: UdpClient, buffer: []u8) os.RecvFromError!usize {
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            assert(self.is_bound);
+            const flags: u32 = if (@hasDecl(os, "MSG_NOSIGNAL")) os.MSG_NOSIGNAL else 0;
+            return os.recvfrom(self.socket.handle, buffer, flags, null, null);
+        }
+    }
+    pub fn send(self: UdpClient, buffer: []const u8) os.SendToError!usize {
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            const flags: u32 = if (@hasDecl(os, "MSG_NOSIGNAL")) os.MSG_NOSIGNAL else 0;
+            assert(self.is_bound);
+            return os.sendto(self.socket.handle, buffer, flags, null, null);
+        }
+    }
+
+    pub const ReceiveFromResult = std.meta.Tuple(&[_]type{ usize, Address });
+
+    pub fn receiveFrom(self: UdpClient, buffer: []u8) os.RecvFromError!ReceiveFromResult {
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            const flags: u32 = if (@hasDecl(os, "MSG_NOSIGNAL")) os.MSG_NOSIGNAL else 0;
+            var source_address: Address = undefined;
+            var source_address_size: os.socklen_t = @sizeOf(Address);
+            const bytes_read = try os.recvfrom(
+                self.socket.handle,
+                buffer,
+                flags,
+                &source_address.any,
+                &source_address_size,
+            );
+            return @as(ReceiveFromResult, .{ bytes_read, source_address });
+        }
+    }
+    pub fn sendTo(self: UdpClient, buffer: []const u8, target: Address) os.SendToError!usize {
+        if (std.io.is_async) {
+            @panic("implement me");
+        } else {
+            const flags: u32 = if (@hasDecl(os, "MSG_NOSIGNAL")) os.MSG_NOSIGNAL else 0;
+            return os.sendto(
+                self.socket.handle,
+                buffer,
+                flags,
+                &target.any,
+                target.getOsSockLen(),
+            );
+        }
+    }
+
+    pub fn close(self: *UdpClient) void {
+        os.closeSocket(self.socket.handle);
+    }
+};
+
+pub const UnixListener = struct {
+    socket: Socket,
     listen_address: Address,
 
-    sockfd: ?os.socket_t,
-
-    pub const Options = struct {
+    pub const ListenOptions = struct {
         /// How many connections the kernel will accept on the application's behalf.
         /// If more than this many connections pool in the kernel, clients will start
         /// seeing "Connection refused".
         kernel_backlog: u31 = 128,
-
-        /// Enable SO_REUSEADDR on the socket.
-        reuse_address: bool = false,
     };
 
-    /// After this call succeeds, resources have been acquired and must
-    /// be released with `deinit`.
-    pub fn init(options: Options) StreamServer {
-        return StreamServer{
-            .sockfd = null,
-            .kernel_backlog = options.kernel_backlog,
-            .reuse_address = options.reuse_address,
-            .listen_address = undefined,
-        };
-    }
-
-    /// Release all resources. The `StreamServer` memory becomes `undefined`.
-    pub fn deinit(self: *StreamServer) void {
-        self.close();
-        self.* = undefined;
-    }
-
-    pub fn listen(self: *StreamServer, address: Address) !void {
-        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-        const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
-        const proto = if (address.any.family == os.AF_UNIX) @as(u32, 0) else os.IPPROTO_TCP;
-
-        const sockfd = try os.socket(address.any.family, sock_flags, proto);
-        self.sockfd = sockfd;
-        errdefer {
-            os.closeSocket(sockfd);
-            self.sockfd = null;
-        }
-
-        if (self.reuse_address) {
-            try os.setsockopt(
-                sockfd,
-                os.SOL_SOCKET,
-                os.SO_REUSEADDR,
-                &mem.toBytes(@as(c_int, 1)),
-            );
-        }
+    pub fn listen(address: Address, options: ListenOptions) !UnixListener {
+        const sock_flags = os.SOCK_STREAM |
+            (if (is_windows) 0 else os.SOCK_CLOEXEC);
+        const sockfd = try os.socket(address.any.family, sock_flags, 0);
+        errdefer os.closeSocket(sockfd);
 
         var socklen = address.getOsSockLen();
         try os.bind(sockfd, &address.any, socklen);
-        try os.listen(sockfd, self.kernel_backlog);
-        try os.getsockname(sockfd, &self.listen_address.any, &socklen);
+        try os.listen(sockfd, options.kernel_backlog);
+
+        var listener = UnixListener{
+            .socket = .{ .handle = sockfd },
+            .listen_address = undefined,
+        };
+
+        try os.getsockname(sockfd, &listener.listen_address.any, &socklen);
+
+        return listener;
     }
 
-    /// Stop listening. It is still necessary to call `deinit` after stopping listening.
-    /// Calling `deinit` will automatically call `close`. It is safe to call `close` when
-    /// not listening.
-    pub fn close(self: *StreamServer) void {
-        if (self.sockfd) |fd| {
-            os.closeSocket(fd);
-            self.sockfd = null;
-            self.listen_address = undefined;
-        }
+    pub fn close(self: *UnixListener) void {
+        os.closeSocket(self.socket.handle);
     }
 
     pub const AcceptError = error{
@@ -965,26 +1309,141 @@ pub const StreamServer = struct {
     } || os.UnexpectedError;
 
     pub const Connection = struct {
-        stream: Stream,
+        client: UnixClient,
         address: Address,
     };
 
     /// If this function succeeds, the returned `Connection` is a caller-managed resource.
-    pub fn accept(self: *StreamServer) AcceptError!Connection {
+    pub fn accept(self: *UnixListener) AcceptError!Connection {
         var accepted_addr: Address = undefined;
         var adr_len: os.socklen_t = @sizeOf(Address);
         const accept_result = blk: {
             if (std.io.is_async) {
-                const loop = std.event.Loop.instance orelse return error.UnexpectedError;
-                break :blk loop.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK_CLOEXEC);
+                @panic("implement me");
             } else {
-                break :blk os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK_CLOEXEC);
+                break :blk os.accept(
+                    self.socket.handle,
+                    &accepted_addr.any,
+                    &adr_len,
+                    os.SOCK_CLOEXEC,
+                );
             }
         };
 
         if (accept_result) |fd| {
             return Connection{
-                .stream = Stream{ .handle = fd },
+                .client = UnixClient{ .socket = .{ .handle = fd } },
+                .address = accepted_addr,
+            };
+        } else |err| switch (err) {
+            error.WouldBlock => unreachable,
+            else => |e| return e,
+        }
+    }
+};
+
+pub const TcpListener = struct {
+    socket: Socket,
+    listen_address: Address,
+
+    pub const ListenOptions = struct {
+        /// How many connections the kernel will accept on the application's behalf.
+        /// If more than this many connections pool in the kernel, clients will start
+        /// seeing "Connection refused".
+        kernel_backlog: u31 = 128,
+
+        /// Enable SO_REUSEADDR on the socket.
+        reuse_address: bool = false,
+    };
+
+    pub fn listen(address: Address, options: ListenOptions) !TcpListener {
+        const sock_flags = os.SOCK_STREAM |
+            (if (is_windows) 0 else os.SOCK_CLOEXEC);
+        const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
+        errdefer os.closeSocket(sockfd);
+
+        if (options.reuse_address) {
+            try os.setsockopt(
+                sockfd,
+                os.SOL_SOCKET,
+                os.SO_REUSEADDR,
+                &mem.toBytes(@as(i32, 1)),
+            );
+        }
+
+        var socklen = address.getOsSockLen();
+        try os.bind(sockfd, &address.any, socklen);
+        try os.listen(sockfd, options.kernel_backlog);
+
+        var listener = TcpListener{
+            .socket = .{ .handle = sockfd },
+            .listen_address = undefined,
+        };
+
+        try os.getsockname(sockfd, &listener.listen_address.any, &socklen);
+
+        return listener;
+    }
+
+    pub fn close(self: *TcpListener) void {
+        os.closeSocket(self.socket.handle);
+    }
+
+    pub const AcceptError = error{
+        ConnectionAborted,
+
+        /// The per-process limit on the number of open file descriptors has been reached.
+        ProcessFdQuotaExceeded,
+
+        /// The system-wide limit on the total number of open files has been reached.
+        SystemFdQuotaExceeded,
+
+        /// Not enough free memory.  This often means that the memory allocation  is  limited
+        /// by the socket buffer limits, not by the system memory.
+        SystemResources,
+
+        /// Socket is not listening for new connections.
+        SocketNotListening,
+
+        ProtocolFailure,
+
+        /// Firewall rules forbid connection.
+        BlockedByFirewall,
+
+        FileDescriptorNotASocket,
+
+        ConnectionResetByPeer,
+
+        NetworkSubsystemFailed,
+
+        OperationNotSupported,
+    } || os.UnexpectedError;
+
+    pub const Connection = struct {
+        client: TcpClient,
+        address: Address,
+    };
+
+    /// If this function succeeds, the returned `Connection` is a caller-managed resource.
+    pub fn accept(self: *TcpListener) AcceptError!Connection {
+        var accepted_addr: Address = undefined;
+        var adr_len: os.socklen_t = @sizeOf(Address);
+        const accept_result = blk: {
+            if (std.io.is_async) {
+                @panic("implement me");
+            } else {
+                break :blk os.accept(
+                    self.socket.handle,
+                    &accepted_addr.any,
+                    &adr_len,
+                    os.SOCK_CLOEXEC,
+                );
+            }
+        };
+
+        if (accept_result) |fd| {
+            return Connection{
+                .client = TcpClient{ .socket = .{ .handle = fd } },
                 .address = accepted_addr,
             };
         } else |err| switch (err) {
