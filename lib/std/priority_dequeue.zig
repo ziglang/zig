@@ -389,7 +389,7 @@ pub fn PriorityDequeue(comptime T: type) type {
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
-            var old_index: usize = std.mem.indexOfScalar(T, self.items, elem) orelse return error.ElementNotFound;
+            var old_index: usize = std.mem.indexOfScalar(T, self.items[0 .. self.len - 1], elem) orelse return error.ElementNotFound;
             _ = self.removeIndex(old_index);
             self.addUnchecked(new_elem);
         }

@@ -199,7 +199,7 @@ pub fn PriorityQueue(comptime T: type) type {
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
-            var update_index: usize = std.mem.indexOfScalar(T, self.items, elem) orelse return error.ElementNotFound;
+            var update_index: usize = std.mem.indexOfScalar(T, self.items[0 .. self.len - 1], elem) orelse return error.ElementNotFound;
             const old_elem: T = self.items[update_index];
             self.items[update_index] = new_elem;
             if (self.compareFn(new_elem, old_elem)) {
