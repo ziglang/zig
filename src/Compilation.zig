@@ -649,7 +649,60 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         const tsan = options.want_tsan orelse false;
 
+        var system_libs: std.StringArrayHashMapUnmanaged(void) = .{};
+        errdefer system_libs.deinit(gpa);
+        try system_libs.ensureCapacity(gpa, options.system_libs.len);
+        for (options.system_libs) |lib_name| {
+            system_libs.putAssumeCapacity(lib_name, {});
+        }
+
         const link_libc = options.link_libc or target_util.osRequiresLibC(options.target) or tsan;
+
+        var libc_installation = options.libc_installation;
+        if (link_libc) {
+            // Do we need to autodetect and insert the `-lc ...` flags?
+            var auto_libc = true;
+
+            if (libc_installation != null) {
+                // User provided `--libc`, so they know what to link.
+                auto_libc = false;
+            } else if (target_util.canBuildLibC(options.target)) {
+                // We are using our own libc. The linker will add the paths to our libraries.
+                auto_libc = false;
+            } else if (options.is_native_os and options.is_native_abi) {
+                // The user did not provide a libc, but we need one. We cannot build a libc
+                // for this target, so use the one provided by the system.
+                const lci = try arena.create(LibCInstallation);
+                errdefer arena.destroy(lci);
+                lci.* = try LibCInstallation.findNative(.{
+                    .allocator = arena,
+                    .verbose = false,
+                });
+                libc_installation = lci;
+            } else {
+                // We couldn't find a libc. Things might still work if we are building an object
+                // file or are doing `zig translate-c`.
+                if (is_exe_or_dyn_lib) {
+                    return error.MustProvideLibc;
+                }
+
+                // No linking is done, so no libc flags are needed.
+                auto_libc = false;
+            }
+
+            if (auto_libc) {
+                const target = options.target;
+                if (target.isGnuLibC() or target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
+                    try system_libs.put(arena, "c", .{});
+                    try system_libs.put(arena, "m", .{});
+                    try system_libs.put(arena, "pthread", .{});
+                } else if (target.isMusl()) {
+                    // musl puts everything in one library.
+                    try system_libs.put(arena, "c", .{});
+                }
+                // other platforms pick the relevant libraries themselves
+            }
+        }
 
         const must_dynamic_link = dl: {
             if (target_util.cannotDynamicLink(options.target))
@@ -705,9 +758,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             arena,
             options.zig_lib_directory.path.?,
             options.target,
-            options.is_native_os,
             link_libc,
-            options.libc_installation,
+            libc_installation,
         );
 
         const must_pie = target_util.requiresPIE(options.target);
@@ -970,13 +1022,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             };
         };
 
-        var system_libs: std.StringArrayHashMapUnmanaged(void) = .{};
-        errdefer system_libs.deinit(gpa);
-        try system_libs.ensureCapacity(gpa, options.system_libs.len);
-        for (options.system_libs) |lib_name| {
-            system_libs.putAssumeCapacity(lib_name, {});
-        }
-
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
             .root_name = root_name,
@@ -1019,7 +1064,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .extra_lld_args = options.lld_argv,
             .soname = options.soname,
             .version = options.version,
-            .libc_installation = libc_dirs.libc_installation,
+            .libc_installation = libc_installation,
             .pic = pic,
             .pie = pie,
             .valgrind = valgrind,
@@ -2581,21 +2626,18 @@ fn haveFramePointer(comp: *const Compilation) bool {
 
 const LibCDirs = struct {
     libc_include_dir_list: []const []const u8,
-    libc_installation: ?*const LibCInstallation,
 };
 
 fn detectLibCIncludeDirs(
     arena: *Allocator,
     zig_lib_dir: []const u8,
     target: Target,
-    is_native_os: bool,
     link_libc: bool,
     libc_installation: ?*const LibCInstallation,
 ) !LibCDirs {
     if (!link_libc) {
         return LibCDirs{
             .libc_include_dir_list = &[0][]u8{},
-            .libc_installation = null,
         };
     }
 
@@ -2639,19 +2681,11 @@ fn detectLibCIncludeDirs(
         list[3] = generic_os_include_dir;
         return LibCDirs{
             .libc_include_dir_list = list,
-            .libc_installation = null,
         };
-    }
-
-    if (is_native_os) {
-        const libc = try arena.create(LibCInstallation);
-        libc.* = try LibCInstallation.findNative(.{ .allocator = arena });
-        return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     return LibCDirs{
         .libc_include_dir_list = &[0][]u8{},
-        .libc_installation = null,
     };
 }
 
@@ -2675,7 +2709,6 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
     }
     return LibCDirs{
         .libc_include_dir_list = list.items,
-        .libc_installation = lci,
     };
 }
 

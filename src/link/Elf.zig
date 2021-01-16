@@ -1326,8 +1326,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
-        man.hash.add(stack_size);
-        man.hash.addOptional(self.base.options.image_base_override);
         man.hash.add(gc_sections);
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.emit_relocs);
@@ -1613,22 +1611,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         }
 
         // libc dep
-        if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation != null) {
-                if (self.base.options.link_mode == .Static) {
-                    try argv.append("--start-group");
-                    try argv.append("-lc");
-                    try argv.append("-lm");
-                    try argv.append("--end-group");
-                } else {
-                    try argv.append("-lc");
-                    try argv.append("-lm");
-                }
-
-                if (target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
-                    try argv.append("-lpthread");
-                }
-            } else if (target.isGnuLibC()) {
+        if (self.base.options.link_libc and self.base.options.libc_installation == null) {
+            if (target.isGnuLibC()) {
                 try argv.append(comp.libunwind_static_lib.?.full_object_path);
                 for (glibc.libs) |lib| {
                     const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{

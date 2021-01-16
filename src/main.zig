@@ -1436,30 +1436,6 @@ fn buildOutputType(
             link_libcpp = true;
     }
 
-    // Now that we have target info, we can find out if any of the system libraries
-    // are part of libc or libc++. We remove them from the list and communicate their
-    // existence via flags instead.
-    {
-        var i: usize = 0;
-        while (i < system_libs.items.len) {
-            const lib_name = system_libs.items[i];
-            if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
-                link_libc = true;
-                _ = system_libs.orderedRemove(i);
-                continue;
-            }
-            if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
-                link_libcpp = true;
-                _ = system_libs.orderedRemove(i);
-                continue;
-            }
-            if (std.fs.path.isAbsolute(lib_name)) {
-                fatal("cannot use absolute path as a system library: {s}", .{lib_name});
-            }
-            i += 1;
-        }
-    }
-
     if (comptime std.Target.current.isDarwin()) {
         // If we want to link against frameworks, we need system headers.
         if (framework_dirs.items.len > 0 or frameworks.items.len > 0)
@@ -1688,6 +1664,34 @@ fn buildOutputType(
         libc_installation = LibCInstallation.parse(gpa, paths_file) catch |err| {
             fatal("unable to parse libc paths file: {s}", .{@errorName(err)});
         };
+    }
+
+    // Now that we have target info, we can find out if any of the system libraries
+    // are part of libc or libc++. We remove them from the list and communicate their
+    // existence via flags instead.
+    {
+        var i: usize = 0;
+        while (i < system_libs.items.len) {
+            const lib_name = system_libs.items[i];
+            if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
+                link_libc = true;
+                if (libc_installation == null) {
+                    _ = system_libs.orderedRemove(i);
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
+                link_libcpp = true;
+                _ = system_libs.orderedRemove(i);
+                continue;
+            }
+            if (std.fs.path.isAbsolute(lib_name)) {
+                fatal("cannot use absolute path as a system library: {s}", .{lib_name});
+            }
+            i += 1;
+        }
     }
 
     var global_cache_directory: Compilation.Directory = l: {
