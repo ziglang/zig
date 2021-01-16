@@ -2935,8 +2935,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 ).toU32());
                                 // ldr x28, [sp], #16
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.x28, .{
-                                    .rn = Register.sp,
-                                    .offset = Instruction.LoadStoreOffset.imm_post_index(16),
+                                    .register = .{
+                                        .rn = Register.sp,
+                                        .offset = Instruction.LoadStoreOffset.imm_post_index(16),
+                                    },
                                 }).toU32());
                             } else {
                                 // stp x0, x28, [sp, #-16]
@@ -2978,7 +2980,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // The value is in memory at a hard-coded address.
                             // If the type is a pointer, it means the pointer address is at this memory location.
                             try self.genSetReg(src, reg, .{ .immediate = addr });
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .rn = reg }).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .register = .{ .rn = reg } }).toU32());
                         }
                     },
                     else => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
@@ -3613,6 +3615,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .Unspecified, .C => {
                         const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
                         if (ret_ty_size <= 4) {
+                            result.return_value = .{ .register = c_abi_int_return_regs[0] };
+                        } else {
+                            return self.fail(src, "TODO support more return types for ARM backend", .{});
+                        }
+                    },
+                    else => return self.fail(src, "TODO implement function return values for {}", .{cc}),
+                },
+                .aarch64 => switch (cc) {
+                    .Naked => unreachable,
+                    .Unspecified, .C => {
+                        const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                        if (ret_ty_size <= 8) {
                             result.return_value = .{ .register = c_abi_int_return_regs[0] };
                         } else {
                             return self.fail(src, "TODO support more return types for ARM backend", .{});

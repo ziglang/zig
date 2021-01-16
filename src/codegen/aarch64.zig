@@ -64,7 +64,7 @@ pub const callee_preserved_regs = [_]Register{
 };
 
 pub const c_abi_int_param_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6, .x7 };
-pub const c_abi_int_return_regs = [_]Register{ .x0, .x1 };
+pub const c_abi_int_return_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6, .x7 };
 
 test "Register.id" {
     testing.expectEqual(@as(u5, 0), Register.x0.id());
@@ -699,17 +699,18 @@ pub const Instruction = union(enum) {
 
     // Load or store register
 
-    pub const LdrArgs = struct {
-        rn: ?Register = null,
-        offset: LoadStoreOffset = LoadStoreOffset.none,
-        literal: ?u19 = null,
+    pub const LdrArgs = union(enum) {
+        register: struct {
+            rn: Register,
+            offset: LoadStoreOffset = LoadStoreOffset.none,
+        },
+        literal: u19,
     };
 
     pub fn ldr(rt: Register, args: LdrArgs) Instruction {
-        if (args.rn) |rn| {
-            return loadStoreRegister(rt, rn, args.offset, true);
-        } else {
-            return loadLiteral(rt, args.literal.?);
+        switch (args) {
+            .register => |info| return loadStoreRegister(rt, info.rn, info.offset, true),
+            .literal => |literal| return loadLiteral(rt, literal),
         }
     }
 
@@ -911,19 +912,19 @@ test "serialize instructions" {
             .expected = 0b1_00101_00_0000_0000_0000_0000_0000_0100,
         },
         .{ // ldr x2, [x1]
-            .inst = Instruction.ldr(.x2, .{ .rn = .x1 }),
+            .inst = Instruction.ldr(.x2, .{ .register = .{ .rn = .x1 } }),
             .expected = 0b11_111_0_01_01_000000000000_00001_00010,
         },
         .{ // ldr x2, [x1, #1]!
-            .inst = Instruction.ldr(.x2, .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.imm_pre_index(1) }),
+            .inst = Instruction.ldr(.x2, .{ .register = .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.imm_pre_index(1) } }),
             .expected = 0b11_111_0_00_01_0_000000001_11_00001_00010,
         },
         .{ // ldr x2, [x1], #-1
-            .inst = Instruction.ldr(.x2, .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.imm_post_index(-1) }),
+            .inst = Instruction.ldr(.x2, .{ .register = .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.imm_post_index(-1) } }),
             .expected = 0b11_111_0_00_01_0_111111111_01_00001_00010,
         },
         .{ // ldr x2, [x1], (x3)
-            .inst = Instruction.ldr(.x2, .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.reg(.x3) }),
+            .inst = Instruction.ldr(.x2, .{ .register = .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.reg(.x3) } }),
             .expected = 0b11_111_0_00_01_1_00011_011_0_10_00001_00010,
         },
         .{ // ldr x2, label
