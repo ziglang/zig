@@ -6,6 +6,7 @@
 const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const warn = std.debug.warn;
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
