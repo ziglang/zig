@@ -334,7 +334,7 @@ pub fn PriorityDequeue(comptime T: type) type {
             }
         }
 
-        /// Return the number of elements remaining in the heap
+        /// Return the number of elements remaining in the dequeue
         pub fn count(self: Self) usize {
             return self.len;
         }
@@ -345,7 +345,7 @@ pub fn PriorityDequeue(comptime T: type) type {
             return self.items.len;
         }
 
-        /// Heap takes ownership of the passed in slice. The slice must have been
+        /// Dequeue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// De-initialize with `deinit`.
         pub fn fromOwnedSlice(allocator: *Allocator, lessThanFn: fn (T, T) bool, items: []T) Self {
@@ -395,14 +395,14 @@ pub fn PriorityDequeue(comptime T: type) type {
         }
 
         pub const Iterator = struct {
-            heap: *PriorityDequeue(T),
+            queue: *PriorityDequeue(T),
             count: usize,
 
             pub fn next(it: *Iterator) ?T {
-                if (it.count >= it.heap.len) return null;
+                if (it.count >= it.queue.len) return null;
                 const out = it.count;
                 it.count += 1;
-                return it.heap.items[out];
+                return it.queue.items[out];
             }
 
             pub fn reset(it: *Iterator) void {
@@ -410,11 +410,11 @@ pub fn PriorityDequeue(comptime T: type) type {
             }
         };
 
-        /// Return an iterator that walks the heap without consuming
-        /// it. Invalidated if the heap is modified.
+        /// Return an iterator that walks the queue without consuming
+        /// it. Invalidated if the queue is modified.
         pub fn iterator(self: *Self) Iterator {
             return Iterator{
-                .heap = self,
+                .queue = self,
                 .count = 0,
             };
         }
@@ -457,308 +457,308 @@ fn lessThanComparison(a: u32, b: u32) bool {
     return a < b;
 }
 
-const Heap = PriorityDequeue(u32);
+const PDQ = PriorityDequeue(u32);
 
 test "std.PriorityDequeue: add and remove min" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(54);
-    try heap.add(12);
-    try heap.add(7);
-    try heap.add(23);
-    try heap.add(25);
-    try heap.add(13);
+    try queue.add(54);
+    try queue.add(12);
+    try queue.add(7);
+    try queue.add(23);
+    try queue.add(25);
+    try queue.add(13);
 
-    expectEqual(@as(u32, 7), heap.removeMin());
-    expectEqual(@as(u32, 12), heap.removeMin());
-    expectEqual(@as(u32, 13), heap.removeMin());
-    expectEqual(@as(u32, 23), heap.removeMin());
-    expectEqual(@as(u32, 25), heap.removeMin());
-    expectEqual(@as(u32, 54), heap.removeMin());
+    expectEqual(@as(u32, 7), queue.removeMin());
+    expectEqual(@as(u32, 12), queue.removeMin());
+    expectEqual(@as(u32, 13), queue.removeMin());
+    expectEqual(@as(u32, 23), queue.removeMin());
+    expectEqual(@as(u32, 25), queue.removeMin());
+    expectEqual(@as(u32, 54), queue.removeMin());
 }
 
 test "std.PriorityDequeue: add and remove max" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(54);
-    try heap.add(12);
-    try heap.add(7);
-    try heap.add(23);
-    try heap.add(25);
-    try heap.add(13);
+    try queue.add(54);
+    try queue.add(12);
+    try queue.add(7);
+    try queue.add(23);
+    try queue.add(25);
+    try queue.add(13);
 
-    expectEqual(@as(u32, 54), heap.removeMax());
-    expectEqual(@as(u32, 25), heap.removeMax());
-    expectEqual(@as(u32, 23), heap.removeMax());
-    expectEqual(@as(u32, 13), heap.removeMax());
-    expectEqual(@as(u32, 12), heap.removeMax());
-    expectEqual(@as(u32, 7), heap.removeMax());
+    expectEqual(@as(u32, 54), queue.removeMax());
+    expectEqual(@as(u32, 25), queue.removeMax());
+    expectEqual(@as(u32, 23), queue.removeMax());
+    expectEqual(@as(u32, 13), queue.removeMax());
+    expectEqual(@as(u32, 12), queue.removeMax());
+    expectEqual(@as(u32, 7), queue.removeMax());
 }
 
 test "std.PriorityDequeue: add and remove same min" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(1);
-    try heap.add(1);
-    try heap.add(2);
-    try heap.add(2);
-    try heap.add(1);
-    try heap.add(1);
+    try queue.add(1);
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(2);
+    try queue.add(1);
+    try queue.add(1);
 
-    expectEqual(@as(u32, 1), heap.removeMin());
-    expectEqual(@as(u32, 1), heap.removeMin());
-    expectEqual(@as(u32, 1), heap.removeMin());
-    expectEqual(@as(u32, 1), heap.removeMin());
-    expectEqual(@as(u32, 2), heap.removeMin());
-    expectEqual(@as(u32, 2), heap.removeMin());
+    expectEqual(@as(u32, 1), queue.removeMin());
+    expectEqual(@as(u32, 1), queue.removeMin());
+    expectEqual(@as(u32, 1), queue.removeMin());
+    expectEqual(@as(u32, 1), queue.removeMin());
+    expectEqual(@as(u32, 2), queue.removeMin());
+    expectEqual(@as(u32, 2), queue.removeMin());
 }
 
 test "std.PriorityDequeue: add and remove same max" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(1);
-    try heap.add(1);
-    try heap.add(2);
-    try heap.add(2);
-    try heap.add(1);
-    try heap.add(1);
+    try queue.add(1);
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(2);
+    try queue.add(1);
+    try queue.add(1);
 
-    expectEqual(@as(u32, 2), heap.removeMax());
-    expectEqual(@as(u32, 2), heap.removeMax());
-    expectEqual(@as(u32, 1), heap.removeMax());
-    expectEqual(@as(u32, 1), heap.removeMax());
-    expectEqual(@as(u32, 1), heap.removeMax());
-    expectEqual(@as(u32, 1), heap.removeMax());
+    expectEqual(@as(u32, 2), queue.removeMax());
+    expectEqual(@as(u32, 2), queue.removeMax());
+    expectEqual(@as(u32, 1), queue.removeMax());
+    expectEqual(@as(u32, 1), queue.removeMax());
+    expectEqual(@as(u32, 1), queue.removeMax());
+    expectEqual(@as(u32, 1), queue.removeMax());
 }
 
 test "std.PriorityDequeue: removeOrNull empty" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    expect(heap.removeMinOrNull() == null);
-    expect(heap.removeMaxOrNull() == null);
+    expect(queue.removeMinOrNull() == null);
+    expect(queue.removeMaxOrNull() == null);
 }
 
 test "std.PriorityDequeue: edge case 3 elements" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(9);
-    try heap.add(3);
-    try heap.add(2);
+    try queue.add(9);
+    try queue.add(3);
+    try queue.add(2);
 
-    expectEqual(@as(u32, 2), heap.removeMin());
-    expectEqual(@as(u32, 3), heap.removeMin());
-    expectEqual(@as(u32, 9), heap.removeMin());
+    expectEqual(@as(u32, 2), queue.removeMin());
+    expectEqual(@as(u32, 3), queue.removeMin());
+    expectEqual(@as(u32, 9), queue.removeMin());
 }
 
 test "std.PriorityDequeue: edge case 3 elements max" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(9);
-    try heap.add(3);
-    try heap.add(2);
+    try queue.add(9);
+    try queue.add(3);
+    try queue.add(2);
 
-    expectEqual(@as(u32, 9), heap.removeMax());
-    expectEqual(@as(u32, 3), heap.removeMax());
-    expectEqual(@as(u32, 2), heap.removeMax());
+    expectEqual(@as(u32, 9), queue.removeMax());
+    expectEqual(@as(u32, 3), queue.removeMax());
+    expectEqual(@as(u32, 2), queue.removeMax());
 }
 
 test "std.PriorityDequeue: peekMin" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    expect(heap.peekMin() == null);
+    expect(queue.peekMin() == null);
 
-    try heap.add(9);
-    try heap.add(3);
-    try heap.add(2);
+    try queue.add(9);
+    try queue.add(3);
+    try queue.add(2);
 
-    expect(heap.peekMin().? == 2);
-    expect(heap.peekMin().? == 2);
+    expect(queue.peekMin().? == 2);
+    expect(queue.peekMin().? == 2);
 }
 
 test "std.PriorityDequeue: peekMax" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    expect(heap.peekMin() == null);
+    expect(queue.peekMin() == null);
 
-    try heap.add(9);
-    try heap.add(3);
-    try heap.add(2);
+    try queue.add(9);
+    try queue.add(3);
+    try queue.add(2);
 
-    expect(heap.peekMax().? == 9);
-    expect(heap.peekMax().? == 9);
+    expect(queue.peekMax().? == 9);
+    expect(queue.peekMax().? == 9);
 }
 
 test "std.PriorityDequeue: sift up with odd indices" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
-        try heap.add(e);
+        try queue.add(e);
     }
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, heap.removeMin());
+        expectEqual(e, queue.removeMin());
     }
 }
 
 test "std.PriorityDequeue: sift up with odd indices" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
-        try heap.add(e);
+        try queue.add(e);
     }
 
     const sorted_items = [_]u32{ 25, 24, 24, 22, 21, 16, 15, 15, 14, 13, 12, 11, 7, 7, 6, 5, 2, 1 };
     for (sorted_items) |e| {
-        expectEqual(e, heap.removeMax());
+        expectEqual(e, queue.removeMax());
     }
 }
 
 test "std.PriorityDequeue: addSlice min" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    try heap.addSlice(items[0..]);
+    try queue.addSlice(items[0..]);
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, heap.removeMin());
+        expectEqual(e, queue.removeMin());
     }
 }
 
 test "std.PriorityDequeue: addSlice max" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    try heap.addSlice(items[0..]);
+    try queue.addSlice(items[0..]);
 
     const sorted_items = [_]u32{ 25, 24, 24, 22, 21, 16, 15, 15, 14, 13, 12, 11, 7, 7, 6, 5, 2, 1 };
     for (sorted_items) |e| {
-        expectEqual(e, heap.removeMax());
+        expectEqual(e, queue.removeMax());
     }
 }
 
 test "std.PriorityDequeue: fromOwnedSlice trivial case 0" {
     const items = [0]u32{};
-    const heap_items = try testing.allocator.dupe(u32, &items);
-    var heap = Heap.fromOwnedSlice(testing.allocator, lessThanComparison, heap_items[0..]);
-    defer heap.deinit();
-    expectEqual(@as(usize, 0), heap.len);
-    expect(heap.removeMinOrNull() == null);
+    const queue_items = try testing.allocator.dupe(u32, &items);
+    var queue = PDQ.fromOwnedSlice(testing.allocator, lessThanComparison, queue_items[0..]);
+    defer queue.deinit();
+    expectEqual(@as(usize, 0), queue.len);
+    expect(queue.removeMinOrNull() == null);
 }
 
 test "std.PriorityDequeue: fromOwnedSlice trivial case 1" {
     const items = [1]u32{1};
-    const heap_items = try testing.allocator.dupe(u32, &items);
-    var heap = Heap.fromOwnedSlice(testing.allocator, lessThanComparison, heap_items[0..]);
-    defer heap.deinit();
+    const queue_items = try testing.allocator.dupe(u32, &items);
+    var queue = PDQ.fromOwnedSlice(testing.allocator, lessThanComparison, queue_items[0..]);
+    defer queue.deinit();
 
-    expectEqual(@as(usize, 1), heap.len);
-    expectEqual(items[0], heap.removeMin());
-    expect(heap.removeMinOrNull() == null);
+    expectEqual(@as(usize, 1), queue.len);
+    expectEqual(items[0], queue.removeMin());
+    expect(queue.removeMinOrNull() == null);
 }
 
 test "std.PriorityDequeue: fromOwnedSlice" {
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    const heap_items = try testing.allocator.dupe(u32, items[0..]);
-    var heap = Heap.fromOwnedSlice(testing.allocator, lessThanComparison, heap_items[0..]);
-    defer heap.deinit();
+    const queue_items = try testing.allocator.dupe(u32, items[0..]);
+    var queue = PDQ.fromOwnedSlice(testing.allocator, lessThanComparison, queue_items[0..]);
+    defer queue.deinit();
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        expectEqual(e, heap.removeMin());
+        expectEqual(e, queue.removeMin());
     }
 }
 
-test "std.PriorityDequeue: update min heap" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+test "std.PriorityDequeue: update min queue" {
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(55);
-    try heap.add(44);
-    try heap.add(11);
-    try heap.update(55, 5);
-    try heap.update(44, 4);
-    try heap.update(11, 1);
-    expectEqual(@as(u32, 1), heap.removeMin());
-    expectEqual(@as(u32, 4), heap.removeMin());
-    expectEqual(@as(u32, 5), heap.removeMin());
+    try queue.add(55);
+    try queue.add(44);
+    try queue.add(11);
+    try queue.update(55, 5);
+    try queue.update(44, 4);
+    try queue.update(11, 1);
+    expectEqual(@as(u32, 1), queue.removeMin());
+    expectEqual(@as(u32, 4), queue.removeMin());
+    expectEqual(@as(u32, 5), queue.removeMin());
 }
 
-test "std.PriorityDequeue: update same min heap" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+test "std.PriorityDequeue: update same min queue" {
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(1);
-    try heap.add(1);
-    try heap.add(2);
-    try heap.add(2);
-    try heap.update(1, 5);
-    try heap.update(2, 4);
-    expectEqual(@as(u32, 1), heap.removeMin());
-    expectEqual(@as(u32, 2), heap.removeMin());
-    expectEqual(@as(u32, 4), heap.removeMin());
-    expectEqual(@as(u32, 5), heap.removeMin());
+    try queue.add(1);
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(2);
+    try queue.update(1, 5);
+    try queue.update(2, 4);
+    expectEqual(@as(u32, 1), queue.removeMin());
+    expectEqual(@as(u32, 2), queue.removeMin());
+    expectEqual(@as(u32, 4), queue.removeMin());
+    expectEqual(@as(u32, 5), queue.removeMin());
 }
 
-test "std.PriorityDequeue: update max heap" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+test "std.PriorityDequeue: update max queue" {
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(55);
-    try heap.add(44);
-    try heap.add(11);
-    try heap.update(55, 5);
-    try heap.update(44, 1);
-    try heap.update(11, 4);
+    try queue.add(55);
+    try queue.add(44);
+    try queue.add(11);
+    try queue.update(55, 5);
+    try queue.update(44, 1);
+    try queue.update(11, 4);
 
-    expectEqual(@as(u32, 5), heap.removeMax());
-    expectEqual(@as(u32, 4), heap.removeMax());
-    expectEqual(@as(u32, 1), heap.removeMax());
+    expectEqual(@as(u32, 5), queue.removeMax());
+    expectEqual(@as(u32, 4), queue.removeMax());
+    expectEqual(@as(u32, 1), queue.removeMax());
 }
 
-test "std.PriorityDequeue: update same max heap" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+test "std.PriorityDequeue: update same max queue" {
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(1);
-    try heap.add(1);
-    try heap.add(2);
-    try heap.add(2);
-    try heap.update(1, 5);
-    try heap.update(2, 4);
-    expectEqual(@as(u32, 5), heap.removeMax());
-    expectEqual(@as(u32, 4), heap.removeMax());
-    expectEqual(@as(u32, 2), heap.removeMax());
-    expectEqual(@as(u32, 1), heap.removeMax());
+    try queue.add(1);
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(2);
+    try queue.update(1, 5);
+    try queue.update(2, 4);
+    expectEqual(@as(u32, 5), queue.removeMax());
+    expectEqual(@as(u32, 4), queue.removeMax());
+    expectEqual(@as(u32, 2), queue.removeMax());
+    expectEqual(@as(u32, 1), queue.removeMax());
 }
 
 test "std.PriorityDequeue: iterator" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
     var map = std.AutoHashMap(u32, void).init(testing.allocator);
     defer {
-        heap.deinit();
+        queue.deinit();
         map.deinit();
     }
 
     const items = [_]u32{ 54, 12, 7, 23, 25, 13 };
     for (items) |e| {
-        _ = try heap.add(e);
+        _ = try queue.add(e);
         _ = try map.put(e, {});
     }
 
-    var it = heap.iterator();
+    var it = queue.iterator();
     while (it.next()) |e| {
         _ = map.remove(e);
     }
@@ -767,14 +767,14 @@ test "std.PriorityDequeue: iterator" {
 }
 
 test "std.PriorityDequeue: remove at index" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    try heap.add(3);
-    try heap.add(2);
-    try heap.add(1);
+    try queue.add(3);
+    try queue.add(2);
+    try queue.add(1);
 
-    var it = heap.iterator();
+    var it = queue.iterator();
     var elem = it.next();
     var idx: usize = 0;
     const two_idx = while (elem != null) : (elem = it.next()) {
@@ -783,17 +783,17 @@ test "std.PriorityDequeue: remove at index" {
         idx += 1;
     } else unreachable;
 
-    expectEqual(heap.removeIndex(two_idx), 2);
-    expectEqual(heap.removeMin(), 1);
-    expectEqual(heap.removeMin(), 3);
-    expectEqual(heap.removeMinOrNull(), null);
+    expectEqual(queue.removeIndex(two_idx), 2);
+    expectEqual(queue.removeMin(), 1);
+    expectEqual(queue.removeMin(), 3);
+    expectEqual(queue.removeMinOrNull(), null);
 }
 
 test "std.PriorityDequeue: iterator while empty" {
-    var heap = Heap.init(testing.allocator, lessThanComparison);
-    defer heap.deinit();
+    var queue = PDQ.init(testing.allocator, lessThanComparison);
+    defer queue.deinit();
 
-    var it = heap.iterator();
+    var it = queue.iterator();
 
     expectEqual(it.next(), null);
 }
@@ -802,23 +802,23 @@ test "std.PriorityDequeue: fuzz testing min" {
     var prng = std.rand.DefaultPrng.init(0x12345678);
 
     const test_case_count = 100;
-    const heap_size = 1_000;
+    const queue_size = 1_000;
 
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        try fuzzTestMin(&prng.random, heap_size);
+        try fuzzTestMin(&prng.random, queue_size);
     }
 }
 
-fn fuzzTestMin(rng: *std.rand.Random, comptime heap_size: usize) !void {
+fn fuzzTestMin(rng: *std.rand.Random, comptime queue_size: usize) !void {
     const allocator = testing.allocator;
-    const items = try generateRandomSlice(allocator, rng, heap_size);
+    const items = try generateRandomSlice(allocator, rng, queue_size);
 
-    var heap = Heap.fromOwnedSlice(allocator, lessThanComparison, items);
-    defer heap.deinit();
+    var queue = PDQ.fromOwnedSlice(allocator, lessThanComparison, items);
+    defer queue.deinit();
 
     var last_removed: ?u32 = null;
-    while (heap.removeMinOrNull()) |next| {
+    while (queue.removeMinOrNull()) |next| {
         if (last_removed) |last| {
             expect(last <= next);
         }
@@ -830,23 +830,23 @@ test "std.PriorityDequeue: fuzz testing max" {
     var prng = std.rand.DefaultPrng.init(0x87654321);
 
     const test_case_count = 100;
-    const heap_size = 1_000;
+    const queue_size = 1_000;
 
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        try fuzzTestMax(&prng.random, heap_size);
+        try fuzzTestMax(&prng.random, queue_size);
     }
 }
 
-fn fuzzTestMax(rng: *std.rand.Random, heap_size: usize) !void {
+fn fuzzTestMax(rng: *std.rand.Random, queue_size: usize) !void {
     const allocator = testing.allocator;
-    const items = try generateRandomSlice(allocator, rng, heap_size);
+    const items = try generateRandomSlice(allocator, rng, queue_size);
 
-    var heap = Heap.fromOwnedSlice(testing.allocator, lessThanComparison, items);
-    defer heap.deinit();
+    var queue = PDQ.fromOwnedSlice(testing.allocator, lessThanComparison, items);
+    defer queue.deinit();
 
     var last_removed: ?u32 = null;
-    while (heap.removeMaxOrNull()) |next| {
+    while (queue.removeMaxOrNull()) |next| {
         if (last_removed) |last| {
             expect(last >= next);
         }
@@ -858,33 +858,33 @@ test "std.PriorityDequeue: fuzz testing min and max" {
     var prng = std.rand.DefaultPrng.init(0x87654321);
 
     const test_case_count = 100;
-    const heap_size = 1_000;
+    const queue_size = 1_000;
 
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        try fuzzTestMinMax(&prng.random, heap_size);
+        try fuzzTestMinMax(&prng.random, queue_size);
     }
 }
 
-fn fuzzTestMinMax(rng: *std.rand.Random, heap_size: usize) !void {
+fn fuzzTestMinMax(rng: *std.rand.Random, queue_size: usize) !void {
     const allocator = testing.allocator;
-    const items = try generateRandomSlice(allocator, rng, heap_size);
+    const items = try generateRandomSlice(allocator, rng, queue_size);
 
-    var heap = Heap.fromOwnedSlice(allocator, lessThanComparison, items);
-    defer heap.deinit();
+    var queue = PDQ.fromOwnedSlice(allocator, lessThanComparison, items);
+    defer queue.deinit();
 
     var last_min: ?u32 = null;
     var last_max: ?u32 = null;
     var i: usize = 0;
-    while (i < heap_size) : (i += 1) {
+    while (i < queue_size) : (i += 1) {
         if (i % 2 == 0) {
-            const next = heap.removeMin();
+            const next = queue.removeMin();
             if (last_min) |last| {
                 expect(last <= next);
             }
             last_min = next;
         } else {
-            const next = heap.removeMax();
+            const next = queue.removeMax();
             if (last_max) |last| {
                 expect(last >= next);
             }
