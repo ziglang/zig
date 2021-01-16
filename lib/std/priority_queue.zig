@@ -166,6 +166,9 @@ pub fn PriorityQueue(comptime T: type) type {
                 .allocator = allocator,
                 .compareFn = compareFn,
             };
+
+            if (queue.len <= 1) return queue;
+
             const half = (queue.len >> 1) - 1;
             var i: usize = 0;
             while (i <= half) : (i += 1) {
@@ -350,6 +353,26 @@ test "std.PriorityQueue: addSlice" {
     for (sorted_items) |e| {
         expectEqual(e, queue.remove());
     }
+}
+
+test "std.PriorityQueue: fromOwnedSlice trivial case 0" {
+    const items = [0]u32{};
+    const queue_items = try testing.allocator.dupe(u32, &items);
+    var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, queue_items[0..]);
+    defer queue.deinit();
+    expectEqual(@as(usize, 0), queue.len);
+    expect(queue.removeOrNull() == null);
+}
+
+test "std.PriorityQueue: fromOwnedSlice trivial case 1" {
+    const items = [1]u32{1};
+    const queue_items = try testing.allocator.dupe(u32, &items);
+    var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, queue_items[0..]);
+    defer queue.deinit();
+
+    expectEqual(@as(usize, 1), queue.len);
+    expectEqual(items[0], queue.remove());
+    expect(queue.removeOrNull() == null);
 }
 
 test "std.PriorityQueue: fromOwnedSlice" {

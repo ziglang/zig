@@ -349,19 +349,22 @@ pub fn PriorityDequeue(comptime T: type) type {
         /// allocated with `allocator`.
         /// De-initialize with `deinit`.
         pub fn fromOwnedSlice(allocator: *Allocator, lessThanFn: fn (T, T) bool, items: []T) Self {
-            var dequeue = Self{
+            var queue = Self{
                 .items = items,
                 .len = items.len,
                 .allocator = allocator,
                 .lessThanFn = lessThanFn,
             };
-            const half = (dequeue.len >> 1) - 1;
+
+            if (queue.len <= 1) return queue;
+
+            const half = (queue.len >> 1) - 1;
             var i: usize = 0;
             while (i <= half) : (i += 1) {
                 const index = half - i;
-                dequeue.siftDown(index);
+                queue.siftDown(index);
             }
-            return dequeue;
+            return queue;
         }
 
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
@@ -644,6 +647,26 @@ test "std.PriorityDequeue: addSlice max" {
     for (sorted_items) |e| {
         expectEqual(e, heap.removeMax());
     }
+}
+
+test "std.PriorityDequeue: fromOwnedSlice trivial case 0" {
+    const items = [0]u32{};
+    const heap_items = try testing.allocator.dupe(u32, &items);
+    var heap = Heap.fromOwnedSlice(testing.allocator, lessThanComparison, heap_items[0..]);
+    defer heap.deinit();
+    expectEqual(@as(usize, 0), heap.len);
+    expect(heap.removeMinOrNull() == null);
+}
+
+test "std.PriorityDequeue: fromOwnedSlice trivial case 1" {
+    const items = [1]u32{1};
+    const heap_items = try testing.allocator.dupe(u32, &items);
+    var heap = Heap.fromOwnedSlice(testing.allocator, lessThanComparison, heap_items[0..]);
+    defer heap.deinit();
+
+    expectEqual(@as(usize, 1), heap.len);
+    expectEqual(items[0], heap.removeMin());
+    expect(heap.removeMinOrNull() == null);
 }
 
 test "std.PriorityDequeue: fromOwnedSlice" {
