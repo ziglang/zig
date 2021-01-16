@@ -122,7 +122,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     var context = codegen.Context{
         .gpa = self.base.allocator,
         .values = codegen.ValueTable.init(self.base.allocator),
-        .bytes = managed_code,
+        .code = managed_code,
         .func_type_data = managed_functype,
         .decl = decl,
         .err_msg = undefined,
@@ -140,7 +140,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     };
 
     fn_data.functype = context.func_type_data.toUnmanaged();
-    fn_data.code = context.bytes.toUnmanaged();
+    fn_data.code = context.code.toUnmanaged();
 }
 
 pub fn updateDeclExports(
