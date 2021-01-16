@@ -1106,4 +1106,27 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("handle assert.h",
+        \\#include <assert.h>
+        \\int main() {
+        \\    int x = 1;
+        \\    int *xp = &x;
+        \\    assert(1);
+        \\    assert(x != 0);
+        \\    assert(xp);
+        \\    assert(*xp);
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("NDEBUG disables assert",
+        \\#define NDEBUG
+        \\#include <assert.h>
+        \\int main() {
+        \\    assert(0);
+        \\    assert(NULL);
+        \\    return 0;
+        \\}
+    , "");
 }

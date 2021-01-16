@@ -182,3 +182,9 @@ pub fn __builtin_memcpy(
     @memcpy(dst_cast, src_cast, len);
     return dst;
 }
+
+/// The return value of __builtin_expect is `expr`. `c` is the expected value
+/// of `expr` and is used as a hint to the compiler in C. Here it is unused.
+pub fn __builtin_expect(expr: c_long, c: c_long) callconv(.Inline) c_long {
+    return expr;
+}
