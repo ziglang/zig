@@ -81,7 +81,7 @@ pub fn PriorityDequeue(comptime T: type) type {
             // next two are on a max layer;
             // next four are on a min layer, and so on.
             const leading_zeros = @clz(usize, index + 1);
-            const highest_set_bit = 63 - leading_zeros;
+            const highest_set_bit = @bitSizeOf(usize) - 1 - leading_zeros;
             return (highest_set_bit & 1) == 0;
         }
 
