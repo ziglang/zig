@@ -1234,7 +1234,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var i: u32 = 10;
             \\    unreachable;
             \\}
-        , &[_][]const u8{":3:9: error: redefinition of 'i'"});
+        , &[_][]const u8{
+            ":3:9: error: redefinition of 'i'",
+            ":2:9: note: previous definition is here",
+        });
         case.addError(
             \\var testing: i64 = 10;
             \\export fn _start() noreturn {
@@ -1409,6 +1412,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    foo: for ("foo") |_| {}
             \\}
         , &[_][]const u8{":2:5: error: unused for label"});
+        case.addError(
+            \\comptime {
+            \\    blk: {blk: {}}
+            \\}
+        , &[_][]const u8{
+            ":2:11: error: redefinition of label 'blk'",
+            ":2:5: note: previous definition is here",
+        });
     }
 
     {
