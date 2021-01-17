@@ -637,6 +637,67 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         try self.dbgSetEpilogueBegin();
                     }
                 },
+                .aarch64, .aarch64_be, .aarch64_32 => {
+                    const cc = self.fn_type.fnCallingConvention();
+                    if (cc != .Naked) {
+                        // TODO Finish function prologue and epilogue for aarch64.
+                        // Reserve the stack for local variables, etc.
+
+                        // stp fp, lr, [sp, #-16]!
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.stp(
+                            .x29,
+                            .x30,
+                            Register.sp,
+                            Instruction.LoadStorePairOffset.pre_index(-16),
+                        ).toU32());
+
+                        try self.dbgSetPrologueEnd();
+
+                        try self.genBody(self.mod_fn.body);
+
+                        try self.dbgSetEpilogueBegin();
+
+                        // exitlude jumps
+                        if (self.exitlude_jump_relocs.items.len == 1) {
+                            // There is only one relocation. Hence,
+                            // this relocation must be at the end of
+                            // the code. Therefore, we can just delete
+                            // the space initially reserved for the
+                            // jump
+                            self.code.items.len -= 4;
+                        } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+                            const amt = @intCast(i32, self.code.items.len) - @intCast(i32, jmp_reloc + 8);
+                            if (amt == -4) {
+                                // This return is at the end of the
+                                // code block. We can't just delete
+                                // the space because there may be
+                                // other jumps we already relocated to
+                                // the address. Instead, insert a nop
+                                writeInt(u32, self.code.items[jmp_reloc..][0..4], Instruction.nop().toU32());
+                            } else {
+                                if (math.cast(i28, amt)) |offset| {
+                                    writeInt(u32, self.code.items[jmp_reloc..][0..4], Instruction.b(offset).toU32());
+                                } else |err| {
+                                    return self.failSymbol("exitlude jump is too large", .{});
+                                }
+                            }
+                        }
+
+                        // ldp fp, lr, [sp], #16
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldp(
+                            .x29,
+                            .x30,
+                            Register.sp,
+                            Instruction.LoadStorePairOffset.post_index(16),
+                        ).toU32());
+                        // ret lr
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.ret(null).toU32());
+                    } else {
+                        try self.dbgSetPrologueEnd();
+                        try self.genBody(self.mod_fn.body);
+                        try self.dbgSetEpilogueBegin();
+                    }
+                },
                 else => {
                     try self.dbgSetPrologueEnd();
                     try self.genBody(self.mod_fn.body);
@@ -1962,8 +2023,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
                 },
                 .aarch64 => {
-                    // TODO: relocations
-                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.ret(null).toU32());
+                    // Just add space for an instruction, patch this later
+                    try self.code.resize(self.code.items.len + 4);
+                    try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }

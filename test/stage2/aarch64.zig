@@ -17,97 +17,60 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Regular old hello world
         case.addCompareOutput(
+            \\extern "c" fn write(usize, usize, usize) void;
+            \\extern "c" fn exit(usize) noreturn;
+            \\
             \\export fn _start() noreturn {
             \\    print();
             \\
-            \\    exit();
+            \\    exit(0);
             \\}
             \\
             \\fn print() void {
-            \\    asm volatile ("svc #0x80"
-            \\        :
-            \\        : [number] "{x16}" (4),
-            \\          [arg1] "{x0}" (1),
-            \\          [arg2] "{x1}" (@ptrToInt("Hello, World!\n")),
-            \\          [arg3] "{x2}" (14)
-            \\        : "memory"
-            \\    );
-            \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0x80"
-            \\        :
-            \\        : [number] "{x16}" (1),
-            \\          [arg1] "{x0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
+            \\    const msg = @ptrToInt("Hello, World!\n");
+            \\    const len = 14;
+            \\    write(1, msg, len);
             \\}
         ,
             "Hello, World!\n",
         );
+
         // Now change the message only
         case.addCompareOutput(
+            \\extern "c" fn write(usize, usize, usize) void;
+            \\extern "c" fn exit(usize) noreturn;
+            \\
             \\export fn _start() noreturn {
             \\    print();
             \\
-            \\    exit();
+            \\    exit(0);
             \\}
             \\
             \\fn print() void {
-            \\    asm volatile ("svc #0x80"
-            \\        :
-            \\        : [number] "{x16}" (4),
-            \\          [arg1] "{x0}" (1),
-            \\          [arg2] "{x1}" (@ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n")),
-            \\          [arg3] "{x2}" (104)
-            \\        : "memory"
-            \\    );
-            \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0x80"
-            \\        :
-            \\        : [number] "{x16}" (1),
-            \\          [arg1] "{x0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
+            \\    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
+            \\    const len = 104;
+            \\    write(1, msg, len);
             \\}
         ,
             "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
         );
+
         // Now we print it twice.
         case.addCompareOutput(
+            \\extern "c" fn write(usize, usize, usize) void;
+            \\extern "c" fn exit(usize) noreturn;
+            \\
             \\export fn _start() noreturn {
             \\    print();
             \\    print();
             \\
-            \\    exit();
+            \\    exit(0);
             \\}
             \\
             \\fn print() void {
-            \\    asm volatile ("svc #0x80"
-            \\        :
-            \\        : [number] "{x16}" (4),
-            \\          [arg1] "{x0}" (1),
-            \\          [arg2] "{x1}" (@ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n")),
-            \\          [arg3] "{x2}" (104)
-            \\        : "memory"
-            \\    );
-            \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0x80"
-            \\        :
-            \\        : [number] "{x16}" (1),
-            \\          [arg1] "{x0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
+            \\    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
+            \\    const len = 104;
+            \\    write(1, msg, len);
             \\}
         ,
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
@@ -197,24 +160,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         ,
             "",
-        );
-    }
-
-    {
-        var case = ctx.exe("hello world linked to libc", macos_aarch64);
-
-        // TODO rewrite this test once we handle more int conversions and return args.
-        case.addCompareOutput(
-            \\extern "c" fn write(usize, usize, usize) void;
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    write(1, @ptrToInt("Hello,"), 6);
-            \\    write(1, @ptrToInt(" World!\n,"), 8);
-            \\    exit(0);
-            \\}
-        ,
-            "Hello, World!\n",
         );
     }
 
