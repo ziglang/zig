@@ -1011,11 +1011,11 @@ pub fn deinit(self: *MachO) void {
         ds.deinit(self.base.allocator);
     }
     for (self.extern_lazy_symbols.items()) |*entry| {
-        entry.value.deinit(self.base.allocator);
+        self.base.allocator.free(entry.key);
     }
     self.extern_lazy_symbols.deinit(self.base.allocator);
     for (self.extern_nonlazy_symbols.items()) |*entry| {
-        entry.value.deinit(self.base.allocator);
+        self.base.allocator.free(entry.key);
     }
     self.extern_nonlazy_symbols.deinit(self.base.allocator);
     self.pie_fixups.deinit(self.base.allocator);
@@ -2042,9 +2042,16 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (!self.extern_nonlazy_symbols.contains("dyld_stub_binder")) {
         const index = @intCast(u32, self.extern_nonlazy_symbols.items().len);
-        const name = try std.fmt.allocPrint(self.base.allocator, "dyld_stub_binder", .{});
+        const name = try self.base.allocator.dupe(u8, "dyld_stub_binder");
+        const offset = try self.makeString("dyld_stub_binder");
         try self.extern_nonlazy_symbols.putNoClobber(self.base.allocator, name, .{
-            .name = name,
+            .inner = .{
+                .n_strx = offset,
+                .n_type = std.macho.N_UNDF | std.macho.N_EXT,
+                .n_sect = 0,
+                .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
+                .n_value = 0,
+            },
             .dylib_ordinal = 1, // TODO this is currently hardcoded.
             .segment = self.data_const_segment_cmd_index.?,
             .offset = index * @sizeOf(u64),
@@ -2222,15 +2229,15 @@ pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
     return buf;
 }
 
-pub fn makeString(self: *MachO, bytes: []const u8) !u32 {
+fn makeString(self: *MachO, bytes: []const u8) !u32 {
     try self.string_table.ensureCapacity(self.base.allocator, self.string_table.items.len + bytes.len + 1);
-    const result = @intCast(u32, self.string_table.items.len);
+    const offset = @intCast(u32, self.string_table.items.len);
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
     self.string_table_dirty = true;
     if (self.d_sym) |*ds|
         ds.string_table_dirty = true;
-    return result;
+    return offset;
 }
 
 fn getString(self: *MachO, str_off: u32) []const u8 {
@@ -2244,6 +2251,23 @@ fn updateString(self: *MachO, old_str_off: u32, new_name: []const u8) !u32 {
         return old_str_off;
     }
     return self.makeString(new_name);
+}
+
+pub fn addExternSymbol(self: *MachO, name: []const u8) !u32 {
+    const index = @intCast(u32, self.extern_lazy_symbols.items().len);
+    const offset = try self.makeString(name);
+    const sym_name = try self.base.allocator.dupe(u8, name);
+    try self.extern_lazy_symbols.putNoClobber(self.base.allocator, sym_name, .{
+        .inner = .{
+            .n_strx = offset,
+            .n_type = macho.N_UNDF | macho.N_EXT,
+            .n_sect = 0,
+            .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
+            .n_value = 0,
+        },
+        .dylib_ordinal = 1, // TODO this is now hardcoded, since we only support libSystem.
+    });
+    return index;
 }
 
 const NextSegmentAddressAndOffset = struct {
@@ -2585,24 +2609,10 @@ fn writeAllGlobalAndUndefSymbols(self: *MachO) !void {
     defer undefs.deinit();
     try undefs.ensureCapacity(nundefs);
     for (self.extern_lazy_symbols.items()) |entry| {
-        const name = try self.makeString(entry.key);
-        undefs.appendAssumeCapacity(.{
-            .n_strx = name,
-            .n_type = std.macho.N_UNDF | std.macho.N_EXT,
-            .n_sect = 0,
-            .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
-            .n_value = 0,
-        });
+        undefs.appendAssumeCapacity(entry.value.inner);
     }
     for (self.extern_nonlazy_symbols.items()) |entry| {
-        const name = try self.makeString(entry.key);
-        undefs.appendAssumeCapacity(.{
-            .n_strx = name,
-            .n_type = std.macho.N_UNDF | std.macho.N_EXT,
-            .n_sect = 0,
-            .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
-            .n_value = 0,
-        });
+        undefs.appendAssumeCapacity(entry.value.inner);
     }
 
     const locals_off = symtab.symoff;
@@ -2781,19 +2791,12 @@ fn writeRebaseInfoTable(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var symbols = try self.base.allocator.alloc(*const ExternSymbol, self.extern_lazy_symbols.items().len);
-    defer self.base.allocator.free(symbols);
-
-    for (self.extern_lazy_symbols.items()) |*entry, i| {
-        symbols[i] = &entry.value;
-    }
-
-    const size = try rebaseInfoSize(symbols);
+    const size = try rebaseInfoSize(self.extern_lazy_symbols.items());
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    try writeRebaseInfo(symbols, stream.writer());
+    try writeRebaseInfo(self.extern_lazy_symbols.items(), stream.writer());
 
     const linkedit_segment = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
@@ -2820,19 +2823,12 @@ fn writeBindingInfoTable(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var symbols = try self.base.allocator.alloc(*const ExternSymbol, self.extern_nonlazy_symbols.items().len);
-    defer self.base.allocator.free(symbols);
-
-    for (self.extern_nonlazy_symbols.items()) |*entry, i| {
-        symbols[i] = &entry.value;
-    }
-
-    const size = try bindInfoSize(symbols);
+    const size = try bindInfoSize(self.extern_nonlazy_symbols.items());
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    try writeBindInfo(symbols, stream.writer());
+    try writeBindInfo(self.extern_nonlazy_symbols.items(), stream.writer());
 
     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
@@ -2856,19 +2852,12 @@ fn writeBindingInfoTable(self: *MachO) !void {
 fn writeLazyBindingInfoTable(self: *MachO) !void {
     if (!self.lazy_binding_info_dirty) return;
 
-    var symbols = try self.base.allocator.alloc(*const ExternSymbol, self.extern_lazy_symbols.items().len);
-    defer self.base.allocator.free(symbols);
-
-    for (self.extern_lazy_symbols.items()) |*entry, i| {
-        symbols[i] = &entry.value;
-    }
-
-    const size = try lazyBindInfoSize(symbols);
+    const size = try lazyBindInfoSize(self.extern_lazy_symbols.items());
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    try writeLazyBindInfo(symbols, stream.writer());
+    try writeLazyBindInfo(self.extern_lazy_symbols.items(), stream.writer());
 
     const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;

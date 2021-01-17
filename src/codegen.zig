@@ -1920,21 +1920,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     } else if (func_value.castTag(.extern_fn)) |func_payload| {
                         const decl = func_payload.data;
-                        // We don't free the decl_name immediately unless it already exists.
-                        // If it doesn't, it will get autofreed when we clean up the extern symbol table.
                         const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
+                        defer self.bin_file.allocator.free(decl_name);
                         const already_defined = macho_file.extern_lazy_symbols.contains(decl_name);
-                        const symbol: u32 = if (macho_file.extern_lazy_symbols.getIndex(decl_name)) |index| blk: {
-                            self.bin_file.allocator.free(decl_name);
-                            break :blk @intCast(u32, index);
-                        } else blk: {
-                            const index = @intCast(u32, macho_file.extern_lazy_symbols.items().len);
-                            try macho_file.extern_lazy_symbols.putNoClobber(self.bin_file.allocator, decl_name, .{
-                                .name = decl_name,
-                                .dylib_ordinal = 1, // TODO this is now hardcoded, since we only support libSystem.
-                            });
-                            break :blk index;
-                        };
+                        const symbol: u32 = if (macho_file.extern_lazy_symbols.getIndex(decl_name)) |index|
+                            @intCast(u32, index)
+                        else
+                            try macho_file.addExternSymbol(decl_name);
                         const start = self.code.items.len;
                         const len: usize = blk: {
                             switch (arch) {
