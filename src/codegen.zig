@@ -2693,9 +2693,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         switch (abi_size) {
                             1, 4 => {
-                                const offset = if (adj_off <= math.maxInt(u12)) blk: {
-                                    break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
-                                } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
+                                const offset = if (math.cast(u12, adj_off)) |imm| blk: {
+                                    break :blk Instruction.Offset.imm(imm);
+                                } else |_| Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
                                 const str = switch (abi_size) {
                                     1 => Instruction.strb,
                                     4 => Instruction.str,
@@ -2856,12 +2856,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         switch (abi_size) {
                             4, 8 => {
-                                const offset = if (adj_off <= math.maxInt(u12)) blk: {
-                                    break :blk Instruction.LoadStoreOffset.imm(@intCast(u12, adj_off));
-                                } else Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
-                                const rn: Register = switch (abi_size) {
-                                    4 => .w29,
-                                    8 => .x29,
+                                const offset = if (math.cast(i9, adj_off)) |imm|
+                                    Instruction.LoadStoreOffset.imm_post_index(-imm)
+                                else |_|
+                                    Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
+                                const rn: Register = switch (arch) {
+                                    .aarch64, .aarch64_be => .x29,
+                                    .aarch64_32 => .w29,
                                     else => unreachable,
                                 };
 
