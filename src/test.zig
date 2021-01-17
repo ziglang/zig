@@ -15,6 +15,8 @@ const CrossTarget = std.zig.CrossTarget;
 
 const zig_h = link.File.C.zig_h;
 
+const hr = "=" ** 40;
+
 test "self-hosted" {
     var ctx = TestContext.init();
     defer ctx.deinit();
@@ -29,23 +31,32 @@ const ErrorMsg = union(enum) {
         msg: []const u8,
         line: u32,
         column: u32,
+        kind: Kind,
     },
     plain: struct {
         msg: []const u8,
+        kind: Kind,
     },
 
-    fn init(other: Compilation.AllErrors.Message) ErrorMsg {
+    const Kind = enum {
+        @"error",
+        note,
+    };
+
+    fn init(other: Compilation.AllErrors.Message, kind: Kind) ErrorMsg {
         switch (other) {
             .src => |src| return .{
                 .src = .{
                     .msg = src.msg,
                     .line = @intCast(u32, src.line),
                     .column = @intCast(u32, src.column),
+                    .kind = kind,
                 },
             },
             .plain => |plain| return .{
                 .plain = .{
                     .msg = plain.msg,
+                    .kind = kind,
                 },
             },
         }
@@ -59,14 +70,15 @@ const ErrorMsg = union(enum) {
     ) !void {
         switch (self) {
             .src => |src| {
-                return writer.print(":{d}:{d}: error: {s}", .{
+                return writer.print(":{d}:{d}: {s}: {s}", .{
                     src.line + 1,
                     src.column + 1,
+                    @tagName(src.kind),
                     src.msg,
                 });
             },
             .plain => |plain| {
-                return writer.print("error: {s}", .{plain.msg});
+                return writer.print("{s}: {s}", .{ plain.msg, @tagName(plain.kind) });
             },
         }
     }
@@ -86,9 +98,6 @@ pub const TestContext = struct {
         /// effects of the incremental compilation.
         src: [:0]const u8,
         case: union(enum) {
-            /// A transformation update transforms the input and tests against
-            /// the expected output ZIR.
-            Transformation: [:0]const u8,
             /// Check the main binary output file against an expected set of bytes.
             /// This is most useful with, for example, `-ofmt=c`.
             CompareObjectFile: []const u8,
@@ -139,15 +148,6 @@ pub const TestContext = struct {
 
         files: std.ArrayList(File),
 
-        /// Adds a subcase in which the module is updated with `src`, and the
-        /// resulting ZIR is validated against `result`.
-        pub fn addTransform(self: *Case, src: [:0]const u8, result: [:0]const u8) void {
-            self.updates.append(.{
-                .src = src,
-                .case = .{ .Transformation = result },
-            }) catch unreachable;
-        }
-
         /// Adds a subcase in which the module is updated with `src`, and a C
         /// header is generated.
         pub fn addHeader(self: *Case, src: [:0]const u8, result: [:0]const u8) void {
@@ -182,31 +182,37 @@ pub const TestContext = struct {
         /// the form `:line:column: error: message`.
         pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
             var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
-            for (errors) |e, i| {
-                if (e[0] != ':') {
-                    array[i] = .{ .plain = .{ .msg = e } };
+            for (errors) |err_msg_line, i| {
+                if (std.mem.startsWith(u8, err_msg_line, "error: ")) {
+                    array[i] = .{
+                        .plain = .{ .msg = err_msg_line["error: ".len..], .kind = .@"error" },
+                    };
+                    continue;
+                } else if (std.mem.startsWith(u8, err_msg_line, "note: ")) {
+                    array[i] = .{
+                        .plain = .{ .msg = err_msg_line["note: ".len..], .kind = .note },
+                    };
                     continue;
                 }
-                var cur = e[1..];
-                var line_index = std.mem.indexOf(u8, cur, ":");
-                if (line_index == null) {
-                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
-                }
-                const line = std.fmt.parseInt(u32, cur[0..line_index.?], 10) catch @panic("Unable to parse line number");
-                cur = cur[line_index.? + 1 ..];
-                const column_index = std.mem.indexOf(u8, cur, ":");
-                if (column_index == null) {
-                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
-                }
-                const column = std.fmt.parseInt(u32, cur[0..column_index.?], 10) catch @panic("Unable to parse column number");
-                cur = cur[column_index.? + 2 ..];
-                if (!std.mem.eql(u8, cur[0..7], "error: ")) {
-                    @panic("Invalid test: error must be specified as follows:\n:line:column: error: message\n=========\n");
-                }
-                const msg = cur[7..];
+                // example: ":1:2: error: bad thing happened"
+                var it = std.mem.split(err_msg_line, ":");
+                _ = it.next() orelse @panic("missing colon");
+                const line_text = it.next() orelse @panic("missing line");
+                const col_text = it.next() orelse @panic("missing column");
+                const kind_text = it.next() orelse @panic("missing 'error'/'note'");
+                const msg = it.rest()[1..]; // skip over the space at end of "error: "
+
+                const line = std.fmt.parseInt(u32, line_text, 10) catch @panic("bad line number");
+                const column = std.fmt.parseInt(u32, col_text, 10) catch @panic("bad column number");
+                const kind: ErrorMsg.Kind = if (std.mem.eql(u8, kind_text, " error"))
+                    .@"error"
+                else if (std.mem.eql(u8, kind_text, " note"))
+                    .note
+                else
+                    @panic("expected 'error'/'note'");
 
                 if (line == 0 or column == 0) {
-                    @panic("Invalid test: error line and column must be specified starting at one!");
+                    @panic("line and column must be specified starting at one");
                 }
 
                 array[i] = .{
@@ -214,6 +220,7 @@ pub const TestContext = struct {
                         .msg = msg,
                         .line = line - 1,
                         .column = column - 1,
+                        .kind = kind,
                     },
                 };
             }
@@ -689,25 +696,20 @@ pub const TestContext = struct {
                 var all_errors = try comp.getAllErrorsAlloc();
                 defer all_errors.deinit(allocator);
                 if (all_errors.list.len != 0) {
-                    std.debug.print("\nErrors occurred updating the compilation:\n================\n", .{});
+                    std.debug.print("\nErrors occurred updating the compilation:\n{s}\n", .{hr});
                     for (all_errors.list) |err_msg| {
                         switch (err_msg) {
                             .src => |src| {
-                                std.debug.print(":{d}:{d}: error: {s}\n================\n", .{
-                                    src.line + 1, src.column + 1, src.msg,
+                                std.debug.print(":{d}:{d}: error: {s}\n{s}\n", .{
+                                    src.line + 1, src.column + 1, src.msg, hr,
                                 });
                             },
                             .plain => |plain| {
-                                std.debug.print("error: {s}\n================\n", .{plain.msg});
+                                std.debug.print("error: {s}\n{s}\n", .{ plain.msg, hr });
                             },
                         }
                     }
                     // TODO print generated C code
-                    //if (comp.bin_file.cast(link.File.C)) |c_file| {
-                    //    std.debug.print("Generated C: \n===============\n{s}\n\n===========\n\n", .{
-                    //        c_file.main.items,
-                    //    });
-                    //}
                     std.debug.print("Test failed.\n", .{});
                     std.process.exit(1);
                 }
@@ -728,48 +730,36 @@ pub const TestContext = struct {
 
                     std.testing.expectEqualStrings(expected_output, out);
                 },
-                .Transformation => |expected_output| {
-                    update_node.setEstimatedTotalItems(5);
-                    var emit_node = update_node.start("emit", 0);
-                    emit_node.activate();
-                    var new_zir_module = try zir.emit(allocator, comp.bin_file.options.module.?);
-                    defer new_zir_module.deinit(allocator);
-                    emit_node.end();
-
-                    var write_node = update_node.start("write", 0);
-                    write_node.activate();
-                    var out_zir = std.ArrayList(u8).init(allocator);
-                    defer out_zir.deinit();
-                    try new_zir_module.writeToStream(allocator, out_zir.writer());
-                    write_node.end();
-
+                .Error => |case_error_list| {
                     var test_node = update_node.start("assert", 0);
                     test_node.activate();
                     defer test_node.end();
 
-                    std.testing.expectEqualStrings(expected_output, out_zir.items);
-                },
-                .Error => |e| {
-                    var test_node = update_node.start("assert", 0);
-                    test_node.activate();
-                    defer test_node.end();
-                    var handled_errors = try arena.alloc(bool, e.len);
-                    for (handled_errors) |*handled| {
-                        handled.* = false;
-                    }
-                    var all_errors = try comp.getAllErrorsAlloc();
-                    defer all_errors.deinit(allocator);
-                    for (all_errors.list) |a| {
-                        for (e) |ex, i| {
-                            const a_tag: @TagType(@TypeOf(a)) = a;
-                            const ex_tag: @TagType(@TypeOf(ex)) = ex;
-                            switch (a) {
-                                .src => |src| {
+                    const handled_errors = try arena.alloc(bool, case_error_list.len);
+                    std.mem.set(bool, handled_errors, false);
+
+                    var actual_errors = try comp.getAllErrorsAlloc();
+                    defer actual_errors.deinit(allocator);
+
+                    var any_failed = false;
+                    var notes_to_check = std.ArrayList(*const Compilation.AllErrors.Message).init(allocator);
+                    defer notes_to_check.deinit();
+
+                    for (actual_errors.list) |actual_error| {
+                        for (case_error_list) |case_msg, i| {
+                            const ex_tag: @TagType(@TypeOf(case_msg)) = case_msg;
+                            switch (actual_error) {
+                                .src => |actual_msg| {
+                                    for (actual_msg.notes) |*note| {
+                                        try notes_to_check.append(note);
+                                    }
+
                                     if (ex_tag != .src) continue;
 
-                                    if (src.line == ex.src.line and
-                                        src.column == ex.src.column and
-                                        std.mem.eql(u8, ex.src.msg, src.msg))
+                                    if (actual_msg.line == case_msg.src.line and
+                                        actual_msg.column == case_msg.src.column and
+                                        std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
+                                        case_msg.src.kind == .@"error")
                                     {
                                         handled_errors[i] = true;
                                         break;
@@ -778,7 +768,9 @@ pub const TestContext = struct {
                                 .plain => |plain| {
                                     if (ex_tag != .plain) continue;
 
-                                    if (std.mem.eql(u8, ex.plain.msg, plain.msg)) {
+                                    if (std.mem.eql(u8, case_msg.plain.msg, plain.msg) and
+                                        case_msg.plain.kind == .@"error")
+                                    {
                                         handled_errors[i] = true;
                                         break;
                                     }
@@ -786,22 +778,66 @@ pub const TestContext = struct {
                             }
                         } else {
                             std.debug.print(
-                                "{s}\nUnexpected error:\n================\n{}\n================\nTest failed.\n",
-                                .{ case.name, ErrorMsg.init(a) },
+                                "\nUnexpected error:\n{s}\n{}\n{s}",
+                                .{ hr, ErrorMsg.init(actual_error, .@"error"), hr },
                             );
-                            std.process.exit(1);
+                            any_failed = true;
+                        }
+                    }
+                    while (notes_to_check.popOrNull()) |note| {
+                        for (case_error_list) |case_msg, i| {
+                            const ex_tag: @TagType(@TypeOf(case_msg)) = case_msg;
+                            switch (note.*) {
+                                .src => |actual_msg| {
+                                    for (actual_msg.notes) |*sub_note| {
+                                        try notes_to_check.append(sub_note);
+                                    }
+                                    if (ex_tag != .src) continue;
+
+                                    if (actual_msg.line == case_msg.src.line and
+                                        actual_msg.column == case_msg.src.column and
+                                        std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
+                                        case_msg.src.kind == .note)
+                                    {
+                                        handled_errors[i] = true;
+                                        break;
+                                    }
+                                },
+                                .plain => |plain| {
+                                    if (ex_tag != .plain) continue;
+
+                                    if (std.mem.eql(u8, case_msg.plain.msg, plain.msg) and
+                                        case_msg.plain.kind == .note)
+                                    {
+                                        handled_errors[i] = true;
+                                        break;
+                                    }
+                                },
+                            }
+                        } else {
+                            std.debug.print(
+                                "\nUnexpected note:\n{s}\n{}\n{s}",
+                                .{ hr, ErrorMsg.init(note.*, .note), hr },
+                            );
+                            any_failed = true;
                         }
                     }
 
                     for (handled_errors) |handled, i| {
                         if (!handled) {
-                            const er = e[i];
                             std.debug.print(
-                                "{s}\nDid not receive error:\n================\n{}\n================\nTest failed.\n",
-                                .{ case.name, er },
+                                "\nExpected error not found:\n{s}\n{}\n{s}",
+                                .{ hr, case_error_list[i], hr },
                             );
-                            std.process.exit(1);
+                            any_failed = true;
                         }
+                    }
+
+                    if (any_failed) {
+                        std.debug.print("\nTest case '{s}' failed, update_index={d}.\n", .{
+                            case.name, update_index,
+                        });
+                        std.process.exit(1);
                     }
                 },
                 .Execution => |expected_stdout| {

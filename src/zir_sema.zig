@@ -63,7 +63,6 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .declref => return analyzeInstDeclRef(mod, scope, old_inst.castTag(.declref).?),
         .declref_str => return analyzeInstDeclRefStr(mod, scope, old_inst.castTag(.declref_str).?),
         .declval => return analyzeInstDeclVal(mod, scope, old_inst.castTag(.declval).?),
-        .declval_in_module => return analyzeInstDeclValInModule(mod, scope, old_inst.castTag(.declval_in_module).?),
         .ensure_result_used => return analyzeInstEnsureResultUsed(mod, scope, old_inst.castTag(.ensure_result_used).?),
         .ensure_result_non_error => return analyzeInstEnsureResultNonError(mod, scope, old_inst.castTag(.ensure_result_non_error).?),
         .ensure_indexable => return analyzeInstEnsureIndexable(mod, scope, old_inst.castTag(.ensure_indexable).?),
@@ -166,7 +165,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
     }
 }
 
-pub fn analyzeBody(mod: *Module, block: *Scope.Block, body: zir.Module.Body) !void {
+pub fn analyzeBody(mod: *Module, block: *Scope.Block, body: zir.Body) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -183,90 +182,12 @@ pub fn analyzeBodyValueAsType(
     mod: *Module,
     block_scope: *Scope.Block,
     zir_result_inst: *zir.Inst,
-    body: zir.Module.Body,
+    body: zir.Body,
 ) !Type {
     try analyzeBody(mod, block_scope, body);
     const result_inst = block_scope.inst_table.get(zir_result_inst).?;
     const val = try mod.resolveConstValue(&block_scope.base, result_inst);
     return val.toType(block_scope.base.arena());
-}
-
-pub fn analyzeZirDecl(mod: *Module, decl: *Decl, src_decl: *zir.Decl) InnerError!bool {
-    var decl_scope: Scope.DeclAnalysis = .{
-        .decl = decl,
-        .arena = std.heap.ArenaAllocator.init(mod.gpa),
-    };
-    errdefer decl_scope.arena.deinit();
-
-    decl.analysis = .in_progress;
-
-    const typed_value = try analyzeConstInst(mod, &decl_scope.base, src_decl.inst);
-    const arena_state = try decl_scope.arena.allocator.create(std.heap.ArenaAllocator.State);
-
-    var prev_type_has_bits = false;
-    var type_changed = true;
-
-    if (decl.typedValueManaged()) |tvm| {
-        prev_type_has_bits = tvm.typed_value.ty.hasCodeGenBits();
-        type_changed = !tvm.typed_value.ty.eql(typed_value.ty);
-
-        tvm.deinit(mod.gpa);
-    }
-
-    arena_state.* = decl_scope.arena.state;
-    decl.typed_value = .{
-        .most_recent = .{
-            .typed_value = typed_value,
-            .arena = arena_state,
-        },
-    };
-    decl.analysis = .complete;
-    decl.generation = mod.generation;
-    if (typed_value.ty.hasCodeGenBits()) {
-        // We don't fully codegen the decl until later, but we do need to reserve a global
-        // offset table index for it. This allows us to codegen decls out of dependency order,
-        // increasing how many computations can be done in parallel.
-        try mod.comp.bin_file.allocateDeclIndexes(decl);
-        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-    } else if (prev_type_has_bits) {
-        mod.comp.bin_file.freeDecl(decl);
-    }
-
-    return type_changed;
-}
-
-pub fn resolveZirDecl(mod: *Module, scope: *Scope, src_decl: *zir.Decl) InnerError!*Decl {
-    const zir_module = mod.root_scope.cast(Scope.ZIRModule).?;
-    const entry = zir_module.contents.module.findDecl(src_decl.name).?;
-    return resolveZirDeclHavingIndex(mod, scope, src_decl, entry.index);
-}
-
-fn resolveZirDeclHavingIndex(mod: *Module, scope: *Scope, src_decl: *zir.Decl, src_index: usize) InnerError!*Decl {
-    const name_hash = scope.namespace().fullyQualifiedNameHash(src_decl.name);
-    const decl = mod.decl_table.get(name_hash).?;
-    decl.src_index = src_index;
-    try mod.ensureDeclAnalyzed(decl);
-    return decl;
-}
-
-/// Declares a dependency on the decl.
-fn resolveCompleteZirDecl(mod: *Module, scope: *Scope, src_decl: *zir.Decl) InnerError!*Decl {
-    const decl = try resolveZirDecl(mod, scope, src_decl);
-    switch (decl.analysis) {
-        .unreferenced => unreachable,
-        .in_progress => unreachable,
-        .outdated => unreachable,
-
-        .dependency_failure,
-        .sema_failure,
-        .sema_failure_retryable,
-        .codegen_failure,
-        .codegen_failure_retryable,
-        => return error.AnalysisFail,
-
-        .complete => {},
-    }
-    return decl;
 }
 
 pub fn resolveInst(mod: *Module, scope: *Scope, zir_inst: *zir.Inst) InnerError!*Inst {
@@ -640,22 +561,28 @@ fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) In
 }
 
 fn analyzeInstCompileLog(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileLog) InnerError!*Inst {
-    std.debug.print("| ", .{});
-    for (inst.positionals.to_log) |item, i| {
-        const to_log = try resolveInst(mod, scope, item);
-        if (to_log.value()) |val| {
-            std.debug.print("{}", .{val});
-        } else {
-            std.debug.print("(runtime value)", .{});
-        }
-        if (i != inst.positionals.to_log.len - 1) std.debug.print(", ", .{});
-    }
-    std.debug.print("\n", .{});
-    if (!inst.kw_args.seen) {
+    var managed = mod.compile_log_text.toManaged(mod.gpa);
+    defer mod.compile_log_text = managed.moveToUnmanaged();
+    const writer = managed.writer();
 
-        // so that we do not give multiple compile errors if it gets evaled twice
-        inst.kw_args.seen = true;
-        try mod.failCompileLog(scope, inst.base.src);
+    for (inst.positionals.to_log) |arg_inst, i| {
+        if (i != 0) try writer.print(", ", .{});
+
+        const arg = try resolveInst(mod, scope, arg_inst);
+        if (arg.value()) |val| {
+            try writer.print("@as({}, {})", .{ arg.ty, val });
+        } else {
+            try writer.print("@as({}, [runtime value])", .{arg.ty});
+        }
+    }
+    try writer.print("\n", .{});
+
+    const gop = try mod.compile_log_decls.getOrPut(mod.gpa, scope.ownerDecl().?);
+    if (!gop.found_existing) {
+        gop.entry.value = .{
+            .file_scope = scope.getFileScope(),
+            .byte_offset = inst.base.src,
+        };
     }
     return mod.constVoid(scope, inst.base.src);
 }
@@ -705,7 +632,8 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
         .parent = parent_block,
         .inst_table = parent_block.inst_table,
         .func = parent_block.func,
-        .decl = parent_block.decl,
+        .owner_decl = parent_block.owner_decl,
+        .src_decl = parent_block.src_decl,
         .instructions = .{},
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
@@ -732,7 +660,8 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
         .parent = parent_block,
         .inst_table = parent_block.inst_table,
         .func = parent_block.func,
-        .decl = parent_block.decl,
+        .owner_decl = parent_block.owner_decl,
+        .src_decl = parent_block.src_decl,
         .instructions = .{},
         .arena = parent_block.arena,
         .label = null,
@@ -744,13 +673,14 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
 
     try analyzeBody(mod, &child_block, inst.positionals.body);
 
-    try parent_block.instructions.appendSlice(mod.gpa, child_block.instructions.items);
+    // Move the analyzed instructions into the parent block arena.
+    const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items);
+    try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
 
-    // comptime blocks won't generate any runtime values
-    if (child_block.instructions.items.len == 0)
-        return mod.constVoid(scope, inst.base.src);
-
-    return parent_block.instructions.items[parent_block.instructions.items.len - 1];
+    // The result of a flat block is the last instruction.
+    const zir_inst_list = inst.positionals.body.instructions;
+    const last_zir_inst = zir_inst_list[zir_inst_list.len - 1];
+    return resolveInst(mod, scope, last_zir_inst);
 }
 
 fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime: bool) InnerError!*Inst {
@@ -775,7 +705,8 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_compt
         .parent = parent_block,
         .inst_table = parent_block.inst_table,
         .func = parent_block.func,
-        .decl = parent_block.decl,
+        .owner_decl = parent_block.owner_decl,
+        .src_decl = parent_block.src_decl,
         .instructions = .{},
         .arena = parent_block.arena,
         // TODO @as here is working around a stage1 miscompilation bug :(
@@ -890,22 +821,15 @@ fn analyzeInstDeclRefStr(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclRefStr
 fn analyzeInstDeclRef(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclRef) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.analyzeDeclRefByName(scope, inst.base.src, inst.positionals.name);
+    return mod.analyzeDeclRef(scope, inst.base.src, inst.positionals.decl);
 }
 
 fn analyzeInstDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    const decl = try analyzeDeclVal(mod, scope, inst);
-    const ptr = try mod.analyzeDeclRef(scope, inst.base.src, decl);
-    return mod.analyzeDeref(scope, inst.base.src, ptr, inst.base.src);
-}
-
-fn analyzeInstDeclValInModule(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclValInModule) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-    const decl = inst.positionals.decl;
-    return mod.analyzeDeclRef(scope, inst.base.src, decl);
+    const decl_ref = try mod.analyzeDeclRef(scope, inst.base.src, inst.positionals.decl);
+    // TODO look into avoiding the call to analyzeDeref here
+    return mod.analyzeDeref(scope, inst.base.src, decl_ref, inst.base.src);
 }
 
 fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
@@ -1032,9 +956,8 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
             .parent = null,
             .inst_table = &inst_table,
             .func = module_fn,
-            // Note that we pass the caller's Decl, not the callee. This causes
-            // compile errors to be attached (correctly) to the caller's Decl.
-            .decl = scope.decl().?,
+            .owner_decl = scope.ownerDecl().?,
+            .src_decl = module_fn.owner_decl,
             .instructions = .{},
             .arena = scope.arena(),
             .label = null,
@@ -1069,7 +992,7 @@ fn analyzeInstFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!
         .state = if (fn_inst.kw_args.is_inline) .inline_only else .queued,
         .zir = fn_inst.positionals.body,
         .body = undefined,
-        .owner_decl = scope.decl().?,
+        .owner_decl = scope.ownerDecl().?,
     };
     return mod.constInst(scope, fn_inst.base.src, .{
         .ty = fn_type,
@@ -1391,7 +1314,7 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                         return mod.analyzeDeclRef(scope, fieldptr.base.src, decl);
                     }
 
-                    if (&container_scope.file_scope.base == mod.root_scope) {
+                    if (container_scope.file_scope == mod.root_scope) {
                         return mod.fail(scope, fieldptr.base.src, "root source file has no member called '{s}'", .{field_name});
                     } else {
                         return mod.fail(scope, fieldptr.base.src, "container '{}' has no member called '{s}'", .{ child_type, field_name });
@@ -1606,7 +1529,8 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
         .parent = parent_block,
         .inst_table = parent_block.inst_table,
         .func = parent_block.func,
-        .decl = parent_block.decl,
+        .owner_decl = parent_block.owner_decl,
+        .src_decl = parent_block.src_decl,
         .instructions = .{},
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
@@ -2182,7 +2106,8 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .parent = parent_block,
         .inst_table = parent_block.inst_table,
         .func = parent_block.func,
-        .decl = parent_block.decl,
+        .owner_decl = parent_block.owner_decl,
+        .src_decl = parent_block.src_decl,
         .instructions = .{},
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
@@ -2196,7 +2121,8 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .parent = parent_block,
         .inst_table = parent_block.inst_table,
         .func = parent_block.func,
-        .decl = parent_block.decl,
+        .owner_decl = parent_block.owner_decl,
+        .src_decl = parent_block.src_decl,
         .instructions = .{},
         .arena = parent_block.arena,
         .inlining = parent_block.inlining,
@@ -2292,17 +2218,6 @@ fn analyzeBreak(
         }
         opt_block = block.parent;
     } else unreachable;
-}
-
-fn analyzeDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerError!*Decl {
-    const decl_name = inst.positionals.name;
-    const zir_module = scope.namespace().cast(Scope.ZIRModule).?;
-    const src_decl = zir_module.contents.module.findDecl(decl_name) orelse
-        return mod.fail(scope, inst.base.src, "use of undeclared identifier '{s}'", .{decl_name});
-
-    const decl = try resolveCompleteZirDecl(mod, scope, src_decl.decl);
-
-    return decl;
 }
 
 fn analyzeInstSimplePtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) InnerError!*Inst {

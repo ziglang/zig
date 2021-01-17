@@ -318,7 +318,7 @@ pub fn comptimeExpr(mod: *Module, parent_scope: *Scope, rl: ResultLoc, node: *as
     // Make a scope to collect generated instructions in the sub-expression.
     var block_scope: Scope.GenZIR = .{
         .parent = parent_scope,
-        .decl = parent_scope.decl().?,
+        .decl = parent_scope.ownerDecl().?,
         .arena = parent_scope.arena(),
         .instructions = .{},
     };
@@ -442,6 +442,49 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
     try blockExprStmts(mod, parent_scope, &block_node.base, block_node.statements());
 }
 
+fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIndex) !void {
+    // Look for the label in the scope.
+    var scope = parent_scope;
+    while (true) {
+        switch (scope.tag) {
+            .gen_zir => {
+                const gen_zir = scope.cast(Scope.GenZIR).?;
+                if (gen_zir.label) |prev_label| {
+                    if (try tokenIdentEql(mod, parent_scope, label, prev_label.token)) {
+                        const tree = parent_scope.tree();
+                        const label_src = tree.token_locs[label].start;
+                        const prev_label_src = tree.token_locs[prev_label.token].start;
+
+                        const label_name = try mod.identifierTokenString(parent_scope, label);
+                        const msg = msg: {
+                            const msg = try mod.errMsg(
+                                parent_scope,
+                                label_src,
+                                "redefinition of label '{s}'",
+                                .{label_name},
+                            );
+                            errdefer msg.destroy(mod.gpa);
+                            try mod.errNote(
+                                parent_scope,
+                                prev_label_src,
+                                msg,
+                                "previous definition is here",
+                                .{},
+                            );
+                            break :msg msg;
+                        };
+                        return mod.failWithOwnedErrorMsg(parent_scope, msg);
+                    }
+                }
+                scope = gen_zir.parent;
+            },
+            .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+            .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            else => return,
+        }
+    }
+}
+
 fn labeledBlockExpr(
     mod: *Module,
     parent_scope: *Scope,
@@ -456,6 +499,8 @@ fn labeledBlockExpr(
 
     const tree = parent_scope.tree();
     const src = tree.token_locs[block_node.lbrace].start;
+
+    try checkLabelRedefinition(mod, parent_scope, block_node.label);
 
     // Create the Block ZIR instruction so that we can put it into the GenZIR struct
     // so that break statements can reference it.
@@ -474,7 +519,7 @@ fn labeledBlockExpr(
 
     var block_scope: Scope.GenZIR = .{
         .parent = parent_scope,
-        .decl = parent_scope.decl().?,
+        .decl = parent_scope.ownerDecl().?,
         .arena = gen_zir.arena,
         .instructions = .{},
         .break_result_loc = rl,
@@ -560,14 +605,30 @@ fn varDecl(
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
+                    const msg = msg: {
+                        const msg = try mod.errMsg(scope, name_src, "redefinition of '{s}'", .{
+                            ident_name,
+                        });
+                        errdefer msg.destroy(mod.gpa);
+                        try mod.errNote(scope, local_val.inst.src, msg, "previous definition is here", .{});
+                        break :msg msg;
+                    };
+                    return mod.failWithOwnedErrorMsg(scope, msg);
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
+                    const msg = msg: {
+                        const msg = try mod.errMsg(scope, name_src, "redefinition of '{s}'", .{
+                            ident_name,
+                        });
+                        errdefer msg.destroy(mod.gpa);
+                        try mod.errNote(scope, local_ptr.ptr.src, msg, "previous definition is here", .{});
+                        break :msg msg;
+                    };
+                    return mod.failWithOwnedErrorMsg(scope, msg);
                 }
                 s = local_ptr.parent;
             },
@@ -899,7 +960,7 @@ fn containerDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Con
 
     var gen_scope: Scope.GenZIR = .{
         .parent = scope,
-        .decl = scope.decl().?,
+        .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
@@ -1028,7 +1089,13 @@ fn containerDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Con
         .ty = Type.initTag(.type),
         .val = val,
     });
-    return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{}));
+    if (rl == .ref) {
+        return addZIRInst(mod, scope, src, zir.Inst.DeclRef, .{ .decl = decl }, .{});
+    } else {
+        return rlWrap(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclVal, .{
+            .decl = decl,
+        }, .{}));
+    }
 }
 
 fn errorSetDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.ErrorSetDecl) InnerError!*zir.Inst {
@@ -1084,7 +1151,7 @@ fn orelseCatchExpr(
 
     var block_scope: Scope.GenZIR = .{
         .parent = scope,
-        .decl = scope.decl().?,
+        .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
@@ -1160,8 +1227,10 @@ fn orelseCatchExpr(
     return rlWrapPtr(mod, scope, rl, &block.base);
 }
 
-/// Return whether the identifier names of two tokens are equal. Resolves @"" tokens without allocating.
-/// OK in theory it could do it without allocating. This implementation allocates when the @"" form is used.
+/// Return whether the identifier names of two tokens are equal. Resolves @""
+/// tokens without allocating.
+/// OK in theory it could do it without allocating. This implementation
+/// allocates when the @"" form is used.
 fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: ast.TokenIndex) !bool {
     const ident_name_1 = try mod.identifierTokenString(scope, token1);
     const ident_name_2 = try mod.identifierTokenString(scope, token2);
@@ -1266,7 +1335,7 @@ fn boolBinOp(
 
     var block_scope: Scope.GenZIR = .{
         .parent = scope,
-        .decl = scope.decl().?,
+        .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
@@ -1412,7 +1481,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     }
     var block_scope: Scope.GenZIR = .{
         .parent = scope,
-        .decl = scope.decl().?,
+        .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
@@ -1508,12 +1577,16 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
         }
     }
 
+    if (while_node.label) |label| {
+        try checkLabelRedefinition(mod, scope, label);
+    }
+
     if (while_node.inline_token) |tok|
         return mod.failTok(scope, tok, "TODO inline while", .{});
 
     var expr_scope: Scope.GenZIR = .{
         .parent = scope,
-        .decl = scope.decl().?,
+        .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
@@ -1643,13 +1716,22 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     return &while_block.base;
 }
 
-fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) InnerError!*zir.Inst {
+fn forExpr(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    for_node: *ast.Node.For,
+) InnerError!*zir.Inst {
+    if (for_node.label) |label| {
+        try checkLabelRedefinition(mod, scope, label);
+    }
+
     if (for_node.inline_token) |tok|
         return mod.failTok(scope, tok, "TODO inline for", .{});
 
     var for_scope: Scope.GenZIR = .{
         .parent = scope,
-        .decl = scope.decl().?,
+        .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
@@ -1843,7 +1925,7 @@ fn getRangeNode(node: *ast.Node) ?*ast.Node.SimpleInfixOp {
 fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node.Switch) InnerError!*zir.Inst {
     var block_scope: Scope.GenZIR = .{
         .parent = scope,
-        .decl = scope.decl().?,
+        .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
@@ -1885,7 +1967,7 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
 
     var item_scope: Scope.GenZIR = .{
         .parent = scope,
-        .decl = scope.decl().?,
+        .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
@@ -1922,8 +2004,18 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
         // Check for else/_ prong, those are handled last.
         if (case.items_len == 1 and case.items()[0].tag == .SwitchElse) {
             if (else_src) |src| {
-                return mod.fail(scope, case_src, "multiple else prongs in switch expression", .{});
-                // TODO notes "previous else prong is here"
+                const msg = msg: {
+                    const msg = try mod.errMsg(
+                        scope,
+                        case_src,
+                        "multiple else prongs in switch expression",
+                        .{},
+                    );
+                    errdefer msg.destroy(mod.gpa);
+                    try mod.errNote(scope, src, msg, "previous else prong is here", .{});
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(scope, msg);
             }
             else_src = case_src;
             special_case = case;
@@ -1932,8 +2024,18 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
             mem.eql(u8, tree.tokenSlice(case.items()[0].firstToken()), "_"))
         {
             if (underscore_src) |src| {
-                return mod.fail(scope, case_src, "multiple '_' prongs in switch expression", .{});
-                // TODO notes "previous '_' prong is here"
+                const msg = msg: {
+                    const msg = try mod.errMsg(
+                        scope,
+                        case_src,
+                        "multiple '_' prongs in switch expression",
+                        .{},
+                    );
+                    errdefer msg.destroy(mod.gpa);
+                    try mod.errNote(scope, src, msg, "previous '_' prong is here", .{});
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(scope, msg);
             }
             underscore_src = case_src;
             special_case = case;
@@ -1942,9 +2044,19 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
 
         if (else_src) |some_else| {
             if (underscore_src) |some_underscore| {
-                return mod.fail(scope, switch_src, "else and '_' prong in switch expression", .{});
-                // TODO notes "else prong is here"
-                // TODO notes "'_' prong is here"
+                const msg = msg: {
+                    const msg = try mod.errMsg(
+                        scope,
+                        switch_src,
+                        "else and '_' prong in switch expression",
+                        .{},
+                    );
+                    errdefer msg.destroy(mod.gpa);
+                    try mod.errNote(scope, some_else, msg, "else prong is here", .{});
+                    try mod.errNote(scope, some_underscore, msg, "'_' prong is here", .{});
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(scope, msg);
             }
         }
 
@@ -2162,7 +2274,13 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
     }
 
     if (mod.lookupDeclName(scope, ident_name)) |decl| {
-        return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{}));
+        if (rl == .ref) {
+            return addZIRInst(mod, scope, src, zir.Inst.DeclRef, .{ .decl = decl }, .{});
+        } else {
+            return rlWrap(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclVal, .{
+                .decl = decl,
+            }, .{}));
+        }
     }
 
     return mod.failNode(scope, &ident.base, "use of undeclared identifier '{s}'", .{ident_name});
@@ -2927,6 +3045,8 @@ fn rlWrapVoid(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node, resul
     return rlWrap(mod, scope, rl, void_inst);
 }
 
+/// TODO go over all the callsites and see where we can introduce "by-value" ZIR instructions
+/// to save ZIR memory. For example, see DeclVal vs DeclRef.
 fn rlWrapPtr(mod: *Module, scope: *Scope, rl: ResultLoc, ptr: *zir.Inst) InnerError!*zir.Inst {
     if (rl == .ref) return ptr;
 
@@ -3032,7 +3152,7 @@ pub fn addZIRInstBlock(
     scope: *Scope,
     src: usize,
     tag: zir.Inst.Tag,
-    body: zir.Module.Body,
+    body: zir.Body,
 ) !*zir.Inst.Block {
     const gen_zir = scope.getGenZIR();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
@@ -3070,7 +3190,7 @@ pub fn addZIRInstConst(mod: *Module, scope: *Scope, src: usize, typed_value: Typ
 }
 
 /// TODO The existence of this function is a workaround for a bug in stage1.
-pub fn addZIRInstLoop(mod: *Module, scope: *Scope, src: usize, body: zir.Module.Body) !*zir.Inst.Loop {
+pub fn addZIRInstLoop(mod: *Module, scope: *Scope, src: usize, body: zir.Body) !*zir.Inst.Loop {
     const P = std.meta.fieldInfo(zir.Inst.Loop, .positionals).field_type;
     return addZIRInstSpecial(mod, scope, src, zir.Inst.Loop, P{ .body = body }, .{});
 }

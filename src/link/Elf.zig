@@ -2189,22 +2189,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         try dbg_line_buffer.ensureCapacity(26);
 
         const line_off: u28 = blk: {
-            if (decl.scope.cast(Module.Scope.Container)) |container_scope| {
-                const tree = container_scope.file_scope.contents.tree;
-                const file_ast_decls = tree.root_node.decls();
-                // TODO Look into improving the performance here by adding a token-index-to-line
-                // lookup table. Currently this involves scanning over the source code for newlines.
-                const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-                const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-                const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
-                break :blk @intCast(u28, line_delta);
-            } else if (decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
-                const byte_off = zir_module.contents.module.decls[decl.src_index].inst.src;
-                const line_delta = std.zig.lineDelta(zir_module.source.bytes, 0, byte_off);
-                break :blk @intCast(u28, line_delta);
-            } else {
-                unreachable;
-            }
+            const tree = decl.container.file_scope.contents.tree;
+            const file_ast_decls = tree.root_node.decls();
+            // TODO Look into improving the performance here by adding a token-index-to-line
+            // lookup table. Currently this involves scanning over the source code for newlines.
+            const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+            const block = fn_proto.getBodyNode().?.castTag(.Block).?;
+            const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+            break :blk @intCast(u28, line_delta);
         };
 
         const ptr_width_bytes = self.ptrWidthBytes();
@@ -2268,7 +2260,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     } else {
         // TODO implement .debug_info for global variables
     }
-    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
         .dwarf = .{
             .dbg_line = &dbg_line_buffer,
             .dbg_info = &dbg_info_buffer,
@@ -2642,7 +2634,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -2660,7 +2652,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                 );
                 continue;
             },
@@ -2703,8 +2695,7 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
 
     if (self.llvm_ir_module) |_| return;
 
-    const container_scope = decl.scope.cast(Module.Scope.Container).?;
-    const tree = container_scope.file_scope.contents.tree;
+    const tree = decl.container.file_scope.contents.tree;
     const file_ast_decls = tree.root_node.decls();
     // TODO Look into improving the performance here by adding a token-index-to-line
     // lookup table. Currently this involves scanning over the source code for newlines.

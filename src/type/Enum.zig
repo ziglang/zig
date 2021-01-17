@@ -21,7 +21,7 @@ pub const Field = struct {
 };
 
 pub const Zir = struct {
-    body: zir.Module.Body,
+    body: zir.Body,
     inst: *zir.Inst,
 };
 

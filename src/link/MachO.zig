@@ -1148,7 +1148,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     }
 
     const res = if (debug_buffers) |*dbg|
-        try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
             .dwarf = .{
                 .dbg_line = &dbg.dbg_line_buffer,
                 .dbg_info = &dbg.dbg_info_buffer,
@@ -1156,7 +1156,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
         })
     else
-        try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .none);
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none);
 
     const code = switch (res) {
         .externally_managed => |x| x,
@@ -1316,7 +1316,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -1334,7 +1334,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                 );
                 continue;
             },

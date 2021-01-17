@@ -36,7 +36,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 
-        case.addError("", &[_][]const u8{"no entry point found"});
+        case.addError("", &[_][]const u8{"error: no entry point found"});
 
         // Incorrect return type
         case.addError(
@@ -147,7 +147,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
     {
         var case = ctx.exe("hello world with updates", macosx_x64);
-        case.addError("", &[_][]const u8{"no entry point found"});
+        case.addError("", &[_][]const u8{"error: no entry point found"});
 
         // Incorrect return type
         case.addError(
@@ -1234,7 +1234,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var i: u32 = 10;
             \\    unreachable;
             \\}
-        , &[_][]const u8{":3:9: error: redefinition of 'i'"});
+        , &[_][]const u8{
+            ":3:9: error: redefinition of 'i'",
+            ":2:9: note: previous definition is here",
+        });
         case.addError(
             \\var testing: i64 = 10;
             \\export fn _start() noreturn {
@@ -1243,24 +1246,46 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{":3:9: error: redefinition of 'testing'"});
     }
-    ctx.compileError("compileLog", linux_x64,
-        \\export fn _start() noreturn {
-        \\  const b = true;
-        \\  var f: u32 = 1;
-        \\  @compileLog(b, 20, f, x);
-        \\  @compileLog(1000);
-        \\  var bruh: usize = true;
-        \\  unreachable;
-        \\}
-        \\fn x() void {}
-    , &[_][]const u8{
-        ":4:3: error: found compile log statement",
-        ":5:3: error: found compile log statement",
-        ":6:21: error: expected usize, found bool",
-    });
-    // TODO if this is here it invalidates the compile error checker:
-    // "| true, 20, (runtime value), (function)"
-    // "| 1000"
+
+    {
+        // TODO make the test harness support checking the compile log output too
+        var case = ctx.obj("@compileLog", linux_x64);
+        // The other compile error prevents emission of a "found compile log" statement.
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const b = true;
+            \\    var f: u32 = 1;
+            \\    @compileLog(b, 20, f, x);
+            \\    @compileLog(1000);
+            \\    var bruh: usize = true;
+            \\    unreachable;
+            \\}
+            \\export fn other() void {
+            \\    @compileLog(1234);
+            \\}
+            \\fn x() void {}
+        , &[_][]const u8{
+            ":6:23: error: expected usize, found bool",
+        });
+
+        // Now only compile log statements remain. One per Decl.
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const b = true;
+            \\    var f: u32 = 1;
+            \\    @compileLog(b, 20, f, x);
+            \\    @compileLog(1000);
+            \\    unreachable;
+            \\}
+            \\export fn other() void {
+            \\    @compileLog(1234);
+            \\}
+            \\fn x() void {}
+        , &[_][]const u8{
+            ":11:8: error: found compile log statement",
+            ":4:5: note: also here",
+        });
+    }
 
     {
         var case = ctx.obj("extern variable has no type", linux_x64);
@@ -1387,6 +1412,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    foo: for ("foo") |_| {}
             \\}
         , &[_][]const u8{":2:5: error: unused for label"});
+        case.addError(
+            \\comptime {
+            \\    blk: {blk: {}}
+            \\}
+        , &[_][]const u8{
+            ":2:11: error: redefinition of label 'blk'",
+            ":2:5: note: previous definition is here",
+        });
     }
 
     {
