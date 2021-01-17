@@ -1567,6 +1567,59 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        fn genArgDbgInfo(self: *Self, inst: *ir.Inst.Arg, mcv: MCValue) !void {
+            const name_with_null = inst.name[0 .. mem.lenZ(inst.name) + 1];
+
+            switch (mcv) {
+                .register => |reg| {
+                    // Copy arg to stack for better debugging
+                    const ty = inst.base.ty;
+                    const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
+                        return self.fail(inst.base.src, "type '{}' too big to fit into stack frame", .{ty});
+                    };
+                    const abi_align = ty.abiAlignment(self.target.*);
+                    const stack_offset = try self.allocMem(&inst.base, abi_size, abi_align);
+                    try self.genSetStack(inst.base.src, ty, stack_offset, MCValue{ .register = reg });
+                    const adjusted_stack_offset = math.negateCast(stack_offset + abi_size) catch {
+                        return self.fail(inst.base.src, "Stack offset too large for arguments", .{});
+                    };
+
+                    switch (self.debug_output) {
+                        .dwarf => |dbg_out| {
+                            switch (arch) {
+                                .arm, .armeb => {
+                                    try dbg_out.dbg_info.append(link.File.Elf.abbrev_parameter);
+
+                                    // Get length of the LEB128 stack offset
+                                    var counting_writer = std.io.countingWriter(std.io.null_writer);
+                                    leb128.writeILEB128(counting_writer.writer(), adjusted_stack_offset) catch unreachable;
+
+                                    // DW.AT_location, DW.FORM_exprloc
+                                    // ULEB128 dwarf expression length
+                                    try leb128.writeULEB128(dbg_out.dbg_info.writer(), counting_writer.bytes_written + 1);
+                                    try dbg_out.dbg_info.append(DW.OP_breg11);
+                                    try leb128.writeILEB128(dbg_out.dbg_info.writer(), adjusted_stack_offset);
+                                },
+                                else => {
+                                    try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 3);
+                                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+                                    dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT_location, DW.FORM_exprloc
+                                        1, // ULEB128 dwarf expression length
+                                        reg.dwarfLocOp(),
+                                    });
+                                },
+                            }
+                            try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
+                            try self.addDbgInfoTypeReloc(inst.base.ty); // DW.AT_type,  DW.FORM_ref4
+                            dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
+                        },
+                        .none => {},
+                    }
+                },
+                else => {},
+            }
+        }
+
         fn genArg(self: *Self, inst: *ir.Inst.Arg) !MCValue {
             const arg_index = self.arg_index;
             self.arg_index += 1;
@@ -1574,32 +1627,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (FreeRegInt == u0) {
                 return self.fail(inst.base.src, "TODO implement Register enum for {}", .{self.target.cpu.arch});
             }
+
+            const result = self.args[arg_index];
+            try self.genArgDbgInfo(inst, result);
+
             if (inst.base.isUnused())
                 return MCValue.dead;
 
-            try self.registers.ensureCapacity(self.gpa, self.registers.count() + 1);
-
-            const result = self.args[arg_index];
-
-            const name_with_null = inst.name[0 .. mem.lenZ(inst.name) + 1];
             switch (result) {
                 .register => |reg| {
-                    self.registers.putAssumeCapacityNoClobber(toCanonicalReg(reg), &inst.base);
+                    try self.registers.putNoClobber(self.gpa, toCanonicalReg(reg), &inst.base);
                     self.markRegUsed(reg);
-
-                    switch (self.debug_output) {
-                        .dwarf => |dbg_out| {
-                            try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 8 + name_with_null.len);
-                            dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                            dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT_location, DW.FORM_exprloc
-                                1, // ULEB128 dwarf expression length
-                                reg.dwarfLocOp(),
-                            });
-                            try self.addDbgInfoTypeReloc(inst.base.ty); // DW.AT_type,  DW.FORM_ref4
-                            dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
-                        },
-                        .none => {},
-                    }
                 },
                 else => {},
             }
@@ -3705,10 +3743,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             var nsaa: u32 = 0; // Next stacked argument address
 
                             for (param_types) |ty, i| {
-                                if (ty.abiAlignment(self.target.*) == 8) {
-                                    // Round up NCRN to the next even number
-                                    ncrn += ncrn % 2;
-                                }
+                                if (ty.abiAlignment(self.target.*) == 8)
+                                    ncrn = std.mem.alignForwardGeneric(usize, ncrn, 2);
 
                                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
                                 if (std.math.divCeil(u32, param_size, 4) catch unreachable <= 4 - ncrn) {
@@ -3722,11 +3758,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     return self.fail(src, "TODO MCValues split between registers and stack", .{});
                                 } else {
                                     ncrn = 4;
-                                    if (ty.abiAlignment(self.target.*) == 8) {
-                                        if (nsaa % 8 != 0) {
-                                            nsaa += 8 - (nsaa % 8);
-                                        }
-                                    }
+                                    if (ty.abiAlignment(self.target.*) == 8)
+                                        nsaa = std.mem.alignForwardGeneric(u32, nsaa, 8);
 
                                     result.args[i] = .{ .stack_offset = nsaa };
                                     nsaa += param_size;
