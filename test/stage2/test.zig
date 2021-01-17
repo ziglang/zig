@@ -11,7 +11,7 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-const macosx_x64 = std.zig.CrossTarget{
+const macos_x64 = std.zig.CrossTarget{
     .cpu_arch = .x86_64,
     .os_tag = .macos,
 };
@@ -146,7 +146,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("hello world with updates", macosx_x64);
+        var case = ctx.exe("hello world with updates", macos_x64);
         case.addError("", &[_][]const u8{"error: no entry point found"});
 
         // Incorrect return type
@@ -157,97 +157,75 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Regular old hello world
         case.addCompareOutput(
+            \\extern "c" fn write(usize, usize, usize) usize;
+            \\extern "c" fn exit(usize) noreturn;
+            \\
             \\export fn _start() noreturn {
             \\    print();
             \\
-            \\    exit();
+            \\    exit(0);
             \\}
             \\
             \\fn print() void {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (0x2000004),
-            \\          [arg1] "{rdi}" (1),
-            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
-            \\          [arg3] "{rdx}" (14)
-            \\        : "memory"
-            \\    );
-            \\    return;
+            \\    const msg = @ptrToInt("Hello, World!\n");
+            \\    const len = 14;
+            \\    const nwritten = write(1, msg, len);
+            \\    assert(nwritten == len);
             \\}
             \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (0x2000001),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
             \\}
         ,
             "Hello, World!\n",
         );
+
         // Now change the message only
         case.addCompareOutput(
+            \\extern "c" fn write(usize, usize, usize) usize;
+            \\extern "c" fn exit(usize) noreturn;
+            \\
             \\export fn _start() noreturn {
             \\    print();
             \\
-            \\    exit();
+            \\    exit(0);
             \\}
             \\
             \\fn print() void {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (0x2000004),
-            \\          [arg1] "{rdi}" (1),
-            \\          [arg2] "{rsi}" (@ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n")),
-            \\          [arg3] "{rdx}" (104)
-            \\        : "memory"
-            \\    );
-            \\    return;
+            \\    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
+            \\    const len = 104;
+            \\    const nwritten = write(1, msg, len);
+            \\    assert(nwritten == len);
             \\}
             \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (0x2000001),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
             \\}
         ,
             "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
         );
+
         // Now we print it twice.
         case.addCompareOutput(
+            \\extern "c" fn write(usize, usize, usize) usize;
+            \\extern "c" fn exit(usize) noreturn;
+            \\
             \\export fn _start() noreturn {
             \\    print();
             \\    print();
             \\
-            \\    exit();
+            \\    exit(0);
             \\}
             \\
             \\fn print() void {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (0x2000004),
-            \\          [arg1] "{rdi}" (1),
-            \\          [arg2] "{rsi}" (@ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n")),
-            \\          [arg3] "{rdx}" (104)
-            \\        : "memory"
-            \\    );
-            \\    return;
+            \\    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
+            \\    const len = 104;
+            \\    const nwritten = write(1, msg, len);
+            \\    assert(nwritten == len);
             \\}
             \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (0x2000001),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
             \\}
         ,
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
@@ -1530,25 +1508,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("hello world linked to libc", macosx_x64);
-
-        // TODO rewrite this test once we handle more int conversions and return args.
-        case.addCompareOutput(
-            \\extern "c" fn write(usize, usize, usize) void;
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    write(1, @ptrToInt("Hello,"), 6);
-            \\    write(1, @ptrToInt(" World!\n,"), 8);
-            \\    exit(0);
-            \\}
-        ,
-            "Hello, World!\n",
-        );
-    }
-
-    {
-        var case = ctx.exe("only libc exit", macosx_x64);
+        var case = ctx.exe("only libc exit", macos_x64);
 
         // This test case covers an infrequent scenarion where the string table *may* be relocated
         // into the position preceeding the symbol table which results in a dyld error.
