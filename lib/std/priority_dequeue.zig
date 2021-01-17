@@ -377,11 +377,6 @@ pub fn PriorityDequeue(comptime T: type) type {
             self.items = try self.allocator.realloc(self.items, better_capacity);
         }
 
-        pub fn resize(self: *Self, new_len: usize) !void {
-            try self.ensureCapacity(new_len);
-            self.len = new_len;
-        }
-
         /// Reduce allocated capacity to `new_len`.
         pub fn shrinkAndFree(self: *Self, new_len: usize) void {
             assert(new_len <= self.items.len);
