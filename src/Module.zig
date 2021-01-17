@@ -1342,8 +1342,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     break :rl .{ .ty = var_type };
                 } else .none;
 
-                const src = tree.token_locs[init_node.firstToken()].start;
-                const init_inst = try astgen.expr(self, &gen_scope.base, init_result_loc, init_node);
+                const init_inst = try astgen.comptimeExpr(self, &gen_scope.base, init_result_loc, init_node);
                 if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "var_init", decl.name, gen_scope.instructions.items) catch {};
                 }
@@ -1392,12 +1391,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 };
                 defer type_scope.instructions.deinit(self.gpa);
 
-                const src = tree.token_locs[type_node.firstToken()].start;
-                const type_type = try astgen.addZIRInstConst(self, &type_scope.base, src, .{
-                    .ty = Type.initTag(.type),
-                    .val = Value.initTag(.type_type),
-                });
-                const var_type = try astgen.expr(self, &type_scope.base, .{ .ty = type_type }, type_node);
+                const var_type = try astgen.typeExpr(self, &type_scope.base, type_node);
                 if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
                     zir.dumpZir(self.gpa, "var_type", decl.name, type_scope.instructions.items) catch {};
                 }
