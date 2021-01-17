@@ -906,8 +906,7 @@ pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const M
     const tracy = trace(@src());
     defer tracy.end();
 
-    const container_scope = decl.scope.cast(Module.Scope.Container).?;
-    const tree = container_scope.file_scope.contents.tree;
+    const tree = decl.container.file_scope.contents.tree;
     const file_ast_decls = tree.root_node.decls();
     // TODO Look into improving the performance here by adding a token-index-to-line
     // lookup table. Currently this involves scanning over the source code for newlines.
@@ -951,22 +950,14 @@ pub fn initDeclDebugBuffers(
             try dbg_line_buffer.ensureCapacity(26);
 
             const line_off: u28 = blk: {
-                if (decl.scope.cast(Module.Scope.Container)) |container_scope| {
-                    const tree = container_scope.file_scope.contents.tree;
-                    const file_ast_decls = tree.root_node.decls();
-                    // TODO Look into improving the performance here by adding a token-index-to-line
-                    // lookup table. Currently this involves scanning over the source code for newlines.
-                    const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-                    const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-                    const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
-                    break :blk @intCast(u28, line_delta);
-                } else if (decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
-                    const byte_off = zir_module.contents.module.decls[decl.src_index].inst.src;
-                    const line_delta = std.zig.lineDelta(zir_module.source.bytes, 0, byte_off);
-                    break :blk @intCast(u28, line_delta);
-                } else {
-                    unreachable;
-                }
+                const tree = decl.container.file_scope.contents.tree;
+                const file_ast_decls = tree.root_node.decls();
+                // TODO Look into improving the performance here by adding a token-index-to-line
+                // lookup table. Currently this involves scanning over the source code for newlines.
+                const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+                const block = fn_proto.getBodyNode().?.castTag(.Block).?;
+                const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+                break :blk @intCast(u28, line_delta);
             };
 
             dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{

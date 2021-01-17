@@ -9,7 +9,7 @@ const TypedValue = @import("TypedValue.zig");
 const link = @import("link.zig");
 const Module = @import("Module.zig");
 const Compilation = @import("Compilation.zig");
-const ErrorMsg = Compilation.ErrorMsg;
+const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
 const Allocator = mem.Allocator;
 const trace = @import("tracy.zig").trace;
@@ -74,7 +74,7 @@ pub const DebugInfoOutput = union(enum) {
 
 pub fn generateSymbol(
     bin_file: *link.File,
-    src: usize,
+    src_loc: Module.SrcLoc,
     typed_value: TypedValue,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -87,56 +87,56 @@ pub fn generateSymbol(
             switch (bin_file.options.target.cpu.arch) {
                 .wasm32 => unreachable, // has its own code path
                 .wasm64 => unreachable, // has its own code path
-                .arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                .armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                .aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                .aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                .aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.arc => return Function(.arc).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.avr => return Function(.avr).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.bpfel => return Function(.bpfel).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.bpfeb => return Function(.bpfeb).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.hexagon => return Function(.hexagon).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.mips => return Function(.mips).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.mipsel => return Function(.mipsel).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.mips64 => return Function(.mips64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.mips64el => return Function(.mips64el).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.msp430 => return Function(.msp430).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.powerpc => return Function(.powerpc).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.powerpc64 => return Function(.powerpc64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.powerpc64le => return Function(.powerpc64le).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.r600 => return Function(.r600).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.amdgcn => return Function(.amdgcn).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.riscv32 => return Function(.riscv32).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                .riscv64 => return Function(.riscv64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.sparc => return Function(.sparc).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.s390x => return Function(.s390x).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                .spu_2 => return Function(.spu_2).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.tce => return Function(.tce).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.tcele => return Function(.tcele).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.thumb => return Function(.thumb).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.thumbeb => return Function(.thumbeb).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.i386 => return Function(.i386).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                .x86_64 => return Function(.x86_64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.xcore => return Function(.xcore).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.nvptx => return Function(.nvptx).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.nvptx64 => return Function(.nvptx64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.le32 => return Function(.le32).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.le64 => return Function(.le64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.amdil => return Function(.amdil).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.amdil64 => return Function(.amdil64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.hsail => return Function(.hsail).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.hsail64 => return Function(.hsail64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.spir => return Function(.spir).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.spir64 => return Function(.spir64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.kalimba => return Function(.kalimba).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.shave => return Function(.shave).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.lanai => return Function(.lanai).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.renderscript32 => return Function(.renderscript32).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.renderscript64 => return Function(.renderscript64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.ve => return Function(.ve).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .arm => return Function(.arm).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                .armeb => return Function(.armeb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                .aarch64 => return Function(.aarch64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                .aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                .aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.arc => return Function(.arc).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.avr => return Function(.avr).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.bpfel => return Function(.bpfel).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.bpfeb => return Function(.bpfeb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.hexagon => return Function(.hexagon).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.mips => return Function(.mips).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.mipsel => return Function(.mipsel).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.mips64 => return Function(.mips64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.mips64el => return Function(.mips64el).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.msp430 => return Function(.msp430).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.powerpc => return Function(.powerpc).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.powerpc64 => return Function(.powerpc64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.powerpc64le => return Function(.powerpc64le).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.r600 => return Function(.r600).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.amdgcn => return Function(.amdgcn).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.riscv32 => return Function(.riscv32).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                .riscv64 => return Function(.riscv64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.sparc => return Function(.sparc).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.s390x => return Function(.s390x).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                .spu_2 => return Function(.spu_2).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.tce => return Function(.tce).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.tcele => return Function(.tcele).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.thumb => return Function(.thumb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.thumbeb => return Function(.thumbeb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.i386 => return Function(.i386).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                .x86_64 => return Function(.x86_64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.xcore => return Function(.xcore).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.nvptx => return Function(.nvptx).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.nvptx64 => return Function(.nvptx64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.le32 => return Function(.le32).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.le64 => return Function(.le64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.amdil => return Function(.amdil).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.amdil64 => return Function(.amdil64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.hsail => return Function(.hsail).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.hsail64 => return Function(.hsail64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.spir => return Function(.spir).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.spir64 => return Function(.spir64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.kalimba => return Function(.kalimba).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.shave => return Function(.shave).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.lanai => return Function(.lanai).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.renderscript32 => return Function(.renderscript32).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.renderscript64 => return Function(.renderscript64).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
+                //.ve => return Function(.ve).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 else => @panic("Backend architectures that don't have good support yet are commented out, to improve compilation performance. If you are interested in one of these other backends feel free to uncomment them. Eventually these will be completed, but stage1 is slow and a memory hog."),
             }
         },
@@ -147,7 +147,7 @@ pub fn generateSymbol(
                     try code.ensureCapacity(code.items.len + payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
                     const prev_len = code.items.len;
-                    switch (try generateSymbol(bin_file, src, .{
+                    switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = typed_value.ty.elemType(),
                         .val = sentinel,
                     }, code, debug_output)) {
@@ -165,7 +165,7 @@ pub fn generateSymbol(
             return Result{
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
-                    src,
+                    src_loc,
                     "TODO implement generateSymbol for more kinds of arrays",
                     .{},
                 ),
@@ -200,7 +200,7 @@ pub fn generateSymbol(
             return Result{
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
-                    src,
+                    src_loc,
                     "TODO implement generateSymbol for pointer {}",
                     .{typed_value.val},
                 ),
@@ -217,7 +217,7 @@ pub fn generateSymbol(
             return Result{
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
-                    src,
+                    src_loc,
                     "TODO implement generateSymbol for int type '{}'",
                     .{typed_value.ty},
                 ),
@@ -227,7 +227,7 @@ pub fn generateSymbol(
             return Result{
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
-                    src,
+                    src_loc,
                     "TODO implement generateSymbol for type '{s}'",
                     .{@tagName(t)},
                 ),
@@ -259,7 +259,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         ret_mcv: MCValue,
         fn_type: Type,
         arg_index: usize,
-        src: usize,
+        src_loc: Module.SrcLoc,
         stack_align: u32,
 
         /// Byte offset within the source file.
@@ -428,7 +428,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn generateSymbol(
             bin_file: *link.File,
-            src: usize,
+            src_loc: Module.SrcLoc,
             typed_value: TypedValue,
             code: *std.ArrayList(u8),
             debug_output: DebugInfoOutput,
@@ -450,19 +450,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             try branch_stack.append(.{});
 
             const src_data: struct { lbrace_src: usize, rbrace_src: usize, source: []const u8 } = blk: {
-                if (module_fn.owner_decl.scope.cast(Module.Scope.Container)) |container_scope| {
-                    const tree = container_scope.file_scope.contents.tree;
-                    const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
-                    const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-                    const lbrace_src = tree.token_locs[block.lbrace].start;
-                    const rbrace_src = tree.token_locs[block.rbrace].start;
-                    break :blk .{ .lbrace_src = lbrace_src, .rbrace_src = rbrace_src, .source = tree.source };
-                } else if (module_fn.owner_decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
-                    const byte_off = zir_module.contents.module.decls[module_fn.owner_decl.src_index].inst.src;
-                    break :blk .{ .lbrace_src = byte_off, .rbrace_src = byte_off, .source = zir_module.source.bytes };
-                } else {
-                    unreachable;
-                }
+                const container_scope = module_fn.owner_decl.container;
+                const tree = container_scope.file_scope.contents.tree;
+                const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
+                const block = fn_proto.getBodyNode().?.castTag(.Block).?;
+                const lbrace_src = tree.token_locs[block.lbrace].start;
+                const rbrace_src = tree.token_locs[block.rbrace].start;
+                break :blk .{
+                    .lbrace_src = lbrace_src,
+                    .rbrace_src = rbrace_src,
+                    .source = tree.source,
+                };
             };
 
             var function = Self{
@@ -478,7 +476,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .fn_type = fn_type,
                 .arg_index = 0,
                 .branch_stack = &branch_stack,
-                .src = src,
+                .src_loc = src_loc,
                 .stack_align = undefined,
                 .prev_di_pc = 0,
                 .prev_di_src = src_data.lbrace_src,
@@ -489,7 +487,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             defer function.stack.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
-            var call_info = function.resolveCallingConventionValues(src, fn_type) catch |err| switch (err) {
+            var call_info = function.resolveCallingConventionValues(src_loc.byte_offset, fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
                 else => |e| return e,
             };
@@ -536,12 +534,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         const stack_end = self.max_end_stack;
                         if (stack_end > math.maxInt(i32))
-                            return self.fail(self.src, "too much stack used in call parameters", .{});
+                            return self.failSymbol("too much stack used in call parameters", .{});
                         const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
                         mem.writeIntLittle(u32, self.code.items[reloc_index..][0..4], @intCast(u32, aligned_stack_end));
 
                         if (self.code.items.len >= math.maxInt(i32)) {
-                            return self.fail(self.src, "unable to perform relocation: jump too far", .{});
+                            return self.failSymbol("unable to perform relocation: jump too far", .{});
                         }
                         if (self.exitlude_jump_relocs.items.len == 1) {
                             self.code.items.len -= 5;
@@ -598,7 +596,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (Instruction.Operand.fromU32(@intCast(u32, aligned_stack_end))) |op| {
                             writeInt(u32, self.code.items[backpatch_reloc..][0..4], Instruction.sub(.al, .sp, .sp, op).toU32());
                         } else {
-                            return self.fail(self.src, "TODO ARM: allow larger stacks", .{});
+                            return self.failSymbol("TODO ARM: allow larger stacks", .{});
                         }
 
                         try self.dbgSetEpilogueBegin();
@@ -624,7 +622,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 if (math.cast(i26, amt)) |offset| {
                                     writeInt(u32, self.code.items[jmp_reloc..][0..4], Instruction.b(.al, offset).toU32());
                                 } else |err| {
-                                    return self.fail(self.src, "exitlude jump is too large", .{});
+                                    return self.failSymbol("exitlude jump is too large", .{});
                                 }
                             }
                         }
@@ -3678,7 +3676,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn fail(self: *Self, src: usize, comptime format: []const u8, args: anytype) InnerError {
             @setCold(true);
             assert(self.err_msg == null);
-            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src, format, args);
+            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, .{
+                .file_scope = self.src_loc.file_scope,
+                .byte_offset = src,
+            }, format, args);
+            return error.CodegenFail;
+        }
+
+        fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+            @setCold(true);
+            assert(self.err_msg == null);
+            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
             return error.CodegenFail;
         }
 

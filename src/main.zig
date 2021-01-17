@@ -221,7 +221,6 @@ const usage_build_generic =
     \\
     \\Supported file types:
     \\                    .zig    Zig source code
-    \\                    .zir    Zig Intermediate Representation code
     \\                      .o    ELF object file
     \\                      .o    MACH-O (macOS) object file
     \\                    .obj    COFF (Windows) object file
@@ -245,8 +244,6 @@ const usage_build_generic =
     \\  -fno-emit-bin             Do not output machine code
     \\  -femit-asm[=path]         Output .s (assembly code)
     \\  -fno-emit-asm             (default) Do not output .s (assembly code)
-    \\  -femit-zir[=path]         Produce a .zir file with Zig IR
-    \\  -fno-emit-zir             (default) Do not produce a .zir file with Zig IR
     \\  -femit-llvm-ir[=path]     Produce a .ll file with LLVM IR (requires LLVM extensions)
     \\  -fno-emit-llvm-ir         (default) Do not produce a .ll file with LLVM IR
     \\  -femit-h[=path]           Generate a C header file (.h)
@@ -1631,18 +1628,12 @@ fn buildOutputType(
     var emit_docs_resolved = try emit_docs.resolve("docs");
     defer emit_docs_resolved.deinit();
 
-    const zir_out_path: ?[]const u8 = switch (emit_zir) {
-        .no => null,
-        .yes_default_path => blk: {
-            if (root_src_file) |rsf| {
-                if (mem.endsWith(u8, rsf, ".zir")) {
-                    break :blk try std.fmt.allocPrint(arena, "{s}.out.zir", .{root_name});
-                }
-            }
-            break :blk try std.fmt.allocPrint(arena, "{s}.zir", .{root_name});
+    switch (emit_zir) {
+        .no => {},
+        .yes_default_path, .yes => {
+            fatal("The -femit-zir implementation has been intentionally deleted so that it can be rewritten as a proper backend.", .{});
         },
-        .yes => |p| p,
-    };
+    }
 
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
@@ -1753,7 +1744,7 @@ fn buildOutputType(
         .dll_export_fns = dll_export_fns,
         .object_format = object_format,
         .optimize_mode = optimize_mode,
-        .keep_source_files_loaded = zir_out_path != null,
+        .keep_source_files_loaded = false,
         .clang_argv = clang_argv.items,
         .lld_argv = lld_argv.items,
         .lib_dirs = lib_dirs.items,
@@ -1845,7 +1836,7 @@ fn buildOutputType(
         }
     };
 
-    updateModule(gpa, comp, zir_out_path, hook) catch |err| switch (err) {
+    updateModule(gpa, comp, hook) catch |err| switch (err) {
         error.SemanticAnalyzeFail => if (!watch) process.exit(1),
         else => |e| return e,
     };
@@ -1980,7 +1971,7 @@ fn buildOutputType(
                 if (output_mode == .Exe) {
                     try comp.makeBinFileWritable();
                 }
-                updateModule(gpa, comp, zir_out_path, hook) catch |err| switch (err) {
+                updateModule(gpa, comp, hook) catch |err| switch (err) {
                     error.SemanticAnalyzeFail => continue,
                     else => |e| return e,
                 };
@@ -2003,7 +1994,7 @@ const AfterUpdateHook = union(enum) {
     update: []const u8,
 };
 
-fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, hook: AfterUpdateHook) !void {
+fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !void {
     try comp.update();
 
     var errors = try comp.getAllErrorsAlloc();
@@ -2012,6 +2003,10 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
             full_err_msg.renderToStdErr();
+        }
+        const log_text = comp.getCompileLogOutput();
+        if (log_text.len != 0) {
+            std.debug.print("\nCompile Log Output:\n{s}", .{log_text});
         }
         return error.SemanticAnalyzeFail;
     } else switch (hook) {
@@ -2023,20 +2018,6 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, 
             full_path,
             .{},
         ),
-    }
-
-    if (zir_out_path) |zop| {
-        const module = comp.bin_file.options.module orelse
-            fatal("-femit-zir with no zig source code", .{});
-        var new_zir_module = try zir.emit(gpa, module);
-        defer new_zir_module.deinit(gpa);
-
-        const baf = try io.BufferedAtomicFile.create(gpa, fs.cwd(), zop, .{});
-        defer baf.destroy();
-
-        try new_zir_module.writeToStream(gpa, baf.writer());
-
-        try baf.finish();
     }
 }
 
@@ -2506,7 +2487,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         };
         defer comp.destroy();
 
-        try updateModule(gpa, comp, null, .none);
+        try updateModule(gpa, comp, .none);
         try comp.makeBinFileExecutable();
 
         child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(

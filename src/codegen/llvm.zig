@@ -148,7 +148,7 @@ pub const LLVMIRModule = struct {
     object_path: []const u8,
 
     gpa: *Allocator,
-    err_msg: ?*Compilation.ErrorMsg = null,
+    err_msg: ?*Module.ErrorMsg = null,
 
     // TODO: The fields below should really move into a different struct,
     //       because they are only valid when generating a function
@@ -176,6 +176,8 @@ pub const LLVMIRModule = struct {
         break_bbs: *BreakBasicBlocks,
         break_vals: *BreakValues,
     }) = .{},
+
+    src_loc: Module.SrcLoc,
 
     const BreakBasicBlocks = std.ArrayListUnmanaged(*const llvm.BasicBlock);
     const BreakValues = std.ArrayListUnmanaged(*const llvm.Value);
@@ -254,6 +256,8 @@ pub const LLVMIRModule = struct {
             .builder = builder,
             .object_path = object_path,
             .gpa = gpa,
+            // TODO move this field into a struct that is only instantiated per gen() call
+            .src_loc = undefined,
         };
         return self;
     }
@@ -334,6 +338,8 @@ pub const LLVMIRModule = struct {
     fn gen(self: *LLVMIRModule, module: *Module, decl: *Module.Decl) !void {
         const typed_value = decl.typed_value.most_recent.typed_value;
         const src = decl.src();
+
+        self.src_loc = decl.srcLoc();
 
         log.debug("gen: {s} type: {}, value: {}", .{ decl.name, typed_value.ty, typed_value.val });
 
@@ -853,7 +859,10 @@ pub const LLVMIRModule = struct {
     pub fn fail(self: *LLVMIRModule, src: usize, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
         @setCold(true);
         assert(self.err_msg == null);
-        self.err_msg = try Compilation.ErrorMsg.create(self.gpa, src, format, args);
+        self.err_msg = try Module.ErrorMsg.create(self.gpa, .{
+            .file_scope = self.src_loc.file_scope,
+            .byte_offset = src,
+        }, format, args);
         return error.CodegenFail;
     }
 };

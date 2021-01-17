@@ -114,10 +114,13 @@ pub const DeclGen = struct {
     module: *Module,
     decl: *Decl,
     fwd_decl: std.ArrayList(u8),
-    error_msg: ?*Compilation.ErrorMsg,
+    error_msg: ?*Module.ErrorMsg,
 
     fn fail(dg: *DeclGen, src: usize, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
-        dg.error_msg = try Compilation.ErrorMsg.create(dg.module.gpa, src, format, args);
+        dg.error_msg = try Module.ErrorMsg.create(dg.module.gpa, .{
+            .file_scope = dg.decl.getFileScope(),
+            .byte_offset = src,
+        }, format, args);
         return error.AnalysisFail;
     }
 
