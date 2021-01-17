@@ -93,7 +93,7 @@ pub fn main() !void {
             }
             switch (symbol.type) {
                 .function => try stdout.print(".type {s}, %function;\n", .{symbol.name}),
-                .object => try stdout.print(".type {s}, @object;\n", .{symbol.name}),
+                .object => try stdout.print(".type {s}, %object;\n", .{symbol.name}),
                 .none => {},
             }
             if (symbol.protected)

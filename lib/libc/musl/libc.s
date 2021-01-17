@@ -1,105 +1,105 @@
 .bss
 .weak ___environ
-.type ___environ, @object;
+.type ___environ, %object;
 ___environ:
 .globl __daylight
-.type __daylight, @object;
+.type __daylight, %object;
 __daylight:
 .globl __environ
-.type __environ, @object;
+.type __environ, %object;
 __environ:
 .globl __optpos
-.type __optpos, @object;
+.type __optpos, %object;
 __optpos:
 .globl __optreset
-.type __optreset, @object;
+.type __optreset, %object;
 __optreset:
 .globl __progname
-.type __progname, @object;
+.type __progname, %object;
 __progname:
 .globl __progname_full
-.type __progname_full, @object;
+.type __progname_full, %object;
 __progname_full:
 .globl __signgam
-.type __signgam, @object;
+.type __signgam, %object;
 __signgam:
 .globl __stack_chk_guard
-.type __stack_chk_guard, @object;
+.type __stack_chk_guard, %object;
 __stack_chk_guard:
 .globl __timezone
-.type __timezone, @object;
+.type __timezone, %object;
 __timezone:
 .globl __tzname
-.type __tzname, @object;
+.type __tzname, %object;
 __tzname:
 .weak _environ
-.type _environ, @object;
+.type _environ, %object;
 _environ:
 .weak daylight
-.type daylight, @object;
+.type daylight, %object;
 daylight:
 .weak environ
-.type environ, @object;
+.type environ, %object;
 environ:
 .globl getdate_err
-.type getdate_err, @object;
+.type getdate_err, %object;
 getdate_err:
 .globl h_errno
-.type h_errno, @object;
+.type h_errno, %object;
 h_errno:
 .globl optarg
-.type optarg, @object;
+.type optarg, %object;
 optarg:
 .globl optopt
-.type optopt, @object;
+.type optopt, %object;
 optopt:
 .weak optreset
-.type optreset, @object;
+.type optreset, %object;
 optreset:
 .weak program_invocation_name
-.type program_invocation_name, @object;
+.type program_invocation_name, %object;
 program_invocation_name:
 .weak program_invocation_short_name
-.type program_invocation_short_name, @object;
+.type program_invocation_short_name, %object;
 program_invocation_short_name:
 .weak signgam
-.type signgam, @object;
+.type signgam, %object;
 signgam:
 .weak timezone
-.type timezone, @object;
+.type timezone, %object;
 timezone:
 .weak tzname
-.type tzname, @object;
+.type tzname, %object;
 tzname:
 .data
 .globl _dl_debug_addr
-.type _dl_debug_addr, @object;
+.type _dl_debug_addr, %object;
 _dl_debug_addr:
 .globl opterr
-.type opterr, @object;
+.type opterr, %object;
 opterr:
 .globl optind
-.type optind, @object;
+.type optind, %object;
 optind:
 .data.rel.ro
 .globl stderr
-.type stderr, @object;
+.type stderr, %object;
 stderr:
 .globl stdin
-.type stdin, @object;
+.type stdin, %object;
 stdin:
 .globl stdout
-.type stdout, @object;
+.type stdout, %object;
 stdout:
 .rodata
 .globl _ns_flagdata
-.type _ns_flagdata, @object;
+.type _ns_flagdata, %object;
 _ns_flagdata:
 .globl in6addr_any
-.type in6addr_any, @object;
+.type in6addr_any, %object;
 in6addr_any:
 .globl in6addr_loopback
-.type in6addr_loopback, @object;
+.type in6addr_loopback, %object;
 in6addr_loopback:
 .text
 .globl _Exit
