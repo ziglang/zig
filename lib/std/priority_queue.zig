@@ -192,9 +192,29 @@ pub fn PriorityQueue(comptime T: type) type {
             self.len = new_len;
         }
 
-        pub fn shrink(self: *Self, new_len: usize) void {
-            // TODO take advantage of the new realloc semantics
-            assert(new_len <= self.len);
+        /// Reduce allocated capacity to `new_len`.
+        pub fn shrinkAndFree(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
+
+            // Cannot shrink to smaller than the current queue size without invalidating the heap property
+            assert(new_len >= self.len);
+
+            self.items = self.allocator.realloc(self.items[0..], new_len) catch |e| switch (e) {
+                error.OutOfMemory => { // no problem, capacity is still correct then.
+                    self.items.len = new_len;
+                    return;
+                },
+            };
+            self.len = new_len;
+        }
+
+        /// Reduce length to `new_len`.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
+
+            // Cannot shrink to smaller than the current queue size without invalidating the heap property
+            assert(new_len >= self.len);
+
             self.len = new_len;
         }
 
@@ -475,6 +495,33 @@ test "std.PriorityQueue: iterator while empty" {
     var it = queue.iterator();
 
     expectEqual(it.next(), null);
+}
+
+test "std.PriorityQueue: shrinkRetainingCapacity and shrinkAndFree" {
+    var queue = PQ.init(testing.allocator, lessThan);
+    defer queue.deinit();
+
+    try queue.ensureCapacity(4);
+    expect(queue.capacity() >= 4);
+
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(3);
+    expect(queue.capacity() >= 4);
+    expectEqual(@as(usize, 3), queue.len);
+
+    queue.shrinkRetainingCapacity(3);
+    expect(queue.capacity() >= 4);
+    expectEqual(@as(usize, 3), queue.len);
+
+    queue.shrinkAndFree(3);
+    expectEqual(@as(usize, 3), queue.capacity());
+    expectEqual(@as(usize, 3), queue.len);
+
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
+    expectEqual(@as(u32, 3), queue.remove());
+    expect(queue.removeOrNull() == null);
 }
 
 test "std.PriorityQueue: update min heap" {
