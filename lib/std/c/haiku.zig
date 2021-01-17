@@ -14,9 +14,20 @@ extern "c" fn _errnop() *c_int;
 
 pub const _errno = _errnop;
 
+pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
+
+pub extern "c" fn find_thread(thread_name: ?*c_void) i32;
+
+pub extern "c" fn get_system_info(system_info: *system_info) usize;
+
+// TODO revisit if abi changes or better option becomes apparent
+pub extern "c" fn _get_next_image_info(team: c_int, cookie: *i32, image_info: *image_info) usize;
+
 pub extern "c" fn _kern_read_dir(fd: c_int, buf_ptr: [*]u8, nbytes: usize, maxcount: u32) usize;
 
-pub extern "c" fn _get_next_image_info(team: c_int, cookie: *i32, image_info: *image_info) usize;
+pub extern "c" fn _kern_read_stat(fd: c_int, path_ptr: [*]u8, traverse_link: bool, libc_stat: *libc_stat, stat_size: i32) usize;
+
+pub extern "c" fn _kern_get_current_team() i32;
 
 pub const sem_t = extern struct {
     _magic: u32,
@@ -27,6 +38,14 @@ pub const sem_t = extern struct {
     _padding: u32,
 };
 
+pub const pthread_attr_t = extern struct {
+    __detach_state: i32,
+    __sched_priority: i32,
+    __stack_size: i32,
+    __guard_size: i32,
+    __stack_address: ?*c_void,
+};
+
 pub const pthread_mutex_t = extern struct {
     flags: u32 = 0,
     lock: i32 = 0,
@@ -34,7 +53,6 @@ pub const pthread_mutex_t = extern struct {
     owner: i32 = -1,
     owner_count: i32 = 0,
 };
-
 pub const pthread_cond_t = extern struct {
     flags: u32 = 0,
     unused: i32 = -42,

@@ -29,6 +29,7 @@ const os_has_fork = switch (std.Target.current.os.tag) {
     .solaris,
     .tvos,
     .watchos,
+    .haiku,
     => true,
 
     else => false,

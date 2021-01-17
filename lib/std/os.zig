@@ -3941,6 +3941,9 @@ pub fn sysctl(
     if (builtin.os.tag == .wasi) {
         @panic("unsupported");
     }
+    if (builtin.os.tag == .haiku) {
+        @panic("unsupported");
+    }
 
     const name_len = math.cast(c_uint, name.len) catch return error.NameTooLong;
     switch (errno(system.sysctl(name.ptr, name_len, oldp, oldlenp, newp, newlen))) {
@@ -3963,6 +3966,9 @@ pub fn sysctlbynameZ(
     newlen: usize,
 ) SysCtlError!void {
     if (builtin.os.tag == .wasi) {
+        @panic("unsupported");
+    }
+    if (builtin.os.tag == .haiku) {
         @panic("unsupported");
     }
 

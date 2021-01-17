@@ -1566,8 +1566,7 @@ pub const Target = struct {
             .other,
             => return result,
 
-            // Operating systems in this list have been verified as not having a standard
-            // dynamic linker path.
+            // TODO revisit when multi-arch for Haiku is available
             .haiku => return copy(&result, "/system/runtime_loader"),
 
             // TODO go over each item in this list and either move it to the above list, or

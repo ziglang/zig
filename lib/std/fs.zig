@@ -472,8 +472,25 @@ pub const Dir = struct {
                         continue :start_over;
                     }
 
-                    // TODO: determine entry kind
-                    const entry_kind = Entry.Kind.File;
+                    var stat_info: os.libc_stat = undefined;
+                    const rc2 = os.system._kern_read_stat(
+                        self.dir.fd,
+                        &haiku_entry.d_name,
+                        false,
+                        &stat_info,
+                        0,
+                    );
+                    const statmode = stat_info.mode & os.S_IFMT;
+
+                    const entry_kind = switch (statmode) {
+                        os.S_IFDIR => Entry.Kind.Directory,
+                        os.S_IFBLK => Entry.Kind.BlockDevice,
+                        os.S_IFCHR => Entry.Kind.CharacterDevice,
+                        os.S_IFLNK => Entry.Kind.SymLink,
+                        os.S_IFREG => Entry.Kind.File,
+                        os.S_IFIFO => Entry.Kind.NamedPipe,
+                        else => Entry.Kind.Unknown,
+                    };
 
                     return Entry{
                         .name = name,
@@ -676,7 +693,13 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, => return Iterator{
+            .macos,
+            .ios,
+            .freebsd,
+            .netbsd,
+            .dragonfly,
+            .openbsd,
+            => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,

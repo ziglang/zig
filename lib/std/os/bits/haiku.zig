@@ -6,8 +6,6 @@
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
-// See https://svnweb.freebsd.org/base/head/sys/sys/_types.h?view=co
-// TODO: audit pid_t/mode_t. They should likely be i32 and u16, respectively
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 pub const uid_t = u32;
@@ -29,6 +27,11 @@ pub const Kevent = extern struct {
 
 // Modes and flags for dlopen()
 // include/dlfcn.h
+
+pub const POLLIN = 0x0001;
+pub const POLLERR = 0x0004;
+pub const POLLNVAL = 0x1000;
+pub const POLLHUP = 0x0080;
 
 /// Bind function calls lazily.
 pub const RTLD_LAZY = 1;
@@ -119,40 +122,42 @@ pub const msghdr_const = extern struct {
 pub const off_t = i64;
 pub const ino_t = u64;
 
+pub const nfds_t = u32;
+
+pub const pollfd = extern struct {
+    fd: i32,
+    events: i16,
+    revents: i16,
+};
+
 pub const libc_stat = extern struct {
-    dev: u64,
-    ino: ino_t,
-    nlink: usize,
-
-    mode: u16,
-    __pad0: u16,
-    uid: uid_t,
-    gid: gid_t,
-    __pad1: u32,
-    rdev: u64,
-
+    dev: i32,
+    ino: u64,
+    mode: u32,
+    nlink: i32,
+    uid: i32,
+    gid: i32,
+    size: i64,
+    rdev: i32,
+    blksize: i32,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-    birthtim: timespec,
-
-    size: off_t,
+    crtim: timespec,
+    st_type: u32,
     blocks: i64,
-    blksize: isize,
-    flags: u32,
-    gen: u64,
-    __spare: [10]u64,
 
     pub fn atime(self: @This()) timespec {
         return self.atim;
     }
-
     pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
-
     pub fn ctime(self: @This()) timespec {
         return self.ctim;
+    }
+    pub fn crtime(self: @This()) timespec {
+        return self.crtim;
     }
 };
 
@@ -190,6 +195,34 @@ pub const image_info = extern struct {
     data_size: i32,
     api_version: i32,
     abi: i32,
+};
+
+pub const system_info = extern struct {
+    boot_time: i64,
+    cpu_count: u32,
+    max_pages: u64,
+    used_pages: u64,
+    cached_pages: u64,
+    block_cache_pages: u64,
+    ignored_pages: u64,
+    needed_memory: u64,
+    free_memory: u64,
+    max_swap_pages: u64,
+    free_swap_pages: u64,
+    page_faults: u32,
+    max_sems: u32,
+    used_sems: u32,
+    max_ports: u32,
+    used_ports: u32,
+    max_threads: u32,
+    used_threads: u32,
+    max_teams: u32,
+    used_teams: u32,
+    kernel_name: [256]u8,
+    kernel_build_date: [32]u8,
+    kernel_build_time: [32]u8,
+    kernel_version: i64,
+    abi: u32,
 };
 
 pub const in_port_t = u16;
@@ -1408,3 +1441,10 @@ pub const rlimit = extern struct {
 pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
 pub const SHUT_RDWR = 2;
+
+// TODO fill out if needed
+pub const directory_which = extern enum(c_int) {
+    B_USER_SETTINGS_DIRECTORY = 0xbbe,
+
+    _,
+};

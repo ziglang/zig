@@ -504,6 +504,13 @@ pub fn cpuCount() CpuCountError!usize {
         };
         return @intCast(usize, count);
     }
+    if (std.Target.current.os.tag == .haiku) {
+        var count: u32 = undefined;
+        var system_info: os.system_info = undefined;
+        const rc = os.system.get_system_info(&system_info);
+        count = system_info.cpu_count;
+        return @intCast(usize, count);
+    }
     var count: c_int = undefined;
     var count_len: usize = @sizeOf(c_int);
     const name = if (comptime std.Target.current.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
@@ -537,6 +544,9 @@ pub fn getCurrentThreadId() u64 {
         },
         .openbsd => {
             return @bitCast(u32, c.getthrid());
+        },
+        .haiku => {
+            return @bitCast(u32, c.find_thread(null));
         },
         else => {
             @compileError("getCurrentThreadId not implemented for this platform");

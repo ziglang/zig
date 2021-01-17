@@ -196,6 +196,7 @@ pub const LibCInstallation = struct {
                 switch (Target.current.os.tag) {
                     .freebsd, .netbsd, .openbsd => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
                     .linux, .dragonfly => batch.add(&async self.findNativeCrtDirPosix(args)),
+                    .haiku => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/system/develop/lib"),
                     else => {},
                 }
                 break :blk batch.wait();
