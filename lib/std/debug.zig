@@ -1341,14 +1341,7 @@ pub const DebugInfo = struct {
     }
 
     fn lookupModuleHaiku(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        // TODO: implement me
-        var di = ModuleDebugInfo{
-            .base_address = undefined,
-            .dwarf = undefined,
-            .mapped_memory = undefined,
-        };
-
-        return &di;
+        @panic("TODO implement lookup module for Haiku");
     }
 };
 
