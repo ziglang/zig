@@ -2760,6 +2760,69 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                 },
+                .aarch64, .aarch64_be, .aarch64_32 => switch (mcv) {
+                    .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
+                    .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // TODO Upgrade this to a memset call when we have that available.
+                        switch (ty.abiSize(self.target.*)) {
+                            1 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaa }),
+                            2 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaa }),
+                            4 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
+                            8 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            else => return self.fail(src, "TODO implement memset", .{}),
+                        }
+                    },
+                    .compare_flags_unsigned => |op| {
+                        return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
+                    },
+                    .compare_flags_signed => |op| {
+                        return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
+                    },
+                    .immediate => {
+                        const reg = try self.copyToTmpRegister(src, mcv);
+                        return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
+                    },
+                    .embedded_in_code => |code_offset| {
+                        return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
+                    },
+                    .register => |reg| {
+                        const abi_size = ty.abiSize(self.target.*);
+                        const adj_off = stack_offset + abi_size;
+
+                        switch (abi_size) {
+                            4, 8 => {
+                                const offset = if (adj_off <= math.maxInt(u12)) blk: {
+                                    break :blk Instruction.LoadStoreOffset.imm(@intCast(u12, adj_off));
+                                } else Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
+                                const rn: Register = switch (abi_size) {
+                                    4 => .w29,
+                                    8 => .x29,
+                                    else => unreachable,
+                                };
+
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.str(reg, rn, .{
+                                    .offset = offset,
+                                }).toU32());
+                            },
+                            else => return self.fail(src, "TODO implement storing other types abi_size={}", .{abi_size}),
+                        }
+                    },
+                    .memory => |vaddr| {
+                        return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
+                    },
+                    .stack_offset => |off| {
+                        if (stack_offset == off)
+                            return; // Copy stack variable to itself; nothing to do.
+
+                        const reg = try self.copyToTmpRegister(src, mcv);
+                        return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
+                    },
+                },
                 else => return self.fail(src, "TODO implement getSetStack for {}", .{self.target.cpu.arch}),
             }
         }
