@@ -814,7 +814,7 @@ pub const Instruction = union(enum) {
     // Nop
 
     pub fn nop() Instruction {
-        return Instruction{ .NoOperation = {} };
+        return Instruction{ .NoOperation = .{} };
     }
 
     // Logical (shifted register)
