@@ -313,15 +313,22 @@ pub fn ParkingLot(comptime config: anytype) type {
                 const head = queue.head orelse unreachable;
                 
                 if (node.address != self.address)
-                    unreachable;
-                if ((node.prev == null) and (node != head))
-                    unreachable;
+                    unreachable; // the node isn't apart of this wait queue
 
+                if ((node.prev == null) and (node != head))
+                    unreachable; // a node without a prev must be the head of the wait queue.
+
+                // unlink the node from its neighbors
                 if (node.prev) |p|
                     p.next = node.next;
                 if (node.next) |n|
                     n.prev = node.prev;
 
+                // If we're removing the head, we need to perform a few transformations.
+                // The head node holds more external info that needs to remain/be corrected:
+                //  - the tail of the queue
+                //  - any tree-level links
+                //  - the tree itself is this is its root
                 if (node == head) {
                     queue.head = node.next;
                     if (queue.head) |new_head| {
@@ -334,6 +341,7 @@ pub fn ParkingLot(comptime config: anytype) type {
                     head.tail = node.prev orelse unreachable;
                 }
 
+                // this actually marks the node as dequeued (see hasInserted())
                 node.tail = null;
                 return true;
             }
@@ -341,7 +349,7 @@ pub fn ParkingLot(comptime config: anytype) type {
             /// Returns true if this WaitNode is still inserted in the WaitQueue.
             /// This remains correct as long as the caller doesn't tamper with internal node state.
             pub fn hasInserted(self: WaitQueue, node: *WaitNode) bool {
-                return node.tail == node;
+                return node.tail != null;
             }
 
             /// An iterator which iterates over the WaitNodes in a WaitQueue

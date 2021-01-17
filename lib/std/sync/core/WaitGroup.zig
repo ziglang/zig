@@ -18,30 +18,34 @@ pub fn WaitGroup(comptime parking_lot: type) type {
             return .{ .counter = amount };
         }
 
-        pub fn tryBegin(self: *Self, amount: usize) bool {
-            return self.apply(true, amount);
-        }
-
         pub fn begin(self: *Self, amount: usize) void {
             assert(self.tryBegin(amount));
         }
 
-        pub fn tryEnd(self: *Self, amount: usize) bool {
-            return self.apply(false, amount);
+        pub fn tryBegin(self: *Self, amount: usize) bool {
+            return self.apply(true, amount);
         }
 
         pub fn end(self: *Self, amount: usize) void {
             assert(self.tryEnd(amount));
         }
 
-        pub fn tryUpdate(self: *Self, amount: isize) bool {
+        pub fn tryEnd(self: *Self, amount: usize) bool {
+            return self.apply(false, amount);
+        }
+
+        pub fn add(self: *Self, amount: isize) void {
+            assert(self.tryAdd(amount));
+        }
+
+        pub fn tryAdd(self: *Self, amount: isize) bool {
             const is_add = amount > 0;
             const value = @intCast(usize, if (add) amount else -amount);
             return self.apply(is_add, value);
         }
 
-        pub fn update(self: *Self, amount: isize) void {
-            assert(self.tryUpdate(amount));
+        pub fn done(self: *Self) void {
+            self.end(1);
         }
 
         fn apply(self: *Self, is_add: bool, amount: usize) bool {

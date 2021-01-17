@@ -10,13 +10,6 @@
 
 data: Data,
 
-pub const AutoResetEvent = @import("Thread/AutoResetEvent.zig");
-pub const ResetEvent = @import("Thread/ResetEvent.zig");
-pub const StaticResetEvent = @import("Thread/StaticResetEvent.zig");
-pub const Mutex = @import("Thread/Mutex.zig");
-pub const Semaphore = @import("Thread/Semaphore.zig");
-pub const Condition = @import("Thread/Condition.zig");
-
 pub const use_pthreads = std.Target.current.os.tag != .windows and builtin.link_libc;
 
 const Thread = @This();

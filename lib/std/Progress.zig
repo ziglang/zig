@@ -50,7 +50,7 @@ done: bool = true,
 /// Protects the `refresh` function, as well as `node.recently_updated_child`.
 /// Without this, callsites would call `Node.end` and then free `Node` memory
 /// while it was still being accessed by the `refresh` function.
-update_lock: std.Thread.Mutex = .{},
+update_lock: std.sync.Mutex = .{},
 
 /// Keeps track of how many columns in the terminal have been output, so that
 /// we can move the cursor back later.

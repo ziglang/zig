@@ -29,7 +29,7 @@ pub const Loop = struct {
     fs_thread: *Thread,
     fs_queue: std.atomic.Queue(Request),
     fs_end_request: Request.Node,
-    fs_thread_wakeup: std.Thread.ResetEvent,
+    fs_thread_wakeup: std.sync.ResetEvent,
 
     /// For resources that have the same lifetime as the `Loop`.
     /// This is only used by `Loop` for the thread pool and associated resources.
@@ -164,11 +164,9 @@ pub const Loop = struct {
             .fs_end_request = .{ .data = .{ .msg = .end, .finish = .NoAction } },
             .fs_queue = std.atomic.Queue(Request).init(),
             .fs_thread = undefined,
-            .fs_thread_wakeup = undefined,
+            .fs_thread_wakeup = .{},
             .delay_queue = undefined,
         };
-        try self.fs_thread_wakeup.init();
-        errdefer self.fs_thread_wakeup.deinit();
         errdefer self.arena.deinit();
 
         // We need at least one of these in case the fs thread wants to use onNextTick
@@ -198,7 +196,6 @@ pub const Loop = struct {
 
     pub fn deinit(self: *Loop) void {
         self.deinitOsData();
-        self.fs_thread_wakeup.deinit();
         self.arena.deinit();
         self.* = undefined;
     }
@@ -781,11 +778,51 @@ pub const Loop = struct {
         }
     }
 
+    const AutoResetEvent = struct {
+        is_set: bool = false,
+        mutex: std.sync.Mutex = .{},
+        cond: std.Thread.Condition = .{},
+
+        fn wait(self: *AutoResetEvent) void {
+            return self.waitInner(null) catch unreachable;
+        }
+
+        fn timedWait(self: *AutoResetEvent, timeout: u64) error{TimedOut}!void {
+            return self.waitInner(timeout);
+        }
+
+        fn waitInner(self: *AutoResetEvent, timeout: ?u64) error{TimedOut}!void {
+            const held = self.mutex.lock();
+            defer held.release();
+
+            while (true) {
+                if (self.is_set) {
+                    self.is_set = false;
+                    return;
+                }
+
+                if (timeout) |duration| {
+                    try self.cond.tryWaitFor(held, duration);
+                } else {
+                    self.cond.wait(held);
+                }
+            }
+        }
+
+        fn set(self: *AutoResetEvent) void {
+            const held = self.mutex.lock();
+            defer held.release();
+
+            self.is_set = true;
+            self.cond.notifyOne();
+        }
+    };
+
     const DelayQueue = struct {
         timer: std.time.Timer,
         waiters: Waiters,
         thread: *std.Thread,
-        event: std.Thread.AutoResetEvent,
+        event: AutoResetEvent,
         is_running: bool,
 
         /// Initialize the delay queue by spawning the timer thread
@@ -796,11 +833,13 @@ pub const Loop = struct {
                 .waiters = DelayQueue.Waiters{
                     .entries = std.atomic.Queue(anyframe).init(),
                 },
-                .event = std.Thread.AutoResetEvent{},
+                .event = AutoResetEvent{},
                 .is_running = true,
-                // Must be last so that it can read the other state, such as `is_running`.
-                .thread = try std.Thread.spawn(self, DelayQueue.run),
+                .thread = undefined,
             };
+
+            // Must be last so that it can read the other state, such as `is_running`.
+            self.thread = try std.Thread.spawn(self, DelayQueue.run);
         }
 
         /// Entry point for the timer thread

@@ -6,14 +6,14 @@
 const std = @import("std");
 const ThreadPool = @This();
 
-lock: std.Thread.Mutex = .{},
+lock: std.sync.Mutex = .{},
 is_running: bool = true,
 allocator: *std.mem.Allocator,
 workers: []Worker,
 run_queue: RunQueue = .{},
 idle_queue: IdleQueue = .{},
 
-const IdleQueue = std.SinglyLinkedList(std.Thread.ResetEvent);
+const IdleQueue = std.SinglyLinkedList(std.sync.ResetEvent);
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
     runFn: fn (*Runnable) void,
@@ -69,11 +69,7 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
     while (worker_index < worker_count) : (worker_index += 1) {
         const worker = &self.workers[worker_index];
         worker.pool = self;
-
-        // Each worker requires its ResetEvent to be pre-initialized.
-        try worker.idle_node.data.init();
-        errdefer worker.idle_node.data.deinit();
-
+        worker.idle_node = .{ .data = .{} };
         worker.thread = try std.Thread.spawn(worker, Worker.run);
     }
 }
@@ -81,7 +77,6 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
 fn destroyWorkers(self: *ThreadPool, spawned: usize) void {
     for (self.workers[0..spawned]) |*worker| {
         worker.thread.wait();
-        worker.idle_node.data.deinit();
     }
 }
 

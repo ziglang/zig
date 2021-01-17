@@ -750,7 +750,7 @@ test "open file with exclusive lock twice, make sure it waits" {
     errdefer file.close();
 
     const S = struct {
-        const C = struct { dir: *fs.Dir, evt: *std.Thread.ResetEvent };
+        const C = struct { dir: *fs.Dir, evt: *std.sync.ResetEvent };
         fn checkFn(ctx: C) !void {
             const file1 = try ctx.dir.createFile(filename, .{ .lock = .Exclusive });
             defer file1.close();
@@ -758,10 +758,8 @@ test "open file with exclusive lock twice, make sure it waits" {
         }
     };
 
-    var evt: std.Thread.ResetEvent = undefined;
-    try evt.init();
-    defer evt.deinit();
-
+    var evt: std.sync.ResetEvent = .{};
+    
     const t = try std.Thread.spawn(S.C{ .dir = &tmp.dir, .evt = &evt }, S.checkFn);
     defer t.wait();
 

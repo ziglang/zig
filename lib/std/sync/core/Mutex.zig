@@ -40,6 +40,9 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             .i386, .x86_64 => true,
             else => false,
         };
+        
+        /// Exported to keep other implementations happy..
+        pub const Dummy = DummyMutex;
 
         /// Try to acquire ownership of the Mutex if its not currently owned in a non-blocking manner.
         /// Returns true if it was successful in doing so.
@@ -288,3 +291,38 @@ pub fn Mutex(comptime parking_lot: anytype) type {
         }
     };
 }
+
+/// This has the sematics as `Mutex`, however it does not actually do any
+/// synchronization. Operations are safety-checked no-ops.
+const DummyMutex = struct {
+    lock: @TypeOf(lock_init) = lock_init,
+
+    const lock_init = if (std.debug.runtime_safety) false else {};
+
+    pub const Held = struct {
+        mutex: *DummyMutex,
+
+        pub fn release(held: Held) void {
+            if (std.debug.runtime_safety) {
+                held.mutex.lock = false;
+            }
+        }
+    };
+
+    /// Try to acquire the mutex without blocking. Returns null if
+    /// the mutex is unavailable. Otherwise returns Held. Call
+    /// release on Held.
+    pub fn tryAcquire(m: *DummyMutex) ?Held {
+        if (std.debug.runtime_safety) {
+            if (m.lock) return null;
+            m.lock = true;
+        }
+        return Held{ .mutex = m };
+    }
+
+    /// Acquire the mutex. Will deadlock if the mutex is already
+    /// held by the calling thread.
+    pub fn acquire(m: *DummyMutex) Held {
+        return m.tryAcquire() orelse @panic("deadlock detected");
+    }
+};
