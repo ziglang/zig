@@ -1162,6 +1162,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         .externally_managed => |x| x,
         .appended => code_buffer.items,
         .fail => |em| {
+            // Clear any PIE fixups and stub fixups for this decl.
+            self.pie_fixups.shrinkRetainingCapacity(0);
+            self.stub_fixups.shrinkRetainingCapacity(0);
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, em);
             return;
