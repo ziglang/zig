@@ -133,6 +133,7 @@ pub const File = struct {
         macho: MachO.TextBlock,
         c: C.DeclBlock,
         wasm: void,
+        spirv: void,
     };
 
     pub const LinkFn = union {
@@ -141,6 +142,7 @@ pub const File = struct {
         macho: MachO.SrcFn,
         c: C.FnBlock,
         wasm: ?Wasm.FnData,
+        spirv: void,
     };
 
     pub const Export = union {
@@ -149,6 +151,7 @@ pub const File = struct {
         macho: MachO.Export,
         c: void,
         wasm: void,
+        spirv: void,
     };
 
     /// For DWARF .debug_info.
@@ -177,6 +180,7 @@ pub const File = struct {
                 .macho => &(try MachO.createEmpty(allocator, options)).base,
                 .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                 .c => unreachable, // Reported error earlier.
+                .spirv => return error.SpirVObjectFormatUnimplemented,
                 .hex => return error.HexObjectFormatUnimplemented,
                 .raw => return error.RawObjectFormatUnimplemented,
             };
@@ -192,6 +196,7 @@ pub const File = struct {
                     .macho => &(try MachO.createEmpty(allocator, options)).base,
                     .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                     .c => unreachable, // Reported error earlier.
+                    .spirv => return error.SpirVObjectFormatUnimplemented,
                     .hex => return error.HexObjectFormatUnimplemented,
                     .raw => return error.RawObjectFormatUnimplemented,
                 };
@@ -207,6 +212,7 @@ pub const File = struct {
             .macho => &(try MachO.openPath(allocator, sub_path, options)).base,
             .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
             .c => &(try C.openPath(allocator, sub_path, options)).base,
+            .spirv => return error.SpirVObjectFormatUnimplemented,
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
         };
@@ -595,6 +601,7 @@ pub const File = struct {
         macho,
         c,
         wasm,
+        spirv,
     };
 
     pub const ErrorFlags = struct {
@@ -605,6 +612,7 @@ pub const File = struct {
     pub const Coff = @import("link/Coff.zig");
     pub const Elf = @import("link/Elf.zig");
     pub const MachO = @import("link/MachO.zig");
+    pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
 };
 
