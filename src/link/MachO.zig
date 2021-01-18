@@ -2232,6 +2232,7 @@ pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
 fn makeString(self: *MachO, bytes: []const u8) !u32 {
     try self.string_table.ensureCapacity(self.base.allocator, self.string_table.items.len + bytes.len + 1);
     const offset = @intCast(u32, self.string_table.items.len);
+    log.debug("writing '{s}' into the string table at offset 0x{x}", .{ bytes, offset });
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
     self.string_table_dirty = true;
@@ -2257,6 +2258,7 @@ pub fn addExternSymbol(self: *MachO, name: []const u8) !u32 {
     const index = @intCast(u32, self.extern_lazy_symbols.items().len);
     const offset = try self.makeString(name);
     const sym_name = try self.base.allocator.dupe(u8, name);
+    const dylib_ordinal = 1; // TODO this is now hardcoded, since we only support libSystem.
     try self.extern_lazy_symbols.putNoClobber(self.base.allocator, sym_name, .{
         .inner = .{
             .n_strx = offset,
@@ -2265,8 +2267,9 @@ pub fn addExternSymbol(self: *MachO, name: []const u8) !u32 {
             .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
             .n_value = 0,
         },
-        .dylib_ordinal = 1, // TODO this is now hardcoded, since we only support libSystem.
+        .dylib_ordinal = dylib_ordinal,
     });
+    log.debug("adding new extern symbol '{s}' with dylib ordinal '{}'", .{ name, dylib_ordinal });
     return index;
 }
 
@@ -2639,6 +2642,11 @@ fn writeAllGlobalAndUndefSymbols(self: *MachO) !void {
 }
 
 fn writeIndirectSymbolTable(self: *MachO) !void {
+    // TODO figure out a way not to rewrite the table every time if
+    // no new undefs are not added.
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const stubs = &text_segment.sections.items[self.stubs_section_index.?];
     const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
@@ -2646,42 +2654,53 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
-    dysymtab.nindirectsyms = 0;
-    // TODO check if we have allocated enough size.
 
-    var buf: [@sizeOf(u32)]u8 = undefined;
-    var off = dysymtab.indirectsymoff;
+    const lazy = self.extern_lazy_symbols.items();
+    const nonlazy = self.extern_nonlazy_symbols.items();
+    const allocated_size = self.allocatedSizeLinkedit(dysymtab.indirectsymoff);
+    const nindirectsyms = @intCast(u32, lazy.len * 2 + nonlazy.len);
+    const needed_size = @intCast(u32, nindirectsyms * @sizeOf(u32));
+
+    if (needed_size > allocated_size) {
+        dysymtab.nindirectsyms = 0;
+        dysymtab.indirectsymoff = @intCast(u32, self.findFreeSpaceLinkedit(needed_size, @sizeOf(u32), null));
+    }
+    dysymtab.nindirectsyms = nindirectsyms;
+    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{
+        dysymtab.indirectsymoff,
+        dysymtab.indirectsymoff + needed_size,
+    });
+
+    var buf = try self.base.allocator.alloc(u8, needed_size);
+    defer self.base.allocator.free(buf);
+    var stream = std.io.fixedBufferStream(buf);
+    var writer = stream.writer();
 
     stubs.reserved1 = 0;
     for (self.extern_lazy_symbols.items()) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
-        mem.writeIntLittle(u32, &buf, symtab_idx);
-        try self.base.file.?.pwriteAll(&buf, off);
-        off += @sizeOf(u32);
-        dysymtab.nindirectsyms += 1;
+        try writer.writeIntLittle(u32, symtab_idx);
     }
 
-    const base_id = @intCast(u32, self.extern_lazy_symbols.items().len);
+    const base_id = @intCast(u32, lazy.len);
     got.reserved1 = base_id;
     for (self.extern_nonlazy_symbols.items()) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i + base_id);
-        mem.writeIntLittle(u32, &buf, symtab_idx);
-        try self.base.file.?.pwriteAll(&buf, off);
-        off += @sizeOf(u32);
-        dysymtab.nindirectsyms += 1;
+        try writer.writeIntLittle(u32, symtab_idx);
     }
 
-    la_symbol_ptr.reserved1 = got.reserved1 + @intCast(u32, self.extern_nonlazy_symbols.items().len);
+    la_symbol_ptr.reserved1 = got.reserved1 + @intCast(u32, nonlazy.len);
     for (self.extern_lazy_symbols.items()) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
-        mem.writeIntLittle(u32, &buf, symtab_idx);
-        try self.base.file.?.pwriteAll(&buf, off);
-        off += @sizeOf(u32);
-        dysymtab.nindirectsyms += 1;
+        try writer.writeIntLittle(u32, symtab_idx);
     }
+
+    try self.base.file.?.pwriteAll(buf, dysymtab.indirectsymoff);
+    self.load_commands_dirty = true;
 }
 
 fn writeCodeSignaturePadding(self: *MachO) !void {
+    // TODO figure out how not to rewrite padding every single time.
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2693,22 +2712,19 @@ fn writeCodeSignaturePadding(self: *MachO) !void {
         fileoff,
         self.page_size,
     );
+    code_sig_cmd.dataoff = @intCast(u32, fileoff);
+    code_sig_cmd.datasize = needed_size;
 
-    if (code_sig_cmd.datasize < needed_size) {
-        code_sig_cmd.dataoff = @intCast(u32, fileoff);
-        code_sig_cmd.datasize = needed_size;
-
-        // Advance size of __LINKEDIT segment
-        linkedit_segment.inner.filesize += needed_size;
-        if (linkedit_segment.inner.vmsize < linkedit_segment.inner.filesize) {
-            linkedit_segment.inner.vmsize = mem.alignForwardGeneric(u64, linkedit_segment.inner.filesize, self.page_size);
-        }
-        log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
-        // Pad out the space. We need to do this to calculate valid hashes for everything in the file
-        // except for code signature data.
-        try self.base.file.?.pwriteAll(&[_]u8{0}, fileoff + needed_size - 1);
-        self.load_commands_dirty = true;
+    // Advance size of __LINKEDIT segment
+    linkedit_segment.inner.filesize += needed_size;
+    if (linkedit_segment.inner.vmsize < linkedit_segment.inner.filesize) {
+        linkedit_segment.inner.vmsize = mem.alignForwardGeneric(u64, linkedit_segment.inner.filesize, self.page_size);
     }
+    log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
+    // Pad out the space. We need to do this to calculate valid hashes for everything in the file
+    // except for code signature data.
+    try self.base.file.?.pwriteAll(&[_]u8{0}, fileoff + needed_size - 1);
+    self.load_commands_dirty = true;
 }
 
 fn writeCodeSignature(self: *MachO) !void {

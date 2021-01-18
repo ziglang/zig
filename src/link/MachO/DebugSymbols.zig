@@ -1079,7 +1079,8 @@ pub fn commitDeclDebugInfo(
             const debug_line_sect = &dwarf_segment.sections.items[self.debug_line_section_index.?];
             const src_fn = &decl.fn_link.macho;
             src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
-            if (self.dbg_line_fn_last) |last| {
+            if (self.dbg_line_fn_last) |last| blk: {
+                if (src_fn == last) break :blk;
                 if (src_fn.next) |next| {
                     // Update existing function - non-last item.
                     if (src_fn.off + src_fn.len + min_nop_size > next.off) {
@@ -1238,7 +1239,8 @@ fn updateDeclDebugInfoAllocation(
     const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
     const debug_info_sect = &dwarf_segment.sections.items[self.debug_info_section_index.?];
     text_block.dbg_info_len = len;
-    if (self.dbg_info_decl_last) |last| {
+    if (self.dbg_info_decl_last) |last| blk: {
+        if (text_block == last) break :blk;
         if (text_block.dbg_info_next) |next| {
             // Update existing Decl - non-last item.
             if (text_block.dbg_info_off + text_block.dbg_info_len + min_nop_size > next.dbg_info_off) {
