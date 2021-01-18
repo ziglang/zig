@@ -3755,31 +3755,54 @@ pub fn pipe() PipeError![2]fd_t {
 }
 
 pub fn pipe2(flags: u32) PipeError![2]fd_t {
-    if (comptime std.Target.current.isDarwin()) {
-        var fds: [2]fd_t = try pipe();
-        if (flags == 0) return fds;
-        errdefer {
-            close(fds[0]);
-            close(fds[1]);
-        }
-        for (fds) |fd| switch (errno(system.fcntl(fd, F_SETFL, flags))) {
-            0 => {},
+    if (@hasDecl(system, "pipe2")) {
+        var fds: [2]fd_t = undefined;
+        switch (errno(system.pipe2(&fds, flags))) {
+            0 => return fds,
             EINVAL => unreachable, // Invalid flags
-            EBADF => unreachable, // Always a race condition
+            EFAULT => unreachable, // Invalid fds pointer
+            ENFILE => return error.SystemFdQuotaExceeded,
+            EMFILE => return error.ProcessFdQuotaExceeded,
             else => |err| return unexpectedErrno(err),
-        };
-        return fds;
+        }
     }
 
-    var fds: [2]fd_t = undefined;
-    switch (errno(system.pipe2(&fds, flags))) {
-        0 => return fds,
-        EINVAL => unreachable, // Invalid flags
-        EFAULT => unreachable, // Invalid fds pointer
-        ENFILE => return error.SystemFdQuotaExceeded,
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        else => |err| return unexpectedErrno(err),
+    var fds: [2]fd_t = try pipe();
+    errdefer {
+        close(fds[0]);
+        close(fds[1]);
     }
+
+    if (flags == 0)
+        return fds;
+
+    // O_CLOEXEC is special, it's a file descriptor flag and must be set using
+    // F_SETFD.
+    if (flags & O_CLOEXEC != 0) {
+        for (fds) |fd| {
+            switch (errno(system.fcntl(fd, F_SETFD, @as(u32, FD_CLOEXEC)))) {
+                0 => {},
+                EINVAL => unreachable, // Invalid flags
+                EBADF => unreachable, // Always a race condition
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    }
+
+    const new_flags = flags & ~@as(u32, O_CLOEXEC);
+    // Set every other flag affecting the file status using F_SETFL.
+    if (new_flags != 0) {
+        for (fds) |fd| {
+            switch (errno(system.fcntl(fd, F_SETFL, new_flags))) {
+                0 => {},
+                EINVAL => unreachable, // Invalid flags
+                EBADF => unreachable, // Always a race condition
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    }
+
+    return fds;
 }
 
 pub const SysCtlError = error{
