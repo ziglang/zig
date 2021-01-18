@@ -2942,9 +2942,9 @@ fn transCharLiteral(
     suppress_as: SuppressCast,
 ) TransError!*ast.Node {
     const kind = stmt.getKind();
+    const val = stmt.getValue();
     const int_lit_node = switch (kind) {
         .Ascii, .UTF8 => blk: {
-            const val = stmt.getValue();
             if (kind == .Ascii) {
                 // C has a somewhat obscure feature called multi-character character
                 // constant
@@ -2960,13 +2960,15 @@ fn transCharLiteral(
             };
             break :blk &node.base;
         },
-        .UTF16, .UTF32, .Wide => return revertAndWarn(
-            rp,
-            error.UnsupportedTranslation,
-            @ptrCast(*const clang.Stmt, stmt).getBeginLoc(),
-            "TODO: support character literal kind {}",
-            .{kind},
-        ),
+        .Wide, .UTF16, .UTF32 => blk: {
+            const token = try appendTokenFmt(rp.c, .CharLiteral, "'\\u{{{x}}}'", .{val});
+            const node = try rp.c.arena.create(ast.Node.OneToken);
+            node.* = .{
+                .base = .{ .tag = .CharLiteral },
+                .token = token,
+            };
+            break :blk &node.base;
+        },
     };
     if (suppress_as == .no_as) {
         return maybeSuppressResult(rp, scope, result_used, int_lit_node);
