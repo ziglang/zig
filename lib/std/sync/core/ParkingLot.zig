@@ -625,3 +625,82 @@ pub fn ParkingLot(comptime config: anytype) type {
         }
     };
 }
+
+pub const DebugParkingLot = struct {
+    pub const bucket_count = 0;
+    pub const eventually_fair_after = 0;
+
+    pub fn nanotime() u64 {
+        return 0;
+    }
+
+    pub const Lock = struct {
+        mutex: Mutex = .{},
+        
+        const Mutex = @import("./Mutex.zig").DebugMutex;
+
+        pub fn acquire(self: *Lock) void {
+            _ = self.mutex.acquire();
+        } 
+
+        pub fn release(self: *Lock) void {
+            (Mutex.Held{ .mutex = &self.mutex }).release();
+        }
+    };
+
+    pub const Event = struct {
+        pub fn init(self: *Event) void {}
+        pub fn deinit(self: *Event) void {}
+        pub fn set(self: *Event) void {}
+        pub fn wait(self: *Event, deadline: ?u64) error{TimedOut}!void {
+            @panic("deadlock detected"); // nothing to wake this thread up
+        }
+    };
+
+    pub fn parkConditionally(
+        address: usize,
+        deadline: ?u64,
+        context: anytype,
+    ) error{TimedOut, Invalid}!usize {
+        _ = context.onValidate() orelse return error.Invalid;
+        @panic("deadlock detected");
+    }
+
+    pub const UnparkContext = struct {
+        pub fn getToken(self: UnparkContext) usize {
+            return undefined;
+        }
+
+        pub fn hasMore(self: UnparkContext) bool {
+            return undefined;
+        }
+
+        pub fn beFair(self: UnparkContext) bool {
+            return undefined;
+        }
+    };
+
+    pub const UnparkFilter = union(enum) {
+        stop: void,
+        skip: void,
+        unpark: usize,
+    };
+
+    pub fn unparkFilter(address: usize, context: anytype) void {
+        context.onBeforeWake();
+    }
+
+    pub const UnparkResult = struct {
+        token: ?usize = null,
+        has_more: bool = false,
+        be_fair: bool = false,
+    };
+
+    pub fn unparkOne(address: usize, context: anytype) void {
+        _ = context.onUnpark(UnparkResult{});
+    }
+
+    pub fn unparkAll(address: usize) void {
+        // no other threads to wake up
+    }
+};

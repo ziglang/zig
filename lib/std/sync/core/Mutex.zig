@@ -40,9 +40,6 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             .i386, .x86_64 => true,
             else => false,
         };
-        
-        /// Exported to keep other implementations happy..
-        pub const Dummy = DummyMutex;
 
         /// Try to acquire ownership of the Mutex if its not currently owned in a non-blocking manner.
         /// Returns true if it was successful in doing so.
@@ -294,35 +291,44 @@ pub fn Mutex(comptime parking_lot: anytype) type {
 
 /// This has the sematics as `Mutex`, however it does not actually do any
 /// synchronization. Operations are safety-checked no-ops.
-const DummyMutex = struct {
-    lock: @TypeOf(lock_init) = lock_init,
+pub const DebugMutex = extern struct {
+    is_locked: @TypeOf(init) = init,
 
-    const lock_init = if (std.debug.runtime_safety) false else {};
+    const Self = @This();
+    const init = if (std.debug.runtime_safety) false else {};
 
-    pub const Held = struct {
-        mutex: *DummyMutex,
-
-        pub fn release(held: Held) void {
-            if (std.debug.runtime_safety) {
-                held.mutex.lock = false;
-            }
-        }
-    };
-
-    /// Try to acquire the mutex without blocking. Returns null if
-    /// the mutex is unavailable. Otherwise returns Held. Call
-    /// release on Held.
-    pub fn tryAcquire(m: *DummyMutex) ?Held {
+    pub fn tryAcquire(self: *Self) ?Held {
         if (std.debug.runtime_safety) {
-            if (m.lock) return null;
-            m.lock = true;
+            if (self.is_locked)
+                return null;
+            self.is_locked = true;
         }
-        return Held{ .mutex = m };
+
+        return Held{ .mutex = self };
     }
 
-    /// Acquire the mutex. Will deadlock if the mutex is already
-    /// held by the calling thread.
-    pub fn acquire(m: *DummyMutex) Held {
-        return m.tryAcquire() orelse @panic("deadlock detected");
+    pub fn tryAcquireFor(self: *Self, duration: u64) error{TimedOut}!void {
+        return self.tryAcquire() orelse error.TimedOut;
+    }
+
+    pub fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        return self.tryAcquire() orelse error.TimedOut;
+    }
+
+    pub fn acquire(self: *Self) void {
+        return self.tryAcquire() orelse @panic("deadlock detected");
+    }
+
+    pub const Held = extern struct {
+        mutex: *Mutex,
+
+        pub fn release(self: Held) void {
+            if (std.debug.runtime_safety)
+                self.mutex.is_locked = false;
+        }
+
+        pub fn releaseFair(self: Held) void {
+            self.release();
+        }
     }
 };

@@ -12,22 +12,21 @@ pub fn Condvar(comptime parking_lot: type) type {
         has_waiters: bool = false,
 
         const Self = @This();
-        const Mutex = @import("./mutex.zig").Mutex(parking_lot);
-        const Held = Mutex.Held;
 
-        pub fn wait(self: *Self, held: Held) void {
+        pub fn wait(self: *Self, held: anytype) void {
             return self.waitInner(held, null) catch unreachable;
         }
 
-        pub fn tryWaitFor(self: *Self, held: Held, duration: u64) error{TimedOut}!void {
+        pub fn tryWaitFor(self: *Self, held: anytype, duration: u64) error{TimedOut}!void {
             return self.tryWaitUntil(held, parking_lot.nanotime() + duration);
         }
 
-        pub fn tryWaitUntil(self: *Self, held: Held, deadline: u64) error{TimedOut}!void {
+        pub fn tryWaitUntil(self: *Self, held: anytype, deadline: u64) error{TimedOut}!void {
             return self.waitInner(held, deadline);
         }
 
-        fn waitInner(self: *Self, held: Held, deadline: ?u64) error{TimedOut}!void {
+        fn waitInner(self: *Self, held: anytype, deadline: ?u64) error{TimedOut}!void {
+            const Held = @TypeOf(held);
             const Parker = struct {
                 cond: *Self,
                 held_ref: Held,
@@ -89,3 +88,27 @@ pub fn Condvar(comptime parking_lot: type) type {
         }
     };
 }
+
+pub const DebugCondvar = extern struct {
+    const Self = @This();
+
+    pub fn wait(self: *Self, held: anytype) void {
+       @panic("deadlock detected"); // there would be no thread to wake us up
+    }
+
+    pub fn tryWaitFor(self: *Self, held: anytype, duration: u64) error{TimedOut}!void {
+        return self.wait();
+    }
+
+    pub fn tryWaitUntil(self: *Self, held: anytype, deadline: u64) error{TimedOut}!void {
+        return self.wait();
+    }
+
+    pub fn notifyOne(self: *Self) void {
+        return self.notifyAll();
+    }
+
+    pub fn notifyAll(self: *Self) void {
+        // no-op since there cant be any other thread to notify
+    }
+};

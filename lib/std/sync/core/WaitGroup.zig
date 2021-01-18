@@ -81,7 +81,7 @@ pub fn WaitGroup(comptime parking_lot: type) type {
         }
 
         pub fn tryWait(self: *Self) bool {
-            return atomic.load(&self.counter, .relaxed);
+            return atomic.load(&self.counter, .relaxed) == 0;
         }
 
         pub fn wait(self: *Self) void {
@@ -126,3 +126,78 @@ pub fn WaitGroup(comptime parking_lot: type) type {
         }
     };
 }
+
+pub const DebugWaitGroup = extern struct {
+    counter: usize = 0,
+
+    const Self = @This();
+
+    pub fn init(amount: usize) Self {
+        return .{ .counter = amount };
+    }
+
+    pub fn begin(self: *Self, amount: usize) void {
+        assert(self.tryBegin(amount));
+    }
+
+    pub fn tryBegin(self: *Self, amount: usize) bool {
+        return self.apply(true, amount);
+    }
+
+    pub fn end(self: *Self, amount: usize) void {
+        assert(self.tryEnd(amount));
+    }
+
+    pub fn tryEnd(self: *Self, amount: usize) bool {
+        return self.apply(false, amount);
+    }
+
+    pub fn add(self: *Self, amount: isize) void {
+        assert(self.tryAdd(amount));
+    }
+
+    pub fn tryAdd(self: *Self, amount: isize) bool {
+        const is_add = amount > 0;
+        const value = @intCast(usize, if (add) amount else -amount);
+        return self.apply(is_add, value);
+    }
+
+    pub fn done(self: *Self) void {
+        self.end(1);
+    }
+
+    fn apply(self: *Self, is_add: bool, amount: usize) bool {
+        const max = std.math.maxInt(usize);
+        if (amount == 0)
+            return true;
+
+        if (is_add) {
+            if (counter > max - amount)
+                return false;
+            self.counter += amount;
+        } else {
+            if (amount > counter)
+                return false;
+            self.counter -= amount;
+        }
+        
+        return true;
+    }
+
+    pub fn tryWait(self: *Self) bool {
+        return self.counter == 0;
+    }
+
+    pub fn wait(self: *Self) void {
+        if (!self.tryWait())
+            @panic("deadlock detected");
+    }
+
+    pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        return self.wait();
+    }
+
+    pub fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        return self.wait();
+    }
+};

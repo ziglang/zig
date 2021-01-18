@@ -18,6 +18,22 @@ pub fn Semaphore(comptime parking_lot: type) type {
             return .{ .permits = permits };
         }
 
+        pub fn tryWait(self: *Self) bool {
+            return self.tryAcquire(1);
+        }
+
+        pub fn wait(self: *Self) void {
+            return self.acquire(1);
+        }
+
+        pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+            return self.tryAcquireFor(1, duration);
+        }
+
+        pub fn tryWaitUntil(self: *Self, duration: u64) error{TimedOut}!void {
+            return self.tryAcquireUntil(1, duration);
+        }
+
         pub fn tryAcquire(self: *Self, permits: usize) bool {
             var perms = atomic.load(&self.permits, .SeqCst);
 
@@ -33,18 +49,6 @@ pub fn Semaphore(comptime parking_lot: type) type {
                     .SeqCst,
                 ) orelse return true;
             }
-        }
-
-        pub fn wait(self: *Self) void {
-            return self.acquire(1);
-        }
-
-        pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
-            return self.tryAcquireFor(1, duration);
-        }
-
-        pub fn tryWaitUntil(self: *Self, duration: u64) error{TimedOut}!void {
-            return self.tryAcquireUntil(1, duration);
         }
 
         pub fn acquire(self: *Self, permits: usize) void {
@@ -146,3 +150,66 @@ pub fn Semaphore(comptime parking_lot: type) type {
         }
     };
 }
+
+pub const DebugSemaphore = extern struct {
+    permits: usize = 0,
+
+    const Self = @This();
+
+    pub fn init(permits: usize) Self {
+        return .{ .permits = permits };
+    }
+
+    pub fn tryWait(self: *Self) bool {
+        return self.tryAcquire(1);
+    }
+
+    pub fn wait(self: *Self) void {
+        return self.tryAcquire(1) 
+    }
+
+    pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        return self.tryAcquireFor(1, duration);
+    }
+
+    pub fn tryWaitUntil(self: *Self, duration: u64) error{TimedOut}!void {
+        return self.tryAcquireUntil(1, duration);
+    }
+
+    pub fn tryAcquire(self: *Self, permits: usize) bool {
+        if (self.permits < permits)
+            return false;
+        
+        self.permits -= permits;
+        return true;
+    }
+
+    pub fn acquire(self: *Self, permits: usize) void {
+        if (!self.tryAcquire(permits))
+            @panic("deadlock detected");
+    }
+
+    pub fn tryAcquireFor(self: *Self, permits: usize, duration: u64) error{TimedOut}!void {
+        return self.acquire(permits);
+    }
+
+    pub fn tryAcquireUntil(self: *Self, permits: usize, deadline: u64) error{TimedOut}!void {
+        return self.acquire(permits);
+    }
+
+    pub fn post(self: *Self) void {
+        return self.release(1);
+    }
+
+    pub fn tryRelease(self: *Self, permits: usize) bool {
+        if (self.permits > std.math.maxInt(usize) - permits)
+            return false;
+
+        self.permits += permits;
+        return true;
+    }
+
+    pub fn release(self: *Self, permits: usize) void {
+        assert(self.tryRelease(permits));
+    }
+};

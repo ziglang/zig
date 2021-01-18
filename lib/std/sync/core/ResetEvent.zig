@@ -69,3 +69,34 @@ pub fn ResetEvent(comptime parking_lot: type) type {
         }
     };
 }
+
+pub const DebugResetEvent = extern struct {
+    is_set: bool = false,
+
+    const Self = @This();
+
+    pub fn isSet(self: *const Self) bool {
+        return self.is_set;
+    }
+
+    pub fn reset(self: *Self) void {
+        self.is_set = false;
+    }
+
+    pub fn wait(self: *Self) void {
+        if (!self.is_set)
+            @panic("deadlock detected");
+    }
+
+    pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        return self.wait();
+    }
+
+    pub fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        return self.wait();
+    }
+
+    pub fn set(self: *Self) void {
+        self.is_set = true;
+    }
+};

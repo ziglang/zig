@@ -44,12 +44,33 @@ pub fn RwLock(comptime parking_lot: type) type {
         }
 
         pub fn acquire(self: *Self) Held {
+            return self.acquireInner(null) catch unreachable;
+        }
+
+        pub fn tryAcquireFor(self: *Self, duration: u64) error{TimedOut}!Held {
+            return self.tryAcquireUntil(parking_lot.nanotime() + duration);
+        }
+
+        pub fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
+            return self.acquireInner(deadline);
+        }
+
+        fn acquireInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
             _ = atomic.fetchAdd(&self.state, WRITER, .SeqCst);
             const held = self.mutex.acquire();
 
             const state = atomic.fetchAdd(&self.state, IS_WRITING, .SeqCst);
-            if (state & READER_MASK != 0)
-                self.semaphore.wait();
+            if (state & READER_MASK != 0) {
+                if (deadline) |deadline_ns| {
+                    self.semaphore.tryWaitUntil(deadline) catch {
+                        _ = atomic.bitReset(&self.state, @ctz(u3, IS_WRITING), .SeqCst);
+                        held.release();
+                        return error.TimedOut;
+                    };
+                } else {
+                    self.semaphore.wait();
+                }
+            }
 
             return Held{
                 .held = held,
@@ -86,6 +107,18 @@ pub fn RwLock(comptime parking_lot: type) type {
         }
 
         pub fn acquireShared(self: *Self) Held {
+            return self.acquireSharedInner(null) catch unreachable;
+        }
+
+        pub fn tryAcquireSharedFor(self: *Self, duration: u64) error{TimedOut}!Held {
+            return self.tryAcquireSharedUntil(parking_lot.nanotime() + duration);
+        }
+
+        pub fn tryAcquireSharedUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
+            return self.acquireSharedInner(deadline);
+        }
+        
+        pub fn acquireSharedInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
             var state = atomic.load(&self.state, .SeqCst);
             while (state & (IS_WRITING | WRITER_MASK) == 0) {
                 _ = atomic.tryCompareAndSwap(
@@ -100,7 +133,12 @@ pub fn RwLock(comptime parking_lot: type) type {
                 };
             }
 
-            const held = self.mutex.acquire();
+            const held = blk: {
+                if (deadline) |deadline_ns|
+                    break :blk try self.mutex.tryAcquireUntil(deadline_ns);
+                break :blk self.mutex.acquire();
+            };
+
             defer held.release();
 
             _ = atomic.fetchAdd(&self.state, READER, .SeqCst);
@@ -135,3 +173,66 @@ pub fn RwLock(comptime parking_lot: type) type {
         }
     };
 }
+
+pub const DebugRwLock = extern struct {
+    state: usize = 0,
+
+    const Self = @This();
+    const WRITER: usize = 1 << 0;
+    const READER: usize = 1 << 1;
+
+    pub fn tryAcquire(self: *Self) ?Held {
+        if (self.state != 0)
+            return null;
+
+        self.state = WRITER;
+        return Held{
+            .rwlock = self,
+            .sub = WRITER,
+        };
+    }
+
+    pub fn acquire(self: *Self) Held {
+        return self.tryAcquire() orelse @panic("deadlock detected");
+    }
+
+    pub fn tryAcquireFor(self: *Self, duration: u64) error{TimedOut}!Held {
+        return self.acquire();
+    }
+
+    pub fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
+        return self.acquire();
+    }
+
+    pub fn tryAcquireShared(self: *Self) ?Held {
+        if (self.state & WRITER != 0)
+            return null;
+
+        self.state += READER;
+        return Held{
+            .rwlock = self,
+            .sub = READER,
+        };
+    }
+
+    pub fn acquireShared(self: *Self) Held {
+        return self.tryAcquireShared() orelse @panic("deadlock detected");
+    }
+
+    pub fn tryAcquireSharedFor(self: *Self, duration: u64) error{TimedOut}!Held {
+        return self.acquireShared();
+    }
+
+    pub fn tryAcquireSharedUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
+        return self.acquireShared();
+    }
+
+    pub const Held = struct {
+        rwlock: *Self,
+        sub: usize,
+
+        pub fn release(self: Held) void {
+            self.rwlock.state -= self.sub;
+        }
+    };
+};
