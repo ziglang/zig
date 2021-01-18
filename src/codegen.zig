@@ -2349,6 +2349,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO: enable larger branch offset", .{});
                     }
                 },
+                .aarch64, .aarch64_be, .aarch64_32 => {
+                    if (math.cast(i28, @intCast(i32, index) - @intCast(i32, self.code.items.len + 8))) |delta| {
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.b(delta).toU32());
+                    } else |err| {
+                        return self.fail(src, "TODO: enable larger branch offset", .{});
+                    }
+                },
                 else => return self.fail(src, "TODO implement jump for {}", .{self.target.cpu.arch}),
             }
         }
