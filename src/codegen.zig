@@ -641,19 +641,32 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const cc = self.fn_type.fnCallingConvention();
                     if (cc != .Naked) {
                         // TODO Finish function prologue and epilogue for aarch64.
-                        // Reserve the stack for local variables, etc.
 
                         // stp fp, lr, [sp, #-16]!
+                        // mov fp, sp
+                        // sub sp, sp, #reloc
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.stp(
                             .x29,
                             .x30,
                             Register.sp,
                             Instruction.LoadStorePairOffset.pre_index(-16),
                         ).toU32());
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.add(.x29, .xzr, 0, false).toU32());
+                        const backpatch_reloc = self.code.items.len;
+                        try self.code.resize(backpatch_reloc + 4);
 
                         try self.dbgSetPrologueEnd();
 
                         try self.genBody(self.mod_fn.body);
+
+                        // Backpatch stack offset
+                        const stack_end = self.max_end_stack;
+                        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
+                        if (math.cast(u12, aligned_stack_end)) |size| {
+                            writeInt(u32, self.code.items[backpatch_reloc..][0..4], Instruction.sub(.xzr, .xzr, size, false).toU32());
+                        } else |_| {
+                            return self.failSymbol("TODO AArch64: allow larger stacks", .{});
+                        }
 
                         try self.dbgSetEpilogueBegin();
 
@@ -690,6 +703,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             Register.sp,
                             Instruction.LoadStorePairOffset.post_index(16),
                         ).toU32());
+                        // add sp, sp, #stack_size
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.add(.xzr, .xzr, @intCast(u12, aligned_stack_end), false).toU32());
                         // ret lr
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.ret(null).toU32());
                     } else {
@@ -2685,9 +2700,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         switch (abi_size) {
                             1, 4 => {
-                                const offset = if (adj_off <= math.maxInt(u12)) blk: {
-                                    break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
-                                } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
+                                const offset = if (math.cast(u12, adj_off)) |imm| blk: {
+                                    break :blk Instruction.Offset.imm(imm);
+                                } else |_| Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
                                 const str = switch (abi_size) {
                                     1 => Instruction.strb,
                                     4 => Instruction.str,
@@ -2848,12 +2863,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         switch (abi_size) {
                             4, 8 => {
-                                const offset = if (adj_off <= math.maxInt(u12)) blk: {
-                                    break :blk Instruction.LoadStoreOffset.imm(@intCast(u12, adj_off));
-                                } else Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
-                                const rn: Register = switch (abi_size) {
-                                    4 => .w29,
-                                    8 => .x29,
+                                const offset = if (math.cast(i9, adj_off)) |imm|
+                                    Instruction.LoadStoreOffset.imm_post_index(-imm)
+                                else |_|
+                                    Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
+                                const rn: Register = switch (arch) {
+                                    .aarch64, .aarch64_be => .x29,
+                                    .aarch64_32 => .w29,
                                     else => unreachable,
                                 };
 
