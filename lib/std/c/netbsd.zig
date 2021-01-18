@@ -16,6 +16,7 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_
 
 pub extern "c" fn _lwp_self() lwpid_t;
 
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 pub extern "c" fn __fstat50(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;

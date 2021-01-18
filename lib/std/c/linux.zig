@@ -86,6 +86,7 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
 pub extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 
