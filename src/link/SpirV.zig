@@ -12,6 +12,8 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const spec = @import("../codegen/spirv/spec.zig");
 
+//! SPIR-V Documentation: https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html
+
 pub const FnData = struct {
     id: ?u32 = null,
     code: std.ArrayListUnmanaged(u32) = .{},
@@ -32,6 +34,22 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
             .allocator = gpa,
         },
     };
+
+    // TODO: Figure out where to put all of these
+    switch (options.target.cpu.arch) {
+        .spirv32, .spirv64 => {},
+        else => return error.TODOArchNotSupported,
+    }
+
+    switch (options.target.os.tag) {
+        .opencl, .glsl450, .vulkan => {},
+        else => return error.TODOOsNotSupported,
+    }
+
+    if (options.target.abi != .none) {
+        return error.TODOAbiNotSupported;
+    }
+
     return spirv;
 }
 
@@ -119,6 +137,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         switch (decl.typed_value) {
             .most_recent => |tvm| {
                 const fn_data = &decl.fn_link.spirv;
+
+                // TODO: This could probably be more efficient.
                 for (fn_data.code.items) |word| {
                     try writer.writeIntLittle(u32, word);
                 }

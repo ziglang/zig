@@ -69,6 +69,8 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .renderscript64 => "renderscript64",
         .ve => "ve",
         .spu_2 => return error.LLVMBackendDoesNotSupportSPUMarkII,
+        .spirv32 => return error.LLVMBackendDoesNotSupportSPIRV,
+        .spirv64 => return error.LLVMBackendDoesNotSupportSPIRV,
     };
     // TODO Add a sub-arch for some architectures depending on CPU features.
 
@@ -109,6 +111,9 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .wasi => "wasi",
         .emscripten => "emscripten",
         .uefi => "windows",
+        .opencl => return error.LLVMBackendDoesNotSupportOpenCL,
+        .glsl450 => return error.LLVMBackendDoesNotSupportGLSL450,
+        .vulkan => return error.LLVMBackendDoesNotSupportVulkan,
         .other => "unknown",
     };
 

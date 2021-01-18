@@ -57,7 +57,9 @@ pub const Target = struct {
             wasi,
             emscripten,
             uefi,
-            opencl, // SPIR-V on OpenCL
+            opencl,
+            glsl450,
+            vulkan,
             other,
 
             pub fn isDarwin(tag: Tag) bool {
@@ -249,7 +251,9 @@ pub const Target = struct {
                     .wasi,
                     .emscripten,
                     .uefi,
-                    .opencl,
+                    .opencl, // TODO: OpenCL versions
+                    .glsl450, // TODO: GLSL versions
+                    .vulkan,
                     .other,
                     => return .{ .none = {} },
 
@@ -406,6 +410,8 @@ pub const Target = struct {
                 .emscripten,
                 .uefi,
                 .opencl,
+                .glsl450,
+                .vulkan,
                 .other,
                 => false,
             };
@@ -497,7 +503,9 @@ pub const Target = struct {
                 .wasi,
                 .emscripten,
                 => return .musl,
-                .opencl, // TODO: Where should this go?
+                .opencl, // TODO: SPIR-V ABIs with Linkage capability
+                .glsl450,
+                .vulkan,
                 => return .none,
             }
         }
@@ -1367,6 +1375,8 @@ pub const Target = struct {
             .windows,
             .emscripten,
             .opencl,
+            .glsl450,
+            .vulkan,
             .other,
             => return false,
             else => return true,
@@ -1547,6 +1557,8 @@ pub const Target = struct {
             .emscripten,
             .wasi,
             .opencl,
+            .glsl450,
+            .vulkan,
             .other,
             => return result,
 

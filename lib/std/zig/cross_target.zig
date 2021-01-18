@@ -131,6 +131,8 @@ pub const CrossTarget = struct {
             .emscripten,
             .uefi,
             .opencl,
+            .glsl450,
+            .vulkan,
             .other,
             => {
                 self.os_version_min = .{ .none = {} };
@@ -732,6 +734,8 @@ pub const CrossTarget = struct {
             .emscripten,
             .uefi,
             .opencl,
+            .glsl450,
+            .vulkan,
             .other,
             => return error.InvalidOperatingSystemVersion,
 
