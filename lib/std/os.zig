@@ -3780,7 +3780,7 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
     // F_SETFD.
     if (flags & O_CLOEXEC != 0) {
         for (fds) |fd| {
-            switch (errno(system.fcntl(fd, F_SETFD, FD_CLOEXEC))) {
+            switch (errno(system.fcntl(fd, F_SETFD, @as(u32, FD_CLOEXEC)))) {
                 0 => {},
                 EINVAL => unreachable, // Invalid flags
                 EBADF => unreachable, // Always a race condition
