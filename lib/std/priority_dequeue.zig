@@ -7,6 +7,7 @@ const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const warn = std.debug.warn;
+const Order = std.math.Order;
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
@@ -20,29 +21,24 @@ pub fn PriorityDequeue(comptime T: type) type {
         items: []T,
         len: usize,
         allocator: *Allocator,
-        lessThanFn: fn (a: T, b: T) bool,
+        compareFn: fn (a: T, b: T) Order,
 
-        /// Initialize and return a new dequeue. Provide `lessThanFn`
-        /// that returns `true` when its first argument should
-        /// get min-popped before its second argument. For example,
-        /// to make `popMin` return the minimum value, provide
+        /// Initialize and return a new priority dequeue. Provide `compareFn`
+        /// that returns `Order.lt` when its first argument should
+        /// get min-popped before its second argument, `Order.eq` if the
+        /// arguments are of equal priority, or `Order.gt` if the second
+        /// argument should be min-popped first. Popping the max element works
+        /// in reverse. For example, to make `popMin` return the smallest
+        /// number, provide
         ///
-        /// `fn lessThanFn(a: T, b: T) bool { return a < b; }`
-        pub fn init(allocator: *Allocator, lessThanFn: fn (T, T) bool) Self {
+        /// `fn lessThan(a: T, b: T) Order { return std.math.order(a, b); }`
+        pub fn init(allocator: *Allocator, compareFn: fn (T, T) Order) Self {
             return Self{
                 .items = &[_]T{},
                 .len = 0,
                 .allocator = allocator,
-                .lessThanFn = lessThanFn,
+                .compareFn = compareFn,
             };
-        }
-
-        fn lessThan(self: Self, a: T, b: T) bool {
-            return self.lessThanFn(a, b);
-        }
-
-        fn greaterThan(self: Self, a: T, b: T) bool {
-            return self.lessThanFn(b, a);
         }
 
         /// Free memory used by the dequeue.
@@ -100,7 +96,8 @@ pub fn PriorityDequeue(comptime T: type) type {
             const parent = self.items[parent_index];
 
             const min_layer = self.nextIsMinLayer();
-            if ((min_layer and self.greaterThan(child, parent)) or (!min_layer and self.lessThan(child, parent))) {
+            const order = self.compareFn(child, parent);
+            if ((min_layer and order == .gt) or (!min_layer and order == .lt)) {
                 // We must swap the item with it's parent if it is on the "wrong" layer
                 self.items[parent_index] = child;
                 self.items[child_index] = parent;
@@ -118,21 +115,21 @@ pub fn PriorityDequeue(comptime T: type) type {
 
         fn siftUp(self: *Self, start: StartIndexAndLayer) void {
             if (start.min_layer) {
-                doSiftUp(self, start.index, lessThan);
+                doSiftUp(self, start.index, .lt);
             } else {
-                doSiftUp(self, start.index, greaterThan);
+                doSiftUp(self, start.index, .gt);
             }
         }
 
-        fn doSiftUp(self: *Self, start_index: usize, compare: fn (Self, T, T) bool) void {
+        fn doSiftUp(self: *Self, start_index: usize, target_order: Order) void {
             var child_index = start_index;
             while (child_index > 2) {
                 var grandparent_index = grandparentIndex(child_index);
                 const child = self.items[child_index];
                 const grandparent = self.items[grandparent_index];
 
-                // If the grandparent is already better, we have gone as far as we need to
-                if (!compare(self.*, child, grandparent)) break;
+                // If the grandparent is already better or equal, we have gone as far as we need to
+                if (self.compareFn(child, grandparent) != target_order) break;
 
                 // Otherwise swap the item with it's grandparent
                 self.items[grandparent_index] = child;
@@ -153,14 +150,14 @@ pub fn PriorityDequeue(comptime T: type) type {
             if (self.len == 0) return null;
             if (self.len == 1) return self.items[0];
             if (self.len == 2) return self.items[1];
-            return self.bestItemAtIndices(1, 2, greaterThan).item;
+            return self.bestItemAtIndices(1, 2, .gt).item;
         }
 
         fn maxIndex(self: Self) ?usize {
             if (self.len == 0) return null;
             if (self.len == 1) return 0;
             if (self.len == 2) return 1;
-            return self.bestItemAtIndices(1, 2, greaterThan).index;
+            return self.bestItemAtIndices(1, 2, .gt).index;
         }
 
         /// Pop the smallest element from the dequeue. Returns
@@ -204,13 +201,13 @@ pub fn PriorityDequeue(comptime T: type) type {
 
         fn siftDown(self: *Self, index: usize) void {
             if (isMinLayer(index)) {
-                self.doSiftDown(index, lessThan);
+                self.doSiftDown(index, .lt);
             } else {
-                self.doSiftDown(index, greaterThan);
+                self.doSiftDown(index, .gt);
             }
         }
 
-        fn doSiftDown(self: *Self, start_index: usize, compare: fn (Self, T, T) bool) void {
+        fn doSiftDown(self: *Self, start_index: usize, target_order: Order) void {
             var index = start_index;
             const half = self.len >> 1;
             while (true) {
@@ -225,12 +222,12 @@ pub fn PriorityDequeue(comptime T: type) type {
                     const index3 = index2 + 1;
 
                     // Find the best grandchild
-                    const best_left = self.bestItemAtIndices(first_grandchild_index, index2, compare);
-                    const best_right = self.bestItemAtIndices(index3, last_grandchild_index, compare);
-                    const best_grandchild = self.bestItem(best_left, best_right, compare);
+                    const best_left = self.bestItemAtIndices(first_grandchild_index, index2, target_order);
+                    const best_right = self.bestItemAtIndices(index3, last_grandchild_index, target_order);
+                    const best_grandchild = self.bestItem(best_left, best_right, target_order);
 
-                    // If the item is better than it's best grandchild, we are done
-                    if (compare(self.*, elem, best_grandchild.item) or elem == best_grandchild.item) return;
+                    // If the item is better than or equal to its best grandchild, we are done
+                    if (self.compareFn(best_grandchild.item, elem) != target_order) return;
 
                     // Otherwise, swap them
                     self.items[best_grandchild.index] = elem;
@@ -238,16 +235,16 @@ pub fn PriorityDequeue(comptime T: type) type {
                     index = best_grandchild.index;
 
                     // We might need to swap the element with it's parent
-                    self.swapIfParentIsBetter(elem, index, compare);
+                    self.swapIfParentIsBetter(elem, index, target_order);
                 } else {
                     // The children or grandchildren are the last layer
                     const first_child_index = firstChildIndex(index);
                     if (first_child_index > self.len) return;
 
-                    const best_descendent = self.bestDescendent(first_child_index, first_grandchild_index, compare);
+                    const best_descendent = self.bestDescendent(first_child_index, first_grandchild_index, target_order);
 
-                    // If the best descendant is still larger, we are done
-                    if (compare(self.*, elem, best_descendent.item) or elem == best_descendent.item) return;
+                    // If the item is better than or equal to its best descendant, we are done
+                    if (self.compareFn(best_descendent.item, elem) != target_order) return;
 
                     // Otherwise swap them
                     self.items[best_descendent.index] = elem;
@@ -258,7 +255,7 @@ pub fn PriorityDequeue(comptime T: type) type {
                     if (index < first_grandchild_index) return;
 
                     // We might need to swap the element with it's parent
-                    self.swapIfParentIsBetter(elem, index, compare);
+                    self.swapIfParentIsBetter(elem, index, target_order);
                     return;
                 }
 
@@ -267,11 +264,11 @@ pub fn PriorityDequeue(comptime T: type) type {
             }
         }
 
-        fn swapIfParentIsBetter(self: *Self, child: T, child_index: usize, compare: fn (Self, T, T) bool) void {
+        fn swapIfParentIsBetter(self: *Self, child: T, child_index: usize, target_order: Order) void {
             const parent_index = parentIndex(child_index);
             const parent = self.items[parent_index];
 
-            if (compare(self.*, parent, child)) {
+            if (self.compareFn(parent, child) == target_order) {
                 self.items[parent_index] = child;
                 self.items[child_index] = parent;
             }
@@ -289,21 +286,21 @@ pub fn PriorityDequeue(comptime T: type) type {
             };
         }
 
-        fn bestItem(self: Self, item1: ItemAndIndex, item2: ItemAndIndex, compare: fn (Self, T, T) bool) ItemAndIndex {
-            if (compare(self, item1.item, item2.item)) {
+        fn bestItem(self: Self, item1: ItemAndIndex, item2: ItemAndIndex, target_order: Order) ItemAndIndex {
+            if (self.compareFn(item1.item, item2.item) == target_order) {
                 return item1;
             } else {
                 return item2;
             }
         }
 
-        fn bestItemAtIndices(self: Self, index1: usize, index2: usize, compare: fn (Self, T, T) bool) ItemAndIndex {
+        fn bestItemAtIndices(self: Self, index1: usize, index2: usize, target_order: Order) ItemAndIndex {
             var item1 = self.getItem(index1);
             var item2 = self.getItem(index2);
-            return self.bestItem(item1, item2, compare);
+            return self.bestItem(item1, item2, target_order);
         }
 
-        fn bestDescendent(self: Self, first_child_index: usize, first_grandchild_index: usize, compare: fn (Self, T, T) bool) ItemAndIndex {
+        fn bestDescendent(self: Self, first_child_index: usize, first_grandchild_index: usize, target_order: Order) ItemAndIndex {
             const second_child_index = first_child_index + 1;
             if (first_grandchild_index >= self.len) {
                 // No grandchildren, find the best child (second may not exist)
@@ -313,24 +310,24 @@ pub fn PriorityDequeue(comptime T: type) type {
                         .index = first_child_index,
                     };
                 } else {
-                    return self.bestItemAtIndices(first_child_index, second_child_index, compare);
+                    return self.bestItemAtIndices(first_child_index, second_child_index, target_order);
                 }
             }
 
             const second_grandchild_index = first_grandchild_index + 1;
             if (second_grandchild_index >= self.len) {
                 // One grandchild, so we know there is a second child. Compare first grandchild and second child
-                return self.bestItemAtIndices(first_grandchild_index, second_child_index, compare);
+                return self.bestItemAtIndices(first_grandchild_index, second_child_index, target_order);
             }
 
-            const best_left_grandchild_index = self.bestItemAtIndices(first_grandchild_index, second_grandchild_index, compare).index;
+            const best_left_grandchild_index = self.bestItemAtIndices(first_grandchild_index, second_grandchild_index, target_order).index;
             const third_grandchild_index = second_grandchild_index + 1;
             if (third_grandchild_index >= self.len) {
                 // Two grandchildren, and we know the best. Compare this to second child.
-                return self.bestItemAtIndices(best_left_grandchild_index, second_child_index, compare);
+                return self.bestItemAtIndices(best_left_grandchild_index, second_child_index, target_order);
             } else {
                 // Three grandchildren, compare the min of the first two with the third
-                return self.bestItemAtIndices(best_left_grandchild_index, third_grandchild_index, compare);
+                return self.bestItemAtIndices(best_left_grandchild_index, third_grandchild_index, target_order);
             }
         }
 
@@ -348,12 +345,12 @@ pub fn PriorityDequeue(comptime T: type) type {
         /// Dequeue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// De-initialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: *Allocator, lessThanFn: fn (T, T) bool, items: []T) Self {
+        pub fn fromOwnedSlice(allocator: *Allocator, compareFn: fn (T, T) Order, items: []T) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,
                 .allocator = allocator,
-                .lessThanFn = lessThanFn,
+                .compareFn = compareFn,
             };
 
             if (queue.len <= 1) return queue;
@@ -468,8 +465,8 @@ pub fn PriorityDequeue(comptime T: type) type {
     };
 }
 
-fn lessThanComparison(a: u32, b: u32) bool {
-    return a < b;
+fn lessThanComparison(a: u32, b: u32) Order {
+    return std.math.order(a, b);
 }
 
 const PDQ = PriorityDequeue(u32);
@@ -491,6 +488,32 @@ test "std.PriorityDequeue: add and remove min" {
     expectEqual(@as(u32, 23), queue.removeMin());
     expectEqual(@as(u32, 25), queue.removeMin());
     expectEqual(@as(u32, 54), queue.removeMin());
+}
+
+test "std.PriorityDequeue: add and remove min structs" {
+    const S = struct {
+        size: u32,
+    };
+    var queue = PriorityDequeue(S).init(testing.allocator, struct {
+        fn order(a: S, b: S) Order {
+            return std.math.order(a.size, b.size);
+        }
+    }.order);
+    defer queue.deinit();
+
+    try queue.add(.{ .size = 54 });
+    try queue.add(.{ .size = 12 });
+    try queue.add(.{ .size = 7 });
+    try queue.add(.{ .size = 23 });
+    try queue.add(.{ .size = 25 });
+    try queue.add(.{ .size = 13 });
+
+    expectEqual(@as(u32, 7), queue.removeMin().size);
+    expectEqual(@as(u32, 12), queue.removeMin().size);
+    expectEqual(@as(u32, 13), queue.removeMin().size);
+    expectEqual(@as(u32, 23), queue.removeMin().size);
+    expectEqual(@as(u32, 25), queue.removeMin().size);
+    expectEqual(@as(u32, 54), queue.removeMin().size);
 }
 
 test "std.PriorityDequeue: add and remove max" {

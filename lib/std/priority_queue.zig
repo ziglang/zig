@@ -7,6 +7,7 @@ const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const warn = std.debug.warn;
+const Order = std.math.Order;
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
@@ -20,15 +21,17 @@ pub fn PriorityQueue(comptime T: type) type {
         items: []T,
         len: usize,
         allocator: *Allocator,
-        compareFn: fn (a: T, b: T) bool,
+        compareFn: fn (a: T, b: T) Order,
 
-        /// Initialize and return a priority queue. Provide
-        /// `compareFn` that returns `true` when its first argument
-        /// should get popped before its second argument. For example,
-        /// to make `pop` return the minimum value, provide
+        /// Initialize and return a priority queue. Provide `compareFn`
+        /// that returns `Order.lt` when its first argument should
+        /// get popped before its second argument, `Order.eq` if the
+        /// arguments are of equal priority, or `Order.gt` if the second
+        /// argument should be popped first. For example, to make `pop`
+        /// return the smallest number, provide
         ///
-        /// `fn lessThan(a: T, b: T) bool { return a < b; }`
-        pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) bool) Self {
+        /// `fn lessThan(a: T, b: T) Order { return std.math.order(a, b); }`
+        pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) Order) Self {
             return Self{
                 .items = &[_]T{},
                 .len = 0,
@@ -61,7 +64,7 @@ pub fn PriorityQueue(comptime T: type) type {
                 const child = self.items[child_index];
                 const parent = self.items[parent_index];
 
-                if (!self.compareFn(child, parent)) break;
+                if (self.compareFn(child, parent) != .lt) break;
 
                 self.items[parent_index] = child;
                 self.items[child_index] = parent;
@@ -133,14 +136,14 @@ pub fn PriorityQueue(comptime T: type) type {
                 var smallest = self.items[index];
 
                 if (left) |e| {
-                    if (self.compareFn(e, smallest)) {
+                    if (self.compareFn(e, smallest) == .lt) {
                         smallest_index = left_index;
                         smallest = e;
                     }
                 }
 
                 if (right) |e| {
-                    if (self.compareFn(e, smallest)) {
+                    if (self.compareFn(e, smallest) == .lt) {
                         smallest_index = right_index;
                         smallest = e;
                     }
@@ -159,7 +162,7 @@ pub fn PriorityQueue(comptime T: type) type {
         /// PriorityQueue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: *Allocator, compareFn: fn (a: T, b: T) bool, items: []T) Self {
+        pub fn fromOwnedSlice(allocator: *Allocator, compareFn: fn (a: T, b: T) Order, items: []T) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,
@@ -217,10 +220,10 @@ pub fn PriorityQueue(comptime T: type) type {
             var update_index: usize = std.mem.indexOfScalar(T, self.items[0..self.len], elem) orelse return error.ElementNotFound;
             const old_elem: T = self.items[update_index];
             self.items[update_index] = new_elem;
-            if (self.compareFn(new_elem, old_elem)) {
-                siftUp(self, update_index);
-            } else {
-                siftDown(self, update_index);
+            switch (self.compareFn(new_elem, old_elem)) {
+                .lt => siftUp(self, update_index),
+                .gt => siftDown(self, update_index),
+                .eq => {}, // Nothing to do as the items have equal priority
             }
         }
 
@@ -267,12 +270,12 @@ pub fn PriorityQueue(comptime T: type) type {
     };
 }
 
-fn lessThan(a: u32, b: u32) bool {
-    return a < b;
+fn lessThan(a: u32, b: u32) Order {
+    return std.math.order(a, b);
 }
 
-fn greaterThan(a: u32, b: u32) bool {
-    return a > b;
+fn greaterThan(a: u32, b: u32) Order {
+    return lessThan(a, b).invert();
 }
 
 const PQ = PriorityQueue(u32);
