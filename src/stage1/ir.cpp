@@ -22655,9 +22655,10 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                                 if (ptr_field->data.x_ptr.data.base_array.array_val->data.x_array.special !=
                                         ConstArraySpecialBuf)
                                 {
-                                    ir_assert(new_index <
-                                            ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len,
-                                        &elem_ptr_instruction->base.base);
+                                    if (new_index >= ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len) {
+                                        ir_add_error(ira, &elem_ptr_instruction->base.base, buf_sprintf("out of bounds slice"));
+                                        return ira->codegen->invalid_inst_gen;
+                                    }
                                 }
                                 out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
                                 out_val->data.x_ptr.data.base_array.array_val =
