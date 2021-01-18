@@ -5,6 +5,7 @@
 // and substantial portions of the software.
 
 const std = @import("../../std.zig");
+const windows = std.os.windows;
 const atomic = @import("../atomic.zig");
 const EventLock = @import("../Lock.zig").Lock;
 
@@ -61,10 +62,14 @@ else if (NtKeyedEvent.is_supported)
 else
     Ancient;
 
-const Kernel32 = struct {
-    const is_supported = std.Target.current.os.version_range.isAtLeast(.vista);
+fn isWindowsVersionSupported(comptime version: std.Target.Os.WindowsVersion) bool {
+    return std.Target.current.os.version_range.windows.isAtLeast(version) orelse false;
+}
 
-    const OsLock = struct {
+const Kernel32 = struct {
+    const is_supported = isWindowsVersionSupported(.vista);
+
+    const OsLock = extern struct {
         srwlock: windows.SRWLOCK = windows.SRWLOCK_INIT,
 
         fn acquire(self: *OsLock) void {
@@ -76,7 +81,7 @@ const Kernel32 = struct {
         }
     };
 
-    const OsEvent = struct {
+    const OsEvent = extern struct {
         is_set: bool = false,
         lock: windows.SRWLOCK = windows.SRWLOCK_INIT,
         cond: windows.CONDITION_VARIABLE = windows.CONDITION_VARIABLE_INIT,
@@ -93,9 +98,9 @@ const Kernel32 = struct {
                 if (self.is_set)
                     return;
 
-                var timeout = windows.INFINITE;
+                var timeout: windows.DWORD = windows.INFINITE;
                 if (deadline) |deadline_ns| {
-                    const now = shared.nanotime();
+                    const now = std.time.now();
                     if (now > deadline_ns)
                         return error.TimedOut;
 
@@ -113,12 +118,12 @@ const Kernel32 = struct {
 
                 if (status != windows.TRUE) {
                     switch (windows.kernel32.GetLastError()) {
-                        .TIMEOUT => null,
+                        .TIMEOUT => {},
                         else => |err| {
                             const ignored = windows.unexpectedError(err);
                             std.debug.panic("SleepConditionVariableSRW", .{});
                         },
-                    };
+                    }
                 }
             }
         } 
@@ -134,14 +139,14 @@ const Kernel32 = struct {
 };
 
 const NtKeyedEvent = struct {
-    const is_supported = std.Target.current.os.version_range.isAtLeast(.xp);
+    const is_supported = isWindowsVersionSupported(.xp);
 
     const OsLock = EventLock(.{
         .Event = Event,
         .byte_swap = true,
     });
 
-    const OsEvent = struct {
+    const OsEvent = extern struct {
         state: State = .empty,
 
         const State = enum(u32) {
@@ -195,7 +200,7 @@ const NtKeyedEvent = struct {
                         timed_out = true;
                     },
                     else => |status| {
-                        const ignored = std.os.unexpectedStatus(status);
+                        const ignored = windows.unexpectedStatus(status);
                         std.debug.panic("NtWaitForKeyedEvent", .{});
                     },
                 }
@@ -224,7 +229,7 @@ const NtKeyedEvent = struct {
                     return;
                 },
                 else => |status| {
-                    const ignored = std.os.unexpectedStatus(status);
+                    const ignored = windows.unexpectedStatus(status);
                     std.debug.panic("NtWaitForKeyedEvent", .{});
                 },
             }
@@ -249,7 +254,7 @@ const NtKeyedEvent = struct {
             )) {
                 .SUCCESS => {},
                 else => |status| {
-                    const ignored = std.os.unexpectedStatus(status);
+                    const ignored = windows.unexpectedStatus(status);
                     std.debug.panic("NtReleaseKeyedEvent", .{});
                 },
             }

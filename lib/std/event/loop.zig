@@ -781,7 +781,7 @@ pub const Loop = struct {
     const AutoResetEvent = struct {
         is_set: bool = false,
         mutex: std.sync.Mutex = .{},
-        cond: std.Thread.Condition = .{},
+        cond: std.sync.Condvar = .{},
 
         fn wait(self: *AutoResetEvent) void {
             return self.waitInner(null) catch unreachable;
@@ -792,7 +792,7 @@ pub const Loop = struct {
         }
 
         fn waitInner(self: *AutoResetEvent, timeout: ?u64) error{TimedOut}!void {
-            const held = self.mutex.lock();
+            const held = self.mutex.acquire();
             defer held.release();
 
             while (true) {
@@ -810,7 +810,7 @@ pub const Loop = struct {
         }
 
         fn set(self: *AutoResetEvent) void {
-            const held = self.mutex.lock();
+            const held = self.mutex.acquire();
             defer held.release();
 
             self.is_set = true;

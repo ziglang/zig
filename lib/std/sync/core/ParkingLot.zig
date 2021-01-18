@@ -333,7 +333,7 @@ pub fn ParkingLot(comptime config: anytype) type {
                     queue.head = node.next;
                     if (queue.head) |new_head| {
                         new_head.tail = node.tail;
-                        self.bucket.replace(queue, new_head);
+                        self.bucket.update(queue, new_head);
                     } else {
                         self.bucket.remove(queue);
                     }
@@ -343,7 +343,6 @@ pub fn ParkingLot(comptime config: anytype) type {
 
                 // this actually marks the node as dequeued (see hasInserted())
                 node.tail = null;
-                return true;
             }
 
             /// Returns true if this WaitNode is still inserted in the WaitQueue.
@@ -428,7 +427,7 @@ pub fn ParkingLot(comptime config: anytype) type {
             // prepare and insert the waiter's WaitNode into the WaitQueue
             var wait_node: WaitNode = undefined;
             wait_node.token = token;
-            wait_queue.insert(wait_node);
+            wait_queue.insert(&wait_node);
 
             // prepare the waiter's Event ...
             const event = &wait_node.event;
@@ -492,7 +491,7 @@ pub fn ParkingLot(comptime config: anytype) type {
 
             /// Returns true if the internal wait-bucket fairness hint timer as elapsed.
             pub fn beFair(self: UnparkContext) bool {
-                return self.queue.expired(nanotime());
+                return self.queue.shouldBeFair(nanotime());
             }
         };
 

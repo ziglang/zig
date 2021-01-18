@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2021 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
 const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const builtin = std.builtin;
@@ -57,7 +63,7 @@ pub fn Lock(comptime config: anytype) type {
 
         /// Try to acquire the lock if its unlocked.
         pub fn tryAcquire(self: *Lock) bool {
-            return self.tryAcquireFast(UNLOCKED)
+            return self.tryAcquireFast(UNLOCKED);
         }
 
         /// Acquire ownership of the Lock, using the Event to implement blocking.
@@ -66,7 +72,7 @@ pub fn Lock(comptime config: anytype) type {
                 self.acquireSlow();
         }
 
-        inline fn tryAcquireFast(self: *Lock, state: usize) bool {
+        inline fn tryAcquireFast(self: *Lock, current_state: usize) bool {
             // On x86, its better to use `lock bts` over `lock xchg`
             // as the former requires less instructions (lock-bts, jz)
             // over the latter (mov-reg-1, xchg, test, jz).
@@ -90,13 +96,18 @@ pub fn Lock(comptime config: anytype) type {
                 ) == UNLOCKED;
             }
 
-            return atomic.tryCompareAndSwap(
-                &self.state,
-                state,
-                state | LOCKED,
-                .Acquire,
-                .Relaxed,
-            ) == null;
+            var state = current_state;
+            while (true) {
+                if (state & LOCKED != 0)
+                    return false;
+                state = atomic.tryCompareAndSwap(
+                    &self.state,
+                    state,
+                    state | LOCKED,
+                    .Acquire,
+                    .Relaxed,
+                ) orelse return true;
+            }
         }
 
         fn acquireSlow(self: *Lock) void {

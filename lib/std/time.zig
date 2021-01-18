@@ -13,6 +13,36 @@ const is_windows = std.Target.current.os.tag == .windows;
 
 pub const epoch = @import("time/epoch.zig");
 
+// Divisions of a nanosecond.
+pub const ns_per_us = 1000;
+pub const ns_per_ms = 1000 * ns_per_us;
+pub const ns_per_s = 1000 * ns_per_ms;
+pub const ns_per_min = 60 * ns_per_s;
+pub const ns_per_hour = 60 * ns_per_min;
+pub const ns_per_day = 24 * ns_per_hour;
+pub const ns_per_week = 7 * ns_per_day;
+
+// Divisions of a microsecond.
+pub const us_per_ms = 1000;
+pub const us_per_s = 1000 * us_per_ms;
+pub const us_per_min = 60 * us_per_s;
+pub const us_per_hour = 60 * us_per_min;
+pub const us_per_day = 24 * us_per_hour;
+pub const us_per_week = 7 * us_per_day;
+
+// Divisions of a millisecond.
+pub const ms_per_s = 1000;
+pub const ms_per_min = 60 * ms_per_s;
+pub const ms_per_hour = 60 * ms_per_min;
+pub const ms_per_day = 24 * ms_per_hour;
+pub const ms_per_week = 7 * ms_per_day;
+
+// Divisions of a second.
+pub const s_per_min = 60;
+pub const s_per_hour = s_per_min * 60;
+pub const s_per_day = s_per_hour * 24;
+pub const s_per_week = s_per_day * 7;
+
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
     // TODO: opting out of async sleeping?
@@ -102,35 +132,28 @@ pub fn nanoTimestamp() i128 {
     return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
 }
 
-// Divisions of a nanosecond.
-pub const ns_per_us = 1000;
-pub const ns_per_ms = 1000 * ns_per_us;
-pub const ns_per_s = 1000 * ns_per_ms;
-pub const ns_per_min = 60 * ns_per_s;
-pub const ns_per_hour = 60 * ns_per_min;
-pub const ns_per_day = 24 * ns_per_hour;
-pub const ns_per_week = 7 * ns_per_day;
+/// Get a monotonic timestamp of the system using the high-performance timer.
+/// The value returned is guaranteed to be monotonic, but not guaranteed to progress at a steady rate.
+/// This is to account for operating system jitter and for those which do not support monotonic timers.
+pub fn now() u64 {
+    const Static = struct {
+        var timer = std.sync.Once(Timer.start){};
+        threadlocal var last_now: u64 = 0;
+    };
 
-// Divisions of a microsecond.
-pub const us_per_ms = 1000;
-pub const us_per_s = 1000 * us_per_ms;
-pub const us_per_min = 60 * us_per_s;
-pub const us_per_hour = 60 * us_per_min;
-pub const us_per_day = 24 * us_per_hour;
-pub const us_per_week = 7 * us_per_day;
+    var ts = if (Static.timer.get()) |timer| 
+        timer.read()
+    else |err|
+        @as(u64, 0);
+        
+    if (Static.last_now > ts) {
+        ts = Static.last_now;
+    } else  {
+        Static.last_now = ts;
+    }
 
-// Divisions of a millisecond.
-pub const ms_per_s = 1000;
-pub const ms_per_min = 60 * ms_per_s;
-pub const ms_per_hour = 60 * ms_per_min;
-pub const ms_per_day = 24 * ms_per_hour;
-pub const ms_per_week = 7 * ms_per_day;
-
-// Divisions of a second.
-pub const s_per_min = 60;
-pub const s_per_hour = s_per_min * 60;
-pub const s_per_day = s_per_hour * 24;
-pub const s_per_week = s_per_day * 7;
+    return ts;
+}
 
 /// A monotonic high-performance timer.
 /// Timer.start() must be called to initialize the struct, which captures
@@ -215,16 +238,16 @@ pub const Timer = struct {
         return self.nativeDurationToNanos(clock);
     }
 
-    /// Resets the timer value to 0/now.
+    /// Resets the timer value to 0/native_now.
     pub fn reset(self: *Timer) void {
         self.start_time = clockNative();
     }
 
     /// Returns the current value of the timer in nanoseconds, then resets it
     pub fn lap(self: *Timer) u64 {
-        var now = clockNative();
-        var lap_time = self.nativeDurationToNanos(now - self.start_time);
-        self.start_time = now;
+        var native_now = clockNative();
+        var lap_time = self.nativeDurationToNanos(native_now - self.start_time);
+        self.start_time = native_now;
         return lap_time;
     }
 

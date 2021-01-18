@@ -36,7 +36,6 @@ pub fn ResetEvent(comptime parking_lot: type) type {
         fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void {
             const Parker = struct {
                 event: *Self,
-                timed_out: bool = false,
 
                 pub fn onValidate(this: @This()) ?usize {
                     if (this.event.isSet())
@@ -45,20 +44,21 @@ pub fn ResetEvent(comptime parking_lot: type) type {
                 }
 
                 pub fn onBeforeWait(this: @This()) void {}
-                pub fn onTimeout(this: *@This(), has_more: bool) void {
-                    self.timed_out = true;
-                }
+                pub fn onTimeout(this: @This(), has_more: bool) void {}
             };
 
-            var parker = Parker{ .event = self };
             while (true) {
-                if (this.event.isSet())
+                if (self.isSet())
                     return;
 
-                if (parker.timed_out)
-                    return error.TimedOut;
-
-                _ = parking_lot.parkConditionally(@ptrToInt(self), deadline, &parker);
+                _ = parking_lot.parkConditionally(
+                    @ptrToInt(self),
+                    deadline,
+                    Parker{ .event = self },
+                ) catch |err| switch (err) {
+                    error.Invalid => {},
+                    error.TimedOut => return error.TimedOut,
+                };
             }
         }
 

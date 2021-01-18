@@ -44,28 +44,9 @@ pub fn Mutex(comptime parking_lot: anytype) type {
         /// Try to acquire ownership of the Mutex if its not currently owned in a non-blocking manner.
         /// Returns true if it was successful in doing so.
         pub fn tryAcquire(self: *Self) ?Held {
-            // On x86, its better to use `lock bts` instead of `lock cmpxchg` loop below
-            // due to it having a smaller instruction cache footprint making it great for inlining.
-            if (is_x86) {
-                return atomic.bitSet(
-                    &self.state,
-                    @ctz(u3, LOCKED),
-                    .Acquire,
-                ) == 0;
-            }
-
-            var state = UNLOCKED;
-            while (true) {
-                state = atomic.tryCompareAndSwap(
-                    &self.state,
-                    state,
-                    state | LOCKED,
-                    .Acquire,
-                    .Relaxed,
-                ) orelse return true;
-                if (state & LOCKED != 0)
-                    return false;
-            }
+            if (self.tryAcquireFast(UNLOCKED))
+                return Held{ .mutex = self };
+            return null;
         }
 
         /// Try to acquire ownership of the Mutex, blocking when necessary using the Event.
@@ -106,32 +87,42 @@ pub fn Mutex(comptime parking_lot: anytype) type {
         };
         
         fn acquireInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
-            if (self.tryAcquireInnerFast(UNLOCKED))
+            if (self.tryAcquireFast(UNLOCKED))
                 return Held{ .mutex = self };
-            return self.acquireInnerSlow(deadline);
+            return self.acquireSlow(deadline);
         }
 
         fn releaseInner(self: *Self, be_fair: bool) void {
-            if (!self.tryReleaseInnerFast())
-                return self.releaseInnerSlow(be_fair);
+            if (!self.tryReleaseFast())
+                return self.releaseSlow(be_fair);
         }
 
-        inline fn tryAcquireInnerFast(self: *Self, assume_state: usize) bool {
-            // On x86, we call tryAcquire() since it uses "lock bts"
+        inline fn tryAcquireFast(self: *Self, assume_state: usize) bool {
+            // On x86, its better to use `lock bts` instead of `lock cmpxchg` loop below
+            // due to it having a smaller instruction cache footprint making it great for inlining.
             if (is_x86) {
-                return self.tryAcquire();
+                return atomic.bitSet(
+                    &self.state,
+                    @ctz(u3, LOCKED),
+                    .Acquire,
+                ) == 0;
             }
 
-            return atomic.tryCompareAndSwap(
-                &self.state,
-                state,
-                state | LOCKED,
-                .Acquire,
-                .relaxed,
-            ) == null;
+            var state = assume_state;
+            while (true) {
+                if (state & LOCKED != 0)
+                    return false;
+                state = atomic.tryCompareAndSwap(
+                    &self.state,
+                    state,
+                    state | LOCKED,
+                    .Acquire,
+                    .Relaxed,
+                ) orelse return true;
+            }
         }
 
-        inline fn tryReleaseInnerFast(self: *Self) bool {
+        inline fn tryReleaseFast(self: *Self) bool {
             return atomic.tryCompareAndSwap(
                 &self.state,
                 LOCKED,
@@ -141,7 +132,7 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             ) == null;
         }
 
-        fn acquireInnerSlow(self: *Self, deadline: ?u64) error{TimedOut}!Held {
+        fn acquireSlow(self: *Self, deadline: ?u64) error{TimedOut}!Held {
             @setCold(true);
 
             var spin_iter: usize = 0;
@@ -151,10 +142,10 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                 // Try to acquire the Mutex even if there are pending waiters.
                 // When fairness is employed, it keeps the LOCKED bit set so this still works.
                 if (state & LOCKED == 0) {
-                    if (self.tryAcquireInnerFast(state))
+                    if (self.tryAcquireFast(state))
                         return Held{ .mutex = self };
 
-                    _ = Event.yield(null);
+                    _ = parking_lot.Event.yield(null);
                     state = atomic.load(&self.state, .Relaxed); 
                     continue;
                 }
@@ -163,7 +154,7 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                 // If there is no other thread parked, then we need to set the PARKED bit so that the owning will see to wake us up.
                 // We also spin a bit (or however long the Event implementation decides) before parking in hopes that the LOCKED bit will be released soon.
                 if (state & PARKED == 0) {
-                    if (Event.yield(spin_iter)) {
+                    if (parking_lot.Event.yield(spin_iter)) {
                         spin_iter +%= 1;
                         state = atomic.load(&self.state, .Relaxed);
                         continue;
@@ -225,8 +216,8 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                 // then we don't need to try and acquire it again as we can
                 // then assume that it has already been acquired for us.
                 switch (token) {
+                    TOKEN_HANDOFF => return Held{ .mutex = self },
                     TOKEN_RETRY => {},
-                    TOKEN_HANDOFF => return,
                     else => unreachable,
                 }
 
@@ -235,7 +226,7 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             }
         }
 
-        fn releaseInnerSlow(self: *Self, force_fair: bool) void {
+        fn releaseSlow(self: *Self, force_fair: bool) void {
             @setCold(true);
 
             // If the state is just LOCKED, that means the fast path release spuriously failed.
@@ -330,5 +321,5 @@ pub const DebugMutex = extern struct {
         pub fn releaseFair(self: Held) void {
             self.release();
         }
-    }
+    };
 };
