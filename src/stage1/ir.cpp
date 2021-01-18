@@ -23209,18 +23209,26 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
         return ir_get_ref(ira, &field_ptr_instruction->base.base, len_inst, true, false);
     } else if (is_slice(container_type) || is_container_ref(container_type)) {
         assert(container_ptr->value->type->id == ZigTypeIdPointer);
-        if (container_type->id == ZigTypeIdPointer) {
-            ZigType *bare_type = container_ref_type(container_type);
-            IrInstGen *container_child = ir_get_deref(ira, &field_ptr_instruction->base.base, container_ptr, nullptr);
-            IrInstGen *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base.base,
-                    container_child, &field_ptr_instruction->container_ptr->base, bare_type,
-                    field_ptr_instruction->initializing);
-            return result;
-        } else {
-            IrInstGen *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base.base,
-                    container_ptr, &field_ptr_instruction->container_ptr->base, container_type,
-                    field_ptr_instruction->initializing);
-            return result;
+        switch (container_type->id) {
+            case ZigTypeIdPointer: {
+                ZigType *bare_type = container_ref_type(container_type);
+                IrInstGen *container_child = ir_get_deref(ira, &field_ptr_instruction->base.base, container_ptr, nullptr);
+                IrInstGen *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base.base,
+                        container_child, &field_ptr_instruction->container_ptr->base, bare_type,
+                        field_ptr_instruction->initializing);
+                return result;
+            }
+            case ZigTypeIdOpaque: {
+                ir_add_error_node(ira, source_node, buf_sprintf("no field named '%s' in '%s' (opaque has no fields)",
+                        buf_ptr(field_name), buf_ptr(&container_type->name)));
+                return ira->codegen->invalid_inst_gen;
+            }
+            default: {
+                IrInstGen *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base.base,
+                        container_ptr, &field_ptr_instruction->container_ptr->base, container_type,
+                        field_ptr_instruction->initializing);
+                return result;
+            }
         }
     } else if (is_array_ref(container_type) && !field_ptr_instruction->initializing) {
         if (buf_eql_str(field_name, "len")) {

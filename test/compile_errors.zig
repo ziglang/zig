@@ -8416,4 +8416,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:2:30: error: `.*` can't be followed by `*`. Are you missing a space?",
     });
+
+    // issue #7813
+    cases.add("field access on opaque via anytype",
+        \\export fn entry() void {
+        \\    comptime var data = Data{};
+        \\    foo(data);
+        \\}
+
+        \\const Data = struct {
+        \\    uber: anytype = {},
+        \\};
+
+        \\fn foo(arg: anytype) void {
+        \\    _ = arg.uber.bogus_field_name;
+        \\}
+    , &[_][]const u8{
+        ":9:17: error: no field named 'bogus_field_name' in '(anytype)' (opaque has no fields)",
+    });
 }
