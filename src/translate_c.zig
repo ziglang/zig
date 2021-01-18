@@ -3130,12 +3130,15 @@ fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.CallExpr, r
         if (fn_ty) |ty| {
             switch (ty) {
                 .Proto => |fn_proto| {
-                    const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
-                    if (isBoolRes(call_param) and cIsNativeInt(param_qt)) {
-                        const builtin_node = try rp.c.createBuiltinCall("@boolToInt", 1);
-                        builtin_node.params()[0] = call_param;
-                        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-                        call_param = &builtin_node.base;
+                    const param_count = fn_proto.getNumParams();
+                    if (i < param_count) {
+                        const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
+                        if (isBoolRes(call_param) and cIsNativeInt(param_qt)) {
+                            const builtin_node = try rp.c.createBuiltinCall("@boolToInt", 1);
+                            builtin_node.params()[0] = call_param;
+                            builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+                            call_param = &builtin_node.base;
+                        }
                     }
                 },
                 else => {},

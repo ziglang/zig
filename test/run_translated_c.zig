@@ -737,4 +737,13 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Variadic function call",
+        \\#define _NO_CRT_STDIO_INLINE 1
+        \\#include <stdio.h>
+        \\int main(void) {
+        \\    printf("%d %d\n", 1, 2);
+        \\    return 0;
+        \\}
+    , "1 2" ++ nl);
 }
