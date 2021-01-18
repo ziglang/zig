@@ -57,16 +57,19 @@ pub const Context = struct {
     /// will have the index that comes after the last argument's index
     local_index: u32 = 0,
     /// If codegen fails, an error messages will be allocated and saved in `err_msg`
-    err_msg: *Compilation.ErrorMsg,
+    err_msg: *Module.ErrorMsg,
 
     const InnerError = error{
         OutOfMemory,
         CodegenFail,
     };
 
-    /// Sets `err_msg` on `Context` and returns `error.CodegemFail` which is caught in link/Wasm.zig
+    /// Sets `err_msg` on `Context` and returns `error.CodegenFail` which is caught in link/Wasm.zig
     fn fail(self: *Context, src: usize, comptime fmt: []const u8, args: anytype) InnerError {
-        self.err_msg = try Compilation.ErrorMsg.create(self.gpa, src, fmt, args);
+        self.err_msg = try Module.ErrorMsg.create(self.gpa, .{
+            .file_scope = self.decl.getFileScope(),
+            .byte_offset = src,
+        }, fmt, args);
         return error.CodegenFail;
     }
 
