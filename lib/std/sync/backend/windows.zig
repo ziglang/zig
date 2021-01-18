@@ -5,9 +5,8 @@
 // and substantial portions of the software.
 
 const std = @import("../../std.zig");
-const shared = @import("./shared.zig");
 const atomic = @import("../atomic.zig");
-const windows = std.os.windows;
+const EventLock = @import("../Lock.zig").Lock;
 
 pub const Lock = extern struct {
     lock: Backend.OsLock = .{},
@@ -38,10 +37,6 @@ pub const Event = extern struct {
 
     pub fn set(self: *Event) void {
         self.event.set();
-    }
-
-    pub fn nanotime() u64 {
-        return shared.nanotime();
     }
 
     pub fn yield(iteration: ?usize) bool {
@@ -141,7 +136,10 @@ const Kernel32 = struct {
 const NtKeyedEvent = struct {
     const is_supported = std.Target.current.os.version_range.isAtLeast(.xp);
 
-    const OsLock = shared.OsEventLock(OsEvent);
+    const OsLock = EventLock(.{
+        .Event = Event,
+        .byte_swap = true,
+    });
 
     const OsEvent = struct {
         state: State = .empty,

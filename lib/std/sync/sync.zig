@@ -10,6 +10,7 @@ const root = @import("root");
 pub const atomic = @import("./atomic.zig");
 
 pub const core = struct {
+    pub const Lock = @import("./core/Lock.zig").Lock;
     pub const ParkingLot = @import("./core/ParkingLot.zig").ParkingLot;
     pub const Mutex = @import("./core/Mutex.zig").Mutex;
     pub const Condvar = @import("./core/Condvar.zig").Condvar;
@@ -90,6 +91,7 @@ pub const primitives = struct {
                 },
             });
 
+            pub const Lock = config.Lock;
             pub const Mutex = core.Mutex(parking_lot);
             pub const Condvar = core.Condvar(parking_lot);
             pub const Semaphore = core.Semaphore(parking_lot);
@@ -101,6 +103,7 @@ pub const primitives = struct {
 
     /// Synchronization primitives made for single threaded uses cases which optimize to no-ops when possible
     pub const debug = struct {
+        pub const Lock = @import("./core/Lock.zig").DebugLock;
         pub const ParkingLot = @import("./core/ParkingLot.zig").DebugParkingLot;
         pub const Mutex = @import("./core/Mutex.zig").DebugMutex;
         pub const Condvar = @import("./core/Mutex.zig").DebugCondvar;
