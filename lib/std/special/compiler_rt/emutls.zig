@@ -158,8 +158,7 @@ const ObjectArray = struct {
 // Global stucture for Thread Storage.
 // It provides thread-safety for on-demand storage of Thread Objects.
 const current_thread_storage = struct {
-    var key: std.c.pthread_key_t = undefined;
-    var init_once = std.once(current_thread_storage.init);
+    var key = std.sync.Once(current_thread_storage.init){};
 
     /// Return a per thread ObjectArray with at least the expected index.
     pub fn getArray(index: usize) *ObjectArray {
@@ -187,23 +186,25 @@ const current_thread_storage = struct {
             ?*ObjectArray,
             @alignCast(
                 @alignOf(ObjectArray),
-                std.c.pthread_getspecific(current_thread_storage.key),
+                std.c.pthread_getspecific(current_thread_storage.key.get()),
             ),
         );
     }
 
     /// Set casted thread specific value.
     fn setspecific(new: ?*ObjectArray) void {
-        if (std.c.pthread_setspecific(current_thread_storage.key, @ptrCast(*c_void, new)) != 0) {
+        if (std.c.pthread_setspecific(current_thread_storage.key.get(), @ptrCast(*c_void, new)) != 0) {
             abort();
         }
     }
 
     /// Initialize pthread_key_t.
-    fn init() void {
-        if (std.c.pthread_key_create(&current_thread_storage.key, current_thread_storage.deinit) != 0) {
+    fn init() std.c.pthread_key_t {
+        var ts_key: std.c.pthread_key_t = undefined;
+        if (std.c.pthread_key_create(&ts_key, current_thread_storage.deinit) != 0) {
             abort();
         }
+        return ts_key;
     }
 
     /// Invoked by pthread specific destructor. the passed argument is the ObjectArray pointer.
@@ -303,9 +304,6 @@ const emutls_control = extern struct {
 
     /// Get the pointer on allocated storage for emutls variable.
     pub fn getPointer(self: *emutls_control) *c_void {
-        // ensure current_thread_storage initialization is done
-        current_thread_storage.init_once.call();
-
         const index = self.getIndex();
         var array = current_thread_storage.getArray(index);
 
