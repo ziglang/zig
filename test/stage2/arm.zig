@@ -8,7 +8,7 @@ const linux_arm = std.zig.CrossTarget{
 
 pub fn addCases(ctx: *TestContext) !void {
     {
-        var case = ctx.exe("hello world", linux_arm);
+        var case = ctx.exe("linux_arm hello world", linux_arm);
         // Regular old hello world
         case.addCompareOutput(
             \\export fn _start() noreturn {

@@ -80,7 +80,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("hello world", linux_aarch64);
+        var case = ctx.exe("linux_aarch64 hello world", linux_aarch64);
         // Regular old hello world
         case.addCompareOutput(
             \\export fn _start() noreturn {

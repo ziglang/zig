@@ -47,6 +47,10 @@ pub const Inst = struct {
         array_type,
         /// Create an array type with sentinel
         array_type_sentinel,
+        /// Given a pointer to an indexable object, returns the len property. This is
+        /// used by for loops. This instruction also emits a for-loop specific instruction
+        /// if the indexable object is not indexable.
+        indexable_ptr_len,
         /// Function parameter value. These must be first in a function's main block,
         /// in respective order with the parameters.
         arg,
@@ -142,13 +146,13 @@ pub const Inst = struct {
         div,
         /// Given a pointer to an array, slice, or pointer, returns a pointer to the element at
         /// the provided index.
-        elemptr,
+        elem_ptr,
+        /// Given an array, slice, or pointer, returns the element at the provided index.
+        elem_val,
         /// Emits a compile error if the operand is not `void`.
         ensure_result_used,
         /// Emits a compile error if an error is ignored.
         ensure_result_non_error,
-        /// Emits a compile error if operand cannot be indexed.
-        ensure_indexable,
         /// Create a `E!T` type.
         error_union_type,
         /// Create an error set.
@@ -156,8 +160,17 @@ pub const Inst = struct {
         /// Export the provided Decl as the provided name in the compilation's output object file.
         @"export",
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
-        /// to the named field.
-        fieldptr,
+        /// to the named field. The field name is a []const u8. Used by a.b syntax.
+        field_ptr,
+        /// Given a struct or object that contains virtual fields, returns the named field.
+        /// The field name is a []const u8. Used by a.b syntax.
+        field_val,
+        /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
+        /// to the named field. The field name is a comptime instruction. Used by @field.
+        field_ptr_named,
+        /// Given a struct or object that contains virtual fields, returns the named field.
+        /// The field name is a comptime instruction. Used by @field.
+        field_val_named,
         /// Convert a larger float type to any other float type, possibly causing a loss of precision.
         floatcast,
         /// Declare a function body.
@@ -361,7 +374,6 @@ pub const Inst = struct {
                 .ptrtoint,
                 .ensure_result_used,
                 .ensure_result_non_error,
-                .ensure_indexable,
                 .bitcast_result_ptr,
                 .ref,
                 .bitcast_ref,
@@ -391,6 +403,7 @@ pub const Inst = struct {
                 .bitnot,
                 .import,
                 .set_eval_branch_quota,
+                .indexable_ptr_len,
                 => UnOp,
 
                 .add,
@@ -452,14 +465,15 @@ pub const Inst = struct {
                 .str => Str,
                 .int => Int,
                 .inttype => IntType,
-                .fieldptr => FieldPtr,
+                .field_ptr, .field_val => Field,
+                .field_ptr_named, .field_val_named => FieldNamed,
                 .@"asm" => Asm,
                 .@"fn" => Fn,
                 .@"export" => Export,
                 .param_type => ParamType,
                 .primitive => Primitive,
                 .fntype => FnType,
-                .elemptr => ElemPtr,
+                .elem_ptr, .elem_val => Elem,
                 .condbr => CondBr,
                 .ptr_type => PtrType,
                 .enum_literal => EnumLiteral,
@@ -490,6 +504,7 @@ pub const Inst = struct {
                 .array_mul,
                 .array_type,
                 .array_type_sentinel,
+                .indexable_ptr_len,
                 .arg,
                 .as,
                 .@"asm",
@@ -523,13 +538,16 @@ pub const Inst = struct {
                 .declval,
                 .deref,
                 .div,
-                .elemptr,
+                .elem_ptr,
+                .elem_val,
                 .ensure_result_used,
                 .ensure_result_non_error,
-                .ensure_indexable,
                 .@"export",
                 .floatcast,
-                .fieldptr,
+                .field_ptr,
+                .field_val,
+                .field_ptr_named,
+                .field_val_named,
                 .@"fn",
                 .fntype,
                 .int,
@@ -823,12 +841,21 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
-    pub const FieldPtr = struct {
-        pub const base_tag = Tag.fieldptr;
+    pub const Field = struct {
         base: Inst,
 
         positionals: struct {
-            object_ptr: *Inst,
+            object: *Inst,
+            field_name: []const u8,
+        },
+        kw_args: struct {},
+    };
+
+    pub const FieldNamed = struct {
+        base: Inst,
+
+        positionals: struct {
+            object: *Inst,
             field_name: *Inst,
         },
         kw_args: struct {},
@@ -1000,12 +1027,11 @@ pub const Inst = struct {
         };
     };
 
-    pub const ElemPtr = struct {
-        pub const base_tag = Tag.elemptr;
+    pub const Elem = struct {
         base: Inst,
 
         positionals: struct {
-            array_ptr: *Inst,
+            array: *Inst,
             index: *Inst,
         },
         kw_args: struct {},

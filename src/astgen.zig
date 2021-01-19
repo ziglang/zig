@@ -278,7 +278,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ErrorUnion => return rlWrap(mod, scope, rl, try typeInixOp(mod, scope, node.castTag(.ErrorUnion).?, .error_union_type)),
         .MergeErrorSets => return rlWrap(mod, scope, rl, try typeInixOp(mod, scope, node.castTag(.MergeErrorSets).?, .merge_error_sets)),
         .AnyFrameType => return rlWrap(mod, scope, rl, try anyFrameType(mod, scope, node.castTag(.AnyFrameType).?)),
-        .ErrorSetDecl => return errorSetDecl(mod, scope, rl, node.castTag(.ErrorSetDecl).?),
+        .ErrorSetDecl => return rlWrap(mod, scope, rl, try errorSetDecl(mod, scope, node.castTag(.ErrorSetDecl).?)),
         .ErrorType => return rlWrap(mod, scope, rl, try errorType(mod, scope, node.castTag(.ErrorType).?)),
         .For => return forExpr(mod, scope, rl, node.castTag(.For).?),
         .ArrayAccess => return arrayAccess(mod, scope, rl, node.castTag(.ArrayAccess).?),
@@ -1107,7 +1107,7 @@ fn containerDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Con
     }
 }
 
-fn errorSetDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.ErrorSetDecl) InnerError!*zir.Inst {
+fn errorSetDecl(mod: *Module, scope: *Scope, node: *ast.Node.ErrorSetDecl) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.error_token].start;
     const decls = node.decls();
@@ -1118,9 +1118,7 @@ fn errorSetDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Erro
         fields[i] = try mod.identifierTokenString(scope, tag.name_token);
     }
 
-    // analyzing the error set results in a decl ref, so we might need to dereference it
-    // TODO remove all callsites to rlWrapPtr
-    return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.ErrorSet, .{ .fields = fields }, .{}));
+    return addZIRInst(mod, scope, src, zir.Inst.ErrorSet, .{ .fields = fields }, .{});
 }
 
 fn errorType(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*zir.Inst {
@@ -1299,35 +1297,72 @@ fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: as
     return mem.eql(u8, ident_name_1, ident_name_2);
 }
 
-pub fn identifierStringInst(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const src = tree.token_locs[node.token].start;
-
-    const ident_name = try mod.identifierTokenString(scope, node.token);
-
-    return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = ident_name }, .{});
-}
-
-fn field(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
+pub fn field(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.op_token].start;
+    // TODO custom AST node for field access so that we don't have to go through a node cast here
+    const field_name = try mod.identifierTokenString(scope, node.rhs.castTag(.Identifier).?.token);
+    if (rl == .ref) {
+        return addZirInstTag(mod, scope, src, .field_ptr, .{
+            .object = try expr(mod, scope, .ref, node.lhs),
+            .field_name = field_name,
+        });
+    }
+    return rlWrap(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val, .{
+        .object = try expr(mod, scope, .none, node.lhs),
+        .field_name = field_name,
+    }));
+}
 
-    const lhs = try expr(mod, scope, .ref, node.lhs);
-    const field_name = try identifierStringInst(mod, scope, node.rhs.castTag(.Identifier).?);
+fn namedField(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    call: *ast.Node.BuiltinCall,
+) InnerError!*zir.Inst {
+    try ensureBuiltinParamCount(mod, scope, call, 2);
 
-    // TODO remove all callsites to rlWrapPtr
-    return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{}));
+    const tree = scope.tree();
+    const src = tree.token_locs[call.builtin_token].start;
+    const params = call.params();
+
+    const string_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.const_slice_u8_type),
+    });
+    const string_rl: ResultLoc = .{ .ty = string_type };
+
+    if (rl == .ref) {
+        return addZirInstTag(mod, scope, src, .field_ptr_named, .{
+            .object = try expr(mod, scope, .ref, params[0]),
+            .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
+        });
+    }
+    return rlWrap(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val_named, .{
+        .object = try expr(mod, scope, .none, params[0]),
+        .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
+    }));
 }
 
 fn arrayAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.ArrayAccess) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.rtoken].start;
+    const usize_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.usize_type),
+    });
+    const index_rl: ResultLoc = .{ .ty = usize_type };
 
-    const array_ptr = try expr(mod, scope, .ref, node.lhs);
-    const index = try expr(mod, scope, .none, node.index_expr);
-
-    // TODO remove all callsites to rlWrapPtr
-    return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.ElemPtr, .{ .array_ptr = array_ptr, .index = index }, .{}));
+    if (rl == .ref) {
+        return addZirInstTag(mod, scope, src, .elem_ptr, .{
+            .array = try expr(mod, scope, .ref, node.lhs),
+            .index = try expr(mod, scope, index_rl, node.index_expr),
+        });
+    }
+    return rlWrap(mod, scope, rl, try addZirInstTag(mod, scope, src, .elem_val, .{
+        .array = try expr(mod, scope, .none, node.lhs),
+        .index = try expr(mod, scope, index_rl, node.index_expr),
+    }));
 }
 
 fn sliceExpr(mod: *Module, scope: *Scope, node: *ast.Node.Slice) InnerError!*zir.Inst {
@@ -1819,12 +1854,8 @@ fn forExpr(
         break :blk index_ptr;
     };
     const array_ptr = try expr(mod, &for_scope.base, .ref, for_node.array_expr);
-    _ = try addZIRUnOp(mod, &for_scope.base, for_node.array_expr.firstToken(), .ensure_indexable, array_ptr);
     const cond_src = tree.token_locs[for_node.array_expr.firstToken()].start;
-    const len_ptr = try addZIRInst(mod, &for_scope.base, cond_src, zir.Inst.FieldPtr, .{
-        .object_ptr = array_ptr,
-        .field_name = try addZIRInst(mod, &for_scope.base, cond_src, zir.Inst.Str, .{ .bytes = "len" }, .{}),
-    }, .{});
+    const len = try addZIRUnOp(mod, &for_scope.base, cond_src, .indexable_ptr_len, array_ptr);
 
     var loop_scope: Scope.GenZIR = .{
         .parent = &for_scope.base,
@@ -1845,7 +1876,6 @@ fn forExpr(
 
     // check condition i < array_expr.len
     const index = try addZIRUnOp(mod, &cond_scope.base, cond_src, .deref, index_ptr);
-    const len = try addZIRUnOp(mod, &cond_scope.base, cond_src, .deref, len_ptr);
     const cond = try addZIRBinOp(mod, &cond_scope.base, cond_src, .cmp_lt, index, len);
 
     const condbr = try addZIRInstSpecial(mod, &cond_scope.base, for_src, zir.Inst.CondBr, .{
@@ -2328,8 +2358,9 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    // TODO remove all callsites to rlWrapPtr
-                    return rlWrapPtr(mod, scope, rl, local_ptr.ptr);
+                    if (rl == .ref) return local_ptr.ptr;
+                    const loaded = try addZIRUnOp(mod, scope, src, .deref, local_ptr.ptr);
+                    return rlWrap(mod, scope, rl, loaded);
                 }
                 s = local_ptr.parent;
             },
@@ -2747,6 +2778,8 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
         return setEvalBranchQuota(mod, scope, call);
     } else if (mem.eql(u8, builtin_name, "@compileLog")) {
         return compileLog(mod, scope, call);
+    } else if (mem.eql(u8, builtin_name, "@field")) {
+        return namedField(mod, scope, rl, call);
     } else {
         return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{s}'", .{builtin_name});
     }
@@ -3117,6 +3150,28 @@ fn rlWrapPtr(mod: *Module, scope: *Scope, rl: ResultLoc, ptr: *zir.Inst) InnerEr
     if (rl == .ref) return ptr;
 
     return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, ptr.src, .deref, ptr));
+}
+
+pub fn addZirInstTag(
+    mod: *Module,
+    scope: *Scope,
+    src: usize,
+    comptime tag: zir.Inst.Tag,
+    positionals: std.meta.fieldInfo(tag.Type(), .positionals).field_type,
+) !*zir.Inst {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(tag.Type());
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .src = src,
+        },
+        .positionals = positionals,
+        .kw_args = .{},
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return &inst.base;
 }
 
 pub fn addZIRInstSpecial(

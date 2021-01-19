@@ -2357,6 +2357,11 @@ pub fn lookupDeclName(self: *Module, scope: *Scope, ident_name: []const u8) ?*De
     return self.decl_table.get(name_hash);
 }
 
+pub fn analyzeDeclVal(mod: *Module, scope: *Scope, src: usize, decl: *Decl) InnerError!*Inst {
+    const decl_ref = try mod.analyzeDeclRef(scope, src, decl);
+    return mod.analyzeDeref(scope, src, decl_ref, src);
+}
+
 pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) InnerError!*Inst {
     const scope_decl = scope.ownerDecl().?;
     try self.declareDeclDependency(scope_decl, decl);
@@ -2406,6 +2411,20 @@ fn analyzeVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) Inner
     };
     try b.instructions.append(self.gpa, &inst.base);
     return &inst.base;
+}
+
+pub fn analyzeRef(mod: *Module, scope: *Scope, src: usize, operand: *Inst) InnerError!*Inst {
+    const ptr_type = try mod.simplePtrType(scope, src, operand.ty, false, .One);
+
+    if (operand.value()) |val| {
+        return mod.constInst(scope, src, .{
+            .ty = ptr_type,
+            .val = try Value.Tag.ref_val.create(scope.arena(), val),
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, src);
+    return mod.addUnOp(b, src, ptr_type, .ref, operand);
 }
 
 pub fn analyzeDeref(self: *Module, scope: *Scope, src: usize, ptr: *Inst, ptr_src: usize) InnerError!*Inst {
@@ -3542,4 +3561,148 @@ pub fn emitBackwardBranch(mod: *Module, block: *Scope.Block, src: usize) !void {
             block.branch_quota.*,
         });
     }
+}
+
+pub fn namedFieldPtr(
+    mod: *Module,
+    scope: *Scope,
+    src: usize,
+    object_ptr: *Inst,
+    field_name: []const u8,
+    field_name_src: usize,
+) InnerError!*Inst {
+    const elem_ty = switch (object_ptr.ty.zigTypeTag()) {
+        .Pointer => object_ptr.ty.elemType(),
+        else => return mod.fail(scope, object_ptr.src, "expected pointer, found '{}'", .{object_ptr.ty}),
+    };
+    switch (elem_ty.zigTypeTag()) {
+        .Array => {
+            if (mem.eql(u8, field_name, "len")) {
+                return mod.constInst(scope, src, .{
+                    .ty = Type.initTag(.single_const_pointer_to_comptime_int),
+                    .val = try Value.Tag.ref_val.create(
+                        scope.arena(),
+                        try Value.Tag.int_u64.create(scope.arena(), elem_ty.arrayLen()),
+                    ),
+                });
+            } else {
+                return mod.fail(
+                    scope,
+                    field_name_src,
+                    "no member named '{s}' in '{}'",
+                    .{ field_name, elem_ty },
+                );
+            }
+        },
+        .Pointer => {
+            const ptr_child = elem_ty.elemType();
+            switch (ptr_child.zigTypeTag()) {
+                .Array => {
+                    if (mem.eql(u8, field_name, "len")) {
+                        return mod.constInst(scope, src, .{
+                            .ty = Type.initTag(.single_const_pointer_to_comptime_int),
+                            .val = try Value.Tag.ref_val.create(
+                                scope.arena(),
+                                try Value.Tag.int_u64.create(scope.arena(), ptr_child.arrayLen()),
+                            ),
+                        });
+                    } else {
+                        return mod.fail(
+                            scope,
+                            field_name_src,
+                            "no member named '{s}' in '{}'",
+                            .{ field_name, elem_ty },
+                        );
+                    }
+                },
+                else => {},
+            }
+        },
+        .Type => {
+            _ = try mod.resolveConstValue(scope, object_ptr);
+            const result = try mod.analyzeDeref(scope, src, object_ptr, object_ptr.src);
+            const val = result.value().?;
+            const child_type = try val.toType(scope.arena());
+            switch (child_type.zigTypeTag()) {
+                .ErrorSet => {
+                    // TODO resolve inferred error sets
+                    const entry = if (val.castTag(.error_set)) |payload|
+                        (payload.data.fields.getEntry(field_name) orelse
+                            return mod.fail(scope, src, "no error named '{s}' in '{}'", .{ field_name, child_type })).*
+                    else
+                        try mod.getErrorValue(field_name);
+
+                    const result_type = if (child_type.tag() == .anyerror)
+                        try Type.Tag.error_set_single.create(scope.arena(), entry.key)
+                    else
+                        child_type;
+
+                    return mod.constInst(scope, src, .{
+                        .ty = try mod.simplePtrType(scope, src, result_type, false, .One),
+                        .val = try Value.Tag.ref_val.create(
+                            scope.arena(),
+                            try Value.Tag.@"error".create(scope.arena(), .{
+                                .name = entry.key,
+                                .value = entry.value,
+                            }),
+                        ),
+                    });
+                },
+                .Struct => {
+                    const container_scope = child_type.getContainerScope();
+                    if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
+                        // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                        return mod.analyzeDeclRef(scope, src, decl);
+                    }
+
+                    if (container_scope.file_scope == mod.root_scope) {
+                        return mod.fail(scope, src, "root source file has no member called '{s}'", .{field_name});
+                    } else {
+                        return mod.fail(scope, src, "container '{}' has no member called '{s}'", .{ child_type, field_name });
+                    }
+                },
+                else => return mod.fail(scope, src, "type '{}' does not support field access", .{child_type}),
+            }
+        },
+        else => {},
+    }
+    return mod.fail(scope, src, "type '{}' does not support field access", .{elem_ty});
+}
+
+pub fn elemPtr(
+    mod: *Module,
+    scope: *Scope,
+    src: usize,
+    array_ptr: *Inst,
+    elem_index: *Inst,
+) InnerError!*Inst {
+    const elem_ty = switch (array_ptr.ty.zigTypeTag()) {
+        .Pointer => array_ptr.ty.elemType(),
+        else => return mod.fail(scope, array_ptr.src, "expected pointer, found '{}'", .{array_ptr.ty}),
+    };
+    if (!elem_ty.isIndexable()) {
+        return mod.fail(scope, src, "array access of non-array type '{}'", .{elem_ty});
+    }
+
+    if (elem_ty.isSinglePointer() and elem_ty.elemType().zigTypeTag() == .Array) {
+        // we have to deref the ptr operand to get the actual array pointer
+        const array_ptr_deref = try mod.analyzeDeref(scope, src, array_ptr, array_ptr.src);
+        if (array_ptr_deref.value()) |array_ptr_val| {
+            if (elem_index.value()) |index_val| {
+                // Both array pointer and index are compile-time known.
+                const index_u64 = index_val.toUnsignedInt();
+                // @intCast here because it would have been impossible to construct a value that
+                // required a larger index.
+                const elem_ptr = try array_ptr_val.elemPtr(scope.arena(), @intCast(usize, index_u64));
+                const pointee_type = elem_ty.elemType().elemType();
+
+                return mod.constInst(scope, src, .{
+                    .ty = try Type.Tag.single_const_pointer.create(scope.arena(), pointee_type),
+                    .val = elem_ptr,
+                });
+            }
+        }
+    }
+
+    return mod.fail(scope, src, "TODO implement more analyze elemptr", .{});
 }
