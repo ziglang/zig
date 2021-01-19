@@ -1229,14 +1229,16 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const this_addr = symbol.n_value + fixup.start;
         switch (self.base.options.target.cpu.arch) {
             .x86_64 => {
-                const displacement = @intCast(u32, target_addr - this_addr - fixup.len);
+                assert(target_addr >= this_addr + fixup.len);
+                const displacement = try math.cast(u32, target_addr - this_addr - fixup.len);
                 var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
                 mem.writeIntSliceLittle(u32, placeholder, displacement);
             },
             .aarch64 => {
-                const displacement = @intCast(u27, target_addr - this_addr);
+                assert(target_addr >= this_addr);
+                const displacement = try math.cast(u27, target_addr - this_addr);
                 var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
-                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.b(@intCast(i28, displacement)).toU32());
+                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.b(@as(i28, displacement)).toU32());
             },
             else => unreachable, // unsupported target architecture
         }
@@ -1249,14 +1251,16 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const text_addr = symbol.n_value + fixup.start;
         switch (self.base.options.target.cpu.arch) {
             .x86_64 => {
-                const displacement = @intCast(u32, stub_addr - text_addr - fixup.len);
+                assert(stub_addr >= text_addr + fixup.len);
+                const displacement = try math.cast(u32, stub_addr - text_addr - fixup.len);
                 var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
                 mem.writeIntSliceLittle(u32, placeholder, displacement);
             },
             .aarch64 => {
-                const displacement = @intCast(u32, stub_addr - text_addr);
+                assert(stub_addr >= text_addr);
+                const displacement = try math.cast(i28, stub_addr - text_addr);
                 var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
-                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(@intCast(i28, displacement)).toU32());
+                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(displacement).toU32());
             },
             else => unreachable, // unsupported target architecture
         }
@@ -2074,7 +2078,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 code[1] = 0x8d;
                 code[2] = 0x1d;
                 {
-                    const displacement = @intCast(u32, data.addr - stub_helper.addr - 7);
+                    const displacement = try math.cast(u32, data.addr - stub_helper.addr - 7);
                     mem.writeIntLittle(u32, code[3..7], displacement);
                 }
                 // push %r11
@@ -2084,7 +2088,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 code[9] = 0xff;
                 code[10] = 0x25;
                 {
-                    const displacement = @intCast(u32, got.addr - stub_helper.addr - code_size);
+                    const displacement = try math.cast(u32, got.addr - stub_helper.addr - code_size);
                     mem.writeIntLittle(u32, code[11..], displacement);
                 }
                 self.stub_helper_stubs_start_off = stub_helper.offset + code_size;
@@ -2093,8 +2097,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .aarch64 => {
                 var code: [4 * @sizeOf(u32)]u8 = undefined;
                 {
-                    const displacement = data.addr - stub_helper.addr;
-                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x17, @intCast(i21, displacement)).toU32());
+                    const displacement = try math.cast(i21, data.addr - stub_helper.addr);
+                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x17, displacement).toU32());
                 }
                 mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.stp(
                     .x16,
@@ -2103,9 +2107,10 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                     aarch64.Instruction.LoadStorePairOffset.pre_index(-16),
                 ).toU32());
                 {
-                    const displacement = got.addr - stub_helper.addr - 2 * @sizeOf(u32);
+                    const displacement = try math.divExact(u64, got.addr - stub_helper.addr - 2 * @sizeOf(u32), 4);
+                    const literal = try math.cast(u19, displacement);
                     mem.writeIntLittle(u32, code[8..12], aarch64.Instruction.ldr(.x16, .{
-                        .literal = @intCast(u19, displacement / 4),
+                        .literal = literal,
                     }).toU32());
                 }
                 mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.br(.x16).toU32());
@@ -2445,8 +2450,8 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     var code: [8]u8 = undefined;
     switch (self.base.options.target.cpu.arch) {
         .x86_64 => {
-            const pos_symbol_off = @intCast(u31, vmaddr - self.offset_table.items[index] + 7);
-            const symbol_off = @bitCast(u32, @intCast(i32, pos_symbol_off) * -1);
+            const pos_symbol_off = try math.cast(u31, vmaddr - self.offset_table.items[index] + 7);
+            const symbol_off = @bitCast(u32, @as(i32, pos_symbol_off) * -1);
             // lea %rax, [rip - disp]
             code[0] = 0x48;
             code[1] = 0x8D;
@@ -2456,8 +2461,8 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
             code[7] = 0xC3;
         },
         .aarch64 => {
-            const pos_symbol_off = @intCast(u20, vmaddr - self.offset_table.items[index]);
-            const symbol_off = @intCast(i21, pos_symbol_off) * -1;
+            const pos_symbol_off = try math.cast(u20, vmaddr - self.offset_table.items[index]);
+            const symbol_off = @as(i21, pos_symbol_off) * -1;
             // adr x0, #-disp
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x0, symbol_off).toU32());
             // ret x28
@@ -2503,16 +2508,19 @@ fn writeStub(self: *MachO, index: u32) !void {
     defer self.base.allocator.free(code);
     switch (self.base.options.target.cpu.arch) {
         .x86_64 => {
-            const displacement = @intCast(u32, la_ptr_addr - stub_addr - stubs.reserved2);
+            assert(la_ptr_addr >= stub_addr + stubs.reserved2);
+            const displacement = try math.cast(u32, la_ptr_addr - stub_addr - stubs.reserved2);
             // jmp
             code[0] = 0xff;
             code[1] = 0x25;
             mem.writeIntLittle(u32, code[2..][0..4], displacement);
         },
         .aarch64 => {
-            const displacement = la_ptr_addr - stub_addr;
+            assert(la_ptr_addr >= stub_addr);
+            const displacement = try math.divExact(u64, la_ptr_addr - stub_addr, 4);
+            const literal = try math.cast(u19, displacement);
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.x16, .{
-                .literal = @intCast(u19, displacement / 4),
+                .literal = literal,
             }).toU32());
             mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.br(.x16).toU32());
         },
@@ -2535,7 +2543,10 @@ fn writeStubInStubHelper(self: *MachO, index: u32) !void {
     defer self.base.allocator.free(code);
     switch (self.base.options.target.cpu.arch) {
         .x86_64 => {
-            const displacement = @intCast(i32, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - stub_size);
+            const displacement = try math.cast(
+                i32,
+                @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - stub_size,
+            );
             // pushq
             code[0] = 0x68;
             mem.writeIntLittle(u32, code[1..][0..4], 0x0); // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
@@ -2544,11 +2555,11 @@ fn writeStubInStubHelper(self: *MachO, index: u32) !void {
             mem.writeIntLittle(u32, code[6..][0..4], @bitCast(u32, displacement));
         },
         .aarch64 => {
-            const displacement = @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - 4;
+            const displacement = try math.cast(i28, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - 4);
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.w16, .{
-                .literal = 0x2,
+                .literal = @divExact(stub_size - @sizeOf(u32), 4),
             }).toU32());
-            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(@intCast(i28, displacement)).toU32());
+            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(displacement).toU32());
             mem.writeIntLittle(u32, code[8..12], 0x0); // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
         },
         else => unreachable,
