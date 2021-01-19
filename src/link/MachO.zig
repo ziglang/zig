@@ -234,7 +234,7 @@ pub const TextBlock = struct {
     prev: ?*TextBlock,
     next: ?*TextBlock,
 
-    /// Previous/next linked list pointers. This value is `next ^ prev`.
+    /// Previous/next linked list pointers.
     /// This is the linked list node for this Decl's corresponding .debug_info tag.
     dbg_info_prev: ?*TextBlock,
     dbg_info_next: ?*TextBlock,
