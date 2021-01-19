@@ -172,4 +172,23 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("for loop", linux_x64);
+
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\export fn main() c_int {
+            \\    var x: u32 = 0;
+            \\    for ("hello") |_| {
+            \\        x += 1;
+            \\    }
+            \\    assert("hello".len == x);
+            \\    return 0;
+            \\}
+        , "");
+    }
 }
