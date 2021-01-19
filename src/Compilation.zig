@@ -1552,7 +1552,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     // are lifetime annotations in the ZIR.
                     var decl_arena = decl.typed_value.most_recent.arena.?.promote(module.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
-                    log.debug("analyze liveness of {s}\n", .{decl.name});
+                    log.debug("analyze liveness of {s}", .{decl.name});
                     try liveness.analyze(module.gpa, &decl_arena.allocator, func.body);
 
                     if (std.builtin.mode == .Debug and self.verbose_ir) {

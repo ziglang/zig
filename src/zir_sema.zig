@@ -547,9 +547,12 @@ fn analyzeInstStr(mod: *Module, scope: *Scope, str_inst: *zir.Inst.Str) InnerErr
     errdefer new_decl_arena.deinit();
     const arena_bytes = try new_decl_arena.allocator.dupe(u8, str_inst.positionals.bytes);
 
+    const decl_ty = try Type.Tag.array_u8_sentinel_0.create(&new_decl_arena.allocator, arena_bytes.len);
+    const decl_val = try Value.Tag.bytes.create(&new_decl_arena.allocator, arena_bytes);
+
     const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
-        .ty = try Type.Tag.array_u8_sentinel_0.create(scope.arena(), arena_bytes.len),
-        .val = try Value.Tag.bytes.create(scope.arena(), arena_bytes),
+        .ty = decl_ty,
+        .val = decl_val,
     });
     return mod.analyzeDeclRef(scope, str_inst.base.src, new_decl);
 }
@@ -1079,7 +1082,7 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
     var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
     errdefer new_decl_arena.deinit();
 
-    const payload = try scope.arena().create(Value.Payload.ErrorSet);
+    const payload = try new_decl_arena.allocator.create(Value.Payload.ErrorSet);
     payload.* = .{
         .base = .{ .tag = .error_set },
         .data = .{
