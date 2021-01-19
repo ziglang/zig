@@ -12,6 +12,10 @@ const EventLock = @import("../Lock.zig").Lock;
 pub const Lock = extern struct {
     lock: Backend.OsLock = .{},
 
+    pub fn tryAcquire(self: *Lock) bool {
+        return self.lock.tryAcquire();
+    }
+
     pub fn acquire(self: *Lock) void {
         self.lock.acquire();
     }
@@ -75,6 +79,10 @@ const Kernel32 = struct {
 
     const OsLock = extern struct {
         srwlock: windows.SRWLOCK = windows.SRWLOCK_INIT,
+
+        fn tryAcquire(self: *OsLock) bool {
+            return windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE;
+        }
 
         fn acquire(self: *OsLock) void {
             windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
@@ -272,8 +280,12 @@ const Ancient = struct {
     const OsLock = struct {
         is_locked: bool = false,
 
+        fn tryAcquire(self: *OsLock) bool {
+            return !atomic.swap(&self.is_locked, true, .SeqCst);
+        }
+
         fn acquire(self: *OsLock) void {
-            while (atomic.swap(&self.is_locked, true, .SeqCst))
+            while (!self.tryAcquire())
                 atomic.spinLoopHint();
         }
 

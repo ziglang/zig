@@ -189,44 +189,17 @@ pub fn ParkingLot(comptime config: anytype) type {
                     self.tree_head = node;
                 }
             }
-
-            /// Remove the WaitQueue reference from the WaitBucket.
-            ///
-            /// TODO:
-            /// Use a self-balancing binary-search tree for insert() and remove().
-            /// Recommendation: red-black-tree
-            fn remove(self: *WaitBucket, queue: *Queue) void {
-                const node = queue.head orelse unreachable;
-                defer queue.head = null;
-
-                if ((node.tree_prev == null) and (node != self.tree_head))
-                    unreachable;
-
-                if (node.tree_next) |next|
-                    next.tree_prev = node.tree_prev;
-
-                if (node.tree_prev) |prev|
-                    prev.tree_next = node.tree_next;
-
-                if (self.tree_head == node)
-                    self.tree_head = null;
-            }
             
             /// Update the head of a WaitQueue reference with a new WaitNode.
             ///
             /// This is often done when the existing head WaitNode of a WaitQueue
             /// is being dequeued and the next new head needs to inherit its values
             /// in order to keep the internal links consistent.
-            fn update(self: *WaitBucket, queue: *Queue, new_head: *WaitNode) void {
+            fn update(self: *WaitBucket, queue: *Queue, new_node: *WaitNode) void {
                 const node = queue.head orelse unreachable;
-                const new_node = new_head;
-                defer queue.head = new_head;
+                queue.head = new_node;
 
-                if (new_node != node)
-                    return;
                 if (new_node.address != node.address)
-                    unreachable;
-                if (new_node != node.next)
                     unreachable;
 
                 new_node.tree_next = node.tree_next;
@@ -240,6 +213,28 @@ pub fn ParkingLot(comptime config: anytype) type {
 
                 if (self.tree_head == node)
                     self.tree_head = new_node;
+            }
+
+            /// Remove the WaitQueue reference from the WaitBucket.
+            ///
+            /// TODO:
+            /// Use a self-balancing binary-search tree for insert() and remove().
+            /// Recommendation: red-black-tree
+            fn remove(self: *WaitBucket, queue: *Queue) void {
+                const node = queue.head orelse unreachable;
+                queue.head = null;
+
+                if ((node.tree_prev == null) and (node != self.tree_head))
+                    unreachable;
+
+                if (node.tree_next) |next|
+                    next.tree_prev = node.tree_prev;
+
+                if (node.tree_prev) |prev|
+                    prev.tree_next = node.tree_next;
+
+                if (self.tree_head == node)
+                    self.tree_head = null;
             }
         };
         
@@ -321,14 +316,22 @@ pub fn ParkingLot(comptime config: anytype) type {
 
             /// Remove a (previously inserted) WaitNode from this WaitNode.
             pub fn remove(self: *WaitQueue, node: *WaitNode) void {
-                const queue = self.getBucketQueueRef();
-                const head = queue.head orelse unreachable;
+                if (!self.hasInserted(node))
+                    unreachable; // node being removed from a WaitQueue when its not enqueued.
+                defer node.tail = null; // at the end, mark the node as removed
                 
-                if (node.address != self.address)
-                    unreachable; // the node isn't apart of this wait queue
+                const queue = self.getBucketQueueRef();
+                const head = queue.head orelse {
+                    unreachable; // removing a node from an empty WaitQueue
+                };
+                
+                if (node.address != self.address) {
+                    unreachable; // removing a node thats outside of this WaitQueue
+                }
 
-                if ((node.prev == null) and (node != head))
-                    unreachable; // a node without a prev must be the head of the wait queue.
+                if ((node.prev == null) and (node != head)) {
+                    unreachable; // removing a node that has no previous node but is not the head node.
+                }
 
                 // unlink the node from its neighbors
                 if (node.prev) |p|
@@ -349,11 +352,10 @@ pub fn ParkingLot(comptime config: anytype) type {
                         self.bucket.remove(queue);
                     }
                 } else if (node == head.tail) {
-                    head.tail = node.prev orelse unreachable;
+                    head.tail = node.prev orelse {
+                        unreachable; // node at the tail of the queue does't have a previous link.
+                    };
                 }
-
-                // this actually marks the node as dequeued (see hasInserted())
-                node.tail = null;
             }
 
             /// Returns true if this WaitNode is still inserted in the WaitQueue.

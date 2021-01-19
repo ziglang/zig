@@ -8,6 +8,9 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const assert = std.debug.assert;
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = builtin.valgrind_support;
+
 pub fn Backend(comptime Futex: type) type {
     return struct {
         pub const Lock = extern struct {
@@ -20,10 +23,30 @@ pub fn Backend(comptime Futex: type) type {
                 contended,
             };
 
+            pub fn tryAcquire(self: *Self) bool {
+                const acquired = atomic.compareAndSwap(
+                    &self.state,
+                    .unlocked,
+                    .locked,
+                    .Acquire,
+                    .Relaxed,
+                ) == null;
+
+                if (use_valgrind and acquired) {
+                    helgrind.annotateHappensAfter(@ptrToInt(self));
+                }
+
+                return acquired;
+            }
+
             pub fn acquire(self: *Self) void {
                 switch (atomic.swap(&self.state, .locked, .Acquire)) {
                     .unlocked => {},
                     else => |state| self.acquireSlow(state),
+                }
+
+                if (use_valgrind) {
+                    helgrind.annotateHappensAfter(@ptrToInt(self));
                 }
             }
 
@@ -64,6 +87,10 @@ pub fn Backend(comptime Futex: type) type {
             }
 
             pub fn release(self: *Self) void {
+                if (use_valgrind) {
+                    helgrind.annotateHappensBefore(@ptrToInt(self));
+                }
+
                 switch (atomic.swap(&self.state, .unlocked, .Release)) {
                     .unlocked => unreachable,
                     .locked => {},

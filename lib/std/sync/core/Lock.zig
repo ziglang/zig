@@ -7,6 +7,7 @@
 const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const builtin = std.builtin;
+const testing = std.testing;
 
 const helgrind = std.valgrind.helgrind;
 const use_valgrind = builtin.valgrind_support;
@@ -347,6 +348,10 @@ pub const DebugLock = extern struct {
     const Self = @This();
     const DebugMutex = @import("./Mutex.zig").DebugMutex;
 
+    pub fn tryAcquire(self: *Self) bool {
+        return self.mutex.tryAcquire() != null;
+    }
+
     pub fn acquire(self: *Self) void {
         _ = self.mutex.acquire();
     }
@@ -355,3 +360,107 @@ pub const DebugLock = extern struct {
         (DebugMutex.Held{ .mutex = &self.mutex }).release();
     }
 };
+
+test "Lock" {
+    const TestLock = std.sync.Lock;
+
+    {
+        var lock = TestLock{};
+        testing.expect(lock.tryAcquire());
+        testing.expect(!lock.tryAcquire());
+        lock.release();
+
+        lock.acquire();
+        lock.release();
+    }
+
+    if (std.io.is_async) return;
+    if (std.builtin.single_threaded) return;
+
+    const Contention = struct {
+        level: Level = undefined,
+        start_event: std.sync.ResetEvent = .{},
+        counters: [num_counters]Counter = [_]Counter{Counter{}} ** num_counters,
+
+        const Self = @This();
+        const num_counters = 100;
+        const Level = enum{ random, high };
+
+        const Counter = struct {
+            lock: TestLock = .{},
+            remaining: u128 = 10000,
+
+            fn tryDecr(self: *Counter) bool {
+                self.lock.acquire();
+                defer self.lock.release();
+
+                if (self.remaining == 0)
+                    return false;
+
+                self.remaining -= 1;
+                return true;
+            }
+        };
+
+        fn run(self: *Self) void {
+            self.start_event.wait();
+
+            switch (self.level) {
+                .random => self.runRandomContention(),
+                .high => self.runHighContention(),
+            }
+        }
+
+        fn runHighContention(self: *Self) void {
+            const counter = &self.counters[0];
+            // counter.remaining *= num_counters;
+
+            while (counter.tryDecr()) {
+                atomic.spinLoopHint();
+            }
+        }
+
+        fn runRandomContention(self: *Self) void {
+            var seed: usize = undefined;
+            var prng = std.rand.DefaultPrng.init(@ptrToInt(&seed));
+
+            while (true) {
+                var did_decr = false;
+                var iter = self.counters.len;
+                var index = prng.random.int(usize) % iter;
+
+                while (iter > 0) : (iter -= 1) {
+                    const counter = &self.counters[index];
+                    index = (index + 1) % self.counters.len;
+                    did_decr = counter.tryDecr() or did_decr;
+                }
+
+                if (!did_decr)
+                    break;
+            }
+        }
+
+        fn execute(self: *Self) !void {
+            const allocator = testing.allocator;
+            const threads = try allocator.alloc(*std.Thread, 10);
+            defer allocator.free(threads);
+
+            for ([_]Level{ .high, .random }) |contention_level| {
+                self.level = contention_level;
+
+                self.start_event.reset();
+                for (threads) |*t| {
+                    t.* = try std.Thread.spawn(self, Self.run);
+                }
+
+                self.start_event.set();
+                for (threads) |t| {
+                    t.wait();
+                }
+            }
+        }
+    };
+
+    var contention = Contention{};
+    try contention.execute();
+}
