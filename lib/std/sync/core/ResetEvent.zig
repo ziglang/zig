@@ -6,6 +6,7 @@
 
 const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
+const testing = std.testing;
 
 const helgrind = std.valgrind.helgrind;
 const use_valgrind = std.builtin.valgrind_support;
@@ -15,6 +16,10 @@ pub fn ResetEvent(comptime parking_lot: type) type {
         is_set: bool = false,
 
         const Self = @This();
+
+        pub fn init(is_set: bool) Self {
+            return .{ .is_set = is_set };
+        }
 
         pub fn isSet(self: *const Self) bool {
             const is_set = atomic.load(&self.is_set, .SeqCst);
@@ -28,6 +33,10 @@ pub fn ResetEvent(comptime parking_lot: type) type {
 
         pub fn reset(self: *Self) void {
             atomic.store(&self.is_set, false, .SeqCst);
+        }
+
+        pub fn tryWait(self: *Self) void {
+            return self.isSet();
         }
 
         pub fn wait(self: *Self) void {
@@ -88,6 +97,10 @@ pub const DebugResetEvent = extern struct {
 
     const Self = @This();
 
+    pub fn init(is_set: bool) Self {
+        return .{ .is_set = is_set };
+    }
+
     pub fn isSet(self: *const Self) bool {
         return self.is_set;
     }
@@ -113,3 +126,77 @@ pub const DebugResetEvent = extern struct {
         self.is_set = true;
     }
 };
+
+test "ResetEvent" {
+    const TestRestEvent = std.sync.ResetEvent;
+
+    {
+        var event = TestRestEvent{};
+        testing.expect(!event.isSet());
+
+        const delay = 1 * std.time.ns_per_ms;
+        testing.expectError(error.TimedOut, event.tryWaitFor(delay));
+        testing.expectError(error.TimedOut, event.tryWaitUntil(std.time.now() + delay));
+
+        event.set();
+        testing.expect(event.isSet());
+        
+        event.wait();
+        try event.tryWaitFor(delay);
+        try event.tryWaitUntil(std.time.now() + delay);
+    }
+
+    if (std.io.is_async) return;
+    if (std.builtin.single_threaded) return;
+
+    const PingPong = struct {
+        value: usize = 0,
+        ping_event: TestRestEvent = .{},
+        pong_event: TestRestEvent = .{},
+
+        const Self = @This();
+        const round_trips = 3;
+
+        fn run(self: *Self) !void {
+            const pong = try std.Thread.spawn(self, runPong);
+            self.runPing();
+            pong.wait();
+        }
+
+        fn runPing(self: *Self) void {
+            var value = atomic.load(&self.value, .SeqCst);
+            testing.expectEqual(value, 0);
+
+            var rt = round_trips;
+            while (rt > 0) : (rt -= 1) {
+                atomic.store(&self.value, value + 1, .SeqCst);
+                self.ping_event.set();
+
+                self.pong_event.wait();
+                self.pong_event.reset();
+                const new_value = atomic.load(&self.value, .SeqCst);
+
+                testing.expectEqual(new_value, value + 1);
+                value = new_value;
+            }
+        }
+
+        fn runPong(self: *Self) void {
+            var value: usize = 0;
+            testing.expectEqual(value, 0);
+
+            var rt = round_trips;
+            while (rt > 0) : (rt -= 1) {
+                self.ping_event.wait();
+                self.ping_event.reset();
+                const new_value = atomic.load(&self.value, .SeqCst);
+
+                testing.expectEqual(new_value, value + 1);
+                value += 1;
+
+                atomic.store(&self.value, value + 1, .SeqCst);
+                self.pong_event.set();
+            }
+        }
+    };
+}
