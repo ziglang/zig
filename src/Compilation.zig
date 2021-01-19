@@ -1560,6 +1560,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     }
                 }
 
+                log.debug("calling updateDecl on '{s}', type={}", .{
+                    decl.name, decl.typed_value.most_recent.typed_value.ty,
+                });
                 assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());
 
                 self.bin_file.updateDecl(module, decl) catch |err| switch (err) {

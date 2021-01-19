@@ -70,20 +70,26 @@ pub const log_level: std.log.Level = switch (std.builtin.mode) {
     .ReleaseSmall => .crit,
 };
 
+var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
+
 pub fn log(
     comptime level: std.log.Level,
     comptime scope: @TypeOf(.EnumLiteral),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    // Hide debug messages unless added with `-Dlog=foo`.
+    // Hide debug messages unless:
+    // * logging enabled with `-Dlog`.
+    // * the --debug-log arg for the scope has been provided
     if (@enumToInt(level) > @enumToInt(std.log.level) or
         @enumToInt(level) > @enumToInt(std.log.Level.info))
     {
+        if (!build_options.enable_logging) return;
+
         const scope_name = @tagName(scope);
-        const ok = comptime for (build_options.log_scopes) |log_scope| {
+        for (log_scopes.items) |log_scope| {
             if (mem.eql(u8, log_scope, scope_name))
-                break true;
+                break;
         } else return;
     }
 
@@ -155,6 +161,8 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             return std.process.execve(arena, modified_args, &env_map);
         }
     }
+
+    defer log_scopes.deinit(gpa);
 
     const cmd = args[1];
     const cmd_args = args[2..];
@@ -358,6 +366,7 @@ const usage_build_generic =
     \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR
     \\  --verbose-cimport            Enable compiler debug output for C imports
     \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
+    \\  --debug-log [scope]          Enable printing debug/info log messages for scope
     \\
 ;
 
@@ -811,6 +820,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
+                    } else if (mem.eql(u8, arg, "--debug-log")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                        i += 1;
+                        try log_scopes.append(gpa, args[i]);
                     } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
                         want_compiler_rt = true;
                     } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
