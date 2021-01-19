@@ -20,3 +20,10 @@ else if (std.io.mode == .evented)
     primitives.event
 else
     primitives.os;
+
+test "" {
+    _ = atomic;
+    _ = backend;
+    _ = core;
+    _ = primitives;
+}

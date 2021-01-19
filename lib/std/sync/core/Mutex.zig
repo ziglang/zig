@@ -193,7 +193,7 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                     /// the next `release*()` doesn't do an unnecessary wake-up.
                     pub fn onTimeout(this: @This(), has_more: bool) void {
                         if (!has_more) {
-                            _ = atomic.bitReset(
+                            _ = atomic.bitUnset(
                                 &this.mutex.state,
                                 @ctz(u3, @as(u8, PARKED)),
                                 .Relaxed,

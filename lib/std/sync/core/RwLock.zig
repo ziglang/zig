@@ -63,7 +63,7 @@ pub fn RwLock(comptime parking_lot: type) type {
             if (state & READER_MASK != 0) {
                 if (deadline) |deadline_ns| {
                     self.semaphore.tryWaitUntil(deadline) catch {
-                        _ = atomic.bitReset(&self.state, @ctz(u3, IS_WRITING), .SeqCst);
+                        _ = atomic.bitUnset(&self.state, @ctz(u3, IS_WRITING), .SeqCst);
                         held.release();
                         return error.TimedOut;
                     };
@@ -161,7 +161,7 @@ pub fn RwLock(comptime parking_lot: type) type {
         };
 
         fn release(self: *Self, held: Mutex.Held) void {
-            _ = atomic.bitReset(&self.state, @ctz(u3, IS_WRITING), .SeqCst);
+            _ = atomic.bitUnset(&self.state, @ctz(u3, IS_WRITING), .SeqCst);
             held.release();
         }
 
