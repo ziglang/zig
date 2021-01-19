@@ -12,7 +12,23 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const spec = @import("../codegen/spirv/spec.zig");
 
-//! SPIR-V Documentation: https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html
+//! SPIR-V Spec documentation: https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html
+//! According to above documentation, a SPIR-V module has the following logical layout:
+//! Header.
+//! OpCapability instructions.
+//! OpExtension instructions.
+//! OpExtInstImport instructions.
+//! A single OpMemoryModel instruction.
+//! All entry points, declared with OpEntryPoint instructions.
+//! All execution-mode declarators; OpExecutionMode and OpExecutionModeId instructions.
+//! Debug instructions:
+//! - First, OpString, OpSourceExtension, OpSource, OpSourceContinued (no forward references).
+//! - OpName and OpMemberName instructions.
+//! - OpModuleProcessed instructions.
+//! All annotation (decoration) instructions.
+//! All type declaration instructions, constant instructions, global variable declarations, (preferrably) OpUndef instructions.
+//! All function declarations without a body (extern functions presumably).
+//! All regular functions.
 
 pub const FnData = struct {
     id: ?u32 = null,
@@ -103,7 +119,6 @@ pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
     decl.fn_link.spirv.code.deinit(self.base.allocator);
     decl.fn_link.spirv = undefined;
 }
-
 pub fn flush(self: *SpirV, comp: *Compilation) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
         return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
@@ -118,34 +133,60 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
 
     const module = self.base.options.module.?;
 
-    const file = self.base.file.?;
-    var bw = std.io.bufferedWriter(file.writer());
-    const writer = bw.writer();
+    var binary = std.ArrayList(u32).init(self.base.allocator);
+    defer binary.deinit();
 
     // Header
-    // SPIR-V files support both little and big endian words. The actual format is disambiguated by
-    // the magic number. This backend uses little endian.
-    try writer.writeIntLittle(u32, spec.magic_number);
-    try writer.writeIntLittle(u32, (spec.version.major << 16) | (spec.version.minor) << 8);
-    try writer.writeIntLittle(u32, 0); // TODO: Register Zig compiler magic number.
-    try writer.writeIntLittle(u32, self.spirv_module.idBound());
-    try writer.writeIntLittle(u32, 0); // Schema.
+    {
+        const header = [_]u32{
+            spec.magic_number,
+            (spec.version.major << 16) | (spec.version.minor << 8),
+            0, // TODO: Register Zig compiler magic number.
+            self.spirv_module.idBound(),
+            0, // Schema (currently reserved for future use in the SPIR-V spec).
+        };
+        try binary.appendSlice(&header);
+    }
 
-    // Declarations
+    // Collect list of buffers to write.
+    // SPIR-V files support both little and big endian words. The actual format is
+    // disambiguated by the magic number, and so theoretically we don't need to worry
+    // about endian-ness when writing the final binary.
+    var all_buffers = std.ArrayList(std.os.iovec_const).init(self.base.allocator);
+    defer all_buffers.deinit();
+
+    // Pre-allocate enough for the binary info + all functions
+    try all_buffers.ensureCapacity(module.decl_table.count() + 1);
+
+    all_buffers.appendAssumeCapacity(wordsToIovConst(binary.items));
+
+    // Functions
     for (module.decl_table.items()) |entry| {
         const decl = entry.value;
         switch (decl.typed_value) {
             .most_recent => |tvm| {
                 const fn_data = &decl.fn_link.spirv;
-
-                // TODO: This could probably be more efficient.
-                for (fn_data.code.items) |word| {
-                    try writer.writeIntLittle(u32, word);
-                }
+                all_buffers.appendAssumeCapacity(wordsToIovConst(fn_data.code.items));
             },
             .never_succeeded => continue,
         }
     }
 
-    try bw.flush();
+    var file_size: u64 = 0;
+    for (all_buffers.items) |iov| {
+        file_size += iov.iov_len;
+    }
+
+    const file = self.base.file.?;
+    try file.seekTo(0);
+    try file.setEndPos(file_size);
+    try file.pwritevAll(all_buffers.items, 0);
+}
+
+fn wordsToIovConst(words: []const u32) std.os.iovec_const {
+    const bytes = std.mem.sliceAsBytes(words);
+    return .{
+        .iov_base = bytes.ptr,
+        .iov_len = bytes.len,
+    };
 }
