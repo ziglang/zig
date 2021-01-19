@@ -696,7 +696,10 @@ pub const TestContext = struct {
                 var all_errors = try comp.getAllErrorsAlloc();
                 defer all_errors.deinit(allocator);
                 if (all_errors.list.len != 0) {
-                    std.debug.print("\nErrors occurred updating the compilation:\n{s}\n", .{hr});
+                    std.debug.print(
+                        "\nCase '{s}': unexpected errors at update_index={d}:\n{s}\n",
+                        .{ case.name, update_index, hr },
+                    );
                     for (all_errors.list) |err_msg| {
                         switch (err_msg) {
                             .src => |src| {

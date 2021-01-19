@@ -127,18 +127,26 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .cmp_gt => return analyzeInstCmp(mod, scope, old_inst.castTag(.cmp_gt).?, .gt),
         .cmp_neq => return analyzeInstCmp(mod, scope, old_inst.castTag(.cmp_neq).?, .neq),
         .condbr => return analyzeInstCondBr(mod, scope, old_inst.castTag(.condbr).?),
-        .isnull => return analyzeInstIsNonNull(mod, scope, old_inst.castTag(.isnull).?, true),
-        .isnonnull => return analyzeInstIsNonNull(mod, scope, old_inst.castTag(.isnonnull).?, false),
-        .iserr => return analyzeInstIsErr(mod, scope, old_inst.castTag(.iserr).?),
+        .is_null => return isNull(mod, scope, old_inst.castTag(.is_null).?, false),
+        .is_non_null => return isNull(mod, scope, old_inst.castTag(.is_non_null).?, true),
+        .is_null_ptr => return isNullPtr(mod, scope, old_inst.castTag(.is_null_ptr).?, false),
+        .is_non_null_ptr => return isNullPtr(mod, scope, old_inst.castTag(.is_non_null_ptr).?, true),
+        .is_err => return isErr(mod, scope, old_inst.castTag(.is_err).?),
+        .is_err_ptr => return isErrPtr(mod, scope, old_inst.castTag(.is_err_ptr).?),
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
         .typeof_peer => return analyzeInstTypeOfPeer(mod, scope, old_inst.castTag(.typeof_peer).?),
         .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
-        .unwrap_optional_safe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_safe).?, true),
-        .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
-        .unwrap_err_safe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_safe).?, true),
-        .unwrap_err_unsafe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_unsafe).?, false),
-        .unwrap_err_code => return analyzeInstUnwrapErrCode(mod, scope, old_inst.castTag(.unwrap_err_code).?),
+        .optional_payload_safe => return optionalPayload(mod, scope, old_inst.castTag(.optional_payload_safe).?, true),
+        .optional_payload_unsafe => return optionalPayload(mod, scope, old_inst.castTag(.optional_payload_unsafe).?, false),
+        .optional_payload_safe_ptr => return optionalPayloadPtr(mod, scope, old_inst.castTag(.optional_payload_safe_ptr).?, true),
+        .optional_payload_unsafe_ptr => return optionalPayloadPtr(mod, scope, old_inst.castTag(.optional_payload_unsafe_ptr).?, false),
+        .err_union_payload_safe => return errorUnionPayload(mod, scope, old_inst.castTag(.err_union_payload_safe).?, true),
+        .err_union_payload_unsafe => return errorUnionPayload(mod, scope, old_inst.castTag(.err_union_payload_unsafe).?, false),
+        .err_union_payload_safe_ptr => return errorUnionPayloadPtr(mod, scope, old_inst.castTag(.err_union_payload_safe_ptr).?, true),
+        .err_union_payload_unsafe_ptr => return errorUnionPayloadPtr(mod, scope, old_inst.castTag(.err_union_payload_unsafe_ptr).?, false),
+        .err_union_code => return errorUnionCode(mod, scope, old_inst.castTag(.err_union_code).?),
+        .err_union_code_ptr => return errorUnionCodePtr(mod, scope, old_inst.castTag(.err_union_code_ptr).?),
         .ensure_err_payload_void => return analyzeInstEnsureErrPayloadVoid(mod, scope, old_inst.castTag(.ensure_err_payload_void).?),
         .array_type => return analyzeInstArrayType(mod, scope, old_inst.castTag(.array_type).?),
         .array_type_sentinel => return analyzeInstArrayTypeSentinel(mod, scope, old_inst.castTag(.array_type_sentinel).?),
@@ -1104,48 +1112,109 @@ fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiter
     });
 }
 
-fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
+/// Pointer in, pointer out.
+fn optionalPayloadPtr(
+    mod: *Module,
+    scope: *Scope,
+    unwrap: *zir.Inst.UnOp,
+    safety_check: bool,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
-    assert(operand.ty.zigTypeTag() == .Pointer);
 
-    const elem_type = operand.ty.elemType();
-    if (elem_type.zigTypeTag() != .Optional) {
-        return mod.fail(scope, unwrap.base.src, "expected optional type, found {}", .{elem_type});
+    const optional_ptr = try resolveInst(mod, scope, unwrap.positionals.operand);
+    assert(optional_ptr.ty.zigTypeTag() == .Pointer);
+
+    const opt_type = optional_ptr.ty.elemType();
+    if (opt_type.zigTypeTag() != .Optional) {
+        return mod.fail(scope, unwrap.base.src, "expected optional type, found {}", .{opt_type});
     }
 
-    const child_type = try elem_type.optionalChildAlloc(scope.arena());
-    const child_pointer = try mod.simplePtrType(scope, unwrap.base.src, child_type, operand.ty.isConstPtr(), .One);
+    const child_type = try opt_type.optionalChildAlloc(scope.arena());
+    const child_pointer = try mod.simplePtrType(scope, unwrap.base.src, child_type, !optional_ptr.ty.isConstPtr(), .One);
+
+    if (optional_ptr.value()) |pointer_val| {
+        const val = try pointer_val.pointerDeref(scope.arena());
+        if (val.isNull()) {
+            return mod.fail(scope, unwrap.base.src, "unable to unwrap null", .{});
+        }
+        // The same Value represents the pointer to the optional and the payload.
+        return mod.constInst(scope, unwrap.base.src, .{
+            .ty = child_pointer,
+            .val = pointer_val,
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
+    if (safety_check and mod.wantSafety(scope)) {
+        const is_non_null = try mod.addUnOp(b, unwrap.base.src, Type.initTag(.bool), .is_non_null_ptr, optional_ptr);
+        try mod.addSafetyCheck(b, is_non_null, .unwrap_null);
+    }
+    return mod.addUnOp(b, unwrap.base.src, child_pointer, .optional_payload_ptr, optional_ptr);
+}
+
+/// Value in, value out.
+fn optionalPayload(
+    mod: *Module,
+    scope: *Scope,
+    unwrap: *zir.Inst.UnOp,
+    safety_check: bool,
+) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
+    const opt_type = operand.ty;
+    if (opt_type.zigTypeTag() != .Optional) {
+        return mod.fail(scope, unwrap.base.src, "expected optional type, found {}", .{opt_type});
+    }
+
+    const child_type = try opt_type.optionalChildAlloc(scope.arena());
 
     if (operand.value()) |val| {
         if (val.isNull()) {
             return mod.fail(scope, unwrap.base.src, "unable to unwrap null", .{});
         }
         return mod.constInst(scope, unwrap.base.src, .{
-            .ty = child_pointer,
+            .ty = child_type,
             .val = val,
         });
     }
 
     const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
     if (safety_check and mod.wantSafety(scope)) {
-        const is_non_null = try mod.addUnOp(b, unwrap.base.src, Type.initTag(.bool), .isnonnull, operand);
+        const is_non_null = try mod.addUnOp(b, unwrap.base.src, Type.initTag(.bool), .is_non_null, operand);
         try mod.addSafetyCheck(b, is_non_null, .unwrap_null);
     }
-    return mod.addUnOp(b, unwrap.base.src, child_pointer, .unwrap_optional, operand);
+    return mod.addUnOp(b, unwrap.base.src, child_type, .optional_payload, operand);
 }
 
-fn analyzeInstUnwrapErr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
+/// Value in, value out
+fn errorUnionPayload(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstUnwrapErr", .{});
+    return mod.fail(scope, unwrap.base.src, "TODO implement zir_sema.errorUnionPayload", .{});
 }
 
-fn analyzeInstUnwrapErrCode(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
+/// Pointer in, pointer out
+fn errorUnionPayloadPtr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstUnwrapErrCode", .{});
+    return mod.fail(scope, unwrap.base.src, "TODO implement zir_sema.errorUnionPayloadPtr", .{});
+}
+
+/// Value in, value out
+fn errorUnionCode(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+    return mod.fail(scope, unwrap.base.src, "TODO implement zir_sema.errorUnionCode", .{});
+}
+
+/// Pointer in, value out
+fn errorUnionCodePtr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+    return mod.fail(scope, unwrap.base.src, "TODO implement zir_sema.errorUnionCodePtr", .{});
 }
 
 fn analyzeInstEnsureErrPayloadVoid(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
@@ -2074,18 +2143,34 @@ fn analyzeInstBoolOp(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerEr
     return mod.addBinOp(b, inst.base.src, bool_type, if (is_bool_or) .boolor else .booland, lhs, rhs);
 }
 
-fn analyzeInstIsNonNull(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {
+fn isNull(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.analyzeIsNull(scope, inst.base.src, operand, invert_logic);
 }
 
-fn analyzeInstIsErr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+fn isNullPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const ptr = try resolveInst(mod, scope, inst.positionals.operand);
+    const loaded = try mod.analyzeDeref(scope, inst.base.src, ptr, ptr.src);
+    return mod.analyzeIsNull(scope, inst.base.src, loaded, invert_logic);
+}
+
+fn isErr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.analyzeIsErr(scope, inst.base.src, operand);
+}
+
+fn isErrPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const ptr = try resolveInst(mod, scope, inst.positionals.operand);
+    const loaded = try mod.analyzeDeref(scope, inst.base.src, ptr, ptr.src);
+    return mod.analyzeIsErr(scope, inst.base.src, loaded);
 }
 
 fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerError!*Inst {

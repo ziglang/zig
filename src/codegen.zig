@@ -860,9 +860,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .dbg_stmt => return self.genDbgStmt(inst.castTag(.dbg_stmt).?),
                 .floatcast => return self.genFloatCast(inst.castTag(.floatcast).?),
                 .intcast => return self.genIntCast(inst.castTag(.intcast).?),
-                .isnonnull => return self.genIsNonNull(inst.castTag(.isnonnull).?),
-                .isnull => return self.genIsNull(inst.castTag(.isnull).?),
-                .iserr => return self.genIsErr(inst.castTag(.iserr).?),
+                .is_non_null => return self.genIsNonNull(inst.castTag(.is_non_null).?),
+                .is_non_null_ptr => return self.genIsNonNullPtr(inst.castTag(.is_non_null_ptr).?),
+                .is_null => return self.genIsNull(inst.castTag(.is_null).?),
+                .is_null_ptr => return self.genIsNullPtr(inst.castTag(.is_null_ptr).?),
+                .is_err => return self.genIsErr(inst.castTag(.is_err).?),
+                .is_err_ptr => return self.genIsErrPtr(inst.castTag(.is_err_ptr).?),
                 .load => return self.genLoad(inst.castTag(.load).?),
                 .loop => return self.genLoop(inst.castTag(.loop).?),
                 .not => return self.genNot(inst.castTag(.not).?),
@@ -874,7 +877,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .switchbr => return self.genSwitch(inst.castTag(.switchbr).?),
                 .unreach => return MCValue{ .unreach = {} },
-                .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
+                .optional_payload => return self.genOptionalPayload(inst.castTag(.optional_payload).?),
+                .optional_payload_ptr => return self.genOptionalPayloadPtr(inst.castTag(.optional_payload_ptr).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
                 .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
                 .xor => return self.genXor(inst.castTag(.xor).?),
@@ -1118,12 +1122,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genUnwrapOptional(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+        fn genOptionalPayload(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
-                else => return self.fail(inst.base.src, "TODO implement unwrap optional for {}", .{self.target.cpu.arch}),
+                else => return self.fail(inst.base.src, "TODO implement .optional_payload for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genOptionalPayloadPtr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement .optional_payload_ptr for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -2306,6 +2319,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        fn genIsNullPtr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            return self.fail(inst.base.src, "TODO load the operand and call genIsNull", .{});
+        }
+
         fn genIsNonNull(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             // Here you can specialize this instruction if it makes sense to, otherwise the default
             // will call genIsNull and invert the result.
@@ -2314,10 +2331,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        fn genIsNonNullPtr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            return self.fail(inst.base.src, "TODO load the operand and call genIsNonNull", .{});
+        }
+
         fn genIsErr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO implement iserr for {}", .{self.target.cpu.arch}),
             }
+        }
+
+        fn genIsErrPtr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            return self.fail(inst.base.src, "TODO load the operand and call genIsErr", .{});
         }
 
         fn genLoop(self: *Self, inst: *ir.Inst.Loop) !MCValue {
