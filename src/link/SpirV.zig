@@ -38,7 +38,7 @@ pub const FnData = struct {
 base: link.File,
 
 // TODO: Does this file need to support multiple independent modules?
-spirv_module: codegen.SPIRVModule = .{},
+spirv_module: codegen.SPIRVModule,
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
     const spirv = try gpa.create(SpirV);
@@ -49,6 +49,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
             .file = null,
             .allocator = gpa,
         },
+        .spirv_module = codegen.SPIRVModule.init(gpa),
     };
 
     // TODO: Figure out where to put all of these
@@ -87,6 +88,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 }
 
 pub fn deinit(self: *SpirV) void {
+    self.spirv_module.deinit();
 }
 
 pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {
@@ -116,9 +118,12 @@ pub fn updateDeclExports(
 ) !void {}
 
 pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
-    decl.fn_link.spirv.code.deinit(self.base.allocator);
+    var fn_data = decl.fn_link.spirv;
+    fn_data.code.deinit(self.base.allocator);
+    if (fn_data.id) |id| self.spirv_module.freeId(id);
     decl.fn_link.spirv = undefined;
 }
+
 pub fn flush(self: *SpirV, comp: *Compilation) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
         return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
@@ -137,8 +142,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     var binary = std.ArrayList(u32).init(self.base.allocator);
     defer binary.deinit();
 
-    // Note: The order of adding functions to the final binary
-    // follows the SPIR-V logical moduel format!
+    // Note: The order of adding sections to the final binary
+    // follows the SPIR-V logical module format!
 
     try binary.appendSlice(&[_]u32{
         spec.magic_number,
