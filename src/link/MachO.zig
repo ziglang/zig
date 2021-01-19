@@ -120,6 +120,7 @@ stub_helper_stubs_start_off: ?u64 = null,
 
 /// Table of symbol names aka the string table.
 string_table: std.ArrayListUnmanaged(u8) = .{},
+string_table_directory: std.StringHashMapUnmanaged(u32) = .{},
 
 /// Table of trampolines to the actual symbols in __text section.
 offset_table: std.ArrayListUnmanaged(u64) = .{},
@@ -1023,6 +1024,13 @@ pub fn deinit(self: *MachO) void {
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
+    {
+        var it = self.string_table_directory.iterator();
+        while (it.next()) |entry| {
+            self.base.allocator.free(entry.key);
+        }
+    }
+    self.string_table_directory.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
     self.global_symbol_free_list.deinit(self.base.allocator);
@@ -2235,14 +2243,26 @@ pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
 }
 
 fn makeString(self: *MachO, bytes: []const u8) !u32 {
+    if (self.string_table_directory.get(bytes)) |offset| {
+        log.debug("reusing '{s}' from string table at offset 0x{x}", .{ bytes, offset });
+        return offset;
+    }
+
     try self.string_table.ensureCapacity(self.base.allocator, self.string_table.items.len + bytes.len + 1);
     const offset = @intCast(u32, self.string_table.items.len);
-    log.debug("writing '{s}' into the string table at offset 0x{x}", .{ bytes, offset });
+    log.debug("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
+    try self.string_table_directory.putNoClobber(
+        self.base.allocator,
+        try self.base.allocator.dupe(u8, bytes),
+        offset,
+    );
+
     self.string_table_dirty = true;
     if (self.d_sym) |*ds|
         ds.string_table_dirty = true;
+
     return offset;
 }
 
