@@ -2377,7 +2377,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
         const src_fn = &decl.fn_link.elf;
         src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
-        if (self.dbg_line_fn_last) |last| {
+        if (self.dbg_line_fn_last) |last| not_first: {
             if (src_fn.next) |next| {
                 // Update existing function - non-last item.
                 if (src_fn.off + src_fn.len + min_nop_size > next.off) {
@@ -2400,9 +2400,15 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
                     src_fn.off = last.off + padToIdeal(last.len);
                 }
             } else if (src_fn.prev == null) {
+                if (src_fn == last) {
+                    // Special case: there is only 1 function and it is being updated.
+                    // In this case there is nothing to do. The function's length has
+                    // already been updated, and the logic below takes care of
+                    // resizing the .debug_line section.
+                    break :not_first;
+                }
                 // Append new function.
                 // TODO Look at the free list before appending at the end.
-                assert(src_fn != last);
                 src_fn.prev = last;
                 last.next = src_fn;
                 self.dbg_line_fn_last = src_fn;
@@ -2527,7 +2533,7 @@ fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !
 
     const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
     text_block.dbg_info_len = len;
-    if (self.dbg_info_decl_last) |last| {
+    if (self.dbg_info_decl_last) |last| not_first: {
         if (text_block.dbg_info_next) |next| {
             // Update existing Decl - non-last item.
             if (text_block.dbg_info_off + text_block.dbg_info_len + min_nop_size > next.dbg_info_off) {
@@ -2549,6 +2555,13 @@ fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !
                 text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
             }
         } else if (text_block.dbg_info_prev == null) {
+            if (text_block == last) {
+                // Special case: there is only 1 .debug_info block and it is being updated.
+                // In this case there is nothing to do. The block's length has
+                // already been updated, and logic in writeDeclDebugInfo takes care of
+                // resizing the .debug_info section.
+                break :not_first;
+            }
             // Append new Decl.
             // TODO Look at the free list before appending at the end.
             text_block.dbg_info_prev = last;
