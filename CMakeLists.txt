@@ -496,6 +496,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/sync/backend/backend.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sync/backend/darwin.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sync/backend/event.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/sync/backend/futex.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sync/backend/linux.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sync/backend/posix.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sync/backend/spin.zig"

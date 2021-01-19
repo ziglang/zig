@@ -176,8 +176,7 @@ pub fn Lock(comptime config: anytype) type {
                 waiter.event.wait(null) catch unreachable;
                 
                 // Reset all the state in order to spin again
-                waiter.event.deinit();
-                has_event = false;
+                waiter.event.reset();
                 spin_iter = 0;
 
                 // Use `fetchSub` on x86 as it can be done without a `lock cmpxchg` loop.

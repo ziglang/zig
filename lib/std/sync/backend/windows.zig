@@ -40,6 +40,10 @@ pub const Event = extern struct {
         self.event.set();
     }
 
+    pub fn reset(self: *Event) void {
+        self.event = .{};
+    }
+
     pub fn yield(iteration: ?usize) bool {
         const iter = iteration orelse {
             Backend.OsEvent.yield();
