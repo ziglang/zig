@@ -9,6 +9,7 @@ const elf = std.elf;
 const log = std.log.scoped(.link);
 const DW = std.dwarf;
 const leb128 = std.leb;
+const math = std.math;
 
 const ir = @import("../ir.zig");
 const Module = @import("../Module.zig");
@@ -1976,8 +1977,13 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             // Is it enough that we could fit this new text block?
             const sym = self.local_symbols.items[big_block.local_sym_index];
             const capacity = big_block.capacity(self.*);
-            const ideal_capacity = capacity * alloc_num / alloc_den;
-            const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
+            const ideal_capacity_end_vaddr: u64 = ideal_cap: {
+                if (math.mul(u64, @divTrunc(capacity, alloc_den), alloc_num)) |cap| {
+                    break :ideal_cap math.add(u64, sym.st_value, cap) catch math.maxInt(u64);
+                } else |_| {
+                    break :ideal_cap math.maxInt(u64);
+                }
+            };
             const capacity_end_vaddr = sym.st_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
             const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
