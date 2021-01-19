@@ -3056,7 +3056,7 @@ pub const ClangArgIterator = struct {
             arg = mem.span(self.argv[self.next_index]);
             self.incrementArgIndex();
         }
-        if (!mem.startsWith(u8, arg, "-")) {
+        if (mem.eql(u8, arg, "-") or !mem.startsWith(u8, arg, "-")) {
             self.zig_equivalent = .positional;
             self.only_arg = arg;
             return;
