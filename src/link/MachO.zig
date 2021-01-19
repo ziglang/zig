@@ -143,11 +143,11 @@ string_table_needs_relocation: bool = false,
 /// or removed from the freelist.
 ///
 /// A text block has surplus capacity when its overcapacity value is greater than
-/// minimum_text_block_size * alloc_num / alloc_den. That is, when it has so
+/// padToIdeal(minimum_text_block_size). That is, when it has so
 /// much extra capacity, that we could fit a small new symbol in it, itself with
 /// ideal_capacity or more.
 ///
-/// Ideal capacity is defined by size * alloc_num / alloc_den.
+/// Ideal capacity is defined by size + (size / ideal_factor).
 ///
 /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
 /// overcapacity can be negative. A simple way to have negative overcapacity is to
@@ -192,9 +192,9 @@ pub const StubFixup = struct {
     len: usize,
 };
 
-/// `alloc_num / alloc_den` is the factor of padding when allocating.
-pub const alloc_num = 4;
-pub const alloc_den = 3;
+/// When allocating, the ideal_capacity is calculated by
+/// actual_capacity + (actual_capacity / ideal_factor)
+const ideal_factor = 2;
 
 /// Default path to dyld
 /// TODO instead of hardcoding it, we should probably look through some env vars and search paths
@@ -214,7 +214,7 @@ const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.
 /// it as a possible place to put new symbols, it must have enough room for this many bytes
 /// (plus extra for reserved capacity).
 const minimum_text_block_size = 64;
-const min_text_capacity = minimum_text_block_size * alloc_num / alloc_den;
+const min_text_capacity = padToIdeal(minimum_text_block_size);
 
 pub const TextBlock = struct {
     /// Each decl always gets a local symbol with the fully qualified name.
@@ -277,7 +277,7 @@ pub const TextBlock = struct {
         const self_sym = macho_file.local_symbols.items[self.local_sym_index];
         const next_sym = macho_file.local_symbols.items[next.local_sym_index];
         const cap = next_sym.n_value - self_sym.n_value;
-        const ideal_cap = self.size * alloc_num / alloc_den;
+        const ideal_cap = padToIdeal(self.size);
         if (cap <= ideal_cap) return false;
         const surplus = cap - ideal_cap;
         return surplus >= min_text_capacity;
@@ -873,7 +873,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const text_section = text_segment.sections.items[self.text_section_index.?];
                 const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+                const needed_size = padToIdeal(@sizeOf(macho.linkedit_data_command));
 
                 if (needed_size + after_last_cmd_offset > text_section.offset) {
                     log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
@@ -943,7 +943,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const text_section = text_segment.sections.items[self.text_section_index.?];
                 const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+                const needed_size = padToIdeal(@sizeOf(macho.linkedit_data_command));
 
                 if (needed_size + after_last_cmd_offset > text_section.offset) {
                     log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
@@ -1491,7 +1491,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const program_code_size_hint = self.base.options.program_code_size_hint;
         const offset_table_size_hint = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const ideal_size = self.header_pad + program_code_size_hint + 3 * offset_table_size_hint;
-        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
 
@@ -1656,7 +1656,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const address_and_offset = self.nextSegmentAddressAndOffset();
 
         const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __DATA_CONST segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
@@ -1713,7 +1713,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const address_and_offset = self.nextSegmentAddressAndOffset();
 
         const ideal_size = 2 * @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __DATA segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
@@ -2133,7 +2133,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text_section = &text_segment.sections.items[self.text_section_index.?];
-    const new_block_ideal_capacity = new_block_size * alloc_num / alloc_den;
+    const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
     // and possibly removing a free list node.
@@ -2153,13 +2153,8 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
             // Is it enough that we could fit this new text block?
             const sym = self.local_symbols.items[big_block.local_sym_index];
             const capacity = big_block.capacity(self.*);
-            const ideal_capacity_end_vaddr: u64 = ideal_cap: {
-                if (math.mul(u64, @divTrunc(capacity, alloc_den), alloc_num)) |cap| {
-                    break :ideal_cap math.add(u64, sym.n_value, cap) catch math.maxInt(u64);
-                } else |_| {
-                    break :ideal_cap math.maxInt(u64);
-                }
-            };
+            const ideal_capacity = padToIdeal(capacity);
+            const ideal_capacity_end_vaddr = sym.n_value + ideal_capacity;
             const capacity_end_vaddr = sym.n_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
             const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
@@ -2190,7 +2185,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
             const last_symbol = self.local_symbols.items[last.local_sym_index];
             // TODO We should pad out the excess capacity with NOPs. For executables,
             // no padding seems to be OK, but it will probably not be for objects.
-            const ideal_capacity = last.size * alloc_num / alloc_den;
+            const ideal_capacity = padToIdeal(last.size);
             const ideal_capacity_end_vaddr = last_symbol.n_value + ideal_capacity;
             const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
             block_placement = last;
@@ -2365,7 +2360,7 @@ fn allocatedSizeLinkedit(self: *MachO, start: u64) u64 {
 }
 
 inline fn checkForCollision(start: u64, end: u64, off: u64, size: u64) ?u64 {
-    const increased_size = satMul(size, alloc_num) / alloc_den;
+    const increased_size = padToIdeal(size);
     const test_end = off + increased_size;
     if (end > off and start < test_end) {
         return test_end;
@@ -2374,7 +2369,7 @@ inline fn checkForCollision(start: u64, end: u64, off: u64, size: u64) ?u64 {
 }
 
 fn detectAllocCollisionLinkedit(self: *MachO, start: u64, size: u64) ?u64 {
-    const end = start + satMul(size, alloc_num) / alloc_den;
+    const end = start + padToIdeal(size);
 
     // __LINKEDIT is a weird segment where sections get their own load commands so we
     // special-case it.
@@ -2453,12 +2448,6 @@ fn findFreeSpaceLinkedit(self: *MachO, object_size: u64, min_alignment: u16, sta
         st = mem.alignForwardGeneric(u64, item_end, min_alignment);
     }
     return st;
-}
-
-/// Saturating multiplication
-pub fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
-    const T = @TypeOf(a, b);
-    return std.math.mul(T, a, b) catch std.math.maxInt(T);
 }
 
 fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
@@ -3274,4 +3263,10 @@ fn fixupInfoCommon(self: *MachO, buffer: []u8, dylib_ordinal: u32) !void {
             else => {},
         }
     }
+}
+
+pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
+    // TODO https://github.com/ziglang/zig/issues/1284
+    return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
+        std.math.maxInt(@TypeOf(actual_size));
 }
