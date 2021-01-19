@@ -174,11 +174,17 @@ pub const Inst = struct {
         /// Make an integer type out of signedness and bit count.
         inttype,
         /// Return a boolean false if an optional is null. `x != null`
-        isnonnull,
+        is_non_null,
         /// Return a boolean true if an optional is null. `x == null`
-        isnull,
+        is_null,
+        /// Return a boolean false if an optional is null. `x.* != null`
+        is_non_null_ptr,
+        /// Return a boolean true if an optional is null. `x.* == null`
+        is_null_ptr,
         /// Return a boolean true if value is an error
-        iserr,
+        is_err,
+        /// Return a boolean true if dereferenced pointer is an error
+        is_err_ptr,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
         loop,
@@ -278,16 +284,42 @@ pub const Inst = struct {
         optional_type,
         /// Create a union type.
         union_type,
-        /// Unwraps an optional value 'lhs.?'
-        unwrap_optional_safe,
-        /// Same as previous, but without safety checks. Used for orelse, if and while
-        unwrap_optional_unsafe,
-        /// Gets the payload of an error union
-        unwrap_err_safe,
-        /// Same as previous, but without safety checks. Used for orelse, if and while
-        unwrap_err_unsafe,
-        /// Gets the error code value of an error union
-        unwrap_err_code,
+        /// ?T => T with safety.
+        /// Given an optional value, returns the payload value, with a safety check that
+        /// the value is non-null. Used for `orelse`, `if` and `while`.
+        optional_payload_safe,
+        /// ?T => T without safety.
+        /// Given an optional value, returns the payload value. No safety checks.
+        optional_payload_unsafe,
+        /// *?T => *T with safety.
+        /// Given a pointer to an optional value, returns a pointer to the payload value,
+        /// with a safety check that the value is non-null. Used for `orelse`, `if` and `while`.
+        optional_payload_safe_ptr,
+        /// *?T => *T without safety.
+        /// Given a pointer to an optional value, returns a pointer to the payload value.
+        /// No safety checks.
+        optional_payload_unsafe_ptr,
+        /// E!T => T with safety.
+        /// Given an error union value, returns the payload value, with a safety check
+        /// that the value is not an error. Used for catch, if, and while.
+        err_union_payload_safe,
+        /// E!T => T without safety.
+        /// Given an error union value, returns the payload value. No safety checks.
+        err_union_payload_unsafe,
+        /// *E!T => *T with safety.
+        /// Given a pointer to an error union value, returns a pointer to the payload value,
+        /// with a safety check that the value is not an error. Used for catch, if, and while.
+        err_union_payload_safe_ptr,
+        /// *E!T => *T without safety.
+        /// Given a pointer to a error union value, returns a pointer to the payload value.
+        /// No safety checks.
+        err_union_payload_unsafe_ptr,
+        /// E!T => E without safety.
+        /// Given an error union value, returns the error code. No safety checks.
+        err_union_code,
+        /// *E!T => E without safety.
+        /// Given a pointer to an error union value, returns the error code. No safety checks.
+        err_union_code_ptr,
         /// Takes a *E!T and raises a compiler error if T != void
         ensure_err_payload_void,
         /// Create a enum literal,
@@ -320,9 +352,12 @@ pub const Inst = struct {
                 .compileerror,
                 .deref,
                 .@"return",
-                .isnull,
-                .isnonnull,
-                .iserr,
+                .is_null,
+                .is_non_null,
+                .is_null_ptr,
+                .is_non_null_ptr,
+                .is_err,
+                .is_err_ptr,
                 .ptrtoint,
                 .ensure_result_used,
                 .ensure_result_non_error,
@@ -341,11 +376,16 @@ pub const Inst = struct {
                 .mut_slice_type,
                 .const_slice_type,
                 .optional_type,
-                .unwrap_optional_safe,
-                .unwrap_optional_unsafe,
-                .unwrap_err_safe,
-                .unwrap_err_unsafe,
-                .unwrap_err_code,
+                .optional_payload_safe,
+                .optional_payload_unsafe,
+                .optional_payload_safe_ptr,
+                .optional_payload_unsafe_ptr,
+                .err_union_payload_safe,
+                .err_union_payload_unsafe,
+                .err_union_payload_safe_ptr,
+                .err_union_payload_unsafe_ptr,
+                .err_union_code,
+                .err_union_code_ptr,
                 .ensure_err_payload_void,
                 .anyframe_type,
                 .bitnot,
@@ -495,9 +535,12 @@ pub const Inst = struct {
                 .int,
                 .intcast,
                 .inttype,
-                .isnonnull,
-                .isnull,
-                .iserr,
+                .is_non_null,
+                .is_null,
+                .is_non_null_ptr,
+                .is_null_ptr,
+                .is_err,
+                .is_err_ptr,
                 .mod_rem,
                 .mul,
                 .mulwrap,
@@ -525,11 +568,16 @@ pub const Inst = struct {
                 .typeof,
                 .xor,
                 .optional_type,
-                .unwrap_optional_safe,
-                .unwrap_optional_unsafe,
-                .unwrap_err_safe,
-                .unwrap_err_unsafe,
-                .unwrap_err_code,
+                .optional_payload_safe,
+                .optional_payload_unsafe,
+                .optional_payload_safe_ptr,
+                .optional_payload_unsafe_ptr,
+                .err_union_payload_safe,
+                .err_union_payload_unsafe,
+                .err_union_payload_safe_ptr,
+                .err_union_payload_unsafe_ptr,
+                .err_union_code,
+                .err_union_code_ptr,
                 .ptr_type,
                 .ensure_err_payload_void,
                 .enum_literal,
@@ -1540,14 +1588,18 @@ const DumpTzir = struct {
                 .ret,
                 .bitcast,
                 .not,
-                .isnonnull,
-                .isnull,
-                .iserr,
+                .is_non_null,
+                .is_non_null_ptr,
+                .is_null,
+                .is_null_ptr,
+                .is_err,
+                .is_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
                 .load,
-                .unwrap_optional,
+                .optional_payload,
+                .optional_payload_ptr,
                 .wrap_optional,
                 => {
                     const un_op = inst.cast(ir.Inst.UnOp).?;
@@ -1637,14 +1689,18 @@ const DumpTzir = struct {
                 .ret,
                 .bitcast,
                 .not,
-                .isnonnull,
-                .isnull,
-                .iserr,
+                .is_non_null,
+                .is_null,
+                .is_non_null_ptr,
+                .is_null_ptr,
+                .is_err,
+                .is_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
                 .load,
-                .unwrap_optional,
+                .optional_payload,
+                .optional_payload_ptr,
                 .wrap_optional,
                 => {
                     const un_op = inst.cast(ir.Inst.UnOp).?;

@@ -73,9 +73,18 @@ pub const Inst = struct {
         condbr,
         constant,
         dbg_stmt,
-        isnonnull,
-        isnull,
-        iserr,
+        // ?T => bool
+        is_null,
+        // ?T => bool (inverted logic)
+        is_non_null,
+        // *?T => bool
+        is_null_ptr,
+        // *?T => bool (inverted logic)
+        is_non_null_ptr,
+        // E!T => bool
+        is_err,
+        // *E!T => bool
+        is_err_ptr,
         booland,
         boolor,
         /// Read a value from a pointer.
@@ -93,7 +102,10 @@ pub const Inst = struct {
         not,
         floatcast,
         intcast,
-        unwrap_optional,
+        // ?T => T
+        optional_payload,
+        // *?T => *T
+        optional_payload_ptr,
         wrap_optional,
         xor,
         switchbr,
@@ -111,14 +123,18 @@ pub const Inst = struct {
                 .ret,
                 .bitcast,
                 .not,
-                .isnonnull,
-                .isnull,
-                .iserr,
+                .is_non_null,
+                .is_non_null_ptr,
+                .is_null,
+                .is_null_ptr,
+                .is_err,
+                .is_err_ptr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
                 .load,
-                .unwrap_optional,
+                .optional_payload,
+                .optional_payload_ptr,
                 .wrap_optional,
                 => UnOp,
 
