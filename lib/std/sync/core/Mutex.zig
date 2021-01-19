@@ -8,6 +8,9 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const builtin = std.builtin;
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = builtin.valgrind_support;
+
 pub fn Mutex(comptime parking_lot: anytype) type {
     return extern struct {
         /// Eventually fair mutex implementation derived fron Amanieu's port of Webkits WTF::Lock.
@@ -44,9 +47,15 @@ pub fn Mutex(comptime parking_lot: anytype) type {
         /// Try to acquire ownership of the Mutex if its not currently owned in a non-blocking manner.
         /// Returns true if it was successful in doing so.
         pub fn tryAcquire(self: *Self) ?Held {
-            if (self.tryAcquireFast(UNLOCKED))
-                return Held{ .mutex = self };
-            return null;
+            if (!self.tryAcquireFast(UNLOCKED)) {
+                return null;
+            }
+
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
+
+            return Held{ .mutex = self };
         }
 
         /// Try to acquire ownership of the Mutex, blocking when necessary using the Event.
@@ -87,14 +96,25 @@ pub fn Mutex(comptime parking_lot: anytype) type {
         };
         
         fn acquireInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
-            if (self.tryAcquireFast(UNLOCKED))
-                return Held{ .mutex = self };
-            return self.acquireSlow(deadline);
+            if (!self.tryAcquireFast(UNLOCKED)) {
+                try self.acquireSlow(deadline);
+            }
+
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
+            
+            return Held{ .mutex = self };
         }
 
         fn releaseInner(self: *Self, be_fair: bool) void {
-            if (!self.tryReleaseFast())
-                return self.releaseSlow(be_fair);
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
+
+            if (!self.tryReleaseFast()) {
+                self.releaseSlow(be_fair);
+            }
         }
 
         inline fn tryAcquireFast(self: *Self, assume_state: usize) bool {
@@ -132,7 +152,7 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             ) == null;
         }
 
-        fn acquireSlow(self: *Self, deadline: ?u64) error{TimedOut}!Held {
+        fn acquireSlow(self: *Self, deadline: ?u64) error{TimedOut}!void {
             @setCold(true);
 
             var spin_iter: usize = 0;
@@ -143,7 +163,7 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                 // When fairness is employed, it keeps the LOCKED bit set so this still works.
                 if (state & LOCKED == 0) {
                     if (self.tryAcquireFast(state))
-                        return Held{ .mutex = self };
+                        return;
 
                     _ = parking_lot.Event.yield(null);
                     state = atomic.load(&self.state, .Relaxed); 
@@ -216,7 +236,7 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                 // then we don't need to try and acquire it again as we can
                 // then assume that it has already been acquired for us.
                 switch (token) {
-                    TOKEN_HANDOFF => return Held{ .mutex = self },
+                    TOKEN_HANDOFF => return,
                     TOKEN_RETRY => {},
                     else => unreachable,
                 }

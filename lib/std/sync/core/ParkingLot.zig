@@ -4,6 +4,13 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
+const std = @import("../../std.zig");
+const builtin = std.builtin;
+const testing = std.testing;
+
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = builtin.valgrind_support;
+
 /// ParkingLot is based on Webkit's WTF::ParkingLot whiich provides 
 /// suspend (a.k.a parking) and resume (a.k.a unparking) mechanics 
 /// generically using addresses as keyed wait queues.
@@ -471,6 +478,10 @@ pub fn ParkingLot(comptime config: anytype) type {
                 event.wait(null) catch unreachable;
             }
 
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(address);
+            }
+
             // At this point, the thread that woke us up has updated our token. 
             return wait_node.token;
         }
@@ -553,6 +564,10 @@ pub fn ParkingLot(comptime config: anytype) type {
 
             context.onBeforeWake();
             wait_queue.release();
+
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(address);
+            }
 
             while (true) {
                 const wait_node = wake_list orelse break;

@@ -8,6 +8,9 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const assert = std.debug.assert;
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = builtin.valgrind_support;
+
 pub fn Semaphore(comptime parking_lot: type) type {
     return extern struct {
         permits: usize = 0,
@@ -47,8 +50,14 @@ pub fn Semaphore(comptime parking_lot: type) type {
                     perms - permits,
                     .SeqCst,
                     .SeqCst,
-                ) orelse return true;
+                ) orelse break;
             }
+
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
+
+            return true;
         }
 
         pub fn acquire(self: *Self, permits: usize) void {
@@ -89,18 +98,26 @@ pub fn Semaphore(comptime parking_lot: type) type {
 
             while (true) {
                 if (self.tryAcquire(permits))
-                    return;
+                    break;
 
                 if (parker.timed_out)
                     return error.TimedOut;
 
                 _ = parking_lot.parkConditionally(@ptrToInt(self), deadline, &parker);
             }
+
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
         }
 
         pub fn tryRelease(self: *Self, permits: usize) bool {
-            var perms = atomic.load(&self.permits, .SeqCst);
+            // TODO: if the release() fails, is there a way to cancel the happensBefore edge?
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
 
+            var perms = atomic.load(&self.permits, .SeqCst);
             while (true) {
                 if (perms > std.math.maxInt(usize) - permits)
                     return false;
@@ -165,7 +182,7 @@ pub const DebugSemaphore = extern struct {
     }
 
     pub fn wait(self: *Self) void {
-        return self.tryAcquire(1) 
+        return self.tryAcquire(1);
     }
 
     pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {

@@ -8,6 +8,39 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const builtin = std.builtin;
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = builtin.valgrind_support;
+
+/// This is an unfair mutex lock implementation inspired by:
+///  - parking_lot's WordLock: https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
+///  - locklessinc's KeyedLock: http://www.locklessinc.com/articles/keyed_events/
+///
+/// [  remaining: uX   | is_waking: u1 |  ignored: u7  | is_locked: u1 ]: usize
+///
+/// - is_locked:
+///     When set, indicates that the lock is currently owned.
+///     Because it is only one bit, this allows an x86 optimization to use `lock bts` for acquire.
+///
+/// - ignored:
+///     These bits are ignored and used to effectively pad the `is_locked` bit to 8-bits/1-byte.
+///     Having the `is_locked` bit in its own byte is a two-fold optimization:
+///
+///         Acquiring the lock for non x86 platforms can swap the entire u8 instead of a CAS on the whole usize.
+///         This means that it does not have to compete with other waiters trying to CAS the whole usize.
+///
+///         Releasing the lock for all platforms is an atomic u8 store to the is_locked byte.
+///         This means that unlocking on most platforms should require almost no (retry) synchronization.
+///
+/// - is_waking:
+///     When set, indicates that there is a waiter being woken up.
+///     One release() thread will set this bit when trying to perform a wake up (while others can keep acquiring).
+///     Once the waiter is woken up by the release() thread, the waiter will unset the is_waking bit themselves.
+///     These have the effect of throttling wake-up in favor of throughput with the idea that a wake-up is expensive.
+///
+/// - remaining:
+///     The remaining of the usize bits represent the head Waiter pointer for the wait queue.
+///     The queue is dequeued for Waiters in a FIFO ordering to avoid having to update the head (hence state) when contended.
+///     The Waiter must then be aligned higher than the `is_waking` bit above in order for its lower bits to be used to encode the other states.
 pub fn Lock(comptime config: anytype) type {
     const Event = config.Event;
 
@@ -16,36 +49,6 @@ pub fn Lock(comptime config: anytype) type {
         else => false,
     };
 
-    /// This is an unfair mutex lock implementation inspired by:
-    ///  - parking_lot's WordLock: https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
-    ///  - locklessinc's KeyedLock: http://www.locklessinc.com/articles/keyed_events/
-    ///
-    /// [  remaining: uX   | is_waking: u1 |  ignored: u7  | is_locked: u1 ]: usize
-    ///
-    /// - is_locked:
-    ///     When set, indicates that the lock is currently owned.
-    ///     Because it is only one bit, this allows an x86 optimization to use `lock bts` for acquire.
-    ///
-    /// - ignored:
-    ///     These bits are ignored and used to effectively pad the `is_locked` bit to 8-bits/1-byte.
-    ///     Having the `is_locked` bit in its own byte is a two-fold optimization:
-    ///
-    ///         Acquiring the lock for non x86 platforms can swap the entire u8 instead of a CAS on the whole usize.
-    ///         This means that it does not have to compete with other waiters trying to CAS the whole usize.
-    ///
-    ///         Releasing the lock for all platforms is an atomic u8 store to the is_locked byte.
-    ///         This means that unlocking on most platforms should require almost no (retry) synchronization.
-    ///
-    /// - is_waking:
-    ///     When set, indicates that there is a waiter being woken up.
-    ///     One release() thread will set this bit when trying to perform a wake up (while others can keep acquiring).
-    ///     Once the waiter is woken up by the release() thread, the waiter will unset the is_waking bit themselves.
-    ///     These have the effect of throttling wake-up in favor of throughput with the idea that a wake-up is expensive.
-    ///
-    /// - remaining:
-    ///     The remaining of the usize bits represent the head Waiter pointer for the wait queue.
-    ///     The queue is dequeued for Waiters in a FIFO ordering to avoid having to update the head (hence state) when contended.
-    ///     The Waiter must then be aligned higher than the `is_waking` bit above in order for its lower bits to be used to encode the other states.
     return extern struct {
         state: usize = UNLOCKED,
 
@@ -61,15 +64,34 @@ pub fn Lock(comptime config: anytype) type {
             event: Event,
         };
 
+        pub fn deinit(self: *Self) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBeforeForgetAll(@ptrToInt(self));
+            }
+
+            self.* = undefined;
+        }
+
         /// Try to acquire the lock if its unlocked.
         pub fn tryAcquire(self: *Lock) bool {
-            return self.tryAcquireFast(UNLOCKED);
+            const acquired = self.tryAcquireFast(UNLOCKED);
+
+            if (use_valgrind and acquired) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
+
+            return acquired;
         }
 
         /// Acquire ownership of the Lock, using the Event to implement blocking.
         pub fn acquire(self: *Lock) void {
-            if (!self.tryAcquire())
+            if (!self.tryAcquire()) {
                 self.acquireSlow();
+            }
+
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
         }
 
         inline fn tryAcquireFast(self: *Lock, current_state: usize) bool {
@@ -191,6 +213,10 @@ pub fn Lock(comptime config: anytype) type {
 
         /// Release ownership of the Lock, assuming already acquired.
         pub fn release(self: *Lock) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
+
             const state = switch (byte_swap) {
                 true => blk: {
                     atomic.store(@ptrCast(*u8, &self.state), UNLOCKED, .Release);
@@ -201,9 +227,9 @@ pub fn Lock(comptime config: anytype) type {
                     LOCKED,
                     .Release,
                 ),
-            );
+            };
 
-            // NOTE: we could also check if its not locked or waking
+            // NOTE: we could also check if its not waking (or locked for byte_swap)
             // but its slightly better to keep the i-cache hit smaller.
             if (state & WAITING != 0)
                 self.releaseSlow();
@@ -313,7 +339,7 @@ pub fn Lock(comptime config: anytype) type {
             }
         }
     };
-};
+}
 
 pub const DebugLock = extern struct {
     mutex: DebugMutex = .{},

@@ -8,6 +8,9 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const builtin = std.builtin;
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = builtin.valgrind_support;
+
 fn ReturnTypeOf(comptime initFn: anytype) type {
     const InitFn = @TypeOf(initFn);
     return switch (@typeInfo(InitFn)) {
@@ -80,17 +83,25 @@ pub fn Once(comptime initFn: anytype, comptime parking_lot: type) type {
             };
 
             _ = parking_lot.parkConditionally(
-                @ptrToInt(&self.state),
+                @ptrToInt(self),
                 null,
                 InitParker{ .once = self },
             ) catch |err| switch (err) {
                 error.Invalid => {},
                 error.TimedOut => unreachable,
             };
+
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
         }
 
         fn notifyAll(self: *Self) void {
-            parking_lot.unparkAll(@ptrToInt(&self.state));
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
+
+            parking_lot.unparkAll(@ptrToInt(self));
         }
     };
 }

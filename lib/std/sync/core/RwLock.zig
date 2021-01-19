@@ -7,6 +7,9 @@
 const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = std.builtin.valgrind_support;
+
 pub fn RwLock(comptime parking_lot: type) type {
     // TODO: better implementation which doesn't rely on Mutex + Semaphore
     return extern struct {
@@ -31,6 +34,11 @@ pub fn RwLock(comptime parking_lot: type) type {
 
                 if (state & READER_MASK == 0) {
                     _ = atomic.bitSet(&self.state, @ctz(u3, IS_WRITING), .SeqCst);
+
+                    if (use_valgrind) {
+                        helgrind.annotateHappensAfter(@ptrToInt(self));
+                    }
+
                     return Held{
                         .held = held,
                         .rwlock = self,
@@ -72,6 +80,10 @@ pub fn RwLock(comptime parking_lot: type) type {
                 }
             }
 
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
+
             return Held{
                 .held = held,
                 .rwlock = self,
@@ -79,31 +91,39 @@ pub fn RwLock(comptime parking_lot: type) type {
         }
 
         pub fn tryAcquireShared(self: *Self) ?Held {
-            var state = atomic.load(&self.state, .SeqCst);
-            if (state & (IS_WRITING | WRITER_MASK) == 0) {
-                _ = atomic.compareAndSwap(
-                    &self.state,
-                    state,
-                    state + READER,
-                    .SeqCst,
-                    .SeqCst,
-                ) orelse return Held{
-                    .held = null,
-                    .rwlock = self,
-                };
+            const held = blk: {
+                var state = atomic.load(&self.state, .SeqCst);
+                if (state & (IS_WRITING | WRITER_MASK) == 0) {
+                    _ = atomic.compareAndSwap(
+                        &self.state,
+                        state,
+                        state + READER,
+                        .SeqCst,
+                        .SeqCst,
+                    ) orelse break :blk Held{
+                        .held = null,
+                        .rwlock = self,
+                    };
+                }
+
+                if (self.mutex.tryAcquire()) |held| {
+                    _ = atomic.fetchAdd(&self.state, READER, .SeqCst);
+                    held.release();
+
+                    break :blk Held{
+                        .held = null,
+                        .rwlock = self,
+                    };
+                }
+
+                return null;
+            };
+
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
             }
 
-            if (self.mutex.tryAcquire()) |held| {
-                _ = atomic.fetchAdd(&self.state, READER, .SeqCst);
-                held.release();
-
-                return Held{
-                    .held = null,
-                    .rwlock = self,
-                };
-            }
-
-            return null;
+            return held;
         }
 
         pub fn acquireShared(self: *Self) Held {
@@ -138,10 +158,12 @@ pub fn RwLock(comptime parking_lot: type) type {
                     break :blk try self.mutex.tryAcquireUntil(deadline_ns);
                 break :blk self.mutex.acquire();
             };
-
-            defer held.release();
-
             _ = atomic.fetchAdd(&self.state, READER, .SeqCst);
+            held.release();
+
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
             
             return Held{
                 .held = null,
@@ -154,9 +176,15 @@ pub fn RwLock(comptime parking_lot: type) type {
             held: ?Mutex.Held,
 
             pub fn release(self: Held) void {
-                if (self.held) |held|
-                    return self.rwlock.release(held);
-                return self.rwlock.releaseShared();
+                if (use_valgrind) {
+                    helgrind.annotateHappensBefore(@ptrToInt(self));
+                }
+                
+                if (self.held) |held| {
+                    self.rwlock.release(held);
+                } else {
+                    self.rwlock.releaseShared();
+                }
             }
         };
 

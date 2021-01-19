@@ -7,6 +7,9 @@
 const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = std.builtin.valgrind_support;
+
 pub fn ResetEvent(comptime parking_lot: type) type {
     return extern struct {
         is_set: bool = false,
@@ -14,7 +17,13 @@ pub fn ResetEvent(comptime parking_lot: type) type {
         const Self = @This();
 
         pub fn isSet(self: *const Self) bool {
-            return atomic.load(&self.is_set, .SeqCst);
+            const is_set = atomic.load(&self.is_set, .SeqCst);
+
+            if (use_valgrind and is_set) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
+
+            return is_set;
         }
 
         pub fn reset(self: *Self) void {
@@ -49,7 +58,7 @@ pub fn ResetEvent(comptime parking_lot: type) type {
 
             while (true) {
                 if (self.isSet())
-                    return;
+                    break;
 
                 _ = parking_lot.parkConditionally(
                     @ptrToInt(self),
@@ -63,6 +72,10 @@ pub fn ResetEvent(comptime parking_lot: type) type {
         }
 
         pub fn set(self: *Self) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
+
             atomic.store(&self.is_set, true, .SeqCst);
 
             parking_lot.unparkAll(@ptrToInt(self));

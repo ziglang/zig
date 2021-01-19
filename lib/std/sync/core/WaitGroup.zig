@@ -8,6 +8,9 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const assert = std.debug.assert;
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = std.builtin.valgrind_support;
+
 pub fn WaitGroup(comptime parking_lot: type) type {
     return extern struct {
         counter: usize = 0,
@@ -53,9 +56,10 @@ pub fn WaitGroup(comptime parking_lot: type) type {
             if (amount == 0)
                 return true;
             
+            var new_counter: usize = undefined;
             var counter = atomic.load(&self.counter, .SeqCst);
+
             while (true) {
-                var new_counter: usize = undefined;
                 if (is_add) {
                     if (counter > max - amount)
                         return false;
@@ -72,16 +76,28 @@ pub fn WaitGroup(comptime parking_lot: type) type {
                     new_counter,
                     .SeqCst,
                     .SeqCst,
-                ) orelse {
-                    if (new_counter == 0)
-                        parking_lot.unparkAll(@ptrToInt(self));
-                    return true;
-                };
+                ) orelse break;
             }
+
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
+
+            if (new_counter == 0) {
+                parking_lot.unparkAll(@ptrToInt(self));
+            }
+
+            return true;
         }
 
         pub fn tryWait(self: *Self) bool {
-            return atomic.load(&self.counter, .relaxed) == 0;
+            const is_done = atomic.load(&self.counter, .SeqCst) == 0;
+
+            if (use_valgrind and is_done) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
+
+            return is_done;
         }
 
         pub fn wait(self: *Self) void {
@@ -114,8 +130,8 @@ pub fn WaitGroup(comptime parking_lot: type) type {
             };
 
             while (true) {
-                if (atomic.load(&self.counter, .SeqCst) == 0)
-                    return;
+                if (self.tryWait())
+                    break;
                 
                 var parker = Parker{ .wg = self };
                 _ = parking_lot.parkConditionally(@ptrToInt(self), deadline, &parker);

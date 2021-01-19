@@ -7,6 +7,9 @@
 const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 
+const helgrind = std.valgrind.helgrind;
+const use_valgrind = std.builtin.valgrind_support;
+
 pub fn Condvar(comptime parking_lot: type) type {
     return extern struct {
         has_waiters: bool = false,
@@ -55,13 +58,19 @@ pub fn Condvar(comptime parking_lot: type) type {
             
             _ = held.mutex.acquire();
 
-            if (parker.timed_out)
+            if (use_valgrind) {
+                helgrind.annotateHappensAfter(@ptrToInt(self));
+            }
+
+            if (parker.timed_out) {
                 return error.TimedOut;
+            }
         }
 
         pub fn notifyOne(self: *Self) void {
-            if (!atomic.load(&self.has_waiters, .SeqCst))
+            if (!atomic.load(&self.has_waiters, .SeqCst)) {
                 return;
+            }
 
             const Unparker = struct {
                 cond: *Self,
@@ -72,6 +81,10 @@ pub fn Condvar(comptime parking_lot: type) type {
                 }
             };
 
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
+
             parking_lot.unparkOne(
                 @ptrToInt(self),
                 Unparker{ .cond = self },
@@ -79,8 +92,13 @@ pub fn Condvar(comptime parking_lot: type) type {
         }
 
         pub fn notifyAll(self: *Self) void {
-            if (!atomic.load(&self.has_waiters, .SeqCst))
+            if (!atomic.load(&self.has_waiters, .SeqCst)) {
                 return;
+            }
+
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
 
             atomic.store(&self.has_waiters, false, .SeqCst);
 
