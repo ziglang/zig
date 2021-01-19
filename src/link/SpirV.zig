@@ -132,21 +132,24 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     defer tracy.end();
 
     const module = self.base.options.module.?;
+    const target = comp.getTarget();
 
     var binary = std.ArrayList(u32).init(self.base.allocator);
     defer binary.deinit();
 
-    // Header
-    {
-        const header = [_]u32{
-            spec.magic_number,
-            (spec.version.major << 16) | (spec.version.minor << 8),
-            0, // TODO: Register Zig compiler magic number.
-            self.spirv_module.idBound(),
-            0, // Schema (currently reserved for future use in the SPIR-V spec).
-        };
-        try binary.appendSlice(&header);
-    }
+    // Note: The order of adding functions to the final binary
+    // follows the SPIR-V logical moduel format!
+
+    try binary.appendSlice(&[_]u32{
+        spec.magic_number,
+        (spec.version.major << 16) | (spec.version.minor << 8),
+        0, // TODO: Register Zig compiler magic number.
+        self.spirv_module.idBound(),
+        0, // Schema (currently reserved for future use in the SPIR-V spec).
+    });
+
+    try writeCapabilities(&binary, target);
+    try writeMemoryModel(&binary, target);
 
     // Collect list of buffers to write.
     // SPIR-V files support both little and big endian words. The actual format is
@@ -160,7 +163,6 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
 
     all_buffers.appendAssumeCapacity(wordsToIovConst(binary.items));
 
-    // Functions
     for (module.decl_table.items()) |entry| {
         const decl = entry.value;
         switch (decl.typed_value) {
@@ -181,6 +183,41 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     try file.seekTo(0);
     try file.setEndPos(file_size);
     try file.pwritevAll(all_buffers.items, 0);
+}
+
+fn writeCapabilities(binary: *std.ArrayList(u32), target: std.Target) !void {
+    // TODO: Integrate with a hypothetical feature system
+    const cap: spec.Capability = switch (target.os.tag) {
+        .opencl => .Kernel,
+        .glsl450 => .Shader,
+        .vulkan => .VulkanMemoryModel,
+        else => unreachable, // TODO
+    };
+
+    try codegen.writeInstruction(binary, .OpCapability, &[_]u32{ @enumToInt(cap) });
+}
+
+fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
+    const addressing_model = switch (target.os.tag) {
+        .opencl => switch (target.cpu.arch) {
+            .spirv32 => spec.AddressingModel.Physical32,
+            .spirv64 => spec.AddressingModel.Physical64,
+            else => unreachable, // TODO
+        },
+        .glsl450, .vulkan => spec.AddressingModel.Logical,
+        else => unreachable, // TODO
+    };
+
+    const memory_model: spec.MemoryModel = switch (target.os.tag) {
+        .opencl => .OpenCL,
+        .glsl450 => .GLSL450,
+        .vulkan => .Vulkan,
+        else => unreachable,
+    };
+
+    try codegen.writeInstruction(binary, .OpMemoryModel, &[_]u32{
+        @enumToInt(addressing_model), @enumToInt(memory_model)
+    });
 }
 
 fn wordsToIovConst(words: []const u32) std.os.iovec_const {
