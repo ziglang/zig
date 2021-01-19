@@ -190,6 +190,8 @@ pub fn ParkingLot(comptime config: anytype) type {
             /// Recommendation: red-black-tree
             fn remove(self: *WaitBucket, queue: *Queue) void {
                 const node = queue.head orelse unreachable;
+                defer queue.head = null;
+
                 if ((node.tree_prev == null) and (node != self.tree_head))
                     unreachable;
 
@@ -211,6 +213,7 @@ pub fn ParkingLot(comptime config: anytype) type {
             fn update(self: *WaitBucket, queue: *Queue, new_head: *WaitNode) void {
                 const node = queue.head orelse unreachable;
                 const new_node = new_head;
+                defer queue.head = new_head;
 
                 if (new_node != node)
                     return;
@@ -289,6 +292,8 @@ pub fn ParkingLot(comptime config: anytype) type {
 
             /// Insert a (previously uninserted) WaitNode into this WaitQueue. 
             pub fn insert(self: *WaitQueue, node: *WaitNode) void {
+                node.tree_next = null;
+                node.tree_prev = null;
                 node.prev = null;
                 node.next = null;
                 node.tail = node;
@@ -330,8 +335,7 @@ pub fn ParkingLot(comptime config: anytype) type {
                 //  - any tree-level links
                 //  - the tree itself is this is its root
                 if (node == head) {
-                    queue.head = node.next;
-                    if (queue.head) |new_head| {
+                    if (node.next) |new_head| {
                         new_head.tail = node.tail;
                         self.bucket.update(queue, new_head);
                     } else {
