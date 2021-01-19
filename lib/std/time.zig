@@ -4,6 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std.zig");
+const atomic = std.sync.atomic;
 const builtin = std.builtin;
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -135,24 +136,93 @@ pub fn nanoTimestamp() i128 {
 /// Get a monotonic timestamp of the system using the high-performance timer.
 /// The value returned is guaranteed to be monotonic, but not guaranteed to progress at a steady rate.
 /// This is to account for operating system jitter and for those which do not support monotonic timers.
+///
+/// TODO: checkout the statistical-acceleration techniques performed by Google's abseil to decrease overhead.
+/// https://github.com/abseil/abseil-cpp/blob/master/absl/time/clock.cc
 pub fn now() u64 {
-    const Static = struct {
+    const MonotonicClock = struct {
         var timer = std.sync.Once(Timer.start){};
-        threadlocal var last_now: u64 = 0;
+        var last_lock = std.sync.Lock{};
+        var last_now: u64 = 0;
+
+        fn read() u64 {
+            // Read the static Timer to get the OS time.
+            // if the OS time is not available, always return 0 as that is still monotonic.
+            const now_timestamp = if (timer.get()) |*timer_ref| 
+                timer_ref.read()
+            else |err|
+                return 0;
+
+            // for platforms where Timer is already monotonic, no work needed to be performed
+            if (comptime isTimerActuallyMonotonic()) {
+                return now_timestamp;
+            }
+
+            // for the global last_now, try to use atomics if we're on a platform that supports it
+            if (@sizeOf(usize) >= @sizeOf(u64)) {
+                return ensureMonotonic64(now_timestamp);
+            }
+
+            // if not, fall back to a Lock based approach for last_now
+            return ensureMonotonicGeneric(now_timestamp);
+        }
+
+        /// Returns true if the Timer implementation is already monotonic.
+        /// For some platforms, its not always the case: 
+        /// https://doc.rust-lang.org/src/std/time.rs.html#227
+        fn isTimerActuallyMonotonic() bool {
+            const target = std.Target.current;
+
+            // https://github.com/rust-lang/rust/issues/51648
+            // https://github.com/rust-lang/rust/issues/56560
+            // https://github.com/rust-lang/rust/issues/56612
+            if (target.os.tag == .windows) {
+                return false;
+            }
+            
+            // https://github.com/rust-lang/rust/issues/49281
+            // https://github.com/rust-lang/rust/issues/56940
+            if (target.os.tag == .linux and (target.arch == .aarch64 or .arch == .s390x)) {
+                return false;
+            }
+
+            // https://github.com/rust-lang/rust/issues/48514
+            if (target.os.tag == .openbsd and target.arch == .x86_64) {
+                return false;
+            }
+
+            return true;
+        }
+
+        fn ensureMonotonic64(current_now: u64) u64 {
+            var last = atomic.load(&last_now, .Relaxed);
+            while (true) {
+                if (last > current_now)
+                    return last;
+
+                last = atomic.tryCompareAndSwap(
+                    &last_now,
+                    last,
+                    current_now,
+                    .Relaxed,
+                    .Relaxed,
+                ) orelse return current_now;
+            } 
+        }
+
+        fn ensureMonotonicGeneric(current_now: u64) u64 {
+            last_lock.acquire();
+            defer last_lock.release();
+
+            if (current_now < last_now)
+                return last_now;
+
+            last_now = current_now;
+            return current_now;
+        }
     };
 
-    var ts = if (Static.timer.get()) |timer| 
-        timer.read()
-    else |err|
-        @as(u64, 0);
-        
-    if (Static.last_now > ts) {
-        ts = Static.last_now;
-    } else  {
-        Static.last_now = ts;
-    }
-
-    return ts;
+    return MonotonicClock.read();
 }
 
 /// A monotonic high-performance timer.
