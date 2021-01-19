@@ -1617,8 +1617,10 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                             // in `Decl` to notice that the line number did not change.
                             self.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
                         },
-                        .macho => {
-                            // TODO Implement for MachO
+                        .macho => if (decl.fn_link.macho.len != 0) {
+                            // TODO Look into detecting when this would be unnecessary by storing enough state
+                            // in `Decl` to notice that the line number did not change.
+                            self.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
                         },
                         .c, .wasm => {},
                     }
