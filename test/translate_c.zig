@@ -539,7 +539,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    static const char v2[] = "2.2.2";
         \\}
     , &[_][]const u8{
-        \\const v2: [*c]const u8 = "2.2.2";
+        \\const v2: [6]u8 = [6]u8{
+        \\    '2',
+        \\    '.',
+        \\    '2',
+        \\    '.',
+        \\    '2',
+        \\    0,
+        \\};
         \\pub export fn foo() void {
         \\    _ = v2;
         \\}
@@ -1395,9 +1402,30 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\static char arr1[] = "hello";
         \\char arr2[] = "hello";
     , &[_][]const u8{
-        \\pub export var arr0: [*c]u8 = "hello";
-        \\pub var arr1: [*c]u8 = "hello";
-        \\pub export var arr2: [*c]u8 = "hello";
+        \\pub export var arr0: [6]u8 = [6]u8{
+        \\    'h',
+        \\    'e',
+        \\    'l',
+        \\    'l',
+        \\    'o',
+        \\    0,
+        \\};
+        \\pub var arr1: [6]u8 = [6]u8{
+        \\    'h',
+        \\    'e',
+        \\    'l',
+        \\    'l',
+        \\    'o',
+        \\    0,
+        \\};
+        \\pub export var arr2: [6]u8 = [6]u8{
+        \\    'h',
+        \\    'e',
+        \\    'l',
+        \\    'l',
+        \\    'o',
+        \\    0,
+        \\};
     });
 
     cases.add("array initializer expr",
