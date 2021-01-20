@@ -7,6 +7,7 @@
 const std = @import("../../std.zig");
 const windows = std.os.windows;
 const atomic = @import("../atomic.zig");
+const Spin = @import("./spin.zig");
 const EventLock = @import("../Lock.zig").Lock;
 
 pub const Lock = extern struct {
@@ -68,7 +69,7 @@ const Backend = if (Kernel32.is_supported)
 else if (NtKeyedEvent.is_supported)
     NtKeyedEvent
 else
-    Ancient;
+    Spin;
 
 fn isWindowsVersionSupported(comptime version: std.Target.Os.WindowsVersion) bool {
     return std.Target.current.os.version_range.windows.isAtLeast(version) orelse false;
@@ -270,44 +271,6 @@ const NtKeyedEvent = struct {
                     std.debug.panic("NtReleaseKeyedEvent", .{});
                 },
             }
-        }
-    };
-};
-
-const Ancient = struct {
-    const is_supported = true;
-
-    const OsLock = struct {
-        is_locked: bool = false,
-
-        fn tryAcquire(self: *OsLock) bool {
-            return !atomic.swap(&self.is_locked, true, .SeqCst);
-        }
-
-        fn acquire(self: *OsLock) void {
-            while (!self.tryAcquire())
-                atomic.spinLoopHint();
-        }
-
-        fn release(self: *OsLock) void {
-            atomic.store(&self.is_locked, true, .SeqCst);
-        }
-    };
-
-    const OsEvent = struct {
-        is_set: bool = false,
-
-        fn yield() void {
-            atomic.spinLoopHint();
-        }
-
-        fn wait(self: *OsEvent, deadline: ?u64) void {
-            while (!atomic.load(&self.is_set, .SeqCst))
-                atomic.spinLoopHint();
-        } 
-
-        fn set(self: *OsEvent) void {
-            atomic.store(&self.is_set, true, .SeqCst);
         }
     };
 };

@@ -208,6 +208,7 @@ pub extern "c" fn dispatch_release(object: *c_void) void;
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
 
 // OS primitive lock used to replace OSSpinLock for unfair mutual exclusion
+// (macOS 10.12+, iOS 10.0+, tvOS 10.0+, watchOS 3.0+, catalyst 13.0+).
 pub const OS_UNFAIR_LOCK_INIT = os_unfair_lock{};
 pub const os_unfair_lock_t = *os_unfair_lock;
 pub const os_unfair_lock = extern struct {

@@ -115,8 +115,7 @@ pub fn WaitGroup(comptime parking_lot: type) type {
         fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void {
             const Parker = struct {
                 wg: *Self,
-                timed_out: bool = false,
-
+                
                 pub fn onValidate(this: @This()) ?usize {
                     if (atomic.load(&this.wg.counter, .SeqCst) == 0)
                         return null;
@@ -124,20 +123,21 @@ pub fn WaitGroup(comptime parking_lot: type) type {
                 }
 
                 pub fn onBeforeWait(this: @This()) void {}
-                pub fn onTimeout(this: *@This(), has_more: bool) void {
-                    this.timed_out = true;
-                }
+                pub fn onTimeout(this: @This(), has_more: bool) void {}
             };
 
             while (true) {
                 if (self.tryWait())
                     break;
                 
-                var parker = Parker{ .wg = self };
-                _ = parking_lot.parkConditionally(@ptrToInt(self), deadline, &parker);
-
-                if (parker.timed_out)
-                    return error.TimedOut;
+                _ = parking_lot.parkConditionally(
+                    @ptrToInt(self),
+                    deadline,
+                    Parker{ .wg = self },
+                ) catch |err| switch (err) {
+                    error.Invalid => {},
+                    error.TimedOut => return error.TimedOut,
+                };
             }
         }
     };
