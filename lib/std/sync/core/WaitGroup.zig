@@ -7,6 +7,7 @@
 const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const assert = std.debug.assert;
+const testing = std.testing;
 
 const helgrind = std.valgrind.helgrind;
 const use_valgrind = std.builtin.valgrind_support;
@@ -43,7 +44,7 @@ pub fn WaitGroup(comptime parking_lot: type) type {
 
         pub fn tryAdd(self: *Self, amount: isize) bool {
             const is_add = amount > 0;
-            const value = @intCast(usize, if (add) amount else -amount);
+            const value = @intCast(usize, if (is_add) amount else -amount);
             return self.apply(is_add, value);
         }
 
@@ -115,7 +116,7 @@ pub fn WaitGroup(comptime parking_lot: type) type {
         fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void {
             const Parker = struct {
                 wg: *Self,
-                
+
                 pub fn onValidate(this: @This()) ?usize {
                     if (atomic.load(&this.wg.counter, .SeqCst) == 0)
                         return null;
@@ -205,8 +206,9 @@ pub const DebugWaitGroup = extern struct {
     }
 
     pub fn wait(self: *Self) void {
-        if (!self.tryWait())
+        if (!self.tryWait()) {
             @panic("deadlock detected");
+        }
     }
 
     pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
@@ -217,3 +219,76 @@ pub const DebugWaitGroup = extern struct {
         return self.wait();
     }
 };
+
+test "WaitGroup" {
+    const TestWaitGroup = std.sync.WaitGroup;
+
+    {
+        var wg = TestWaitGroup.init(0);
+        
+        wg.begin(1);
+        wg.end(1);
+        testing.expect(wg.tryWait());
+
+        wg.add(1);
+        wg.done();
+        wg.wait();
+
+        const max = std.math.maxInt(usize);
+        wg.begin(1);
+        testing.expect(!wg.tryBegin(max));
+        testing.expect(!wg.tryEnd(2));
+
+        wg.begin(max - 1);
+        wg.end(max);
+    }
+
+    if (std.io.is_async) return;
+    if (std.builtin.single_threaded) return;
+
+    const TestUpdateCounter = struct {
+        counter: usize = 0,
+        counter_wg: TestWaitGroup = .{},
+        complete_wg: TestWaitGroup = .{},
+
+        const Self = @This();
+        const num_threads = 10;
+        const increments = 100;
+
+        fn run(self: *Self) !void {
+            const allocator = testing.allocator;
+            const threads = try allocator.alloc(*std.Thread, num_threads);
+            defer allocator.free(threads);
+
+            self.complete_wg.add(1);
+            for (threads) |*t| {
+                self.counter_wg.add(1);
+                t.* = try std.Thread.spawn(self, runThread);
+            }
+
+            self.counter_wg.wait();
+            testing.expectEqual(
+                atomic.load(&self.counter, .Relaxed),
+                num_threads * increments,
+            );
+
+            self.complete_wg.done();
+            for (threads) |t| {
+                t.wait();
+            }
+        }
+
+        fn runThread(self: *Self) void {
+            var incr: usize = increments;
+            while (incr > 0) : (incr -= 1) {
+                _ = atomic.fetchAdd(&self.counter, 1, .Relaxed);
+            }
+
+            self.counter_wg.done();
+            self.counter_wg.wait();
+        }
+    };
+
+    var tuc = TestUpdateCounter{};
+    try tuc.run();
+}
