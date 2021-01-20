@@ -683,7 +683,10 @@ pub const DebugParkingLot = struct {
         context: anytype,
     ) error{TimedOut, Invalid}!usize {
         _ = context.onValidate() orelse return error.Invalid;
-        @panic("deadlock detected");
+        const deadline_ns = deadline orelse @panic("deadlock detected");
+        context.onBeforeWait();
+        context.onTimeOut(false);
+        return error.TimedOut;
     }
 
     pub const UnparkContext = struct {
@@ -724,3 +727,78 @@ pub const DebugParkingLot = struct {
         // no other threads to wake up
     }
 };
+
+test "ParkingLot" {
+    const parking_lot = std.sync.parking_lot;
+
+    {
+        const address: usize = @intCast(usize, 0xdeadbeef);
+
+        const Parker = struct {
+            token: ?usize,
+            validated: bool = false,
+            timed_out: bool = false,
+            before_wait: bool = false,
+
+            pub fn onValidate(self: *@This()) ?usize {
+                self.validated = true;
+                return self.token;
+            }
+
+            pub fn onBeforeWait(self: *@This()) void {
+                self.before_wait = true;
+            }
+
+            pub fn onTimeout(self: *@This(), has_more: bool) void {
+                self.timed_out = true;
+                testing.expect(!has_more);
+            }
+        };
+
+        var parker = Parker{ .token = null };
+        testing.expectError(
+            error.Invalid,
+            parking_lot.parkConditionally(
+                address,
+                null,
+                &parker,
+            ),
+        );
+        testing.expect(parker.validated);
+        testing.expect(!parker.before_wait);
+        testing.expect(!parker.timed_out);
+
+        parker = Parker{ .token = 0 };
+        testing.expectError(
+            error.TimedOut,
+            parking_lot.parkConditionally(
+                address,
+                1 * std.time.ns_per_ms,
+                &parker,
+            ),
+        );
+        testing.expect(parker.validated);
+        testing.expect(parker.before_wait);
+        testing.expect(parker.timed_out);
+
+        parking_lot.unparkOne(
+            address,
+            struct {
+                pub fn onUnpark(self: @This(), unpark_result: parking_lot.UnparkResult) usize {
+                    testing.expectEqual(unpark_result.token, null);
+                    testing.expectEqual(unpark_result.has_more, false);
+                    return 0;
+                }
+            }{},
+        );
+
+        parking_lot.unparkAll(address);
+    }
+
+    if (std.io.is_async) return;
+    if (std.builtin.single_threaded) return;
+
+    // TODO:
+    // - test unparkOne() with two threads, signaling each one at a time
+    // - test unparkAll() with N threads, signalling all and waiting for them all to finish
+}
