@@ -11,11 +11,6 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-const macos_x64 = std.zig.CrossTarget{
-    .cpu_arch = .x86_64,
-    .os_tag = .macos,
-};
-
 const linux_riscv64 = std.zig.CrossTarget{
     .cpu_arch = .riscv64,
     .os_tag = .linux,
@@ -28,6 +23,7 @@ pub fn addCases(ctx: *TestContext) !void {
     try @import("aarch64.zig").addCases(ctx);
     try @import("llvm.zig").addCases(ctx);
     try @import("wasm.zig").addCases(ctx);
+    try @import("darwin.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);
@@ -133,95 +129,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    unreachable;
-            \\}
-        ,
-            \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
-            \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
-            \\
-        );
-    }
-
-    {
-        var case = ctx.exe("hello world with updates", macos_x64);
-        case.addError("", &[_][]const u8{"error: no entry point found"});
-
-        // Incorrect return type
-        case.addError(
-            \\export fn _start() noreturn {
-            \\}
-        , &[_][]const u8{":2:1: error: expected noreturn, found void"});
-
-        // Regular old hello world
-        case.addCompareOutput(
-            \\extern "c" fn write(usize, usize, usize) usize;
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    print();
-            \\
-            \\    exit(0);
-            \\}
-            \\
-            \\fn print() void {
-            \\    const msg = @ptrToInt("Hello, World!\n");
-            \\    const len = 14;
-            \\    const nwritten = write(1, msg, len);
-            \\    assert(nwritten == len);
-            \\}
-            \\
-            \\fn assert(ok: bool) void {
-            \\    if (!ok) unreachable; // assertion failure
-            \\}
-        ,
-            "Hello, World!\n",
-        );
-
-        // Now change the message only
-        case.addCompareOutput(
-            \\extern "c" fn write(usize, usize, usize) usize;
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    print();
-            \\
-            \\    exit(0);
-            \\}
-            \\
-            \\fn print() void {
-            \\    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
-            \\    const len = 104;
-            \\    const nwritten = write(1, msg, len);
-            \\    assert(nwritten == len);
-            \\}
-            \\
-            \\fn assert(ok: bool) void {
-            \\    if (!ok) unreachable; // assertion failure
-            \\}
-        ,
-            "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
-        );
-
-        // Now we print it twice.
-        case.addCompareOutput(
-            \\extern "c" fn write(usize, usize, usize) usize;
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    print();
-            \\    print();
-            \\
-            \\    exit(0);
-            \\}
-            \\
-            \\fn print() void {
-            \\    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
-            \\    const len = 104;
-            \\    const nwritten = write(1, msg, len);
-            \\    assert(nwritten == len);
-            \\}
-            \\
-            \\fn assert(ok: bool) void {
-            \\    if (!ok) unreachable; // assertion failure
             \\}
         ,
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
@@ -1445,22 +1352,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    unreachable;
             \\}
         , &[_][]const u8{":8:10: error: evaluation exceeded 1000 backwards branches"});
-    }
-
-    {
-        var case = ctx.exe("only libc exit", macos_x64);
-
-        // This test case covers an infrequent scenarion where the string table *may* be relocated
-        // into the position preceeding the symbol table which results in a dyld error.
-        case.addCompareOutput(
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    exit(0);
-            \\}
-        ,
-            "",
-        );
     }
     {
         var case = ctx.exe("orelse at comptime", linux_x64);

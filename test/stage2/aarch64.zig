@@ -1,84 +1,12 @@
 const std = @import("std");
 const TestContext = @import("../../src/test.zig").TestContext;
 
-const macos_aarch64 = std.zig.CrossTarget{
-    .cpu_arch = .aarch64,
-    .os_tag = .macos,
-};
-
 const linux_aarch64 = std.zig.CrossTarget{
     .cpu_arch = .aarch64,
     .os_tag = .linux,
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    {
-        var case = ctx.exe("hello world with updates", macos_aarch64);
-
-        // Regular old hello world
-        case.addCompareOutput(
-            \\extern "c" fn write(usize, usize, usize) void;
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    print();
-            \\
-            \\    exit(0);
-            \\}
-            \\
-            \\fn print() void {
-            \\    const msg = @ptrToInt("Hello, World!\n");
-            \\    const len = 14;
-            \\    write(1, msg, len);
-            \\}
-        ,
-            "Hello, World!\n",
-        );
-
-        // Now change the message only
-        case.addCompareOutput(
-            \\extern "c" fn write(usize, usize, usize) void;
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    print();
-            \\
-            \\    exit(0);
-            \\}
-            \\
-            \\fn print() void {
-            \\    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
-            \\    const len = 104;
-            \\    write(1, msg, len);
-            \\}
-        ,
-            "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
-        );
-
-        // Now we print it twice.
-        case.addCompareOutput(
-            \\extern "c" fn write(usize, usize, usize) void;
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    print();
-            \\    print();
-            \\
-            \\    exit(0);
-            \\}
-            \\
-            \\fn print() void {
-            \\    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
-            \\    const len = 104;
-            \\    write(1, msg, len);
-            \\}
-        ,
-            \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
-            \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
-            \\
-        );
-    }
-
     {
         var case = ctx.exe("linux_aarch64 hello world", linux_aarch64);
         // Regular old hello world
@@ -120,28 +48,6 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("exit fn taking argument", macos_aarch64);
-
-        case.addCompareOutput(
-            \\export fn _start() noreturn {
-            \\    exit(0);
-            \\}
-            \\
-            \\fn exit(ret: usize) noreturn {
-            \\    asm volatile ("svc #0x80"
-            \\        :
-            \\        : [number] "{x16}" (1),
-            \\          [arg1] "{x0}" (ret)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
-        ,
-            "",
-        );
-    }
-
-    {
         var case = ctx.exe("exit fn taking argument", linux_aarch64);
 
         case.addCompareOutput(
@@ -157,22 +63,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : "memory", "cc"
             \\    );
             \\    unreachable;
-            \\}
-        ,
-            "",
-        );
-    }
-
-    {
-        var case = ctx.exe("only libc exit", macos_aarch64);
-
-        // This test case covers an infrequent scenarion where the string table *may* be relocated
-        // into the position preceeding the symbol table which results in a dyld error.
-        case.addCompareOutput(
-            \\extern "c" fn exit(usize) noreturn;
-            \\
-            \\export fn _start() noreturn {
-            \\    exit(0);
             \\}
         ,
             "",

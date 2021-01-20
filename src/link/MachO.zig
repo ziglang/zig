@@ -120,6 +120,7 @@ stub_helper_stubs_start_off: ?u64 = null,
 
 /// Table of symbol names aka the string table.
 string_table: std.ArrayListUnmanaged(u8) = .{},
+string_table_directory: std.StringHashMapUnmanaged(u32) = .{},
 
 /// Table of trampolines to the actual symbols in __text section.
 offset_table: std.ArrayListUnmanaged(u64) = .{},
@@ -142,11 +143,11 @@ string_table_needs_relocation: bool = false,
 /// or removed from the freelist.
 ///
 /// A text block has surplus capacity when its overcapacity value is greater than
-/// minimum_text_block_size * alloc_num / alloc_den. That is, when it has so
+/// padToIdeal(minimum_text_block_size). That is, when it has so
 /// much extra capacity, that we could fit a small new symbol in it, itself with
 /// ideal_capacity or more.
 ///
-/// Ideal capacity is defined by size * alloc_num / alloc_den.
+/// Ideal capacity is defined by size + (size / ideal_factor).
 ///
 /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
 /// overcapacity can be negative. A simple way to have negative overcapacity is to
@@ -191,9 +192,9 @@ pub const StubFixup = struct {
     len: usize,
 };
 
-/// `alloc_num / alloc_den` is the factor of padding when allocating.
-pub const alloc_num = 4;
-pub const alloc_den = 3;
+/// When allocating, the ideal_capacity is calculated by
+/// actual_capacity + (actual_capacity / ideal_factor)
+const ideal_factor = 2;
 
 /// Default path to dyld
 /// TODO instead of hardcoding it, we should probably look through some env vars and search paths
@@ -213,7 +214,7 @@ const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.
 /// it as a possible place to put new symbols, it must have enough room for this many bytes
 /// (plus extra for reserved capacity).
 const minimum_text_block_size = 64;
-const min_text_capacity = minimum_text_block_size * alloc_num / alloc_den;
+const min_text_capacity = padToIdeal(minimum_text_block_size);
 
 pub const TextBlock = struct {
     /// Each decl always gets a local symbol with the fully qualified name.
@@ -276,7 +277,7 @@ pub const TextBlock = struct {
         const self_sym = macho_file.local_symbols.items[self.local_sym_index];
         const next_sym = macho_file.local_symbols.items[next.local_sym_index];
         const cap = next_sym.n_value - self_sym.n_value;
-        const ideal_cap = self.size * alloc_num / alloc_den;
+        const ideal_cap = padToIdeal(self.size);
         if (cap <= ideal_cap) return false;
         const surplus = cap - ideal_cap;
         return surplus >= min_text_capacity;
@@ -872,7 +873,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const text_section = text_segment.sections.items[self.text_section_index.?];
                 const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+                const needed_size = padToIdeal(@sizeOf(macho.linkedit_data_command));
 
                 if (needed_size + after_last_cmd_offset > text_section.offset) {
                     log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
@@ -942,7 +943,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const text_section = text_segment.sections.items[self.text_section_index.?];
                 const after_last_cmd_offset = self.header.?.sizeofcmds + @sizeOf(macho.mach_header_64);
-                const needed_size = @sizeOf(macho.linkedit_data_command) * alloc_num / alloc_den;
+                const needed_size = padToIdeal(@sizeOf(macho.linkedit_data_command));
 
                 if (needed_size + after_last_cmd_offset > text_section.offset) {
                     log.err("Unable to extend padding between the end of load commands and start of __text section.", .{});
@@ -1023,6 +1024,13 @@ pub fn deinit(self: *MachO) void {
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
+    {
+        var it = self.string_table_directory.iterator();
+        while (it.next()) |entry| {
+            self.base.allocator.free(entry.key);
+        }
+    }
+    self.string_table_directory.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
     self.global_symbol_free_list.deinit(self.base.allocator);
@@ -1229,14 +1237,16 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const this_addr = symbol.n_value + fixup.start;
         switch (self.base.options.target.cpu.arch) {
             .x86_64 => {
-                const displacement = @intCast(u32, target_addr - this_addr - fixup.len);
+                assert(target_addr >= this_addr + fixup.len);
+                const displacement = try math.cast(u32, target_addr - this_addr - fixup.len);
                 var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
                 mem.writeIntSliceLittle(u32, placeholder, displacement);
             },
             .aarch64 => {
-                const displacement = @intCast(u27, target_addr - this_addr);
+                assert(target_addr >= this_addr);
+                const displacement = try math.cast(u27, target_addr - this_addr);
                 var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
-                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.b(@intCast(i28, displacement)).toU32());
+                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.b(@as(i28, displacement)).toU32());
             },
             else => unreachable, // unsupported target architecture
         }
@@ -1249,14 +1259,16 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const text_addr = symbol.n_value + fixup.start;
         switch (self.base.options.target.cpu.arch) {
             .x86_64 => {
-                const displacement = @intCast(u32, stub_addr - text_addr - fixup.len);
+                assert(stub_addr >= text_addr + fixup.len);
+                const displacement = try math.cast(u32, stub_addr - text_addr - fixup.len);
                 var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
                 mem.writeIntSliceLittle(u32, placeholder, displacement);
             },
             .aarch64 => {
-                const displacement = @intCast(u32, stub_addr - text_addr);
+                assert(stub_addr >= text_addr);
+                const displacement = try math.cast(i28, stub_addr - text_addr);
                 var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
-                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(@intCast(i28, displacement)).toU32());
+                mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(displacement).toU32());
             },
             else => unreachable, // unsupported target architecture
         }
@@ -1479,7 +1491,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const program_code_size_hint = self.base.options.program_code_size_hint;
         const offset_table_size_hint = @sizeOf(u64) * self.base.options.symbol_count_hint;
         const ideal_size = self.header_pad + program_code_size_hint + 3 * offset_table_size_hint;
-        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
 
@@ -1644,7 +1656,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const address_and_offset = self.nextSegmentAddressAndOffset();
 
         const ideal_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __DATA_CONST segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
@@ -1701,7 +1713,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const address_and_offset = self.nextSegmentAddressAndOffset();
 
         const ideal_size = 2 * @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, self.page_size);
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __DATA segment free space 0x{x} to 0x{x}", .{ address_and_offset.offset, address_and_offset.offset + needed_size });
 
@@ -2074,7 +2086,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 code[1] = 0x8d;
                 code[2] = 0x1d;
                 {
-                    const displacement = @intCast(u32, data.addr - stub_helper.addr - 7);
+                    const displacement = try math.cast(u32, data.addr - stub_helper.addr - 7);
                     mem.writeIntLittle(u32, code[3..7], displacement);
                 }
                 // push %r11
@@ -2084,7 +2096,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 code[9] = 0xff;
                 code[10] = 0x25;
                 {
-                    const displacement = @intCast(u32, got.addr - stub_helper.addr - code_size);
+                    const displacement = try math.cast(u32, got.addr - stub_helper.addr - code_size);
                     mem.writeIntLittle(u32, code[11..], displacement);
                 }
                 self.stub_helper_stubs_start_off = stub_helper.offset + code_size;
@@ -2093,8 +2105,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .aarch64 => {
                 var code: [4 * @sizeOf(u32)]u8 = undefined;
                 {
-                    const displacement = data.addr - stub_helper.addr;
-                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x17, @intCast(i21, displacement)).toU32());
+                    const displacement = try math.cast(i21, data.addr - stub_helper.addr);
+                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x17, displacement).toU32());
                 }
                 mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.stp(
                     .x16,
@@ -2103,9 +2115,10 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                     aarch64.Instruction.LoadStorePairOffset.pre_index(-16),
                 ).toU32());
                 {
-                    const displacement = got.addr - stub_helper.addr - 2 * @sizeOf(u32);
+                    const displacement = try math.divExact(u64, got.addr - stub_helper.addr - 2 * @sizeOf(u32), 4);
+                    const literal = try math.cast(u19, displacement);
                     mem.writeIntLittle(u32, code[8..12], aarch64.Instruction.ldr(.x16, .{
-                        .literal = @intCast(u19, displacement / 4),
+                        .literal = literal,
                     }).toU32());
                 }
                 mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.br(.x16).toU32());
@@ -2120,7 +2133,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text_section = &text_segment.sections.items[self.text_section_index.?];
-    const new_block_ideal_capacity = new_block_size * alloc_num / alloc_den;
+    const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
     // and possibly removing a free list node.
@@ -2140,7 +2153,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
             // Is it enough that we could fit this new text block?
             const sym = self.local_symbols.items[big_block.local_sym_index];
             const capacity = big_block.capacity(self.*);
-            const ideal_capacity = capacity * alloc_num / alloc_den;
+            const ideal_capacity = padToIdeal(capacity);
             const ideal_capacity_end_vaddr = sym.n_value + ideal_capacity;
             const capacity_end_vaddr = sym.n_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
@@ -2172,7 +2185,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
             const last_symbol = self.local_symbols.items[last.local_sym_index];
             // TODO We should pad out the excess capacity with NOPs. For executables,
             // no padding seems to be OK, but it will probably not be for objects.
-            const ideal_capacity = last.size * alloc_num / alloc_den;
+            const ideal_capacity = padToIdeal(last.size);
             const ideal_capacity_end_vaddr = last_symbol.n_value + ideal_capacity;
             const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
             block_placement = last;
@@ -2230,14 +2243,26 @@ pub fn makeStaticString(comptime bytes: []const u8) [16]u8 {
 }
 
 fn makeString(self: *MachO, bytes: []const u8) !u32 {
+    if (self.string_table_directory.get(bytes)) |offset| {
+        log.debug("reusing '{s}' from string table at offset 0x{x}", .{ bytes, offset });
+        return offset;
+    }
+
     try self.string_table.ensureCapacity(self.base.allocator, self.string_table.items.len + bytes.len + 1);
     const offset = @intCast(u32, self.string_table.items.len);
-    log.debug("writing '{s}' into the string table at offset 0x{x}", .{ bytes, offset });
+    log.debug("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
+    try self.string_table_directory.putNoClobber(
+        self.base.allocator,
+        try self.base.allocator.dupe(u8, bytes),
+        offset,
+    );
+
     self.string_table_dirty = true;
     if (self.d_sym) |*ds|
         ds.string_table_dirty = true;
+
     return offset;
 }
 
@@ -2335,7 +2360,7 @@ fn allocatedSizeLinkedit(self: *MachO, start: u64) u64 {
 }
 
 inline fn checkForCollision(start: u64, end: u64, off: u64, size: u64) ?u64 {
-    const increased_size = satMul(size, alloc_num) / alloc_den;
+    const increased_size = padToIdeal(size);
     const test_end = off + increased_size;
     if (end > off and start < test_end) {
         return test_end;
@@ -2344,7 +2369,7 @@ inline fn checkForCollision(start: u64, end: u64, off: u64, size: u64) ?u64 {
 }
 
 fn detectAllocCollisionLinkedit(self: *MachO, start: u64, size: u64) ?u64 {
-    const end = start + satMul(size, alloc_num) / alloc_den;
+    const end = start + padToIdeal(size);
 
     // __LINKEDIT is a weird segment where sections get their own load commands so we
     // special-case it.
@@ -2425,12 +2450,6 @@ fn findFreeSpaceLinkedit(self: *MachO, object_size: u64, min_alignment: u16, sta
     return st;
 }
 
-/// Saturating multiplication
-pub fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
-    const T = @TypeOf(a, b);
-    return std.math.mul(T, a, b) catch std.math.maxInt(T);
-}
-
 fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const sect = &text_segment.sections.items[self.got_section_index.?];
@@ -2445,8 +2464,8 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     var code: [8]u8 = undefined;
     switch (self.base.options.target.cpu.arch) {
         .x86_64 => {
-            const pos_symbol_off = @intCast(u31, vmaddr - self.offset_table.items[index] + 7);
-            const symbol_off = @bitCast(u32, @intCast(i32, pos_symbol_off) * -1);
+            const pos_symbol_off = try math.cast(u31, vmaddr - self.offset_table.items[index] + 7);
+            const symbol_off = @bitCast(u32, @as(i32, pos_symbol_off) * -1);
             // lea %rax, [rip - disp]
             code[0] = 0x48;
             code[1] = 0x8D;
@@ -2456,8 +2475,8 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
             code[7] = 0xC3;
         },
         .aarch64 => {
-            const pos_symbol_off = @intCast(u20, vmaddr - self.offset_table.items[index]);
-            const symbol_off = @intCast(i21, pos_symbol_off) * -1;
+            const pos_symbol_off = try math.cast(u20, vmaddr - self.offset_table.items[index]);
+            const symbol_off = @as(i21, pos_symbol_off) * -1;
             // adr x0, #-disp
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x0, symbol_off).toU32());
             // ret x28
@@ -2503,16 +2522,19 @@ fn writeStub(self: *MachO, index: u32) !void {
     defer self.base.allocator.free(code);
     switch (self.base.options.target.cpu.arch) {
         .x86_64 => {
-            const displacement = @intCast(u32, la_ptr_addr - stub_addr - stubs.reserved2);
+            assert(la_ptr_addr >= stub_addr + stubs.reserved2);
+            const displacement = try math.cast(u32, la_ptr_addr - stub_addr - stubs.reserved2);
             // jmp
             code[0] = 0xff;
             code[1] = 0x25;
             mem.writeIntLittle(u32, code[2..][0..4], displacement);
         },
         .aarch64 => {
-            const displacement = la_ptr_addr - stub_addr;
+            assert(la_ptr_addr >= stub_addr);
+            const displacement = try math.divExact(u64, la_ptr_addr - stub_addr, 4);
+            const literal = try math.cast(u19, displacement);
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.x16, .{
-                .literal = @intCast(u19, displacement / 4),
+                .literal = literal,
             }).toU32());
             mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.br(.x16).toU32());
         },
@@ -2535,7 +2557,10 @@ fn writeStubInStubHelper(self: *MachO, index: u32) !void {
     defer self.base.allocator.free(code);
     switch (self.base.options.target.cpu.arch) {
         .x86_64 => {
-            const displacement = @intCast(i32, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - stub_size);
+            const displacement = try math.cast(
+                i32,
+                @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - stub_size,
+            );
             // pushq
             code[0] = 0x68;
             mem.writeIntLittle(u32, code[1..][0..4], 0x0); // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
@@ -2544,11 +2569,11 @@ fn writeStubInStubHelper(self: *MachO, index: u32) !void {
             mem.writeIntLittle(u32, code[6..][0..4], @bitCast(u32, displacement));
         },
         .aarch64 => {
-            const displacement = @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - 4;
+            const displacement = try math.cast(i28, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - 4);
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.w16, .{
-                .literal = 0x2,
+                .literal = @divExact(stub_size - @sizeOf(u32), 4),
             }).toU32());
-            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(@intCast(i28, displacement)).toU32());
+            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(displacement).toU32());
             mem.writeIntLittle(u32, code[8..12], 0x0); // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
         },
         else => unreachable,
@@ -3238,4 +3263,10 @@ fn fixupInfoCommon(self: *MachO, buffer: []u8, dylib_ordinal: u32) !void {
             else => {},
         }
     }
+}
+
+pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
+    // TODO https://github.com/ziglang/zig/issues/1284
+    return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
+        std.math.maxInt(@TypeOf(actual_size));
 }

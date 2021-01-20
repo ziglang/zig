@@ -18,9 +18,7 @@ const link = @import("../../link.zig");
 const MachO = @import("../MachO.zig");
 const SrcFn = MachO.SrcFn;
 const TextBlock = MachO.TextBlock;
-const satMul = MachO.satMul;
-const alloc_num = MachO.alloc_num;
-const alloc_den = MachO.alloc_den;
+const padToIdeal = MachO.padToIdeal;
 const makeStaticString = MachO.makeStaticString;
 
 usingnamespace @import("commands.zig");
@@ -207,7 +205,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void
 
         const linkedit = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const ideal_size: u16 = 200 + 128 + 160 + 250;
-        const needed_size = mem.alignForwardGeneric(u64, satMul(ideal_size, alloc_num) / alloc_den, page_size);
+        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), page_size);
         const off = linkedit.inner.fileoff + linkedit.inner.filesize;
         const vmaddr = linkedit.inner.vmaddr + linkedit.inner.vmsize;
 
@@ -804,7 +802,7 @@ fn allocatedSizeLinkedit(self: *DebugSymbols, start: u64) u64 {
 }
 
 fn detectAllocCollisionLinkedit(self: *DebugSymbols, start: u64, size: u64) ?u64 {
-    const end = start + satMul(size, alloc_num) / alloc_den;
+    const end = start + padToIdeal(size);
 
     if (self.symtab_cmd_index) |idx| outer: {
         if (self.load_commands.items.len == idx) break :outer;
@@ -812,7 +810,7 @@ fn detectAllocCollisionLinkedit(self: *DebugSymbols, start: u64, size: u64) ?u64
         {
             // Symbol table
             const symsize = symtab.nsyms * @sizeOf(macho.nlist_64);
-            const increased_size = satMul(symsize, alloc_num) / alloc_den;
+            const increased_size = padToIdeal(symsize);
             const test_end = symtab.symoff + increased_size;
             if (end > symtab.symoff and start < test_end) {
                 return test_end;
@@ -820,7 +818,7 @@ fn detectAllocCollisionLinkedit(self: *DebugSymbols, start: u64, size: u64) ?u64
         }
         {
             // String table
-            const increased_size = satMul(symtab.strsize, alloc_num) / alloc_den;
+            const increased_size = padToIdeal(symtab.strsize);
             const test_end = symtab.stroff + increased_size;
             if (end > symtab.stroff and start < test_end) {
                 return test_end;
@@ -1099,7 +1097,7 @@ pub fn commitDeclDebugInfo(
                         last.next = src_fn;
                         self.dbg_line_fn_last = src_fn;
 
-                        src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+                        src_fn.off = last.off + padToIdeal(last.len);
                     }
                 } else if (src_fn.prev == null) {
                     // Append new function.
@@ -1108,14 +1106,14 @@ pub fn commitDeclDebugInfo(
                     last.next = src_fn;
                     self.dbg_line_fn_last = src_fn;
 
-                    src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+                    src_fn.off = last.off + padToIdeal(last.len);
                 }
             } else {
                 // This is the first function of the Line Number Program.
                 self.dbg_line_fn_first = src_fn;
                 self.dbg_line_fn_last = src_fn;
 
-                src_fn.off = self.dbgLineNeededHeaderBytes(module) * alloc_num / alloc_den;
+                src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(module));
             }
 
             const last_src_fn = self.dbg_line_fn_last.?;
@@ -1259,7 +1257,7 @@ fn updateDeclDebugInfoAllocation(
                 last.dbg_info_next = text_block;
                 self.dbg_info_decl_last = text_block;
 
-                text_block.dbg_info_off = last.dbg_info_off + (last.dbg_info_len * alloc_num / alloc_den);
+                text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
             }
         } else if (text_block.dbg_info_prev == null) {
             // Append new Decl.
@@ -1268,14 +1266,14 @@ fn updateDeclDebugInfoAllocation(
             last.dbg_info_next = text_block;
             self.dbg_info_decl_last = text_block;
 
-            text_block.dbg_info_off = last.dbg_info_off + (last.dbg_info_len * alloc_num / alloc_den);
+            text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
         }
     } else {
         // This is the first Decl of the .debug_info
         self.dbg_info_decl_first = text_block;
         self.dbg_info_decl_last = text_block;
 
-        text_block.dbg_info_off = self.dbgInfoNeededHeaderBytes() * alloc_num / alloc_den;
+        text_block.dbg_info_off = padToIdeal(self.dbgInfoNeededHeaderBytes());
     }
 }
 

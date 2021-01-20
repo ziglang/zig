@@ -10,9 +10,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const MachO = @import("../MachO.zig");
 const makeStaticString = MachO.makeStaticString;
-const satMul = MachO.satMul;
-const alloc_num = MachO.alloc_num;
-const alloc_den = MachO.alloc_den;
+const padToIdeal = MachO.padToIdeal;
 
 pub const LoadCommand = union(enum) {
     Segment: SegmentCommand,
@@ -214,9 +212,9 @@ pub const SegmentCommand = struct {
     }
 
     fn detectAllocCollision(self: SegmentCommand, start: u64, size: u64) ?u64 {
-        const end = start + satMul(size, alloc_num) / alloc_den;
+        const end = start + padToIdeal(size);
         for (self.sections.items) |section| {
-            const increased_size = satMul(section.size, alloc_num) / alloc_den;
+            const increased_size = padToIdeal(section.size);
             const test_end = section.offset + increased_size;
             if (end > section.offset and start < test_end) {
                 return test_end;
