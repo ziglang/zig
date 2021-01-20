@@ -289,3 +289,16 @@ pub extern "kernel32" fn K32QueryWorkingSet(hProcess: HANDLE, pv: PVOID, cb: DWO
 pub extern "kernel32" fn K32QueryWorkingSetEx(hProcess: HANDLE, pv: PVOID, cb: DWORD) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn FlushFileBuffers(hFile: HANDLE) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn WakeAllConditionVariable(c: *CONDITION_VARIABLE) callconv(WINAPI) void;
+pub extern "kernel32" fn WakeConditionVariable(c: *CONDITION_VARIABLE) callconv(WINAPI) void;
+pub extern "kernel32" fn SleepConditionVariableSRW(
+    c: *CONDITION_VARIABLE,
+    s: *SRWLOCK,
+    t: DWORD,
+    f: ULONG,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn TryAcquireSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn AcquireSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) void;
+pub extern "kernel32" fn ReleaseSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) void;

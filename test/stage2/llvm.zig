@@ -29,7 +29,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exeUsingLlvmBackend("hello world", linux_x64);
+        var case = ctx.exeUsingLlvmBackend("llvm hello world", linux_x64);
 
         case.addCompareOutput(
             \\extern fn puts(s: [*:0]const u8) c_int;

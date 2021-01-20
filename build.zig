@@ -134,7 +134,7 @@ pub fn build(b: *Builder) !void {
         test_stage2.linkLibC();
     }
 
-    const log_scopes = b.option([]const []const u8, "log", "Which log scopes to enable") orelse &[0][]const u8{};
+    const enable_logging = b.option(bool, "log", "Whether to enable logging") orelse false;
 
     const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
     const version = if (opt_version_string) |version| version else v: {
@@ -190,7 +190,7 @@ pub fn build(b: *Builder) !void {
     const semver = try std.SemanticVersion.parse(version);
     exe.addBuildOption(std.SemanticVersion, "semver", semver);
 
-    exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
+    exe.addBuildOption(bool, "enable_logging", enable_logging);
     exe.addBuildOption(bool, "enable_tracy", tracy != null);
     exe.addBuildOption(bool, "is_stage1", is_stage1);
     exe.addBuildOption(bool, "omit_stage2", false);

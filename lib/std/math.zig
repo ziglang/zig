@@ -415,6 +415,7 @@ pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
 }
 
 pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
+    if (T == comptime_int) return a + b;
     var answer: T = undefined;
     return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }

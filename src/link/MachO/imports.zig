@@ -7,12 +7,8 @@ const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 
 pub const ExternSymbol = struct {
-    /// Symbol name.
-    /// We own the memory, therefore we'll need to free it by calling `deinit`.
-    /// In self-hosted, we don't expect it to be null ever.
-    /// However, this is for backwards compatibility with LLD when
-    /// we'll be patching things up post mortem.
-    name: ?[]u8 = null,
+    /// MachO symbol table entry.
+    inner: macho.nlist_64,
 
     /// Id of the dynamic library where the specified entries can be found.
     /// Id of 0 means self.
@@ -26,22 +22,16 @@ pub const ExternSymbol = struct {
 
     /// Offset relative to the start address of the `segment`.
     offset: u32 = 0,
-
-    pub fn deinit(self: *ExternSymbol, allocator: *Allocator) void {
-        if (self.name) |name| {
-            allocator.free(name);
-        }
-    }
 };
 
-pub fn rebaseInfoSize(symbols: []*const ExternSymbol) !u64 {
+pub fn rebaseInfoSize(symbols: anytype) !u64 {
     var stream = std.io.countingWriter(std.io.null_writer);
     var writer = stream.writer();
     var size: u64 = 0;
 
-    for (symbols) |symbol| {
+    for (symbols) |entry| {
         size += 2;
-        try leb.writeILEB128(writer, symbol.offset);
+        try leb.writeILEB128(writer, entry.value.offset);
         size += 1;
     }
 
@@ -49,8 +39,9 @@ pub fn rebaseInfoSize(symbols: []*const ExternSymbol) !u64 {
     return size;
 }
 
-pub fn writeRebaseInfo(symbols: []*const ExternSymbol, writer: anytype) !void {
-    for (symbols) |symbol| {
+pub fn writeRebaseInfo(symbols: anytype, writer: anytype) !void {
+    for (symbols) |entry| {
+        const symbol = entry.value;
         try writer.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @truncate(u4, macho.REBASE_TYPE_POINTER));
         try writer.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
         try leb.writeILEB128(writer, symbol.offset);
@@ -59,23 +50,23 @@ pub fn writeRebaseInfo(symbols: []*const ExternSymbol, writer: anytype) !void {
     try writer.writeByte(macho.REBASE_OPCODE_DONE);
 }
 
-pub fn bindInfoSize(symbols: []*const ExternSymbol) !u64 {
+pub fn bindInfoSize(symbols: anytype) !u64 {
     var stream = std.io.countingWriter(std.io.null_writer);
     var writer = stream.writer();
     var size: u64 = 0;
 
-    for (symbols) |symbol| {
+    for (symbols) |entry| {
+        const symbol = entry.value;
+
         size += 1;
         if (symbol.dylib_ordinal > 15) {
             try leb.writeULEB128(writer, @bitCast(u64, symbol.dylib_ordinal));
         }
         size += 1;
 
-        if (symbol.name) |name| {
-            size += 1;
-            size += name.len;
-            size += 1;
-        }
+        size += 1;
+        size += entry.key.len;
+        size += 1;
 
         size += 1;
         try leb.writeILEB128(writer, symbol.offset);
@@ -86,8 +77,10 @@ pub fn bindInfoSize(symbols: []*const ExternSymbol) !u64 {
     return size;
 }
 
-pub fn writeBindInfo(symbols: []*const ExternSymbol, writer: anytype) !void {
-    for (symbols) |symbol| {
+pub fn writeBindInfo(symbols: anytype, writer: anytype) !void {
+    for (symbols) |entry| {
+        const symbol = entry.value;
+
         if (symbol.dylib_ordinal > 15) {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
             try leb.writeULEB128(writer, @bitCast(u64, symbol.dylib_ordinal));
@@ -98,11 +91,9 @@ pub fn writeBindInfo(symbols: []*const ExternSymbol, writer: anytype) !void {
         }
         try writer.writeByte(macho.BIND_OPCODE_SET_TYPE_IMM | @truncate(u4, macho.BIND_TYPE_POINTER));
 
-        if (symbol.name) |name| {
-            try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM); // TODO Sometimes we might want to add flags.
-            try writer.writeAll(name);
-            try writer.writeByte(0);
-        }
+        try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM); // TODO Sometimes we might want to add flags.
+        try writer.writeAll(entry.key);
+        try writer.writeByte(0);
 
         try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
         try leb.writeILEB128(writer, symbol.offset);
@@ -111,23 +102,24 @@ pub fn writeBindInfo(symbols: []*const ExternSymbol, writer: anytype) !void {
     }
 }
 
-pub fn lazyBindInfoSize(symbols: []*const ExternSymbol) !u64 {
+pub fn lazyBindInfoSize(symbols: anytype) !u64 {
     var stream = std.io.countingWriter(std.io.null_writer);
     var writer = stream.writer();
     var size: u64 = 0;
 
-    for (symbols) |symbol| {
+    for (symbols) |entry| {
+        const symbol = entry.value;
         size += 1;
         try leb.writeILEB128(writer, symbol.offset);
         size += 1;
         if (symbol.dylib_ordinal > 15) {
             try leb.writeULEB128(writer, @bitCast(u64, symbol.dylib_ordinal));
         }
-        if (symbol.name) |name| {
-            size += 1;
-            size += name.len;
-            size += 1;
-        }
+
+        size += 1;
+        size += entry.key.len;
+        size += 1;
+
         size += 2;
     }
 
@@ -135,8 +127,9 @@ pub fn lazyBindInfoSize(symbols: []*const ExternSymbol) !u64 {
     return size;
 }
 
-pub fn writeLazyBindInfo(symbols: []*const ExternSymbol, writer: anytype) !void {
-    for (symbols) |symbol| {
+pub fn writeLazyBindInfo(symbols: anytype, writer: anytype) !void {
+    for (symbols) |entry| {
+        const symbol = entry.value;
         try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, symbol.segment));
         try leb.writeILEB128(writer, symbol.offset);
 
@@ -149,11 +142,9 @@ pub fn writeLazyBindInfo(symbols: []*const ExternSymbol, writer: anytype) !void 
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM | @truncate(u4, @bitCast(u64, symbol.dylib_ordinal)));
         }
 
-        if (symbol.name) |name| {
-            try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM); // TODO Sometimes we might want to add flags.
-            try writer.writeAll(name);
-            try writer.writeByte(0);
-        }
+        try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM); // TODO Sometimes we might want to add flags.
+        try writer.writeAll(entry.key);
+        try writer.writeByte(0);
 
         try writer.writeByte(macho.BIND_OPCODE_DO_BIND);
         try writer.writeByte(macho.BIND_OPCODE_DONE);

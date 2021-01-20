@@ -86,6 +86,7 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
 pub extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 
@@ -122,6 +123,32 @@ pub const pthread_mutex_t = extern struct {
 };
 pub const pthread_cond_t = extern struct {
     size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
+};
+pub const pthread_rwlock_t = switch (std.builtin.abi) {
+    .android => switch (@sizeOf(usize)) {
+        4 => extern struct {
+            lock: std.c.pthread_mutex_t = std.c.PTHREAD_MUTEX_INITIALIZER,
+            cond: std.c.pthread_cond_t = std.c.PTHREAD_COND_INITIALIZER,
+            numLocks: c_int = 0,
+            writerThreadId: c_int = 0,
+            pendingReaders: c_int = 0,
+            pendingWriters: c_int = 0,
+            attr: i32 = 0,
+            __reserved: [12]u8 = [_]u8{0} ** 2,
+        },
+        8 => extern struct {
+            numLocks: c_int = 0,
+            writerThreadId: c_int = 0,
+            pendingReaders: c_int = 0,
+            pendingWriters: c_int = 0,
+            attr: i32 = 0,
+            __reserved: [36]u8 = [_]u8{0} ** 36,
+        },
+        else => unreachable,
+    },
+    else => extern struct {
+        size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+    },
 };
 pub const sem_t = extern struct {
     __size: [__SIZEOF_SEM_T]u8 align(@alignOf(usize)),

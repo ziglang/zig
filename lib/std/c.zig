@@ -108,7 +108,6 @@ pub extern "c" fn fork() c_int;
 pub extern "c" fn access(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn faccessat(dirfd: fd_t, path: [*:0]const u8, mode: c_uint, flags: c_uint) c_int;
 pub extern "c" fn pipe(fds: *[2]fd_t) c_int;
-pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: u32) c_int;
 pub extern "c" fn symlink(existing: [*:0]const u8, new: [*:0]const u8) c_int;
@@ -337,6 +336,13 @@ pub extern "c" fn pthread_cond_timedwait(noalias cond: *pthread_cond_t, noalias 
 pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) c_int;
 pub extern "c" fn pthread_cond_broadcast(cond: *pthread_cond_t) c_int;
 pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) c_int;
+
+pub extern "c" fn pthread_rwlock_destroy(rwl: *pthread_rwlock_t) callconv(.C) c_int;
+pub extern "c" fn pthread_rwlock_rdlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
+pub extern "c" fn pthread_rwlock_wrlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
+pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
+pub extern "c" fn pthread_rwlock_trywrlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
+pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.C) c_int;
 
 pub const pthread_t = *opaque {};
 pub const FILE = opaque {};

@@ -239,10 +239,21 @@ pub fn ArrayHashMap(
             return self.unmanaged.orderedRemove(key);
         }
 
-        /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
-        /// and discards it.
+        /// TODO: deprecated: call swapRemoveAssertDiscard instead.
         pub fn removeAssertDiscard(self: *Self, key: K) void {
             return self.unmanaged.removeAssertDiscard(key);
+        }
+
+        /// Asserts there is an `Entry` with matching key, deletes it from the hash map
+        /// by swapping it with the last element, and discards it.
+        pub fn swapRemoveAssertDiscard(self: *Self, key: K) void {
+            return self.unmanaged.swapRemoveAssertDiscard(key);
+        }
+
+        /// Asserts there is an `Entry` with matching key, deletes it from the hash map
+        /// by by shifting all elements forward thereby maintaining the current ordering.
+        pub fn orderedRemoveAssertDiscard(self: *Self, key: K) void {
+            return self.unmanaged.orderedRemoveAssertDiscard(key);
         }
 
         pub fn items(self: Self) []Entry {
@@ -602,10 +613,21 @@ pub fn ArrayHashMapUnmanaged(
             return self.removeInternal(key, .ordered);
         }
 
-        /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
-        /// and discards it.
+        /// TODO deprecated: call swapRemoveAssertDiscard instead.
         pub fn removeAssertDiscard(self: *Self, key: K) void {
+            return self.swapRemoveAssertDiscard(key);
+        }
+
+        /// Asserts there is an `Entry` with matching key, deletes it from the hash map
+        /// by swapping it with the last element, and discards it.
+        pub fn swapRemoveAssertDiscard(self: *Self, key: K) void {
             assert(self.swapRemove(key) != null);
+        }
+
+        /// Asserts there is an `Entry` with matching key, deletes it from the hash map
+        /// by by shifting all elements forward thereby maintaining the current ordering.
+        pub fn orderedRemoveAssertDiscard(self: *Self, key: K) void {
+            assert(self.orderedRemove(key) != null);
         }
 
         pub fn items(self: Self) []Entry {

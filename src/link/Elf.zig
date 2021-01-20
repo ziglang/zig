@@ -102,11 +102,11 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 /// or removed from the freelist.
 ///
 /// A text block has surplus capacity when its overcapacity value is greater than
-/// minimum_text_block_size * alloc_num / alloc_den. That is, when it has so
+/// padToIdeal(minimum_text_block_size). That is, when it has so
 /// much extra capacity, that we could fit a small new symbol in it, itself with
 /// ideal_capacity or more.
 ///
-/// Ideal capacity is defined by size * alloc_num / alloc_den.
+/// Ideal capacity is defined by size + (size / ideal_factor)
 ///
 /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
 /// overcapacity can be negative. A simple way to have negative overcapacity is to
@@ -127,15 +127,15 @@ dbg_info_decl_free_list: std.AutoHashMapUnmanaged(*TextBlock, void) = .{},
 dbg_info_decl_first: ?*TextBlock = null,
 dbg_info_decl_last: ?*TextBlock = null,
 
-/// `alloc_num / alloc_den` is the factor of padding when allocating.
-const alloc_num = 4;
-const alloc_den = 3;
+/// When allocating, the ideal_capacity is calculated by
+/// actual_capacity + (actual_capacity / ideal_factor)
+const ideal_factor = 3;
 
 /// In order for a slice of bytes to be considered eligible to keep metadata pointing at
 /// it as a possible place to put new symbols, it must have enough room for this many bytes
 /// (plus extra for reserved capacity).
 const minimum_text_block_size = 64;
-const min_text_capacity = minimum_text_block_size * alloc_num / alloc_den;
+const min_text_capacity = padToIdeal(minimum_text_block_size);
 
 pub const PtrWidth = enum { p32, p64 };
 
@@ -154,7 +154,7 @@ pub const TextBlock = struct {
     prev: ?*TextBlock,
     next: ?*TextBlock,
 
-    /// Previous/next linked list pointers. This value is `next ^ prev`.
+    /// Previous/next linked list pointers.
     /// This is the linked list node for this Decl's corresponding .debug_info tag.
     dbg_info_prev: ?*TextBlock,
     dbg_info_next: ?*TextBlock,
@@ -194,7 +194,7 @@ pub const TextBlock = struct {
         const self_sym = elf_file.local_symbols.items[self.local_sym_index];
         const next_sym = elf_file.local_symbols.items[next.local_sym_index];
         const cap = next_sym.st_value - self_sym.st_value;
-        const ideal_cap = self_sym.st_size * alloc_num / alloc_den;
+        const ideal_cap = padToIdeal(self_sym.st_size);
         if (cap <= ideal_cap) return false;
         const surplus = cap - ideal_cap;
         return surplus >= min_text_capacity;
@@ -338,12 +338,12 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     if (start < ehdr_size)
         return ehdr_size;
 
-    const end = start + satMul(size, alloc_num) / alloc_den;
+    const end = start + padToIdeal(size);
 
     if (self.shdr_table_offset) |off| {
         const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
         const tight_size = self.sections.items.len * shdr_size;
-        const increased_size = satMul(tight_size, alloc_num) / alloc_den;
+        const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
             return test_end;
@@ -353,7 +353,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     if (self.phdr_table_offset) |off| {
         const phdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Phdr) else @sizeOf(elf.Elf64_Phdr);
         const tight_size = self.sections.items.len * phdr_size;
-        const increased_size = satMul(tight_size, alloc_num) / alloc_den;
+        const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
             return test_end;
@@ -361,14 +361,14 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     }
 
     for (self.sections.items) |section| {
-        const increased_size = satMul(section.sh_size, alloc_num) / alloc_den;
+        const increased_size = padToIdeal(section.sh_size);
         const test_end = section.sh_offset + increased_size;
         if (end > section.sh_offset and start < test_end) {
             return test_end;
         }
     }
     for (self.program_headers.items) |program_header| {
-        const increased_size = satMul(program_header.p_filesz, alloc_num) / alloc_den;
+        const increased_size = padToIdeal(program_header.p_filesz);
         const test_end = program_header.p_offset + increased_size;
         if (end > program_header.p_offset and start < test_end) {
             return test_end;
@@ -1956,7 +1956,7 @@ fn growTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignm
 fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
     const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
     const shdr = &self.sections.items[self.text_section_index.?];
-    const new_block_ideal_capacity = new_block_size * alloc_num / alloc_den;
+    const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
     // and possibly removing a free list node.
@@ -1976,7 +1976,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             // Is it enough that we could fit this new text block?
             const sym = self.local_symbols.items[big_block.local_sym_index];
             const capacity = big_block.capacity(self.*);
-            const ideal_capacity = capacity * alloc_num / alloc_den;
+            const ideal_capacity = padToIdeal(capacity);
             const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
             const capacity_end_vaddr = sym.st_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
@@ -2006,7 +2006,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             break :blk new_start_vaddr;
         } else if (self.last_text_block) |last| {
             const sym = self.local_symbols.items[last.local_sym_index];
-            const ideal_capacity = sym.st_size * alloc_num / alloc_den;
+            const ideal_capacity = padToIdeal(sym.st_size);
             const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
             const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
             // Set up the metadata to be updated, after errors are no longer possible.
@@ -2189,22 +2189,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         try dbg_line_buffer.ensureCapacity(26);
 
         const line_off: u28 = blk: {
-            if (decl.scope.cast(Module.Scope.Container)) |container_scope| {
-                const tree = container_scope.file_scope.contents.tree;
-                const file_ast_decls = tree.root_node.decls();
-                // TODO Look into improving the performance here by adding a token-index-to-line
-                // lookup table. Currently this involves scanning over the source code for newlines.
-                const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-                const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-                const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
-                break :blk @intCast(u28, line_delta);
-            } else if (decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
-                const byte_off = zir_module.contents.module.decls[decl.src_index].inst.src;
-                const line_delta = std.zig.lineDelta(zir_module.source.bytes, 0, byte_off);
-                break :blk @intCast(u28, line_delta);
-            } else {
-                unreachable;
-            }
+            const tree = decl.container.file_scope.contents.tree;
+            const file_ast_decls = tree.root_node.decls();
+            // TODO Look into improving the performance here by adding a token-index-to-line
+            // lookup table. Currently this involves scanning over the source code for newlines.
+            const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+            const block = fn_proto.getBodyNode().?.castTag(.Block).?;
+            const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+            break :blk @intCast(u28, line_delta);
         };
 
         const ptr_width_bytes = self.ptrWidthBytes();
@@ -2268,7 +2260,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     } else {
         // TODO implement .debug_info for global variables
     }
-    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
         .dwarf = .{
             .dbg_line = &dbg_line_buffer,
             .dbg_info = &dbg_info_buffer,
@@ -2378,14 +2370,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 
         // Now we have the full contents and may allocate a region to store it.
 
-        // This logic is nearly identical to the logic below in `updateDeclDebugInfo` for
+        // This logic is nearly identical to the logic below in `updateDeclDebugInfoAllocation` for
         // `TextBlock` and the .debug_info. If you are editing this logic, you
         // probably need to edit that logic too.
 
         const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
         const src_fn = &decl.fn_link.elf;
         src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
-        if (self.dbg_line_fn_last) |last| {
+        if (self.dbg_line_fn_last) |last| not_first: {
             if (src_fn.next) |next| {
                 // Update existing function - non-last item.
                 if (src_fn.off + src_fn.len + min_nop_size > next.off) {
@@ -2394,6 +2386,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
                         _ = self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
                         prev.next = src_fn.next;
                     }
+                    assert(src_fn.prev != next);
                     next.prev = src_fn.prev;
                     src_fn.next = null;
                     // Populate where it used to be with NOPs.
@@ -2404,23 +2397,30 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
                     last.next = src_fn;
                     self.dbg_line_fn_last = src_fn;
 
-                    src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+                    src_fn.off = last.off + padToIdeal(last.len);
                 }
             } else if (src_fn.prev == null) {
+                if (src_fn == last) {
+                    // Special case: there is only 1 function and it is being updated.
+                    // In this case there is nothing to do. The function's length has
+                    // already been updated, and the logic below takes care of
+                    // resizing the .debug_line section.
+                    break :not_first;
+                }
                 // Append new function.
                 // TODO Look at the free list before appending at the end.
                 src_fn.prev = last;
                 last.next = src_fn;
                 self.dbg_line_fn_last = src_fn;
 
-                src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+                src_fn.off = last.off + padToIdeal(last.len);
             }
         } else {
             // This is the first function of the Line Number Program.
             self.dbg_line_fn_first = src_fn;
             self.dbg_line_fn_last = src_fn;
 
-            src_fn.off = self.dbgLineNeededHeaderBytes() * alloc_num / alloc_den;
+            src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes());
         }
 
         const last_src_fn = self.dbg_line_fn_last.?;
@@ -2533,7 +2533,7 @@ fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !
 
     const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
     text_block.dbg_info_len = len;
-    if (self.dbg_info_decl_last) |last| {
+    if (self.dbg_info_decl_last) |last| not_first: {
         if (text_block.dbg_info_next) |next| {
             // Update existing Decl - non-last item.
             if (text_block.dbg_info_off + text_block.dbg_info_len + min_nop_size > next.dbg_info_off) {
@@ -2552,23 +2552,30 @@ fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !
                 last.dbg_info_next = text_block;
                 self.dbg_info_decl_last = text_block;
 
-                text_block.dbg_info_off = last.dbg_info_off + (last.dbg_info_len * alloc_num / alloc_den);
+                text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
             }
         } else if (text_block.dbg_info_prev == null) {
+            if (text_block == last) {
+                // Special case: there is only 1 .debug_info block and it is being updated.
+                // In this case there is nothing to do. The block's length has
+                // already been updated, and logic in writeDeclDebugInfo takes care of
+                // resizing the .debug_info section.
+                break :not_first;
+            }
             // Append new Decl.
             // TODO Look at the free list before appending at the end.
             text_block.dbg_info_prev = last;
             last.dbg_info_next = text_block;
             self.dbg_info_decl_last = text_block;
 
-            text_block.dbg_info_off = last.dbg_info_off + (last.dbg_info_len * alloc_num / alloc_den);
+            text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
         }
     } else {
         // This is the first Decl of the .debug_info
         self.dbg_info_decl_first = text_block;
         self.dbg_info_decl_last = text_block;
 
-        text_block.dbg_info_off = self.dbgInfoNeededHeaderBytes() * alloc_num / alloc_den;
+        text_block.dbg_info_off = padToIdeal(self.dbgInfoNeededHeaderBytes());
     }
 }
 
@@ -2642,7 +2649,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -2660,7 +2667,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                 );
                 continue;
             },
@@ -2703,8 +2710,7 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
 
     if (self.llvm_ir_module) |_| return;
 
-    const container_scope = decl.scope.cast(Module.Scope.Container).?;
-    const tree = container_scope.file_scope.contents.tree;
+    const tree = decl.container.file_scope.contents.tree;
     const file_ast_decls = tree.root_node.decls();
     // TODO Look into improving the performance here by adding a token-index-to-line
     // lookup table. Currently this involves scanning over the source code for newlines.
@@ -3136,12 +3142,6 @@ fn pwriteDbgInfoNops(
     try self.base.file.?.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
 }
 
-/// Saturating multiplication
-fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
-    const T = @TypeOf(a, b);
-    return std.math.mul(T, a, b) catch std.math.maxInt(T);
-}
-
 fn bswapAllFields(comptime S: type, ptr: *S) void {
     @panic("TODO implement bswapAllFields");
 }
@@ -3202,4 +3202,10 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .riscv64 => return "elf64lriscv",
         else => return null,
     }
+}
+
+fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
+    // TODO https://github.com/ziglang/zig/issues/1284
+    return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
+        std.math.maxInt(@TypeOf(actual_size));
 }

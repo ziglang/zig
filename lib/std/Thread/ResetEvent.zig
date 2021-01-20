@@ -9,11 +9,11 @@
 //! This API requires being initialized at runtime, and initialization
 //! can fail. Once initialized, the core operations cannot fail.
 //! If you need an abstraction that cannot fail to be initialized, see
-//! `std.StaticResetEvent`. However if you can handle initialization failure,
+//! `std.Thread.StaticResetEvent`. However if you can handle initialization failure,
 //! it is preferred to use `ResetEvent`.
 
 const ResetEvent = @This();
-const std = @import("std.zig");
+const std = @import("../std.zig");
 const builtin = std.builtin;
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -24,13 +24,13 @@ const time = std.time;
 impl: Impl,
 
 pub const Impl = if (builtin.single_threaded)
-    std.StaticResetEvent.DebugEvent
+    std.Thread.StaticResetEvent.DebugEvent
 else if (std.Target.current.isDarwin())
     DarwinEvent
 else if (std.Thread.use_pthreads)
     PosixEvent
 else
-    std.StaticResetEvent.AtomicEvent;
+    std.Thread.StaticResetEvent.AtomicEvent;
 
 pub const InitError = error{SystemResources};
 

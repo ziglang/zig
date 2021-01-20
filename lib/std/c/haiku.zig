@@ -17,3 +17,12 @@ pub const pthread_cond_t = extern struct {
     waiter_count: i32 = 0,
     lock: i32 = 0,
 };
+pub const pthread_rwlock_t = extern struct {
+    flags: u32 = 0,
+    owner: i32 = -1,
+    lock_sem: i32 = 0,
+    lock_count: i32 = 0,
+    reader_count: i32 = 0,
+    writer_count: i32 = 0,
+    waiters: [2]?*c_void = [_]?*c_void{ null, null },
+};

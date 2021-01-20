@@ -14,6 +14,7 @@ pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 
 pub extern "c" fn pthread_getthreadid_np() c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
 pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const c_void) usize;
@@ -42,6 +43,9 @@ pub const pthread_mutex_t = extern struct {
 };
 pub const pthread_cond_t = extern struct {
     inner: ?*c_void = null,
+};
+pub const pthread_rwlock_t = extern struct {
+    ptr: ?*c_void = null,
 };
 
 pub const pthread_attr_t = extern struct {

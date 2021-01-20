@@ -703,4 +703,38 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Cast boolean expression result to int",
+        \\#include <stdlib.h>
+        \\char foo(char c) { return c; }
+        \\int  bar(int i)  { return i; }
+        \\long baz(long l) { return l; }
+        \\int main() {
+        \\    if (foo(1 == 2)) abort();
+        \\    if (!foo(1 == 1)) abort();
+        \\    if (bar(1 == 2)) abort();
+        \\    if (!bar(1 == 1)) abort();
+        \\    if (baz(1 == 2)) abort();
+        \\    if (!baz(1 == 1)) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Wide, UTF-16, and UTF-32 character literals",
+        \\#include <wchar.h>
+        \\#include <stdlib.h>
+        \\int main() {
+        \\    wchar_t wc = L'™';
+        \\    int utf16_char = u'™';
+        \\    int utf32_char = U'💯';
+        \\    if (wc != 8482) abort();
+        \\    if (utf16_char != 8482) abort();
+        \\    if (utf32_char != 128175) abort();
+        \\    unsigned char c = wc;
+        \\    if (c != 0x22) abort();
+        \\    c = utf32_char;
+        \\    if (c != 0xaf) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

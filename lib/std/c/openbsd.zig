@@ -17,6 +17,7 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 pub extern "c" fn getthrid() pid_t;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
@@ -26,6 +27,9 @@ pub const pthread_mutex_t = extern struct {
 };
 pub const pthread_cond_t = extern struct {
     inner: ?*c_void = null,
+};
+pub const pthread_rwlock_t = extern struct {
+    ptr: ?*c_void = null,
 };
 pub const pthread_spinlock_t = extern struct {
     inner: ?*c_void = null,

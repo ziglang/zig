@@ -240,6 +240,22 @@ pub const Instruction = union(enum) {
         fixed: u2 = 0b01,
         cond: u4,
     },
+    ExtraLoadStore: packed struct {
+        imm4l: u4,
+        fixed_1: u1 = 0b1,
+        op2: u2,
+        fixed_2: u1 = 0b1,
+        imm4h: u4,
+        rt: u4,
+        rn: u4,
+        o1: u1,
+        write_back: u1,
+        imm: u1,
+        up_down: u1,
+        pre_index: u1,
+        fixed_3: u3 = 0b000,
+        cond: u4,
+    },
     BlockDataTransfer: packed struct {
         register_list: u16,
         rn: u4,
@@ -468,6 +484,29 @@ pub const Instruction = union(enum) {
         }
     };
 
+    /// Represents the offset operand of an extra load or store
+    /// instruction.
+    pub const ExtraLoadStoreOffset = union(enum) {
+        immediate: u8,
+        register: u4,
+
+        pub const none = ExtraLoadStoreOffset{
+            .immediate = 0,
+        };
+
+        pub fn reg(register: Register) ExtraLoadStoreOffset {
+            return ExtraLoadStoreOffset{
+                .register = register.id(),
+            };
+        }
+
+        pub fn imm(immediate: u8) ExtraLoadStoreOffset {
+            return ExtraLoadStoreOffset{
+                .immediate = immediate,
+            };
+        }
+    };
+
     /// Represents the register list operand to a block data transfer
     /// instruction
     pub const RegisterList = packed struct {
@@ -495,6 +534,7 @@ pub const Instruction = union(enum) {
             .Multiply => |v| @bitCast(u32, v),
             .MultiplyLong => |v| @bitCast(u32, v),
             .SingleDataTransfer => |v| @bitCast(u32, v),
+            .ExtraLoadStore => |v| @bitCast(u32, v),
             .BlockDataTransfer => |v| @bitCast(u32, v),
             .Branch => |v| @bitCast(u32, v),
             .BranchExchange => |v| @bitCast(u32, v),
@@ -613,6 +653,43 @@ pub const Instruction = union(enum) {
                 .up_down = @boolToInt(positive),
                 .pre_post = @boolToInt(pre_index),
                 .imm = @boolToInt(offset != .Immediate),
+            },
+        };
+    }
+
+    fn extraLoadStore(
+        cond: Condition,
+        pre_index: bool,
+        positive: bool,
+        write_back: bool,
+        o1: u1,
+        op2: u2,
+        rn: Register,
+        rt: Register,
+        offset: ExtraLoadStoreOffset,
+    ) Instruction {
+        const imm4l: u4 = switch (offset) {
+            .immediate => |imm| @truncate(u4, imm),
+            .register => |reg| reg,
+        };
+        const imm4h: u4 = switch (offset) {
+            .immediate => |imm| @truncate(u4, imm >> 4),
+            .register => |reg| 0b0000,
+        };
+
+        return Instruction{
+            .ExtraLoadStore = .{
+                .imm4l = imm4l,
+                .op2 = op2,
+                .imm4h = imm4h,
+                .rt = rt.id(),
+                .rn = rn.id(),
+                .o1 = o1,
+                .write_back = @boolToInt(write_back),
+                .imm = @boolToInt(offset == .immediate),
+                .up_down = @boolToInt(positive),
+                .pre_index = @boolToInt(pre_index),
+                .cond = @enumToInt(cond),
             },
         };
     }
@@ -913,6 +990,23 @@ pub const Instruction = union(enum) {
         return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 1, args.write_back, 0);
     }
 
+    // Extra load/store
+
+    pub const ExtraLoadStoreOffsetArgs = struct {
+        pre_index: bool = true,
+        positive: bool = true,
+        offset: ExtraLoadStoreOffset,
+        write_back: bool = false,
+    };
+
+    pub fn strh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 0, 0b01, rn, rt, args.offset);
+    }
+
+    pub fn ldrh(cond: Condition, rt: Register, rn: Register, args: ExtraLoadStoreOffsetArgs) Instruction {
+        return extraLoadStore(cond, args.pre_index, args.positive, args.write_back, 1, 0b01, rn, rt, args.offset);
+    }
+
     // Block data transfer
 
     pub fn ldmda(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
@@ -1092,6 +1186,12 @@ test "serialize instructions" {
                 .offset = Instruction.Offset.none,
             }),
             .expected = 0b1110_01_0_1_1_0_0_0_0011_0000_000000000000,
+        },
+        .{ // strh r1, [r5]
+            .inst = Instruction.strh(.al, .r1, .r5, .{
+                .offset = Instruction.ExtraLoadStoreOffset.none,
+            }),
+            .expected = 0b1110_000_1_1_1_0_0_0101_0001_0000_1011_0000,
         },
         .{ // b #12
             .inst = Instruction.b(.al, 12),

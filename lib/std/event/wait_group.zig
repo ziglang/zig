@@ -30,7 +30,7 @@ pub fn WaitGroupGeneric(comptime counter_size: u16) type {
     return struct {
         counter: CounterType = 0,
         max_counter: CounterType = std.math.maxInt(CounterType),
-        mutex: std.Mutex = .{},
+        mutex: std.Thread.Mutex = .{},
         waiters: ?*Waiter = null,
         const Waiter = struct {
             next: ?*Waiter,

@@ -29,7 +29,7 @@ pub const Loop = struct {
     fs_thread: *Thread,
     fs_queue: std.atomic.Queue(Request),
     fs_end_request: Request.Node,
-    fs_thread_wakeup: std.ResetEvent,
+    fs_thread_wakeup: std.Thread.ResetEvent,
 
     /// For resources that have the same lifetime as the `Loop`.
     /// This is only used by `Loop` for the thread pool and associated resources.
@@ -785,7 +785,7 @@ pub const Loop = struct {
         timer: std.time.Timer,
         waiters: Waiters,
         thread: *std.Thread,
-        event: std.AutoResetEvent,
+        event: std.Thread.AutoResetEvent,
         is_running: bool,
 
         /// Initialize the delay queue by spawning the timer thread
@@ -796,7 +796,7 @@ pub const Loop = struct {
                 .waiters = DelayQueue.Waiters{
                     .entries = std.atomic.Queue(anyframe).init(),
                 },
-                .event = std.AutoResetEvent{},
+                .event = std.Thread.AutoResetEvent{},
                 .is_running = true,
                 // Must be last so that it can read the other state, such as `is_running`.
                 .thread = try std.Thread.spawn(self, DelayQueue.run),
