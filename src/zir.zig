@@ -1681,10 +1681,16 @@ const DumpTzir = struct {
                     const loop = inst.castTag(.loop).?;
                     try dtz.fetchInstsAndResolveConsts(loop.body);
                 },
+                .call => {
+                    const call = inst.castTag(.call).?;
+                    try dtz.findConst(call.func);
+                    for (call.args) |arg| {
+                        try dtz.findConst(arg);
+                    }
+                },
 
                 // TODO fill out this debug printing
                 .assembly,
-                .call,
                 .constant,
                 .varptr,
                 .switchbr,
@@ -1730,16 +1736,11 @@ const DumpTzir = struct {
                 .wrap_optional,
                 => {
                     const un_op = inst.cast(ir.Inst.UnOp).?;
-                    if (dtz.partial_inst_table.get(un_op.operand)) |operand_index| {
-                        try writer.print("%{d})\n", .{operand_index});
-                    } else if (dtz.const_table.get(un_op.operand)) |operand_index| {
-                        try writer.print("@{d})\n", .{operand_index});
-                    } else if (dtz.inst_table.get(un_op.operand)) |operand_index| {
-                        try writer.print("%{d}) // Instruction does not dominate all uses!\n", .{
-                            operand_index,
-                        });
+                    const kinky = try dtz.writeInst(writer, un_op.operand);
+                    if (kinky != null) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!\n");
                     } else {
-                        try writer.writeAll("!BADREF!)\n");
+                        try writer.writeAll(")\n");
                     }
                 },
 
@@ -1758,30 +1759,12 @@ const DumpTzir = struct {
                 .bitor,
                 .xor,
                 => {
-                    var lhs_kinky: ?usize = null;
-                    var rhs_kinky: ?usize = null;
-
                     const bin_op = inst.cast(ir.Inst.BinOp).?;
-                    if (dtz.partial_inst_table.get(bin_op.lhs)) |operand_index| {
-                        try writer.print("%{d}, ", .{operand_index});
-                    } else if (dtz.const_table.get(bin_op.lhs)) |operand_index| {
-                        try writer.print("@{d}, ", .{operand_index});
-                    } else if (dtz.inst_table.get(bin_op.lhs)) |operand_index| {
-                        lhs_kinky = operand_index;
-                        try writer.print("%{d}, ", .{operand_index});
-                    } else {
-                        try writer.writeAll("!BADREF!, ");
-                    }
-                    if (dtz.partial_inst_table.get(bin_op.rhs)) |operand_index| {
-                        try writer.print("%{d}", .{operand_index});
-                    } else if (dtz.const_table.get(bin_op.rhs)) |operand_index| {
-                        try writer.print("@{d}", .{operand_index});
-                    } else if (dtz.inst_table.get(bin_op.rhs)) |operand_index| {
-                        rhs_kinky = operand_index;
-                        try writer.print("%{d}", .{operand_index});
-                    } else {
-                        try writer.writeAll("!BADREF!");
-                    }
+
+                    const lhs_kinky = try dtz.writeInst(writer, bin_op.lhs);
+                    try writer.writeAll(", ");
+                    const rhs_kinky = try dtz.writeInst(writer, bin_op.rhs);
+
                     if (lhs_kinky != null or rhs_kinky != null) {
                         try writer.writeAll(") // Instruction does not dominate all uses!");
                         if (lhs_kinky) |lhs| {
@@ -1804,30 +1787,9 @@ const DumpTzir = struct {
                 .br => {
                     const br = inst.castTag(.br).?;
 
-                    var lhs_kinky: ?usize = null;
-                    var rhs_kinky: ?usize = null;
-
-                    if (dtz.partial_inst_table.get(&br.block.base)) |operand_index| {
-                        try writer.print("%{d}, ", .{operand_index});
-                    } else if (dtz.const_table.get(&br.block.base)) |operand_index| {
-                        try writer.print("@{d}, ", .{operand_index});
-                    } else if (dtz.inst_table.get(&br.block.base)) |operand_index| {
-                        lhs_kinky = operand_index;
-                        try writer.print("%{d}, ", .{operand_index});
-                    } else {
-                        try writer.writeAll("!BADREF!, ");
-                    }
-
-                    if (dtz.partial_inst_table.get(br.operand)) |operand_index| {
-                        try writer.print("%{d}", .{operand_index});
-                    } else if (dtz.const_table.get(br.operand)) |operand_index| {
-                        try writer.print("@{d}", .{operand_index});
-                    } else if (dtz.inst_table.get(br.operand)) |operand_index| {
-                        rhs_kinky = operand_index;
-                        try writer.print("%{d}", .{operand_index});
-                    } else {
-                        try writer.writeAll("!BADREF!");
-                    }
+                    const lhs_kinky = try dtz.writeInst(writer, &br.block.base);
+                    try writer.writeAll(", ");
+                    const rhs_kinky = try dtz.writeInst(writer, br.operand);
 
                     if (lhs_kinky != null or rhs_kinky != null) {
                         try writer.writeAll(") // Instruction does not dominate all uses!");
@@ -1845,16 +1807,11 @@ const DumpTzir = struct {
 
                 .brvoid => {
                     const brvoid = inst.castTag(.brvoid).?;
-                    if (dtz.partial_inst_table.get(&brvoid.block.base)) |operand_index| {
-                        try writer.print("%{d})\n", .{operand_index});
-                    } else if (dtz.const_table.get(&brvoid.block.base)) |operand_index| {
-                        try writer.print("@{d})\n", .{operand_index});
-                    } else if (dtz.inst_table.get(&brvoid.block.base)) |operand_index| {
-                        try writer.print("%{d}) // Instruction does not dominate all uses!\n", .{
-                            operand_index,
-                        });
+                    const kinky = try dtz.writeInst(writer, &brvoid.block.base);
+                    if (kinky) |_| {
+                        try writer.writeAll(") // Instruction does not dominate all uses!\n");
                     } else {
-                        try writer.writeAll("!BADREF!)\n");
+                        try writer.writeAll(")\n");
                     }
                 },
 
@@ -1875,32 +1832,25 @@ const DumpTzir = struct {
                 .condbr => {
                     const condbr = inst.castTag(.condbr).?;
 
-                    if (dtz.partial_inst_table.get(condbr.condition)) |operand_index| {
-                        try writer.print("%{d},", .{operand_index});
-                    } else if (dtz.const_table.get(condbr.condition)) |operand_index| {
-                        try writer.print("@{d},", .{operand_index});
-                    } else if (dtz.inst_table.get(condbr.condition)) |operand_index| {
-                        try writer.print("%{d}, // Instruction does not dominate all uses!", .{operand_index});
+                    const condition_kinky = try dtz.writeInst(writer, condbr.condition);
+                    if (condition_kinky != null) {
+                        try writer.writeAll(", { // Instruction does not dominate all uses!\n");
                     } else {
-                        try writer.writeAll("!BADREF!,");
+                        try writer.writeAll(", {\n");
                     }
-                    try writer.writeAll("\n");
-
-                    try writer.writeByteNTimes(' ', dtz.indent);
-                    try writer.writeAll("then:\n");
 
                     const old_indent = dtz.indent;
                     dtz.indent += 2;
                     try dtz.dumpBody(condbr.then_body, writer);
 
                     try writer.writeByteNTimes(' ', old_indent);
-                    try writer.writeAll("else:\n");
+                    try writer.writeAll("}, {\n");
 
                     try dtz.dumpBody(condbr.else_body, writer);
                     dtz.indent = old_indent;
 
                     try writer.writeByteNTimes(' ', old_indent);
-                    try writer.writeAll(")\n");
+                    try writer.writeAll("})\n");
                 },
 
                 .loop => {
@@ -1917,9 +1867,41 @@ const DumpTzir = struct {
                     try writer.writeAll(")\n");
                 },
 
+                .call => {
+                    const call = inst.castTag(.call).?;
+
+                    const args_kinky = try dtz.allocator.alloc(?usize, call.args.len);
+                    defer dtz.allocator.free(args_kinky);
+                    std.mem.set(?usize, args_kinky, null);
+                    var any_kinky_args = false;
+
+                    const func_kinky = try dtz.writeInst(writer, call.func);
+
+                    for (call.args) |arg, i| {
+                        try writer.writeAll(", ");
+
+                        args_kinky[i] = try dtz.writeInst(writer, arg);
+                        any_kinky_args = any_kinky_args or args_kinky[i] != null;
+                    }
+
+                    if (func_kinky != null or any_kinky_args) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!");
+                        if (func_kinky) |func_index| {
+                            try writer.print(" %{d}", .{func_index});
+                        }
+                        for (args_kinky) |arg_kinky| {
+                            if (arg_kinky) |arg_index| {
+                                try writer.print(" %{d}", .{arg_index});
+                            }
+                        }
+                        try writer.writeAll("\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
                 // TODO fill out this debug printing
                 .assembly,
-                .call,
                 .constant,
                 .varptr,
                 .switchbr,
@@ -1927,6 +1909,22 @@ const DumpTzir = struct {
                     try writer.writeAll("!TODO!)\n");
                 },
             }
+        }
+    }
+
+    fn writeInst(dtz: *DumpTzir, writer: std.fs.File.Writer, inst: *ir.Inst) !?usize {
+        if (dtz.partial_inst_table.get(inst)) |operand_index| {
+            try writer.print("%{d}", .{operand_index});
+            return null;
+        } else if (dtz.const_table.get(inst)) |operand_index| {
+            try writer.print("@{d}", .{operand_index});
+            return null;
+        } else if (dtz.inst_table.get(inst)) |operand_index| {
+            try writer.print("%{d}", .{operand_index});
+            return operand_index;
+        } else {
+            try writer.writeAll("!BADREF!");
+            return null;
         }
     }
 
