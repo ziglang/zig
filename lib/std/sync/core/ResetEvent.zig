@@ -144,6 +144,11 @@ test "ResetEvent" {
         event.wait();
         try event.tryWaitFor(delay);
         try event.tryWaitUntil(std.time.now() + delay);
+
+        event.reset();
+        testing.expect(!event.isSet());
+        testing.expectError(error.TimedOut, event.tryWaitFor(delay));
+        testing.expectError(error.TimedOut, event.tryWaitUntil(std.time.now() + delay));
     }
 
     if (std.io.is_async) return;
