@@ -357,7 +357,7 @@ pub const DebugMutex = extern struct {
     }
 
     pub const Held = extern struct {
-        mutex: *Mutex,
+        mutex: *Self,
 
         pub fn release(self: Held) void {
             if (std.debug.runtime_safety) {

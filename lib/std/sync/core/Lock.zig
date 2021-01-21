@@ -365,6 +365,10 @@ pub const DebugLock = extern struct {
     const Self = @This();
     const DebugMutex = @import("./Mutex.zig").DebugMutex;
 
+    pub fn deinit(self: *Self) void {
+        self.mutex.deinit();
+    }
+
     pub fn tryAcquire(self: *Self) ?Held {
         return self.mutex.tryAcquire();
     }

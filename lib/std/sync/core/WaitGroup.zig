@@ -185,7 +185,7 @@ pub const DebugWaitGroup = extern struct {
 
     pub fn tryAdd(self: *Self, amount: isize) bool {
         const is_add = amount > 0;
-        const value = @intCast(usize, if (add) amount else -amount);
+        const value = @intCast(usize, if (is_add) amount else -amount);
         return self.apply(is_add, value);
     }
 
@@ -198,12 +198,18 @@ pub const DebugWaitGroup = extern struct {
             return true;
         }
 
+        var new_counter: usize = undefined;
         const overflowed = switch (is_add) {
-            true => @addWithOverflow(usize, counter, amount, &new_counter),
-            else => @subWithOverflow(usize, counter, amount, &new_counter),
+            true => @addWithOverflow(usize, self.counter, amount, &new_counter),
+            else => @subWithOverflow(usize, self.counter, amount, &new_counter),
         };
 
-        return !overflowed;
+        if (!overflowed) {
+            self.counter = new_counter;
+            return true;
+        }
+
+        return false;
     }
 
     pub fn tryWait(self: *Self) bool {

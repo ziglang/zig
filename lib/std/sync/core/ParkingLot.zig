@@ -687,7 +687,7 @@ pub const DebugParkingLot = struct {
         _ = context.onValidate() orelse return error.Invalid;
         const deadline_ns = deadline orelse @panic("deadlock detected");
         context.onBeforeWait();
-        context.onTimeOut(false);
+        context.onTimeout(false);
         return error.TimedOut;
     }
 

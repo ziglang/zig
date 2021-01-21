@@ -122,16 +122,26 @@ pub const DebugResetEvent = extern struct {
     }
 
     pub fn wait(self: *Self) void {
-        if (!self.is_set)
+        if (!self.is_set) {
             @panic("deadlock detected");
+        }
     }
 
     pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
-        return self.wait();
+        if (!self.is_set) {
+            std.time.sleep(duration);
+            return error.TimedOut;
+        }
     }
 
     pub fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
-        return self.wait();
+        if (!self.is_set) {
+            const now = std.time.now();
+            if (now < deadline) {
+                std.time.sleep(deadline - now);
+            }
+            return error.TimedOut;
+        }
     }
 
     pub fn set(self: *Self) void {
