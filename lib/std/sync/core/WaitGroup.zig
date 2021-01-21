@@ -22,6 +22,14 @@ pub fn WaitGroup(comptime parking_lot: type) type {
             return .{ .counter = amount };
         }
 
+        pub fn deinit(self: *Self) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBeforeForgetAll(@ptrToInt(self));
+            }
+
+            self.* = undefined;
+        }
+
         pub fn begin(self: *Self, amount: usize) void {
             assert(self.tryBegin(amount));
         }
@@ -153,6 +161,10 @@ pub const DebugWaitGroup = extern struct {
         return .{ .counter = amount };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.* = undefined;
+    }
+
     pub fn begin(self: *Self, amount: usize) void {
         assert(self.tryBegin(amount));
     }
@@ -276,6 +288,9 @@ test "WaitGroup" {
             for (threads) |t| {
                 t.wait();
             }
+
+            self.counter_wg.deinit();
+            self.complete_wg.deinit();
         }
 
         fn runThread(self: *Self) void {

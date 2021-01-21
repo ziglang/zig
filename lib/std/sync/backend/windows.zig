@@ -13,15 +13,28 @@ const EventLock = @import("../Lock.zig").Lock;
 pub const Lock = extern struct {
     lock: Backend.OsLock = .{},
 
-    pub fn tryAcquire(self: *Lock) bool {
-        return self.lock.tryAcquire();
+    pub fn tryAcquire(self: *Lock) ?Held {
+        if (self.lock.tryAcquire()) {
+            return Held{ .lock = self };
+        }
+
+        return null;
     }
 
-    pub fn acquire(self: *Lock) void {
+    pub fn acquire(self: *Lock) Held {
         self.lock.acquire();
+        return Held{ .lock = self };
     }
 
-    pub fn release(self: *Lock) void {
+    pub const Held = extern struct {
+        lock: *Lock,
+
+        pub fn release(self: Held) void {
+            self.lock.release();
+        }
+    };
+
+    fn release(self: *Lock) void {
         self.lock.release();
     }
 };

@@ -21,6 +21,14 @@ pub fn ResetEvent(comptime parking_lot: type) type {
             return .{ .is_set = is_set };
         }
 
+        pub fn deinit(self: *Self) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBeforeForgetAll(@ptrToInt(self));
+            }
+
+            self.* = undefined;
+        }
+
         pub fn isSet(self: *const Self) bool {
             const is_set = atomic.load(&self.is_set, .SeqCst);
 
@@ -101,6 +109,10 @@ pub const DebugResetEvent = extern struct {
         return .{ .is_set = is_set };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.* = undefined;
+    }
+
     pub fn isSet(self: *const Self) bool {
         return self.is_set;
     }
@@ -132,6 +144,7 @@ test "ResetEvent" {
 
     {
         var event = TestRestEvent{};
+        defer event.deinit();
         testing.expect(!event.isSet());
 
         const delay = 1 * std.time.ns_per_ms;
@@ -166,13 +179,16 @@ test "ResetEvent" {
             const pong = try std.Thread.spawn(self, runPong);
             self.runPing();
             pong.wait();
+
+            self.ping_event.deinit();
+            self.pong_event.deinit();
         }
 
         fn runPing(self: *Self) void {
             var value = atomic.load(&self.value, .SeqCst);
             testing.expectEqual(value, 0);
 
-            var rt = round_trips;
+            var rt: usize = round_trips;
             while (rt > 0) : (rt -= 1) {
                 atomic.store(&self.value, value + 1, .SeqCst);
                 self.ping_event.set();
@@ -190,7 +206,7 @@ test "ResetEvent" {
             var value: usize = 0;
             testing.expectEqual(value, 0);
 
-            var rt = round_trips;
+            var rt: usize = round_trips;
             while (rt > 0) : (rt -= 1) {
                 self.ping_event.wait();
                 self.ping_event.reset();
@@ -204,4 +220,7 @@ test "ResetEvent" {
             }
         }
     };
+
+    var ping_pong = PingPong{};
+    try ping_pong.run();
 }

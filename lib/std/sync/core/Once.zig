@@ -27,6 +27,9 @@ pub fn Once(comptime initFn: anytype, comptime parking_lot: type) type {
     return struct {
         state: State = .uninit,
         value: T = undefined,
+        waiters: @TypeOf(waiters_init) = waiters_init,
+
+        const waiters_init = if (use_valgrind) @as(usize, 0) else {};
 
         const Self = @This();
         const T = ReturnTypeOf(initFn);
@@ -71,9 +74,15 @@ pub fn Once(comptime initFn: anytype, comptime parking_lot: type) type {
                 once: *Self,
 
                 pub fn onValidate(this: @This()) ?usize {
-                    if (atomic.load(&this.once.state, .Acquire) == .init)
+                    if (atomic.load(&this.once.state, .Acquire) == .init) {
                         return null;
-                    return null;
+                    }
+
+                    if (use_valgrind) {
+                        _ = atomic.fetchAdd(&this.once.waiters, 1, .Relaxed);
+                    }
+
+                    return 0;
                 }
 
                 pub fn onBeforeWait(this: @This()) void {}
@@ -82,17 +91,21 @@ pub fn Once(comptime initFn: anytype, comptime parking_lot: type) type {
                 }
             };
 
+            var did_wait = true;
             _ = parking_lot.parkConditionally(
                 @ptrToInt(self),
                 null,
                 InitParker{ .once = self },
             ) catch |err| switch (err) {
-                error.Invalid => {},
+                error.Invalid => did_wait = false,
                 error.TimedOut => unreachable,
             };
 
             if (use_valgrind) {
                 helgrind.annotateHappensAfter(@ptrToInt(self));
+                if (did_wait and atomic.fetchSub(&self.waiters, 1, .Relaxed) == 1) {
+                    helgrind.annotateHappensBeforeForgetAll(@ptrToInt(self));
+                }
             }
         }
 

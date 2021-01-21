@@ -241,6 +241,7 @@ pub fn ParkingLot(comptime config: anytype) type {
         /// A WaitQueue represents an ordered collection of WaitNodes waiting on the same address.
         const WaitQueue = struct {
             address: usize,
+            held: Lock.Held,
             bucket: *WaitBucket,
             has_bucket_queue: bool = false,
             bucket_queue: WaitBucket.Queue = undefined,
@@ -249,10 +250,11 @@ pub fn ParkingLot(comptime config: anytype) type {
             /// The caller can then perform operations on the WaitQueue without worry for synchronization.
             pub fn acquire(address: usize) WaitQueue {
                 const bucket = WaitBucket.from(address);
-                bucket.lock.acquire();
+                const held = bucket.lock.acquire();
                 
                 return WaitQueue{
                     .address = address,
+                    .held = held,
                     .bucket = bucket,
                 };
             }
@@ -260,7 +262,7 @@ pub fn ParkingLot(comptime config: anytype) type {
             /// Release exclusive ownership of the WaitQueue, allowing another execution unit to use it.
             /// After this call, the caller must no longer use any operations on the wait queue.
             pub fn release(self: WaitQueue) void {
-                self.bucket.lock.release();
+                self.held.release();
             }
 
             /// Queries the internal WaitBucket timer, returning true if the fairness timeout elapsed. 

@@ -23,7 +23,7 @@ pub fn Backend(comptime Futex: type) type {
                 contended,
             };
 
-            pub fn tryAcquire(self: *Self) bool {
+            pub fn tryAcquire(self: *Self) ?Held {
                 const acquired = atomic.compareAndSwap(
                     &self.state,
                     .unlocked,
@@ -36,10 +36,14 @@ pub fn Backend(comptime Futex: type) type {
                     helgrind.annotateHappensAfter(@ptrToInt(self));
                 }
 
-                return acquired;
+                if (acquired) {
+                    return Held{ .lock = self };
+                }
+
+                return null;
             }
 
-            pub fn acquire(self: *Self) void {
+            pub fn acquire(self: *Self) Held {
                 switch (atomic.swap(&self.state, .locked, .Acquire)) {
                     .unlocked => {},
                     else => |state| self.acquireSlow(state),
@@ -48,6 +52,8 @@ pub fn Backend(comptime Futex: type) type {
                 if (use_valgrind) {
                     helgrind.annotateHappensAfter(@ptrToInt(self));
                 }
+
+                return Held{ .lock = self };
             }
 
             fn acquireSlow(self: *Self, current_state: State) void {
@@ -86,7 +92,15 @@ pub fn Backend(comptime Futex: type) type {
                 }
             }
 
-            pub fn release(self: *Self) void {
+            pub const Held = extern struct {
+                lock: *Self,
+
+                pub fn release(self: Held) void {
+                    self.lock.release();
+                }
+            };
+
+            fn release(self: *Self) void {
                 if (use_valgrind) {
                     helgrind.annotateHappensBefore(@ptrToInt(self));
                 }

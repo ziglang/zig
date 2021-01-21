@@ -115,11 +115,16 @@ pub const DebugCondvar = extern struct {
     }
 
     pub fn tryWaitFor(self: *Self, held: anytype, duration: u64) error{TimedOut}!void {
-        return self.wait();
+        std.time.sleep(duration);
+        return error.TimedOut;
     }
 
     pub fn tryWaitUntil(self: *Self, held: anytype, deadline: u64) error{TimedOut}!void {
-        return self.wait();
+        const now = std.time.now();
+        if (now < deadline) {
+            std.time.sleep(deadline - now);
+        }
+        return error.TimedOut;
     }
 
     pub fn notifyOne(self: *Self) void {

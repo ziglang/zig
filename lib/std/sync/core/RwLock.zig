@@ -28,6 +28,14 @@ pub fn RwLock(comptime parking_lot: type) type {
         const Mutex = @import("./Mutex.zig").Mutex(parking_lot);
         const Semaphore = @import("./Semaphore.zig").Semaphore(parking_lot);
 
+        pub fn deinit(self: *Self) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBeforeForgetAll(@ptrToInt(self));
+            }
+
+            self.* = undefined;
+        }
+
         pub fn tryAcquire(self: *Self) ?Held {
             if (self.mutex.tryAcquire()) |held| {
                 const state = atomic.load(&self.state, .SeqCst);

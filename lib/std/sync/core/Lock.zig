@@ -58,6 +58,7 @@ pub fn Lock(comptime config: anytype) type {
         const WAKING = 1 << (if (byte_swap) 8 else 2);
         const WAITING = ~@as(usize, (WAKING << 1) - 1); // aligned past WAKING
 
+        const Self = @This();
         const Waiter = struct {
             prev: ?*Waiter align(std.math.max(@alignOf(usize), ~WAITING + 1)),
             next: ?*Waiter,
@@ -74,28 +75,34 @@ pub fn Lock(comptime config: anytype) type {
         }
 
         /// Try to acquire the lock if its unlocked.
-        pub fn tryAcquire(self: *Lock) bool {
+        pub fn tryAcquire(self: *Self) ?Held {
             const acquired = self.tryAcquireFast(UNLOCKED);
 
             if (use_valgrind and acquired) {
                 helgrind.annotateHappensAfter(@ptrToInt(self));
             }
 
-            return acquired;
+            if (acquired) {
+                return Held{ .lock = self };
+            }
+
+            return null;
         }
 
         /// Acquire ownership of the Lock, using the Event to implement blocking.
-        pub fn acquire(self: *Lock) void {
-            if (!self.tryAcquire()) {
+        pub fn acquire(self: *Self) Held {
+            if (!self.tryAcquireFast(UNLOCKED)) {
                 self.acquireSlow();
             }
 
             if (use_valgrind) {
                 helgrind.annotateHappensAfter(@ptrToInt(self));
             }
+
+            return Held{ .lock = self };
         }
 
-        inline fn tryAcquireFast(self: *Lock, current_state: usize) bool {
+        inline fn tryAcquireFast(self: *Self, current_state: usize) bool {
             // On x86, its better to use `lock bts` over `lock xchg`
             // as the former requires less instructions (lock-bts, jz)
             // over the latter (mov-reg-1, xchg, test, jz).
@@ -133,7 +140,7 @@ pub fn Lock(comptime config: anytype) type {
             }
         }
 
-        fn acquireSlow(self: *Lock) void {
+        fn acquireSlow(self: *Self) void {
             @setCold(true);
 
             // The waiter for this thread is allocated on it's stack.
@@ -145,16 +152,17 @@ pub fn Lock(comptime config: anytype) type {
                 waiter.event.deinit();
 
             var spin_iter: usize = 0;
-            var state = atomic.load(&self.state, .relaxed);
+            var state = atomic.load(&self.state, .Relaxed);
             while (true) {
                 
                 // Try to acquire the lock if its unlocked.
                 if (state & LOCKED == 0) {
-                    if (self.tryAcquireFast(state))
+                    if (self.tryAcquireFast(state)) {
                         return;
+                    }
 
                     _ = Event.yield(null);
-                    state = atomic.load(&self.state, .relaxed);
+                    state = atomic.load(&self.state, .Relaxed);
                     continue;
                 }
                 
@@ -162,17 +170,16 @@ pub fn Lock(comptime config: anytype) type {
                 const head = @intToPtr(?*Waiter, state & WAITING);
                 if (head == null and Event.yield(spin_iter)) {
                     spin_iter +%= 1;
-                    state = atomic.load(&self.state, .relaxed);
+                    state = atomic.load(&self.state, .Relaxed);
                     continue;
                 }
                 
                 // The lock is contended, prepare our waiter to be enqueued at the head.
                 // The first waiter to be enqueued sets its tail to itself.
                 //  This is needed later in release().
-                const waiter = &event_waiter.waiter;
                 waiter.prev = null;
                 waiter.next = head;
-                waiter.tail = if (head == null) waiter else null;
+                waiter.tail = if (head == null) &waiter else null;
 
                 // Lazily initialize the Event object to prepare for waiting.
                 if (!has_event) {
@@ -187,9 +194,9 @@ pub fn Lock(comptime config: anytype) type {
                 if (atomic.tryCompareAndSwap(
                     &self.state,
                     state,
-                    (state & ~WAITING) | @ptrToInt(waiter),
-                    .release,
-                    .relaxed,
+                    (state & ~WAITING) | @ptrToInt(&waiter),
+                    .Release,
+                    .Relaxed,
                 )) |updated| {
                     state = updated;
                     continue;
@@ -205,15 +212,23 @@ pub fn Lock(comptime config: anytype) type {
                 // Use `fetchSub` on x86 as it can be done without a `lock cmpxchg` loop.
                 // Use `fetchAnd` for others as bitwise ops are generally less expensive than common arithmetic.
                 state = switch (builtin.arch) {
-                    .i386, .x86_64 => atomic.fetchSub(&self.state, WAKING, .relaxed),
-                    else => atomic.fetchAnd(&self.state, ~@as(usize, WAKING), .relaxed),
+                    .i386, .x86_64 => atomic.fetchSub(&self.state, WAKING, .Relaxed),
+                    else => atomic.fetchAnd(&self.state, ~@as(usize, WAKING), .Relaxed),
                 };
                 state &= ~@as(usize, WAKING);
             }
         }
 
+        pub const Held = extern struct {
+            lock: *Self,
+
+            pub fn release(self: Held) void {
+                self.lock.release();
+            }
+        };
+
         /// Release ownership of the Lock, assuming already acquired.
-        pub fn release(self: *Lock) void {
+        fn release(self: *Self) void {
             if (use_valgrind) {
                 helgrind.annotateHappensBefore(@ptrToInt(self));
             }
@@ -232,11 +247,12 @@ pub fn Lock(comptime config: anytype) type {
 
             // NOTE: we could also check if its not waking (or locked for byte_swap)
             // but its slightly better to keep the i-cache hit smaller.
-            if (state & WAITING != 0)
+            if (state & WAITING != 0) {
                 self.releaseSlow();
+            }
         }
 
-        fn releaseSlow(self: *Lock) void {
+        fn releaseSlow(self: *Self) void {
             @setCold(true);
 
             // Try to grab the WAKING bit, bailing under a few conditions:
@@ -252,8 +268,9 @@ pub fn Lock(comptime config: anytype) type {
             // is derived from the atomic variable (state) itself.
             var state = atomic.load(&self.state, .Relaxed);
             while (true) {
-                if ((state & WAITING == 0) or (state & (LOCKED | WAKING) != 0))
+                if ((state & WAITING == 0) or (state & (LOCKED | WAKING) != 0)) {
                     return;
+                }
                 state = atomic.tryCompareAndSwap(
                     &self.state,
                     state,
@@ -348,30 +365,28 @@ pub const DebugLock = extern struct {
     const Self = @This();
     const DebugMutex = @import("./Mutex.zig").DebugMutex;
 
-    pub fn tryAcquire(self: *Self) bool {
-        return self.mutex.tryAcquire() != null;
+    pub fn tryAcquire(self: *Self) ?Held {
+        return self.mutex.tryAcquire();
     }
 
-    pub fn acquire(self: *Self) void {
-        _ = self.mutex.acquire();
+    pub fn acquire(self: *Self) Held {
+        return self.mutex.acquire();
     }
 
-    pub fn release(self: *Self) void {
-        (DebugMutex.Held{ .mutex = &self.mutex }).release();
-    }
+    pub const Held = DebugMutex.Held;
 };
 
 test "Lock" {
-    const TestLock = std.sync.Lock;
+    const TestLock = std.sync.core.Lock(std.sync.parking_lot);
 
     {
         var lock = TestLock{};
-        testing.expect(lock.tryAcquire());
-        testing.expect(!lock.tryAcquire());
-        lock.release();
+        var held = lock.tryAcquire() orelse unreachable;
+        testing.expectEqual(lock.tryAcquire(), null);
+        held.release();
 
-        lock.acquire();
-        lock.release();
+        held = lock.acquire();
+        held.release();
     }
 
     if (std.io.is_async) return;
@@ -391,8 +406,8 @@ test "Lock" {
             remaining: u128 = 10000,
 
             fn tryDecr(self: *Counter) bool {
-                self.lock.acquire();
-                defer self.lock.release();
+                const held = self.lock.acquire();
+                defer held.release();
 
                 if (self.remaining == 0)
                     return false;

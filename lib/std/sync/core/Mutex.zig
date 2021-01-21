@@ -7,6 +7,7 @@
 const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const builtin = std.builtin;
+const assert = std.debug.assert;
 
 const helgrind = std.valgrind.helgrind;
 const use_valgrind = builtin.valgrind_support;
@@ -43,6 +44,14 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             .i386, .x86_64 => true,
             else => false,
         };
+
+        pub fn deinit(self: *Self) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBeforeForgetAll(@ptrToInt(self));
+            }
+
+            self.* = undefined;
+        }
 
         /// Try to acquire ownership of the Mutex if its not currently owned in a non-blocking manner.
         /// Returns true if it was successful in doing so.
@@ -117,21 +126,22 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             }
         }
 
-        inline fn tryAcquireFast(self: *Self, assume_state: usize) bool {
+        inline fn tryAcquireFast(self: *Self, assume_state: u8) bool {
             // On x86, its better to use `lock bts` instead of `lock cmpxchg` loop below
             // due to it having a smaller instruction cache footprint making it great for inlining.
             if (is_x86) {
                 return atomic.bitSet(
                     &self.state,
-                    @ctz(u3, LOCKED),
+                    @ctz(u1, LOCKED),
                     .Acquire,
                 ) == 0;
             }
 
             var state = assume_state;
             while (true) {
-                if (state & LOCKED != 0)
+                if (state & LOCKED != 0) {
                     return false;
+                }
                 state = atomic.tryCompareAndSwap(
                     &self.state,
                     state,
@@ -162,8 +172,9 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                 // Try to acquire the Mutex even if there are pending waiters.
                 // When fairness is employed, it keeps the LOCKED bit set so this still works.
                 if (state & LOCKED == 0) {
-                    if (self.tryAcquireFast(state))
+                    if (self.tryAcquireFast(state)) {
                         return;
+                    }
 
                     _ = parking_lot.Event.yield(null);
                     state = atomic.load(&self.state, .Relaxed); 
@@ -275,8 +286,9 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                     // A Release memory barrier isn't needed as the fair-unlocked thread won't be re-checking the state with Acquire when woken up with handoff.
                     // Instead, we rely on the wake-up itself to provide the necessary Release/Acquire semantics needed for any data this Mutex protects.
                     if (result.token != null and (this.force_fair or result.be_fair)) {
-                        if (!result.has_more)
+                        if (!result.has_more) {
                             atomic.store(&this.mutex.state, LOCKED, .Relaxed);
+                        }
                         return TOKEN_HANDOFF;
                     }
 
@@ -308,25 +320,37 @@ pub const DebugMutex = extern struct {
     const Self = @This();
     const init = if (std.debug.runtime_safety) false else {};
 
+    pub fn deinit(self: *Self) void {
+        self.* = undefined;
+    }
+
     pub fn tryAcquire(self: *Self) ?Held {
         if (std.debug.runtime_safety) {
-            if (self.is_locked)
-                return null;
+            if (self.is_locked) return null;
             self.is_locked = true;
         }
 
         return Held{ .mutex = self };
     }
 
-    pub fn tryAcquireFor(self: *Self, duration: u64) error{TimedOut}!void {
-        return self.tryAcquire() orelse error.TimedOut;
+    pub fn tryAcquireFor(self: *Self, duration: u64) error{TimedOut}!Held {
+        return self.tryAcquire() orelse {
+            std.time.sleep(duration);
+            return error.TimedOut;
+        };
     }
 
-    pub fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!void {
-        return self.tryAcquire() orelse error.TimedOut;
+    pub fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
+        return self.tryAcquire() orelse {
+            const now = std.time.now();
+            if (now < deadline) {
+                std.time.sleep(deadline - now);
+            }
+            return error.TimedOut;
+        }
     }
 
-    pub fn acquire(self: *Self) void {
+    pub fn acquire(self: *Self) Held {
         return self.tryAcquire() orelse @panic("deadlock detected");
     }
 
@@ -334,8 +358,10 @@ pub const DebugMutex = extern struct {
         mutex: *Mutex,
 
         pub fn release(self: Held) void {
-            if (std.debug.runtime_safety)
+            if (std.debug.runtime_safety) {
+                assert(self.mutex.is_locked);
                 self.mutex.is_locked = false;
+            }
         }
 
         pub fn releaseFair(self: Held) void {

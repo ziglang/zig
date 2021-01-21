@@ -21,6 +21,14 @@ pub fn Semaphore(comptime parking_lot: type) type {
             return .{ .permits = permits };
         }
 
+        pub fn deinit(self: *Self) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBeforeForgetAll(@ptrToInt(self));
+            }
+
+            self.* = undefined;
+        }
+
         pub fn tryWait(self: *Self) bool {
             return self.tryAcquire(1);
         }
@@ -76,34 +84,35 @@ pub fn Semaphore(comptime parking_lot: type) type {
             const Parker = struct {
                 semaphore: *Self,
                 perms: usize,
-                timed_out: bool = false,
 
                 pub fn onValidate(this: @This()) ?usize {
                     const perms = atomic.load(&this.semaphore.permits, .SeqCst);
-                    if (perms >= this.perms)
+                    if (perms >= this.perms) {
                         return null;
+                    }
                     return this.perms;
                 }
 
                 pub fn onBeforeWait(this: @This()) void {}
-                pub fn onTimeout(this: *@This(), has_more: bool) void {
-                    this.timed_out = true;
-                }
-            };
-
-            var parker = Parker{
-                .semaphore = self,
-                .perms = permits,
+                pub fn onTimeout(this: @This(), has_more: bool) void {}
             };
 
             while (true) {
-                if (self.tryAcquire(permits))
+                if (self.tryAcquire(permits)) {
                     break;
+                }
 
-                if (parker.timed_out)
-                    return error.TimedOut;
-
-                _ = parking_lot.parkConditionally(@ptrToInt(self), deadline, &parker);
+                _ = parking_lot.parkConditionally(
+                    @ptrToInt(self),
+                    deadline,
+                    Parker{
+                        .semaphore = self,
+                        .perms = permits,
+                    },
+                ) catch |err| switch (err) {
+                    error.Invalid => {},
+                    error.TimedOut => return error.TimedOut,
+                };
             }
 
             if (use_valgrind) {
@@ -119,13 +128,15 @@ pub fn Semaphore(comptime parking_lot: type) type {
 
             var perms = atomic.load(&self.permits, .SeqCst);
             while (true) {
-                if (perms > std.math.maxInt(usize) - permits)
+                var new_perms: usize = undefined;
+                if (@addWithOverflow(usize, perms, permits, &new_perms)) {
                     return false;
+                }
 
                 perms = atomic.tryCompareAndSwap(
                     &self.permits,
                     perms,
-                    perms + permits,
+                    new_perms,
                     .SeqCst,
                     .SeqCst,
                 ) orelse break;
