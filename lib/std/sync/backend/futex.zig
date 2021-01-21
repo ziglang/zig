@@ -23,6 +23,14 @@ pub fn Backend(comptime Futex: type) type {
                 contended,
             };
 
+            pub fn deinit(self: *Self) void {
+                if (use_valgrind) {
+                    helgrind.annotateHappensBeforeForgetAll(@ptrToInt(self));
+                }
+
+                self.* = undefined;
+            }
+
             pub fn tryAcquire(self: *Self) ?Held {
                 const acquired = atomic.compareAndSwap(
                     &self.state,

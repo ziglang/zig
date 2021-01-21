@@ -183,6 +183,10 @@ const WindowsBackend = struct {
         pub const Lock = extern struct {
             srwlock: windows.SRWLOCK = windows.SRWLOCK_INIT,
 
+            pub fn deinit(self: *Lock) void {
+                self.* = undefined;
+            }
+
             pub fn tryAcquire(self: *Lock) ?Held {
                 if (windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE) {
                     return Held{ .lock = self };
