@@ -165,272 +165,311 @@ const DarwinBackend = struct {
 
 const WindowsBackend = struct {
     const windows = std.os.windows;
-
-    pub usingnamespace if (Kernel32Backend.is_supported)
-        Kernel32Backend
-    else if (NtKeyedEventBackend.is_supported)
-        NtKeyedEventBackend
+    
+    pub const Lock = if (SRWLock.is_supported)
+        SRWLock
+    else if (NtKeyedLock.is_supported)
+        NtKeyedLock
     else
-        SpinBackend;
+        SpinBackend.Lock;
+
+    pub const Event = if (SRWEvent.is_supported)
+        SRWEvent
+    else if (NtKeyedEvent.is_supported)
+        NtKeyedEvent
+    else
+        SpinBackend.Event;
 
     fn isWindowsVersionSupported(comptime version: std.Target.Os.WindowsVersion) bool {
         return target.os.version_range.windows.isAtLeast(version) orelse false;
     }
 
-    const Kernel32Backend = struct {
+    const SRWLock = extern struct {
+        srwlock: windows.SRWLOCK = windows.SRWLOCK_INIT,
+
+        const Self = @This();
         const is_supported = isWindowsVersionSupported(.vista);
 
-        pub const Lock = extern struct {
-            srwlock: windows.SRWLOCK = windows.SRWLOCK_INIT,
+        pub fn deinit(self: *Self) void {
+            self.* = undefined;
+        }
 
-            pub fn deinit(self: *Lock) void {
-                self.* = undefined;
-            }
-
-            pub fn tryAcquire(self: *Lock) ?Held {
-                if (windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE) {
-                    return Held{ .lock = self };
-                }
-
-                return null;
-            }
-
-            pub fn acquire(self: *Lock) Held {
-                windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
+        pub fn tryAcquire(self: *Self) ?Held {
+            if (windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE) {
                 return Held{ .lock = self };
             }
 
-            pub const Held = extern struct {
-                lock: *Lock,
+            return null;
+        }
 
-                pub fn release(self: Held) void {
-                    windows.kernel32.ReleaseSRWLockExclusive(&self.lock.srwlock);
-                }
-            };
-        };
+        pub fn acquire(self: *Self) Held {
+            windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
+            return Held{ .lock = self };
+        }
 
-        pub const Event = extern struct {
-            is_set: bool,
-            lock: windows.SRWLOCK,
-            cond: windows.CONDITION_VARIABLE,
+        pub const Held = extern struct {
+            lock: *Self,
 
-            pub fn init(self: *Event) void {
-                self.* = .{
-                    .is_set = false,
-                    .lock = windows.SRWLOCK_INIT,
-                    .cond = windows.CONDITION_VARIABLE_INIT,
-                };
-            }
-
-            pub fn deinit(self: *Event) void {
-                self.* = undefined;
-            }
-
-            pub fn wait(self: *Event, deadline: ?u64) error{TimedOut}!void {
-                windows.kernel32.AcquireSRWLockExclusive(&self.lock);
-                defer windows.kernel32.ReleaseSRWLockExclusive(&self.lock);
-
-                while (true) {
-                    if (self.is_set) {
-                        return;
-                    }
-
-                    var timeout: windows.DWORD = windows.INFINITE;
-                    if (deadline) |deadline_ns| {
-                        const now = std.time.now();
-                        if (now > deadline_ns) {
-                            return error.TimedOut;
-                        }
-
-                        const timeout_ms = @divFloor(deadline_ns - now, std.time.ns_per_ms);
-                        if (timeout_ms < @as(u64, timeout)) {
-                            timeout = @intCast(windows.DWORD, timeout_ms);
-                        }
-                    }
-
-                    const status = windows.kernel32.SleepConditionVariableSRW(
-                        &self.cond,
-                        &self.lock,
-                        timeout,
-                        0,
-                    );
-
-                    if (status != windows.TRUE) {
-                        switch (windows.kernel32.GetLastError()) {
-                            .TIMEOUT => {},
-                            else => |err| {
-                                const ignored = windows.unexpectedError(err);
-                                std.debug.panic("SleepConditionVariableSRW", .{});
-                            },
-                        }
-                    }
-                }
-            } 
-
-            pub fn set(self: *Event) void {
-                windows.kernel32.AcquireSRWLockExclusive(&self.lock);
-                defer windows.kernel32.ReleaseSRWLockExclusive(&self.lock);
-
-                self.is_set = true;
-                windows.kernel32.WakeConditionVariable(&self.cond);
-            }
-
-            pub fn reset(self: *Event) void {
-                self.is_set = false;
-            }
-
-            pub fn yield(iteration: ?usize) bool {
-                const iter = iteration orelse {
-                    _ = windows.kernel32.SwitchToThread();
-                    return false;
-                };
-
-                if (iter < 4000) {
-                    atomic.spinLoopHint();
-                    return true;
-                }
-
-                return false;
+            pub fn release(self: Held) void {
+                windows.kernel32.ReleaseSRWLockExclusive(&self.lock.srwlock);
             }
         };
     };
 
-    const NtKeyedEventBackend = struct {
-        const is_supported = isWindowsVersionSupported(.xp);
+    const SRWEvent = extern struct {
+        is_set: bool,
+        lock: windows.SRWLOCK,
+        cond: windows.CONDITION_VARIABLE,
 
-        pub const Lock = EventLock(.{
+        const Self = @This();
+        const is_supported = isWindowsVersionSupported(.vista);
+
+        pub fn init(self: *Self) void {
+            self.* = .{
+                .is_set = false,
+                .lock = windows.SRWLOCK_INIT,
+                .cond = windows.CONDITION_VARIABLE_INIT,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.* = undefined;
+        }
+
+        pub fn wait(self: *Self, deadline: ?u64) error{TimedOut}!void {
+            windows.kernel32.AcquireSRWLockExclusive(&self.lock);
+            defer windows.kernel32.ReleaseSRWLockExclusive(&self.lock);
+
+            while (true) {
+                if (self.is_set) {
+                    return;
+                }
+
+                var timeout: windows.DWORD = windows.INFINITE;
+                if (deadline) |deadline_ns| {
+                    const now = std.time.now();
+                    if (now > deadline_ns) {
+                        return error.TimedOut;
+                    } else {
+                        const timeout_ms = @divFloor(deadline_ns - now, std.time.ns_per_ms);
+                        timeout = std.math.cast(windows.DWORD, timeout_ms) catch timeout;
+                    }
+                }
+
+                const status = windows.kernel32.SleepConditionVariableSRW(
+                    &self.cond,
+                    &self.lock,
+                    timeout,
+                    @as(windows.ULONG, 0),
+                );
+
+                if (status != windows.TRUE) {
+                    switch (windows.kernel32.GetLastError()) {
+                        .TIMEOUT => {},
+                        else => |err| {
+                            const ignored = windows.unexpectedError(err);
+                            std.debug.panic("SleepConditionVariableSRW", .{});
+                        },
+                    }
+                }
+            }
+        } 
+
+        pub fn set(self: *Event) void {
+            windows.kernel32.AcquireSRWLockExclusive(&self.lock);
+            defer windows.kernel32.ReleaseSRWLockExclusive(&self.lock);
+
+            self.is_set = true;
+            windows.kernel32.WakeConditionVariable(&self.cond);
+        }
+
+        pub fn reset(self: *Self) void {
+            self.is_set = false;
+        }
+
+        pub fn yield(iteration: ?usize) bool {
+            const iter = iteration orelse {
+                windows.kernel32.Sleep(0);
+                return false;
+            };
+
+            const max_spin = 4000;
+            if (iter < max_spin) {
+                if (iter < max_spin - 100) {
+                    atomic.spinLoopHint();
+                } else if (iter < max_spin - 50) {
+                    _ = windows.kernel32.SwitchToThread();
+                } else {
+                    windows.kernel32.Sleep(0);
+                }
+                return true;
+            }
+
+            return false;
+        }
+    };
+
+    const NtKeyedLock = extern struct {
+        inner: InnerLock = .{},
+
+        const Self = @This();
+        const is_supported = isWindowsVersionSupported(.xp);
+        const InnerLock = EventLock(.{
             .Event = Event,
             .byte_swap = true,
         });
 
-        pub const Event = extern struct {
-            state: State = .empty,
+        pub fn deinit(self: *Self) void {
+            self.inner.deinit();
+        }
 
-            const State = enum(u32) {
-                empty,
-                waiting,
-                notified,
-            };
+        pub fn tryAcquire(self: *Self) ?Held {
+            return self.inner.tryAcquire();
+        }
 
-            pub fn wait(self: *Event, deadline: ?u64) error{TimedOut}!void {
-                if (atomic.compareAndSwap(
-                    &self.state,
-                    .empty,
-                    .waiting,
-                    .SeqCst,
-                    .SeqCst,
-                )) |updated| {
-                    assert(updated == .notified);
-                    return;
-                }
+        pub fn acquire(self: *Self) Held {
+            return self.inner.acquire();
+        }
 
-                var timed_out = false;
-                var timeout: windows.LARGE_INTEGER = undefined;
-                var timeout_ptr: ?*const windows.LARGE_INTEGER = null;
+        pub const Held = InnerLock.Held;
+    };
 
-                if (deadline) |deadline_ns| {
-                    const now = std.time.now();
-                    timed_out = now > deadline_ns;
+    const NtKeyedEvent = extern struct {
+        state: State,
+        
+        const Self = @This();
+        const State = enum(u32) {
+            empty,
+            waiting,
+            notified,
+        };
 
-                    if (!timed_out) {
-                        timeout_ptr = &timeout;
-                        timeout = -(@intCast(windows.LARGE_INTEGER, @divFloor(deadline_ns - now, 100)));
-                    }
-                }
+        pub fn init(self: *Self) void {
+            self.state = .empty;
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.* = undefined;
+        }
+
+        pub fn wait(self: *Self, deadline: ?u64) error{TimedOut}!void {
+            if (atomic.compareAndSwap(
+                &self.state,
+                .empty,
+                .waiting,
+                .SeqCst,
+                .SeqCst,
+            )) |updated| {
+                assert(updated == .notified);
+                return;
+            }
+
+            var timed_out = false;
+            var timeout: windows.LARGE_INTEGER = undefined;
+            var timeout_ptr: ?*const windows.LARGE_INTEGER = null;
+
+            if (deadline) |deadline_ns| {
+                const now = std.time.now();
+                timed_out = now > deadline_ns;
 
                 if (!timed_out) {
-                    switch (windows.ntdll.NtWaitForKeyedEvent(
-                        null, // use global keyed event
-                        @ptrCast(*align(4) const c_void, &self.state),
-                        windows.FALSE, // non-alertable wait
-                        timeout_ptr,
-                    )) {
-                        .SUCCESS => {
-                            return;
-                        },
-                        .TIMEOUT => {
-                            assert(timeout_ptr != null);
-                            timed_out = true;
-                        },
-                        else => |status| {
-                            const ignored = windows.unexpectedStatus(status);
-                            std.debug.panic("NtWaitForKeyedEvent", .{});
-                        },
-                    }
+                    timeout_ptr = &timeout;
+                    timeout = -(@intCast(windows.LARGE_INTEGER, @divFloor(deadline_ns - now, 100)));
                 }
+            }
 
-                assert(timed_out);
-                if (atomic.compareAndSwap(
-                    &self.state,
-                    .waiting,
-                    .empty,
-                    .SeqCst,
-                    .SeqCst,
-                )) |updated| {
-                    assert(updated == .notified);
-                } else {
-                    return error.TimedOut;
-                }
-
+            if (!timed_out) {
                 switch (windows.ntdll.NtWaitForKeyedEvent(
                     null, // use global keyed event
                     @ptrCast(*align(4) const c_void, &self.state),
                     windows.FALSE, // non-alertable wait
-                    null, // wait forever
+                    timeout_ptr,
                 )) {
                     .SUCCESS => {
                         return;
+                    },
+                    .TIMEOUT => {
+                        assert(timeout_ptr != null);
+                        timed_out = true;
                     },
                     else => |status| {
                         const ignored = windows.unexpectedStatus(status);
                         std.debug.panic("NtWaitForKeyedEvent", .{});
                     },
                 }
-            } 
-
-            pub fn set(self: *Event) void {
-                switch (atomic.swap(
-                    &self.state,
-                    .notified,
-                    .SeqCst,
-                )) {
-                    .empty => return,
-                    .waiting => {},
-                    .notified => unreachable,
-                }
-
-                switch (windows.ntdll.NtReleaseKeyedEvent(
-                    null, // use global keyed event
-                    @ptrCast(*align(4) const c_void, &self.state),
-                    windows.FALSE, // non-alertable wait
-                    null, // wait forever
-                )) {
-                    .SUCCESS => {},
-                    else => |status| {
-                        const ignored = windows.unexpectedStatus(status);
-                        std.debug.panic("NtReleaseKeyedEvent", .{});
-                    },
-                }
             }
 
-            pub fn reset(self: *Event) void {
-                self.state = .empty;
+            assert(timed_out);
+            if (atomic.compareAndSwap(
+                &self.state,
+                .waiting,
+                .empty,
+                .SeqCst,
+                .SeqCst,
+            )) |updated| {
+                assert(updated == .notified);
+            } else {
+                return error.TimedOut;
             }
 
-            pub fn yield(iteration: ?usize) bool {
-                const iter = iteration orelse {
-                    _ = windows.ntdll.NtYieldExecution();
-                    return false;
-                };
+            switch (windows.ntdll.NtWaitForKeyedEvent(
+                null, // use global keyed event
+                @ptrCast(*align(4) const c_void, &self.state),
+                windows.FALSE, // non-alertable wait
+                null, // wait forever
+            )) {
+                .SUCCESS => {
+                    return;
+                },
+                else => |status| {
+                    const ignored = windows.unexpectedStatus(status);
+                    std.debug.panic("NtWaitForKeyedEvent", .{});
+                },
+            }
+        } 
 
-                if (iter < 1000) {
-                    atomic.spinLoopHint();
-                    return true;
-                }
+        pub fn set(self: *Self) void {
+            switch (atomic.swap(
+                &self.state,
+                .notified,
+                .SeqCst,
+            )) {
+                .empty => return,
+                .waiting => {},
+                .notified => unreachable,
+            }
 
+            switch (windows.ntdll.NtReleaseKeyedEvent(
+                null, // use global keyed event
+                @ptrCast(*align(4) const c_void, &self.state),
+                windows.FALSE, // non-alertable wait
+                null, // wait forever
+            )) {
+                .SUCCESS => {},
+                else => |status| {
+                    const ignored = windows.unexpectedStatus(status);
+                    std.debug.panic("NtReleaseKeyedEvent", .{});
+                },
+            }
+        }
+
+        pub fn reset(self: *Self) void {
+            self.state = .empty;
+        }
+
+        pub fn yield(iteration: ?usize) bool {
+            const iter = iteration orelse {
+                _ = windows.ntdll.NtYieldExecution();
                 return false;
+            };
+
+            if (iter < 1000) {
+                atomic.spinLoopHint();
+                return true;
             }
-        };
+
+            return false;
+        }
     };
 };
 

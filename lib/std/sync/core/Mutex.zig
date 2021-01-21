@@ -87,24 +87,6 @@ pub fn Mutex(comptime parking_lot: anytype) type {
         pub fn acquire(self: *Self) Held {
             return self.acquireInner(null) catch unreachable;
         }
-
-        pub const Held = struct {
-            mutex: *Self,
-
-            /// Release ownership of the Mutex (assuming the caller has it)
-            /// and wake up a thread waiting to acquire it if possible.
-            pub fn release(self: Held) void {
-                self.mutex.releaseInner(false);
-            }
-
-            /// Release ownership of the Mutex (assuming the caller has it)
-            /// and wake up a thread waiting to acquire it if possible while also passing ownership of the Mutex to that thread.
-            /// If no threads are available to be woken up, ownership is released as normal.
-            /// This is commonly useful when the caller wants to enforce that another thread gets the Mutex as soon as possible for latency reasons.
-            pub fn releaseFair(self: Held) void {
-                self.mutex.releaseInner(true);
-            }
-        };
         
         fn acquireInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
             if (!self.tryAcquireFast(UNLOCKED)) {
@@ -116,16 +98,6 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             }
             
             return Held{ .mutex = self };
-        }
-
-        fn releaseInner(self: *Self, be_fair: bool) void {
-            if (use_valgrind) {
-                helgrind.annotateHappensBefore(@ptrToInt(self));
-            }
-
-            if (!self.tryReleaseFast()) {
-                self.releaseSlow(be_fair);
-            }
         }
 
         inline fn tryAcquireFast(self: *Self, assume_state: u8) bool {
@@ -154,22 +126,11 @@ pub fn Mutex(comptime parking_lot: anytype) type {
             }
         }
 
-        inline fn tryReleaseFast(self: *Self) bool {
-            return atomic.tryCompareAndSwap(
-                &self.state,
-                LOCKED,
-                UNLOCKED,
-                .Release,
-                .Relaxed,
-            ) == null;
-        }
-
         fn acquireSlow(self: *Self, deadline: ?u64) error{TimedOut}!void {
             @setCold(true);
 
             var spin_iter: usize = 0;
             var state = atomic.load(&self.state, .Relaxed);
-
             while (true) {
                 // Try to acquire the Mutex even if there are pending waiters.
                 // When fairness is employed, it keeps the LOCKED bit set so this still works.
@@ -179,7 +140,7 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                     }
 
                     _ = parking_lot.Event.yield(null);
-                    state = atomic.load(&self.state, .Relaxed); 
+                    state = atomic.load(&self.state, .Relaxed);
                     continue;
                 }
                 
@@ -212,8 +173,9 @@ pub fn Mutex(comptime parking_lot: anytype) type {
                     /// During the parking process, the state may have changed so we need to recheck it here unless we risk missing a wake-up.
                     pub fn onValidate(this: @This()) ?usize {
                         const mutex_state = atomic.load(&this.mutex.state, .Relaxed);
-                        if (mutex_state != (LOCKED | PARKED))
+                        if (mutex_state != (LOCKED | PARKED)) {
                             return null;
+                        }
                         return 0;
                     }
 
@@ -256,6 +218,40 @@ pub fn Mutex(comptime parking_lot: anytype) type {
 
                 spin_iter = 0;
                 state = atomic.load(&self.state, .Relaxed);
+            }
+        }
+
+        pub const Held = struct {
+            mutex: *Self,
+
+            /// Release ownership of the Mutex (assuming the caller has it)
+            /// and wake up a thread waiting to acquire it if possible.
+            pub fn release(self: Held) void {
+                self.mutex.releaseInner(false);
+            }
+
+            /// Release ownership of the Mutex (assuming the caller has it)
+            /// and wake up a thread waiting to acquire it if possible while also passing ownership of the Mutex to that thread.
+            /// If no threads are available to be woken up, ownership is released as normal.
+            /// This is commonly useful when the caller wants to enforce that another thread gets the Mutex as soon as possible for latency reasons.
+            pub fn releaseFair(self: Held) void {
+                self.mutex.releaseInner(true);
+            }
+        };
+
+        fn releaseInner(self: *Self, be_fair: bool) void {
+            if (use_valgrind) {
+                helgrind.annotateHappensBefore(@ptrToInt(self));
+            }
+
+            if (atomic.tryCompareAndSwap(
+                &self.state,
+                LOCKED,
+                UNLOCKED,
+                .Release,
+                .Relaxed,
+            )) |updated| {
+                self.releaseSlow(be_fair);
             }
         }
 
