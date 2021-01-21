@@ -343,6 +343,7 @@ const usage_build_generic =
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
+    \\  --no-dynamic-base              (Windows) /DYNAMICBASE:no to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (Darwin) link against framework
@@ -546,6 +547,7 @@ fn buildOutputType(
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
+    var dynamic_base: bool = true;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -700,6 +702,8 @@ fn buildOutputType(
                                 \\
                             });
                         }
+                    } else if (mem.eql(u8, arg, "--no-dynamic-base")) {
+                        dynamic_base = false;
                     } else if (mem.eql(u8, arg, "-O")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -1822,6 +1826,7 @@ fn buildOutputType(
         .test_name_prefix = test_name_prefix,
         .disable_lld_caching = !have_enable_cache,
         .subsystem = subsystem,
+        .dynamic_base = dynamic_base,
     }) catch |err| {
         fatal("unable to create compilation: {s}", .{@errorName(err)});
     };

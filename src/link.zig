@@ -98,6 +98,8 @@ pub const Options = struct {
     extra_lld_args: []const []const u8,
     /// Darwin-only. Set the root path to the system libraries and frameworks.
     syslibroot: ?[]const u8,
+    /// Windows only. Enable image base randomization
+    dynamic_base: bool,
 
     objects: []const []const u8,
     framework_dirs: []const []const u8,

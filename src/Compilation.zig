@@ -497,6 +497,7 @@ pub const InitOptions = struct {
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
+    dynamic_base: bool = true,
 };
 
 fn addPackageTableToCacheHash(
@@ -1038,6 +1039,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
+            .dynamic_base = options.dynamic_base,
         });
         errdefer bin_file.destroy();
         comp.* = .{

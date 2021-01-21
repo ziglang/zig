@@ -965,6 +965,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             }
         }
 
+        if (!self.base.options.dynamic_base) {
+            try argv.append("-DYNAMICBASE:no");
+        }
+
         if (is_dyn_lib) {
             try argv.append("-DLL");
         }
