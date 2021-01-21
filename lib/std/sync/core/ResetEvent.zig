@@ -190,7 +190,8 @@ test "ResetEvent" {
 
             var rt: usize = round_trips;
             while (rt > 0) : (rt -= 1) {
-                atomic.store(&self.value, value + 1, .SeqCst);
+                value += 1;
+                atomic.store(&self.value, value, .SeqCst);
                 self.ping_event.set();
 
                 self.pong_event.wait();
@@ -213,9 +214,10 @@ test "ResetEvent" {
                 const new_value = atomic.load(&self.value, .SeqCst);
 
                 testing.expectEqual(new_value, value + 1);
-                value += 1;
+                value = new_value;
 
-                atomic.store(&self.value, value + 1, .SeqCst);
+                value += 1;
+                atomic.store(&self.value, value, .SeqCst);
                 self.pong_event.set();
             }
         }
