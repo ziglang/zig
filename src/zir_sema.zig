@@ -43,7 +43,6 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .breakpoint => return zirBreakpoint(mod, scope, old_inst.castTag(.breakpoint).?),
         .break_void => return zirBreakVoid(mod, scope, old_inst.castTag(.break_void).?),
         .call => return zirCall(mod, scope, old_inst.castTag(.call).?),
-        .coerce_result_block_ptr => return zirCoerceResultBlockPtr(mod, scope, old_inst.castTag(.coerce_result_block_ptr).?),
         .coerce_result_ptr => return zirCoerceResultPtr(mod, scope, old_inst.castTag(.coerce_result_ptr).?),
         .compile_error => return zirCompileError(mod, scope, old_inst.castTag(.compile_error).?),
         .compile_log => return zirCompileLog(mod, scope, old_inst.castTag(.compile_log).?),
@@ -263,16 +262,6 @@ fn analyzeConstInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError
         .ty = new_inst.ty,
         .val = try mod.resolveConstValue(scope, new_inst),
     };
-}
-
-fn zirCoerceResultBlockPtr(
-    mod: *Module,
-    scope: *Scope,
-    inst: *zir.Inst.CoerceResultBlockPtr,
-) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-    return mod.fail(scope, inst.base.src, "TODO implement zirCoerceResultBlockPtr", .{});
 }
 
 fn zirBitcastRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {

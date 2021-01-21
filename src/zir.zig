@@ -112,10 +112,6 @@ pub const Inst = struct {
         /// as type coercion from the new element type to the old element type.
         /// LHS is destination element type, RHS is result pointer.
         coerce_result_ptr,
-        /// This instruction does a `coerce_result_ptr` operation on a `Block`'s
-        /// result location pointer, whose type is inferred by peer type resolution on the
-        /// `Block`'s corresponding `break` instructions.
-        coerce_result_block_ptr,
         /// Emit an error message and fail compilation.
         compile_error,
         /// Log compile time variables and emit an error message.
@@ -460,7 +456,6 @@ pub const Inst = struct {
                 .decl_ref => DeclRef,
                 .decl_ref_str => DeclRefStr,
                 .decl_val => DeclVal,
-                .coerce_result_block_ptr => CoerceResultBlockPtr,
                 .compile_log => CompileLog,
                 .loop => Loop,
                 .@"const" => Const,
@@ -531,7 +526,6 @@ pub const Inst = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .coerce_result_ptr,
-                .coerce_result_block_ptr,
                 .@"const",
                 .dbg_stmt,
                 .decl_ref,
@@ -767,17 +761,6 @@ pub const Inst = struct {
 
         positionals: struct {
             decl: *IrModule.Decl,
-        },
-        kw_args: struct {},
-    };
-
-    pub const CoerceResultBlockPtr = struct {
-        pub const base_tag = Tag.coerce_result_block_ptr;
-        base: Inst,
-
-        positionals: struct {
-            dest_type: *Inst,
-            block_ptr: *Inst,
         },
         kw_args: struct {},
     };
@@ -1464,7 +1447,7 @@ const Writer = struct {
             TypedValue => return stream.print("TypedValue{{ .ty = {}, .val = {}}}", .{ param.ty, param.val }),
             *IrModule.Decl => return stream.print("Decl({s})", .{param.name}),
             *Inst.Block => {
-                const name = self.block_table.get(param).?;
+                const name = self.block_table.get(param) orelse "!BADREF!";
                 return stream.print("\"{}\"", .{std.zig.fmtEscapes(name)});
             },
             *Inst.Loop => {

@@ -663,11 +663,27 @@ fn varDecl(
 
     switch (tree.token_ids[node.mut_token]) {
         .Keyword_const => {
-            var resolve_inferred_alloc: ?*zir.Inst = null;
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
-            const result_loc = if (nodeMayNeedMemoryLocation(init_node, scope)) r: {
+            if (!nodeMayNeedMemoryLocation(init_node, scope)) {
+                const result_loc: ResultLoc = if (node.getTypeNode()) |type_node|
+                    .{ .ty = try typeExpr(mod, scope, type_node) }
+                else
+                    .none;
+                const init_inst = try expr(mod, scope, result_loc, init_node);
+                const sub_scope = try block_arena.create(Scope.LocalVal);
+                sub_scope.* = .{
+                    .parent = scope,
+                    .gen_zir = scope.getGenZIR(),
+                    .name = ident_name,
+                    .inst = init_inst,
+                };
+                return &sub_scope.base;
+            }
+
+            var resolve_inferred_alloc: ?*zir.Inst = null;
+            const result_loc = r: {
                 if (node.getTypeNode()) |type_node| {
                     const type_inst = try typeExpr(mod, scope, type_node);
                     const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
@@ -677,11 +693,6 @@ fn varDecl(
                     resolve_inferred_alloc = &alloc.base;
                     break :r ResultLoc{ .inferred_ptr = alloc };
                 }
-            } else r: {
-                if (node.getTypeNode()) |type_node|
-                    break :r ResultLoc{ .ty = try typeExpr(mod, scope, type_node) }
-                else
-                    break :r .none;
             };
             const init_inst = try expr(mod, scope, result_loc, init_node);
             if (resolve_inferred_alloc) |inst| {
@@ -1718,14 +1729,20 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     switch (strategy) {
         .break_void => {
             if (!then_result.tag.isNoReturn()) {
-                _ = try addZIRNoOp(mod, then_sub_scope, then_src, .break_void);
+                _ = try addZirInstTag(mod, then_sub_scope, then_src, .break_void, .{
+                    .block = block,
+                });
             }
             if (else_result) |inst| {
                 if (!inst.tag.isNoReturn()) {
-                    _ = try addZIRNoOp(mod, else_sub_scope, else_src, .break_void);
+                    _ = try addZirInstTag(mod, else_sub_scope, else_src, .break_void, .{
+                        .block = block,
+                    });
                 }
             } else {
-                _ = try addZIRNoOp(mod, else_sub_scope, else_src, .break_void);
+                _ = try addZirInstTag(mod, else_sub_scope, else_src, .break_void, .{
+                    .block = block,
+                });
             }
             assert(!elide_store_to_block_ptr_instructions);
             try copyBodyNoEliding(&condbr.positionals.then_body, then_scope);
@@ -1747,7 +1764,9 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
                     });
                 }
             } else {
-                _ = try addZIRNoOp(mod, else_sub_scope, else_src, .break_void);
+                _ = try addZirInstTag(mod, else_sub_scope, else_src, .break_void, .{
+                    .block = block,
+                });
             }
             if (elide_store_to_block_ptr_instructions) {
                 try copyBodyWithElidedStoreBlockPtr(&condbr.positionals.then_body, then_scope);
@@ -2728,31 +2747,30 @@ fn ptrToInt(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError
     return addZIRUnOp(mod, scope, src, .ptrtoint, operand);
 }
 
-fn as(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
+fn as(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    call: *ast.Node.BuiltinCall,
+) InnerError!*zir.Inst {
     try ensureBuiltinParamCount(mod, scope, call, 2);
     const tree = scope.tree();
     const src = tree.token_locs[call.builtin_token].start;
     const params = call.params();
     const dest_type = try typeExpr(mod, scope, params[0]);
     switch (rl) {
-        .none => return try expr(mod, scope, .{ .ty = dest_type }, params[1]),
-        .discard => {
+        .none, .discard, .ref, .ty => {
             const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
-            _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
-            return result;
+            return rvalue(mod, scope, rl, result);
         },
-        .ref => {
-            const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
-            return addZIRUnOp(mod, scope, result.src, .ref, result);
-        },
-        .ty => |result_ty| {
-            const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
-            return addZIRBinOp(mod, scope, src, .as, result_ty, result);
-        },
+
         .ptr => |result_ptr| {
-            const casted_result_ptr = try addZIRBinOp(mod, scope, src, .coerce_result_ptr, dest_type, result_ptr);
-            return expr(mod, scope, .{ .ptr = casted_result_ptr }, params[1]);
+            return asRlPtr(mod, scope, rl, src, result_ptr, params[1], dest_type);
         },
+        .block_ptr => |block_scope| {
+            return asRlPtr(mod, scope, rl, src, block_scope.rl_ptr.?, params[1], dest_type);
+        },
+
         .bitcasted_ptr => |bitcasted_ptr| {
             // TODO here we should be able to resolve the inference; we now have a type for the result.
             return mod.failTok(scope, call.builtin_token, "TODO implement @as with result location @bitCast", .{});
@@ -2761,13 +2779,47 @@ fn as(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) I
             // TODO here we should be able to resolve the inference; we now have a type for the result.
             return mod.failTok(scope, call.builtin_token, "TODO implement @as with inferred-type result location pointer", .{});
         },
-        .block_ptr => |block_scope| {
-            const casted_block_ptr = try addZirInstTag(mod, scope, src, .coerce_result_block_ptr, .{
-                .dest_type = dest_type,
-                .block_ptr = block_scope.rl_ptr.?,
-            });
-            return expr(mod, scope, .{ .ptr = casted_block_ptr }, params[1]);
-        },
+    }
+}
+
+fn asRlPtr(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    src: usize,
+    result_ptr: *zir.Inst,
+    operand_node: *ast.Node,
+    dest_type: *zir.Inst,
+) InnerError!*zir.Inst {
+    // Detect whether this expr() call goes into rvalue() to store the result into the
+    // result location. If it does, elide the coerce_result_ptr instruction
+    // as well as the store instruction, instead passing the result as an rvalue.
+    var as_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = scope.ownerDecl().?,
+        .arena = scope.arena(),
+        .instructions = .{},
+    };
+    defer as_scope.instructions.deinit(mod.gpa);
+
+    as_scope.rl_ptr = try addZIRBinOp(mod, &as_scope.base, src, .coerce_result_ptr, dest_type, result_ptr);
+    const result = try expr(mod, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node);
+    const parent_zir = &scope.getGenZIR().instructions;
+    if (as_scope.rvalue_rl_count == 1) {
+        // Busted! This expression didn't actually need a pointer.
+        const expected_len = parent_zir.items.len + as_scope.instructions.items.len - 2;
+        try parent_zir.ensureCapacity(mod.gpa, expected_len);
+        for (as_scope.instructions.items) |src_inst| {
+            switch (src_inst.tag) {
+                .store_to_block_ptr, .coerce_result_ptr => continue,
+                else => parent_zir.appendAssumeCapacity(src_inst),
+            }
+        }
+        assert(parent_zir.items.len == expected_len);
+        return rvalue(mod, scope, rl, result);
+    } else {
+        try parent_zir.appendSlice(mod.gpa, as_scope.instructions.items);
+        return result;
     }
 }
 
