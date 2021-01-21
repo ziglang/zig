@@ -484,6 +484,96 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
+/// Takes a pointer-to-array, sentinel-terminated pointer, slice, or C pointer
+/// and returns whether the pointed-to items are equal.
+/// Assumes C pointers are non-null and zero-terminated
+pub fn eqlGeneric(a: anytype, b: @TypeOf(a)) bool {
+    switch (@typeInfo(@TypeOf(a))) {
+        .Optional => {
+            if (a == null and b == null) return true;
+            if (a) |non_null_a| {
+                if (b) |non_null_b| {
+                    return eqlGeneric(non_null_a, non_null_b);
+                }
+            }
+            return false;
+        },
+        .Pointer => |ptr_info| switch (ptr_info.size) {
+            .One => switch (@typeInfo(ptr_info.child)) {
+                .Array => |arr_info| return eql(arr_info.child, a, b),
+                else => @compileError("invalid type given to std.mem.eqlGeneric"),
+            },
+            .Many => if (ptr_info.sentinel) |sentinel| {
+                var i: usize = 0;
+                while (a[i] == b[i] and a[i] != sentinel) i += 1;
+                return a[i] == b[i];
+            } else {
+                @compileError("invalid type given to std.mem.eqlGeneric");
+            },
+            .Slice => return eql(ptr_info.child, a, b),
+            .C => {
+                const T = [*:0]const ptr_info.child;
+                return eqlGeneric(@as(T, a), @as(T, b));
+            },
+        },
+        else => @compileError("invalid type given to std.mem.eqlGeneric"),
+    }
+}
+
+test "eqlGeneric" {
+    { // (optional) pointer-to-array
+        const a = &[_]u8{ 1, 2, 3 };
+        const b = &[_]u8{ 1, 4, 3 };
+        testing.expect(eqlGeneric(a, a));
+        testing.expect(!eqlGeneric(a, b));
+
+        const opt_a: ?*const [3]u8 = a;
+        const opt_b: ?*const [3]u8 = b;
+        const nullptr: ?*const [3]u8 = null;
+        testing.expect(eqlGeneric(opt_a, opt_a));
+        testing.expect(!eqlGeneric(opt_a, opt_b));
+        testing.expect(!eqlGeneric(opt_a, nullptr));
+        testing.expect(eqlGeneric(nullptr, nullptr));
+    }
+
+    { // (optional) sentinel-terminated pointer
+        const a: [*:0]const u8 = "hello";
+        const b: [*:0]const u8 = "goodbye";
+        testing.expect(eqlGeneric(a, a));
+        testing.expect(!eqlGeneric(a, b));
+
+        const opt_a: ?[*:0]const u8 = a;
+        const opt_b: ?[*:0]const u8 = b;
+        const nullptr: ?[*:0]const u8 = null;
+        testing.expect(eqlGeneric(opt_a, opt_a));
+        testing.expect(!eqlGeneric(opt_a, opt_b));
+        testing.expect(!eqlGeneric(opt_a, nullptr));
+        testing.expect(eqlGeneric(nullptr, nullptr));
+    }
+
+    { // (optional) slices
+        const a: []const u8 = "hello";
+        const b: []const u8 = "goodbye";
+        testing.expect(eqlGeneric(a, a));
+        testing.expect(!eqlGeneric(a, b));
+
+        const opt_a: ?[]const u8 = a;
+        const opt_b: ?[]const u8 = b;
+        const nullptr: ?[]const u8 = null;
+        testing.expect(eqlGeneric(opt_a, opt_a));
+        testing.expect(!eqlGeneric(opt_a, opt_b));
+        testing.expect(!eqlGeneric(opt_a, nullptr));
+        testing.expect(eqlGeneric(nullptr, nullptr));
+    }
+
+    { // C pointers
+        const a: [*c]const u8 = "hello";
+        const b: [*c]const u8 = "goodbye";
+        testing.expect(eqlGeneric(a, a));
+        testing.expect(!eqlGeneric(a, b));
+    }
+}
+
 /// Compares two slices and returns the index of the first inequality.
 /// Returns null if the slices are equal.
 pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
