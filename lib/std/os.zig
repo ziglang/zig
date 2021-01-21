@@ -4736,8 +4736,8 @@ pub fn sendto(
     addrlen: socklen_t,
 ) SendToError!usize {
     while (true) {
-        const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         if (builtin.os.tag == .windows) {
+            const rc = windows.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSAEACCES => return error.AccessDenied,
@@ -4765,6 +4765,7 @@ pub fn sendto(
                 return @intCast(usize, rc);
             }
         } else {
+            const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
             switch (errno(rc)) {
                 0 => return @intCast(usize, rc),
 
@@ -5250,8 +5251,8 @@ pub const PollError = error{
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
         const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
-        const rc = system.poll(fds.ptr, fds_count, timeout);
         if (builtin.os.tag == .windows) {
+            const rc = windows.ws2_32.WSAPoll(fds.ptr, fds_count, timeout);
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSANOTINITIALISED => unreachable,
@@ -5264,6 +5265,7 @@ pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
                 return @intCast(usize, rc);
             }
         } else {
+            const rc = system.poll(fds.ptr, fds_count, timeout);
             switch (errno(rc)) {
                 0 => return @intCast(usize, rc),
                 EFAULT => unreachable,
@@ -5344,8 +5346,8 @@ pub fn recvfrom(
     addrlen: ?*socklen_t,
 ) RecvFromError!usize {
     while (true) {
-        const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
         if (builtin.os.tag == .windows) {
+            const rc = windows.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSANOTINITIALISED => unreachable,
@@ -5362,6 +5364,7 @@ pub fn recvfrom(
                 return @intCast(usize, rc);
             }
         } else {
+            const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
             switch (errno(rc)) {
                 0 => return @intCast(usize, rc),
                 EBADF => unreachable, // always a race condition
