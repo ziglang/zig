@@ -693,10 +693,11 @@ fn varDecl(
             defer init_scope.instructions.deinit(mod.gpa);
 
             var resolve_inferred_alloc: ?*zir.Inst = null;
+            var opt_type_inst: ?*zir.Inst = null;
             if (node.getTypeNode()) |type_node| {
                 const type_inst = try typeExpr(mod, &init_scope.base, type_node);
-                const alloc = try addZIRUnOp(mod, &init_scope.base, name_src, .alloc, type_inst);
-                init_scope.rl_ptr = alloc;
+                opt_type_inst = type_inst;
+                init_scope.rl_ptr = try addZIRUnOp(mod, &init_scope.base, name_src, .alloc, type_inst);
             } else {
                 const alloc = try addZIRNoOpT(mod, &init_scope.base, name_src, .alloc_inferred);
                 resolve_inferred_alloc = &alloc.base;
@@ -720,12 +721,17 @@ fn varDecl(
                     parent_zir.appendAssumeCapacity(src_inst);
                 }
                 assert(parent_zir.items.len == expected_len);
+                const casted_init = if (opt_type_inst) |type_inst|
+                    try addZIRBinOp(mod, scope, type_inst.src, .as, type_inst, init_inst)
+                else
+                    init_inst;
+
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
                     .gen_zir = scope.getGenZIR(),
                     .name = ident_name,
-                    .inst = init_inst,
+                    .inst = casted_init,
                 };
                 return &sub_scope.base;
             }
@@ -2866,7 +2872,7 @@ fn asRlPtr(
             parent_zir.appendAssumeCapacity(src_inst);
         }
         assert(parent_zir.items.len == expected_len);
-        const casted_result = try addZIRBinOp(mod, scope, result.src, .as, dest_type, result);
+        const casted_result = try addZIRBinOp(mod, scope, dest_type.src, .as, dest_type, result);
         return rvalue(mod, scope, rl, casted_result);
     } else {
         try parent_zir.appendSlice(mod.gpa, as_scope.instructions.items);
