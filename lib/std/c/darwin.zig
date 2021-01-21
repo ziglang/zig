@@ -169,6 +169,7 @@ pub const EAI = extern enum(c_int) {
 
 pub const EAI_MAX = 15;
 
+pub const pthread_key_t = c_ulong;
 pub const pthread_mutex_t = extern struct {
     __sig: c_long = 0x32AAABA7,
     __opaque: [__PTHREAD_MUTEX_SIZE__]u8 = [_]u8{0} ** __PTHREAD_MUTEX_SIZE__,

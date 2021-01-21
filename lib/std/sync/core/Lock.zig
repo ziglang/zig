@@ -45,7 +45,7 @@ const use_valgrind = builtin.valgrind_support;
 pub fn Lock(comptime config: anytype) type {
     const Event = config.Event;
 
-    const byte_swap = switch (@hasDecl(config, "byte_swap")) {
+    const byte_swap = switch (@hasDecl(@TypeOf(config), "byte_swap")) {
         true => config.byte_swap,
         else => false,
     };
@@ -379,7 +379,10 @@ pub const DebugLock = extern struct {
 test "Lock" {
     inline for (.{
         std.sync.Lock,
-        std.sync.core.Lock(std.sync.parking_lot),
+        std.sync.core.Lock(.{
+            .Event = std.sync.parking_lot.Event,
+            .byte_swap = true,
+        }),
     }) |TestLock| {
         {
             var lock = TestLock{};

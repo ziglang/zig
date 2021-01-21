@@ -8,7 +8,7 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const futex = @import("./futex.zig");
 const SpinBackend = @import("./spin.zig");
-const EventLock = @import("../Lock.zig").Lock;
+const EventLock = @import("../core/Lock.zig").Lock;
 
 const builtin = std.builtin;
 const assert = std.debug.assert;
@@ -443,28 +443,270 @@ const PosixBackend = struct {
     });
 
     pub const Event = extern struct {
+        tls: ?*PosixEvent,
+        local: PosixEvent,
+
         pub fn init(self: *Event) void {
-            @compileError("TODO");
+            if (PosixEvent.get()) |event| {
+                self.tls = event;
+            } else {
+                self.local = .{};
+            }
         }
 
         pub fn deinit(self: *Event) void {
-            @compileError("TODO");
+            if (self.tls == null) {
+                self.local.deinit();
+            }
+
+            self.* = undefined;
         }
 
         pub fn wait(self: *Event, deadline: ?u64) error{TimedOut}!void {
-            @compileError("TODO");
+            return (self.tls orelse &self.local).wait(deadline);
         }
 
         pub fn set(self: *Event) void {
-            @compileError("TODO");
+            return (self.tls orelse &self.local).set();
         }
 
         pub fn reset(self: *Event) void {
-            @compileError("TODO");
+            return (self.tls orelse &self.local).reset();
         }
 
         pub fn yield(iteration: ?usize) bool {
-            @compileError("TODO");
+            const iter = iteration orelse {
+                std.os.sched_yield() catch atomic.spinLoopHint();
+                return false;
+            };
+
+            if (iter <= 3) {
+                var spin = @as(usize, 1) << @intCast(std.math.Log2Int(usize), iter);
+                while (spin > 0) : (spin -= 1) {
+                    atomic.spinLoopHint();
+                }
+                return true;
+            }
+
+            if (iter < 10) {
+                std.os.sched_yield() catch atomic.spinLoopHint();
+                return true;
+            }
+
+            return false;
+        }
+    };
+
+    const PosixEvent = extern struct {
+        state: extern enum{ empty, waiting, notified } = .empty,
+        cond: c.pthread_cond_t = c.PTHREAD_COND_INITIALIZER,
+        mutex: c.pthread_mutex_t = c.PTHREAD_MUTEX_INITIALIZER,
+
+        fn deinit(self: *PosixEvent) void {
+            // On some BSD's like DragonFly, a statically initialized mutex can return EINVAL on deinit.
+            const cond_rc = c.pthread_cond_destroy(&self.cond);
+            assert(cond_rc == 0 or cond_rc == std.os.EINVAL);
+
+            const mutex_rc = c.pthread_mutex_destroy(&self.mutex);
+            assert(mutex_rc == 0 or mutex_rc == std.os.EINVAL);
+
+            self.* = undefined;
+        }
+
+        fn get() ?*PosixEvent {
+            const Static = struct {
+                var key_state: usize = STATE_UNINIT;
+                var maybe_key: ?c.pthread_key_t = undefined;
+
+                const STATE_UNINIT = 0;
+                const STATE_CREATING = 1;
+                const STATE_INIT = 2;
+                
+                const Waiter = struct {
+                    next: ?*Waiter align(std.math.max(@alignOf(usize), 4)) = null,
+                    event: PosixEvent = .{},
+                };
+
+                fn getKey() ?c.pthread_key_t {
+                    return switch (atomic.load(&key_state, .Acquire)) {
+                        1 => maybe_key,
+                        else => getKeySlow(),
+                    };
+                }
+
+                fn getKeySlow() ?c.pthread_key_t {
+                    @setCold(true);
+
+                    var waiter: Waiter = undefined;
+                    var has_event = false;
+                    defer if (has_event) {
+                        waiter.event.deinit();
+                    };
+
+                    var state = atomic.load(&key_state, .Acquire);
+                    while (true) {
+                        if (state == STATE_INIT) {
+                            break;
+                        }
+
+                        var new_state: usize = undefined;
+                        if (state == STATE_UNINIT) {
+                            new_state = STATE_CREATING;
+                        } else {
+                            new_state = @ptrToInt(&waiter);
+                            waiter.next = @intToPtr(?*Waiter, state & ~@as(usize, 0b11));
+                            if (!has_event) {
+                                has_event = true;
+                                waiter.event = .{};
+                            }
+                        }
+
+                        state = atomic.tryCompareAndSwap(
+                            &key_state,
+                            state,
+                            new_state,
+                            .Release,
+                            .Acquire,
+                        ) orelse break;
+                    }
+
+                    switch (state) {
+                        STATE_UNINIT => {
+                            var key: c.pthread_key_t = undefined;
+                            if (c.pthread_key_create(&key, deinitKey) != 0) {
+                                maybe_key = key;
+                            } else {
+                                maybe_key = null;
+                            }
+
+                            state = atomic.swap(&key_state, STATE_INIT, .AcqRel);
+                            defer state = STATE_INIT;
+
+                            var waiters = @intToPtr(?*Waiter, state & ~@as(usize, 0b11));
+                            while (waiters) |idle_waiter| {
+                                waiters = idle_waiter.next;
+                                idle_waiter.event.set();
+                            }
+                        },
+                        STATE_CREATING => {
+                            waiter.event.wait(null) catch unreachable;
+                            state = atomic.load(&key_state, .Acquire);
+                        },
+                        STATE_INIT => {},
+                        else => unreachable,
+                    }
+
+                    assert(state == STATE_INIT);
+                    return maybe_key;
+                }
+
+                fn deinitKey(ptr: *c_void) callconv(.C) void {
+                    const event = @ptrCast(*PosixEvent, @alignCast(@alignOf(PosixEvent), ptr));
+                    event.deinit();
+                    c.free(ptr);
+                }
+            };
+
+            const key = Static.getKey() orelse return null;
+            if (c.pthread_getspecific(key)) |ptr| {
+                return @ptrCast(*PosixEvent, @alignCast(@alignOf(PosixEvent), ptr));
+            }
+
+            const ptr = c.malloc(@sizeOf(PosixEvent)) orelse return null;
+            if (c.pthread_setspecific(key, ptr) != 0) {
+                c.free(ptr);
+                return null;
+            }
+
+            const event = @ptrCast(*PosixEvent, @alignCast(@alignOf(PosixEvent), ptr));
+            event.* = .{};
+            return event;
+        }
+
+        fn wait(self: *PosixEvent, deadline: ?u64) error{TimedOut}!void {
+            assert(c.pthread_mutex_lock(&self.mutex) == 0);
+            defer assert(c.pthread_mutex_unlock(&self.mutex) == 0);
+
+            switch (self.state) {
+                .empty => self.state = .waiting,
+                .waiting => unreachable,
+                .notified => return,
+            }
+
+            while (true) {
+                switch (self.state) {
+                    .empty => unreachable,
+                    .waiting => {},
+                    .notified => return,
+                }
+
+                var ts: std.os.timespec = undefined;
+                const has_ts = blk: {
+                    const deadline_ns = deadline orelse break :blk false;
+                    const now = std.time.now();
+                    if (now > deadline_ns) {
+                        self.state = .empty;
+                        return error.TimedOut;
+                    }
+
+                    const Sec = @TypeOf(ts.tv_sec);
+                    const Nano = @TypeOf(ts.tv_nsec);
+                    const timeout = deadline_ns - now;
+                    std.os.clock_gettime(std.os.CLOCK_REALTIME, &ts) catch break :blk false;
+
+                    const timeout_nsec = std.math.cast(Nano, timeout % std.time.ns_per_s) catch break :blk false;
+                    if (@addWithOverflow(Nano, ts.tv_nsec, timeout_nsec, &ts.tv_nsec)) {
+                        break :blk false;
+                    }
+
+                    const timeout_sec = std.math.cast(Sec, timeout / std.time.ns_per_s) catch break :blk false;
+                    if (@addWithOverflow(Sec, ts.tv_sec, timeout_sec, &ts.tv_sec)) {
+                        break :blk false;
+                    }
+
+                    while (ts.tv_nsec > std.time.ns_per_s) {
+                        ts.tv_nsec -= std.time.ns_per_s;
+                        if (@addWithOverflow(Sec, ts.tv_sec, 1, &ts.tv_sec)) {
+                            break :blk false;
+                        }
+                    }
+
+                    break :blk true;
+                };
+
+                const rc = switch (has_ts) {
+                    true => c.pthread_cond_timedwait(&self.cond, &self.mutex, &ts),
+                    else => c.pthread_cond_wait(&self.cond, &self.mutex),
+                };
+
+                switch (rc) {
+                    0 => {},
+                    std.os.ETIMEDOUT => {},
+                    else => unreachable,
+                }
+            }
+        }
+
+        fn set(self: *PosixEvent) void {
+            assert(c.pthread_mutex_lock(&self.mutex) == 0);
+            defer assert(c.pthread_mutex_unlock(&self.mutex) == 0);
+
+            switch (self.state) {
+                .empty => {
+                    self.state = .notified;
+                },
+                .waiting => {
+                    self.state = .notified;
+                    assert(c.pthread_cond_signal(&self.cond) == 0);
+                },
+                .notified => {
+                    unreachable; // PosixEvent was set twice
+                },
+            }
+        }
+
+        fn reset(self: *PosixEvent) void {
+            self.state = .empty;
         }
     };
 };

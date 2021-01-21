@@ -231,7 +231,7 @@ fn isSystemTimerMonotonic() bool {
     
     // https://github.com/rust-lang/rust/issues/49281
     // https://github.com/rust-lang/rust/issues/56940
-    if (target.os.tag == .linux and (target.arch == .aarch64 or .arch == .s390x)) {
+    if (target.os.tag == .linux and (target.cpu.arch == .aarch64 or .arch == .s390x)) {
         return false;
     }
 

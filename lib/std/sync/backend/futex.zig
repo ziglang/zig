@@ -9,7 +9,7 @@ const atomic = @import("../atomic.zig");
 const assert = std.debug.assert;
 
 const helgrind = std.valgrind.helgrind;
-const use_valgrind = builtin.valgrind_support;
+const use_valgrind = std.builtin.valgrind_support;
 
 pub fn Backend(comptime Futex: type) type {
     return struct {
