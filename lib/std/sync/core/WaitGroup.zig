@@ -61,22 +61,19 @@ pub fn WaitGroup(comptime parking_lot: type) type {
         }
 
         fn apply(self: *Self, is_add: bool, amount: usize) bool {
-            const max = std.math.maxInt(usize);
-            if (amount == 0)
+            if (amount == 0) {
                 return true;
+            }
             
             var new_counter: usize = undefined;
             var counter = atomic.load(&self.counter, .SeqCst);
 
             while (true) {
-                if (is_add) {
-                    if (counter > max - amount)
-                        return false;
-                    new_counter = counter + amount;
-                } else {
-                    if (amount > counter)
-                        return false;
-                    new_counter = counter - amount;
+                if (switch (is_add) {
+                    true => @addWithOverflow(usize, counter, amount, &new_counter),
+                    else => @subWithOverflow(usize, counter, amount, &new_counter),
+                }) {
+                    return false;
                 }
 
                 counter = atomic.tryCompareAndSwap(
@@ -136,8 +133,9 @@ pub fn WaitGroup(comptime parking_lot: type) type {
             };
 
             while (true) {
-                if (self.tryWait())
+                if (self.tryWait()) {
                     break;
+                }
                 
                 _ = parking_lot.parkConditionally(
                     @ptrToInt(self),
@@ -196,21 +194,16 @@ pub const DebugWaitGroup = extern struct {
     }
 
     fn apply(self: *Self, is_add: bool, amount: usize) bool {
-        const max = std.math.maxInt(usize);
-        if (amount == 0)
+        if (amount == 0) {
             return true;
-
-        if (is_add) {
-            if (counter > max - amount)
-                return false;
-            self.counter += amount;
-        } else {
-            if (amount > counter)
-                return false;
-            self.counter -= amount;
         }
-        
-        return true;
+
+        const overflowed = switch (is_add) {
+            true => @addWithOverflow(usize, counter, amount, &new_counter),
+            else => @subWithOverflow(usize, counter, amount, &new_counter),
+        };
+
+        return !overflowed;
     }
 
     pub fn tryWait(self: *Self) bool {
@@ -224,11 +217,20 @@ pub const DebugWaitGroup = extern struct {
     }
 
     pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
-        return self.wait();
+        if (!self.tryWait()) {
+            std.time.sleep(duration);
+            return error.TimedOut;
+        }
     }
 
     pub fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
-        return self.wait();
+        if (!self.tryWait()) {
+            const now = std.time.now();
+            if (now < deadline) {
+                std.time.sleep(deadline - now);
+            }
+            return error.TimedOut;
+        }
     }
 };
 

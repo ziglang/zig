@@ -395,6 +395,7 @@ test "Mutex" {
     if (std.builtin.single_threaded) return;
 
     const Contention = struct {
+        index: usize = 0,
         case: Case = undefined,
         start_event: std.sync.ResetEvent = .{},
         counters: [num_counters]Counter = undefined,
@@ -424,6 +425,33 @@ test "Mutex" {
             random: Random,
             high: High,
             forced: Forced,
+            low: Low,
+
+            /// The common case of many threads generally not touching other thread's Mutexes
+            const Low = struct {
+                fn setup(_: @This(), self: *Self) void {
+                    self.counters = counters_init;
+                    self.index = 0;
+                }
+
+                fn run(_: @This(), self: *Self) void {
+                    const local_index = atomic.fetchAdd(&self.index, 1, .SeqCst);
+                    const local_counter = &self.counters[local_index];
+                    const check_remote_every = 100;
+
+                    var iter: usize = 0;
+                    var seed: usize = undefined;
+                    var prng = std.rand.DefaultPrng.init(@ptrToInt(&seed));
+
+                    while (local_counter.tryDecr()) : (iter += 1) {
+                        if (iter % check_remote_every == 0) {
+                            const remote_index = prng.random.uintLessThan(usize, self.counters.len);
+                            const remote_counter = &self.counters[remote_index];
+                            _ = remote_counter.tryDecr();
+                        }
+                    }
+                }
+            };
 
             /// The extreme case of many threads fighting over the same Mutex.
             const High = struct {
@@ -496,6 +524,7 @@ test "Mutex" {
                 .random => |case| case.run(self),
                 .high => |case| case.run(self),
                 .forced => |case| case.run(self),
+                .low => |case| case.run(self),
             }
         }
 
@@ -517,6 +546,7 @@ test "Mutex" {
                     .random => |case| case.setup(self),
                     .high => |case| case.setup(self),
                     .forced => |case| case.setup(self),
+                    .low => |case| case.setup(self),
                 }
 
                 self.start_event.reset();

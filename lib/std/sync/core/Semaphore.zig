@@ -49,8 +49,9 @@ pub fn Semaphore(comptime parking_lot: type) type {
             var perms = atomic.load(&self.permits, .SeqCst);
 
             while (true) {
-                if (perms < permits)
+                if (perms < permits) {
                     return false;
+                }
 
                 perms = atomic.tryCompareAndSwap(
                     &self.permits,
