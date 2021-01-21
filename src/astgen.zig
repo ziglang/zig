@@ -682,28 +682,77 @@ fn varDecl(
                 return &sub_scope.base;
             }
 
-            var resolve_inferred_alloc: ?*zir.Inst = null;
-            const result_loc = r: {
-                if (node.getTypeNode()) |type_node| {
-                    const type_inst = try typeExpr(mod, scope, type_node);
-                    const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
-                    break :r ResultLoc{ .ptr = alloc };
-                } else {
-                    const alloc = try addZIRNoOpT(mod, scope, name_src, .alloc_inferred);
-                    resolve_inferred_alloc = &alloc.base;
-                    break :r ResultLoc{ .inferred_ptr = alloc };
-                }
+            // Detect whether the initialization expression actually uses the
+            // result location pointer.
+            var init_scope: Scope.GenZIR = .{
+                .parent = scope,
+                .decl = scope.ownerDecl().?,
+                .arena = scope.arena(),
+                .instructions = .{},
             };
-            const init_inst = try expr(mod, scope, result_loc, init_node);
+            defer init_scope.instructions.deinit(mod.gpa);
+
+            var resolve_inferred_alloc: ?*zir.Inst = null;
+            if (node.getTypeNode()) |type_node| {
+                const type_inst = try typeExpr(mod, &init_scope.base, type_node);
+                const alloc = try addZIRUnOp(mod, &init_scope.base, name_src, .alloc, type_inst);
+                init_scope.rl_ptr = alloc;
+            } else {
+                const alloc = try addZIRNoOpT(mod, &init_scope.base, name_src, .alloc_inferred);
+                resolve_inferred_alloc = &alloc.base;
+                init_scope.rl_ptr = &alloc.base;
+            }
+            const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
+            const init_inst = try expr(mod, &init_scope.base, init_result_loc, init_node);
+            const parent_zir = &scope.getGenZIR().instructions;
+            if (init_scope.rvalue_rl_count == 1) {
+                // Result location pointer not used. We don't need an alloc for this
+                // const local, and type inference becomes trivial.
+                // Move the init_scope instructions into the parent scope, eliding
+                // the alloc instruction and the store_to_block_ptr instruction.
+                const expected_len = parent_zir.items.len + init_scope.instructions.items.len - 2;
+                try parent_zir.ensureCapacity(mod.gpa, expected_len);
+                for (init_scope.instructions.items) |src_inst| {
+                    if (src_inst == init_scope.rl_ptr.?) continue;
+                    if (src_inst.castTag(.store_to_block_ptr)) |store| {
+                        if (store.positionals.lhs == init_scope.rl_ptr.?) continue;
+                    }
+                    parent_zir.appendAssumeCapacity(src_inst);
+                }
+                assert(parent_zir.items.len == expected_len);
+                const sub_scope = try block_arena.create(Scope.LocalVal);
+                sub_scope.* = .{
+                    .parent = scope,
+                    .gen_zir = scope.getGenZIR(),
+                    .name = ident_name,
+                    .inst = init_inst,
+                };
+                return &sub_scope.base;
+            }
+            // The initialization expression took advantage of the result location
+            // of the const local. In this case we will create an alloc and a LocalPtr for it.
+            // Move the init_scope instructions into the parent scope, swapping
+            // store_to_block_ptr for store_to_inferred_ptr.
+            const expected_len = parent_zir.items.len + init_scope.instructions.items.len;
+            try parent_zir.ensureCapacity(mod.gpa, expected_len);
+            for (init_scope.instructions.items) |src_inst| {
+                if (src_inst.castTag(.store_to_block_ptr)) |store| {
+                    if (store.positionals.lhs == init_scope.rl_ptr.?) {
+                        src_inst.tag = .store_to_inferred_ptr;
+                    }
+                }
+                parent_zir.appendAssumeCapacity(src_inst);
+            }
+            assert(parent_zir.items.len == expected_len);
             if (resolve_inferred_alloc) |inst| {
                 _ = try addZIRUnOp(mod, scope, name_src, .resolve_inferred_alloc, inst);
             }
-            const sub_scope = try block_arena.create(Scope.LocalVal);
+            const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
                 .gen_zir = scope.getGenZIR(),
                 .name = ident_name,
-                .inst = init_inst,
+                .ptr = init_scope.rl_ptr.?,
             };
             return &sub_scope.base;
         },
@@ -2810,13 +2859,15 @@ fn asRlPtr(
         const expected_len = parent_zir.items.len + as_scope.instructions.items.len - 2;
         try parent_zir.ensureCapacity(mod.gpa, expected_len);
         for (as_scope.instructions.items) |src_inst| {
-            switch (src_inst.tag) {
-                .store_to_block_ptr, .coerce_result_ptr => continue,
-                else => parent_zir.appendAssumeCapacity(src_inst),
+            if (src_inst == as_scope.rl_ptr.?) continue;
+            if (src_inst.castTag(.store_to_block_ptr)) |store| {
+                if (store.positionals.lhs == as_scope.rl_ptr.?) continue;
             }
+            parent_zir.appendAssumeCapacity(src_inst);
         }
         assert(parent_zir.items.len == expected_len);
-        return rvalue(mod, scope, rl, result);
+        const casted_result = try addZIRBinOp(mod, scope, result.src, .as, dest_type, result);
+        return rvalue(mod, scope, rl, casted_result);
     } else {
         try parent_zir.appendSlice(mod.gpa, as_scope.instructions.items);
         return result;
