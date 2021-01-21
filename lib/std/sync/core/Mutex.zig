@@ -347,7 +347,7 @@ pub const DebugMutex = extern struct {
                 std.time.sleep(deadline - now);
             }
             return error.TimedOut;
-        }
+        };
     }
 
     pub fn acquire(self: *Self) Held {
