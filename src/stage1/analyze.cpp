@@ -3875,7 +3875,8 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
     Buf *test_name = g->test_name_prefix ?
         buf_sprintf("%s%s", buf_ptr(g->test_name_prefix), buf_ptr(decl_name_buf)) : decl_name_buf;
 
-    if (g->test_filter != nullptr && strstr(buf_ptr(test_name), buf_ptr(g->test_filter)) == nullptr) {
+    if (g->test_filter != nullptr && buf_len(test_name) > 0 &&
+            strstr(buf_ptr(test_name), buf_ptr(g->test_filter)) == nullptr) {
         return;
     }
 
