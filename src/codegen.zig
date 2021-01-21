@@ -840,14 +840,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .arg => return self.genArg(inst.castTag(.arg).?),
                 .assembly => return self.genAsm(inst.castTag(.assembly).?),
                 .bitcast => return self.genBitCast(inst.castTag(.bitcast).?),
-                .bitand => return self.genBitAnd(inst.castTag(.bitand).?),
-                .bitor => return self.genBitOr(inst.castTag(.bitor).?),
+                .bit_and => return self.genBitAnd(inst.castTag(.bit_and).?),
+                .bit_or => return self.genBitOr(inst.castTag(.bit_or).?),
                 .block => return self.genBlock(inst.castTag(.block).?),
                 .br => return self.genBr(inst.castTag(.br).?),
                 .breakpoint => return self.genBreakpoint(inst.src),
                 .brvoid => return self.genBrVoid(inst.castTag(.brvoid).?),
-                .booland => return self.genBoolOp(inst.castTag(.booland).?),
-                .boolor => return self.genBoolOp(inst.castTag(.boolor).?),
+                .bool_and => return self.genBoolOp(inst.castTag(.bool_and).?),
+                .bool_or => return self.genBoolOp(inst.castTag(.bool_or).?),
                 .call => return self.genCall(inst.castTag(.call).?),
                 .cmp_lt => return self.genCmp(inst.castTag(.cmp_lt).?, .lt),
                 .cmp_lte => return self.genCmp(inst.castTag(.cmp_lte).?, .lte),
@@ -1097,7 +1097,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
-                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .bitand),
+                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .bit_and),
                 else => return self.fail(inst.base.src, "TODO implement bitwise and for {}", .{self.target.cpu.arch}),
             }
         }
@@ -1107,7 +1107,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
-                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .bitor),
+                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .bit_or),
                 else => return self.fail(inst.base.src, "TODO implement bitwise or for {}", .{self.target.cpu.arch}),
             }
         }
@@ -1371,10 +1371,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.rsb(.al, dst_reg, dst_reg, operand).toU32());
                     }
                 },
-                .booland, .bitand => {
+                .bool_and, .bit_and => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.@"and"(.al, dst_reg, dst_reg, operand).toU32());
                 },
-                .boolor, .bitor => {
+                .bool_or, .bit_or => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, dst_reg, dst_reg, operand).toU32());
                 },
                 .not, .xor => {
@@ -2464,14 +2464,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (arch) {
                 .x86_64 => switch (inst.base.tag) {
                     // lhs AND rhs
-                    .booland => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 4, 0x20),
+                    .bool_and => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 4, 0x20),
                     // lhs OR rhs
-                    .boolor => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08),
+                    .bool_or => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08),
                     else => unreachable, // Not a boolean operation
                 },
                 .arm, .armeb => switch (inst.base.tag) {
-                    .booland => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .booland),
-                    .boolor => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .boolor),
+                    .bool_and => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .bool_and),
+                    .bool_or => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .bool_or),
                     else => unreachable, // Not a boolean operation
                 },
                 else => return self.fail(inst.base.src, "TODO implement boolean operations for {}", .{self.target.cpu.arch}),

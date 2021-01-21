@@ -59,7 +59,7 @@ pub const Inst = struct {
         /// Inline assembly.
         @"asm",
         /// Bitwise AND. `&`
-        bitand,
+        bit_and,
         /// TODO delete this instruction, it has no purpose.
         bitcast,
         /// An arbitrary typed pointer is pointer-casted to a new Pointer.
@@ -71,9 +71,9 @@ pub const Inst = struct {
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
         /// Bitwise NOT. `~`
-        bitnot,
+        bit_not,
         /// Bitwise OR. `|`
-        bitor,
+        bit_or,
         /// A labeled block of code, which can return a value.
         block,
         /// A block of code, which can return a value. There are no instructions that break out of
@@ -83,17 +83,17 @@ pub const Inst = struct {
         block_comptime,
         /// Same as `block_flat` but additionally makes the inner instructions execute at comptime.
         block_comptime_flat,
-        /// Boolean AND. See also `bitand`.
-        booland,
-        /// Boolean NOT. See also `bitnot`.
-        boolnot,
-        /// Boolean OR. See also `bitor`.
-        boolor,
+        /// Boolean AND. See also `bit_and`.
+        bool_and,
+        /// Boolean NOT. See also `bit_not`.
+        bool_not,
+        /// Boolean OR. See also `bit_or`.
+        bool_or,
         /// Return a value from a `Block`.
         @"break",
         breakpoint,
         /// Same as `break` but without an operand; the operand is assumed to be the void value.
-        breakvoid,
+        break_void,
         /// Function call.
         call,
         /// `<`
@@ -116,12 +116,10 @@ pub const Inst = struct {
         /// result location pointer, whose type is inferred by peer type resolution on the
         /// `Block`'s corresponding `break` instructions.
         coerce_result_block_ptr,
-        /// Equivalent to `as(ptr_child_type(typeof(ptr)), value)`.
-        coerce_to_ptr_elem,
         /// Emit an error message and fail compilation.
-        compileerror,
+        compile_error,
         /// Log compile time variables and emit an error message.
-        compilelog,
+        compile_log,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         condbr,
         /// Special case, has no textual representation.
@@ -135,11 +133,11 @@ pub const Inst = struct {
         /// Declares the beginning of a statement. Used for debug info.
         dbg_stmt,
         /// Represents a pointer to a global decl.
-        declref,
+        decl_ref,
         /// Represents a pointer to a global decl by string name.
-        declref_str,
-        /// Equivalent to a declref followed by deref.
-        declval,
+        decl_ref_str,
+        /// Equivalent to a decl_ref followed by deref.
+        decl_val,
         /// Load the value from a pointer.
         deref,
         /// Arithmetic division. Asserts no integer overflow.
@@ -185,7 +183,7 @@ pub const Inst = struct {
         /// can hold the same mathematical value.
         intcast,
         /// Make an integer type out of signedness and bit count.
-        inttype,
+        int_type,
         /// Return a boolean false if an optional is null. `x != null`
         is_non_null,
         /// Return a boolean true if an optional is null. `x == null`
@@ -232,7 +230,7 @@ pub const Inst = struct {
         /// Sends control flow back to the function's callee. Takes an operand as the return value.
         @"return",
         /// Same as `return` but there is no operand; the operand is implicitly the void value.
-        returnvoid,
+        return_void,
         /// Changes the maximum number of backwards branches that compile-time
         /// code execution can use before giving up and making a compile error.
         set_eval_branch_quota,
@@ -270,6 +268,10 @@ pub const Inst = struct {
         /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// Same as `store` but the type of the value being stored will be used to infer
+        /// the block type. The LHS is a block instruction, whose result location is
+        /// being stored to.
+        store_to_block_ptr,
+        /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
         store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
@@ -286,11 +288,11 @@ pub const Inst = struct {
         typeof_peer,
         /// Asserts control-flow will not reach this instruction. Not safety checked - the compiler
         /// will assume the correctness of this instruction.
-        unreach_nocheck,
+        unreachable_unsafe,
         /// Asserts control-flow will not reach this instruction. In safety-checked modes,
         /// this will generate a call to the panic function unless it can be proven unreachable
         /// by the compiler.
-        @"unreachable",
+        unreachable_safe,
         /// Bitwise XOR. `^`
         xor,
         /// Create an optional type '?T'
@@ -352,17 +354,17 @@ pub const Inst = struct {
                 .alloc_inferred_mut,
                 .breakpoint,
                 .dbg_stmt,
-                .returnvoid,
+                .return_void,
                 .ret_ptr,
                 .ret_type,
-                .unreach_nocheck,
-                .@"unreachable",
+                .unreachable_unsafe,
+                .unreachable_safe,
                 => NoOp,
 
                 .alloc,
                 .alloc_mut,
-                .boolnot,
-                .compileerror,
+                .bool_not,
+                .compile_error,
                 .deref,
                 .@"return",
                 .is_null,
@@ -400,7 +402,7 @@ pub const Inst = struct {
                 .err_union_code_ptr,
                 .ensure_err_payload_void,
                 .anyframe_type,
-                .bitnot,
+                .bit_not,
                 .import,
                 .set_eval_branch_quota,
                 .indexable_ptr_len,
@@ -411,10 +413,10 @@ pub const Inst = struct {
                 .array_cat,
                 .array_mul,
                 .array_type,
-                .bitand,
-                .bitor,
-                .booland,
-                .boolor,
+                .bit_and,
+                .bit_or,
+                .bool_and,
+                .bool_or,
                 .div,
                 .mod_rem,
                 .mul,
@@ -422,6 +424,7 @@ pub const Inst = struct {
                 .shl,
                 .shr,
                 .store,
+                .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .sub,
                 .subwrap,
@@ -452,19 +455,18 @@ pub const Inst = struct {
                 .arg => Arg,
                 .array_type_sentinel => ArrayTypeSentinel,
                 .@"break" => Break,
-                .breakvoid => BreakVoid,
+                .break_void => BreakVoid,
                 .call => Call,
-                .coerce_to_ptr_elem => CoerceToPtrElem,
-                .declref => DeclRef,
-                .declref_str => DeclRefStr,
-                .declval => DeclVal,
+                .decl_ref => DeclRef,
+                .decl_ref_str => DeclRefStr,
+                .decl_val => DeclVal,
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
-                .compilelog => CompileLog,
+                .compile_log => CompileLog,
                 .loop => Loop,
                 .@"const" => Const,
                 .str => Str,
                 .int => Int,
-                .inttype => IntType,
+                .int_type => IntType,
                 .field_ptr, .field_val => Field,
                 .field_ptr_named, .field_val_named => FieldNamed,
                 .@"asm" => Asm,
@@ -508,18 +510,18 @@ pub const Inst = struct {
                 .arg,
                 .as,
                 .@"asm",
-                .bitand,
+                .bit_and,
                 .bitcast,
                 .bitcast_ref,
                 .bitcast_result_ptr,
-                .bitor,
+                .bit_or,
                 .block,
                 .block_flat,
                 .block_comptime,
                 .block_comptime_flat,
-                .boolnot,
-                .booland,
-                .boolor,
+                .bool_not,
+                .bool_and,
+                .bool_or,
                 .breakpoint,
                 .call,
                 .cmp_lt,
@@ -530,12 +532,11 @@ pub const Inst = struct {
                 .cmp_neq,
                 .coerce_result_ptr,
                 .coerce_result_block_ptr,
-                .coerce_to_ptr_elem,
                 .@"const",
                 .dbg_stmt,
-                .declref,
-                .declref_str,
-                .declval,
+                .decl_ref,
+                .decl_ref_str,
+                .decl_val,
                 .deref,
                 .div,
                 .elem_ptr,
@@ -552,7 +553,7 @@ pub const Inst = struct {
                 .fntype,
                 .int,
                 .intcast,
-                .inttype,
+                .int_type,
                 .is_non_null,
                 .is_null,
                 .is_non_null_ptr,
@@ -579,6 +580,7 @@ pub const Inst = struct {
                 .mut_slice_type,
                 .const_slice_type,
                 .store,
+                .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .str,
                 .sub,
@@ -602,7 +604,7 @@ pub const Inst = struct {
                 .merge_error_sets,
                 .anyframe_type,
                 .error_union_type,
-                .bitnot,
+                .bit_not,
                 .error_set,
                 .slice,
                 .slice_start,
@@ -611,20 +613,20 @@ pub const Inst = struct {
                 .typeof_peer,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
-                .compilelog,
+                .compile_log,
                 .enum_type,
                 .union_type,
                 .struct_type,
                 => false,
 
                 .@"break",
-                .breakvoid,
+                .break_void,
                 .condbr,
-                .compileerror,
+                .compile_error,
                 .@"return",
-                .returnvoid,
-                .unreach_nocheck,
-                .@"unreachable",
+                .return_void,
+                .unreachable_unsafe,
+                .unreachable_safe,
                 .loop,
                 .switchbr,
                 .container_field_named,
@@ -717,7 +719,7 @@ pub const Inst = struct {
     };
 
     pub const BreakVoid = struct {
-        pub const base_tag = Tag.breakvoid;
+        pub const base_tag = Tag.break_void;
         base: Inst,
 
         positionals: struct {
@@ -739,19 +741,8 @@ pub const Inst = struct {
         },
     };
 
-    pub const CoerceToPtrElem = struct {
-        pub const base_tag = Tag.coerce_to_ptr_elem;
-        base: Inst,
-
-        positionals: struct {
-            ptr: *Inst,
-            value: *Inst,
-        },
-        kw_args: struct {},
-    };
-
     pub const DeclRef = struct {
-        pub const base_tag = Tag.declref;
+        pub const base_tag = Tag.decl_ref;
         base: Inst,
 
         positionals: struct {
@@ -761,7 +752,7 @@ pub const Inst = struct {
     };
 
     pub const DeclRefStr = struct {
-        pub const base_tag = Tag.declref_str;
+        pub const base_tag = Tag.decl_ref_str;
         base: Inst,
 
         positionals: struct {
@@ -771,7 +762,7 @@ pub const Inst = struct {
     };
 
     pub const DeclVal = struct {
-        pub const base_tag = Tag.declval;
+        pub const base_tag = Tag.decl_val;
         base: Inst,
 
         positionals: struct {
@@ -786,13 +777,13 @@ pub const Inst = struct {
 
         positionals: struct {
             dest_type: *Inst,
-            block: *Block,
+            block_ptr: *Inst,
         },
         kw_args: struct {},
     };
 
     pub const CompileLog = struct {
-        pub const base_tag = Tag.compilelog;
+        pub const base_tag = Tag.compile_log;
         base: Inst,
 
         positionals: struct {
@@ -905,7 +896,7 @@ pub const Inst = struct {
     };
 
     pub const IntType = struct {
-        pub const base_tag = Tag.inttype;
+        pub const base_tag = Tag.int_type;
         base: Inst,
 
         positionals: struct {
@@ -1641,10 +1632,10 @@ const DumpTzir = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .store,
-                .booland,
-                .boolor,
-                .bitand,
-                .bitor,
+                .bool_and,
+                .bool_or,
+                .bit_and,
+                .bit_or,
                 .xor,
                 => {
                     const bin_op = inst.cast(ir.Inst.BinOp).?;
@@ -1753,10 +1744,10 @@ const DumpTzir = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .store,
-                .booland,
-                .boolor,
-                .bitand,
-                .bitor,
+                .bool_and,
+                .bool_or,
+                .bit_and,
+                .bit_or,
                 .xor,
                 => {
                     const bin_op = inst.cast(ir.Inst.BinOp).?;

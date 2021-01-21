@@ -697,6 +697,13 @@ pub const Scope = struct {
         continue_block: ?*zir.Inst.Block = null,
         /// only valid if label != null or (continue_block and break_block) != null
         break_result_loc: astgen.ResultLoc = undefined,
+        /// When a block has a pointer result location, here it is.
+        rl_ptr: ?*zir.Inst = null,
+        /// Keeps track of how many branches of a block did not actually
+        /// consume the result location. astgen uses this to figure out
+        /// whether to rely on break instructions or writing to the result
+        /// pointer for the result instruction.
+        rvalue_rl_count: usize = 0,
 
         pub const Label = struct {
             token: ast.TokenIndex,
@@ -1171,7 +1178,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
                 {
                     const src = tree.token_locs[body_block.rbrace].start;
-                    _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);
+                    _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .return_void);
                 }
 
                 if (std.builtin.mode == .Debug and self.comp.verbose_ir) {
