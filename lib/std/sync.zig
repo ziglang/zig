@@ -7,7 +7,7 @@
 const std = @import("std.zig");
 const root = @import("root");
 
-pub const atomic = @import("./atomic.zig");
+pub const atomic = @import("./sync/atomic.zig");
 pub const futex = @import("./sync/futex.zig");
 pub const primitives = @import("./sync/primitives.zig");
 
@@ -20,7 +20,7 @@ else if (std.io.mode == .evented)
 else
     primitives.with(futex.os);
 
-test "" {
+test "sync" {
     _ = atomic;
     _ = futex;
     _ = primitives;

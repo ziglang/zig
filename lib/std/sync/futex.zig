@@ -7,4 +7,10 @@
 pub const os = @import("./futex/os.zig");
 pub const spin = @import("./futex/spin.zig");
 pub const event = @import("./futex/event.zig");
-pub const Generic = @import("./futex/generic.zig").Generic;
+pub const Generic = @import("./futex/generic.zig").Futex;
+
+test "futex" {
+    inline for (.{ os, spin, event }) |futex| {
+        // TODO: test wait/wake/nanotime
+    }
+}

@@ -253,7 +253,7 @@ fn readSystemTimer() ?u64 {
             var bias: u64 = undefined;
             var frequency_mul: u64 = undefined;
             var frequency_div: ?u64 = undefined;
-            var init_once = std.sync.Once(init);
+            var init_once = std.sync.Once(init){};
 
             fn init() void {
                 bias = os.windows.QueryPerformanceCounter();

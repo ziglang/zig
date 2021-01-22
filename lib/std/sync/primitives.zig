@@ -4,11 +4,10 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
-const futex = @import("./primitives/Futex.zig");
 const condvar = @import("./primitives/Condvar.zig");
 const mutex = @import("./primitives/Mutex.zig");
 const once = @import("./primitives/Once.zig");
-const reset_event = @impomrt("./primitives/ResetEvent.zig");
+const reset_event = @import("./primitives/ResetEvent.zig");
 const rwlock = @import("./primitives/RwLock.zig");
 const semaphore = @import("./primitives/Semaphore.zig");
 const wait_group = @import("./primitives/WaitGroup.zig");
@@ -18,7 +17,6 @@ pub const debug = withPrefix("Debug");
 
 fn withPrefix(comptime prefix: []const u8) type {
     return struct {
-        pub const Futex = @field(futex, prefix ++ "Futex");
         pub const Condvar = @field(condvar, prefix ++ "Condvar");
         pub const Mutex = @field(mutex, prefix ++ "Mutex");
         pub const Once = @field(once, prefix ++ "Once");
@@ -29,9 +27,9 @@ fn withPrefix(comptime prefix: []const u8) type {
     };
 }
 
-pub fn with(comptime BaseFutex: type) type {
+pub fn with(comptime Futex: type) type {
     return struct {
-        pub const Futex = core.Futex(BaseFutex);
+        pub const Futex = Futex;
         pub const Condvar = core.Condvar(Futex);
         pub const Mutex = core.Mutex(Futex);
         pub const Once = core.Once(Futex);
@@ -40,4 +38,14 @@ pub fn with(comptime BaseFutex: type) type {
         pub const Semaphore = core.Semaphore(Futex);
         pub const WaitGroup = core.WaitGroup(Futex);
     };
+}
+
+test "primitives" {
+    _ = condvar;
+    _ = mutex;
+    _ = once;
+    _ = reset_event;
+    _ = rwlock;
+    _ = semaphore;
+    _ = wait_group;
 }
