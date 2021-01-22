@@ -3231,7 +3231,7 @@ pub const Node = struct {
         base: Node = Node{ .tag = .TestDecl },
         doc_comments: ?*DocComment,
         test_token: TokenIndex,
-        name: *Node,
+        name: ?*Node,
         body_node: *Node,
 
         pub fn iterate(self: *const TestDecl, index: usize) ?*Node {

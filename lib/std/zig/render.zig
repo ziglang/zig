@@ -228,7 +228,8 @@ fn renderContainerDecl(allocator: *mem.Allocator, ais: anytype, tree: *ast.Tree,
 
             try renderDocComments(tree, ais, test_decl, test_decl.doc_comments);
             try renderToken(tree, ais, test_decl.test_token, .Space);
-            try renderExpression(allocator, ais, tree, test_decl.name, .Space);
+            if (test_decl.name) |name|
+                try renderExpression(allocator, ais, tree, name, .Space);
             try renderExpression(allocator, ais, tree, test_decl.body_node, space);
         },
 

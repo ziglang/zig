@@ -658,10 +658,10 @@ static AstNode *ast_parse_test_decl(ParseContext *pc) {
     if (test == nullptr)
         return nullptr;
 
-    Token *name = expect_token(pc, TokenIdStringLiteral);
+    Token *name = eat_token_if(pc, TokenIdStringLiteral);
     AstNode *block = ast_expect(pc, ast_parse_block);
     AstNode *res = ast_create_node(pc, NodeTypeTestDecl, test);
-    res->data.test_decl.name = token_buf(name);
+    res->data.test_decl.name = name ? token_buf(name) : nullptr;
     res->data.test_decl.body = block;
     return res;
 }
