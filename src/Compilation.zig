@@ -125,7 +125,7 @@ owned_link_dir: ?std.fs.Dir,
 color: @import("main.zig").Color = .auto,
 
 /// This mutex guards all `Compilation` mutable state.
-mutex: std.Thread.Mutex = .{},
+mutex: std.sync.Mutex = .{},
 
 test_filter: ?[]const u8,
 test_name_prefix: ?[]const u8,

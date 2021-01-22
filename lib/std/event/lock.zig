@@ -16,7 +16,7 @@ const Loop = std.event.Loop;
 /// Allows only one actor to hold the lock.
 /// TODO: make this API also work in blocking I/O mode.
 pub const Lock = struct {
-    mutex: std.Thread.Mutex = std.Thread.Mutex{},
+    mutex: std.sync.Mutex = std.sync.Mutex{},
     head: usize = UNLOCKED,
 
     const UNLOCKED = 0;

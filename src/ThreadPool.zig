@@ -6,7 +6,7 @@
 const std = @import("std");
 const ThreadPool = @This();
 
-lock: std.Thread.Mutex = .{},
+lock: std.sync.Mutex = .{},
 is_running: bool = true,
 allocator: *std.mem.Allocator,
 workers: []Worker,

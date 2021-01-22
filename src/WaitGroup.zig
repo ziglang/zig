@@ -6,7 +6,7 @@
 const std = @import("std");
 const WaitGroup = @This();
 
-lock: std.Thread.Mutex = .{},
+lock: std.sync.Mutex = .{},
 counter: usize = 0,
 event: std.Thread.ResetEvent,
 

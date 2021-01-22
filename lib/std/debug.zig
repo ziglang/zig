@@ -50,7 +50,7 @@ pub const LineInfo = struct {
     }
 };
 
-var stderr_mutex = std.Thread.Mutex{};
+var stderr_mutex = std.sync.Mutex{};
 
 /// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
 /// "printf debugging".
@@ -65,7 +65,7 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     nosuspend stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrMutex() *std.Thread.Mutex {
+pub fn getStderrMutex() *std.sync.Mutex {
     return &stderr_mutex;
 }
 
@@ -235,7 +235,7 @@ pub fn panic(comptime format: []const u8, args: anytype) noreturn {
 var panicking: u8 = 0;
 
 // Locked to avoid interleaving panic messages from multiple threads.
-var panic_mutex = std.Thread.Mutex{};
+var panic_mutex = std.sync.Mutex{};
 
 /// Counts how many times the panic handler is invoked by this thread.
 /// This is used to catch and handle panics triggered by the panic handler.
