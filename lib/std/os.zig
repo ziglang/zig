@@ -43,7 +43,7 @@ comptime {
     assert(@import("std") == std); // std lib tests require --override-lib-dir
 }
 
-test "" {
+test {
     _ = darwin;
     _ = freebsd;
     _ = linux;

@@ -2475,7 +2475,7 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileError!void {
     }
 }
 
-test "" {
+test {
     if (builtin.os.tag != .wasi) {
         _ = makeDirAbsolute;
         _ = makeDirAbsoluteZ;

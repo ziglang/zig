@@ -68,7 +68,6 @@ pub fn _Qp_fge(a: *f128, b: *f128) callconv(.C) bool {
     return cmp == @enumToInt(FCMP.Greater) or cmp == @enumToInt(FCMP.Equal);
 }
 
-
 // Casting
 
 pub fn _Qp_dtoq(c: *f128, a: f64) callconv(.C) void {

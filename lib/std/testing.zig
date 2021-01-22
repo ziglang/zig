@@ -443,7 +443,7 @@ fn printLine(line: []const u8) void {
     print("{s}\n", .{line});
 }
 
-test "" {
+test {
     expectEqualStrings("foo", "foo");
 }
 

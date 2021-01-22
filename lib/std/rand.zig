@@ -602,6 +602,6 @@ test "CSPRNG" {
     expect(a ^ b ^ c != 0);
 }
 
-test "" {
+test {
     std.testing.refAllDecls(@This());
 }

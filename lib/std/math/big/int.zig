@@ -2344,6 +2344,6 @@ fn fixedIntFromSignedDoubleLimb(A: SignedDoubleLimb, storage: []Limb) Mutable {
     };
 }
 
-test "" {
+test {
     _ = @import("int_test.zig");
 }
