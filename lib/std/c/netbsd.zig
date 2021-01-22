@@ -36,6 +36,7 @@ pub extern "c" fn __libc_thr_yield() c_int;
 pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const c_void) usize;
 
+pub const pthread_key_t = c_int;
 pub const pthread_mutex_t = extern struct {
     ptm_magic: u32 = 0x33330003,
     ptm_errorcheck: padded_pthread_spin_t = 0,

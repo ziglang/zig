@@ -113,6 +113,7 @@ pub extern "c" fn madvise(
     advice: c_uint,
 ) c_int;
 
+pub const pthread_key_t = if (std.Target.current.isAndroid()) c_int else c_uint;
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,

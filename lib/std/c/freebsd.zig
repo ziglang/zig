@@ -38,6 +38,7 @@ pub extern "c" fn sendfile(
 pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
 
+pub const pthread_key_t = c_int;
 pub const pthread_mutex_t = extern struct {
     inner: ?*c_void = null,
 };

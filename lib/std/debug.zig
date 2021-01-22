@@ -298,7 +298,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 // and call abort()
 
                 // Sleep forever without hammering the CPU
-                var event: std.Thread.StaticResetEvent = .{};
+                var event: std.sync.ResetEvent = .{};
                 event.wait();
                 unreachable;
             }

@@ -46,6 +46,7 @@ pub const pthread_attr_t = extern struct {
     __stack_address: ?*c_void,
 };
 
+pub const pthread_key_t = c_int;
 pub const pthread_mutex_t = extern struct {
     flags: u32 = 0,
     lock: i32 = 0,

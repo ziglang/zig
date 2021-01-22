@@ -13,7 +13,7 @@ workers: []Worker,
 run_queue: RunQueue = .{},
 idle_queue: IdleQueue = .{},
 
-const IdleQueue = std.SinglyLinkedList(std.Thread.ResetEvent);
+const IdleQueue = std.SinglyLinkedList(std.sync.ResetEvent);
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
     runFn: fn (*Runnable) void,
@@ -71,7 +71,7 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
         worker.pool = self;
 
         // Each worker requires its ResetEvent to be pre-initialized.
-        try worker.idle_node.data.init();
+        worker.idle_node.data = .{};
         errdefer worker.idle_node.data.deinit();
 
         worker.thread = try std.Thread.spawn(worker, Worker.run);

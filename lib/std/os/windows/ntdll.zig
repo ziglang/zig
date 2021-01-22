@@ -100,16 +100,16 @@ pub extern "NtDll" fn NtCreateKeyedEvent(
     Flags: ULONG,
 ) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn NtReleaseKeyedEvent(
-    EventHandle: HANDLE,
-    Key: *const c_void,
+    EventHandle: ?HANDLE,
+    Key: ?*const c_void,
     Alertable: BOOLEAN,
-    Timeout: ?*LARGE_INTEGER,
+    Timeout: ?*const LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn NtWaitForKeyedEvent(
-    EventHandle: HANDLE,
-    Key: *const c_void,
+    EventHandle: ?HANDLE,
+    Key: ?*const c_void,
     Alertable: BOOLEAN,
-    Timeout: ?*LARGE_INTEGER,
+    Timeout: ?*const LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
 
 pub extern "NtDll" fn RtlSetCurrentDirectory_U(PathName: *UNICODE_STRING) callconv(WINAPI) NTSTATUS;

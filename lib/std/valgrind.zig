@@ -260,9 +260,11 @@ pub fn monitorCommand(command: [*]u8) bool {
 }
 
 pub const memcheck = @import("valgrind/memcheck.zig");
+pub const helgrind = @import("valgrind/helgrind.zig");
 pub const callgrind = @import("valgrind/callgrind.zig");
 
 test {
     _ = @import("valgrind/memcheck.zig");
+    _ = @import("valgrind/helgrind.zig");
     _ = @import("valgrind/callgrind.zig");
 }

@@ -28,7 +28,7 @@ const stage1 = @import("stage1.zig");
 const translate_c = @import("translate_c.zig");
 const c_codegen = @import("codegen/c.zig");
 const ThreadPool = @import("ThreadPool.zig");
-const WaitGroup = @import("WaitGroup.zig");
+const WaitGroup = std.sync.WaitGroup;
 const libtsan = @import("libtsan.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
@@ -1119,13 +1119,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .test_name_prefix = options.test_name_prefix,
             .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
-            .work_queue_wait_group = undefined,
+            .work_queue_wait_group = .{},
         };
         break :comp comp;
     };
     errdefer comp.destroy();
-
-    try comp.work_queue_wait_group.init();
     errdefer comp.work_queue_wait_group.deinit();
 
     if (comp.bin_file.options.module) |mod| {
@@ -1548,11 +1546,11 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
     defer c_comp_progress_node.end();
 
-    self.work_queue_wait_group.reset();
+    self.work_queue_wait_group = .{};
     defer self.work_queue_wait_group.wait();
 
     while (self.c_object_work_queue.readItem()) |c_object| {
-        self.work_queue_wait_group.start();
+        self.work_queue_wait_group.add(1);
         try self.thread_pool.spawn(workerUpdateCObject, .{
             self, c_object, &c_comp_progress_node, &self.work_queue_wait_group,
         });
@@ -1951,7 +1949,7 @@ fn workerUpdateCObject(
     progress_node: *std.Progress.Node,
     wg: *WaitGroup,
 ) void {
-    defer wg.finish();
+    defer wg.done();
 
     comp.updateCObject(c_object, progress_node) catch |err| switch (err) {
         error.AnalysisFail => return,

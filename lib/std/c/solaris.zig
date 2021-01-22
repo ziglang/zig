@@ -3,6 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+pub const pthread_key_t = c_uint;
 pub const pthread_mutex_t = extern struct {
     __pthread_mutex_flag1: u16 = 0,
     __pthread_mutex_flag2: u8 = 0,
