@@ -844,6 +844,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .bit_or => return self.genBitOr(inst.castTag(.bit_or).?),
                 .block => return self.genBlock(inst.castTag(.block).?),
                 .br => return self.genBr(inst.castTag(.br).?),
+                .br_block_flat => return self.genBrBlockFlat(inst.castTag(.br_block_flat).?),
                 .breakpoint => return self.genBreakpoint(inst.src),
                 .brvoid => return self.genBrVoid(inst.castTag(.brvoid).?),
                 .bool_and => return self.genBoolOp(inst.castTag(.bool_and).?),
@@ -2441,17 +2442,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        fn genBrBlockFlat(self: *Self, parent_inst: *ir.Inst.BrBlockFlat) !MCValue {
+            try self.genBody(parent_inst.body);
+            const last = parent_inst.body.instructions[parent_inst.body.instructions.len - 1];
+            return self.br(parent_inst.base.src, parent_inst.block, last);
+        }
+
         fn genBr(self: *Self, inst: *ir.Inst.Br) !MCValue {
-            if (inst.operand.ty.hasCodeGenBits()) {
-                const operand = try self.resolveInst(inst.operand);
-                const block_mcv = @bitCast(MCValue, inst.block.codegen.mcv);
-                if (block_mcv == .none) {
-                    inst.block.codegen.mcv = @bitCast(AnyMCValue, operand);
-                } else {
-                    try self.setRegOrMem(inst.base.src, inst.block.base.ty, block_mcv, operand);
-                }
-            }
-            return self.brVoid(inst.base.src, inst.block);
+            return self.br(inst.base.src, inst.block, inst.operand);
         }
 
         fn genBrVoid(self: *Self, inst: *ir.Inst.BrVoid) !MCValue {
@@ -2476,6 +2474,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 else => return self.fail(inst.base.src, "TODO implement boolean operations for {}", .{self.target.cpu.arch}),
             }
+        }
+
+        fn br(self: *Self, src: usize, block: *ir.Inst.Block, operand: *ir.Inst) !MCValue {
+            if (operand.ty.hasCodeGenBits()) {
+                const operand_mcv = try self.resolveInst(operand);
+                const block_mcv = @bitCast(MCValue, block.codegen.mcv);
+                if (block_mcv == .none) {
+                    block.codegen.mcv = @bitCast(AnyMCValue, operand_mcv);
+                } else {
+                    try self.setRegOrMem(src, block.base.ty, block_mcv, operand_mcv);
+                }
+            }
+            return self.brVoid(src, block);
         }
 
         fn brVoid(self: *Self, src: usize, block: *ir.Inst.Block) !MCValue {

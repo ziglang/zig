@@ -61,6 +61,13 @@ pub const Inst = struct {
         bit_or,
         block,
         br,
+        /// Same as `br` except the operand is a list of instructions to be treated as
+        /// a flat block; that is there is only 1 break instruction from the block, and
+        /// it is implied to be after the last instruction, and the last instruction is
+        /// the break operand.
+        /// This instruction exists for late-stage semantic analysis patch ups, to
+        /// replace one br operand with multiple instructions, without moving anything else around.
+        br_block_flat,
         breakpoint,
         brvoid,
         call,
@@ -158,6 +165,7 @@ pub const Inst = struct {
                 .assembly => Assembly,
                 .block => Block,
                 .br => Br,
+                .br_block_flat => BrBlockFlat,
                 .brvoid => BrVoid,
                 .call => Call,
                 .condbr => CondBr,
@@ -252,6 +260,7 @@ pub const Inst = struct {
         return switch (base.tag) {
             .br => base.castTag(.br).?.block,
             .brvoid => base.castTag(.brvoid).?.block,
+            .br_block_flat => base.castTag(.br_block_flat).?.block,
             else => null,
         };
     }
@@ -355,6 +364,27 @@ pub const Inst = struct {
         }
     };
 
+    pub const convertable_br_size = std.math.max(@sizeOf(BrBlockFlat), @sizeOf(Br));
+    pub const convertable_br_align = std.math.max(@alignOf(BrBlockFlat), @alignOf(Br));
+    comptime {
+        assert(@byteOffsetOf(BrBlockFlat, "base") == @byteOffsetOf(Br, "base"));
+    }
+
+    pub const BrBlockFlat = struct {
+        pub const base_tag = Tag.br_block_flat;
+
+        base: Inst,
+        block: *Block,
+        body: Body,
+
+        pub fn operandCount(self: *const BrBlockFlat) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const BrBlockFlat, index: usize) ?*Inst {
+            return null;
+        }
+    };
+
     pub const Br = struct {
         pub const base_tag = Tag.br;
 
@@ -363,7 +393,7 @@ pub const Inst = struct {
         operand: *Inst,
 
         pub fn operandCount(self: *const Br) usize {
-            return 0;
+            return 1;
         }
         pub fn getOperand(self: *const Br, index: usize) ?*Inst {
             if (index == 0)

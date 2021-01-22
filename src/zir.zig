@@ -1634,6 +1634,12 @@ const DumpTzir = struct {
                     try dtz.findConst(br.operand);
                 },
 
+                .br_block_flat => {
+                    const br_block_flat = inst.castTag(.br_block_flat).?;
+                    try dtz.findConst(&br_block_flat.block.base);
+                    try dtz.fetchInstsAndResolveConsts(br_block_flat.body);
+                },
+
                 .brvoid => {
                     const brvoid = inst.castTag(.brvoid).?;
                     try dtz.findConst(&brvoid.block.base);
@@ -1779,6 +1785,24 @@ const DumpTzir = struct {
                     }
                 },
 
+                .br_block_flat => {
+                    const br_block_flat = inst.castTag(.br_block_flat).?;
+                    const block_kinky = try dtz.writeInst(writer, &br_block_flat.block.base);
+                    if (block_kinky != null) {
+                        try writer.writeAll(", { // Instruction does not dominate all uses!\n");
+                    } else {
+                        try writer.writeAll(", {\n");
+                    }
+
+                    const old_indent = dtz.indent;
+                    dtz.indent += 2;
+                    try dtz.dumpBody(br_block_flat.body, writer);
+                    dtz.indent = old_indent;
+
+                    try writer.writeByteNTimes(' ', dtz.indent);
+                    try writer.writeAll("})\n");
+                },
+
                 .brvoid => {
                     const brvoid = inst.castTag(.brvoid).?;
                     const kinky = try dtz.writeInst(writer, &brvoid.block.base);
@@ -1792,7 +1816,7 @@ const DumpTzir = struct {
                 .block => {
                     const block = inst.castTag(.block).?;
 
-                    try writer.writeAll("\n");
+                    try writer.writeAll("{\n");
 
                     const old_indent = dtz.indent;
                     dtz.indent += 2;
@@ -1800,7 +1824,7 @@ const DumpTzir = struct {
                     dtz.indent = old_indent;
 
                     try writer.writeByteNTimes(' ', dtz.indent);
-                    try writer.writeAll(")\n");
+                    try writer.writeAll("})\n");
                 },
 
                 .condbr => {

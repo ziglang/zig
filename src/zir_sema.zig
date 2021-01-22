@@ -664,20 +664,9 @@ fn zirBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime:
     defer tracy.end();
     const parent_block = scope.cast(Scope.Block).?;
 
-    var child_block: Scope.Block = .{
-        .parent = parent_block,
-        .inst_table = parent_block.inst_table,
-        .func = parent_block.func,
-        .owner_decl = parent_block.owner_decl,
-        .src_decl = parent_block.src_decl,
-        .instructions = .{},
-        .arena = parent_block.arena,
-        .label = null,
-        .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime or is_comptime,
-        .branch_quota = parent_block.branch_quota,
-    };
+    var child_block = parent_block.makeSubBlock();
     defer child_block.instructions.deinit(mod.gpa);
+    child_block.is_comptime = child_block.is_comptime or is_comptime;
 
     try analyzeBody(mod, &child_block, inst.positionals.body);
 
@@ -728,6 +717,7 @@ fn zirBlock(
             .zir_block = inst,
             .merges = .{
                 .results = .{},
+                .br_list = .{},
                 .block_inst = block_inst,
             },
         }),
@@ -739,6 +729,7 @@ fn zirBlock(
 
     defer child_block.instructions.deinit(mod.gpa);
     defer merges.results.deinit(mod.gpa);
+    defer merges.br_list.deinit(mod.gpa);
 
     try analyzeBody(mod, &child_block, inst.positionals.body);
 
@@ -772,22 +763,53 @@ fn analyzeBlockBody(
         const last_inst = child_block.instructions.items[last_inst_index];
         if (last_inst.breakBlock()) |br_block| {
             if (br_block == merges.block_inst) {
-                // No need for a block instruction. We can put the new instructions directly into the parent block.
-                // Here we omit the break instruction.
+                // No need for a block instruction. We can put the new instructions directly
+                // into the parent block. Here we omit the break instruction.
                 const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items[0..last_inst_index]);
                 try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
                 return merges.results.items[0];
             }
         }
     }
-    // It should be impossible to have the number of results be > 1 in a comptime scope.
-    assert(!child_block.is_comptime); // We should have already got a compile error in the condbr condition.
+    // It is impossible to have the number of results be > 1 in a comptime scope.
+    assert(!child_block.is_comptime); // Should already got a compile error in the condbr condition.
 
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(mod.gpa, &merges.block_inst.base);
-    merges.block_inst.base.ty = try mod.resolvePeerTypes(scope, merges.results.items);
-    merges.block_inst.body = .{ .instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items) };
+    const resolved_ty = try mod.resolvePeerTypes(scope, merges.results.items);
+    merges.block_inst.base.ty = resolved_ty;
+    merges.block_inst.body = .{
+        .instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items),
+    };
+    // Now that the block has its type resolved, we need to go back into all the break
+    // instructions, and insert type coercion on the operands.
+    for (merges.br_list.items) |br| {
+        if (br.operand.ty.eql(resolved_ty)) {
+            // No type coercion needed.
+            continue;
+        }
+        var coerce_block = parent_block.makeSubBlock();
+        defer coerce_block.instructions.deinit(mod.gpa);
+        const coerced_operand = try mod.coerce(&coerce_block.base, resolved_ty, br.operand);
+        assert(coerce_block.instructions.items[coerce_block.instructions.items.len - 1] == coerced_operand);
+        // Here we depend on the br instruction having been over-allocated (if necessary)
+        // inide analyzeBreak so that it can be converted into a br_block_flat instruction.
+        const br_src = br.base.src;
+        const br_ty = br.base.ty;
+        const br_block_flat = @ptrCast(*Inst.BrBlockFlat, br);
+        br_block_flat.* = .{
+            .base = .{
+                .src = br_src,
+                .ty = br_ty,
+                .tag = .br_block_flat,
+            },
+            .block = merges.block_inst,
+            .body = .{
+                .instructions = try parent_block.arena.dupe(*Inst, coerce_block.instructions.items),
+            },
+        };
+    }
     return &merges.block_inst.base;
 }
 
@@ -827,9 +849,28 @@ fn analyzeBreak(
     while (opt_block) |block| {
         if (block.label) |*label| {
             if (label.zir_block == zir_block) {
-                try label.merges.results.append(mod.gpa, operand);
                 const b = try mod.requireFunctionBlock(scope, src);
-                return mod.addBr(b, src, label.merges.block_inst, operand);
+                // Here we add a br instruction, but we over-allocate a little bit
+                // (if necessary) to make it possible to convert the instruction into
+                // a br_block_flat instruction later.
+                const br = @ptrCast(*Inst.Br, try b.arena.alignedAlloc(
+                    u8,
+                    Inst.convertable_br_align,
+                    Inst.convertable_br_size,
+                ));
+                br.* = .{
+                    .base = .{
+                        .tag = .br,
+                        .ty = Type.initTag(.noreturn),
+                        .src = src,
+                    },
+                    .operand = operand,
+                    .block = label.merges.block_inst,
+                };
+                try b.instructions.append(mod.gpa, &br.base);
+                try label.merges.results.append(mod.gpa, operand);
+                try label.merges.br_list.append(mod.gpa, br);
+                return &br.base;
             }
         }
         opt_block = block.parent;
@@ -980,6 +1021,7 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
             .casted_args = casted_args,
             .merges = .{
                 .results = .{},
+                .br_list = .{},
                 .block_inst = block_inst,
             },
         };
@@ -1004,6 +1046,7 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
 
         defer child_block.instructions.deinit(mod.gpa);
         defer merges.results.deinit(mod.gpa);
+        defer merges.br_list.deinit(mod.gpa);
 
         try mod.emitBackwardBranch(&child_block, inst.base.src);
 
@@ -2194,7 +2237,8 @@ fn zirReturn(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst
     if (b.inlining) |inlining| {
         // We are inlining a function call; rewrite the `ret` as a `break`.
         try inlining.merges.results.append(mod.gpa, operand);
-        return mod.addBr(b, inst.base.src, inlining.merges.block_inst, operand);
+        const br = try mod.addBr(b, inst.base.src, inlining.merges.block_inst, operand);
+        return &br.base;
     }
 
     return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
@@ -2208,7 +2252,8 @@ fn zirReturnVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*
         // We are inlining a function call; rewrite the `retvoid` as a `breakvoid`.
         const void_inst = try mod.constVoid(scope, inst.base.src);
         try inlining.merges.results.append(mod.gpa, void_inst);
-        return mod.addBr(b, inst.base.src, inlining.merges.block_inst, void_inst);
+        const br = try mod.addBr(b, inst.base.src, inlining.merges.block_inst, void_inst);
+        return &br.base;
     }
 
     if (b.func) |func| {

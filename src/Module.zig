@@ -671,13 +671,35 @@ pub const Scope = struct {
         };
 
         pub const Merges = struct {
-            results: ArrayListUnmanaged(*Inst),
             block_inst: *Inst.Block,
+            /// Separate array list from break_inst_list so that it can be passed directly
+            /// to resolvePeerTypes.
+            results: ArrayListUnmanaged(*Inst),
+            /// Keeps track of the break instructions so that the operand can be replaced
+            /// if we need to add type coercion at the end of block analysis.
+            /// Same indexes, capacity, length as `results`.
+            br_list: ArrayListUnmanaged(*Inst.Br),
         };
 
         /// For debugging purposes.
         pub fn dump(self: *Block, mod: Module) void {
             zir.dumpBlock(mod, self);
+        }
+
+        pub fn makeSubBlock(parent: *Block) Block {
+            return .{
+                .parent = parent,
+                .inst_table = parent.inst_table,
+                .func = parent.func,
+                .owner_decl = parent.owner_decl,
+                .src_decl = parent.src_decl,
+                .instructions = .{},
+                .arena = parent.arena,
+                .label = null,
+                .inlining = parent.inlining,
+                .is_comptime = parent.is_comptime,
+                .branch_quota = parent.branch_quota,
+            };
         }
     };
 
@@ -2107,7 +2129,7 @@ pub fn addBr(
     src: usize,
     target_block: *Inst.Block,
     operand: *Inst,
-) !*Inst {
+) !*Inst.Br {
     const inst = try scope_block.arena.create(Inst.Br);
     inst.* = .{
         .base = .{
@@ -2119,7 +2141,7 @@ pub fn addBr(
         .block = target_block,
     };
     try scope_block.instructions.append(self.gpa, &inst.base);
-    return &inst.base;
+    return inst;
 }
 
 pub fn addCondBr(
