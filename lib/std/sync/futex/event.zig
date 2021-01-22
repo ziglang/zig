@@ -11,6 +11,9 @@ const generic = @import("./generic.zig");
 pub usingnamespace generic.Futex(struct {
     const Self = @This();
 
+    // Lock = ..
+    // bucket_count = ...
+
     pub fn init(self: *Self) void {
         @compileError("TODO");
     }
@@ -32,10 +35,6 @@ pub usingnamespace generic.Futex(struct {
     }
 
     pub fn nanotime() u64 {
-        @compileError("TODO");
-    }
-
-    pub fn yield(iteration: ?usize) bool {
         @compileError("TODO");
     }
 });
