@@ -182,7 +182,7 @@ fn enforceMonotonic(current_now: u64) u64 {
         var last_now: u64 = 0;
         var last_now_mutex = std.sync.Mutex{};
     };
-    
+
     // If 64bit atomics are available, its generally cheaper to use them vs locking below.
     if (comptime supports64bitAtomics()) {
         var last = atomic.load(&Static.last_now, .Relaxed);
@@ -229,7 +229,7 @@ fn isSystemTimerMonotonic() bool {
     if (target.os.tag == .windows) {
         return false;
     }
-    
+
     // https://github.com/rust-lang/rust/issues/49281
     // https://github.com/rust-lang/rust/issues/56940
     if (target.os.tag == .linux and (target.cpu.arch == .aarch64 or .arch == .s390x)) {
@@ -276,9 +276,7 @@ fn readSystemTimer() ?u64 {
                 }
             }
 
-            fn isPowerOf10(input: u64) bool {
-
-            }
+            fn isPowerOf10(input: u64) bool {}
         };
 
         Static.init_once.call();

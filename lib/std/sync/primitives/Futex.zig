@@ -9,7 +9,7 @@ pub fn Futex(comptime BaseFutex: type) type {
         pub fn now() u64 {
             return BaseFutex.nanotime();
         }
-        
+
         pub fn wait(ptr: *const u32, expect: u32, deadline: ?u64) error{TimedOut}!void {
             if (!BaseFutex.wait(ptr, expect, deadline)) {
                 return error.TimedOut;

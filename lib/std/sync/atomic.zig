@@ -20,8 +20,16 @@ const AtomicBitOp = enum {
 
 pub fn spinLoopHint() void {
     switch (builtin.arch) {
-        .i386, .x86_64 => asm volatile("pause" ::: "memory"),
-        .arm, .aarch64 => asm volatile("yield" ::: "memory"),
+        .i386, .x86_64 => asm volatile ("pause"
+            :
+            :
+            : "memory"
+        ),
+        .arm, .aarch64 => asm volatile ("yield"
+            :
+            :
+            : "memory"
+        ),
         else => {},
     }
 }
@@ -61,7 +69,11 @@ pub fn compilerFence(comptime ordering: Ordering) void {
         .Unordered => @compileError("Unordered memory ordering can only be on atomic variables"),
         .Relaxed => @compileError("Relaxed memory ordering can only be on atomic variables"),
         .Consume => @compileError("Consume memory ordering can only be on atomic variables"),
-        else => asm volatile("" ::: "memory"),
+        else => asm volatile (""
+            :
+            :
+            : "memory"
+        ),
     }
 }
 
@@ -181,7 +193,7 @@ pub fn compareAndSwap(
     ptr: anytype,
     cmp: @TypeOf(ptr.*),
     xchg: @TypeOf(ptr.*),
-    comptime success: Ordering, 
+    comptime success: Ordering,
     comptime failure: Ordering,
 ) ?@TypeOf(ptr.*) {
     return @cmpxchgStrong(@TypeOf(ptr.*), ptr, cmp, xchg, comptime success.toBuiltin(), comptime failure.toBuiltin());
@@ -373,9 +385,9 @@ fn atomicBitRmw(comptime T: type, ptr: *T, comptime op: AtomicBitOp, bit: Log2In
         };
 
         const suffix: []const u8 = switch (bytes) {
-            // On x86, address faults are by page. 
+            // On x86, address faults are by page.
             // If at least one byte is valid, the memory operation will succeed.
-            1, 2 => "w", 
+            1, 2 => "w",
             4 => "l",
             8 => "q",
             else => unreachable,
@@ -386,8 +398,7 @@ fn atomicBitRmw(comptime T: type, ptr: *T, comptime op: AtomicBitOp, bit: Log2In
             std.math.max(2, bytes) * 8,
         );
 
-        return @intCast(u1, asm volatile(
-            instruction ++ suffix ++ " %[bit], %[ptr]"
+        return @intCast(u1, asm volatile (instruction ++ suffix ++ " %[bit], %[ptr]"
             : [result] "={@ccc}" (-> u8)
             : [ptr] "*p" (ptr),
               [bit] "X" (@as(Bit, bit))
