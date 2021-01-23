@@ -781,8 +781,8 @@ pub const Loop = struct {
 
     const AutoResetEvent = struct {
         is_set: bool = false,
-        mutex: std.sync.Mutex = .{},
-        cond: std.sync.Condvar = .{},
+        mutex: std.sync.primitives.core.Mutex(std.sync.futex.os) = .{},
+        cond: std.sync.primitives.core.Condvar(std.sync.futex.os) = .{},
 
         fn wait(self: *AutoResetEvent) void {
             return self.waitInner(null) catch unreachable;

@@ -21,8 +21,8 @@ fn withPrefix(comptime prefix: []const u8) type {
         pub const Mutex = @field(mutex, prefix ++ "Mutex");
         pub const Once = @field(once, prefix ++ "Once");
         pub const ResetEvent = @field(reset_event, prefix ++ "ResetEvent");
-        pub const RwLock = @field(rwlock, prefix ++ "RwLock");
-        pub const Semaphore = @field(semaphore, prefix ++ "Semaphore");
+        // pub const RwLock = @field(rwlock, prefix ++ "RwLock");
+        // pub const Semaphore = @field(semaphore, prefix ++ "Semaphore");
         pub const WaitGroup = @field(wait_group, prefix ++ "WaitGroup");
     };
 }
@@ -34,8 +34,8 @@ pub fn with(comptime Futex: type) type {
         pub const Mutex = core.Mutex(Futex);
         pub const Once = core.Once(Futex);
         pub const ResetEvent = core.ResetEvent(Futex);
-        pub const RwLock = core.RwLock(Futex);
-        pub const Semaphore = core.Semaphore(Futex);
+        // pub const RwLock = core.RwLock(Futex);
+        // pub const Semaphore = core.Semaphore(Futex);
         pub const WaitGroup = core.WaitGroup(Futex);
     };
 }

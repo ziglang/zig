@@ -16,6 +16,8 @@ pub fn WaitGroup(comptime Futex: type) type {
     return extern struct {
         counter: u32 = 0,
 
+        const Self = @This();
+
         pub fn init(amount: u32) Self {
             return .{ .counter = amount };
         }
@@ -142,7 +144,7 @@ pub fn WaitGroup(comptime Futex: type) type {
             return self.waitInner(deadline);
         }
 
-        fn waitInner(self: *Self, deadline: u64) error{TimedOut}!void { 
+        fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void { 
             while (true) {
                 const counter = atomic.load(&self.counter, .SeqCst);
                 if (counter == 0) {
@@ -271,7 +273,7 @@ test "WaitGroup" {
             wg.done();
             wg.wait();
 
-            const max = std.math.maxInt(usize);
+            const max = std.math.maxInt(u32);
             wg.begin(1);
             testing.expect(!wg.tryBegin(max));
             testing.expect(!wg.tryEnd(2));

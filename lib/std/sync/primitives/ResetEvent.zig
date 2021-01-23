@@ -81,8 +81,8 @@ pub fn ResetEvent(comptime Futex: type) type {
         }
 
         pub fn set(self: *Self) void {
-            if (use_valgrind) {
-                helgrind.annotateHappensBefore(@ptrToInt(self));
+            if (helgrind) |hg| {
+                hg.annotateHappensBefore(@ptrToInt(self));
             }
 
             atomic.store(&self.state, .set, .SeqCst);

@@ -74,6 +74,6 @@ test "futex" {
         .{generic.forFutex(os)},
         .{generic.forFutex(spin)},
     }) |futex| {
-        @compileError("TODO: test wait/wake/nanotime");
+        // @compileError("TODO: test wait/wake/nanotime");
     }
 }

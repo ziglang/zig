@@ -76,11 +76,10 @@ pub fn Mutex(comptime Futex: anytype) type {
 
         fn acquireSlow(self: *Self, current_state: State, deadline: ?u64) error{TimedOut}!void {
             @setCold(true);
-            var state = 
 
             var adaptive_spin: usize = 100;
             while (adaptive_spin > 0) : (adaptive_spin -= 1) {
-                state = atomic.tryCompareAndSwap(
+                const state = atomic.tryCompareAndSwap(
                     &self.state,
                     .unlocked,
                     current_state,
@@ -114,24 +113,28 @@ pub fn Mutex(comptime Futex: anytype) type {
             mutex: *Self,
 
             pub fn release(self: Held) void {
-                if (helgrind) |hg| {
-                    hg.annotateHappensBefore(@ptrToInt(self));
-                }
-
-                switch (atomic.swap(&self.mutex.state, .unlocked, .Release)) {
-                    .unlocked => unreachable,
-                    .locked => {},
-                    .contended => self.releaseSlow(),
-                }
-            }
-
-            fn releaseSlow(self: Held) void {
-                @setCold(true);
-
-                const ptr = @ptrCast(*const u32, &self.mutex.state);
-                Futex.notifyOne(ptr);
+                self.mutex.release();
             }
         };
+
+        fn release(self: *Self) void {
+            if (helgrind) |hg| {
+                hg.annotateHappensBefore(@ptrToInt(self));
+            }
+
+            switch (atomic.swap(&self.state, .unlocked, .Release)) {
+                .unlocked => unreachable,
+                .locked => {},
+                .contended => self.releaseSlow(),
+            }
+        }
+
+        fn releaseSlow(self: *Self) void {
+            @setCold(true);
+
+            const ptr = @ptrCast(*const u32, &self.state);
+            Futex.notifyOne(ptr);
+        }
     };
 }
 

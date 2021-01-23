@@ -8,33 +8,74 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const generic = @import("./generic.zig");
 
-pub usingnamespace generic.Futex(struct {
-    const Self = @This();
+const testing = std.testing;
+const builtin = std.builtin;
+const assert = std.debug.assert;
+const helgrind: ?type = if (builtin.valgrind_support) std.valgrind.helgrind else null;
 
-    // Lock = ..
-    // bucket_count = ...
+pub usingnamespace generic.Futex(struct {
+    state: usize,
+
+    const EMPTY: usize = 0;
+    const NOTIFIED: usize = 1;
+
+    const Self = @This();
+    const Loop = std.event.Loop;
+    const loop = Loop.instance orelse @compileError("std.event.Loop is not enabled");
 
     pub fn init(self: *Self) void {
-        @compileError("TODO");
+        self.state = EMPTY;
     }
 
     pub fn deinit(self: *Self) void {
-        @compileError("TODO");
+        self.* = undefined;
     }
 
     pub fn wait(self: *Self, deadline: ?u64) error{TimedOut}!void {
-        @compileError("TODO");
+        var node = Loop.NextTickNode{ .data = @frame() };
+
+        var waited = false;
+        suspend {
+            if (atomic.compareAndSwap(
+                &self.state,
+                EMPTY,
+                @ptrToInt(&node),
+                .Release,
+                .Acquire,
+            )) |state| {
+                assert(state == NOTIFIED);
+                loop.onNextTick(&node);
+            } else {
+                waited = true;
+            }
+        }
+
+        if (waited) {
+            if (helgrind) |hg| {
+                hg.annotateHappensBefore(@ptrToInt(&node));
+            }
+        }
     }
 
     pub fn set(self: *Self) void {
-        @compileError("TODO");
+        const node = switch (atomic.swap(&self.state, NOTIFIED, .AcqRel)) {
+            EMPTY => return,
+            NOTIFIED => unreachable,
+            else => |state| @intToPtr(*Loop.NextTickNode, state),
+        };
+
+        if (helgrind) |hg| {
+            hg.annotateHappensBefore(@ptrToInt(node));
+        }
+
+        loop.onNextTick(node);
     }
 
     pub fn reset(self: *Self) void {
-        @compileError("TODO");
+        self.state = EMPTY;
     }
 
-    pub fn nanotime() u64 {
-        @compileError("TODO");
+    pub fn now() u64 {
+        return std.time.now();
     }
 });

@@ -12,175 +12,191 @@ const assert = std.debug.assert;
 const helgrind: ?type = if (builtin.valgrind_support) std.valgrind.helgrind else null;
 
 pub fn Futex(comptime Event: type) type {
-    const WaitLock = switch (@hasDecl(Event, "Lock") and Event.Lock != void) {
-        true => Event.Lock,
-        else => WordLock(Event),
-    };
-
-    const bucket_count = switch (@hasDecl(Event, "bucket_count")) {
-        true => Event.bucket_count,
-        else => std.meta.bitCount(usize) << 2,
-    };
-
-    const WaitBucket = struct {
-        lock: WaitLock = .{},
-        waiters: usize = 0,
-        tree: WaitTree = .{},
-
-        var array = [_]WaitBucket{WaitBucket{}} ** bucket_count;
-
-        /// Hash a address to a wait-bucket.
-        /// This uses the same method as seen in Amanieu's port of WTF::ParkingLot:
-        /// https://github.com/Amanieu/parking_lot/blob/master/core/src/parking_lot.rs
-        fn from(address: usize) *WaitBucket {
-            const seed = @truncate(usize, 0x9E3779B97F4A7C15);
-            const max = std.meta.bitCount(usize);
-            const bits = @ctz(usize, array.len);
-            const index = (address *% seed) >> (max - bits);
-            return &array[index];
-        }
-    };
-
-    const WaitTree = struct {
-        tree_head: ?*WaitNode = null,
-
-        const Lookup = struct {
-            tree_prev: ?*WaitNode,
-            tree_node: ?*WaitNode,
+    return struct {
+        const WaitLock = switch (@hasDecl(Event, "Lock") and Event.Lock != void) {
+            true => Event.Lock,
+            else => WordLock(Event),
         };
 
-        fn find(self: *WaitTree, address: usize) Lookup {
-            var lookup = Lookup{
-                .tree_prev = null,
-                .tree_node = self.tree_head,
+        const bucket_count = switch (@hasDecl(Event, "bucket_count")) {
+            true => Event.bucket_count,
+            else => std.meta.bitCount(usize) << 2,
+        };
+
+        const WaitBucket = struct {
+            lock: WaitLock = .{},
+            waiters: usize = 0,
+            tree: WaitTree = .{},
+
+            var array = [_]WaitBucket{WaitBucket{}} ** bucket_count;
+
+            /// Hash a address to a wait-bucket.
+            /// This uses the same method as seen in Amanieu's port of WTF::ParkingLot:
+            /// https://github.com/Amanieu/parking_lot/blob/master/core/src/parking_lot.rs
+            fn from(address: usize) *WaitBucket {
+                const seed = @truncate(usize, 0x9E3779B97F4A7C15);
+                const max = std.meta.bitCount(usize);
+                const bits = @ctz(usize, array.len);
+                const index = (address *% seed) >> (max - bits);
+                return &array[index];
+            }
+        };
+
+        const WaitTree = struct {
+            tree_head: ?*WaitNode = null,
+
+            const Lookup = struct {
+                tree_prev: ?*WaitNode,
+                tree_node: ?*WaitNode,
             };
 
-            while (lookup.tree_node) |tree_node| {
-                if (tree_node.address == queue.address) {
-                    break;
+            fn find(self: *WaitTree, address: usize) Lookup {
+                var lookup = Lookup{
+                    .tree_prev = null,
+                    .tree_node = self.tree_head,
+                };
+
+                while (lookup.tree_node) |tree_node| {
+                    if (tree_node.address == address) {
+                        break;
+                    } else {
+                        lookup.tree_prev = tree_node;
+                        lookup.tree_node = tree_node.tree_next;
+                    }
+                }
+
+                return lookup;
+            }
+
+            fn insert(self: *WaitTree, lookup: Lookup, node: *WaitNode) void {
+                assert(node != self.tree_head);
+                node.tree_next = null;
+                node.tree_prev = lookup.tree_prev;
+                
+                if (node.tree_prev) |prev| {
+                    assert(prev.tree_next == null);
+                    prev.tree_next = node;
                 } else {
-                    lookup.tree_prev = tree_node;
-                    lookup.tree_node = tree_node.tree_next;
+                    assert(self.tree_head == null);
+                    self.tree_head = node;
                 }
             }
 
-            return lookup;
-        }
+            fn replace(self: *WaitTree, node: *WaitNode, new_node: *WaitNode) void {
+                assert(node != new_node);
+                assert(node.address == new_node.address);
+                assert((node == self.tree_head) or ((node.tree_prev orelse node.tree_next) != null));
+                
+                if (node.tree_next) |next| {
+                    next.tree_prev = new_node;
+                }
+                if (node.tree_prev) |prev| {
+                    prev.tree_next = new_node;
+                }
+                if (self.tree_head == node) {
+                    self.tree_head = new_node;
+                }
+            }
 
-        fn insert(self: *WaitTree, lookup: Lookup, node: *WaitNode) void {
-            assert(node != self.tree_head);
-            node.tree_next = null;
-            node.tree_prev = lookup.tree_prev;
+            fn remove(self: *WaitTree, node: *WaitNode) void {
+                assert((node == self.tree_head) or ((node.tree_prev orelse node.tree_next) != null));
+
+                if (node.tree_next) |next| {
+                    next.tree_prev = node.tree_prev;
+                }
+                if (node.tree_prev) |prev| {
+                    prev.tree_next = node.tree_next;
+                }
+                if (self.tree_head == node) {
+                    self.tree_head = null;
+                }
+            }
+        };
+
+        const WaitQueue = struct {
+            tree: *WaitTree,
+            head: ?*WaitNode,
+            address: usize,
+            lookup: WaitTree.Lookup,
+
+            fn find(tree: *WaitTree, address: usize) WaitQueue {
+                const lookup = tree.find(address);
+
+                return WaitQueue{
+                    .tree = tree,
+                    .head = lookup.tree_node,
+                    .address = address,
+                    .lookup = lookup,
+                };
+            }
             
-            if (node.tree_prev) |prev| {
-                assert(prev.tree_next == null);
-                prev.tree_next = node;
-            } else {
-                assert(self.tree_head == null);
-                self.tree_head = node;
+            fn insert(self: *WaitQueue, node: *WaitNode) void {
+                node.prev = null;
+                node.next = null;
+                node.tail = node;
+                node.address = self.address;
+
+                const head = self.head orelse {
+                    self.head = node;
+                    self.tree.insert(self.lookup, node);
+                    return;
+                };
+
+                const tail = head.tail orelse unreachable;
+                head.tail = node;
+                node.prev = tail;
+                tail.next = node;
             }
-        }
 
-        fn replace(self: *WaitTree, node: *WaitNode, new_node: *WaitNode) void {
-            assert(node != new_node);
-            assert(node.address == new_node.address);
-            assert((node == self.tree_head) or ((node.tree_prev orelse node.tree_next) != null));
-            
-            if (node.tree_next) |next| {
-                next.tree_prev = new_node;
+            fn isInserted(node: *WaitNode) bool {
+                return node.tail != null;
             }
-            if (node.tree_prev) |prev| {
-                prev.tree_next = new_node;
+
+            fn popFirst(self: *WaitQueue) ?*WaitNode {
+                const node = self.head orelse return null;
+                self.remove(node);
+                return node;
             }
-            if (self.tree_head == node) {
-                self.tree_head = new_node;
+
+            fn remove(self: *WaitQueue, node: *WaitNode) void {
+                assert(isInserted(node));
+                defer node.tail = null;
+
+                if (node.prev) |prev| {
+                    prev.next = node.next;
+                }
+                if (node.next) |next| {
+                    next.prev = node.prev;
+                }
+
+                const head = self.head orelse unreachable;
+                if (node == head) {
+                    self.head = node.next;
+                    if (self.head) |new_head| {
+                        new_head.tail = head.tail;
+                        self.tree.replace(head, new_head);
+                    } else {
+                        self.tree.remove(node);
+                    }
+                } else if (node == head.tail) {
+                    assert(node.prev != null);
+                    head.tail = node.prev;
+                }
             }
-        }
+        };
 
-        fn remove(self: *WaitTree, node: *WaitNode) void {
-            assert((node == self.tree_head) or ((node.tree_prev orelse node.tree_next) != null));
+        const WaitNode = struct {
+            tree_prev: ?*WaitNode,
+            tree_next: ?*WaitNode,
+            prev: ?*WaitNode,
+            next: ?*WaitNode,
+            tail: ?*WaitNode,
+            address: usize,
+            event: Event,
+        };
 
-            if (node.tree_next) |next| {
-                next.tree_prev = node.tree_prev;
-            }
-            if (node.tree_prev) |prev| {
-                prev.tree_next = node.tree_next;
-            }
-            if (self.tree_head == node) {
-                self.tree_head = null;
-            }
-        }
-    };
-
-    const WaitQueue = struct {
-        tree: *WaitTree,
-        head: ?*WaitNode,
-        address: usize,
-        lookup: WaitTree.Lookup,
-
-        fn find(tree: *WaitTree, address: usize) WaitQueue {
-            const lookup = tree.find(address);
-
-            return WaitQueue{
-                .tree = tree,
-                .head = lookup.tree_node,
-                .address = address,
-                .lookup = lookup,
-            };
-        }
-        
-        fn insert(self: *WaitQueue, node: *WaitNode) void {
-            node.prev = null;
-            node.next = null;
-            node.tail = node;
-            node.address = self.address;
-
-            const head = self.head orelse {
-                self.head = node;
-                self.tree.insert(self.lookup, node);
-                return;
-            };
-
-            const tail = head.tail orelse unreachable;
-            head.tail = node;
-            node.prev = tail;
-            tail.next = node;
-        }
-
-        fn isInserted(node: *WaitNode) bool {
-            return node.tail != null;
-        }
-
-        fn popFirst(self: *WaitQueue) ?*WaitNode {
-            const node = self.head orelse return null;
-            assert(node.tail != null);
-            defer node.tail = null;
-
-            assert(node.prev == null);
-            self.head = node.next;
-            
-            if (self.head) |new_head| {
-                new_head.tail = node.tail;
-                self.tree.replace(node, new_head);
-            } else {
-                self.tree.remove(node);
-            }
-        }
-    };
-
-    const WaitNode = struct {
-        tree_prev: ?*WaitNode,
-        tree_next: ?*WaitNode,
-        prev: ?*WaitNode,
-        next: ?*WaitNode,
-        tail: ?*WaitNode,
-        address: usize,
-        event: Event,
-    };
-
-    return struct {
         pub fn now() u64 {
-            return Event.nanotime();
+            return Event.now();
         }
 
         pub fn wait(ptr: *const u32, expect: u32, deadline: ?u64) error{TimedOut}!void {
@@ -323,7 +339,7 @@ fn WordLock(comptime Event: type) type {
             };
         }
 
-        pub fn acquire(self: *Self) void {
+        pub fn acquire(self: *Self) Held {
             if (!self.tryAcquireFast(UNLOCKED)) {
                 self.acquireSlow();
             }
@@ -401,7 +417,7 @@ fn WordLock(comptime Event: type) type {
                     continue;
                 } 
 
-                waiter.event.wait();
+                waiter.event.wait(null) catch unreachable;
 
                 if (helgrind) |hg| {
                     hg.annotateHappensAfter(@ptrToInt(&waiter));
@@ -417,22 +433,26 @@ fn WordLock(comptime Event: type) type {
             lock: *Self,
 
             pub fn release(self: Held) void {
-                if (helgrind) |hg| {
-                    hg.annotateHappensBefore(@ptrToInt(self));
-                }
-
-                const state = switch (builtin.arch) {
-                    .i386, .x86_64 => atomic.fetchSub(&self.lock.state, LOCKED, .Release),
-                    else => atomic.fetchAnd(&self.lock.state, ~@as(usize, LOCKED), .Release),
-                };
-
-                if ((state & WAITING != 0) and (state & WAKING == 0)) {
-                    self.lock.releaseSlow();
-                }
+                self.lock.release();
             }
         };
 
-        fn releaseSlow(self: *Lock) void {
+        fn release(self: *Self) void {
+            if (helgrind) |hg| {
+                hg.annotateHappensBefore(@ptrToInt(self));
+            }
+
+            const state = switch (builtin.arch) {
+                .i386, .x86_64 => atomic.fetchSub(&self.state, LOCKED, .Release),
+                else => atomic.fetchAnd(&self.state, ~@as(usize, LOCKED), .Release),
+            };
+
+            if ((state & WAITING != 0) and (state & WAKING == 0)) {
+                self.releaseSlow();
+            }
+        }
+
+        fn releaseSlow(self: *Self) void {
             @setCold(true);
 
             var state = atomic.load(&self.state, .Relaxed);
@@ -494,7 +514,7 @@ fn WordLock(comptime Event: type) type {
 
                         if (state & WAITING != 0) {
                             atomic.fence(.Acquire);
-                            continue :dequeued;
+                            continue :dequeue;
                         }
                     }
                 }
