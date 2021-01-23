@@ -556,6 +556,22 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform an `fallocate(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn fallocate(
+        self: *IO_Uring,
+        user_data: u64,
+        fd: os.fd_t,
+        mode: i32,
+        offset: u64,
+        len: u64,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_fallocate(sqe, fd, mode, offset, len);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -886,6 +902,30 @@ pub fn io_uring_prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, 
         .addr = timeout_user_data,
         .len = 0,
         .rw_flags = flags,
+        .user_data = 0,
+        .buf_index = 0,
+        .personality = 0,
+        .splice_fd_in = 0,
+        .__pad2 = [2]u64{ 0, 0 },
+    };
+}
+
+pub fn io_uring_prep_fallocate(
+    sqe: *io_uring_sqe,
+    fd: os.fd_t,
+    mode: i32,
+    offset: u64,
+    len: u64,
+) void {
+    sqe.* = .{
+        .opcode = .FALLOCATE,
+        .flags = 0,
+        .ioprio = 0,
+        .fd = fd,
+        .off = offset,
+        .addr = len,
+        .len = @intCast(u32, mode),
+        .rw_flags = 0,
         .user_data = 0,
         .buf_index = 0,
         .personality = 0,
@@ -1394,4 +1434,48 @@ test "timeout_remove" {
         .res = 0,
         .flags = 0,
     }, cqe_timeout_remove);
+}
+
+test "fallocate" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const path = "test_io_uring_fallocate";
+    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    defer file.close();
+    defer std.fs.cwd().deleteFile(path) catch {};
+
+    testing.expectEqual(@as(u64, 0), (try file.stat()).size);
+
+    const len: u64 = 65536;
+    const sqe = try ring.fallocate(0xaaaaaaaa, file.handle, 0, 0, len);
+    testing.expectEqual(linux.IORING_OP.FALLOCATE, sqe.opcode);
+    testing.expectEqual(file.handle, sqe.fd);
+    testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe = try ring.copy_cqe();
+    switch (-cqe.res) {
+        0 => {},
+        // This kernel's io_uring does not yet implement fallocate():
+        linux.EINVAL => return error.SkipZigTest,
+        // This kernel does not implement fallocate():
+        linux.ENOSYS => return error.SkipZigTest,
+        // The filesystem containing the file referred to by fd does not support this operation;
+        // or the mode is not supported by the filesystem containing the file referred to by fd:
+        linux.EOPNOTSUPP => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    }
+    testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0xaaaaaaaa,
+        .res = 0,
+        .flags = 0,
+    }, cqe);
+
+    testing.expectEqual(len, (try file.stat()).size);
 }
