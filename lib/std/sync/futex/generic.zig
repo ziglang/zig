@@ -72,7 +72,7 @@ pub fn Futex(comptime Event: type) type {
                 assert(node != self.tree_head);
                 node.tree_next = null;
                 node.tree_prev = lookup.tree_prev;
-                
+
                 if (node.tree_prev) |prev| {
                     assert(prev.tree_next == null);
                     prev.tree_next = node;
@@ -86,7 +86,7 @@ pub fn Futex(comptime Event: type) type {
                 assert(node != new_node);
                 assert(node.address == new_node.address);
                 assert((node == self.tree_head) or ((node.tree_prev orelse node.tree_next) != null));
-                
+
                 if (node.tree_next) |next| {
                     next.tree_prev = new_node;
                 }
@@ -129,7 +129,7 @@ pub fn Futex(comptime Event: type) type {
                     .lookup = lookup,
                 };
             }
-            
+
             fn insert(self: *WaitQueue, node: *WaitNode) void {
                 node.prev = null;
                 node.next = null;
@@ -215,7 +215,7 @@ pub fn Futex(comptime Event: type) type {
                     held.release();
                     return;
                 }
-            
+
                 var queue = WaitQueue.find(&bucket.tree, address);
                 queue.insert(&node);
                 node.event.init();
@@ -280,11 +280,11 @@ pub fn Futex(comptime Event: type) type {
             var nodes = blk: {
                 const held = bucket.lock.acquire();
                 defer held.release();
-                
+
                 var dequeued: usize = 0;
                 var nodes: ?*WaitNode = null;
                 var queue = WaitQueue.find(&bucket.tree, address);
-                
+
                 while (queue.popFirst()) |node| {
                     node.next = nodes;
                     nodes = node;
@@ -362,7 +362,7 @@ fn WordLock(comptime Event: type) type {
                 }
                 waiter.event.deinit();
             };
-            
+
             var adaptive_spin: usize = 0;
             var state = atomic.load(&self.state, .Relaxed);
 
@@ -415,14 +415,14 @@ fn WordLock(comptime Event: type) type {
                 )) |updated| {
                     state = updated;
                     continue;
-                } 
+                }
 
                 waiter.event.wait(null) catch unreachable;
 
                 if (helgrind) |hg| {
                     hg.annotateHappensAfter(@ptrToInt(&waiter));
                 }
-                
+
                 adaptive_spin = 0;
                 waiter.event.reset();
                 state = atomic.load(&self.state, .Relaxed);

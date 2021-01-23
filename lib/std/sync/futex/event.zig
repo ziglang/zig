@@ -20,7 +20,7 @@ const Event = struct {
     state: State,
 
     const Self = @This();
-    const State = union(enum){
+    const State = union(enum) {
         unset,
         wait: *Loop.NextTickNode,
         timed_wait: *Waiter,
@@ -50,7 +50,7 @@ const Event = struct {
 
     pub fn wait(self: *Self, deadline: ?u64) error{TimedOut}!void {
         const held = self.mutex.acquire();
-        
+
         // Begin waiting on the event.
         // No other waiters can be waiting on the event since its SPSC.
         // It however can already be set if the set() thread grabs the mutex first.
@@ -72,7 +72,7 @@ const Event = struct {
                     waiter.delay.schedule(@frame(), deadline_ns);
                 }
 
-                // If we're rescheduled, it means the timer was not cancelled 
+                // If we're rescheduled, it means the timer was not cancelled
                 // and that it has expired normally.
                 {
                     const event_held = event.mutex.acquire();
@@ -140,14 +140,14 @@ const Event = struct {
     }
 
     pub fn set(self: *Self) void {
-        const maybe_node = blk :{
+        const maybe_node = blk: {
             const held = self.mutex.acquire();
             defer held.release();
 
             // Mark the event as set
             const state = self.state;
             self.state = .set;
-            
+
             // Then try to wake up a waiter if there was any.
             // If we manage to cancel a timed_wait, then we need to schedule the waiter.
             // If not, the timed_wait is already scheduled and will wake up the waiter instead.
@@ -180,7 +180,7 @@ pub const TestThread = struct {
 
     pub fn spawn(context: anytype, comptime entryFn: anytype) !*Self {
         const allocator = std.testing.allocator;
-        
+
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
 
@@ -196,7 +196,7 @@ pub const TestThread = struct {
             }
         };
 
-        try global_event_loop.runDetached(allocator, Wrapper.entry, .{context, self});
+        try global_event_loop.runDetached(allocator, Wrapper.entry, .{ context, self });
         return self;
     }
 

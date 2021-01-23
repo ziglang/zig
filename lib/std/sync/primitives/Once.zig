@@ -12,7 +12,7 @@ const testing = std.testing;
 const assert = std.debug.assert;
 const helgrind: ?type = if (builtin.valgrind_support) std.valgrind.helgrind else null;
 
-pub fn Once(comptime Futex: type) fn(anytype) type {
+pub fn Once(comptime Futex: type) fn (anytype) type {
     return struct {
         fn once(comptime initFn: anytype) type {
             return struct {
@@ -66,7 +66,7 @@ pub fn Once(comptime Futex: type) fn(anytype) type {
                     }
 
                     state = atomic.load(&self.state, .Acquire);
-                    assert(state == .init); 
+                    assert(state == .init);
 
                     if (helgrind) |hg| {
                         hg.annotateHappensAfter(@ptrToInt(self));

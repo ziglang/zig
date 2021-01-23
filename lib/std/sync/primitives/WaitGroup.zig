@@ -146,7 +146,7 @@ pub fn WaitGroup(comptime Futex: type) type {
             return self.waitInner(deadline);
         }
 
-        fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void { 
+        fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void {
             while (true) {
                 const counter = atomic.load(&self.counter, .SeqCst);
                 if (counter == 0) {

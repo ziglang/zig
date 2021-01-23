@@ -159,7 +159,7 @@ test "ResetEvent - Os" {
 test "ResetEvent - Evented" {
     if (!std.io.is_async) return error.SkipZigTest;
     try testResetEvent(
-        ResetEvent(std.sync.futex.event), 
+        ResetEvent(std.sync.futex.event),
         @import("../futex/event.zig").TestThread,
     );
 }
@@ -179,7 +179,7 @@ fn testResetEvent(
 
         event.set();
         testing.expect(event.isSet());
-        
+
         event.wait();
         try event.tryWaitFor(delay);
         try event.tryWaitUntil(std.time.now() + delay);

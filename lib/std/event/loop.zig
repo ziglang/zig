@@ -774,7 +774,7 @@ pub const Loop = struct {
 
     pub const Delay = struct {
         entry: DelayQueue.Waiters.Entry,
-        queue: *DelayQueue, 
+        queue: *DelayQueue,
 
         pub fn now() u64 {
             return std.time.now();

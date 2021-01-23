@@ -261,7 +261,7 @@ fn testMutex(
             }
         };
 
-        const Case = union(enum){
+        const Case = union(enum) {
             random: Random,
             high: High,
             forced: Forced,
@@ -326,7 +326,7 @@ fn testMutex(
                     }
                 }
             };
-            
+
             /// Stresses the common use-case of random Mutex contention.
             const Random = struct {
                 fn setup(_: @This(), self: *Self) void {

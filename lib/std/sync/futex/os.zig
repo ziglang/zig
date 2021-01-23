@@ -90,4 +90,3 @@ const DarwinFutex = @compileError("TODO: __ulock_wait -> fallback to PosixFutex"
 const WindowsFutex = @compileError("TODO: WaitOnAddress -> fallback to Generic(NtKeyedEvent)");
 
 const PosixFutex = @compileError("TODO: Generic(pthread_mutex + pthread_cond)");
-

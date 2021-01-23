@@ -23,8 +23,8 @@ test "futex" {
                 state: State,
 
                 const Self = @This();
-                const State = enum(u32){ unset, set };
-                
+                const State = enum(u32) { unset, set };
+
                 pub fn init(self: *Self) void {
                     self.state = .unset;
                 }
