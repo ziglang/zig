@@ -8,84 +8,138 @@ const std = @import("../../std.zig");
 const atomic = @import("../atomic.zig");
 const generic = @import("./generic.zig");
 
+const Loop = std.event.Loop;
 const testing = std.testing;
 const builtin = std.builtin;
 const assert = std.debug.assert;
 const helgrind: ?type = if (builtin.valgrind_support) std.valgrind.helgrind else null;
+const global_event_loop = Loop.instance orelse @compileError("std.event.Loop is not enabled");
 
 pub usingnamespace EventFutex;
 
 const EventFutex = generic.Futex(Event);
 const Event = struct {
-    state: usize,
-
-    const EMPTY: usize = 0;
-    const NOTIFIED: usize = 1;
+    mutex: std.Thread.Mutex,
+    state: State,
 
     const Self = @This();
+    const State = union(enum){
+        unset,
+        wait: *Loop.NextTickNode,
+        timed_wait: *Waiter,
+        set,
+    };
+
+    const Waiter = struct {
+        node: Loop.NextTickNode,
+        delay: Loop.Delay,
+        timed_out: bool,
+    };
 
     pub fn init(self: *Self) void {
-        self.state = EMPTY;
+        self.* = .{
+            .mutex = .{},
+            .state = .unset,
+        };
     }
 
     pub fn deinit(self: *Self) void {
         self.* = undefined;
     }
 
-    pub fn wait(self: *Self, deadline: ?u64) error{TimedOut}!void {
-        var node = Loop.NextTickNode{ .data = @frame() };
+    pub fn now() u64 {
+        return Loop.Delay.now();
+    }
 
-        var waited = false;
+    fn waitTimeout(self: *Self, waiter: *Waiter, deadline: u64) void {
         suspend {
-            if (atomic.compareAndSwap(
-                &self.state,
-                EMPTY,
-                @ptrToInt(&node),
-                .Release,
-                .Acquire,
-            )) |state| {
-                assert(state == NOTIFIED);
-                getLoop().onNextTick(&node);
-            } else {
-                waited = true;
+            waiter.delay.schedule(@frame(), deadline);
+        }
+
+        {
+            const held = self.mutex.acquire();
+            defer held.release();
+
+            switch (self.state) {
+                .unset => unreachable,
+                .wait => unreachable,
+                .timed_wait => {
+                    self.state = .unset;
+                    waiter.timed_out = true;
+                },
+                .set => {},
             }
         }
 
-        if (waited) {
-            if (helgrind) |hg| {
-                hg.annotateHappensBefore(@ptrToInt(&node));
+        if (waiter.timed_out) {
+            global_event_loop.onNextTick(&waiter.node);
+        }
+    }
+
+    pub fn wait(self: *Self, deadline: ?u64) error{TimedOut}!void {
+        const held = self.mutex.acquire();
+
+        switch (self.state) {
+            .unset => {},
+            .wait => unreachable,
+            .timed_wait => unreachable,
+            .set => {
+                held.release();
+                return;
+            },
+        }
+
+        var waiter = Waiter{
+            .node = .{ .data = @frame() },
+            .delay = undefined,
+            .timed_out = false,
+        };
+
+        var timeout_frame: @Frame(waitTimeout) = undefined;
+        if (deadline) |deadline_ns| {
+            self.state = .{ .timed_wait = &waiter };
+            timeout_frame = async self.waitTimeout(&waiter, deadline_ns);
+        } else {
+            self.state = .{ .wait = &waiter.node };
+        }
+
+        suspend {
+            held.release();
+        }
+
+        if (deadline != null) {
+            await timeout_frame;
+            if (waiter.timed_out) {
+                return error.TimedOut;
             }
         }
     }
 
     pub fn set(self: *Self) void {
-        const node = switch (atomic.swap(&self.state, NOTIFIED, .AcqRel)) {
-            EMPTY => return,
-            NOTIFIED => unreachable,
-            else => |state| @intToPtr(*Loop.NextTickNode, state),
+        const maybe_node = blk :{
+            const held = self.mutex.acquire();
+            defer held.release();
+
+            const state = self.state;
+            self.state = .set;
+
+            break :blk switch (state) {
+                .unset => null,
+                .wait => |node| node,
+                .timed_wait => |waiter| if (waiter.delay.cancel()) &waiter.node else null,
+                .set => unreachable,
+            };
         };
 
-        if (helgrind) |hg| {
-            hg.annotateHappensBefore(@ptrToInt(node));
+        if (maybe_node) |node| {
+            global_event_loop.onNextTick(node);
         }
-
-        getLoop().onNextTick(node);
     }
 
     pub fn reset(self: *Self) void {
-        self.state = EMPTY;
-    }
-
-    pub fn now() u64 {
-        return std.time.now();
+        self.state = .unset;
     }
 };
-
-const Loop = std.event.Loop;
-
-fn getLoop() *Loop {
-    return Loop.instance orelse unreachable;
-}
 
 pub const TestThread = struct {
     event: Event,
@@ -106,11 +160,10 @@ pub const TestThread = struct {
             fn entry(thread: *TestThread, ctx: Context) void {
                 defer thread.event.set();
 
-                const loop = getLoop();
-                loop.beginOneEvent();
-                defer loop.finishOneEvent();
+                global_event_loop.beginOneEvent();
+                defer global_event_loop.finishOneEvent();
                 
-                loop.yield();
+                global_event_loop.yield();
                 const result = entryFn(ctx);
             }
 
@@ -133,6 +186,7 @@ pub const TestThread = struct {
 
     pub fn wait(self: *Self) void {
         self.event.wait(null) catch unreachable;
+        self.event.deinit();
         (self.freeFn)(self);
     }
 };

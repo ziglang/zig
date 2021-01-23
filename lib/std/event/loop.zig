@@ -762,22 +762,40 @@ pub const Loop = struct {
     }
 
     pub fn sleep(self: *Loop, nanoseconds: u64) void {
-        if (std.builtin.single_threaded)
+        if (std.builtin.single_threaded) {
             @compileError("TODO: integrate timers with epoll/kevent/iocp for single-threaded");
+        }
 
         suspend {
-            const now = self.delay_queue.timer.read();
+            var delay: Delay = undefined;
+            delay.schedule(@frame(), Delay.now() + nanoseconds);
+        }
+    }
 
-            var entry: DelayQueue.Waiters.Entry = undefined;
-            entry.init(@frame(), now + nanoseconds);
-            self.delay_queue.waiters.insert(&entry);
+    pub const Delay = struct {
+        entry: DelayQueue.Waiters.Entry,
+        queue: *DelayQueue, 
+
+        pub fn now() u64 {
+            return std.time.now();
+        }
+
+        pub fn schedule(self: *Delay, frame: anyframe, deadline: u64) void {
+            self.queue = &instance.?.delay_queue;
+            self.entry.init(frame, deadline);
+
+            self.queue.waiters.insert(&self.entry);
 
             // Speculatively wake up the timer thread when we add a new entry.
             // If the timer thread is sleeping on a longer entry, we need to
             // interrupt it so that our entry can be expired in time.
-            self.delay_queue.event.set();
+            self.queue.event.set();
         }
-    }
+
+        pub fn cancel(self: *Delay) bool {
+            return self.queue.waiters.remove(&self.entry);
+        }
+    };
 
     const AutoResetEvent = struct {
         is_set: bool = false,
@@ -820,7 +838,6 @@ pub const Loop = struct {
     };
 
     const DelayQueue = struct {
-        timer: std.time.Timer,
         waiters: Waiters,
         thread: *std.Thread,
         event: AutoResetEvent,
@@ -830,7 +847,6 @@ pub const Loop = struct {
         /// and starting any timer resources.
         fn init(self: *DelayQueue) !void {
             self.* = DelayQueue{
-                .timer = try std.time.Timer.start(),
                 .waiters = DelayQueue.Waiters{
                     .entries = std.atomic.Queue(anyframe).init(),
                 },
@@ -847,7 +863,7 @@ pub const Loop = struct {
             const loop = @fieldParentPtr(Loop, "delay_queue", self);
 
             while (@atomicLoad(bool, &self.is_running, .SeqCst)) {
-                const now = self.timer.read();
+                const now = Delay.now();
 
                 if (self.waiters.popExpired(now)) |entry| {
                     loop.onNextTick(&entry.node);
@@ -882,6 +898,12 @@ pub const Loop = struct {
             /// Registers the entry into the queue of waiting frames
             fn insert(self: *Waiters, entry: *Entry) void {
                 self.entries.put(&entry.node);
+            }
+
+            /// Unregisters the entry if its inside the queue.
+            /// Returns false if the entry was never in the queue.
+            fn remove(self: *Waiters, entry: *Entry) bool {
+                return self.entries.remove(&entry.node);
             }
 
             /// Dequeues one expired event relative to `now`
