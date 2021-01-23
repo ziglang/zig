@@ -17,7 +17,7 @@ pub fn Condvar(comptime Futex: anytype) type {
         wakeups: u32 = 0,
 
         const Self = @This();
-        const Held = @import("./mutex.zig").Mutex(Futex).Held;
+        const Held = @import("./Mutex.zig").Mutex(Futex).Held;
 
         pub fn deinit(self: *Self) void {
             if (helgrind) |hg| {

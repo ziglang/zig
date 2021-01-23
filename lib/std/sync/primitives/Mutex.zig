@@ -23,6 +23,8 @@ pub fn Mutex(comptime Futex: anytype) type {
             contended,
         };
 
+        pub const Dummy = DebugMutex;
+
         pub fn deinit(self: *Self) void {
             if (helgrind) |hg| {
                 hg.annotateHappensBeforeForgetAll(@ptrToInt(self));
@@ -193,6 +195,8 @@ pub const DebugMutex = extern struct {
 };
 
 test "Mutex - Debug" {
+    // TODO: loop.zig:766
+    if (builtin.single_threaded and std.io.is_async) return error.SkipZigTest;
     try testMutex(DebugMutex, null);
 }
 
@@ -234,7 +238,7 @@ fn testMutex(
     const Contention = struct {
         index: usize = 0,
         case: Case = undefined,
-        start_event: std.sync.ResetEvent = .{},
+        start_event: Thread.ResetEvent = .{},
         counters: [num_counters]Counter = undefined,
 
         const Self = @This();

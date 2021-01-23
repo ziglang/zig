@@ -10,6 +10,8 @@
 
 data: Data,
 
+pub usingnamespace std.sync.primitives.with(std.sync.futex.os);
+
 pub const use_pthreads = std.Target.current.os.tag != .windows and builtin.link_libc;
 
 const Thread = @This();

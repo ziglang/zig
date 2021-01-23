@@ -29,7 +29,7 @@ pub const Loop = struct {
     fs_thread: *Thread,
     fs_queue: std.atomic.Queue(Request),
     fs_end_request: Request.Node,
-    fs_thread_wakeup: std.sync.ResetEvent,
+    fs_thread_wakeup: std.Thread.ResetEvent,
 
     /// For resources that have the same lifetime as the `Loop`.
     /// This is only used by `Loop` for the thread pool and associated resources.
@@ -781,8 +781,8 @@ pub const Loop = struct {
 
     const AutoResetEvent = struct {
         is_set: bool = false,
-        mutex: std.sync.primitives.core.Mutex(std.sync.futex.os) = .{},
-        cond: std.sync.primitives.core.Condvar(std.sync.futex.os) = .{},
+        mutex: std.Thread.Mutex = .{},
+        cond: std.Thread.Condvar = .{},
 
         fn wait(self: *AutoResetEvent) void {
             return self.waitInner(null) catch unreachable;

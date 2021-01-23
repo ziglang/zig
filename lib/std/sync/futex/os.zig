@@ -33,52 +33,50 @@ const LinuxFutex = struct {
     }
 
     pub fn wait(ptr: *const u32, expect: u32, deadline: ?u64) error{TimedOut}!void {
-        var ts: linux.timespec = undefined;
-        var ts_ptr: ?*const linux.timespec = null;
+        while (true) {
+            var ts: linux.timespec = undefined;
+            var ts_ptr: ?*const linux.timespec = null;
 
-        if (deadline) |deadline_ns| {
-            const now_ns = now();
-            if (now_ns > deadline_ns) {
-                return error.TimedOut;
+            if (deadline) |deadline_ns| {
+                const now_ns = now();
+                if (now_ns > deadline_ns) {
+                    return error.TimedOut;
+                }
+
+                const timeout_ns = deadline_ns - now_ns;
+                ts_ptr = &ts;
+                ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_ns, std.time.ns_per_s));
+                ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_ns, std.time.ns_per_s));
             }
 
-            const timeout_ns = deadline_ns - now_ns;
-            ts_ptr = &ts;
-            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_ns, std.time.ns_per_s));
-            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_ns, std.time.ns_per_s));
-        }
-
-        switch (linux.getErrno(linux.futex_wait(
-            @ptrCast(*const i32, ptr),
-            linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAIT,
-            @bitCast(i32, expect),
-            ts_ptr,
-        ))) {
-            0 => {},
-            std.os.EINTR => {},
-            std.os.EAGAIN => {},
-            std.os.ETIMEDOUT => {},
-            else => unreachable,
+            switch (linux.getErrno(linux.futex_wait(
+                @ptrCast(*const i32, ptr),
+                linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAIT,
+                @bitCast(i32, expect),
+                ts_ptr,
+            ))) {
+                0 => return,
+                std.os.EINTR => continue,
+                std.os.EAGAIN => return,
+                std.os.ETIMEDOUT => return error.TimedOut,
+                else => unreachable,
+            }
         }
     }
 
     pub fn notifyOne(ptr: *const u32) void {
-        switch (linux.getErrno(linux.futex_wake(
-            @ptrCast(*const i32, ptr),
-            linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
-            @as(i32, 1),
-        ))) {
-            0 => {},
-            std.os.EFAULT => {},
-            else => unreachable,
-        }
+        return wake(ptr, 1);
     }
 
     pub fn notifyAll(ptr: *const u32) void {
+        return wake(ptr, std.math.maxInt(i32));
+    }
+
+    fn wake(ptr: *const u32, max_threads_to_wake: i32) void {
         switch (linux.getErrno(linux.futex_wake(
             @ptrCast(*const i32, ptr),
             linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
-            std.math.maxInt(i32),
+            max_threads_to_wake,
         ))) {
             0 => {},
             std.os.EFAULT => {},

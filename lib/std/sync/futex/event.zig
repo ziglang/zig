@@ -13,18 +13,16 @@ const builtin = std.builtin;
 const assert = std.debug.assert;
 const helgrind: ?type = if (builtin.valgrind_support) std.valgrind.helgrind else null;
 
-pub usingnamespace generic.Futex(struct {
+pub usingnamespace EventFutex;
+
+const EventFutex = generic.Futex(Event);
+const Event = struct {
     state: usize,
 
     const EMPTY: usize = 0;
     const NOTIFIED: usize = 1;
 
     const Self = @This();
-    const Loop = std.event.Loop;
-
-    fn getLoop() *Loop {
-        return Loop.instance orelse unreachable;
-    }
 
     pub fn init(self: *Self) void {
         self.state = EMPTY;
@@ -81,4 +79,60 @@ pub usingnamespace generic.Futex(struct {
     pub fn now() u64 {
         return std.time.now();
     }
-});
+};
+
+const Loop = std.event.Loop;
+
+fn getLoop() *Loop {
+    return Loop.instance orelse unreachable;
+}
+
+pub const TestThread = struct {
+    event: Event,
+    freeFn: fn(*TestThread) void,
+
+    const Self = @This();
+
+    pub usingnamespace std.sync.primitives.with(EventFutex);
+
+    pub fn spawn(context: anytype, comptime entryFn: anytype) !*Self {
+        const allocator = std.testing.allocator;
+        
+        const Context = @TypeOf(context);
+        const FrameThread = struct {
+            thread: TestThread,
+            entry_frame: @Frame(entry),
+
+            fn entry(thread: *TestThread, ctx: Context) void {
+                defer thread.event.set();
+
+                const loop = getLoop();
+                loop.beginOneEvent();
+                defer loop.finishOneEvent();
+                
+                loop.yield();
+                const result = entryFn(ctx);
+            }
+
+            fn free(thread: *TestThread) void {
+                const self = @fieldParentPtr(@This(), "thread", thread);
+                allocator.destroy(self);
+            }
+        };
+
+        const frame_thread = try allocator.create(FrameThread);
+        const thread = &frame_thread.thread;
+        const frame = &frame_thread.entry_frame;
+
+        thread.event.init();
+        thread.freeFn = FrameThread.free;
+        frame.* = async FrameThread.entry(thread, context);
+
+        return thread;
+    }
+
+    pub fn wait(self: *Self) void {
+        self.event.wait(null) catch unreachable;
+        (self.freeFn)(self);
+    }
+};

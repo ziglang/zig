@@ -21,6 +21,8 @@ pub fn ResetEvent(comptime Futex: type) type {
             set,
         };
 
+        pub const Dummy = DebugResetEvent;
+
         pub fn init(is_set: bool) Self {
             return .{ .state = if (is_set) .set else .unset };
         }
@@ -146,17 +148,20 @@ test "ResetEvent - Debug" {
     try testResetEvent(DebugResetEvent, null);
 }
 
-test "ResetEvent - Evented" {
-    // TODO: std.event.Thread
-    // try testResetEvent(ResetEvent(std.sync.futex.event), null);
-}
-
 test "ResetEvent - Spin" {
     try testResetEvent(ResetEvent(std.sync.futex.spin), std.Thread);
 }
 
 test "ResetEvent - Os" {
     try testResetEvent(ResetEvent(std.sync.futex.os), std.Thread);
+}
+
+test "ResetEvent - Evented" {
+    if (!std.io.is_async) return error.SkipZigTest;
+    try testResetEvent(
+        ResetEvent(std.sync.futex.event), 
+        @import("../futex/event.zig").TestThread,
+    );
 }
 
 fn testResetEvent(

@@ -18,6 +18,8 @@ pub fn WaitGroup(comptime Futex: type) type {
 
         const Self = @This();
 
+        pub const Dummy = DebugWaitGroup;
+
         pub fn init(amount: u32) Self {
             return .{ .counter = amount };
         }

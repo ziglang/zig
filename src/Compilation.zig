@@ -28,7 +28,7 @@ const stage1 = @import("stage1.zig");
 const translate_c = @import("translate_c.zig");
 const c_codegen = @import("codegen/c.zig");
 const ThreadPool = @import("ThreadPool.zig");
-const WaitGroup = std.sync.WaitGroup;
+const WaitGroup = std.Thread.WaitGroup;
 const libtsan = @import("libtsan.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
@@ -125,7 +125,7 @@ owned_link_dir: ?std.fs.Dir,
 color: @import("main.zig").Color = .auto,
 
 /// This mutex guards all `Compilation` mutable state.
-mutex: std.sync.Mutex = .{},
+mutex: std.Thread.Mutex = .{},
 
 test_filter: ?[]const u8,
 test_name_prefix: ?[]const u8,

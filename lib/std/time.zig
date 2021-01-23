@@ -180,7 +180,7 @@ fn enforceMonotonic(current_now: u64) u64 {
 
     const Static = struct {
         var last_now: u64 = 0;
-        var last_now_mutex = std.sync.Mutex{};
+        var last_now_mutex = std.Thread.Mutex{};
     };
 
     // If 64bit atomics are available, its generally cheaper to use them vs locking below.
@@ -253,7 +253,7 @@ fn readSystemTimer() ?u64 {
             var bias: u64 = undefined;
             var frequency_mul: u64 = undefined;
             var frequency_div: ?u64 = undefined;
-            var init_once = std.sync.Once(init){};
+            var init_once = std.Thread.Once(init){};
 
             fn init() void {
                 bias = os.windows.QueryPerformanceCounter();
