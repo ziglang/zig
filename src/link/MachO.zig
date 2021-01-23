@@ -620,6 +620,13 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try argv.append("0");
         }
 
+        if (self.base.options.lto) {
+            switch (self.base.options.optimize_mode) {
+                .Debug => {},
+                .ReleaseSmall => try argv.append("-O2"),
+                .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
+            }
+        }
         try argv.append("-demangle");
 
         if (self.base.options.rdynamic and !self.base.options.system_linker_hack) {

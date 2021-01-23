@@ -109,6 +109,7 @@ pub const Module = extern struct {
     err_color: ErrColor,
     pic: bool,
     pie: bool,
+    lto: bool,
     link_libc: bool,
     link_libcpp: bool,
     strip: bool,

@@ -243,7 +243,13 @@ pub const TargetMachine = opaque {
     extern fn LLVMDisposeTargetMachine(T: *const TargetMachine) void;
 
     pub const emitToFile = LLVMTargetMachineEmitToFile;
-    extern fn LLVMTargetMachineEmitToFile(*const TargetMachine, M: *const Module, Filename: [*:0]const u8, codegen: CodeGenFileType, ErrorMessage: *[*:0]const u8) LLVMBool;
+    extern fn LLVMTargetMachineEmitToFile(
+        *const TargetMachine,
+        M: *const Module,
+        Filename: [*:0]const u8,
+        codegen: CodeGenFileType,
+        ErrorMessage: *[*:0]const u8,
+    ) LLVMBool;
 };
 
 pub const CodeMode = extern enum {

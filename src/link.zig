@@ -74,6 +74,7 @@ pub const Options = struct {
     is_native_abi: bool,
     pic: bool,
     pie: bool,
+    lto: bool,
     valgrind: bool,
     tsan: bool,
     stack_check: bool,

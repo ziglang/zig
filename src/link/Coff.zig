@@ -945,6 +945,13 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         if (!self.base.options.strip) {
             try argv.append("-DEBUG");
         }
+        if (self.base.options.lto) {
+            switch (self.base.options.optimize_mode) {
+                .Debug => {},
+                .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
+                .ReleaseFast, .ReleaseSafe => try argv.append("-OPT:lldlto=3"),
+            }
+        }
         if (self.base.options.output_mode == .Exe) {
             const stack_size = self.base.options.stack_size_override orelse 16777216;
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{stack_size}));

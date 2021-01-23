@@ -287,6 +287,8 @@ const usage_build_generic =
     \\  -fno-PIC                  Force-disable Position Independent Code
     \\  -fPIE                     Force-enable Position Independent Executable
     \\  -fno-PIE                  Force-disable Position Independent Executable
+    \\  -flto                     Force-enable Link Time Optimization (requires LLVM extensions)
+    \\  -fno-lto                  Force-disable Link Time Optimization
     \\  -fstack-check             Enable stack probing in unsafe builds
     \\  -fno-stack-check          Disable stack probing in safe builds
     \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
@@ -511,6 +513,7 @@ fn buildOutputType(
     var enable_cache: ?bool = null;
     var want_pic: ?bool = null;
     var want_pie: ?bool = null;
+    var want_lto: ?bool = null;
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
     var want_red_zone: ?bool = null;
@@ -852,6 +855,10 @@ fn buildOutputType(
                         want_pie = true;
                     } else if (mem.eql(u8, arg, "-fno-PIE")) {
                         want_pie = false;
+                    } else if (mem.eql(u8, arg, "-flto")) {
+                        want_lto = true;
+                    } else if (mem.eql(u8, arg, "-fno-lto")) {
+                        want_lto = false;
                     } else if (mem.eql(u8, arg, "-fstack-check")) {
                         want_stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
@@ -1085,6 +1092,8 @@ fn buildOutputType(
                     .no_pic => want_pic = false,
                     .pie => want_pie = true,
                     .no_pie => want_pie = false,
+                    .lto => want_lto = true,
+                    .no_lto => want_lto = false,
                     .red_zone => want_red_zone = true,
                     .no_red_zone => want_red_zone = false,
                     .nostdlib => ensure_libc_on_non_freestanding = false,
@@ -1771,6 +1780,7 @@ fn buildOutputType(
         .link_libcpp = link_libcpp,
         .want_pic = want_pic,
         .want_pie = want_pie,
+        .want_lto = want_lto,
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
         .want_red_zone = want_red_zone,
@@ -2952,6 +2962,8 @@ pub const ClangArgIterator = struct {
         no_pic,
         pie,
         no_pie,
+        lto,
+        no_lto,
         nostdlib,
         nostdlib_cpp,
         shared,
