@@ -324,7 +324,7 @@ pub const ReadError = error{
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
 /// well as stuffing the errno codes into the last `4096` values. This is noted on the `read` man page.
 /// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
-/// For POSIX the limit is `math.maxInt(isize)`.
+/// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, null, std.io.default_mode);
@@ -447,6 +447,12 @@ pub const PReadError = ReadError || error{Unseekable};
 /// return error.WouldBlock when EAGAIN is received.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
+///
+/// Linux has a limit on how many bytes may be transferred in one `pread` call, which is `0x7ffff000`
+/// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
+/// well as stuffing the errno codes into the last `4096` values. This is noted on the `read` man page.
+/// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
+/// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, offset, std.io.default_mode);
@@ -478,8 +484,16 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
         }
     }
 
+    // Prevent EINVAL.
+    const max_count = switch (std.Target.current.os.tag) {
+        .linux => 0x7ffff000,
+        .macos, .ios, .watchos, .tvos => math.maxInt(i32),
+        else => math.maxInt(isize),
+    };
+    const adjusted_len = math.min(max_count, buf.len);
+
     while (true) {
-        const rc = system.pread(fd, buf.ptr, buf.len, offset);
+        const rc = system.pread(fd, buf.ptr, adjusted_len, offset);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
@@ -4926,7 +4940,7 @@ fn count_iovec_bytes(iovs: []const iovec_const) usize {
 ///
 /// Linux has a limit on how many bytes may be transferred in one `sendfile` call, which is `0x7ffff000`
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
-/// well as stuffing the errno codes into the last `4096` values. This is cited on the `sendfile` man page.
+/// well as stuffing the errno codes into the last `4096` values. This is noted on the `sendfile` man page.
 /// The limit on Darwin is `0x7fffffff`, trying to write more than that returns EINVAL.
 /// The corresponding POSIX limit on this is `math.maxInt(isize)`.
 pub fn sendfile(
