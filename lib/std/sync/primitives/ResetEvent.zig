@@ -142,22 +142,29 @@ pub const DebugResetEvent = extern struct {
     }
 };
 
-test "ResetEvent" {
-    inline for (.{
-        .{DebugResetEvent},
-        .{ResetEvent(std.sync.futex.os)},
-        .{ResetEvent(std.sync.futex.spin)},
-        .{ResetEvent(std.sync.futex.event)},
-    }) |config| {
-        try testConfig(config);
-    }
+test "ResetEvent - Debug" {
+    try testResetEvent(DebugResetEvent, null);
 }
 
-fn testConfig(comptime config: anytype) !void {
-    const TestRestEvent = config[0];
+test "ResetEvent - Evented" {
+    // TODO: std.event.Thread
+    // try testResetEvent(ResetEvent(std.sync.futex.event), null);
+}
 
+test "ResetEvent - Spin" {
+    try testResetEvent(ResetEvent(std.sync.futex.spin), std.Thread);
+}
+
+test "ResetEvent - Os" {
+    try testResetEvent(ResetEvent(std.sync.futex.os), std.Thread);
+}
+
+fn testResetEvent(
+    comptime TestResetEvent: type,
+    comptime TestThread: ?type,
+) !void {
     {
-        var event = TestRestEvent{};
+        var event = TestResetEvent{};
         defer event.deinit();
         testing.expect(!event.isSet());
 
@@ -178,19 +185,18 @@ fn testConfig(comptime config: anytype) !void {
         testing.expectError(error.TimedOut, event.tryWaitUntil(std.time.now() + delay));
     }
 
-    if (std.io.is_async) return;
-    if (std.builtin.single_threaded) return;
+    const Thread = TestThread orelse return;
 
     const PingPong = struct {
         value: usize = 0,
-        ping_event: TestRestEvent = .{},
-        pong_event: TestRestEvent = .{},
+        ping_event: TestResetEvent = .{},
+        pong_event: TestResetEvent = .{},
 
         const Self = @This();
         const round_trips = 3;
 
         fn run(self: *Self) !void {
-            const pong = try std.Thread.spawn(self, runPong);
+            const pong = try Thread.spawn(self, runPong);
             self.runPing();
             pong.wait();
 

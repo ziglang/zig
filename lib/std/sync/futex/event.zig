@@ -21,7 +21,10 @@ pub usingnamespace generic.Futex(struct {
 
     const Self = @This();
     const Loop = std.event.Loop;
-    const loop = Loop.instance orelse @compileError("std.event.Loop is not enabled");
+
+    fn getLoop() *Loop {
+        return Loop.instance orelse unreachable;
+    }
 
     pub fn init(self: *Self) void {
         self.state = EMPTY;
@@ -44,7 +47,7 @@ pub usingnamespace generic.Futex(struct {
                 .Acquire,
             )) |state| {
                 assert(state == NOTIFIED);
-                loop.onNextTick(&node);
+                getLoop().onNextTick(&node);
             } else {
                 waited = true;
             }
@@ -68,7 +71,7 @@ pub usingnamespace generic.Futex(struct {
             hg.annotateHappensBefore(@ptrToInt(node));
         }
 
-        loop.onNextTick(node);
+        getLoop().onNextTick(node);
     }
 
     pub fn reset(self: *Self) void {

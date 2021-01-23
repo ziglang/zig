@@ -192,20 +192,27 @@ pub const DebugMutex = extern struct {
     };
 };
 
-test "Mutex" {
-    inline for (.{
-        .{DebugMutex},
-        .{Mutex(std.sync.futex.os)},
-        .{Mutex(std.sync.futex.spin)},
-        .{Mutex(std.sync.futex.event)},
-    }) |config| {
-        try testMutexConfig(config);
-    }
+test "Mutex - Debug" {
+    try testMutex(DebugMutex, null);
 }
 
-fn testMutexConfig(config: anytype) !void {
-    const TestMutex = config[0];
+test "Mutex - Event" {
+    // TODO: std.event.Thread
+    // try testMutex(Mutex(std.sync.futex.event), null);
+}
 
+test "Mutex - Spin" {
+    try testMutex(Mutex(std.sync.futex.spin), std.Thread);
+}
+
+test "Mutex - OS" {
+    try testMutex(Mutex(std.sync.futex.os), std.Thread);
+}
+
+fn testMutex(
+    comptime TestMutex: type,
+    comptime TestThread: ?type,
+) !void {
     {
         var mutex = TestMutex{};
         defer mutex.deinit();
@@ -222,8 +229,7 @@ fn testMutexConfig(config: anytype) !void {
         testing.expectError(error.TimedOut, mutex.tryAcquireUntil(std.time.now() + delay));
     }
 
-    if (std.io.is_async) return;
-    if (std.builtin.single_threaded) return;
+    const Thread = TestThread orelse return;
 
     const Contention = struct {
         index: usize = 0,
@@ -233,11 +239,10 @@ fn testMutexConfig(config: anytype) !void {
 
         const Self = @This();
         const num_counters = 100;
-        const counters_init = [_]Counter{Counter{}} ** num_counters;
 
         const Counter = struct {
             mutex: TestMutex = .{},
-            remaining: u128 = 10000,
+            remaining: u128,
 
             fn tryDecr(self: *Counter) bool {
                 const held = self.mutex.acquire();
@@ -261,8 +266,8 @@ fn testMutexConfig(config: anytype) !void {
             /// The common case of many threads generally not touching other thread's Mutexes
             const Low = struct {
                 fn setup(_: @This(), self: *Self) void {
-                    self.counters = counters_init;
                     self.index = 0;
+                    self.counters = [_]Counter{Counter{ .remaining = 10_000 }} ** num_counters;
                 }
 
                 fn run(_: @This(), self: *Self) void {
@@ -287,8 +292,9 @@ fn testMutexConfig(config: anytype) !void {
             /// The extreme case of many threads fighting over the same Mutex.
             const High = struct {
                 fn setup(_: @This(), self: *Self) void {
-                    self.counters[0] = Counter{};
-                    self.counters[0].remaining = 500_000;
+                    self.counters[0] = Counter{
+                        .remaining = 100_000,
+                    };
                 }
 
                 fn run(_: @This(), self: *Self) void {
@@ -301,11 +307,12 @@ fn testMutexConfig(config: anytype) !void {
             /// The slightly-less extreme case of many threads fighting over the same Mutex.
             /// But they all eventually do an equal amount of work.
             const Forced = struct {
-                const local_iters = 100_000;
+                const local_iters = 50_000;
 
                 fn setup(_: @This(), self: *Self) void {
-                    self.counters[0] = Counter{};
-                    self.counters[0].remaining = local_iters * num_counters;
+                    self.counters[0] = Counter{
+                        .remaining = local_iters * num_counters,
+                    };
                 }
 
                 fn run(_: @This(), self: *Self) void {
@@ -319,7 +326,7 @@ fn testMutexConfig(config: anytype) !void {
             /// Stresses the common use-case of random Mutex contention.
             const Random = struct {
                 fn setup(_: @This(), self: *Self) void {
-                    self.counters = counters_init;
+                    self.counters = [_]Counter{Counter{ .remaining = 10_000 }} ** num_counters;
                 }
 
                 /// Each thread iterates the counters array starting from a random position.
@@ -361,7 +368,7 @@ fn testMutexConfig(config: anytype) !void {
 
         fn execute(self: *Self) !void {
             const allocator = testing.allocator;
-            const threads = try allocator.alloc(*std.Thread, 10);
+            const threads = try allocator.alloc(*Thread, 10);
             defer allocator.free(threads);
 
             defer {
@@ -382,7 +389,7 @@ fn testMutexConfig(config: anytype) !void {
 
                 self.start_event.reset();
                 for (threads) |*t| {
-                    t.* = try std.Thread.spawn(self, Self.run);
+                    t.* = try Thread.spawn(self, Self.run);
                 }
 
                 self.start_event.set();

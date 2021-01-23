@@ -12,6 +12,10 @@ pub fn now() u64 {
 }
 
 pub fn wait(ptr: *const u32, expect: u32, deadline: ?u64) error{TimedOut}!void {
+    if (deadline != null) {
+        return error.TimedOut;
+    }
+
     while (atomic.load(ptr, .SeqCst) == expect) {
         atomic.spinLoopHint();
     }
