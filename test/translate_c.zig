@@ -102,6 +102,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\} Color;
         \\#define CLITERAL(type)      (type)
         \\#define LIGHTGRAY  CLITERAL(Color){ 200, 200, 200, 255 }   // Light Gray
+        \\typedef struct boom_t
+        \\{
+        \\    int i1;
+        \\} boom_t;
+        \\#define FOO ((boom_t){1})
     , &[_][]const u8{ // TODO properly translate this
         \\pub const struct_Color = extern struct {
         \\    r: u8,
@@ -116,6 +121,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
         ,
         \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ 200, 200, 200, 255 });
+        ,
+        \\pub const struct_boom_t = extern struct {
+        \\    i1: c_int,
+        \\};
+        \\pub const boom_t = struct_boom_t;
+        ,
+        \\pub const FOO = @import("std").mem.zeroInit(boom_t, .{ 1 });
     });
 
     cases.add("complex switch",
