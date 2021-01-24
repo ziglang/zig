@@ -103,13 +103,14 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     var context = codegen.Context{
         .gpa = self.base.allocator,
-        .values = codegen.ValueTable.init(self.base.allocator),
+        .values = .{},
         .code = managed_code,
         .func_type_data = managed_functype,
         .decl = decl,
         .err_msg = undefined,
+        .locals = .{},
     };
-    defer context.values.deinit();
+    defer context.deinit();
 
     // generate the 'code' section for the function declaration
     context.gen() catch |err| switch (err) {
