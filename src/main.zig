@@ -529,6 +529,9 @@ fn buildOutputType(
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_z_nodelete = false;
     var linker_z_defs = false;
+    var linker_tsaware = false;
+    var linker_nxcompat = false;
+    var linker_dynamicbase = false;
     var test_evented_io = false;
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
@@ -549,6 +552,8 @@ fn buildOutputType(
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
+    var major_subsystem_version: ?u32 = null;
+    var minor_subsystem_version: ?u32 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -1307,10 +1312,56 @@ fn buildOutputType(
                     image_base_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
+                } else if (mem.eql(u8, arg, "-T")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    linker_script = linker_args.items[i];
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                     link_eh_frame_hdr = true;
                 } else if (mem.eql(u8, arg, "--no-eh-frame-hdr")) {
                     link_eh_frame_hdr = false;
+                } else if (mem.eql(u8, arg, "--tsaware")) {
+                    linker_tsaware = true;
+                } else if (mem.eql(u8, arg, "--nxcompat")) {
+                    linker_nxcompat = true;
+                } else if (mem.eql(u8, arg, "--dynamicbase")) {
+                    linker_dynamicbase = true;
+                } else if (mem.eql(u8, arg, "--high-entropy-va")) {
+                    // This option does not do anything.
+                } else if (mem.eql(u8, arg, "--export-all-symbols")) {
+                    rdynamic = true;
+                } else if (mem.eql(u8, arg, "--start-group") or
+                    mem.eql(u8, arg, "--end-group"))
+                {
+                    // We don't need to care about these because these args are
+                    // for resolving circular dependencies but our linker takes
+                    // care of this without explicit args.
+                } else if (mem.startsWith(u8, arg, "--major-os-version") or
+                    mem.startsWith(u8, arg, "--minor-os-version"))
+                {
+                    // This option does not do anything.
+                } else if (mem.startsWith(u8, arg, "--major-subsystem-version=")) {
+                    major_subsystem_version = std.fmt.parseUnsigned(
+                        u32,
+                        arg["--major-subsystem-version=".len..],
+                        10,
+                    ) catch |err| {
+                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                    };
+                } else if (mem.startsWith(u8, arg, "--minor-subsystem-version=")) {
+                    minor_subsystem_version = std.fmt.parseUnsigned(
+                        u32,
+                        arg["--minor-subsystem-version=".len..],
+                        10,
+                    ) catch |err| {
+                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                    };
+                } else if (mem.startsWith(u8, arg, "--major-os-version=") or
+                    mem.startsWith(u8, arg, "--minor-os-version="))
+                {
+                    // These args do nothing.
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -1800,6 +1851,11 @@ fn buildOutputType(
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_defs = linker_z_defs,
+        .linker_tsaware = linker_tsaware,
+        .linker_nxcompat = linker_nxcompat,
+        .linker_dynamicbase = linker_dynamicbase,
+        .major_subsystem_version = major_subsystem_version,
+        .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,
         .link_emit_relocs = link_emit_relocs,
         .stack_size_override = stack_size_override,
