@@ -103,8 +103,10 @@ pub const Node = struct {
             }
             parent.completeOne();
         } else {
+            const held = self.context.update_lock.acquire();
+            defer held.release();
             self.context.done = true;
-            self.context.refresh();
+            self.context.refreshWithHeldLock();
         }
     }
 
