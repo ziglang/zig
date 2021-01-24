@@ -19,7 +19,8 @@ pub const LibCInstallation = struct {
     include_dir: ?[]const u8 = null,
     sys_include_dir: ?[]const u8 = null,
     crt_dir: ?[]const u8 = null,
-    msvc_lib_dir: ?[]const u8 = null,
+    lib_dir: ?[]const u8 = null,
+    libs: ?[]const u8 = null,
     kernel32_lib_dir: ?[]const u8 = null,
 
     pub const FindError = error{
@@ -63,7 +64,7 @@ pub const LibCInstallation = struct {
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
             var line_it = std.mem.split(line, "=");
-            const name = line_it.next() orelse {
+            var name = line_it.next() orelse {
                 log.err("missing equal sign after field name\n", .{});
                 return error.ParseError;
             };
@@ -99,8 +100,8 @@ pub const LibCInstallation = struct {
             log.err("crt_dir may not be empty for {s}\n", .{@tagName(Target.current.os.tag)});
             return error.ParseError;
         }
-        if (self.msvc_lib_dir == null and is_windows and !is_gnu) {
-            log.err("msvc_lib_dir may not be empty for {s}-{s}\n", .{
+        if (self.lib_dir == null and !is_darwin and !(is_windows and is_gnu)) {
+            log.err("lib_dir may not be empty for {s}-{s}\n", .{
                 @tagName(Target.current.os.tag),
                 @tagName(Target.current.abi),
             });
@@ -122,7 +123,8 @@ pub const LibCInstallation = struct {
         const include_dir = self.include_dir orelse "";
         const sys_include_dir = self.sys_include_dir orelse "";
         const crt_dir = self.crt_dir orelse "";
-        const msvc_lib_dir = self.msvc_lib_dir orelse "";
+        const lib_dir = self.lib_dir orelse "";
+        const libs = self.libs orelse "";
         const kernel32_lib_dir = self.kernel32_lib_dir orelse "";
 
         try out.print(
@@ -140,9 +142,12 @@ pub const LibCInstallation = struct {
             \\# Not needed when targeting MacOS.
             \\crt_dir={s}
             \\
-            \\# The directory that contains `vcruntime.lib`.
-            \\# Only needed when targeting MSVC on Windows.
-            \\msvc_lib_dir={s}
+            \\# The directory that contains `libc.so` or `vcruntime.lib`.
+            \\# Needed when targeting POSIX except on macOS or MSVC on Windows.
+            \\lib_dir={s}
+            \\
+            \\# Linker flags for linking against libc. Needed on POSIX.
+            \\libs={s}
             \\
             \\# The directory that contains `kernel32.lib`.
             \\# Only needed when targeting MSVC on Windows.
@@ -152,7 +157,8 @@ pub const LibCInstallation = struct {
             include_dir,
             sys_include_dir,
             crt_dir,
-            msvc_lib_dir,
+            lib_dir,
+            libs,
             kernel32_lib_dir,
         });
     }
@@ -194,8 +200,20 @@ pub const LibCInstallation = struct {
                 errdefer batch.wait() catch {};
                 batch.add(&async self.findNativeIncludeDirPosix(args));
                 switch (Target.current.os.tag) {
-                    .freebsd, .netbsd, .openbsd => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
-                    .linux, .dragonfly => batch.add(&async self.findNativeCrtDirPosix(args)),
+                    .freebsd, .netbsd, .openbsd => {
+                        self.lib_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib");
+                        self.crt_dir = self.lib_dir;
+                        self.libs = try std.mem.dupeZ(args.allocator, u8, "-lc -lm -lpthread");
+                    },
+                    .linux, .dragonfly => {
+                        batch.add(&async self.findNativeLibDirPosix(args));
+                        batch.add(&async self.findNativeCrtDirPosix(args));
+                        if (Target.current.isMusl()) {
+                            self.libs = try std.mem.dupeZ(args.allocator, u8, "-lc");
+                        } else {
+                            self.libs = try std.mem.dupeZ(args.allocator, u8, "-lc -lm -lpthread");
+                        }
+                    },
                     else => {},
                 }
                 break :blk batch.wait();
@@ -416,6 +434,15 @@ pub const LibCInstallation = struct {
         });
     }
 
+    fn findNativeLibDirPosix(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
+        self.lib_dir = try ccPrintFileName(.{
+            .allocator = args.allocator,
+            .search_basename = "libc.so",
+            .want_dirname = .only_dir,
+            .verbose = args.verbose,
+        });
+    }
+
     fn findNativeKernel32LibDir(
         self: *LibCInstallation,
         args: FindNativeOptions,
@@ -502,7 +529,7 @@ pub const LibCInstallation = struct {
     ) FindError!void {
         const allocator = args.allocator;
         const msvc_lib_dir_ptr = sdk.msvc_lib_dir_ptr orelse return error.LibCRuntimeNotFound;
-        self.msvc_lib_dir = try std.mem.dupeZ(allocator, u8, msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
+        self.lib_dir = try std.mem.dupeZ(allocator, u8, msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
     }
 };
 

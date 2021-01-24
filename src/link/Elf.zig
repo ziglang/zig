@@ -1343,6 +1343,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             man.hash.add(self.base.options.libc_installation != null);
             if (self.base.options.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
+                man.hash.addBytes(libc_installation.lib_dir.?);
+                if (is_exe_or_dyn_lib) {
+                    man.hash.addBytes(libc_installation.libs.?);
+                }
             }
             if (have_dynamic_linker) {
                 man.hash.addOptionalBytes(self.base.options.dynamic_linker);
@@ -1572,7 +1576,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (self.base.options.link_libc) {
             if (self.base.options.libc_installation) |libc_installation| {
                 try argv.append("-L");
-                try argv.append(libc_installation.crt_dir.?);
+                try argv.append(libc_installation.lib_dir.?);
             }
 
             if (have_dynamic_linker) {
@@ -1625,7 +1629,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             try argv.append(p);
         }
 
-        // Shared libraries.
         if (is_exe_or_dyn_lib) {
             const system_libs = self.base.options.system_libs.items();
             try argv.ensureCapacity(argv.items.len + system_libs.len);
@@ -1647,19 +1650,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
             // libc dep
             if (self.base.options.link_libc) {
-                if (self.base.options.libc_installation != null) {
-                    if (self.base.options.link_mode == .Static) {
-                        try argv.append("--start-group");
-                        try argv.append("-lc");
-                        try argv.append("-lm");
-                        try argv.append("--end-group");
-                    } else {
-                        try argv.append("-lc");
-                        try argv.append("-lm");
-                    }
-
-                    if (target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
-                        try argv.append("-lpthread");
+                if (self.base.options.libc_installation) |lci| {
+                    var flags_it = std.mem.split(lci.libs orelse "", " ");
+                    while (flags_it.next()) |flag| {
+                        try argv.append(flag);
                     }
                 } else if (target.isGnuLibC()) {
                     try argv.append(comp.libunwind_static_lib.?.full_object_path);

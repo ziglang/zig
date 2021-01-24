@@ -869,7 +869,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             if (self.base.options.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
                 if (target.abi == .msvc) {
-                    man.hash.addBytes(libc_installation.msvc_lib_dir.?);
+                    man.hash.addBytes(libc_installation.lib_dir.?);
                     man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
                 }
             }
@@ -1008,7 +1008,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                 try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
 
                 if (target.abi == .msvc) {
-                    try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.msvc_lib_dir.?}));
+                    try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.lib_dir.?}));
                     try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.kernel32_lib_dir.?}));
                 }
             }
