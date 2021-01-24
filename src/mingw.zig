@@ -707,6 +707,7 @@ const mingwex_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "fpclassifyf.c",
     "math" ++ path.sep_str ++ "fpclassifyl.c",
     "math" ++ path.sep_str ++ "frexpf.c",
+    "math" ++ path.sep_str ++ "frexpl.c",
     "math" ++ path.sep_str ++ "hypot.c",
     "math" ++ path.sep_str ++ "hypotf.c",
     "math" ++ path.sep_str ++ "hypotl.c",

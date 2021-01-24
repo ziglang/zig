@@ -354,8 +354,6 @@ pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .x86_64,
         .i386,
-        .wasm32,
-        .wasm64,
         .powerpc,
         .powerpc64,
         .powerpc64le,

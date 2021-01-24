@@ -444,6 +444,7 @@ pub const InitOptions = struct {
     want_valgrind: ?bool = null,
     want_tsan: ?bool = null,
     want_compiler_rt: ?bool = null,
+    want_lto: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
@@ -602,6 +603,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (ofmt == .c)
                 break :blk false;
 
+            if (options.want_lto) |lto| {
+                if (lto) {
+                    break :blk true;
+                }
+            }
+
             // Our linker can't handle objects or most advanced options yet.
             if (options.link_objects.len != 0 or
                 options.c_source_files.len != 0 or
@@ -646,6 +653,26 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             } else .{};
             break :outer opts;
         } else .{};
+
+        const lto = blk: {
+            if (options.want_lto) |explicit| {
+                if (!use_lld)
+                    return error.LtoUnavailableWithoutLld;
+                break :blk explicit;
+            } else if (!use_lld) {
+                break :blk false;
+            } else if (options.c_source_files.len == 0) {
+                break :blk false;
+            } else if (darwin_options.system_linker_hack) {
+                break :blk false;
+            } else switch (options.output_mode) {
+                .Lib, .Obj => break :blk false,
+                .Exe => switch (options.optimize_mode) {
+                    .Debug => break :blk false,
+                    .ReleaseSafe, .ReleaseFast, .ReleaseSmall => break :blk true,
+                },
+            }
+        };
 
         const tsan = options.want_tsan orelse false;
 
@@ -821,6 +848,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(ofmt);
         cache.hash.add(pic);
         cache.hash.add(pie);
+        cache.hash.add(lto);
         cache.hash.add(tsan);
         cache.hash.add(stack_check);
         cache.hash.add(red_zone);
@@ -1022,6 +1050,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .libc_installation = libc_dirs.libc_installation,
             .pic = pic,
             .pie = pie,
+            .lto = lto,
             .valgrind = valgrind,
             .tsan = tsan,
             .stack_check = stack_check,
@@ -2233,6 +2262,9 @@ pub fn addCCArgs(
                 "-nostdinc",
                 "-fno-spell-checking",
             });
+            if (comp.bin_file.options.lto) {
+                try argv.append("-flto");
+            }
 
             // According to Rich Felker libc headers are supposed to go before C language headers.
             // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
@@ -3255,6 +3287,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .err_color = @enumToInt(comp.color),
         .pic = comp.bin_file.options.pic,
         .pie = comp.bin_file.options.pie,
+        .lto = comp.bin_file.options.lto,
         .link_libc = comp.bin_file.options.link_libc,
         .link_libcpp = comp.bin_file.options.link_libcpp,
         .strip = comp.bin_file.options.strip,
@@ -3415,6 +3448,10 @@ pub fn build_crt_file(
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
+        .want_lto = switch (output_mode) {
+            .Lib => comp.bin_file.options.lto,
+            .Obj, .Exe => false,
+        },
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,

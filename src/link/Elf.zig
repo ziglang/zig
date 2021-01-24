@@ -1384,351 +1384,385 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         };
     }
 
-    // Create an LLD command line and invoke it.
-    var argv = std.ArrayList([]const u8).init(self.base.allocator);
-    defer argv.deinit();
-    // We will invoke ourselves as a child process to gain access to LLD.
-    // This is necessary because LLD does not behave properly as a library -
-    // it calls exit() and does not reset all global data between invocations.
-    try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "ld.lld" });
-    if (is_obj) {
-        try argv.append("-r");
-    }
-
-    try argv.append("-error-limit=0");
-
-    if (self.base.options.output_mode == .Exe) {
-        try argv.append("-z");
-        try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
-    }
-
-    if (self.base.options.image_base_override) |image_base| {
-        try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
-    }
-
-    if (self.base.options.linker_script) |linker_script| {
-        try argv.append("-T");
-        try argv.append(linker_script);
-    }
-
-    if (gc_sections) {
-        try argv.append("--gc-sections");
-    }
-
-    if (self.base.options.eh_frame_hdr) {
-        try argv.append("--eh-frame-hdr");
-    }
-
-    if (self.base.options.emit_relocs) {
-        try argv.append("--emit-relocs");
-    }
-
-    if (self.base.options.rdynamic) {
-        try argv.append("--export-dynamic");
-    }
-
-    try argv.appendSlice(self.base.options.extra_lld_args);
-
-    if (self.base.options.z_nodelete) {
-        try argv.append("-z");
-        try argv.append("nodelete");
-    }
-    if (self.base.options.z_defs) {
-        try argv.append("-z");
-        try argv.append("defs");
-    }
-
-    if (getLDMOption(target)) |ldm| {
-        // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
-        const arg = if (target.os.tag == .freebsd)
-            try std.fmt.allocPrint(arena, "{s}_fbsd", .{ldm})
-        else
-            ldm;
-        try argv.append("-m");
-        try argv.append(arg);
-    }
-
-    if (self.base.options.link_mode == .Static) {
-        if (target.cpu.arch.isARM() or target.cpu.arch.isThumb()) {
-            try argv.append("-Bstatic");
-        } else {
-            try argv.append("-static");
-        }
-    } else if (is_dyn_lib) {
-        try argv.append("-shared");
-    }
-
-    if (self.base.options.pie and self.base.options.output_mode == .Exe) {
-        try argv.append("-pie");
-    }
-
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-    try argv.append("-o");
-    try argv.append(full_out_path);
+    if (self.base.options.output_mode == .Obj and self.base.options.lto) {
+        // In this case we must do a simple file copy
+        // here. TODO: think carefully about how we can avoid this redundant operation when doing
+        // build-obj. See also the corresponding TODO in linkAsArchive.
+        const the_object_path = blk: {
+            if (self.base.options.objects.len != 0)
+                break :blk self.base.options.objects[0];
 
-    if (link_in_crt) {
-        const crt1o: []const u8 = o: {
-            if (target.os.tag == .netbsd) {
-                break :o "crt0.o";
-            } else if (target.os.tag == .openbsd) {
-                if (self.base.options.link_mode == .Static) {
-                    break :o "rcrt0.o";
-                } else {
-                    break :o "crt0.o";
-                }
-            } else if (target.isAndroid()) {
-                if (self.base.options.link_mode == .Dynamic) {
-                    break :o "crtbegin_dynamic.o";
-                } else {
-                    break :o "crtbegin_static.o";
-                }
-            } else if (self.base.options.link_mode == .Static) {
-                if (self.base.options.pie) {
-                    break :o "rcrt1.o";
-                } else {
-                    break :o "crt1.o";
-                }
-            } else {
-                break :o "Scrt1.o";
-            }
+            if (comp.c_object_table.count() != 0)
+                break :blk comp.c_object_table.items()[0].key.status.success.object_path;
+
+            if (module_obj_path) |p|
+                break :blk p;
+
+            // TODO I think this is unreachable. Audit this situation when solving the above TODO
+            // regarding eliding redundant object -> object transformations.
+            return error.NoObjectsToLink;
         };
-        try argv.append(try comp.get_libc_crt_file(arena, crt1o));
-        if (target_util.libc_needs_crti_crtn(target)) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crti.o"));
-        }
-        if (target.os.tag == .openbsd) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crtbegin.o"));
-        }
-    }
-
-    // rpaths
-    var rpath_table = std.StringHashMap(void).init(self.base.allocator);
-    defer rpath_table.deinit();
-    for (self.base.options.rpath_list) |rpath| {
-        if ((try rpath_table.fetchPut(rpath, {})) == null) {
-            try argv.append("-rpath");
-            try argv.append(rpath);
-        }
-    }
-    if (self.base.options.each_lib_rpath) {
-        var test_path = std.ArrayList(u8).init(self.base.allocator);
-        defer test_path.deinit();
-        for (self.base.options.lib_dirs) |lib_dir_path| {
-            for (self.base.options.system_libs.items()) |entry| {
-                const link_lib = entry.key;
-                test_path.shrinkRetainingCapacity(0);
-                const sep = fs.path.sep_str;
-                try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, link_lib });
-                fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-                    error.FileNotFound => continue,
-                    else => |e| return e,
-                };
-                if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
-                    try argv.append("-rpath");
-                    try argv.append(lib_dir_path);
-                }
-            }
-        }
-    }
-
-    for (self.base.options.lib_dirs) |lib_dir| {
-        try argv.append("-L");
-        try argv.append(lib_dir);
-    }
-
-    if (self.base.options.link_libc) {
-        if (self.base.options.libc_installation) |libc_installation| {
-            try argv.append("-L");
-            try argv.append(libc_installation.crt_dir.?);
-        }
-
-        if (have_dynamic_linker) {
-            if (self.base.options.dynamic_linker) |dynamic_linker| {
-                try argv.append("-dynamic-linker");
-                try argv.append(dynamic_linker);
-            }
-        }
-    }
-
-    if (is_dyn_lib) {
-        if (self.base.options.soname) |soname| {
-            try argv.append("-soname");
-            try argv.append(soname);
-        }
-        if (self.base.options.version_script) |version_script| {
-            try argv.append("-version-script");
-            try argv.append(version_script);
-        }
-    }
-
-    // Positional arguments to the linker such as object files.
-    try argv.appendSlice(self.base.options.objects);
-
-    for (comp.c_object_table.items()) |entry| {
-        try argv.append(entry.key.status.success.object_path);
-    }
-
-    if (module_obj_path) |p| {
-        try argv.append(p);
-    }
-
-    // TSAN
-    if (self.base.options.tsan) {
-        try argv.append(comp.tsan_static_lib.?.full_object_path);
-    }
-
-    // libc
-    // TODO: enable when stage2 can build c.zig
-    if (is_exe_or_dyn_lib and
-        !self.base.options.skip_linker_dependencies and
-        !self.base.options.link_libc and
-        build_options.is_stage1)
-    {
-        try argv.append(comp.libc_static_lib.?.full_object_path);
-    }
-
-    // compiler-rt
-    if (compiler_rt_path) |p| {
-        try argv.append(p);
-    }
-
-    // Shared libraries.
-    if (is_exe_or_dyn_lib) {
-        const system_libs = self.base.options.system_libs.items();
-        try argv.ensureCapacity(argv.items.len + system_libs.len);
-        for (system_libs) |entry| {
-            const link_lib = entry.key;
-            // By this time, we depend on these libs being dynamically linked libraries and not static libraries
-            // (the check for that needs to be earlier), but they could be full paths to .so files, in which
-            // case we want to avoid prepending "-l".
-            const ext = Compilation.classifyFileExt(link_lib);
-            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
-            argv.appendAssumeCapacity(arg);
-        }
-
-        // libc++ dep
-        if (self.base.options.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
-        }
-
-        // libc dep
-        if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation != null) {
-                if (self.base.options.link_mode == .Static) {
-                    try argv.append("--start-group");
-                    try argv.append("-lc");
-                    try argv.append("-lm");
-                    try argv.append("--end-group");
-                } else {
-                    try argv.append("-lc");
-                    try argv.append("-lm");
-                }
-
-                if (target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
-                    try argv.append("-lpthread");
-                }
-            } else if (target.isGnuLibC()) {
-                try argv.append(comp.libunwind_static_lib.?.full_object_path);
-                for (glibc.libs) |lib| {
-                    const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
-                        comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
-                    });
-                    try argv.append(lib_path);
-                }
-                try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
-            } else if (target.isMusl()) {
-                try argv.append(comp.libunwind_static_lib.?.full_object_path);
-                try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
-                    .Static => "libc.a",
-                    .Dynamic => "libc.so",
-                }));
-            } else if (self.base.options.link_libcpp) {
-                try argv.append(comp.libunwind_static_lib.?.full_object_path);
-            } else {
-                unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
-            }
-        }
-    }
-
-    // crt end
-    if (link_in_crt) {
-        if (target.isAndroid()) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crtend_android.o"));
-        } else if (target.os.tag == .openbsd) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crtend.o"));
-        } else if (target_util.libc_needs_crti_crtn(target)) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crtn.o"));
-        }
-    }
-
-    if (allow_shlib_undefined) {
-        try argv.append("--allow-shlib-undefined");
-    }
-
-    if (self.base.options.bind_global_refs_locally) {
-        try argv.append("-Bsymbolic");
-    }
-
-    if (self.base.options.verbose_link) {
-        // Skip over our own name so that the LLD linker name is the first argv item.
-        Compilation.dump_argv(argv.items[1..]);
-    }
-
-    // Sadly, we must run LLD as a child process because it does not behave
-    // properly as a library.
-    const child = try std.ChildProcess.init(argv.items, arena);
-    defer child.deinit();
-
-    if (comp.clang_passthrough_mode) {
-        child.stdin_behavior = .Inherit;
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
-
-        const term = child.spawnAndWait() catch |err| {
-            log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-            return error.UnableToSpawnSelf;
-        };
-        switch (term) {
-            .Exited => |code| {
-                if (code != 0) {
-                    // TODO https://github.com/ziglang/zig/issues/6342
-                    std.process.exit(1);
-                }
-            },
-            else => std.process.abort(),
+        // This can happen when using --enable-cache and using the stage1 backend. In this case
+        // we can skip the file copy.
+        if (!mem.eql(u8, the_object_path, full_out_path)) {
+            try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Ignore;
-        child.stderr_behavior = .Pipe;
 
-        try child.spawn();
-
-        const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
-
-        const term = child.wait() catch |err| {
-            log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-            return error.UnableToSpawnSelf;
-        };
-
-        switch (term) {
-            .Exited => |code| {
-                if (code != 0) {
-                    // TODO parse this output and surface with the Compilation API rather than
-                    // directly outputting to stderr here.
-                    std.debug.print("{s}", .{stderr});
-                    return error.LLDReportedFailure;
-                }
-            },
-            else => {
-                log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
-                return error.LLDCrashed;
-            },
+        // Create an LLD command line and invoke it.
+        var argv = std.ArrayList([]const u8).init(self.base.allocator);
+        defer argv.deinit();
+        // We will invoke ourselves as a child process to gain access to LLD.
+        // This is necessary because LLD does not behave properly as a library -
+        // it calls exit() and does not reset all global data between invocations.
+        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "ld.lld" });
+        if (is_obj) {
+            try argv.append("-r");
         }
 
-        if (stderr.len != 0) {
-            log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+        try argv.append("-error-limit=0");
+
+        if (self.base.options.lto) {
+            switch (self.base.options.optimize_mode) {
+                .Debug => {},
+                .ReleaseSmall => try argv.append("-O2"),
+                .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
+            }
+        }
+
+        if (self.base.options.output_mode == .Exe) {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
+        }
+
+        if (self.base.options.image_base_override) |image_base| {
+            try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
+        }
+
+        if (self.base.options.linker_script) |linker_script| {
+            try argv.append("-T");
+            try argv.append(linker_script);
+        }
+
+        if (gc_sections) {
+            try argv.append("--gc-sections");
+        }
+
+        if (self.base.options.eh_frame_hdr) {
+            try argv.append("--eh-frame-hdr");
+        }
+
+        if (self.base.options.emit_relocs) {
+            try argv.append("--emit-relocs");
+        }
+
+        if (self.base.options.rdynamic) {
+            try argv.append("--export-dynamic");
+        }
+
+        try argv.appendSlice(self.base.options.extra_lld_args);
+
+        if (self.base.options.z_nodelete) {
+            try argv.append("-z");
+            try argv.append("nodelete");
+        }
+        if (self.base.options.z_defs) {
+            try argv.append("-z");
+            try argv.append("defs");
+        }
+
+        if (getLDMOption(target)) |ldm| {
+            // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
+            const arg = if (target.os.tag == .freebsd)
+                try std.fmt.allocPrint(arena, "{s}_fbsd", .{ldm})
+            else
+                ldm;
+            try argv.append("-m");
+            try argv.append(arg);
+        }
+
+        if (self.base.options.link_mode == .Static) {
+            if (target.cpu.arch.isARM() or target.cpu.arch.isThumb()) {
+                try argv.append("-Bstatic");
+            } else {
+                try argv.append("-static");
+            }
+        } else if (is_dyn_lib) {
+            try argv.append("-shared");
+        }
+
+        if (self.base.options.pie and self.base.options.output_mode == .Exe) {
+            try argv.append("-pie");
+        }
+
+        try argv.append("-o");
+        try argv.append(full_out_path);
+
+        if (link_in_crt) {
+            const crt1o: []const u8 = o: {
+                if (target.os.tag == .netbsd) {
+                    break :o "crt0.o";
+                } else if (target.os.tag == .openbsd) {
+                    if (self.base.options.link_mode == .Static) {
+                        break :o "rcrt0.o";
+                    } else {
+                        break :o "crt0.o";
+                    }
+                } else if (target.isAndroid()) {
+                    if (self.base.options.link_mode == .Dynamic) {
+                        break :o "crtbegin_dynamic.o";
+                    } else {
+                        break :o "crtbegin_static.o";
+                    }
+                } else if (self.base.options.link_mode == .Static) {
+                    if (self.base.options.pie) {
+                        break :o "rcrt1.o";
+                    } else {
+                        break :o "crt1.o";
+                    }
+                } else {
+                    break :o "Scrt1.o";
+                }
+            };
+            try argv.append(try comp.get_libc_crt_file(arena, crt1o));
+            if (target_util.libc_needs_crti_crtn(target)) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crti.o"));
+            }
+            if (target.os.tag == .openbsd) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crtbegin.o"));
+            }
+        }
+
+        // rpaths
+        var rpath_table = std.StringHashMap(void).init(self.base.allocator);
+        defer rpath_table.deinit();
+        for (self.base.options.rpath_list) |rpath| {
+            if ((try rpath_table.fetchPut(rpath, {})) == null) {
+                try argv.append("-rpath");
+                try argv.append(rpath);
+            }
+        }
+        if (self.base.options.each_lib_rpath) {
+            var test_path = std.ArrayList(u8).init(self.base.allocator);
+            defer test_path.deinit();
+            for (self.base.options.lib_dirs) |lib_dir_path| {
+                for (self.base.options.system_libs.items()) |entry| {
+                    const link_lib = entry.key;
+                    test_path.shrinkRetainingCapacity(0);
+                    const sep = fs.path.sep_str;
+                    try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, link_lib });
+                    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+                        error.FileNotFound => continue,
+                        else => |e| return e,
+                    };
+                    if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
+                        try argv.append("-rpath");
+                        try argv.append(lib_dir_path);
+                    }
+                }
+            }
+        }
+
+        for (self.base.options.lib_dirs) |lib_dir| {
+            try argv.append("-L");
+            try argv.append(lib_dir);
+        }
+
+        if (self.base.options.link_libc) {
+            if (self.base.options.libc_installation) |libc_installation| {
+                try argv.append("-L");
+                try argv.append(libc_installation.crt_dir.?);
+            }
+
+            if (have_dynamic_linker) {
+                if (self.base.options.dynamic_linker) |dynamic_linker| {
+                    try argv.append("-dynamic-linker");
+                    try argv.append(dynamic_linker);
+                }
+            }
+        }
+
+        if (is_dyn_lib) {
+            if (self.base.options.soname) |soname| {
+                try argv.append("-soname");
+                try argv.append(soname);
+            }
+            if (self.base.options.version_script) |version_script| {
+                try argv.append("-version-script");
+                try argv.append(version_script);
+            }
+        }
+
+        // Positional arguments to the linker such as object files.
+        try argv.appendSlice(self.base.options.objects);
+
+        for (comp.c_object_table.items()) |entry| {
+            try argv.append(entry.key.status.success.object_path);
+        }
+
+        if (module_obj_path) |p| {
+            try argv.append(p);
+        }
+
+        // TSAN
+        if (self.base.options.tsan) {
+            try argv.append(comp.tsan_static_lib.?.full_object_path);
+        }
+
+        // libc
+        // TODO: enable when stage2 can build c.zig
+        if (is_exe_or_dyn_lib and
+            !self.base.options.skip_linker_dependencies and
+            !self.base.options.link_libc and
+            build_options.is_stage1)
+        {
+            try argv.append(comp.libc_static_lib.?.full_object_path);
+        }
+
+        // compiler-rt
+        if (compiler_rt_path) |p| {
+            try argv.append(p);
+        }
+
+        // Shared libraries.
+        if (is_exe_or_dyn_lib) {
+            const system_libs = self.base.options.system_libs.items();
+            try argv.ensureCapacity(argv.items.len + system_libs.len);
+            for (system_libs) |entry| {
+                const link_lib = entry.key;
+                // By this time, we depend on these libs being dynamically linked libraries and not static libraries
+                // (the check for that needs to be earlier), but they could be full paths to .so files, in which
+                // case we want to avoid prepending "-l".
+                const ext = Compilation.classifyFileExt(link_lib);
+                const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
+                argv.appendAssumeCapacity(arg);
+            }
+
+            // libc++ dep
+            if (self.base.options.link_libcpp) {
+                try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+                try argv.append(comp.libcxx_static_lib.?.full_object_path);
+            }
+
+            // libc dep
+            if (self.base.options.link_libc) {
+                if (self.base.options.libc_installation != null) {
+                    if (self.base.options.link_mode == .Static) {
+                        try argv.append("--start-group");
+                        try argv.append("-lc");
+                        try argv.append("-lm");
+                        try argv.append("--end-group");
+                    } else {
+                        try argv.append("-lc");
+                        try argv.append("-lm");
+                    }
+
+                    if (target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
+                        try argv.append("-lpthread");
+                    }
+                } else if (target.isGnuLibC()) {
+                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                    for (glibc.libs) |lib| {
+                        const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
+                            comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                        });
+                        try argv.append(lib_path);
+                    }
+                    try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
+                } else if (target.isMusl()) {
+                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                    try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                        .Static => "libc.a",
+                        .Dynamic => "libc.so",
+                    }));
+                } else if (self.base.options.link_libcpp) {
+                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                } else {
+                    unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
+                }
+            }
+        }
+
+        // crt end
+        if (link_in_crt) {
+            if (target.isAndroid()) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crtend_android.o"));
+            } else if (target.os.tag == .openbsd) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crtend.o"));
+            } else if (target_util.libc_needs_crti_crtn(target)) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crtn.o"));
+            }
+        }
+
+        if (allow_shlib_undefined) {
+            try argv.append("--allow-shlib-undefined");
+        }
+
+        if (self.base.options.bind_global_refs_locally) {
+            try argv.append("-Bsymbolic");
+        }
+
+        if (self.base.options.verbose_link) {
+            // Skip over our own name so that the LLD linker name is the first argv item.
+            Compilation.dump_argv(argv.items[1..]);
+        }
+
+        // Sadly, we must run LLD as a child process because it does not behave
+        // properly as a library.
+        const child = try std.ChildProcess.init(argv.items, arena);
+        defer child.deinit();
+
+        if (comp.clang_passthrough_mode) {
+            child.stdin_behavior = .Inherit;
+            child.stdout_behavior = .Inherit;
+            child.stderr_behavior = .Inherit;
+
+            const term = child.spawnAndWait() catch |err| {
+                log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                return error.UnableToSpawnSelf;
+            };
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        // TODO https://github.com/ziglang/zig/issues/6342
+                        std.process.exit(1);
+                    }
+                },
+                else => std.process.abort(),
+            }
+        } else {
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Ignore;
+            child.stderr_behavior = .Pipe;
+
+            try child.spawn();
+
+            const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
+
+            const term = child.wait() catch |err| {
+                log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                return error.UnableToSpawnSelf;
+            };
+
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        // TODO parse this output and surface with the Compilation API rather than
+                        // directly outputting to stderr here.
+                        std.debug.print("{s}", .{stderr});
+                        return error.LLDReportedFailure;
+                    }
+                },
+                else => {
+                    log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
+                    return error.LLDCrashed;
+                },
+            }
+
+            if (stderr.len != 0) {
+                log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+            }
         }
     }
 

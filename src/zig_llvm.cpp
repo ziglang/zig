@@ -22,6 +22,7 @@
 
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DiagnosticInfo.h>
 #include <llvm/IR/IRBuilder.h>
@@ -184,7 +185,7 @@ unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
-        bool is_small, bool time_report, bool tsan,
+        bool is_small, bool time_report, bool tsan, bool lto,
         const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
 {
     TimePassesIsEnabled = time_report;
@@ -234,7 +235,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     PMBuilder->VerifyInput = assertions_on;
     PMBuilder->VerifyOutput = assertions_on;
     PMBuilder->MergeFunctions = !is_debug;
-    PMBuilder->PrepareForLTO = false;
+    PMBuilder->PrepareForLTO = lto;
     PMBuilder->PrepareForThinLTO = false;
     PMBuilder->PerformThinLTO = false;
 
@@ -272,7 +273,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         PMBuilder->populateModulePassManager(MPM);
 
         // Set output passes.
-        if (dest_bin) {
+        if (dest_bin && !lto) {
             if (target_machine->addPassesToEmitFile(MPM, *dest_bin, nullptr, CGFT_ObjectFile)) {
                 *error_message = strdup("TargetMachine can't emit an object file");
                 return true;
@@ -298,6 +299,9 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
             if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
                 return true;
             }
+        }
+        if (dest_bin && lto) {
+            WriteBitcodeToFile(*module, *dest_bin);
         }
 
         if (time_report) {

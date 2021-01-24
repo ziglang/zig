@@ -48,7 +48,7 @@ ZIG_EXTERN_C char *ZigLLVMGetNativeFeatures(void);
 
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
-        bool is_small, bool time_report, bool tsan,
+        bool is_small, bool time_report, bool tsan, bool lto,
         const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename);
 
 

@@ -8449,8 +8449,9 @@ static void zig_llvm_emit_output(CodeGen *g) {
     // Unfortunately, LLVM shits the bed when we ask for both binary and assembly. So we call the entire
     // pipeline multiple times if this is requested.
     if (asm_filename != nullptr && bin_filename != nullptr) {
-        if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg, g->build_mode == BuildModeDebug,
-            is_small, g->enable_time_report, g->tsan_enabled, nullptr, bin_filename, llvm_ir_filename))
+        if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg,
+            g->build_mode == BuildModeDebug, is_small, g->enable_time_report, g->tsan_enabled,
+            g->have_lto, nullptr, bin_filename, llvm_ir_filename))
         {
             fprintf(stderr, "LLVM failed to emit file: %s\n", err_msg);
             exit(1);
@@ -8459,8 +8460,9 @@ static void zig_llvm_emit_output(CodeGen *g) {
         llvm_ir_filename = nullptr;
     }
 
-    if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg, g->build_mode == BuildModeDebug,
-        is_small, g->enable_time_report, g->tsan_enabled, asm_filename, bin_filename, llvm_ir_filename))
+    if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg,
+        g->build_mode == BuildModeDebug, is_small, g->enable_time_report, g->tsan_enabled,
+        g->have_lto, asm_filename, bin_filename, llvm_ir_filename))
     {
         fprintf(stderr, "LLVM failed to emit file: %s\n", err_msg);
         exit(1);
