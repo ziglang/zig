@@ -265,6 +265,10 @@ const usage_build_generic =
     \\  --global-cache-dir [path] Override the global cache directory
     \\  --override-lib-dir [path] Override path to Zig installation lib directory
     \\  --enable-cache            Output to cache directory; print path to stdout
+    \\  --link-libc               Use functions from and link against libc
+    \\  --no-link-libc            If supported by the target, do not use or link libc
+    \\  --link-libcpp             Use functions from and link against libc++
+    \\  --no-link-libcpp          Do not use or link libc++
     \\
     \\Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -503,10 +507,8 @@ fn buildOutputType(
     var output_mode: std.builtin.OutputMode = undefined;
     var emit_h: Emit = .no;
     var soname: SOName = undefined;
-    var ensure_libc_on_non_freestanding = false;
-    var ensure_libcpp_on_non_freestanding = false;
-    var link_libc = false;
-    var link_libcpp = false;
+    var link_libc: ?bool = null;
+    var link_libcpp: ?bool = null;
     var want_native_include_dirs = false;
     var enable_cache: ?bool = null;
     var want_pic: ?bool = null;
@@ -792,6 +794,14 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         target_dynamic_linker = args[i];
+                    } else if (mem.eql(u8, arg, "--link-libc")) {
+                        link_libc = true;
+                    } else if (mem.eql(u8, arg, "--no-link-libc")) {
+                        link_libc = false;
+                    } else if (mem.eql(u8, arg, "--link-libcpp")) {
+                        link_libcpp = true;
+                    } else if (mem.eql(u8, arg, "--no-link-libcpp")) {
+                        link_libcpp = false;
                     } else if (mem.eql(u8, arg, "--libc")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -1021,8 +1031,8 @@ fn buildOutputType(
             emit_h = .no;
             soname = .no;
             strip = true;
-            ensure_libc_on_non_freestanding = true;
-            ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
+            link_libc = true;
+            link_libcpp = arg_mode == .cpp;
             want_native_include_dirs = true;
             // Clang's driver enables this switch unconditionally.
             // Disabling the emission of .eh_frame_hdr can unexpectedly break
@@ -1087,8 +1097,8 @@ fn buildOutputType(
                     .no_pie => want_pie = false,
                     .red_zone => want_red_zone = true,
                     .no_red_zone => want_red_zone = false,
-                    .nostdlib => ensure_libc_on_non_freestanding = false,
-                    .nostdlib_cpp => ensure_libcpp_on_non_freestanding = false,
+                    .nostdlib => link_libc = false,
+                    .nostdlib_cpp => link_libcpp = false,
                     .shared => {
                         link_mode = .Dynamic;
                         is_shared_lib = true;
@@ -1429,34 +1439,45 @@ fn buildOutputType(
 
     const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
-    if (target_info.target.os.tag != .freestanding) {
-        if (ensure_libc_on_non_freestanding)
-            link_libc = true;
-        if (ensure_libcpp_on_non_freestanding)
-            link_libcpp = true;
-    }
-
     // Now that we have target info, we can find out if any of the system libraries
     // are part of libc or libc++. We remove them from the list and communicate their
     // existence via flags instead.
-    {
+    if (link_libc == null) {
+        link_libc = false;
+        var expect_libc = false;
         var i: usize = 0;
         while (i < system_libs.items.len) {
             const lib_name = system_libs.items[i];
-            if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
+            if (mem.eql(u8, lib_name, "c")) {
                 link_libc = true;
-                _ = system_libs.orderedRemove(i);
+            } else if (!target_util.is_libc_lib_name(target_info.target, lib_name)) {
+                i += 1;
                 continue;
             }
+            expect_libc = true;
+            _ = system_libs.orderedRemove(i);
+        }
+
+        if (expect_libc and !link_libc.?) {
+            fatal("C library specified but not using libc", .{});
+        }
+    }
+
+    if (link_libcpp == null) {
+        link_libcpp = false;
+        var i: usize = 0;
+        while (i < system_libs.items.len) {
+            const lib_name = system_libs.items[i];
             if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
                 link_libcpp = true;
                 _ = system_libs.orderedRemove(i);
                 continue;
             }
-            if (std.fs.path.isAbsolute(lib_name)) {
-                fatal("cannot use absolute path as a system library: {s}", .{lib_name});
-            }
             i += 1;
+        }
+
+        if (link_libcpp.? and !link_libc.?) {
+            fatal("cannot link libcpp without libc", .{});
         }
     }
 
@@ -1767,8 +1788,8 @@ fn buildOutputType(
         .framework_dirs = framework_dirs.items,
         .frameworks = frameworks.items,
         .system_libs = system_libs.items,
-        .link_libc = link_libc,
-        .link_libcpp = link_libcpp,
+        .link_libc = link_libc.?,
+        .link_libcpp = link_libcpp.?,
         .want_pic = want_pic,
         .want_pie = want_pie,
         .want_sanitize_c = want_sanitize_c,
