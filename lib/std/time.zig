@@ -311,7 +311,7 @@ fn readSystemTimer() ?u64 {
 
         // It appears Apple already does the static caching for us:
         // https://github.com/apple/darwin-xnu/blob/master/libsyscall/wrappers/mach_timebase_info.c
-        var info: os.darwin.mach_timebase_info_data_t = undefined;
+        var info: os.darwin.mach_timebase_info_data = undefined;
         if (os.darwin.mach_timebase_info(&info) != os.darwin.KERN_SUCCESS) {
             return null;
         }

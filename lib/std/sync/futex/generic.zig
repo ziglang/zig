@@ -13,15 +13,8 @@ const helgrind: ?type = if (builtin.valgrind_support) std.valgrind.helgrind else
 
 pub fn Futex(comptime Event: type) type {
     return struct {
-        const WaitLock = switch (@hasDecl(Event, "Lock") and Event.Lock != void) {
-            true => Event.Lock,
-            else => WordLock(Event),
-        };
-
-        const bucket_count = switch (@hasDecl(Event, "bucket_count")) {
-            true => Event.bucket_count,
-            else => std.meta.bitCount(usize) << 2,
-        };
+        const WaitLock = Event.Lock;
+        const bucket_count = Event.bucket_count;
 
         const WaitBucket = struct {
             lock: WaitLock = .{},
@@ -43,7 +36,7 @@ pub fn Futex(comptime Event: type) type {
         };
 
         const WaitTree = struct {
-            tree_head: ?*WaitNode = null,
+            root: ?*WaitNode = null,
 
             const Lookup = struct {
                 tree_prev: ?*WaitNode,
@@ -53,103 +46,97 @@ pub fn Futex(comptime Event: type) type {
             fn find(self: *WaitTree, address: usize) Lookup {
                 var lookup = Lookup{
                     .tree_prev = null,
-                    .tree_node = self.tree_head,
+                    .tree_node = self.root,
                 };
 
-                while (lookup.tree_node) |tree_node| {
-                    if (tree_node.address == address) {
+                while (lookup.tree_node) |node| {
+                    if (node.address == address) {
                         break;
-                    } else {
-                        lookup.tree_prev = tree_node;
-                        lookup.tree_node = tree_node.tree_next;
                     }
+                    lookup.tree_prev = node;
+                    lookup.tree_node = node.tree_next;
                 }
 
                 return lookup;
             }
 
-            fn insert(self: *WaitTree, lookup: Lookup, node: *WaitNode) void {
-                assert(node != self.tree_head);
-                node.tree_next = null;
+            fn insert(self: *WaitTree, lookup: Lookup) void {
+                const node = lookup.tree_node orelse unreachable;
                 node.tree_prev = lookup.tree_prev;
+                node.tree_next = null;
 
                 if (node.tree_prev) |prev| {
-                    assert(prev.tree_next == null);
                     prev.tree_next = node;
                 } else {
-                    assert(self.tree_head == null);
-                    self.tree_head = node;
+                    self.root = node;
                 }
             }
 
             fn replace(self: *WaitTree, node: *WaitNode, new_node: *WaitNode) void {
-                assert(node != new_node);
-                assert(node.address == new_node.address);
-                assert((node == self.tree_head) or ((node.tree_prev orelse node.tree_next) != null));
+                new_node.tree_prev = node.tree_prev;
+                new_node.tree_next = node.tree_next;
 
-                if (node.tree_next) |next| {
-                    next.tree_prev = new_node;
-                }
                 if (node.tree_prev) |prev| {
                     prev.tree_next = new_node;
                 }
-                if (self.tree_head == node) {
-                    self.tree_head = new_node;
+                if (node.tree_next) |next| {
+                    next.tree_prev = new_node;
+                }
+                if (self.root == node) {
+                    self.root = new_node;
                 }
             }
 
             fn remove(self: *WaitTree, node: *WaitNode) void {
-                assert((node == self.tree_head) or ((node.tree_prev orelse node.tree_next) != null));
-
                 if (node.tree_next) |next| {
                     next.tree_prev = node.tree_prev;
                 }
                 if (node.tree_prev) |prev| {
                     prev.tree_next = node.tree_next;
                 }
-                if (self.tree_head == node) {
-                    self.tree_head = null;
+                if (self.root == node) {
+                    self.root = node.tree_next;
                 }
             }
         };
 
         const WaitQueue = struct {
+            address: usize,
             tree: *WaitTree,
             head: ?*WaitNode,
-            address: usize,
-            lookup: WaitTree.Lookup,
+            tree_prev: ?*WaitNode,
 
             fn find(tree: *WaitTree, address: usize) WaitQueue {
                 const lookup = tree.find(address);
 
                 return WaitQueue{
+                    .address = address,
                     .tree = tree,
                     .head = lookup.tree_node,
-                    .address = address,
-                    .lookup = lookup,
+                    .tree_prev = lookup.tree_prev,
                 };
             }
 
             fn insert(self: *WaitQueue, node: *WaitNode) void {
-                node.prev = null;
                 node.next = null;
-                node.tail = node;
+                node.is_inserted = true;
                 node.address = self.address;
 
-                const head = self.head orelse {
+                if (self.head) |head| {
+                    const tail = head.tail orelse unreachable;
+                    tail.next = node;
+                    node.prev = tail;
+                    head.tail = node;
+
+                } else {
+                    node.tail = node;
+                    node.prev = null;
                     self.head = node;
-                    self.tree.insert(self.lookup, node);
-                    return;
-                };
-
-                const tail = head.tail orelse unreachable;
-                head.tail = node;
-                node.prev = tail;
-                tail.next = node;
-            }
-
-            fn isInserted(node: *WaitNode) bool {
-                return node.tail != null;
+                    self.tree.insert(WaitTree.Lookup{
+                        .tree_prev = self.tree_prev,
+                        .tree_node = node,
+                    });
+                }
             }
 
             fn popFirst(self: *WaitQueue) ?*WaitNode {
@@ -159,14 +146,14 @@ pub fn Futex(comptime Event: type) type {
             }
 
             fn remove(self: *WaitQueue, node: *WaitNode) void {
-                assert(isInserted(node));
-                defer node.tail = null;
+                assert(node.is_inserted);
+                defer node.is_inserted = false;
 
-                if (node.prev) |prev| {
-                    prev.next = node.next;
-                }
                 if (node.next) |next| {
                     next.prev = node.prev;
+                }
+                if (node.prev) |prev| {
+                    prev.next = node.next;
                 }
 
                 const head = self.head orelse unreachable;
@@ -176,22 +163,22 @@ pub fn Futex(comptime Event: type) type {
                         new_head.tail = head.tail;
                         self.tree.replace(head, new_head);
                     } else {
-                        self.tree.remove(node);
+                        self.tree.remove(head);
                     }
                 } else if (node == head.tail) {
-                    assert(node.prev != null);
                     head.tail = node.prev;
                 }
             }
         };
 
         const WaitNode = struct {
+            address: usize,
+            is_inserted: bool,
             tree_prev: ?*WaitNode,
             tree_next: ?*WaitNode,
             prev: ?*WaitNode,
             next: ?*WaitNode,
             tail: ?*WaitNode,
-            address: usize,
             event: Event,
         };
 
@@ -212,7 +199,6 @@ pub fn Futex(comptime Event: type) type {
 
                 if (atomic.load(ptr, .SeqCst) != expect) {
                     _ = atomic.fetchSub(&bucket.waiters, 1, .SeqCst);
-                    held.release();
                     return;
                 }
 
@@ -227,19 +213,21 @@ pub fn Futex(comptime Event: type) type {
             };
 
             if (timed_out) {
-                const held = bucket.lock.acquire();
-                defer held.release();
+                {
+                    const held = bucket.lock.acquire();
+                    defer held.release();
 
-                timed_out = WaitQueue.isInserted(&node);
-                if (timed_out) {
-                    _ = atomic.fetchSub(&bucket.waiters, 1, .SeqCst);
-                    var queue = WaitQueue.find(&bucket.tree, address);
-                    queue.remove(&node);
+                    timed_out = node.is_inserted;
+                    if (timed_out) {
+                        _ = atomic.fetchSub(&bucket.waiters, 1, .SeqCst);
+                        var queue = WaitQueue.find(&bucket.tree, address);
+                        queue.remove(&node);
+                    }
                 }
-            }
 
-            if (!timed_out) {
-                node.event.wait(null) catch unreachable;
+                if (!timed_out) {
+                    node.event.wait(null) catch unreachable;
+                }
             }
 
             node.event.deinit();
@@ -249,27 +237,14 @@ pub fn Futex(comptime Event: type) type {
         }
 
         pub fn notifyOne(ptr: *const u32) void {
-            const address = @ptrToInt(ptr);
-            const bucket = WaitBucket.from(address);
-
-            if (atomic.load(&bucket.waiters, .SeqCst) == 0) {
-                return;
-            }
-
-            const node = blk: {
-                const held = bucket.lock.acquire();
-                defer held.release();
-
-                var queue = WaitQueue.find(&bucket.tree, address);
-                const node = queue.popFirst() orelse return;
-                _ = atomic.fetchSub(&bucket.waiters, 1, .SeqCst);
-                break :blk node;
-            };
-
-            node.event.set();
+            return wake(ptr, 1);
         }
 
         pub fn notifyAll(ptr: *const u32) void {
+            return wake(ptr, std.math.maxInt(usize));
+        }
+
+        fn wake(ptr: *const u32, max_wakeups: usize) void {
             const address = @ptrToInt(ptr);
             const bucket = WaitBucket.from(address);
 
@@ -277,254 +252,32 @@ pub fn Futex(comptime Event: type) type {
                 return;
             }
 
-            var nodes = blk: {
+            var nodes: ?*WaitNode = null;
+            {
                 const held = bucket.lock.acquire();
                 defer held.release();
 
-                var dequeued: usize = 0;
-                var nodes: ?*WaitNode = null;
-                var queue = WaitQueue.find(&bucket.tree, address);
+                var woke_up: usize = 0;
+                defer if (woke_up > 0) {
+                    _ = atomic.fetchSub(&bucket.waiters, woke_up, .SeqCst);
+                };
 
-                while (queue.popFirst()) |node| {
+                var queue = WaitQueue.find(&bucket.tree, address);
+                while (true) {
+                    const node = queue.popFirst() orelse break;
                     node.next = nodes;
                     nodes = node;
-                    dequeued += 1;
-                }
 
-                if (dequeued > 0) {
-                    _ = atomic.fetchSub(&bucket.waiters, dequeued, .SeqCst);
+                    woke_up += 1;
+                    if (woke_up >= max_wakeups) {
+                        break;
+                    }
                 }
-                break :blk nodes;
-            };
+            }
 
             while (nodes) |node| {
                 nodes = node.next;
                 node.event.set();
-            }
-        }
-    };
-}
-
-fn WordLock(comptime Event: type) type {
-    return struct {
-        state: usize = UNLOCKED,
-
-        const UNLOCKED = 0;
-        const LOCKED = 1;
-        const WAKING = 1 << 1;
-        const WAITING = ~@as(usize, (WAKING << 1) - 1);
-
-        const Self = @This();
-        const Waiter = struct {
-            prev: ?*Waiter align(std.math.max(~WAITING + 1, @alignOf(usize))),
-            next: ?*Waiter,
-            tail: ?*Waiter,
-            event: Event,
-        };
-
-        inline fn tryAcquireFast(self: *Self, state: usize) bool {
-            return switch (builtin.arch) {
-                .i386, .x86_64 => atomic.bitSet(
-                    &self.state,
-                    @ctz(u1, LOCKED),
-                    .Acquire,
-                ) == 0,
-                else => atomic.tryCompareAndSwap(
-                    &self.state,
-                    state,
-                    state | LOCKED,
-                    .Acquire,
-                    .Relaxed,
-                ) == null,
-            };
-        }
-
-        pub fn acquire(self: *Self) Held {
-            if (!self.tryAcquireFast(UNLOCKED)) {
-                self.acquireSlow();
-            }
-
-            if (helgrind) |hg| {
-                hg.annotateHappensAfter(@ptrToInt(self));
-            }
-
-            return Held{ .lock = self };
-        }
-
-        fn acquireSlow(self: *Self) void {
-            @setCold(true);
-
-            var waiter: Waiter = undefined;
-            var event_initialized = false;
-            defer if (event_initialized) {
-                if (helgrind) |hg| {
-                    hg.annotateHappensBeforeForgetAll(@ptrToInt(&waiter));
-                }
-                waiter.event.deinit();
-            };
-
-            var adaptive_spin: usize = 0;
-            var state = atomic.load(&self.state, .Relaxed);
-
-            while (true) {
-                if (state & LOCKED == 0) {
-                    if (self.tryAcquireFast(state)) {
-                        break;
-                    }
-
-                    var spin: usize = 32;
-                    while (spin > 0) : (spin -= 1) {
-                        atomic.spinLoopHint();
-                    }
-
-                    state = atomic.load(&self.state, .Relaxed);
-                    continue;
-                }
-
-                const head = @intToPtr(?*Waiter, state & WAITING);
-                if (head == null and adaptive_spin < 100) {
-                    var spin = std.math.min(32, std.math.max(8, adaptive_spin));
-                    while (spin > 0) : (spin -= 1) {
-                        atomic.spinLoopHint();
-                    }
-
-                    adaptive_spin += 1;
-                    state = atomic.load(&self.state, .Relaxed);
-                    continue;
-                }
-
-                waiter.prev = null;
-                waiter.next = head;
-                waiter.tail = if (head == null) &waiter else null;
-
-                if (!event_initialized) {
-                    waiter.event.init();
-                    event_initialized = true;
-                }
-
-                if (helgrind) |hg| {
-                    hg.annotateHappensBefore(@ptrToInt(&waiter));
-                }
-
-                if (atomic.tryCompareAndSwap(
-                    &self.state,
-                    state,
-                    (state & ~WAITING) | @ptrToInt(&waiter),
-                    .Release,
-                    .Relaxed,
-                )) |updated| {
-                    state = updated;
-                    continue;
-                }
-
-                waiter.event.wait(null) catch unreachable;
-
-                if (helgrind) |hg| {
-                    hg.annotateHappensAfter(@ptrToInt(&waiter));
-                }
-
-                adaptive_spin = 0;
-                waiter.event.reset();
-                state = atomic.load(&self.state, .Relaxed);
-            }
-        }
-
-        pub const Held = struct {
-            lock: *Self,
-
-            pub fn release(self: Held) void {
-                self.lock.release();
-            }
-        };
-
-        fn release(self: *Self) void {
-            if (helgrind) |hg| {
-                hg.annotateHappensBefore(@ptrToInt(self));
-            }
-
-            const state = switch (builtin.arch) {
-                .i386, .x86_64 => atomic.fetchSub(&self.state, LOCKED, .Release),
-                else => atomic.fetchAnd(&self.state, ~@as(usize, LOCKED), .Release),
-            };
-
-            if ((state & WAITING != 0) and (state & WAKING == 0)) {
-                self.releaseSlow();
-            }
-        }
-
-        fn releaseSlow(self: *Self) void {
-            @setCold(true);
-
-            var state = atomic.load(&self.state, .Relaxed);
-            while (true) {
-                if ((state & WAITING == 0) or (state & (LOCKED | WAKING) != 0)) {
-                    return;
-                }
-
-                state = atomic.tryCompareAndSwap(
-                    &self.state,
-                    state,
-                    state | WAKING,
-                    .Acquire,
-                    .Relaxed,
-                ) orelse {
-                    state |= WAKING;
-                    break;
-                };
-            }
-
-            dequeue: while (true) {
-                const head = @intToPtr(*Waiter, state & WAITING);
-                const tail = head.tail orelse blk: {
-                    var current = head;
-                    while (true) {
-                        const next = current.next orelse unreachable;
-                        next.prev = current;
-                        current = next;
-                        if (current.tail) |tail| {
-                            head.tail = tail;
-                            break :blk tail;
-                        }
-                    }
-                };
-
-                if (state & LOCKED != 0) {
-                    state = atomic.tryCompareAndSwap(
-                        &self.state,
-                        state,
-                        state & ~@as(usize, WAKING),
-                        .Release,
-                        .Acquire,
-                    ) orelse return;
-                    continue;
-                }
-
-                if (tail.prev) |new_tail| {
-                    head.tail = new_tail;
-                    _ = atomic.fetchAnd(&self.state, ~@as(usize, WAKING), .Release);
-                } else {
-                    while (true) {
-                        state = atomic.tryCompareAndSwap(
-                            &self.state,
-                            state,
-                            state & ~@as(usize, WAITING),
-                            .Relaxed,
-                            .Relaxed,
-                        ) orelse break;
-
-                        if (state & WAITING != 0) {
-                            atomic.fence(.Acquire);
-                            continue :dequeue;
-                        }
-                    }
-                }
-
-                if (helgrind) |hg| {
-                    hg.annotateHappensBefore(@ptrToInt(tail));
-                }
-
-                tail.event.set();
-                return;
             }
         }
     };

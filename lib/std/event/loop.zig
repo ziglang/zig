@@ -798,42 +798,44 @@ pub const Loop = struct {
     };
 
     const AutoResetEvent = struct {
-        is_set: bool = false,
-        mutex: std.Thread.Mutex = .{},
-        cond: std.Thread.Condvar = .{},
+        state: enum(u32){unset, set} = .unset,
 
-        fn wait(self: *AutoResetEvent) void {
+        const Self = @This();
+        const atomic = std.sync.atomic;
+        const Futex = std.sync.futex.os;
+
+        fn wait(self: *Self) void {
             return self.waitInner(null) catch unreachable;
         }
 
-        fn timedWait(self: *AutoResetEvent, timeout: u64) error{TimedOut}!void {
+        fn timedWait(self: *Self, timeout: u64) error{TimedOut}!void {
             return self.waitInner(timeout);
         }
 
-        fn waitInner(self: *AutoResetEvent, timeout: ?u64) error{TimedOut}!void {
-            const held = self.mutex.acquire();
-            defer held.release();
-
+        fn waitInner(self: *Self, timeout: ?u64) error{TimedOut}!void {
+            var deadline: ?u64 = null;
+            if (timeout) |timeout_ns| {
+                deadline = Futex.now() + timeout_ns;
+            }
+            
             while (true) {
-                if (self.is_set) {
-                    self.is_set = false;
+                if (atomic.load(&self.state, .SeqCst) == .set) {
+                    atomic.store(&self.state, .unset, .SeqCst);
                     return;
                 }
 
-                if (timeout) |duration| {
-                    try self.cond.tryWaitFor(held, duration);
-                } else {
-                    self.cond.wait(held);
-                }
+                try Futex.wait(
+                    @ptrCast(*const u32, &self.state),
+                    @enumToInt(@TypeOf(self.state).unset),
+                    deadline,
+                );
             }
         }
 
-        fn set(self: *AutoResetEvent) void {
-            const held = self.mutex.acquire();
-            defer held.release();
-
-            self.is_set = true;
-            self.cond.notifyOne();
+        fn set(self: *Self) void {
+            if (atomic.swap(&self.state, .set, .SeqCst) == .unset) {
+                Futex.notifyAll(@ptrCast(*const u32, &self.state));
+            }
         }
     };
 

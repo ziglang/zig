@@ -249,5 +249,5 @@ pub const UL_COMPARE_AND_WAIT64 = 5;
 pub const UL_COMPARE_AND_WAIT64_SHARED = 6;
 pub const ULF_WAIT_ADAPTIVE_SPIN = 0x40000;
 
-pub extern "c" fn __ulock_wait(op: u32, addr: ?*c_void, val: u64, timeout_us: u32) c_int;
-pub extern "c" fn __ulock_wake(op: u32, addr: ?*c_void, val: u64) c_int;
+pub extern "c" fn __ulock_wait(op: u32, addr: ?*const c_void, val: u64, timeout_us: u32) c_int;
+pub extern "c" fn __ulock_wake(op: u32, addr: ?*const c_void, val: u64) c_int;

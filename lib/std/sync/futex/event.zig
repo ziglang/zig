@@ -19,6 +19,9 @@ const Event = struct {
     mutex: std.Thread.Mutex,
     state: State,
 
+    pub const Lock = std.Thread.Mutex;
+    pub const bucket_count = 256;
+
     const Self = @This();
     const State = union(enum) {
         unset,
