@@ -457,9 +457,9 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowE
                     continue;
                 }
 
-                return addZIRInst(mod, parent_scope, src, zir.Inst.BreakVoid, .{
+                return addZirInstTag(mod, parent_scope, src, .break_void, .{
                     .block = continue_block,
-                }, .{});
+                });
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
@@ -1908,22 +1908,13 @@ fn whileExpr(
     if (while_node.inline_token) |tok|
         return mod.failTok(scope, tok, "TODO inline while", .{});
 
-    var expr_scope: Scope.GenZIR = .{
+    var loop_scope: Scope.GenZIR = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
-    setBlockResultLoc(&expr_scope, rl);
-    defer expr_scope.instructions.deinit(mod.gpa);
-
-    var loop_scope: Scope.GenZIR = .{
-        .parent = &expr_scope.base,
-        .decl = expr_scope.decl,
-        .arena = expr_scope.arena,
-        .instructions = .{},
-        .break_result_loc = rl,
-    };
+    setBlockResultLoc(&loop_scope, rl);
     defer loop_scope.instructions.deinit(mod.gpa);
 
     var continue_scope: Scope.GenZIR = .{
@@ -1957,11 +1948,21 @@ fn whileExpr(
     if (while_node.continue_expr) |cont_expr| {
         _ = try expr(mod, &loop_scope.base, .{ .ty = void_type }, cont_expr);
     }
-    const loop = try addZIRInstLoop(mod, &expr_scope.base, while_src, .{
-        .instructions = try expr_scope.arena.dupe(*zir.Inst, loop_scope.instructions.items),
-    });
+    const loop = try scope.arena().create(zir.Inst.Loop);
+    loop.* = .{
+        .base = .{
+            .tag = .loop,
+            .src = while_src,
+        },
+        .positionals = .{
+            .body = .{
+                .instructions = try scope.arena().dupe(*zir.Inst, loop_scope.instructions.items),
+            },
+        },
+        .kw_args = .{},
+    };
     const while_block = try addZIRInstBlock(mod, scope, while_src, .block, .{
-        .instructions = try expr_scope.arena.dupe(*zir.Inst, expr_scope.instructions.items),
+        .instructions = try scope.arena().dupe(*zir.Inst, &[1]*zir.Inst{&loop.base}),
     });
     loop_scope.break_block = while_block;
     loop_scope.continue_block = cond_block;
@@ -1984,8 +1985,8 @@ fn whileExpr(
     // declare payload to the then_scope
     const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, then_src, while_node.payload);
 
-    expr_scope.break_count += 1;
-    const then_result = try expr(mod, then_sub_scope, expr_scope.break_result_loc, while_node.body);
+    loop_scope.break_count += 1;
+    const then_result = try expr(mod, then_sub_scope, loop_scope.break_result_loc, while_node.body);
 
     var else_scope: Scope.GenZIR = .{
         .parent = &continue_scope.base,
@@ -1996,17 +1997,15 @@ fn whileExpr(
     defer else_scope.instructions.deinit(mod.gpa);
 
     var else_src: usize = undefined;
-    var else_sub_scope: *Module.Scope = undefined;
     const else_result: ?*zir.Inst = if (while_node.@"else") |else_node| blk: {
         else_src = tree.token_locs[else_node.body.lastToken()].start;
         // declare payload to the then_scope
-        else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
+        const else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
 
-        expr_scope.break_count += 1;
-        break :blk try expr(mod, else_sub_scope, expr_scope.break_result_loc, else_node.body);
+        loop_scope.break_count += 1;
+        break :blk try expr(mod, else_sub_scope, loop_scope.break_result_loc, else_node.body);
     } else blk: {
         else_src = tree.token_locs[while_node.lastToken()].start;
-        else_sub_scope = &else_scope.base;
         break :blk null;
     };
     if (loop_scope.label) |some| {
@@ -2018,7 +2017,7 @@ fn whileExpr(
         mod,
         scope,
         rl,
-        &expr_scope,
+        &loop_scope,
         &then_scope,
         &else_scope,
         &condbr.positionals.then_body,
@@ -2037,9 +2036,6 @@ fn forExpr(
     rl: ResultLoc,
     for_node: *ast.Node.For,
 ) InnerError!*zir.Inst {
-    if (true) {
-        @panic("TODO reimplement this");
-    }
     if (for_node.label) |label| {
         try checkLabelRedefinition(mod, scope, label);
     }
@@ -2047,42 +2043,34 @@ fn forExpr(
     if (for_node.inline_token) |tok|
         return mod.failTok(scope, tok, "TODO inline for", .{});
 
-    var for_scope: Scope.GenZIR = .{
+    // setup variables and constants
+    const tree = scope.tree();
+    const for_src = tree.token_locs[for_node.for_token].start;
+    const index_ptr = blk: {
+        const usize_type = try addZIRInstConst(mod, scope, for_src, .{
+            .ty = Type.initTag(.type),
+            .val = Value.initTag(.usize_type),
+        });
+        const index_ptr = try addZIRUnOp(mod, scope, for_src, .alloc, usize_type);
+        // initialize to zero
+        const zero = try addZIRInstConst(mod, scope, for_src, .{
+            .ty = Type.initTag(.usize),
+            .val = Value.initTag(.zero),
+        });
+        _ = try addZIRBinOp(mod, scope, for_src, .store, index_ptr, zero);
+        break :blk index_ptr;
+    };
+    const array_ptr = try expr(mod, scope, .ref, for_node.array_expr);
+    const cond_src = tree.token_locs[for_node.array_expr.firstToken()].start;
+    const len = try addZIRUnOp(mod, scope, cond_src, .indexable_ptr_len, array_ptr);
+
+    var loop_scope: Scope.GenZIR = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
         .instructions = .{},
     };
-    defer for_scope.instructions.deinit(mod.gpa);
-
-    // setup variables and constants
-    const tree = scope.tree();
-    const for_src = tree.token_locs[for_node.for_token].start;
-    const index_ptr = blk: {
-        const usize_type = try addZIRInstConst(mod, &for_scope.base, for_src, .{
-            .ty = Type.initTag(.type),
-            .val = Value.initTag(.usize_type),
-        });
-        const index_ptr = try addZIRUnOp(mod, &for_scope.base, for_src, .alloc, usize_type);
-        // initialize to zero
-        const zero = try addZIRInstConst(mod, &for_scope.base, for_src, .{
-            .ty = Type.initTag(.usize),
-            .val = Value.initTag(.zero),
-        });
-        _ = try addZIRBinOp(mod, &for_scope.base, for_src, .store, index_ptr, zero);
-        break :blk index_ptr;
-    };
-    const array_ptr = try expr(mod, &for_scope.base, .ref, for_node.array_expr);
-    const cond_src = tree.token_locs[for_node.array_expr.firstToken()].start;
-    const len = try addZIRUnOp(mod, &for_scope.base, cond_src, .indexable_ptr_len, array_ptr);
-
-    var loop_scope: Scope.GenZIR = .{
-        .parent = &for_scope.base,
-        .decl = for_scope.decl,
-        .arena = for_scope.arena,
-        .instructions = .{},
-        .break_result_loc = rl,
-    };
+    setBlockResultLoc(&loop_scope, rl);
     defer loop_scope.instructions.deinit(mod.gpa);
 
     var cond_scope: Scope.GenZIR = .{
@@ -2115,12 +2103,21 @@ fn forExpr(
     const index_plus_one = try addZIRBinOp(mod, &loop_scope.base, for_src, .add, index_2, one);
     _ = try addZIRBinOp(mod, &loop_scope.base, for_src, .store, index_ptr, index_plus_one);
 
-    // looping stuff
-    const loop = try addZIRInstLoop(mod, &for_scope.base, for_src, .{
-        .instructions = try for_scope.arena.dupe(*zir.Inst, loop_scope.instructions.items),
-    });
+    const loop = try scope.arena().create(zir.Inst.Loop);
+    loop.* = .{
+        .base = .{
+            .tag = .loop,
+            .src = for_src,
+        },
+        .positionals = .{
+            .body = .{
+                .instructions = try scope.arena().dupe(*zir.Inst, loop_scope.instructions.items),
+            },
+        },
+        .kw_args = .{},
+    };
     const for_block = try addZIRInstBlock(mod, scope, for_src, .block, .{
-        .instructions = try for_scope.arena.dupe(*zir.Inst, for_scope.instructions.items),
+        .instructions = try scope.arena().dupe(*zir.Inst, &[1]*zir.Inst{&loop.base}),
     });
     loop_scope.break_block = for_block;
     loop_scope.continue_block = cond_block;
@@ -2140,15 +2137,6 @@ fn forExpr(
         .instructions = .{},
     };
     defer then_scope.instructions.deinit(mod.gpa);
-
-    // Most result location types can be forwarded directly; however
-    // if we need to write to a pointer which has an inferred type,
-    // proper type inference requires peer type resolution on the while's
-    // branches.
-    const branch_rl: ResultLoc = switch (rl) {
-        .discard, .none, .ty, .ptr, .ref => rl,
-        .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = for_block },
-    };
 
     var index_scope: Scope.LocalPtr = undefined;
     const then_sub_scope = blk: {
@@ -2178,16 +2166,8 @@ fn forExpr(
         break :blk &index_scope.base;
     };
 
-    const then_result = try expr(mod, then_sub_scope, branch_rl, for_node.body);
-    if (!then_result.tag.isNoReturn()) {
-        _ = try addZIRInst(mod, then_sub_scope, then_src, zir.Inst.Break, .{
-            .block = cond_block,
-            .operand = then_result,
-        }, .{});
-    }
-    condbr.positionals.then_body = .{
-        .instructions = try then_scope.arena.dupe(*zir.Inst, then_scope.instructions.items),
-    };
+    loop_scope.break_count += 1;
+    const then_result = try expr(mod, then_sub_scope, loop_scope.break_result_loc, for_node.body);
 
     // else branch
     var else_scope: Scope.GenZIR = .{
@@ -2198,30 +2178,35 @@ fn forExpr(
     };
     defer else_scope.instructions.deinit(mod.gpa);
 
-    if (for_node.@"else") |else_node| {
-        const else_src = tree.token_locs[else_node.body.lastToken()].start;
-        const else_result = try expr(mod, &else_scope.base, branch_rl, else_node.body);
-        if (!else_result.tag.isNoReturn()) {
-            _ = try addZIRInst(mod, &else_scope.base, else_src, zir.Inst.Break, .{
-                .block = for_block,
-                .operand = else_result,
-            }, .{});
-        }
-    } else {
-        const else_src = tree.token_locs[for_node.lastToken()].start;
-        _ = try addZIRInst(mod, &else_scope.base, else_src, zir.Inst.BreakVoid, .{
-            .block = for_block,
-        }, .{});
-    }
-    condbr.positionals.else_body = .{
-        .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
+    var else_src: usize = undefined;
+    const else_result: ?*zir.Inst = if (for_node.@"else") |else_node| blk: {
+        else_src = tree.token_locs[else_node.body.lastToken()].start;
+        loop_scope.break_count += 1;
+        break :blk try expr(mod, &else_scope.base, loop_scope.break_result_loc, else_node.body);
+    } else blk: {
+        else_src = tree.token_locs[for_node.lastToken()].start;
+        break :blk null;
     };
     if (loop_scope.label) |some| {
         if (!some.used) {
             return mod.fail(scope, tree.token_locs[some.token].start, "unused for label", .{});
         }
     }
-    return &for_block.base;
+    return finishThenElseBlock(
+        mod,
+        scope,
+        rl,
+        &loop_scope,
+        &then_scope,
+        &else_scope,
+        &condbr.positionals.then_body,
+        &condbr.positionals.else_body,
+        then_src,
+        else_src,
+        then_result,
+        else_result,
+        for_block,
+    );
 }
 
 fn getRangeNode(node: *ast.Node) ?*ast.Node.SimpleInfixOp {
