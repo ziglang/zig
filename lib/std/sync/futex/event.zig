@@ -71,9 +71,11 @@ const Event = struct {
             fn run(event: *Self, waiter: *Waiter, deadline_ns: u64) void {
                 // Schedule this async frame after the deadline using the Delay.
                 // The set() thread can cancel() the delay if its still waiting.
+                global_event_loop.beginOneEvent();
                 suspend {
                     waiter.delay.schedule(@frame(), deadline_ns);
                 }
+                global_event_loop.finishOneEvent();
 
                 // If we're rescheduled, it means the timer was not cancelled
                 // and that it has expired normally.
@@ -129,9 +131,11 @@ const Event = struct {
         // Release the mutex and start sleeping.
         // Must be done inside suspend block or there can be a race where
         // the set() thread wakes it but before it hits suspend; and it deadlocks.
+        global_event_loop.beginOneEvent();
         suspend {
             held.release();
         }
+        global_event_loop.finishOneEvent();
 
         // We are rescheduled in one of threee ways:
         // - a set() thread saw .wait and scheduled us
@@ -157,7 +161,14 @@ const Event = struct {
             break :blk switch (state) {
                 .unset => null,
                 .wait => |node| node,
-                .timed_wait => |waiter| if (waiter.delay.cancel()) &waiter.node else null,
+                .timed_wait => |waiter| {
+                    if (waiter.delay.cancel()) {
+                        global_event_loop.finishOneEvent();
+                        break :blk &waiter.node;
+                    } else {
+                        break :blk null;
+                    }
+                },
                 .set => unreachable,
             };
         };
@@ -182,7 +193,8 @@ pub const TestThread = struct {
     const Self = @This();
 
     pub fn spawn(context: anytype, comptime entryFn: anytype) !*Self {
-        const allocator = std.testing.allocator;
+        // TODO: using std.testing.allocator reports a racy leak
+        const allocator = std.heap.page_allocator;
 
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);

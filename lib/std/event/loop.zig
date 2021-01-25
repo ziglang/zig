@@ -784,11 +784,10 @@ pub const Loop = struct {
             self.queue = &instance.?.delay_queue;
             self.entry.init(frame, deadline);
 
-            self.queue.waiters.insert(&self.entry);
-
             // Speculatively wake up the timer thread when we add a new entry.
             // If the timer thread is sleeping on a longer entry, we need to
             // interrupt it so that our entry can be expired in time.
+            self.queue.waiters.insert(&self.entry);
             self.queue.event.set();
         }
 
