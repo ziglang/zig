@@ -34,7 +34,7 @@ pub fn Mutex(comptime Futex: anytype) type {
         }
 
         pub fn tryAcquire(self: *Self) ?Held {
-            if (atomic.compareAndSwap(
+            if (atomic.tryCompareAndSwap(
                 &self.state,
                 .unlocked,
                 .locked,
@@ -51,22 +51,22 @@ pub fn Mutex(comptime Futex: anytype) type {
             return Held{ .mutex = self };
         }
 
-        pub fn tryAcquireFor(self: *Self, duration: u64) error{TimedOut}!Held {
+        pub inline fn tryAcquireFor(self: *Self, duration: u64) error{TimedOut}!Held {
             return self.acquireInner(Futex.now() + duration);
         }
 
-        pub fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
+        pub inline fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
             return self.acquireInner(deadline);
         }
 
-        pub fn acquire(self: *Self) Held {
+        pub inline fn acquire(self: *Self) Held {
             return self.acquireInner(null) catch unreachable;
         }
 
-        fn acquireInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
-            switch (atomic.swap(&self.state, .locked, .Acquire)) {
-                .unlocked => {},
-                else => |state| try self.acquireSlow(state, deadline),
+        inline fn acquireInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
+            const state = atomic.swap(&self.state, .locked, .Acquire);
+            if (state != .unlocked) {
+                try self.acquireSlow(state, deadline);
             }
 
             if (helgrind) |hg| {
@@ -79,35 +79,39 @@ pub fn Mutex(comptime Futex: anytype) type {
         fn acquireSlow(self: *Self, current_state: State, deadline: ?u64) error{TimedOut}!void {
             @setCold(true);
 
-            var adaptive_spin: usize = 100;
-            while (adaptive_spin > 0) : (adaptive_spin -= 1) {
-                const state = atomic.tryCompareAndSwap(
-                    &self.state,
-                    .unlocked,
-                    current_state,
-                    .Acquire,
-                    .Relaxed,
-                ) orelse return;
-
-                if (state == .contended) {
-                    break;
-                }
-
-                var spin = std.math.min(32, std.math.max(8, adaptive_spin));
-                while (spin > 0) : (spin -= 1) {
-                    atomic.spinLoopHint();
-                }
-            }
-
+            var new_state = current_state;
             while (true) {
-                const state = atomic.swap(&self.state, .contended, .Acquire);
-                if (state == .unlocked) {
+
+                var spin_iter: std.math.Log2Int(usize) = 0;
+                while (spin_iter < 10) : (spin_iter += 1) {
+                    switch (atomic.load(&self.state, .Relaxed)) {
+                        .unlocked => _ = atomic.tryCompareAndSwap(
+                            &self.state,
+                            .unlocked,
+                            new_state,
+                            .Acquire,
+                            .Relaxed,
+                        ) orelse return,
+                        .locked => {},
+                        .contended => break,
+                    }
+
+                    var spin = std.math.max(100, @as(usize, 1) << spin_iter);
+                    while (spin > 0) : (spin -= 1) {
+                        atomic.spinLoopHint();
+                    }
+                }
+
+                new_state = .contended;
+                if (atomic.swap(&self.state, .contended, .Acquire) == .unlocked) {
                     return;
                 }
 
-                const ptr = @ptrCast(*const u32, &self.state);
-                const expect = @enumToInt(State.contended);
-                try Futex.wait(ptr, expect, deadline);
+                try Futex.wait(
+                    @ptrCast(*const u32, &self.state),
+                    @enumToInt(State.contended),
+                    deadline,
+                );
             }
         }
 
@@ -134,8 +138,10 @@ pub fn Mutex(comptime Futex: anytype) type {
         fn releaseSlow(self: *Self) void {
             @setCold(true);
 
-            const ptr = @ptrCast(*const u32, &self.state);
-            Futex.wake(ptr, 1);
+            Futex.wake(
+                @ptrCast(*const u32, &self.state),
+                @as(u32, 1),
+            );
         }
     };
 }
