@@ -17,6 +17,18 @@ const linux = std.os.linux;
 const Mutex = std.Thread.Mutex;
 const assert = std.debug.assert;
 
+pub fn wait(cond: *Condition, mutex: *Mutex) void {
+    cond.impl.wait(mutex);
+}
+
+pub fn signal(cond: *Condition) void {
+    cond.impl.signal();
+}
+
+pub fn broadcast(cond: *Condition) void {
+    cond.impl.broadcast();
+}
+
 const Impl = if (std.builtin.single_threaded)
     SingleThreadedCondition
 else if (std.Target.current.os.tag == .windows)
