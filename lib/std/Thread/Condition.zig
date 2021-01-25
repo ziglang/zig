@@ -62,7 +62,7 @@ pub const PthreadCondition = struct {
     cond: std.c.pthread_cond_t = .{},
 
     pub fn wait(cond: *PthreadCondition, mutex: *Mutex) void {
-        const rc = std.c.pthread_cond_wait(&cond.cond, &mutex.mutex);
+        const rc = std.c.pthread_cond_wait(&cond.cond, &mutex.impl.pthread_mutex);
         assert(rc == 0);
     }
 
