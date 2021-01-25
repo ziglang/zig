@@ -18,7 +18,7 @@ pub fn WaitGroup(comptime Futex: type) type {
         state: State = .empty,
 
         const Self = @This();
-        const State = enum(u32) {
+        const State = extern enum(u32) {
             empty,
             waiting,
         };
@@ -128,13 +128,16 @@ pub fn WaitGroup(comptime Futex: type) type {
         }
 
         pub fn tryWait(self: *Self) bool {
-            const would_block = atomic.load(&self.counter, .Acquire) != 0;
+            const counter = atomic.load(&self.counter, .Acquire);
+            if (counter != 0) {
+                return false;
+            }
 
             if (helgrind) |hg| {
                 hg.annotateHappensAfter(@ptrToInt(self));
             }
 
-            return !would_block;
+            return true;
         }
 
         pub inline fn wait(self: *Self) void {
@@ -151,9 +154,8 @@ pub fn WaitGroup(comptime Futex: type) type {
 
         fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void {
             while (true) {
-                var counter = atomic.load(&self.counter, .Acquire);
-                if (counter == 0) {
-                    break;
+                if (self.tryWait()) {
+                    return;
                 }
 
                 var state = atomic.load(&self.state, .Relaxed);
@@ -169,9 +171,8 @@ pub fn WaitGroup(comptime Futex: type) type {
                         continue;
                     }
 
-                    counter = atomic.load(&self.counter, .Acquire);
-                    if (counter == 0) {
-                        break;
+                    if (self.tryWait()) {
+                        return;
                     }
                 }
 
@@ -180,10 +181,6 @@ pub fn WaitGroup(comptime Futex: type) type {
                     @enumToInt(State.waiting),
                     deadline,
                 );
-            }
-
-            if (helgrind) |hg| {
-                hg.annotateHappensAfter(@ptrToInt(self));
             }
         }
 
