@@ -14,13 +14,18 @@ const helgrind: ?type = if (builtin.valgrind_support) std.valgrind.helgrind else
 
 pub fn WaitGroup(comptime Futex: type) type {
     return extern struct {
-        counter: u32 = 0,
+        counter: usize = 0,
+        state: State = .empty,
 
         const Self = @This();
+        const State = enum(u32) {
+            empty,
+            waiting,
+        };
 
         pub const Dummy = DebugWaitGroup;
 
-        pub fn init(amount: u32) Self {
+        pub fn init(amount: usize) Self {
             return .{ .counter = amount };
         }
 
@@ -32,19 +37,23 @@ pub fn WaitGroup(comptime Futex: type) type {
             self.* = undefined;
         }
 
-        pub fn begin(self: *Self, amount: u32) void {
+        pub fn begin(self: *Self, amount: usize) void {
             if (amount == 0) {
                 return;
             }
 
-            _ = atomic.fetchAdd(&self.counter, amount, .SeqCst);
+            _ = atomic.fetchAdd(&self.counter, amount, .Relaxed);
         }
 
-        pub fn tryBegin(self: *Self, amount: u32) bool {
+        pub fn tryBegin(self: *Self, amount: usize) bool {
             return self.apply(true, amount);
         }
 
-        pub fn end(self: *Self, amount: u32) void {
+        pub inline fn done(self: *Self) void {
+            self.end(1);
+        }
+
+        pub fn end(self: *Self, amount: usize) void {
             if (amount == 0) {
                 return;
             }
@@ -53,53 +62,49 @@ pub fn WaitGroup(comptime Futex: type) type {
                 hg.annotateHappensBefore(@ptrToInt(self));
             }
 
-            const counter = atomic.fetchSub(&self.counter, amount, .SeqCst);
+            const counter = atomic.fetchSub(&self.counter, amount, .Release);
+            assert(counter >= amount);
+
             if (counter - amount == 0) {
-                Futex.wake(&self.counter, std.math.maxInt(u32));
+                self.notify();
             }
         }
 
-        pub fn tryEnd(self: *Self, amount: u32) bool {
+        pub inline fn tryEnd(self: *Self, amount: usize) bool {
             return self.apply(false, amount);
         }
 
-        pub fn add(self: *Self, amount: i32) void {
+        pub fn add(self: *Self, amount: isize) void {
             if (amount == 0) {
                 return;
             } else if (amount < 0) {
-                self.end(@intCast(u32, -amount));
+                self.end(@intCast(usize, -amount));
             } else {
-                self.begin(@intCast(u32, amount));
+                self.begin(@intCast(usize, amount));
             }
         }
 
-        pub fn tryAdd(self: *Self, amount: i32) bool {
+        pub fn tryAdd(self: *Self, amount: isize) bool {
             const is_add = amount > 0;
-            const value = @intCast(u32, if (is_add) amount else -amount);
+            const value = @intCast(usize, if (is_add) amount else -amount);
             return self.apply(is_add, value);
         }
 
-        pub fn done(self: *Self) void {
-            self.end(1);
-        }
-
-        fn apply(self: *Self, is_add: bool, amount: u32) bool {
+        fn apply(self: *Self, is_add: bool, amount: usize) bool {
             if (amount == 0) {
                 return true;
             }
 
             if (helgrind) |hg| {
-                if (!is_add) {
-                    hg.annotateHappensBefore(@ptrToInt(self));
-                }
+                hg.annotateHappensBefore(@ptrToInt(self));
             }
 
-            var new_counter: u32 = undefined;
-            var counter = atomic.load(&self.counter, .SeqCst);
+            var new_counter: usize = undefined;
+            var counter = atomic.load(&self.counter, .Relaxed);
             while (true) {
                 const overflowed = switch (is_add) {
-                    true => @addWithOverflow(u32, counter, amount, &new_counter),
-                    else => @subWithOverflow(u32, counter, amount, &new_counter),
+                    true => @addWithOverflow(usize, counter, amount, &new_counter),
+                    else => @subWithOverflow(usize, counter, amount, &new_counter),
                 };
 
                 if (overflowed) {
@@ -110,52 +115,69 @@ pub fn WaitGroup(comptime Futex: type) type {
                     &self.counter,
                     counter,
                     new_counter,
-                    .SeqCst,
-                    .SeqCst,
+                    .Release,
+                    .Relaxed,
                 ) orelse break;
             }
 
             if (!is_add and new_counter == 0) {
-                Futex.wake(&self.counter, std.math.maxInt(u32));
+                self.notify();
             }
 
             return true;
         }
 
         pub fn tryWait(self: *Self) bool {
-            const would_block = atomic.load(&self.counter, .SeqCst) != 0;
+            const would_block = atomic.load(&self.counter, .Acquire) != 0;
 
             if (helgrind) |hg| {
-                if (!would_block) {
-                    hg.annotateHappensAfter(@ptrToInt(self));
-                }
+                hg.annotateHappensAfter(@ptrToInt(self));
             }
 
             return !would_block;
         }
 
-        pub fn wait(self: *Self) void {
+        pub inline fn wait(self: *Self) void {
             return self.waitInner(null) catch unreachable;
         }
 
-        pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        pub inline fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
             return self.tryWaitUntil(Futex.now() + duration);
         }
 
-        pub fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        pub inline fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
             return self.waitInner(deadline);
         }
 
         fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void {
             while (true) {
-                const counter = atomic.load(&self.counter, .SeqCst);
+                var counter = atomic.load(&self.counter, .Acquire);
                 if (counter == 0) {
                     break;
                 }
 
+                var state = atomic.load(&self.state, .Relaxed);
+                if (state != .waiting) {
+                    if (atomic.tryCompareAndSwap(
+                        &self.state,
+                        state,
+                        .waiting,
+                        .Relaxed,
+                        .Relaxed,
+                    )) |failed| {
+                        atomic.spinLoopHint();
+                        continue;
+                    }
+
+                    counter = atomic.load(&self.counter, .Acquire);
+                    if (counter == 0) {
+                        break;
+                    }
+                }
+
                 try Futex.wait(
-                    &self.counter,
-                    counter,
+                    @ptrCast(*const u32, &self.state),
+                    @enumToInt(State.waiting),
                     deadline,
                 );
             }
@@ -164,15 +186,27 @@ pub fn WaitGroup(comptime Futex: type) type {
                 hg.annotateHappensAfter(@ptrToInt(self));
             }
         }
+
+        fn notify(self: *Self) void {
+            @setCold(true);
+
+            const state = atomic.swap(&self.state, .empty, .Relaxed);
+            if (state == .waiting) {
+                Futex.wake(
+                    @ptrCast(*const u32, &self.state),
+                    std.math.maxInt(u32),
+                );
+            }
+        }
     };
 }
 
 pub const DebugWaitGroup = extern struct {
-    counter: u32 = 0,
+    counter: usize = 0,
 
     const Self = @This();
 
-    pub fn init(amount: u32) Self {
+    pub fn init(amount: usize) Self {
         return .{ .counter = amount };
     }
 
@@ -180,29 +214,29 @@ pub const DebugWaitGroup = extern struct {
         self.* = undefined;
     }
 
-    pub fn begin(self: *Self, amount: u32) void {
+    pub fn begin(self: *Self, amount: usize) void {
         assert(self.tryBegin(amount));
     }
 
-    pub fn tryBegin(self: *Self, amount: u32) bool {
+    pub fn tryBegin(self: *Self, amount: usize) bool {
         return self.apply(true, amount);
     }
 
-    pub fn end(self: *Self, amount: u32) void {
+    pub fn end(self: *Self, amount: usize) void {
         assert(self.tryEnd(amount));
     }
 
-    pub fn tryEnd(self: *Self, amount: u32) bool {
+    pub fn tryEnd(self: *Self, amount: usize) bool {
         return self.apply(false, amount);
     }
 
-    pub fn add(self: *Self, amount: i32) void {
+    pub fn add(self: *Self, amount: isize) void {
         assert(self.tryAdd(amount));
     }
 
-    pub fn tryAdd(self: *Self, amount: i32) bool {
+    pub fn tryAdd(self: *Self, amount: isize) bool {
         const is_add = amount > 0;
-        const value = @intCast(u32, if (is_add) amount else -amount);
+        const value = @intCast(usize, if (is_add) amount else -amount);
         return self.apply(is_add, value);
     }
 
@@ -210,15 +244,15 @@ pub const DebugWaitGroup = extern struct {
         self.end(1);
     }
 
-    fn apply(self: *Self, is_add: bool, amount: u32) bool {
+    fn apply(self: *Self, is_add: bool, amount: usize) bool {
         if (amount == 0) {
             return true;
         }
 
-        var new_counter: u32 = undefined;
+        var new_counter: usize = undefined;
         const overflowed = switch (is_add) {
-            true => @addWithOverflow(u32, self.counter, amount, &new_counter),
-            else => @subWithOverflow(u32, self.counter, amount, &new_counter),
+            true => @addWithOverflow(usize, self.counter, amount, &new_counter),
+            else => @subWithOverflow(usize, self.counter, amount, &new_counter),
         };
 
         if (!overflowed) {
@@ -261,7 +295,7 @@ test "WaitGroup - Debug" {
     try testWaitGroup(DebugWaitGroup, null);
 }
 
-test "WaitGroup - OS" {
+test "WaitGroup - Os" {
     try testWaitGroup(WaitGroup(std.sync.futex.os), std.Thread);
 }
 
@@ -270,8 +304,11 @@ test "WaitGroup - Spin" {
 }
 
 test "WaitGroup - Evented" {
-    // TODO: std.event.Thread
-    // try testWaitGroup(WaitGroup(std.sync.futex.event), null);
+    if (!std.io.is_async or std.builtin.single_threaded) return error.SkipZigTest;
+    try testWaitGroup(
+        WaitGroup(std.sync.futex.event),
+        @import("../futex/event.zig").TestThread,
+    );
 }
 
 fn testWaitGroup(
@@ -289,7 +326,7 @@ fn testWaitGroup(
         wg.done();
         wg.wait();
 
-        const max = std.math.maxInt(u32);
+        const max = std.math.maxInt(usize);
         wg.begin(1);
         testing.expect(!wg.tryBegin(max));
         testing.expect(!wg.tryEnd(2));
