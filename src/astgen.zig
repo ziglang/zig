@@ -566,11 +566,10 @@ fn labeledBlockExpr(
             .block_inst = block_inst,
         }),
     };
+    setBlockResultLoc(&block_scope, rl);
     defer block_scope.instructions.deinit(mod.gpa);
     defer block_scope.labeled_breaks.deinit(mod.gpa);
     defer block_scope.labeled_store_to_block_ptr_list.deinit(mod.gpa);
-
-    setBlockResultLoc(&block_scope, rl);
 
     try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
 
@@ -1337,9 +1336,6 @@ fn orelseCatchExpr(
     rhs: *ast.Node,
     payload_node: ?*ast.Node,
 ) InnerError!*zir.Inst {
-    if (true) {
-        @panic("TODO reimplement this");
-    }
     const tree = scope.tree();
     const src = tree.token_locs[op_token].start;
 
@@ -1349,22 +1345,12 @@ fn orelseCatchExpr(
         .arena = scope.arena(),
         .instructions = .{},
     };
+    setBlockResultLoc(&block_scope, rl);
     defer block_scope.instructions.deinit(mod.gpa);
 
-    const block = try addZIRInstBlock(mod, scope, src, .block, .{
-        .instructions = undefined, // populated below
-    });
-
-    // Most result location types can be forwarded directly; however
-    // if we need to write to a pointer which has an inferred type,
-    // proper type inference requires peer type resolution on the if's
-    // branches.
-    const branch_rl: ResultLoc = switch (rl) {
-        .discard, .none, .ty, .ptr, .ref => rl,
-        .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block },
-    };
     // This could be a pointer or value depending on the `rl` parameter.
-    const operand = try expr(mod, &block_scope.base, branch_rl, lhs);
+    block_scope.break_count += 1;
+    const operand = try expr(mod, &block_scope.base, block_scope.break_result_loc, lhs);
     const cond = try addZIRUnOp(mod, &block_scope.base, src, cond_op, operand);
 
     const condbr = try addZIRInstSpecial(mod, &block_scope.base, src, zir.Inst.CondBr, .{
@@ -1372,6 +1358,10 @@ fn orelseCatchExpr(
         .then_body = undefined, // populated below
         .else_body = undefined, // populated below
     }, .{});
+
+    const block = try addZIRInstBlock(mod, scope, src, .block, .{
+        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+    });
 
     var then_scope: Scope.GenZIR = .{
         .parent = &block_scope.base,
@@ -1383,8 +1373,7 @@ fn orelseCatchExpr(
 
     var err_val_scope: Scope.LocalVal = undefined;
     const then_sub_scope = blk: {
-        const payload = payload_node orelse
-            break :blk &then_scope.base;
+        const payload = payload_node orelse break :blk &then_scope.base;
 
         const err_name = tree.tokenSlice(payload.castTag(.Payload).?.error_symbol.firstToken());
         if (mem.eql(u8, err_name, "_"))
@@ -1399,10 +1388,8 @@ fn orelseCatchExpr(
         break :blk &err_val_scope.base;
     };
 
-    _ = try addZIRInst(mod, &then_scope.base, src, zir.Inst.Break, .{
-        .block = block,
-        .operand = try expr(mod, then_sub_scope, branch_rl, rhs),
-    }, .{});
+    block_scope.break_count += 1;
+    const then_result = try expr(mod, then_sub_scope, block_scope.break_result_loc, rhs);
 
     var else_scope: Scope.GenZIR = .{
         .parent = &block_scope.base,
@@ -1414,17 +1401,97 @@ fn orelseCatchExpr(
 
     // This could be a pointer or value depending on `unwrap_op`.
     const unwrapped_payload = try addZIRUnOp(mod, &else_scope.base, src, unwrap_op, operand);
-    _ = try addZIRInst(mod, &else_scope.base, src, zir.Inst.Break, .{
-        .block = block,
-        .operand = unwrapped_payload,
-    }, .{});
 
-    // All branches have been generated, add the instructions to the block.
-    block.positionals.body.instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items);
+    return finishThenElseBlock(
+        mod,
+        scope,
+        rl,
+        &block_scope,
+        &then_scope,
+        &else_scope,
+        &condbr.positionals.then_body,
+        &condbr.positionals.else_body,
+        src,
+        src,
+        then_result,
+        unwrapped_payload,
+        block,
+    );
+}
 
-    condbr.positionals.then_body = .{ .instructions = try then_scope.arena.dupe(*zir.Inst, then_scope.instructions.items) };
-    condbr.positionals.else_body = .{ .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items) };
-    return &block.base;
+fn finishThenElseBlock(
+    mod: *Module,
+    parent_scope: *Scope,
+    rl: ResultLoc,
+    block_scope: *Scope.GenZIR,
+    then_scope: *Scope.GenZIR,
+    else_scope: *Scope.GenZIR,
+    then_body: *zir.Body,
+    else_body: *zir.Body,
+    then_src: usize,
+    else_src: usize,
+    then_result: *zir.Inst,
+    else_result: ?*zir.Inst,
+    block: *zir.Inst.Block,
+) InnerError!*zir.Inst {
+    // We now have enough information to decide whether the result instruction should
+    // be communicated via result location pointer or break instructions.
+    const strat = rlStrategy(rl, block_scope);
+    switch (strat.tag) {
+        .break_void => {
+            if (!then_result.tag.isNoReturn()) {
+                _ = try addZirInstTag(mod, &then_scope.base, then_src, .break_void, .{
+                    .block = block,
+                });
+            }
+            if (else_result) |inst| {
+                if (!inst.tag.isNoReturn()) {
+                    _ = try addZirInstTag(mod, &else_scope.base, else_src, .break_void, .{
+                        .block = block,
+                    });
+                }
+            } else {
+                _ = try addZirInstTag(mod, &else_scope.base, else_src, .break_void, .{
+                    .block = block,
+                });
+            }
+            assert(!strat.elide_store_to_block_ptr_instructions);
+            try copyBodyNoEliding(then_body, then_scope.*);
+            try copyBodyNoEliding(else_body, else_scope.*);
+            return &block.base;
+        },
+        .break_operand => {
+            if (!then_result.tag.isNoReturn()) {
+                _ = try addZirInstTag(mod, &then_scope.base, then_src, .@"break", .{
+                    .block = block,
+                    .operand = then_result,
+                });
+            }
+            if (else_result) |inst| {
+                if (!inst.tag.isNoReturn()) {
+                    _ = try addZirInstTag(mod, &else_scope.base, else_src, .@"break", .{
+                        .block = block,
+                        .operand = inst,
+                    });
+                }
+            } else {
+                _ = try addZirInstTag(mod, &else_scope.base, else_src, .break_void, .{
+                    .block = block,
+                });
+            }
+            if (strat.elide_store_to_block_ptr_instructions) {
+                try copyBodyWithElidedStoreBlockPtr(then_body, then_scope.*);
+                try copyBodyWithElidedStoreBlockPtr(else_body, else_scope.*);
+            } else {
+                try copyBodyNoEliding(then_body, then_scope.*);
+                try copyBodyNoEliding(else_body, else_scope.*);
+            }
+            switch (rl) {
+                .ref => return &block.base,
+                else => return rvalue(mod, parent_scope, rl, &block.base),
+            }
+        },
+    }
 }
 
 /// Return whether the identifier names of two tokens are equal. Resolves @""
@@ -1724,9 +1791,8 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
         .arena = scope.arena(),
         .instructions = .{},
     };
-    defer block_scope.instructions.deinit(mod.gpa);
-
     setBlockResultLoc(&block_scope, rl);
+    defer block_scope.instructions.deinit(mod.gpa);
 
     const tree = scope.tree();
     const if_src = tree.token_locs[if_node.if_token].start;
@@ -1783,64 +1849,21 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
         break :blk null;
     };
 
-    // We now have enough information to decide whether the result instruction should
-    // be communicated via result location pointer or break instructions.
-    const strat = rlStrategy(rl, &block_scope);
-    switch (strat.tag) {
-        .break_void => {
-            if (!then_result.tag.isNoReturn()) {
-                _ = try addZirInstTag(mod, then_sub_scope, then_src, .break_void, .{
-                    .block = block,
-                });
-            }
-            if (else_result) |inst| {
-                if (!inst.tag.isNoReturn()) {
-                    _ = try addZirInstTag(mod, else_sub_scope, else_src, .break_void, .{
-                        .block = block,
-                    });
-                }
-            } else {
-                _ = try addZirInstTag(mod, else_sub_scope, else_src, .break_void, .{
-                    .block = block,
-                });
-            }
-            assert(!strat.elide_store_to_block_ptr_instructions);
-            try copyBodyNoEliding(&condbr.positionals.then_body, then_scope);
-            try copyBodyNoEliding(&condbr.positionals.else_body, else_scope);
-            return &block.base;
-        },
-        .break_operand => {
-            if (!then_result.tag.isNoReturn()) {
-                _ = try addZirInstTag(mod, then_sub_scope, then_src, .@"break", .{
-                    .block = block,
-                    .operand = then_result,
-                });
-            }
-            if (else_result) |inst| {
-                if (!inst.tag.isNoReturn()) {
-                    _ = try addZirInstTag(mod, else_sub_scope, else_src, .@"break", .{
-                        .block = block,
-                        .operand = inst,
-                    });
-                }
-            } else {
-                _ = try addZirInstTag(mod, else_sub_scope, else_src, .break_void, .{
-                    .block = block,
-                });
-            }
-            if (strat.elide_store_to_block_ptr_instructions) {
-                try copyBodyWithElidedStoreBlockPtr(&condbr.positionals.then_body, then_scope);
-                try copyBodyWithElidedStoreBlockPtr(&condbr.positionals.else_body, else_scope);
-            } else {
-                try copyBodyNoEliding(&condbr.positionals.then_body, then_scope);
-                try copyBodyNoEliding(&condbr.positionals.else_body, else_scope);
-            }
-            switch (rl) {
-                .ref => return &block.base,
-                else => return rvalue(mod, scope, rl, &block.base),
-            }
-        },
-    }
+    return finishThenElseBlock(
+        mod,
+        scope,
+        rl,
+        &block_scope,
+        &then_scope,
+        &else_scope,
+        &condbr.positionals.then_body,
+        &condbr.positionals.else_body,
+        then_src,
+        else_src,
+        then_result,
+        else_result,
+        block,
+    );
 }
 
 /// Expects to find exactly 1 .store_to_block_ptr instruction.
