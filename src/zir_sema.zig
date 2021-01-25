@@ -155,6 +155,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .switch_range => return zirSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
         .bool_and => return zirBoolOp(mod, scope, old_inst.castTag(.bool_and).?),
         .bool_or => return zirBoolOp(mod, scope, old_inst.castTag(.bool_or).?),
+        .void_value => return mod.constVoid(scope, old_inst.src),
 
         .container_field_named,
         .container_field_typed,
@@ -447,6 +448,8 @@ fn zirStoreToBlockPtr(
     const ptr = try resolveInst(mod, scope, inst.positionals.lhs);
     const value = try resolveInst(mod, scope, inst.positionals.rhs);
     const ptr_ty = try mod.simplePtrType(scope, inst.base.src, value.ty, true, .One);
+    // TODO detect when this store should be done at compile-time. For example,
+    // if expressions should force it when the condition is compile-time known.
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     const bitcasted_ptr = try mod.addUnOp(b, inst.base.src, ptr_ty, .bitcast, ptr);
     return mod.storePtr(scope, inst.base.src, bitcasted_ptr, value);

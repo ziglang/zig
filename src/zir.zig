@@ -264,8 +264,7 @@ pub const Inst = struct {
         /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// Same as `store` but the type of the value being stored will be used to infer
-        /// the block type. The LHS is a block instruction, whose result location is
-        /// being stored to.
+        /// the block type. The LHS is the pointer to store to.
         store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
@@ -343,6 +342,8 @@ pub const Inst = struct {
         /// Only checks that `lhs >= rhs` if they are ints, everything else is
         /// validated by the .switch instruction.
         switch_range,
+        /// Does nothing; returns a void value.
+        void_value,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -355,6 +356,7 @@ pub const Inst = struct {
                 .ret_type,
                 .unreachable_unsafe,
                 .unreachable_safe,
+                .void_value,
                 => NoOp,
 
                 .alloc,
@@ -611,6 +613,7 @@ pub const Inst = struct {
                 .enum_type,
                 .union_type,
                 .struct_type,
+                .void_value,
                 => false,
 
                 .@"break",
@@ -1640,9 +1643,9 @@ const DumpTzir = struct {
                     try dtz.fetchInstsAndResolveConsts(br_block_flat.body);
                 },
 
-                .brvoid => {
-                    const brvoid = inst.castTag(.brvoid).?;
-                    try dtz.findConst(&brvoid.block.base);
+                .br_void => {
+                    const br_void = inst.castTag(.br_void).?;
+                    try dtz.findConst(&br_void.block.base);
                 },
 
                 .block => {
@@ -1803,9 +1806,9 @@ const DumpTzir = struct {
                     try writer.writeAll("})\n");
                 },
 
-                .brvoid => {
-                    const brvoid = inst.castTag(.brvoid).?;
-                    const kinky = try dtz.writeInst(writer, &brvoid.block.base);
+                .br_void => {
+                    const br_void = inst.castTag(.br_void).?;
+                    const kinky = try dtz.writeInst(writer, &br_void.block.base);
                     if (kinky) |_| {
                         try writer.writeAll(") // Instruction does not dominate all uses!\n");
                     } else {

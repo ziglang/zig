@@ -38,6 +38,21 @@ pub const ResultLoc = union(enum) {
     /// is inferred based on peer type resolution for a `zir.Inst.Block`.
     /// The result instruction from the expression must be ignored.
     block_ptr: *Module.Scope.GenZIR,
+
+    pub const Strategy = struct {
+        elide_store_to_block_ptr_instructions: bool,
+        tag: Tag,
+
+        pub const Tag = enum {
+            /// Both branches will use break_void; result location is used to communicate the
+            /// result instruction.
+            break_void,
+            /// Use break statements to pass the block result value, and call rvalue() at
+            /// the end depending on rl. Also elide the store_to_block_ptr instructions
+            /// depending on rl.
+            break_operand,
+        };
+    };
 };
 
 pub fn typeExpr(mod: *Module, scope: *Scope, type_node: *ast.Node) InnerError!*zir.Inst {
@@ -348,10 +363,11 @@ pub fn comptimeExpr(mod: *Module, parent_scope: *Scope, rl: ResultLoc, node: *as
     return &block.base;
 }
 
-fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpression) InnerError!*zir.Inst {
-    if (true) {
-        @panic("TODO reimplement this");
-    }
+fn breakExpr(
+    mod: *Module,
+    parent_scope: *Scope,
+    node: *ast.Node.ControlFlowExpression,
+) InnerError!*zir.Inst {
     const tree = parent_scope.tree();
     const src = tree.token_locs[node.ltoken].start;
 
@@ -377,25 +393,31 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpr
                     continue;
                 };
 
-                if (node.getRHS()) |rhs| {
-                    // Most result location types can be forwarded directly; however
-                    // if we need to write to a pointer which has an inferred type,
-                    // proper type inference requires peer type resolution on the block's
-                    // break operand expressions.
-                    const branch_rl: ResultLoc = switch (gen_zir.break_result_loc) {
-                        .discard, .none, .ty, .ptr, .ref => gen_zir.break_result_loc,
-                        .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block_inst },
-                    };
-                    const operand = try expr(mod, parent_scope, branch_rl, rhs);
-                    return try addZIRInst(mod, parent_scope, src, zir.Inst.Break, .{
+                const rhs = node.getRHS() orelse {
+                    return addZirInstTag(mod, parent_scope, src, .break_void, .{
                         .block = block_inst,
-                        .operand = operand,
-                    }, .{});
-                } else {
-                    return try addZIRInst(mod, parent_scope, src, zir.Inst.BreakVoid, .{
-                        .block = block_inst,
-                    }, .{});
+                    });
+                };
+                gen_zir.break_count += 1;
+                const prev_rvalue_rl_count = gen_zir.rvalue_rl_count;
+                const operand = try expr(mod, parent_scope, gen_zir.break_result_loc, rhs);
+                const have_store_to_block = gen_zir.rvalue_rl_count != prev_rvalue_rl_count;
+                const br = try addZirInstTag(mod, parent_scope, src, .@"break", .{
+                    .block = block_inst,
+                    .operand = operand,
+                });
+                if (gen_zir.break_result_loc == .block_ptr) {
+                    try gen_zir.labeled_breaks.append(mod.gpa, br.castTag(.@"break").?);
+
+                    if (have_store_to_block) {
+                        const inst_list = parent_scope.cast(Scope.GenZIR).?.instructions.items;
+                        const last_inst = inst_list[inst_list.len - 2];
+                        const store_inst = last_inst.castTag(.store_to_block_ptr).?;
+                        assert(store_inst.positionals.lhs == gen_zir.rl_ptr.?);
+                        try gen_zir.labeled_store_to_block_ptr_list.append(mod.gpa, store_inst);
+                    }
                 }
+                return br;
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
@@ -538,7 +560,6 @@ fn labeledBlockExpr(
         .decl = parent_scope.ownerDecl().?,
         .arena = gen_zir.arena,
         .instructions = .{},
-        .break_result_loc = rl,
         // TODO @as here is working around a stage1 miscompilation bug :(
         .label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
             .token = block_node.label,
@@ -546,19 +567,57 @@ fn labeledBlockExpr(
         }),
     };
     defer block_scope.instructions.deinit(mod.gpa);
+    defer block_scope.labeled_breaks.deinit(mod.gpa);
+    defer block_scope.labeled_store_to_block_ptr_list.deinit(mod.gpa);
+
+    setBlockResultLoc(&block_scope, rl);
 
     try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
+
     if (!block_scope.label.?.used) {
         return mod.fail(parent_scope, tree.token_locs[block_node.label].start, "unused block label", .{});
     }
 
-    block_inst.positionals.body.instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items);
     try gen_zir.instructions.append(mod.gpa, &block_inst.base);
 
-    return &block_inst.base;
+    const strat = rlStrategy(rl, &block_scope);
+    switch (strat.tag) {
+        .break_void => {
+            // The code took advantage of the result location as a pointer.
+            // Turn the break instructions into break_void instructions.
+            for (block_scope.labeled_breaks.items) |br| {
+                br.base.tag = .break_void;
+            }
+            // TODO technically not needed since we changed the tag to break_void but
+            // would be better still to elide the ones that are in this list.
+            try copyBodyNoEliding(&block_inst.positionals.body, block_scope);
+
+            return &block_inst.base;
+        },
+        .break_operand => {
+            // All break operands are values that did not use the result location pointer.
+            if (strat.elide_store_to_block_ptr_instructions) {
+                for (block_scope.labeled_store_to_block_ptr_list.items) |inst| {
+                    inst.base.tag = .void_value;
+                }
+                // TODO technically not needed since we changed the tag to void_value but
+                // would be better still to elide the ones that are in this list.
+            }
+            try copyBodyNoEliding(&block_inst.positionals.body, block_scope);
+            switch (rl) {
+                .ref => return &block_inst.base,
+                else => return rvalue(mod, parent_scope, rl, &block_inst.base),
+            }
+        },
+    }
 }
 
-fn blockExprStmts(mod: *Module, parent_scope: *Scope, node: *ast.Node, statements: []*ast.Node) !void {
+fn blockExprStmts(
+    mod: *Module,
+    parent_scope: *Scope,
+    node: *ast.Node,
+    statements: []*ast.Node,
+) !void {
     const tree = parent_scope.tree();
 
     var block_arena = std.heap.ArenaAllocator.init(mod.gpa);
@@ -1659,7 +1718,6 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
             cond_kind = .{ .err_union = null };
         }
     }
-    const block_branch_count = 2; // then and else
     var block_scope: Scope.GenZIR = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
@@ -1667,6 +1725,8 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
         .instructions = .{},
     };
     defer block_scope.instructions.deinit(mod.gpa);
+
+    setBlockResultLoc(&block_scope, rl);
 
     const tree = scope.tree();
     const if_src = tree.token_locs[if_node.if_token].start;
@@ -1682,33 +1742,6 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
-    // Depending on whether the result location is a pointer or value, different
-    // ZIR needs to be generated. In the former case we rely on storing to the
-    // pointer to communicate the result, and use breakvoid; in the latter case
-    // the block break instructions will have the result values.
-    // One more complication: when the result location is a pointer, we detect
-    // the scenario where the result location is not consumed. In this case
-    // we emit ZIR for the block break instructions to have the result values,
-    // and then rvalue() on that to pass the value to the result location.
-    const branch_rl: ResultLoc = switch (rl) {
-        .discard, .none, .ty, .ptr, .ref => rl,
-
-        .inferred_ptr => |ptr| blk: {
-            block_scope.rl_ptr = &ptr.base;
-            break :blk .{ .block_ptr = &block_scope };
-        },
-
-        .bitcasted_ptr => |ptr| blk: {
-            block_scope.rl_ptr = &ptr.base;
-            break :blk .{ .block_ptr = &block_scope };
-        },
-
-        .block_ptr => |parent_block_scope| blk: {
-            block_scope.rl_ptr = parent_block_scope.rl_ptr.?;
-            break :blk .{ .block_ptr = &block_scope };
-        },
-    };
-
     const then_src = tree.token_locs[if_node.body.lastToken()].start;
     var then_scope: Scope.GenZIR = .{
         .parent = scope,
@@ -1721,7 +1754,8 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     // declare payload to the then_scope
     const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, then_src, if_node.payload);
 
-    const then_result = try expr(mod, then_sub_scope, branch_rl, if_node.body);
+    block_scope.break_count += 1;
+    const then_result = try expr(mod, then_sub_scope, block_scope.break_result_loc, if_node.body);
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
@@ -1741,47 +1775,18 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
         // declare payload to the then_scope
         else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
 
-        break :blk try expr(mod, else_sub_scope, branch_rl, else_node.body);
+        block_scope.break_count += 1;
+        break :blk try expr(mod, else_sub_scope, block_scope.break_result_loc, else_node.body);
     } else blk: {
         else_src = tree.token_locs[if_node.lastToken()].start;
         else_sub_scope = &else_scope.base;
-        block_scope.rvalue_rl_count += 1;
         break :blk null;
     };
 
     // We now have enough information to decide whether the result instruction should
     // be communicated via result location pointer or break instructions.
-    const Strategy = enum {
-        /// Both branches will use break_void; result location is used to communicate the
-        /// result instruction.
-        break_void,
-        /// Use break statements to pass the block result value, and call rvalue() at
-        /// the end depending on rl. Also elide the store_to_block_ptr instructions
-        /// depending on rl.
-        break_operand,
-    };
-    var elide_store_to_block_ptr_instructions = false;
-    const strategy: Strategy = switch (rl) {
-        // In this branch there will not be any store_to_block_ptr instructions.
-        .discard, .none, .ty, .ref => .break_operand,
-        // The pointer got passed through to the sub-expressions, so we will use
-        // break_void here.
-        // In this branch there will not be any store_to_block_ptr instructions.
-        .ptr => .break_void,
-        .inferred_ptr, .bitcasted_ptr, .block_ptr => blk: {
-            if (block_scope.rvalue_rl_count == 2) {
-                // Neither prong of the if consumed the result location, so we can
-                // use break instructions to create an rvalue.
-                elide_store_to_block_ptr_instructions = true;
-                break :blk Strategy.break_operand;
-            } else {
-                // Allow the store_to_block_ptr instructions to remain so that
-                // semantic analysis can turn them into bitcasts.
-                break :blk Strategy.break_void;
-            }
-        },
-    };
-    switch (strategy) {
+    const strat = rlStrategy(rl, &block_scope);
+    switch (strat.tag) {
         .break_void => {
             if (!then_result.tag.isNoReturn()) {
                 _ = try addZirInstTag(mod, then_sub_scope, then_src, .break_void, .{
@@ -1799,7 +1804,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
                     .block = block,
                 });
             }
-            assert(!elide_store_to_block_ptr_instructions);
+            assert(!strat.elide_store_to_block_ptr_instructions);
             try copyBodyNoEliding(&condbr.positionals.then_body, then_scope);
             try copyBodyNoEliding(&condbr.positionals.else_body, else_scope);
             return &block.base;
@@ -1823,7 +1828,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
                     .block = block,
                 });
             }
-            if (elide_store_to_block_ptr_instructions) {
+            if (strat.elide_store_to_block_ptr_instructions) {
                 try copyBodyWithElidedStoreBlockPtr(&condbr.positionals.then_body, then_scope);
                 try copyBodyWithElidedStoreBlockPtr(&condbr.positionals.else_body, else_scope);
             } else {
@@ -3374,6 +3379,72 @@ fn rvalueVoid(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node, resul
         .val = Value.initTag(.void_value),
     });
     return rvalue(mod, scope, rl, void_inst);
+}
+
+fn rlStrategy(rl: ResultLoc, block_scope: *Scope.GenZIR) ResultLoc.Strategy {
+    var elide_store_to_block_ptr_instructions = false;
+    switch (rl) {
+        // In this branch there will not be any store_to_block_ptr instructions.
+        .discard, .none, .ty, .ref => return .{
+            .tag = .break_operand,
+            .elide_store_to_block_ptr_instructions = false,
+        },
+        // The pointer got passed through to the sub-expressions, so we will use
+        // break_void here.
+        // In this branch there will not be any store_to_block_ptr instructions.
+        .ptr => return .{
+            .tag = .break_void,
+            .elide_store_to_block_ptr_instructions = false,
+        },
+        .inferred_ptr, .bitcasted_ptr, .block_ptr => {
+            if (block_scope.rvalue_rl_count == block_scope.break_count) {
+                // Neither prong of the if consumed the result location, so we can
+                // use break instructions to create an rvalue.
+                return .{
+                    .tag = .break_operand,
+                    .elide_store_to_block_ptr_instructions = true,
+                };
+            } else {
+                // Allow the store_to_block_ptr instructions to remain so that
+                // semantic analysis can turn them into bitcasts.
+                return .{
+                    .tag = .break_void,
+                    .elide_store_to_block_ptr_instructions = false,
+                };
+            }
+        },
+    }
+}
+
+fn setBlockResultLoc(block_scope: *Scope.GenZIR, parent_rl: ResultLoc) void {
+    // Depending on whether the result location is a pointer or value, different
+    // ZIR needs to be generated. In the former case we rely on storing to the
+    // pointer to communicate the result, and use breakvoid; in the latter case
+    // the block break instructions will have the result values.
+    // One more complication: when the result location is a pointer, we detect
+    // the scenario where the result location is not consumed. In this case
+    // we emit ZIR for the block break instructions to have the result values,
+    // and then rvalue() on that to pass the value to the result location.
+    switch (parent_rl) {
+        .discard, .none, .ty, .ptr, .ref => {
+            block_scope.break_result_loc = parent_rl;
+        },
+
+        .inferred_ptr => |ptr| {
+            block_scope.rl_ptr = &ptr.base;
+            block_scope.break_result_loc = .{ .block_ptr = block_scope };
+        },
+
+        .bitcasted_ptr => |ptr| {
+            block_scope.rl_ptr = &ptr.base;
+            block_scope.break_result_loc = .{ .block_ptr = block_scope };
+        },
+
+        .block_ptr => |parent_block_scope| {
+            block_scope.rl_ptr = parent_block_scope.rl_ptr.?;
+            block_scope.break_result_loc = .{ .block_ptr = block_scope };
+        },
+    }
 }
 
 pub fn addZirInstTag(

@@ -846,7 +846,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .br => return self.genBr(inst.castTag(.br).?),
                 .br_block_flat => return self.genBrBlockFlat(inst.castTag(.br_block_flat).?),
                 .breakpoint => return self.genBreakpoint(inst.src),
-                .brvoid => return self.genBrVoid(inst.castTag(.brvoid).?),
+                .br_void => return self.genBrVoid(inst.castTag(.br_void).?),
                 .bool_and => return self.genBoolOp(inst.castTag(.bool_and).?),
                 .bool_or => return self.genBoolOp(inst.castTag(.bool_or).?),
                 .call => return self.genCall(inst.castTag(.call).?),
@@ -2442,10 +2442,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genBrBlockFlat(self: *Self, parent_inst: *ir.Inst.BrBlockFlat) !MCValue {
-            try self.genBody(parent_inst.body);
-            const last = parent_inst.body.instructions[parent_inst.body.instructions.len - 1];
-            return self.br(parent_inst.base.src, parent_inst.block, last);
+        fn genBrBlockFlat(self: *Self, inst: *ir.Inst.BrBlockFlat) !MCValue {
+            try self.genBody(inst.body);
+            const last = inst.body.instructions[inst.body.instructions.len - 1];
+            return self.br(inst.base.src, inst.block, last);
         }
 
         fn genBr(self: *Self, inst: *ir.Inst.Br) !MCValue {

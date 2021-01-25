@@ -69,7 +69,7 @@ pub const Inst = struct {
         /// replace one br operand with multiple instructions, without moving anything else around.
         br_block_flat,
         breakpoint,
-        brvoid,
+        br_void,
         call,
         cmp_lt,
         cmp_lte,
@@ -166,7 +166,7 @@ pub const Inst = struct {
                 .block => Block,
                 .br => Br,
                 .br_block_flat => BrBlockFlat,
-                .brvoid => BrVoid,
+                .br_void => BrVoid,
                 .call => Call,
                 .condbr => CondBr,
                 .constant => Constant,
@@ -259,7 +259,7 @@ pub const Inst = struct {
     pub fn breakBlock(base: *Inst) ?*Block {
         return switch (base.tag) {
             .br => base.castTag(.br).?.block,
-            .brvoid => base.castTag(.brvoid).?.block,
+            .br_void => base.castTag(.br_void).?.block,
             .br_block_flat => base.castTag(.br_block_flat).?.block,
             else => null,
         };
@@ -403,7 +403,7 @@ pub const Inst = struct {
     };
 
     pub const BrVoid = struct {
-        pub const base_tag = Tag.brvoid;
+        pub const base_tag = Tag.br_void;
 
         base: Inst,
         block: *Block,

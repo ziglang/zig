@@ -717,7 +717,7 @@ pub const Scope = struct {
         label: ?Label = null,
         break_block: ?*zir.Inst.Block = null,
         continue_block: ?*zir.Inst.Block = null,
-        /// only valid if label != null or (continue_block and break_block) != null
+        /// Only valid when setBlockResultLoc is called.
         break_result_loc: astgen.ResultLoc = undefined,
         /// When a block has a pointer result location, here it is.
         rl_ptr: ?*zir.Inst = null,
@@ -726,6 +726,17 @@ pub const Scope = struct {
         /// whether to rely on break instructions or writing to the result
         /// pointer for the result instruction.
         rvalue_rl_count: usize = 0,
+        /// Keeps track of how many break instructions there are. When astgen is finished
+        /// with a block, it can check this against rvalue_rl_count to find out whether
+        /// the break instructions should be downgraded to break_void.
+        break_count: usize = 0,
+        /// Tracks `break :foo bar` instructions so they can possibly be elided later if
+        /// the labeled block ends up not needing a result location pointer.
+        labeled_breaks: std.ArrayListUnmanaged(*zir.Inst.Break) = .{},
+        /// Tracks `store_to_block_ptr` instructions that correspond to break instructions
+        /// so they can possibly be elided later if the labeled block ends up not needing
+        /// a result location pointer.
+        labeled_store_to_block_ptr_list: std.ArrayListUnmanaged(*zir.Inst.BinOp) = .{},
 
         pub const Label = struct {
             token: ast.TokenIndex,
@@ -3495,18 +3506,18 @@ pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic
     };
 
     const ok_body: ir.Body = .{
-        .instructions = try parent_block.arena.alloc(*Inst, 1), // Only need space for the brvoid.
+        .instructions = try parent_block.arena.alloc(*Inst, 1), // Only need space for the br_void.
     };
-    const brvoid = try parent_block.arena.create(Inst.BrVoid);
-    brvoid.* = .{
+    const br_void = try parent_block.arena.create(Inst.BrVoid);
+    br_void.* = .{
         .base = .{
-            .tag = .brvoid,
+            .tag = .br_void,
             .ty = Type.initTag(.noreturn),
             .src = ok.src,
         },
         .block = block_inst,
     };
-    ok_body.instructions[0] = &brvoid.base;
+    ok_body.instructions[0] = &br_void.base;
 
     var fail_block: Scope.Block = .{
         .parent = parent_block,
