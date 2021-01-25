@@ -191,11 +191,10 @@ pub fn Futex(comptime Event: type) type {
             const bucket = WaitBucket.from(address);
 
             {
-                _ = atomic.fetchAdd(&bucket.waiters, 1, .SeqCst);
-
                 const held = bucket.lock.acquire();
                 defer held.release();
 
+                _ = atomic.fetchAdd(&bucket.waiters, 1, .SeqCst);
                 if (atomic.load(ptr, .SeqCst) != expect) {
                     _ = atomic.fetchSub(&bucket.waiters, 1, .SeqCst);
                     return;
@@ -239,14 +238,14 @@ pub fn Futex(comptime Event: type) type {
             const address = @ptrToInt(ptr);
             const bucket = WaitBucket.from(address);
 
-            if (atomic.load(&bucket.waiters, .SeqCst) == 0) {
-                return;
-            }
-
             var nodes: ?*WaitNode = null;
             {
                 const held = bucket.lock.acquire();
                 defer held.release();
+
+                if (atomic.load(&bucket.waiters, .SeqCst) == 0) {
+                    return;
+                }
 
                 var woke_up: u32 = 0;
                 defer if (woke_up > 0) {
