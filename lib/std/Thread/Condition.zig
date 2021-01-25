@@ -8,7 +8,7 @@
 //! to wake up. Spurious wakeups are possible.
 //! This API supports static initialization and does not require deinitialization.
 
-impl: Impl,
+impl: Impl = .{},
 
 const std = @import("../std.zig");
 const Condition = @This();
