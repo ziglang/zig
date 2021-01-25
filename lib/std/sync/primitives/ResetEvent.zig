@@ -157,7 +157,7 @@ test "ResetEvent - Os" {
 }
 
 test "ResetEvent - Evented" {
-    if (!std.io.is_async) return error.SkipZigTest;
+    if (!std.io.is_async or std.builtin.single_threaded) return error.SkipZigTest;
     try testResetEvent(
         ResetEvent(std.sync.futex.event),
         @import("../futex/event.zig").TestThread,

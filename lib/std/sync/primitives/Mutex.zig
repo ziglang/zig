@@ -206,16 +206,19 @@ test "Mutex - Debug" {
     try testMutex(DebugMutex, null);
 }
 
-test "Mutex - Event" {
-    // TODO: std.event.Thread
-    // try testMutex(Mutex(std.sync.futex.event), null);
+test "Mutex - Evented" {
+    if (!std.io.is_async or std.builtin.single_threaded) return error.SkipZigTest;
+    try testMutex(
+        Mutex(std.sync.futex.event),
+        @import("../futex/event.zig").TestThread,
+    );
 }
 
 test "Mutex - Spin" {
     try testMutex(Mutex(std.sync.futex.spin), std.Thread);
 }
 
-test "Mutex - OS" {
+test "Mutex - Os" {
     try testMutex(Mutex(std.sync.futex.os), std.Thread);
 }
 
@@ -248,7 +251,7 @@ fn testMutex(
         counters: [num_counters]Counter = undefined,
 
         const Self = @This();
-        const num_counters = 100;
+        const num_counters = 10;
 
         const Counter = struct {
             mutex: TestMutex = .{},
@@ -354,7 +357,9 @@ fn testMutex(
                         while (iter > 0) : (iter -= 1) {
                             const counter = &self.counters[index];
                             index = (index + 1) % self.counters.len;
-                            did_decr = counter.tryDecr() or did_decr;
+                            if (counter.tryDecr()) {
+                                did_decr = true;
+                            }
                         }
 
                         if (!did_decr) {
@@ -378,7 +383,7 @@ fn testMutex(
 
         fn execute(self: *Self) !void {
             const allocator = testing.allocator;
-            const threads = try allocator.alloc(*Thread, 10);
+            const threads = try allocator.alloc(*Thread, num_counters);
             defer allocator.free(threads);
 
             defer {
@@ -405,6 +410,10 @@ fn testMutex(
                 self.start_event.set();
                 for (threads) |t| {
                     t.wait();
+                }
+
+                for (self.counters) |counter| {
+                    testing.expectEqual(counter.remaining, 0);
                 }
             }
         }
