@@ -798,7 +798,7 @@ pub const Loop = struct {
     };
 
     const AutoResetEvent = struct {
-        state: enum(u32){unset, set} = .unset,
+        state: enum(u32) { unset, set } = .unset,
 
         const Self = @This();
         const atomic = std.sync.atomic;
@@ -817,7 +817,7 @@ pub const Loop = struct {
             if (timeout) |timeout_ns| {
                 deadline = Futex.now() + timeout_ns;
             }
-            
+
             while (true) {
                 if (atomic.load(&self.state, .SeqCst) == .set) {
                     atomic.store(&self.state, .unset, .SeqCst);

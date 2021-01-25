@@ -127,7 +127,6 @@ pub fn Futex(comptime Event: type) type {
                     tail.next = node;
                     node.prev = tail;
                     head.tail = node;
-
                 } else {
                     node.tail = node;
                     node.prev = null;

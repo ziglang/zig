@@ -102,7 +102,7 @@ const DarwinFutex = struct {
             .watchos => (version.major >= 3) and (version.minor >= 0),
             else => unreachable,
         };
-        
+
         pub fn now() u64 {
             return std.time.now();
         }
@@ -343,7 +343,7 @@ const WindowsFutex = struct {
         keyed_event,
 
         var default: Backend = undefined;
-        var default_state: enum(u8){
+        var default_state: enum(u8) {
             uninit,
             searching,
             init,
@@ -411,11 +411,11 @@ const WindowsFutex = struct {
         var wake_by_address_all_ptr: WakeOnAddressFn = undefined;
         var wait_on_address_ptr: WaitOnAddressFn = undefined;
 
-        const WakeOnAddressFn = fn(
+        const WakeOnAddressFn = fn (
             address: ?*const c_void,
         ) callconv(windows.WINAPI) void;
-        const WaitOnAddressFn = fn(
-            address: ?*volatile const c_void,
+        const WaitOnAddressFn = fn (
+            address: ?*const volatile c_void,
             compare_address: ?*const c_void,
             address_size: windows.SIZE_T,
             timeout_ms: windows.DWORD,
@@ -465,9 +465,9 @@ const WindowsFutex = struct {
                         timeout_ms = std.math.cast(windows.DWORD, timeout) catch timeout_ms;
                     }
                 }
-                
+
                 const status = (wait_on_address_ptr)(
-                    @ptrCast(*volatile const c_void, ptr),
+                    @ptrCast(*const volatile c_void, ptr),
                     @ptrCast(*const c_void, &expect),
                     @sizeOf(@TypeOf(expect)),
                     timeout_ms,
@@ -479,7 +479,7 @@ const WindowsFutex = struct {
                         else => |errno| {
                             const result = windows.unexpectedError(errno);
                             unreachable;
-                        }
+                        },
                     }
                 }
             }
@@ -497,7 +497,7 @@ const WindowsFutex = struct {
 
     const KeyedEvent = struct {
         var event_handle: ?windows.HANDLE = undefined;
-        
+
         fn initialize() bool {
             var handle: windows.HANDLE = undefined;
             const status = windows.ntdll.NtCreateKeyedEvent(
@@ -522,7 +522,7 @@ const WindowsFutex = struct {
             pub const Lock = if (SRWLock.is_supported) SRWLock else NtLock;
 
             const Self = @This();
-            const State = enum(usize){
+            const State = enum(usize) {
                 empty,
                 waiting,
                 notified,
@@ -582,7 +582,7 @@ const WindowsFutex = struct {
                         else => |status| {
                             const err = windows.unexpectedStatus(status);
                             unreachable;
-                        }
+                        },
                     }
                 }
 
@@ -601,13 +601,17 @@ const WindowsFutex = struct {
                             windows.FALSE,
                             null,
                         )) {
-                            .SUCCESS => {},
+                            .SUCCESS => timed_out = false,
                             else => |status| {
                                 const err = windows.unexpectedStatus(status);
                                 unreachable;
-                            }
+                            },
                         }
                     }
+                }
+
+                if (timed_out) {
+                    return error.TimedOut;
                 }
             }
 
@@ -628,7 +632,7 @@ const WindowsFutex = struct {
                     else => |status| {
                         const err = windows.unexpectedStatus(status);
                         unreachable;
-                    }
+                    },
                 }
             }
 
@@ -683,10 +687,10 @@ const WindowsFutex = struct {
                 if (!self.tryAcquire()) {
                     self.acquireSlow();
                 }
-                
+
                 return Held{ .lock = self };
             }
-            
+
             fn acquireSlow(self: *NtLock) void {
                 @setCold(true);
 
@@ -742,13 +746,17 @@ const WindowsFutex = struct {
                         else => |status| {
                             const err = windows.unexpectedStatus(status);
                             unreachable;
-                        }
+                        },
                     }
 
                     adaptive_spin = 0;
-                    state = atomic.fetchSub(&self.state, WAKING, .Relaxed);
+                    state = switch (builtin.arch) {
+                        .i386, .x86_64 => atomic.fetchSub(&self.state, WAKING, .Relaxed),
+                        else => atomic.fetchAnd(&self.state, ~@as(u32, WAKING), .Relaxed),
+                    };
+
                     assert(state & WAKING != 0);
-                    state -= WAKING;
+                    state &= ~@as(u32, WAKING);
                 }
             }
 
@@ -785,7 +793,7 @@ const WindowsFutex = struct {
                     state = atomic.tryCompareAndSwap(
                         &self.state,
                         state,
-                        state + WAKING,
+                        (state - WAITING) | WAKING,
                         .Relaxed,
                         .Relaxed,
                     ) orelse break;
@@ -801,10 +809,9 @@ const WindowsFutex = struct {
                     else => |status| {
                         const err = windows.unexpectedStatus(status);
                         unreachable;
-                    }
+                    },
                 }
             }
         };
     };
 };
-
