@@ -90,7 +90,7 @@ pub fn ResetEvent(comptime Futex: type) type {
             atomic.store(&self.state, .set, .SeqCst);
 
             const ptr = @ptrCast(*const u32, &self.state);
-            Futex.notifyAll(ptr);
+            Futex.wake(ptr, std.math.maxInt(u32));
         }
     };
 }

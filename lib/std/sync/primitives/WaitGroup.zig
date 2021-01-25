@@ -55,7 +55,7 @@ pub fn WaitGroup(comptime Futex: type) type {
 
             const counter = atomic.fetchSub(&self.counter, amount, .SeqCst);
             if (counter - amount == 0) {
-                Futex.notifyAll(&self.counter);
+                Futex.wake(&self.counter, std.math.maxInt(u32));
             }
         }
 
@@ -116,7 +116,7 @@ pub fn WaitGroup(comptime Futex: type) type {
             }
 
             if (!is_add and new_counter == 0) {
-                Futex.notifyAll(&self.counter);
+                Futex.wake(&self.counter, std.math.maxInt(u32));
             }
 
             return true;

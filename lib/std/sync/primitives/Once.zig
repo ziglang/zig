@@ -35,7 +35,7 @@ pub fn Once(comptime Futex: type) fn (anytype) type {
                 fn callSlow(self: *Self) void {
                     @setCold(true);
 
-                    const ptr = @ptrToInt(*const u32, &self.state);
+                    const ptr = @ptrCast(*const u32, &self.state);
                     var state = atomic.compareAndSwap(
                         &self.state,
                         .uninit,
@@ -45,12 +45,12 @@ pub fn Once(comptime Futex: type) fn (anytype) type {
                     ) orelse {
                         _ = initFn();
 
-                        if (hellgrind) |hg| {
+                        if (helgrind) |hg| {
                             hg.annotateHappensBefore(@ptrToInt(self));
                         }
 
                         atomic.store(&self.state, .init, .Release);
-                        Futex.notifyAll(ptr);
+                        Futex.wake(ptr, std.math.maxInt(u32));
                         return;
                     };
 

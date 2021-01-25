@@ -21,10 +21,6 @@ pub fn wait(ptr: *const u32, expect: u32, deadline: ?u64) error{TimedOut}!void {
     }
 }
 
-pub fn notifyOne(ptr: *const u32) void {
-    // no-op
-}
-
-pub fn notifyAll(ptr: *const u32) void {
+pub fn wake(ptr: *const u32, num_waiters: u32) void {
     // no-op
 }

@@ -236,15 +236,7 @@ pub fn Futex(comptime Event: type) type {
             }
         }
 
-        pub fn notifyOne(ptr: *const u32) void {
-            return wake(ptr, 1);
-        }
-
-        pub fn notifyAll(ptr: *const u32) void {
-            return wake(ptr, std.math.maxInt(usize));
-        }
-
-        fn wake(ptr: *const u32, max_wakeups: usize) void {
+        pub fn wake(ptr: *const u32, num_waiters: u32) void {
             const address = @ptrToInt(ptr);
             const bucket = WaitBucket.from(address);
 
@@ -257,7 +249,7 @@ pub fn Futex(comptime Event: type) type {
                 const held = bucket.lock.acquire();
                 defer held.release();
 
-                var woke_up: usize = 0;
+                var woke_up: u32 = 0;
                 defer if (woke_up > 0) {
                     _ = atomic.fetchSub(&bucket.waiters, woke_up, .SeqCst);
                 };
@@ -269,7 +261,7 @@ pub fn Futex(comptime Event: type) type {
                     nodes = node;
 
                     woke_up += 1;
-                    if (woke_up >= max_wakeups) {
+                    if (woke_up >= num_waiters) {
                         break;
                     }
                 }

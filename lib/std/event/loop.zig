@@ -834,7 +834,7 @@ pub const Loop = struct {
 
         fn set(self: *Self) void {
             if (atomic.swap(&self.state, .set, .SeqCst) == .unset) {
-                Futex.notifyAll(@ptrCast(*const u32, &self.state));
+                Futex.wake(@ptrCast(*const u32, &self.state), 1);
             }
         }
     };

@@ -63,7 +63,7 @@ pub fn Condvar(comptime Futex: anytype) type {
 
             _ = atomic.fetchAdd(&self.wakeups, 1, .SeqCst);
 
-            Futex.notifyOne(&self.wakeups);
+            Futex.wake(&self.wakeups, 1);
         }
 
         pub fn notifyAll(self: *Self) void {
@@ -73,7 +73,7 @@ pub fn Condvar(comptime Futex: anytype) type {
 
             _ = atomic.fetchAdd(&self.wakeups, 1, .SeqCst);
 
-            Futex.notifyAll(&self.wakeups);
+            Futex.wake(&self.wakeups, std.math.maxInt(u32));
         }
     };
 }

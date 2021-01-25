@@ -135,7 +135,7 @@ pub fn Mutex(comptime Futex: anytype) type {
             @setCold(true);
 
             const ptr = @ptrCast(*const u32, &self.state);
-            Futex.notifyOne(ptr);
+            Futex.wake(ptr, 1);
         }
     };
 }
