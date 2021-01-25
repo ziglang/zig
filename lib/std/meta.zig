@@ -565,8 +565,8 @@ test "std.meta.fieldNames" {
 
 pub fn FieldEnum(comptime T: type) type {
     const fieldInfos = fields(T);
-    var enumFields: [fieldInfos.len]std.builtin.TypeInfo.EnumField = undefined;
-    var decls = [_]std.builtin.TypeInfo.Declaration{};
+    var enumFields: [fieldInfos.len]TypeInfo.EnumField = undefined;
+    var decls = [_]TypeInfo.Declaration{};
     inline for (fieldInfos) |field, i| {
         enumFields[i] = .{
             .name = field.name,
@@ -589,8 +589,8 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) void {
     // testing.expectEqual(@typeInfo(expected).Enum, @typeInfo(actual).Enum);
     testing.expectEqual(@typeInfo(expected).Enum.layout, @typeInfo(actual).Enum.layout);
     testing.expectEqual(@typeInfo(expected).Enum.tag_type, @typeInfo(actual).Enum.tag_type);
-    comptime testing.expectEqualSlices(std.builtin.TypeInfo.EnumField, @typeInfo(expected).Enum.fields, @typeInfo(actual).Enum.fields);
-    comptime testing.expectEqualSlices(std.builtin.TypeInfo.Declaration, @typeInfo(expected).Enum.decls, @typeInfo(actual).Enum.decls);
+    comptime testing.expectEqualSlices(TypeInfo.EnumField, @typeInfo(expected).Enum.fields, @typeInfo(actual).Enum.fields);
+    comptime testing.expectEqualSlices(TypeInfo.Declaration, @typeInfo(expected).Enum.decls, @typeInfo(actual).Enum.decls);
     testing.expectEqual(@typeInfo(expected).Enum.is_exhaustive, @typeInfo(actual).Enum.is_exhaustive);
 }
 
@@ -804,7 +804,7 @@ test "std.meta.eql" {
     testing.expect(!eql(v1, v3));
 }
 
-test "intToEnum with error return" {
+test "std.meta.intToEnum with error return" {
     const E1 = enum {
         A,
     };
@@ -995,7 +995,7 @@ pub fn sizeof(target: anytype) usize {
     }
 }
 
-test "sizeof" {
+test "std.meta.sizeof" {
     const E = extern enum(c_int) { One, _ };
     const S = extern struct { a: u32 };
 
@@ -1025,12 +1025,12 @@ pub fn ArgsTuple(comptime Function: type) type {
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
-    var argument_field_list: [function_info.args.len]std.builtin.TypeInfo.StructField = undefined;
+    var argument_field_list: [function_info.args.len]TypeInfo.StructField = undefined;
     inline for (function_info.args) |arg, i| {
         const T = arg.arg_type.?;
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
-        argument_field_list[i] = std.builtin.TypeInfo.StructField{
+        argument_field_list[i] = TypeInfo.StructField{
             .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
             .field_type = T,
             .default_value = @as(?T, null),
@@ -1039,11 +1039,11 @@ pub fn ArgsTuple(comptime Function: type) type {
         };
     }
 
-    return @Type(std.builtin.TypeInfo{
-        .Struct = std.builtin.TypeInfo.Struct{
+    return @Type(TypeInfo{
+        .Struct = TypeInfo.Struct{
             .is_tuple = true,
             .layout = .Auto,
-            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .decls = &[_]TypeInfo.Declaration{},
             .fields = &argument_field_list,
         },
     });
@@ -1057,11 +1057,11 @@ pub fn ArgsTuple(comptime Function: type) type {
 /// - `Tuple(&[_]type {f32})` ⇒ `tuple { f32 }`
 /// - `Tuple(&[_]type {f32,u32})` ⇒ `tuple { f32, u32 }`
 pub fn Tuple(comptime types: []const type) type {
-    var tuple_fields: [types.len]std.builtin.TypeInfo.StructField = undefined;
+    var tuple_fields: [types.len]TypeInfo.StructField = undefined;
     inline for (types) |T, i| {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
-        tuple_fields[i] = std.builtin.TypeInfo.StructField{
+        tuple_fields[i] = TypeInfo.StructField{
             .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
             .field_type = T,
             .default_value = @as(?T, null),
@@ -1070,11 +1070,11 @@ pub fn Tuple(comptime types: []const type) type {
         };
     }
 
-    return @Type(std.builtin.TypeInfo{
-        .Struct = std.builtin.TypeInfo.Struct{
+    return @Type(TypeInfo{
+        .Struct = TypeInfo.Struct{
             .is_tuple = true,
             .layout = .Auto,
-            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .decls = &[_]TypeInfo.Declaration{},
             .fields = &tuple_fields,
         },
     });
@@ -1093,7 +1093,7 @@ const TupleTester = struct {
         if (!info.Struct.is_tuple)
             @compileError("Struct type must be a tuple type");
 
-        const fields_list = std.meta.fields(Actual);
+        const fields_list = fields(Actual);
         if (expected.len != fields_list.len)
             @compileError("Argument count mismatch");
 
@@ -1105,14 +1105,14 @@ const TupleTester = struct {
     }
 };
 
-test "ArgsTuple" {
+test "std.meta.ArgsTuple" {
     TupleTester.assertTuple(.{}, ArgsTuple(fn () void));
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (a: u32) []const u8));
     TupleTester.assertTuple(.{ u32, f16 }, ArgsTuple(fn (a: u32, b: f16) noreturn));
     TupleTester.assertTuple(.{ u32, f16, []const u8, void }, ArgsTuple(fn (a: u32, b: f16, c: []const u8, void) noreturn));
 }
 
-test "Tuple" {
+test "std.meta.Tuple" {
     TupleTester.assertTuple(.{}, Tuple(&[_]type{}));
     TupleTester.assertTuple(.{u32}, Tuple(&[_]type{u32}));
     TupleTester.assertTuple(.{ u32, f16 }, Tuple(&[_]type{ u32, f16 }));
@@ -1124,4 +1124,112 @@ pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
     if (!@hasDecl(root, name))
         return null;
     return @as(T, @field(root, name));
+}
+
+pub fn fieldsToStruct(comptime T: type, comptime layout: TypeInfo.ContainerLayout, comptime FT: type, default_value: FT) type {
+    var tfields = fields(T);
+    var struct_fields: [tfields.len]TypeInfo.StructField = undefined;
+    @setEvalBranchQuota(10_000);
+    inline for (tfields) |f, i| {
+        struct_fields[i] = TypeInfo.StructField{
+            .name = f.name,
+            .field_type = FT,
+            .default_value = default_value,
+            .is_comptime = false,
+            .alignment = @alignOf(FT),
+        };
+    }
+
+    return @Type(TypeInfo{
+        .Struct = TypeInfo.Struct{
+            .is_tuple = false,
+            .layout = layout,
+            .decls = &[_]TypeInfo.Declaration{},
+            .fields = &struct_fields,
+        },
+    });
+}
+
+test "std.meta.fieldsToStruct" {
+    const E1 = enum {
+        A,
+        B,
+    };
+
+    const E2 = error{ A, B };
+
+    const S1 = struct {
+        @"1": u8,
+        @"2": u8,
+    };
+
+    const U1 = union {
+        a: u8,
+        b: u8,
+        c: u8,
+        d: u8,
+        e: u8,
+        f: u8,
+        g: u8,
+        h: u8,
+        i: u8,
+        j: u8,
+    };
+
+    const e1f_pbool_t = comptime fieldsToStruct(E1, .Packed, bool, false);
+    const e2f_pbool_t = comptime fieldsToStruct(E2, .Packed, bool, false);
+    const sf_pbool_t = comptime fieldsToStruct(S1, .Packed, bool, false);
+    const uf_pbool_t = comptime fieldsToStruct(U1, .Packed, bool, false);
+
+    testing.expect(@sizeOf(e1f_pbool_t) == 1);
+    testing.expect(@sizeOf(e2f_pbool_t) == 1);
+    testing.expect(@sizeOf(sf_pbool_t) == 1);
+    testing.expect(@sizeOf(uf_pbool_t) == 2);
+
+    testing.expect(fields(e1f_pbool_t).len == fields(E1).len);
+    testing.expect(fields(e2f_pbool_t).len == fields(E2).len);
+    testing.expect(fields(sf_pbool_t).len == fields(S1).len);
+    testing.expect(fields(uf_pbool_t).len == fields(U1).len);
+
+    testing.expect(mem.eql(u8, fields(e1f_pbool_t)[0].name, "A"));
+    testing.expect(mem.eql(u8, fields(e2f_pbool_t)[0].name, "A"));
+    testing.expect(mem.eql(u8, fields(sf_pbool_t)[0].name, "1"));
+    testing.expect(mem.eql(u8, fields(uf_pbool_t)[0].name, "a"));
+
+    var e1f = e1f_pbool_t{};
+    testing.expect(!e1f.A);
+    e1f.A = true;
+    testing.expect(e1f.A);
+
+    var uf = uf_pbool_t{};
+    testing.expect(!uf.j);
+    uf.j = true;
+    testing.expect(uf.j);
+
+    const e1f_abool_t = comptime fieldsToStruct(E1, .Auto, bool, true);
+    const e2f_au8_t = comptime fieldsToStruct(E2, .Auto, u8, 1);
+    const sf_au8_t = comptime fieldsToStruct(S1, .Auto, u8, 2);
+    const uf_au8_t = comptime fieldsToStruct(U1, .Auto, u8, 3);
+
+    testing.expect(@sizeOf(e1f_abool_t) == 2);
+    testing.expect(@sizeOf(e2f_au8_t) == 2);
+    testing.expect(@sizeOf(sf_au8_t) == 2);
+    testing.expect(@sizeOf(uf_au8_t) == 10);
+
+    testing.expect(fields(e1f_abool_t).len == 2);
+    testing.expect(fields(e2f_au8_t).len == 2);
+    testing.expect(fields(sf_au8_t).len == 2);
+    testing.expect(fields(uf_au8_t).len == 10);
+
+    var e1f_a_bool = e1f_abool_t{};
+    testing.expect(e1f_a_bool.A);
+
+    var e2f_a_u8 = e2f_au8_t{};
+    testing.expect(e2f_a_u8.A == 1);
+
+    var sf_a_u8 = sf_au8_t{};
+    testing.expect(sf_a_u8.@"1" == 2);
+
+    var uf_a_u8 = uf_au8_t{};
+    testing.expect(uf_a_u8.j == 3);
 }
