@@ -34,7 +34,7 @@ pub fn Mutex(comptime Futex: anytype) type {
         }
 
         pub fn tryAcquire(self: *Self) ?Held {
-            if (atomic.tryCompareAndSwap(
+            if (atomic.compareAndSwap(
                 &self.state,
                 .unlocked,
                 .locked,

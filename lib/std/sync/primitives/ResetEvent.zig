@@ -13,18 +13,19 @@ const helgrind: ?type = if (builtin.valgrind_support) std.valgrind.helgrind else
 
 pub fn ResetEvent(comptime Futex: type) type {
     return extern struct {
-        state: State = .unset,
+        state: State = .empty,
 
         const Self = @This();
         const State = enum(u32) {
-            unset,
-            set,
+            empty,
+            waiting,
+            notified,
         };
 
         pub const Dummy = DebugResetEvent;
 
         pub fn init(is_set: bool) Self {
-            return .{ .state = if (is_set) .set else .unset };
+            return .{ .state = if (is_set) .notified else .empty };
         }
 
         pub fn deinit(self: *Self) void {
@@ -37,57 +38,82 @@ pub fn ResetEvent(comptime Futex: type) type {
 
         pub fn isSet(self: *const Self) bool {
             const state = atomic.load(&self.state, .SeqCst);
-            const is_set = state == .set;
+            const is_set = state == .notified;
 
             if (helgrind) |hg| {
-                if (is_set) {
-                    hg.annotateHappensAfter(@ptrToInt(self));
-                }
+                hg.annotateHappensAfter(@ptrToInt(self));
             }
 
             return is_set;
         }
 
         pub fn reset(self: *Self) void {
-            atomic.store(&self.state, .unset, .Relaxed);
+            atomic.store(&self.state, .empty, .Relaxed);
         }
 
         pub fn tryWait(self: *Self) void {
             return self.isSet();
         }
 
-        pub fn wait(self: *Self) void {
+        pub inline fn wait(self: *Self) void {
             self.waitInner(null) catch unreachable;
         }
 
-        pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        pub inline fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
             return self.tryWaitUntil(Futex.now() + duration);
         }
 
-        pub fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        pub inline fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
             return self.waitInner(deadline);
         }
 
         fn waitInner(self: *Self, deadline: ?u64) error{TimedOut}!void {
             while (true) {
-                if (self.isSet()) {
-                    return;
+                const state = atomic.load(&self.state, .Acquire);
+                if (state == .notified) {
+                    break;
+                }
+
+                if (state == .empty) {
+                    if (atomic.tryCompareAndSwap(
+                        &self.state,
+                        .empty,
+                        .waiting,
+                        .Acquire,
+                        .Acquire,
+                    )) |updated| {
+                        atomic.spinLoopHint();
+                        continue;
+                    }
                 }
 
                 try Futex.wait(
                     @ptrCast(*const u32, &self.state),
-                    @enumToInt(State.unset),
+                    @enumToInt(State.waiting),
                     deadline,
                 );
+            }
+
+            if (helgrind) |hg| {
+                hg.annotateHappensAfter(@ptrToInt(self));
             }
         }
 
         pub fn set(self: *Self) void {
+            var state = atomic.load(&self.state, .Relaxed);
+            if (state == .notified) {
+                return;
+            }
+
             if (helgrind) |hg| {
                 hg.annotateHappensBefore(@ptrToInt(self));
             }
 
-            atomic.store(&self.state, .set, .SeqCst);
+            switch (atomic.swap(&self.state, .notified, .Release)) {
+                .empty => return,
+                .waiting => {},
+                .notified => return,
+            }
 
             const ptr = @ptrCast(*const u32, &self.state);
             Futex.wake(ptr, std.math.maxInt(u32));
