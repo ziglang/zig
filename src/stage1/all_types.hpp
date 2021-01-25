@@ -797,6 +797,7 @@ struct AstNodeVariableDeclaration {
 };
 
 struct AstNodeTestDecl {
+    // nullptr if the test declaration has no name
     Buf *name;
 
     AstNode *body;

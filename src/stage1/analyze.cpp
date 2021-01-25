@@ -3871,12 +3871,18 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
         return;
 
     Buf *decl_name_buf = node->data.test_decl.name;
+    Buf *test_name;
 
-    Buf *test_name = g->test_name_prefix ?
-        buf_sprintf("%s%s", buf_ptr(g->test_name_prefix), buf_ptr(decl_name_buf)) : decl_name_buf;
+    if (decl_name_buf != nullptr) {
+        test_name = g->test_name_prefix ?
+                buf_sprintf("%s%s", buf_ptr(g->test_name_prefix), buf_ptr(decl_name_buf)) : decl_name_buf;
 
-    if (g->test_filter != nullptr && strstr(buf_ptr(test_name), buf_ptr(g->test_filter)) == nullptr) {
-        return;
+        if (g->test_filter != nullptr && strstr(buf_ptr(test_name), buf_ptr(g->test_filter)) == nullptr) {
+            return;
+        }
+    } else {
+        // Unnamed test blocks are always executed.
+        test_name = buf_sprintf("%s", g->test_name_prefix ? buf_ptr(g->test_name_prefix) : "");
     }
 
     TldFn *tld_fn = heap::c_allocator.create<TldFn>();

@@ -553,7 +553,7 @@ pub fn getCurrentThreadId() u64 {
     }
 }
 
-test "" {
+test {
     if (!builtin.single_threaded) {
         std.testing.refAllDecls(@This());
     }

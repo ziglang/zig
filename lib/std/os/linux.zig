@@ -1355,7 +1355,7 @@ pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
     return syscall3(.madvise, @ptrToInt(address), len, advice);
 }
 
-test "" {
+test {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
     }

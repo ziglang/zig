@@ -14,7 +14,7 @@ pub const parse = @import("c/parse.zig").parse;
 pub const ast = @import("c/ast.zig");
 pub const builtins = @import("c/builtins.zig");
 
-test "" {
+test {
     _ = tokenizer;
 }
 

@@ -906,7 +906,7 @@ pub const Instruction = union(enum) {
     }
 };
 
-test "" {
+test {
     testing.refAllDecls(@This());
 }
 

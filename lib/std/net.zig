@@ -1769,6 +1769,6 @@ pub const StreamServer = struct {
     }
 };
 
-test "" {
+test {
     _ = @import("net/test.zig");
 }

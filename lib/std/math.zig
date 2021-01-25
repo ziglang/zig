@@ -278,7 +278,7 @@ pub const Complex = complex.Complex;
 
 pub const big = @import("math/big.zig");
 
-test "" {
+test {
     std.testing.refAllDecls(@This());
 }
 

@@ -86,7 +86,7 @@ comptime {
     _ = start;
 }
 
-test "" {
+test {
     if (builtin.os.tag == .windows) {
         // We only test the Windows-relevant stuff to save memory because the CI
         // server is hitting OOM. TODO revert this after stage2 arrives.

@@ -1577,6 +1577,6 @@ pub const Target = struct {
     }
 };
 
-test "" {
+test {
     std.testing.refAllDecls(Target.Cpu.Arch);
 }

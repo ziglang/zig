@@ -171,7 +171,7 @@ test "null_writer" {
     null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
 }
 
-test "" {
+test {
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");

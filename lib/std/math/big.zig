@@ -20,7 +20,7 @@ comptime {
     assert(limb_info.signedness == .unsigned);
 }
 
-test "" {
+test {
     _ = int;
     _ = Rational;
     _ = Limb;
