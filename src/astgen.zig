@@ -1887,10 +1887,12 @@ fn copyBodyNoEliding(body: *zir.Body, scope: Module.Scope.GenZIR) !void {
     };
 }
 
-fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.While) InnerError!*zir.Inst {
-    if (true) {
-        @panic("TODO reimplement this");
-    }
+fn whileExpr(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    while_node: *ast.Node.While,
+) InnerError!*zir.Inst {
     var cond_kind: CondKind = .bool;
     if (while_node.payload) |_| cond_kind = .{ .optional = null };
     if (while_node.@"else") |else_node| {
@@ -1912,6 +1914,7 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
         .arena = scope.arena(),
         .instructions = .{},
     };
+    setBlockResultLoc(&expr_scope, rl);
     defer expr_scope.instructions.deinit(mod.gpa);
 
     var loop_scope: Scope.GenZIR = .{
@@ -1981,25 +1984,8 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     // declare payload to the then_scope
     const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, then_src, while_node.payload);
 
-    // Most result location types can be forwarded directly; however
-    // if we need to write to a pointer which has an inferred type,
-    // proper type inference requires peer type resolution on the while's
-    // branches.
-    const branch_rl: ResultLoc = switch (rl) {
-        .discard, .none, .ty, .ptr, .ref => rl,
-        .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = while_block },
-    };
-
-    const then_result = try expr(mod, then_sub_scope, branch_rl, while_node.body);
-    if (!then_result.tag.isNoReturn()) {
-        _ = try addZIRInst(mod, then_sub_scope, then_src, zir.Inst.Break, .{
-            .block = cond_block,
-            .operand = then_result,
-        }, .{});
-    }
-    condbr.positionals.then_body = .{
-        .instructions = try then_scope.arena.dupe(*zir.Inst, then_scope.instructions.items),
-    };
+    expr_scope.break_count += 1;
+    const then_result = try expr(mod, then_sub_scope, expr_scope.break_result_loc, while_node.body);
 
     var else_scope: Scope.GenZIR = .{
         .parent = &continue_scope.base,
@@ -2009,33 +1995,40 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     };
     defer else_scope.instructions.deinit(mod.gpa);
 
-    if (while_node.@"else") |else_node| {
-        const else_src = tree.token_locs[else_node.body.lastToken()].start;
+    var else_src: usize = undefined;
+    var else_sub_scope: *Module.Scope = undefined;
+    const else_result: ?*zir.Inst = if (while_node.@"else") |else_node| blk: {
+        else_src = tree.token_locs[else_node.body.lastToken()].start;
         // declare payload to the then_scope
-        const else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
+        else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
 
-        const else_result = try expr(mod, else_sub_scope, branch_rl, else_node.body);
-        if (!else_result.tag.isNoReturn()) {
-            _ = try addZIRInst(mod, else_sub_scope, else_src, zir.Inst.Break, .{
-                .block = while_block,
-                .operand = else_result,
-            }, .{});
-        }
-    } else {
-        const else_src = tree.token_locs[while_node.lastToken()].start;
-        _ = try addZIRInst(mod, &else_scope.base, else_src, zir.Inst.BreakVoid, .{
-            .block = while_block,
-        }, .{});
-    }
-    condbr.positionals.else_body = .{
-        .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
+        expr_scope.break_count += 1;
+        break :blk try expr(mod, else_sub_scope, expr_scope.break_result_loc, else_node.body);
+    } else blk: {
+        else_src = tree.token_locs[while_node.lastToken()].start;
+        else_sub_scope = &else_scope.base;
+        break :blk null;
     };
     if (loop_scope.label) |some| {
         if (!some.used) {
             return mod.fail(scope, tree.token_locs[some.token].start, "unused while label", .{});
         }
     }
-    return &while_block.base;
+    return finishThenElseBlock(
+        mod,
+        scope,
+        rl,
+        &expr_scope,
+        &then_scope,
+        &else_scope,
+        &condbr.positionals.then_body,
+        &condbr.positionals.else_body,
+        then_src,
+        else_src,
+        then_result,
+        else_result,
+        while_block,
+    );
 }
 
 fn forExpr(

@@ -1857,7 +1857,7 @@ const DumpTzir = struct {
                 .loop => {
                     const loop = inst.castTag(.loop).?;
 
-                    try writer.writeAll("\n");
+                    try writer.writeAll("{\n");
 
                     const old_indent = dtz.indent;
                     dtz.indent += 2;
@@ -1865,7 +1865,7 @@ const DumpTzir = struct {
                     dtz.indent = old_indent;
 
                     try writer.writeByteNTimes(' ', dtz.indent);
-                    try writer.writeAll(")\n");
+                    try writer.writeAll("})\n");
                 },
 
                 .call => {
