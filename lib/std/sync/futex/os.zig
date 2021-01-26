@@ -138,7 +138,7 @@ const DarwinFutex = struct {
                         darwin.EFAULT => unreachable,
                         darwin.ETIMEDOUT => return error.TimedOut,
                         else => |errno| {
-                            const err = std.os.unexpectedErrno(errno);
+                            const err = std.os.unexpectedErrno(@intCast(usize, errno));
                             unreachable;
                         },
                     }
@@ -147,7 +147,7 @@ const DarwinFutex = struct {
         }
 
         pub fn wake(ptr: *const u32, num_waiters: u32) void {
-            var flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
+            var flags: u32 = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
             if (num_waiters > 1) {
                 flags |= darwin.ULF_WAKE_ALL;
             }
@@ -164,7 +164,7 @@ const DarwinFutex = struct {
                         darwin.ENOENT => {},
                         darwin.EINTR => continue,
                         else => |errno| {
-                            const err = std.os.unexpectedErrno(errno);
+                            const err = std.os.unexpectedErrno(@intCast(usize, errno));
                             unreachable;
                         },
                     }
