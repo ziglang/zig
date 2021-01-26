@@ -780,7 +780,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         eq_tok = try appendToken(c, .Equal, "=");
         if (decl_init) |expr| {
             const node_or_error = if (expr.getStmtClass() == .StringLiteralClass)
-                transStringLiteralAsArray(rp, &c.global_scope.base, @ptrCast(*const clang.StringLiteral, expr), type_node)
+                transStringLiteralAsArray(rp, &c.global_scope.base, @ptrCast(*const clang.StringLiteral, expr), zigArraySize(rp.c, type_node) catch 0)
             else
                 transExprCoercing(rp, scope, expr, .used, .r_value);
             init_node = node_or_error catch |err| switch (err) {
@@ -1662,7 +1662,7 @@ fn transDeclStmtOne(
             const eq_token = try appendToken(c, .Equal, "=");
             var init_node = if (decl_init) |expr|
                 if (expr.getStmtClass() == .StringLiteralClass)
-                    try transStringLiteralAsArray(rp, scope, @ptrCast(*const clang.StringLiteral, expr), type_node)
+                    try transStringLiteralAsArray(rp, scope, @ptrCast(*const clang.StringLiteral, expr), try zigArraySize(rp.c, type_node))
                 else
                     try transExprCoercing(rp, scope, expr, .used, .r_value)
             else
@@ -2059,14 +2059,39 @@ fn transStringLiteral(
             };
             return maybeSuppressResult(rp, scope, result_used, &node.base);
         },
-        .UTF16, .UTF32, .Wide => return revertAndWarn(
-            rp,
-            error.UnsupportedTranslation,
-            @ptrCast(*const clang.Stmt, stmt).getBeginLoc(),
-            "TODO: support string literal kind {s}",
-            .{kind},
-        ),
+        .UTF16, .UTF32, .Wide => {
+            const node = try transWideStringLiteral(rp, scope, stmt);
+            return maybeSuppressResult(rp, scope, result_used, node);
+        },
     }
+}
+
+/// Translates a wide string literal as a global "anonymous" array of the relevant-sized
+/// integer type + null terminator, and returns an identifier node for it
+fn transWideStringLiteral(rp: RestorePoint, scope: *Scope, stmt: *const clang.StringLiteral) TransError!*ast.Node {
+    const str_type = @tagName(stmt.getKind());
+    const mangle = rp.c.getMangle();
+    const name = try std.fmt.allocPrint(rp.c.arena, "zig.{s}_string_{d}", .{ str_type, mangle });
+
+    const const_tok = try appendToken(rp.c, .Keyword_const, "const");
+    const name_tok = try appendIdentifier(rp.c, name);
+    const eq_tok = try appendToken(rp.c, .Equal, "=");
+    var semi_tok: ast.TokenIndex = undefined;
+
+    const lit_array = try transStringLiteralAsArray(rp, scope, stmt, stmt.getLength() + 1);
+
+    semi_tok = try appendToken(rp.c, .Semicolon, ";");
+    const var_decl_node = try ast.Node.VarDecl.create(rp.c.arena, .{
+        .name_token = name_tok,
+        .mut_token = const_tok,
+        .semicolon_token = semi_tok,
+    }, .{
+        .visib_token = null,
+        .eq_token = eq_tok,
+        .init_node = lit_array,
+    });
+    try addTopLevelDecl(rp.c, name, &var_decl_node.base);
+    return transCreateNodeIdentifier(rp.c, name);
 }
 
 /// Parse the size of an array back out from an ast Node.
@@ -2081,17 +2106,18 @@ fn zigArraySize(c: *Context, node: *ast.Node) TransError!usize {
 }
 
 /// Translate a string literal to an array of integers. Used when an
-/// array is initialized from a string literal. `target_node` is the
-/// array being initialized. If the string literal is larger than the
-/// array, truncate the string. If the array is larger than the string
-/// literal, pad the array with 0's
+/// array is initialized from a string literal. `array_size` is the
+/// size of the array being initialized. If the string literal is larger
+/// than the array, truncate the string. If the array is larger than the
+/// string literal, pad the array with 0's
 fn transStringLiteralAsArray(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const clang.StringLiteral,
-    target_node: *ast.Node,
+    array_size: usize,
 ) TransError!*ast.Node {
-    const array_size = try zigArraySize(rp.c, target_node);
+    if (array_size == 0) return error.UnsupportedType;
+
     const str_length = stmt.getLength();
 
     const expr_base = @ptrCast(*const clang.Expr, stmt);
