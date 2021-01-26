@@ -41,6 +41,7 @@ pub const Object = struct {
     value_map: CValueMap,
     next_arg_index: usize = 0,
     next_local_index: usize = 0,
+    next_block_index: usize = 0,
     indent_writer: std.io.AutoIndentingStream(std.ArrayList(u8).Writer),
 
     fn resolveInst(o: *Object, inst: *Inst) !CValue {
@@ -255,8 +256,8 @@ pub const DeclGen = struct {
                     .int_signed, .int_unsigned => {
                         const info = t.intInfo(dg.module.getTarget());
                         const sign_prefix = switch (info.signedness) {
-                            .signed => "i",
-                            .unsigned => "",
+                            .signed => "",
+                            .unsigned => "u",
                         };
                         inline for (.{ 8, 16, 32, 64, 128 }) |nbits| {
                             if (info.bits <= nbits) {
@@ -325,6 +326,7 @@ pub fn genDecl(o: *Object) !void {
         try o.indent_writer.insertNewline();
         try o.dg.renderFunctionSignature(o.writer(), is_global);
         
+        try o.writer().writeByte(' ');
         try genBody(o, func.body);
 
         try o.indent_writer.insertNewline();
@@ -372,11 +374,11 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
 pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!void {
     const writer = o.writer();
     if (body.instructions.len == 0) {
-        try writer.writeAll(" {}");
+        try writer.writeAll("{}");
         return;
     }
 
-    try writer.writeAll(" {\n");
+    try writer.writeAll("{\n");
     o.indent_writer.pushIndent();
 
     for (body.instructions) |inst| {
@@ -404,6 +406,9 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
             .unreach => try genUnreach(o, inst.castTag(.unreach).?),
             .loop => try genLoop(o, inst.castTag(.loop).?),
+            .condbr => try genCondBr(o, inst.castTag(.condbr).?),
+            .br => try genBr(o, inst.castTag(.br).?),
+            .brvoid => try genBrVoid(o, inst.castTag(.brvoid).?.block),
             else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
         };
         switch (result_value) {
@@ -579,7 +584,31 @@ fn genDbgStmt(o: *Object, inst: *Inst.NoOp) !CValue {
 }
 
 fn genBlock(o: *Object, inst: *Inst.Block) !CValue {
-    return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement blocks", .{});
+    const block_id: usize = o.next_block_index;
+    o.next_block_index += 1;
+    // abuse codegen.msv to store the block's id
+    inst.codegen.mcv.a = block_id;
+    try genBody(o, inst.body);
+    try o.indent_writer.insertNewline();
+    // label must be followed by an expression, add an empty one.
+    try o.writer().print("zig_block_{d}:;\n", .{block_id});
+
+    // blocks in C cannot result in values
+    // TODO we need some other way to pass the result of the block
+    return CValue.none;
+}
+
+fn genBr(o: *Object, inst: *Inst.Br) !CValue {
+    if (inst.operand.ty.tag() != .void) {
+        return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement block return values", .{});
+    }
+
+    return genBrVoid(o, inst.block);
+}
+
+fn genBrVoid(o: *Object, block: *Inst.Block) !CValue {
+    try o.writer().print("goto zig_block_{d};\n", .{block.codegen.mcv.a});
+    return CValue.none;
 }
 
 fn genBitcast(o: *Object, inst: *Inst.UnOp) !CValue {
@@ -622,9 +651,24 @@ fn genUnreach(o: *Object, inst: *Inst.NoOp) !CValue {
 }
 
 fn genLoop(o: *Object, inst: *Inst.Loop) !CValue {
-    try o.writer().writeAll("while (true)");
+    try o.writer().writeAll("while (true) ");
     try genBody(o, inst.body);
     try o.indent_writer.insertNewline();
+    return CValue.none;
+}
+
+fn genCondBr(o: *Object, inst: *Inst.CondBr) !CValue {
+    const cond = try o.resolveInst(inst.condition);
+    const writer = o.writer();
+
+    try writer.writeAll("if (");
+    try o.writeCValue(writer, cond);
+    try writer.writeAll(") ");
+    try genBody(o, inst.then_body);
+    try writer.writeAll(" else ");
+    try genBody(o, inst.else_body);
+    try o.indent_writer.insertNewline();
+
     return CValue.none;
 }
 

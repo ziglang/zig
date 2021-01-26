@@ -133,6 +133,24 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\
         , "");
+
+        // Simple while loop
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var a: c_int = 0;
+            \\    while (a < 5) : (a+=1) {}
+            \\    exit(a - 5);
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\    );
+            \\    unreachable;
+            \\}
+        , "");
     }
 
     {
