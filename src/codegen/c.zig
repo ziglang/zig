@@ -6,7 +6,8 @@ const Writer = std.ArrayList(u8).Writer;
 const link = @import("../link.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const Inst = @import("../ir.zig").Inst;
+const ir = @import("../ir.zig");
+const Inst = ir.Inst;
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
@@ -324,51 +325,13 @@ pub fn genDecl(o: *Object) !void {
         try fwd_decl_writer.writeAll(";\n");
 
         const func: *Module.Fn = func_payload.data;
-        const instructions = func.body.instructions;
         const writer = o.code.writer();
         try writer.writeAll("\n");
         try o.dg.renderFunctionSignature(writer, is_global);
-        if (instructions.len == 0) {
-            try writer.writeAll(" {}\n");
-            return;
-        }
-
-        try writer.writeAll(" {");
+        
+        try genBody(o, func.body);
 
         try writer.writeAll("\n");
-        for (instructions) |inst| {
-            const result_value = switch (inst.tag) {
-                .add => try genBinOp(o, inst.castTag(.add).?, " + "),
-                .alloc => try genAlloc(o, inst.castTag(.alloc).?),
-                .arg => genArg(o),
-                .assembly => try genAsm(o, inst.castTag(.assembly).?),
-                .block => try genBlock(o, inst.castTag(.block).?),
-                .bitcast => try genBitcast(o, inst.castTag(.bitcast).?),
-                .breakpoint => try genBreakpoint(o, inst.castTag(.breakpoint).?),
-                .call => try genCall(o, inst.castTag(.call).?),
-                .cmp_eq => try genBinOp(o, inst.castTag(.cmp_eq).?, " == "),
-                .cmp_gt => try genBinOp(o, inst.castTag(.cmp_gt).?, " > "),
-                .cmp_gte => try genBinOp(o, inst.castTag(.cmp_gte).?, " >= "),
-                .cmp_lt => try genBinOp(o, inst.castTag(.cmp_lt).?, " < "),
-                .cmp_lte => try genBinOp(o, inst.castTag(.cmp_lte).?, " <= "),
-                .cmp_neq => try genBinOp(o, inst.castTag(.cmp_neq).?, " != "),
-                .dbg_stmt => try genDbgStmt(o, inst.castTag(.dbg_stmt).?),
-                .intcast => try genIntCast(o, inst.castTag(.intcast).?),
-                .load => try genLoad(o, inst.castTag(.load).?),
-                .ret => try genRet(o, inst.castTag(.ret).?),
-                .retvoid => try genRetVoid(o),
-                .store => try genStore(o, inst.castTag(.store).?),
-                .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
-                .unreach => try genUnreach(o, inst.castTag(.unreach).?),
-                else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
-            };
-            switch (result_value) {
-                .none => {},
-                else => try o.value_map.putNoClobber(inst, result_value),
-            }
-        }
-
-        try writer.writeAll("}\n");
     } else if (tv.val.tag() == .extern_fn) {
         const writer = o.code.writer();
         try writer.writeAll("ZIG_EXTERN_C ");
@@ -408,6 +371,52 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
         },
         else => {},
     }
+}
+
+pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!void {
+    const writer = o.code.writer();
+    if (body.instructions.len == 0) {
+        try writer.writeAll(" {}");
+        return;
+    }
+
+    try writer.writeAll(" {");
+
+    try writer.writeAll("\n");
+    for (body.instructions) |inst| {
+        const result_value = switch (inst.tag) {
+            .add => try genBinOp(o, inst.castTag(.add).?, " + "),
+            .alloc => try genAlloc(o, inst.castTag(.alloc).?),
+            .arg => genArg(o),
+            .assembly => try genAsm(o, inst.castTag(.assembly).?),
+            .block => try genBlock(o, inst.castTag(.block).?),
+            .bitcast => try genBitcast(o, inst.castTag(.bitcast).?),
+            .breakpoint => try genBreakpoint(o, inst.castTag(.breakpoint).?),
+            .call => try genCall(o, inst.castTag(.call).?),
+            .cmp_eq => try genBinOp(o, inst.castTag(.cmp_eq).?, " == "),
+            .cmp_gt => try genBinOp(o, inst.castTag(.cmp_gt).?, " > "),
+            .cmp_gte => try genBinOp(o, inst.castTag(.cmp_gte).?, " >= "),
+            .cmp_lt => try genBinOp(o, inst.castTag(.cmp_lt).?, " < "),
+            .cmp_lte => try genBinOp(o, inst.castTag(.cmp_lte).?, " <= "),
+            .cmp_neq => try genBinOp(o, inst.castTag(.cmp_neq).?, " != "),
+            .dbg_stmt => try genDbgStmt(o, inst.castTag(.dbg_stmt).?),
+            .intcast => try genIntCast(o, inst.castTag(.intcast).?),
+            .load => try genLoad(o, inst.castTag(.load).?),
+            .ret => try genRet(o, inst.castTag(.ret).?),
+            .retvoid => try genRetVoid(o),
+            .store => try genStore(o, inst.castTag(.store).?),
+            .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
+            .unreach => try genUnreach(o, inst.castTag(.unreach).?),
+            .loop => try genLoop(o, inst.castTag(.loop).?),
+            else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
+        };
+        switch (result_value) {
+            .none => {},
+            else => try o.value_map.putNoClobber(inst, result_value),
+        }
+    }
+
+    try writer.writeAll("}");
 }
 
 fn genAlloc(o: *Object, alloc: *Inst.NoOp) !CValue {
@@ -624,6 +633,14 @@ fn genBreakpoint(o: *Object, inst: *Inst.NoOp) !CValue {
 fn genUnreach(o: *Object, inst: *Inst.NoOp) !CValue {
     try o.indent();
     try o.code.writer().writeAll("zig_unreachable();\n");
+    return CValue.none;
+}
+
+fn genLoop(o: *Object, inst: *Inst.Loop) !CValue {
+    try o.indent();
+    try o.code.writer().writeAll("while (true)");
+    try genBody(o, inst.body);
+    try o.code.writer().writeAll("\n");
     return CValue.none;
 }
 
