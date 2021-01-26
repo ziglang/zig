@@ -23,6 +23,8 @@ pub fn Semaphore(comptime Futex: anytype) type {
             waiting,
         };
 
+        pub const Dummy = DebugSemaphore;
+
         pub fn init(permits: usize) Self {
             return .{ .permits = permits };
         }

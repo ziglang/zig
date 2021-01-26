@@ -19,6 +19,8 @@ pub fn Condvar(comptime Futex: anytype) type {
         const Self = @This();
         const Held = @import("./Mutex.zig").Mutex(Futex).Held;
 
+        pub const Dummy = DebugCondvar;
+
         pub fn deinit(self: *Self) void {
             if (helgrind) |hg| {
                 hg.annotateHappensBeforeForgetAll(@ptrToInt(self));
@@ -77,3 +79,37 @@ pub fn Condvar(comptime Futex: anytype) type {
         }
     };
 }
+
+pub const DebugCondvar = struct {
+
+    const Self = @This();
+
+    pub fn deinit(self: *Self) void {
+        self.* = undefined;
+    }
+
+    pub fn wait(self: *Self, held: Held) void {
+        @panic("deadlock detected");
+    }
+
+    pub fn tryWaitFor(self: *Self, held: Held, duration: u64) error{TimedOut}!void {
+        std.time.sleep(duration);
+        return error.TimedOut;
+    }
+
+    pub fn tryWaitUntil(self: *Self, held: Held, deadline: u64) error{TimedOut}!void {
+        const now = std.time.now();
+        if (now < deadline) {
+            std.time.sleep(deadline - now);
+        }
+        return error.TimedOut;
+    }
+
+    pub fn notifyOne(self: *Self) void {
+        // no-op: no threads to wake
+    }
+
+    pub fn notifyAll(self: *Self) void {
+        // no-op: no threads to wake
+    }
+};
