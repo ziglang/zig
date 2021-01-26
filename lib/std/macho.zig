@@ -1334,6 +1334,41 @@ pub const reloc_type_x86_64 = packed enum(u4) {
     X86_64_RELOC_TLV,
 };
 
+pub const reloc_type_arm64 = packed enum(u4) {
+    /// For pointers.
+    ARM64_RELOC_UNSIGNED = 0,
+
+    /// Must be followed by a ARM64_RELOC_UNSIGNED.
+    ARM64_RELOC_SUBTRACTOR,
+
+    /// A B/BL instruction with 26-bit displacement.
+    ARM64_RELOC_BRANCH26,
+
+    /// Pc-rel distance to page of target.
+    ARM64_RELOC_PAGE21,
+
+    /// Offset within page, scaled by r_length.
+    ARM64_RELOC_PAGEOFF12,
+
+    /// Pc-rel distance to page of GOT slot.
+    ARM64_RELOC_GOT_LOAD_PAGE21,
+
+    /// Offset within page of GOT slot, scaled by r_length.
+    ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+
+    /// For pointers to GOT slots.
+    ARM64_RELOC_POINTER_TO_GOT,
+
+    /// Pc-rel distance to page of TLVP slot.
+    ARM64_RELOC_TLVP_LOAD_PAGE21,
+
+    /// Offset within page of TLVP slot, scaled by r_length.
+    ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
+
+    /// Must be followed by PAGE21 or PAGEOFF12.
+    ARM64_RELOC_ADDEND,
+};
+
 /// This symbol is a reference to an external non-lazy (data) symbol.
 pub const REFERENCE_FLAG_UNDEFINED_NON_LAZY: u16 = 0x0;
 
