@@ -163,11 +163,8 @@ pub const Context = struct {
         try self.genFunctype();
         const writer = self.code.writer();
 
-        // Reserve space to write the size after generating the code
-        try self.code.resize(5);
-
-        // offset into 'code' section where we will put our locals count
-        var local_offset = self.code.items.len;
+        // Reserve space to write the size after generating the code as well as space for locals count
+        try self.code.resize(10);
 
         // Write instructions
         // TODO: check for and handle death of instructions
@@ -177,10 +174,10 @@ pub const Context = struct {
 
         // finally, write our local types at the 'offset' position
         {
-            var totals_buffer: [5]u8 = undefined;
-            leb.writeUnsignedFixed(5, totals_buffer[0..5], @intCast(u32, self.locals.items.len));
-            try self.code.insertSlice(local_offset, &totals_buffer);
-            local_offset += 5;
+            leb.writeUnsignedFixed(5, self.code.items[5..10], @intCast(u32, self.locals.items.len));
+
+            // offset into 'code' section where we will put our locals types
+            var local_offset: usize = 10;
 
             // emit the actual locals amount
             for (self.locals.items) |local| {
@@ -285,8 +282,7 @@ pub const Context = struct {
     }
 
     fn genLoad(self: *Context, inst: *Inst.UnOp) InnerError!WValue {
-        const operand = self.resolveInst(inst.operand);
-        return operand;
+        return self.resolveInst(inst.operand);
     }
 
     fn genArg(self: *Context, inst: *Inst.Arg) InnerError!WValue {
@@ -351,35 +347,49 @@ pub const Context = struct {
     fn genBlock(self: *Context, block: *Inst.Block) InnerError!WValue {
         const block_ty = try self.genBlockType(block.base.src, block.base.ty);
 
+        try self.startBlock(.block, block_ty, null);
         block.codegen = .{
             // we don't use relocs, so using `relocs` is illegal behaviour.
             .relocs = undefined,
-            // Here we set the current block idx, so conditions know the depth to jump
-            // to when breaking out. This will be set to .none when it is found again within
-            // the same block
+            // Here we set the current block idx, so breaks know the depth to jump
+            // to when breaking out.
             .mcv = @bitCast(AnyMCValue, WValue{ .block_idx = self.block_depth }),
         };
-        self.block_depth += 1;
-
-        try self.code.append(wasm.opcode(.block));
-        try self.code.append(block_ty);
         try self.genBody(block.body);
-        try self.code.append(wasm.opcode(.end));
+        try self.endBlock();
 
-        self.block_depth -= 1;
         return .none;
+    }
+
+    /// appends a new wasm block to the code section and increases the `block_depth` by 1
+    fn startBlock(self: *Context, block_type: wasm.Opcode, valtype: u8, with_offset: ?usize) !void {
+        self.block_depth += 1;
+        if (with_offset) |offset| {
+            try self.code.insert(offset, wasm.opcode(block_type));
+            try self.code.insert(offset + 1, valtype);
+        } else {
+            try self.code.append(wasm.opcode(block_type));
+            try self.code.append(valtype);
+        }
+    }
+
+    /// Ends the current wasm block and decreases the `block_depth` by 1
+    fn endBlock(self: *Context) !void {
+        try self.code.append(wasm.opcode(.end));
+        self.block_depth -= 1;
     }
 
     fn genLoop(self: *Context, loop: *Inst.Loop) InnerError!WValue {
         const loop_ty = try self.genBlockType(loop.base.src, loop.base.ty);
 
-        try self.code.append(wasm.opcode(.loop));
-        try self.code.append(loop_ty);
-        self.block_depth += 1;
+        try self.startBlock(.loop, loop_ty, null);
         try self.genBody(loop.body);
-        self.block_depth -= 1;
 
-        try self.code.append(wasm.opcode(.end));
+        // breaking to the index of a loop block will continue the loop instead
+        try self.code.append(wasm.opcode(.br));
+        try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+
+        try self.endBlock();
 
         return .none;
     }
@@ -388,23 +398,22 @@ pub const Context = struct {
         const condition = self.resolveInst(condbr.condition);
         const writer = self.code.writer();
 
+        // TODO: Handle death instructions for then and else body
+
         // insert blocks at the position of `offset` so
         // the condition can jump to it
         const offset = condition.code_offset;
-        try self.code.insert(offset, wasm.opcode(.block));
-        try self.code.insert(offset, try self.genBlockType(condbr.base.src, condbr.base.ty));
+        const block_ty = try self.genBlockType(condbr.base.src, condbr.base.ty);
+        try self.startBlock(.block, block_ty, offset);
 
         // we inserted the block in front of the condition
         // so now check if condition matches. If not, break outside this block
-        // and continue with the regular codepath
+        // and continue with the then codepath
         try writer.writeByte(wasm.opcode(.br_if));
         try leb.writeULEB128(writer, @as(u32, 0));
 
-        // else body in case condition does not match
         try self.genBody(condbr.else_body);
-
-        // finally, tell wasm we have reached the end of the block we inserted above
-        try writer.writeByte(wasm.opcode(.end));
+        try self.endBlock();
 
         // Outer block that matches the condition
         try self.genBody(condbr.then_body);
@@ -417,7 +426,7 @@ pub const Context = struct {
 
         // save offset, so potential conditions can insert blocks in front of
         // the comparison that we can later jump back to
-        const offset = self.code.items.len - 1;
+        const offset = self.code.items.len;
 
         const lhs = self.resolveInst(inst.lhs);
         const rhs = self.resolveInst(inst.rhs);
@@ -492,17 +501,14 @@ pub const Context = struct {
             try self.emitWValue(operand);
         }
 
-        // if the block contains a block_idx, do a relative jump to it
-        // if `wvalue` was already 'consumed', simply break out of current block
+        // every block contains a `WValue` with its block index.
+        // We then determine how far we have to jump to it by substracting it from current block depth
         const wvalue = @bitCast(WValue, br.block.codegen.mcv);
-        const idx: u32 = if (wvalue == .block_idx) blk: {
-            br.block.codegen.mcv = @bitCast(AnyMCValue, WValue{ .none = {} });
-            break :blk self.block_depth - wvalue.block_idx;
-        } else 0;
-
+        const idx: u32 = self.block_depth - wvalue.block_idx;
         const writer = self.code.writer();
         try writer.writeByte(wasm.opcode(.br));
         try leb.writeULEB128(writer, idx);
-        return WValue.none;
+
+        return .none;
     }
 };
