@@ -95,7 +95,9 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
         .gpa = module.gpa,
         .code = code.toManaged(module.gpa),
         .value_map = codegen.CValueMap.init(module.gpa),
+        .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
+    object.indent_writer = std.io.autoIndentingStream(4, object.code.writer());
     defer object.value_map.deinit();
     defer object.code.deinit();
     defer object.dg.fwd_decl.deinit();
