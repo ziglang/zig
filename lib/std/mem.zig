@@ -1507,7 +1507,7 @@ pub fn joinZ(allocator: *Allocator, separator: []const u8, slices: []const []con
 }
 
 fn joinMaybeZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8, zero: bool) ![]u8 {
-    if (slices.len == 0) return &[0]u8{};
+    if (slices.len == 0) return if (zero) try allocator.dupe(u8, &[1]u8{0}) else &[0]u8{};
 
     const total_len = blk: {
         var sum: usize = separator.len * (slices.len - 1);
@@ -1536,6 +1536,11 @@ fn joinMaybeZ(allocator: *Allocator, separator: []const u8, slices: []const []co
 
 test "mem.join" {
     {
+        const str = try join(testing.allocator, ",", &[_][]const u8{});
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, ""));
+    }
+    {
         const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
         defer testing.allocator.free(str);
         testing.expect(eql(u8, str, "a,b,c"));
@@ -1553,6 +1558,12 @@ test "mem.join" {
 }
 
 test "mem.joinZ" {
+    {
+        const str = try joinZ(testing.allocator, ",", &[_][]const u8{});
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, ""));
+        testing.expectEqual(str[str.len], 0);
+    }
     {
         const str = try joinZ(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
         defer testing.allocator.free(str);
