@@ -91,3 +91,56 @@ pub fn DebugOnce(comptime initFn: anytype) type {
         }
     };
 }
+
+test "Once - Debug" {
+    try testOnce(DebugOnce, null);
+}
+
+test "Once - Spin" {
+    try testOnce(Once(std.sync.futex.spin), std.Thread);
+}
+
+test "Once - OS" {
+    try testOnce(Once(std.sync.futex.os), std.Thread);
+}
+test "Once - Evented" {
+    if (!std.io.is_async or std.builtin.single_threaded) return error.SkipZigTest;
+    try testOnce(
+        Once(std.sync.futex.event),
+        @import("../futex/event.zig").TestThread,
+    );
+}
+
+fn testOnce(
+    comptime TestOnce: anytype,
+    comptime TestThread: ?type,
+) !void {
+    const Wrapper = struct {
+        var count: usize = 0;
+        pub fn incr() void {
+            count += 1;
+        }
+    };
+
+    {
+        var once = TestOnce(Wrapper.incr){};
+        testing.expect(Wrapper.count == 0);
+        once.call();
+        testing.expect(Wrapper.count == 1);
+        once.call();
+        testing.expect(Wrapper.count == 1);
+    }
+
+    Wrapper.count = 0;
+    const Thread = TestThread orelse return;
+
+    {
+        const IncrementOnce = TestOnce(Wrapper.incr);
+        var once = IncrementOnce{};
+        testing.expect(Wrapper.count == 0);
+        var threads: [3]*Thread = undefined;
+        for (threads) |*t| t.* = try Thread.spawn(&once, IncrementOnce.call);
+        for (threads) |t| t.wait();
+        testing.expect(Wrapper.count == 1);
+    }
+}
