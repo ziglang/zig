@@ -484,7 +484,7 @@ pub fn formatType(
             }
         },
         .Struct => |info| {
-            try writer.writeAll(@typeName(T));
+            if (!info.is_tuple) try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
             }
@@ -1881,6 +1881,11 @@ test "struct" {
     };
 
     try expectFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+}
+
+test "tuple" {
+    const t = .{ 1, 2.718281828, .{ 3.1415926 } };
+    try expectFmt("{ .0 = 1, .1 = 2.718281828e+00, .2 = { .0 = 3.1415926e+00 } }", "{}", .{t});
 }
 
 test "union" {
