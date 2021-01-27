@@ -151,6 +151,27 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    unreachable;
             \\}
         , "");
+
+        // If expression
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    var a: c_int = @as(c_int, if (cond == 0)
+            \\        2
+            \\    else
+            \\        3) + 9;
+            \\    exit(a - 11);
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\    );
+            \\    unreachable;
+            \\}
+        , "");
     }
 
     {

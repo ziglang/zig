@@ -325,7 +325,7 @@ pub fn genDecl(o: *Object) !void {
         const func: *Module.Fn = func_payload.data;
         try o.indent_writer.insertNewline();
         try o.dg.renderFunctionSignature(o.writer(), is_global);
-        
+
         try o.writer().writeByte(' ');
         try genBody(o, func.body);
 
@@ -586,28 +586,44 @@ fn genDbgStmt(o: *Object, inst: *Inst.NoOp) !CValue {
 fn genBlock(o: *Object, inst: *Inst.Block) !CValue {
     const block_id: usize = o.next_block_index;
     o.next_block_index += 1;
-    // abuse codegen.msv to store the block's id
-    inst.codegen.mcv.a = block_id;
+    const writer = o.writer();
+
+    // store the block id in relocs.capacity as it is not  used for anything else in the C backend.
+    inst.codegen.relocs.capacity = block_id;
+    const result = if (inst.base.ty.tag() != .void and !inst.base.isUnused()) blk: {
+        // allocate a location for the result
+        const local = try o.allocLocal(inst.base.ty, .Mut);
+        try writer.writeAll(";\n");
+        break :blk local;
+    } else
+        CValue{ .none = {} };
+
+    inst.codegen.mcv = @bitCast(@import("../codegen.zig").AnyMCValue, result);
     try genBody(o, inst.body);
     try o.indent_writer.insertNewline();
     // label must be followed by an expression, add an empty one.
-    try o.writer().print("zig_block_{d}:;\n", .{block_id});
-
-    // blocks in C cannot result in values
-    // TODO we need some other way to pass the result of the block
-    return CValue.none;
+    try writer.print("zig_block_{d}:;\n", .{block_id});
+    return result;
 }
 
 fn genBr(o: *Object, inst: *Inst.Br) !CValue {
-    if (inst.operand.ty.tag() != .void) {
-        return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement block return values", .{});
+    const result = @bitCast(CValue, inst.block.codegen.mcv);
+    const writer = o.writer();
+
+    // If result is .none then the value of the block is unused.
+    if (inst.operand.ty.tag() != .void and result != .none) {
+        const operand = try o.resolveInst(inst.operand);
+        try o.writeCValue(writer, result);
+        try writer.writeAll(" = ");
+        try o.writeCValue(writer, operand);
+        try writer.writeAll(";\n");
     }
 
     return genBrVoid(o, inst.block);
 }
 
 fn genBrVoid(o: *Object, block: *Inst.Block) !CValue {
-    try o.writer().print("goto zig_block_{d};\n", .{block.codegen.mcv.a});
+    try o.writer().print("goto zig_block_{d};\n", .{block.codegen.relocs.capacity});
     return CValue.none;
 }
 
