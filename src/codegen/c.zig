@@ -129,6 +129,9 @@ pub const DeclGen = struct {
         t: Type,
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
+        if (val.isUndef()) {
+            return dg.fail(dg.decl.src(), "TODO: C backend: properly handle undefined in all cases (with debug safety?)", .{});
+        }
         switch (t.zigTypeTag()) {
             .Int => {
                 if (t.isSignedInt())
@@ -196,6 +199,7 @@ pub const DeclGen = struct {
                     },
                 }
             },
+            .Bool => return writer.print("{}", .{val.toBool()}),
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement value {s}", .{
                 @tagName(e),
             }),
@@ -409,6 +413,10 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .condbr => try genCondBr(o, inst.castTag(.condbr).?),
             .br => try genBr(o, inst.castTag(.br).?),
             .brvoid => try genBrVoid(o, inst.castTag(.brvoid).?.block),
+            .switchbr => try genSwitchBr(o, inst.castTag(.switchbr).?),
+            // booland and boolor are non-short-circuit operations
+            .booland => try genBinOp(o, inst.castTag(.booland).?, " & "),
+            .boolor => try genBinOp(o, inst.castTag(.boolor).?, " | "),
             else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
         };
         switch (result_value) {
@@ -685,6 +693,33 @@ fn genCondBr(o: *Object, inst: *Inst.CondBr) !CValue {
     try genBody(o, inst.else_body);
     try o.indent_writer.insertNewline();
 
+    return CValue.none;
+}
+
+fn genSwitchBr(o: *Object, inst: *Inst.SwitchBr) !CValue {
+    const target = try o.resolveInst(inst.target);
+    const writer = o.writer();
+
+    try writer.writeAll("switch (");
+    try o.writeCValue(writer, target);
+    try writer.writeAll(") {\n");
+    o.indent_writer.pushIndent();
+
+    for (inst.cases) |case| {
+        try writer.writeAll("case ");
+        try o.dg.renderValue(writer, inst.target.ty, case.item);
+        try writer.writeAll(": ");
+        // the case body must be noreturn so we don't need to insert a break
+        try genBody(o, case.body);
+        try o.indent_writer.insertNewline();
+    }
+
+    try writer.writeAll("default: ");
+    try genBody(o, inst.else_body);
+    try o.indent_writer.insertNewline();
+
+    o.indent_writer.popIndent();
+    try writer.writeAll("}\n");
     return CValue.none;
 }
 

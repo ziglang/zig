@@ -133,45 +133,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\
         , "");
-
-        // Simple while loop
-        case.addCompareOutput(
-            \\export fn main() c_int {
-            \\    var a: c_int = 0;
-            \\    while (a < 5) : (a+=1) {}
-            \\    exit(a - 5);
-            \\}
-            \\
-            \\fn exit(code: usize) noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (code)
-            \\    );
-            \\    unreachable;
-            \\}
-        , "");
-
-        // If expression
-        case.addCompareOutput(
-            \\export fn main() c_int {
-            \\    var cond: c_int = 0;
-            \\    var a: c_int = @as(c_int, if (cond == 0)
-            \\        2
-            \\    else
-            \\        3) + 9;
-            \\    exit(a - 11);
-            \\}
-            \\
-            \\fn exit(code: usize) noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (code)
-            \\    );
-            \\    unreachable;
-            \\}
-        , "");
     }
 
     {
@@ -221,6 +182,45 @@ pub fn addCases(ctx: *TestContext) !void {
             \\inline fn rec(n: usize) usize {
             \\    if (n <= 1) return n;
             \\    return rec(n - 1);
+            \\}
+        , "");
+    }
+    {
+        var case = ctx.exeFromCompiledC("control flow", .{});
+
+        // Simple while loop
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var a: c_int = 0;
+            \\    while (a < 5) : (a+=1) {}
+            \\    return a - 5;
+            \\}
+        , "");
+
+        // If expression
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    var a: c_int = @as(c_int, if (cond == 0)
+            \\        2
+            \\    else
+            \\        3) + 9;
+            \\    return a - 11;
+            \\}
+        , "");
+
+        // Switch expression
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    var a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        99...300, 12 => 3,
+            \\        0 => 4,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
             \\}
         , "");
     }
