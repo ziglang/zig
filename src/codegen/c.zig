@@ -293,6 +293,7 @@ pub const DeclGen = struct {
                 try dg.renderType(w, t.elemType());
                 try w.writeAll(" *");
             },
+            .Null, .Undefined => unreachable, // must be const or comptime
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement type {s}", .{
                 @tagName(e),
             }),
@@ -387,6 +388,7 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
 
     for (body.instructions) |inst| {
         const result_value = switch (inst.tag) {
+            .constant => unreachable, // excluded from function bodies
             .add => try genBinOp(o, inst.castTag(.add).?, " + "),
             .alloc => try genAlloc(o, inst.castTag(.alloc).?),
             .arg => genArg(o),
@@ -415,8 +417,10 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .brvoid => try genBrVoid(o, inst.castTag(.brvoid).?.block),
             .switchbr => try genSwitchBr(o, inst.castTag(.switchbr).?),
             // booland and boolor are non-short-circuit operations
-            .booland => try genBinOp(o, inst.castTag(.booland).?, " & "),
-            .boolor => try genBinOp(o, inst.castTag(.boolor).?, " | "),
+            .booland, .bitand => try genBinOp(o, inst.castTag(.booland).?, " & "),
+            .boolor, .bitor => try genBinOp(o, inst.castTag(.boolor).?, " | "),
+            .xor => try genBinOp(o, inst.castTag(.xor).?, " ^ "),
+            .not => try genUnOp(o, inst.castTag(.not).?, "!"),
             else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
         };
         switch (result_value) {
@@ -536,6 +540,22 @@ fn genBinOp(o: *Object, inst: *Inst.BinOp, operator: []const u8) !CValue {
     try o.writeCValue(writer, lhs);
     try writer.writeAll(operator);
     try o.writeCValue(writer, rhs);
+    try writer.writeAll(";\n");
+
+    return local;
+}
+
+fn genUnOp(o: *Object, inst: *Inst.UnOp, operator: []const u8) !CValue {
+    if (inst.base.isUnused())
+        return CValue.none;
+
+    const operand = try o.resolveInst(inst.operand);
+
+    const writer = o.writer();
+    const local = try o.allocLocal(inst.base.ty, .Const);
+
+    try writer.print(" = {s}", .{operator});
+    try o.writeCValue(writer, operand);
     try writer.writeAll(";\n");
 
     return local;

@@ -196,6 +196,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return a - 5;
             \\}
         , "");
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var a = true;
+            \\    while (!a) {}
+            \\    return 0;
+            \\}
+        , "");
 
         // If expression
         case.addCompareOutput(
