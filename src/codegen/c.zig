@@ -140,7 +140,7 @@ pub const DeclGen = struct {
                 return writer.print("{d}", .{val.toUnsignedInt()});
             },
             .Pointer => switch (val.tag()) {
-                .undef, .zero => try writer.writeAll("0"),
+                .null_value, .zero => try writer.writeAll("NULL"),
                 .one => try writer.writeAll("1"),
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
@@ -201,6 +201,20 @@ pub const DeclGen = struct {
                 }
             },
             .Bool => return writer.print("{}", .{val.toBool()}),
+            .Optional => {
+                var opt_buf: Type.Payload.ElemType = undefined;
+                const child_type = t.optionalChild(&opt_buf);
+                if (t.isPtrLikeOptional()) {
+                    return dg.renderValue(writer, child_type, val);
+                }
+                if (val.tag() == .null_value) {
+                    try writer.writeAll("{ .is_null = true }");
+                } else {
+                    try writer.writeAll("{ .is_null = false, .payload = ");
+                    try dg.renderValue(writer, child_type, val);
+                    try writer.writeAll(" }");
+                }
+            },
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement value {s}", .{
                 @tagName(e),
             }),
@@ -298,6 +312,14 @@ pub const DeclGen = struct {
             .Array => {
                 try dg.renderType(w, t.elemType());
                 try w.writeAll(" *");
+            },
+            .Optional => {
+                var opt_buf: Type.Payload.ElemType = undefined;
+                const child_type = t.optionalChild(&opt_buf);
+                if (t.isPtrLikeOptional()) {
+                    return dg.renderType(w, child_type);
+                }
+                return dg.fail(dg.decl.src(), "TODO: C backend: more optional types", .{});
             },
             .Null, .Undefined => unreachable, // must be const or comptime
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement type {s}", .{
@@ -429,6 +451,13 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .bit_or => try genBinOp(o, inst.castTag(.bit_or).?, " | "),
             .xor => try genBinOp(o, inst.castTag(.xor).?, " ^ "),
             .not => try genUnOp(o, inst.castTag(.not).?, "!"),
+            .is_null => try genIsNull(o, inst.castTag(.is_null).?),
+            .is_non_null => try genIsNull(o, inst.castTag(.is_non_null).?),
+            .is_null_ptr => try genIsNull(o, inst.castTag(.is_null_ptr).?),
+            .is_non_null_ptr => try genIsNull(o, inst.castTag(.is_non_null_ptr).?),
+            .wrap_optional => try genWrapOptional(o, inst.castTag(.wrap_optional).?),
+            .optional_payload => try genOptionalPayload(o, inst.castTag(.optional_payload).?),
+            .optional_payload_ptr => try genOptionalPayload(o, inst.castTag(.optional_payload).?),
             else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
         };
         switch (result_value) {
@@ -800,6 +829,56 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
         return CValue.none;
 
     return o.dg.fail(o.dg.decl.src(), "TODO: C backend: inline asm expression result used", .{});
+}
+
+fn genIsNull(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const invert_logic = inst.base.tag == .is_non_null or inst.base.tag == .is_non_null_ptr;
+    const maybe_deref = if (inst.base.tag == .is_null_ptr or inst.base.tag == .is_non_null_ptr) "[0]" else "";
+    const operand = try o.resolveInst(inst.operand);
+
+    const local = try o.allocLocal(Type.initTag(.bool), .Const);
+    try writer.writeAll(" = (");
+    try o.writeCValue(writer, operand);
+
+    if (inst.operand.ty.isPtrLikeOptional()) {
+        // operand is a regular pointer, test `operand !=/== NULL`
+        const operator = if (invert_logic) "!=" else "==";
+        try writer.print("){s} {s} NULL;\n", .{ maybe_deref, operator });
+    } else {
+        const operator = if (invert_logic) "!=" else "==";
+        try writer.print("){s}.is_null {s} true;\n", .{ maybe_deref, operator });
+    }
+    return local;
+}
+
+fn genOptionalPayload(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const operand = try o.resolveInst(inst.operand);
+
+    if (opt_ty.isPtrLikeOptional()) {
+        // the operand is just a regular pointer, no need to do anything special.
+        return operand;
+    }
+
+    const opt_ty = if (inst.operand.ty.zigTypeTag() == .Pointer)
+        inst.operand.ty.elemType()
+    else
+        inst.operand.ty;
+
+    return o.dg.fail(o.dg.decl.src(), "TODO: C backend: genOptionalPayload non ptr-like optionals", .{});
+}
+
+fn genWrapOptional(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const operand = try o.resolveInst(inst.operand);
+
+    if (inst.base.ty.isPtrLikeOptional()) {
+        // the operand is just a regular pointer, no need to do anything special.
+        return operand;
+    }
+
+    return o.dg.fail(o.dg.decl.src(), "TODO: C backend: genWrapOptional non ptr-like optionals", .{});
 }
 
 fn IndentWriter(comptime UnderlyingWriter: type) type {
