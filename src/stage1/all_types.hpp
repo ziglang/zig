@@ -1813,6 +1813,7 @@ enum BuiltinFnId {
     BuiltinFnIdTagName,
     BuiltinFnIdTagType,
     BuiltinFnIdFieldParentPtr,
+    BuiltinFnIdOffsetOf,
     BuiltinFnIdByteOffsetOf,
     BuiltinFnIdBitOffsetOf,
     BuiltinFnIdAsyncCall,
@@ -2625,6 +2626,7 @@ enum IrInstSrcId {
     IrInstSrcIdTagName,
     IrInstSrcIdTagType,
     IrInstSrcIdFieldParentPtr,
+    IrInstSrcIdOffsetOf,
     IrInstSrcIdByteOffsetOf,
     IrInstSrcIdBitOffsetOf,
     IrInstSrcIdTypeInfo,
@@ -4093,6 +4095,13 @@ struct IrInstGenFieldParentPtr {
 
     IrInstGen *field_ptr;
     TypeStructField *field;
+};
+
+struct IrInstSrcOffsetOf {
+    IrInstSrc base;
+
+    IrInstSrc *type_value;
+    IrInstSrc *field_name;
 };
 
 struct IrInstSrcByteOffsetOf {

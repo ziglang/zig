@@ -6656,6 +6656,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:8:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'",
     });
 
+    cases.add("@offsetOf - non integer offset",
+        \\const Foo = packed struct {
+        \\    a: i32,
+        \\    b: i1,
+        \\    c: i1,
+        \\};
+        \\export fn foo() usize {
+        \\    const a = @offsetOf(Foo, "a",);
+        \\    const b = @offsetOf(Foo, "b",);
+        \\    const c = @offsetOf(Foo, "c",);
+        \\    return a + b + c;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:9:30: error: struct 'Foo' field 'c' not at a byte boundary",
+    });
+
     cases.add("@byteOffsetOf - non struct",
         \\const Foo = i32;
         \\export fn foo() usize {

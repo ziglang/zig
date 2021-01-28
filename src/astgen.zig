@@ -3043,6 +3043,7 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
                     .{ "@wasmMemoryGrow", false },
                     .{ "@mod", false },
                     .{ "@mulWithOverflow", false },
+                    .{ "@offsetOf", false },
                     .{ "@panic", false },
                     .{ "@popCount", false },
                     .{ "@ptrCast", false },

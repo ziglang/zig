@@ -492,6 +492,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPanic *>(inst));
         case IrInstSrcIdFieldParentPtr:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFieldParentPtr *>(inst));
+        case IrInstSrcIdOffsetOf:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOffsetOf *>(inst));
         case IrInstSrcIdByteOffsetOf:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcByteOffsetOf *>(inst));
         case IrInstSrcIdBitOffsetOf:
@@ -1502,6 +1504,10 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcTagType *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcFieldParentPtr *) {
     return IrInstSrcIdFieldParentPtr;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcOffsetOf *) {
+    return IrInstSrcIdOffsetOf;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcByteOffsetOf *) {
@@ -4491,6 +4497,19 @@ static IrInstGen *ir_build_field_parent_ptr_gen(IrAnalyze *ira, IrInst *source_i
     return &inst->base;
 }
 
+static IrInstSrc *ir_build_offset_of(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
+        IrInstSrc *type_value, IrInstSrc *field_name)
+{
+    IrInstSrcOffsetOf *instruction = ir_build_instruction<IrInstSrcOffsetOf>(irb, scope, source_node);
+    instruction->type_value = type_value;
+    instruction->field_name = field_name;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+    ir_ref_instruction(field_name, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstSrc *ir_build_byte_offset_of(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
         IrInstSrc *type_value, IrInstSrc *field_name)
 {
@@ -7232,6 +7251,21 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
                 IrInstSrc *field_parent_ptr = ir_build_field_parent_ptr_src(irb, scope, node,
                         arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(irb, scope, field_parent_ptr, lval, result_loc);
+            }
+        case BuiltinFnIdOffsetOf:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstSrc *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                IrInstSrc *offset_of = ir_build_offset_of(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, offset_of, lval, result_loc);
             }
         case BuiltinFnIdByteOffsetOf:
             {
@@ -25133,6 +25167,30 @@ static TypeStructField *validate_host_int_byte_offset(IrAnalyze *ira,
     return field;
 }
 
+static IrInstGen *ir_analyze_instruction_offset_of(IrAnalyze *ira, IrInstSrcOffsetOf *instruction) {
+    IrInstGen *type_value = instruction->type_value->child;
+    if (type_is_invalid(type_value->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *field_name_value = instruction->field_name->child;
+    size_t host_int_byte_offset = 0;
+    TypeStructField *field = nullptr;
+    if (!(field = validate_host_int_byte_offset(ira, type_value, field_name_value, &host_int_byte_offset)))
+        return ira->codegen->invalid_inst_gen;
+
+    if (field->bit_offset_in_host % 8 != 0) {
+		ZigType *container_type = ir_resolve_type(ira, type_value);
+		assert(container_type != nullptr);
+        ir_add_error(ira, &field_name_value->base,
+                buf_sprintf("struct '%s' field '%s' not at a byte boundary",
+                        buf_ptr(&container_type->name), buf_ptr(field->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    size_t byte_offset = host_int_byte_offset + (field->bit_offset_in_host / 8);
+    return ir_const_unsigned(ira, &instruction->base.base, byte_offset);
+}
+
 static IrInstGen *ir_analyze_instruction_byte_offset_of(IrAnalyze *ira, IrInstSrcByteOffsetOf *instruction) {
     IrInstGen *type_value = instruction->type_value->child;
     if (type_is_invalid(type_value->value->type))
@@ -32408,6 +32466,8 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_enum_tag_name(ira, (IrInstSrcTagName *)instruction);
         case IrInstSrcIdFieldParentPtr:
             return ir_analyze_instruction_field_parent_ptr(ira, (IrInstSrcFieldParentPtr *)instruction);
+        case IrInstSrcIdOffsetOf:
+            return ir_analyze_instruction_offset_of(ira, (IrInstSrcOffsetOf *)instruction);
         case IrInstSrcIdByteOffsetOf:
             return ir_analyze_instruction_byte_offset_of(ira, (IrInstSrcByteOffsetOf *)instruction);
         case IrInstSrcIdBitOffsetOf:

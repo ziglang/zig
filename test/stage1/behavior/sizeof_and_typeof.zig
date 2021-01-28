@@ -34,8 +34,31 @@ const P = packed struct {
     i: u7,
 };
 
+test "@offsetOf" {
+    // Packed structs have fixed memory layout
+    expect(@offsetOf(P, "a") == 0);
+    expect(@offsetOf(P, "a") == 0);
+    expect(@offsetOf(P, "b") == 1);
+    expect(@offsetOf(P, "c") == 5);
+    expect(@offsetOf(P, "d") == 6);
+    expect(@offsetOf(P, "f") == 7);
+    expect(@offsetOf(P, "g") == 9);
+    expect(@offsetOf(P, "h") == 11);
+
+    // Normal struct fields can be moved/padded
+    var a: A = undefined;
+    expect(@ptrToInt(&a.a) - @ptrToInt(&a) == @offsetOf(A, "a"));
+    expect(@ptrToInt(&a.b) - @ptrToInt(&a) == @offsetOf(A, "b"));
+    expect(@ptrToInt(&a.c) - @ptrToInt(&a) == @offsetOf(A, "c"));
+    expect(@ptrToInt(&a.d) - @ptrToInt(&a) == @offsetOf(A, "d"));
+    expect(@ptrToInt(&a.f) - @ptrToInt(&a) == @offsetOf(A, "f"));
+    expect(@ptrToInt(&a.g) - @ptrToInt(&a) == @offsetOf(A, "g"));
+    expect(@ptrToInt(&a.h) - @ptrToInt(&a) == @offsetOf(A, "h"));
+}
+
 test "@byteOffsetOf" {
     // Packed structs have fixed memory layout
+    expect(@byteOffsetOf(P, "a") == 0);
     expect(@byteOffsetOf(P, "a") == 0);
     expect(@byteOffsetOf(P, "b") == 1);
     expect(@byteOffsetOf(P, "c") == 5);
