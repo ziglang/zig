@@ -161,7 +161,7 @@ fn testCondvar(
 
     const Thread = TestThread orelse return;
 
-    const Chain = struct {
+    const ProduceConsumer = struct {
         input: Queue = .{},
         output: Queue = .{},
         exit: Queue = .{},
@@ -199,7 +199,7 @@ fn testCondvar(
         }
 
         fn run(self: *Self) !void {
-            const allocator = std.testing.allocator;
+            const allocator = testing.allocator;
             const threads = try allocator.alloc(*Thread, 10);
             defer allocator.free(threads);
 
@@ -214,6 +214,6 @@ fn testCondvar(
         }
     };
 
-    var chain = Chain{};
-    try chain.run();
+    var pro_con = ProduceConsumer{};
+    try pro_con.run();
 }

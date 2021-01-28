@@ -59,12 +59,16 @@ pub fn Semaphore(comptime Futex: anytype) type {
                     hg.annotateHappensAfter(@ptrToInt(self));
                 }
 
+                if (permits > 0) {
+                    self.notify();
+                }
+
                 return true;
             }
         }
 
         pub inline fn wait(self: *Self) void {
-            return self.waitInner(held, null) catch unreachable;
+            return self.waitInner(null) catch unreachable;
         }
 
         pub inline fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
@@ -113,7 +117,7 @@ pub fn Semaphore(comptime Futex: anytype) type {
             }
 
             const permits = atomic.fetchAdd(&self.permits, 1, .Release);
-            assert(permits != std.mem.maxInt(usize));
+            assert(permits != std.math.maxInt(usize));
 
             if (permits == 0) {
                 self.notify();
@@ -156,25 +160,27 @@ pub const DebugSemaphore = extern struct {
         return true;
     }
 
-    pub inline fn wait(self: *Self) void {
-        return self.tryWait() or @panic("deadlock detected");
+    pub fn wait(self: *Self) void {
+        if (!self.tryWait()) {
+            @panic("deadlock detected");
+        }
     }
 
-    pub inline fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
-        return self.tryWait() or {
+    pub fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        if (!self.tryWait()) {
             std.time.sleep(duration);
             return error.TimedOut;
-        };
+        }
     }
 
-    pub inline fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
-        return self.tryWait() or {
+    pub fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        if (!self.tryWait()) {
             const now = std.time.now();
             if (now < deadline) {
                 std.time.sleep(deadline - now);
             }
             return error.TimedOut;
-        };
+        }
     }
 
     pub fn post(self: *Self) void {
@@ -186,3 +192,107 @@ pub const DebugSemaphore = extern struct {
         }
     }
 };
+
+test "Semaphore - Debug" {
+    try testSemaphore(DebugSemaphore, null);
+}
+
+test "Semaphore - Spin" {
+    try testSemaphore(Semaphore(std.sync.futex.spin), std.Thread);
+}
+
+test "Semaphore - Os" {
+    try testSemaphore(Semaphore(std.sync.futex.os), std.Thread);
+}
+
+test "Semaphore - Evented" {
+    if (!std.io.is_async or std.builtin.single_threaded) return error.SkipZigTest;
+    try testSemaphore(
+        Semaphore(std.sync.futex.event),
+        @import("../futex/event.zig").TestThread,
+    );
+}
+
+fn testSemaphore(
+    comptime TestSemaphore: anytype,
+    comptime TestThread: ?type,
+) !void {
+    {
+        var sem = TestSemaphore{};
+        defer sem.deinit();
+
+        var permits: usize = 10;
+        while (permits > 0) : (permits -= 1) {
+            var posts: usize = permits;
+            while (posts > 0) : (posts -= 1) {
+                sem.post();
+            }
+
+            var waits: usize = permits;
+            while (waits > 0) : (waits -= 1) {
+                sem.wait();
+            }
+        }
+
+        sem.post();
+        testing.expect(sem.tryWait());
+        testing.expect(!sem.tryWait());
+        testing.expect(!sem.tryWait());
+
+        sem.post();
+        try sem.tryWaitFor(1);
+        testing.expectError(error.TimedOut, sem.tryWaitFor(1));
+
+        sem.post();
+        try sem.tryWaitUntil(std.time.now() + 1);
+        testing.expectError(error.TimedOut, sem.tryWaitUntil(std.time.now() + 1));
+    }
+
+    const Thread = TestThread orelse return;
+
+    const Cycle = struct {
+        input: TestSemaphore = .{},
+        output: TestSemaphore = .{},
+        
+        const Self = @This();
+        const cycles = 100;
+
+        fn runProducer(self: *Self) void {
+            var iters: usize = cycles;
+            while (iters > 0) : (iters -= 1) {
+                self.input.wait();
+                self.output.post();
+            }
+        }
+
+        fn runConsumer(self: *Self) void {
+            var iters: usize = cycles;
+            while (iters > 0) : (iters -= 1) {
+                self.output.wait();
+                self.input.post();
+            }
+        }
+
+        fn run(self: *Self) !void {
+            const allocator = testing.allocator;
+            const threads = try allocator.alloc(*Thread, 10);
+            defer allocator.free(threads);
+            
+            var producers = threads.len / 2;
+            for (threads) |*t| {
+                if (producers > 0) {
+                    producers -= 1;
+                    t.* = try Thread.spawn(self, runProducer);
+                } else {
+                    t.* = try Thread.spawn(self, runConsumer);
+                }
+            }
+
+            self.input.post();
+            for (threads) |t| t.wait();
+        }
+    };
+
+    var cycle = Cycle{};
+    try cycle.run();
+}
