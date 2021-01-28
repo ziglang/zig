@@ -82,7 +82,7 @@ pub fn Condvar(comptime Futex: anytype) type {
     };
 }
 
-pub const DebugCondvar = struct {
+pub const DebugCondvar = extern struct {
 
     const Self = @This();
 
