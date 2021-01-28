@@ -119,6 +119,26 @@ pub const DebugCondvar = struct {
     }
 };
 
+test "Condvar - Debug" {
+    try testCondvar(DebugCondvar, null);
+}
+
+test "Condvar - Spin" {
+    try testCondvar(Condvar(std.sync.futex.spin), std.Thread);
+}
+
+test "Condvar - Os" {
+    try testCondvar(Condvar(std.sync.futex.os), std.Thread);
+}
+
+test "Condvar - Evented" {
+    if (!std.io.is_async or std.builtin.single_threaded) return error.SkipZigTest;
+    try testCondvar(
+        Condvar(std.sync.futex.event),
+        @import("../futex/event.zig").TestThread,
+    );
+}
+
 fn testCondvar(
     comptime TestCondvar: type,
     comptime TestThread: ?type,
@@ -130,9 +150,13 @@ fn testCondvar(
         cond.notifyOne();
         cond.notifyAll();
 
+        var mutex = TestCondvar.Mutex{};
+        const held = mutex.acquire();
+        defer held.release();
+
         const delay = 1 * std.time.ns_per_ms;
-        testing.expectError(error.TimedOut, event.tryWaitFor(delay));
-        testing.expectError(error.TimedOut, event.tryWaitUntil(std.time.now() + delay));
+        testing.expectError(error.TimedOut, cond.tryWaitFor(held, delay));
+        testing.expectError(error.TimedOut, cond.tryWaitUntil(held, std.time.now() + delay));
     }
 
     const Thread = TestThread orelse return;

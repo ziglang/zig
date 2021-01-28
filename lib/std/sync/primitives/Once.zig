@@ -100,7 +100,7 @@ test "Once - Spin" {
     try testOnce(Once(std.sync.futex.spin), std.Thread);
 }
 
-test "Once - OS" {
+test "Once - Os" {
     try testOnce(Once(std.sync.futex.os), std.Thread);
 }
 
