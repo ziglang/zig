@@ -17,7 +17,9 @@ pub fn Condvar(comptime Futex: anytype) type {
         wakeups: u32 = 0,
 
         const Self = @This();
-        const Held = @import("./Mutex.zig").Mutex(Futex).Held;
+
+        pub const Mutex = @import("./Mutex.zig").Mutex(Futex);
+        pub const Held = Mutex.Held;
 
         pub const Dummy = DebugCondvar;
 
@@ -84,6 +86,9 @@ pub const DebugCondvar = struct {
 
     const Self = @This();
 
+    pub const Mutex = @import("./Mutex.zig").DebugMutex;
+    pub const Held = Mutex.Held;
+
     pub fn deinit(self: *Self) void {
         self.* = undefined;
     }
@@ -113,3 +118,78 @@ pub const DebugCondvar = struct {
         // no-op: no threads to wake
     }
 };
+
+fn testCondvar(
+    comptime TestCondvar: type,
+    comptime TestThread: ?type,
+) !void {
+    {
+        var cond = TestCondvar{};
+        defer cond.deinit();
+
+        cond.notifyOne();
+        cond.notifyAll();
+
+        const delay = 1 * std.time.ns_per_ms;
+        testing.expectError(error.TimedOut, event.tryWaitFor(delay));
+        testing.expectError(error.TimedOut, event.tryWaitUntil(std.time.now() + delay));
+    }
+
+    const Thread = TestThread orelse return;
+
+    const Chain = struct {
+        input: Queue = .{},
+        output: Queue = .{},
+        exit: Queue = .{},
+        
+        const Self = @This();
+        const Queue = struct {
+            mutex: TestCondvar.Mutex = .{},
+            cond: TestCondvar = .{},
+            items: usize = 0,
+
+            fn push(self: *Queue) void {
+                const held = self.mutex.acquire();
+                defer held.release();
+
+                self.items += 1;
+                self.cond.notifyOne();
+            }
+
+            fn pop(self: *Queue) void {
+                const held = self.mutex.acquire();
+                defer held.release();
+
+                while (self.items == 0) {
+                    self.cond.wait(held);
+                }
+
+                self.items -= 1;
+            }
+        };
+
+        fn runThread(self: *Self) void {
+            self.input.pop();
+            self.output.push();
+            self.exit.pop();
+        }
+
+        fn run(self: *Self) !void {
+            const allocator = std.testing.allocator;
+            const threads = try allocator.alloc(*Thread, 10);
+            defer allocator.free(threads);
+
+            for (threads) |*t| t.* = try Thread.spawn(self, runThread);
+            for (threads) |_| {
+                self.input.push();
+                self.output.pop();
+            }
+
+            for (threads) |_| self.exit.push();
+            for (threads) |t| t.wait();
+        }
+    };
+
+    var chain = Chain{};
+    try chain.run();
+}

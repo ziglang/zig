@@ -396,16 +396,7 @@ const WindowsFutex = struct {
             }
         }
     };
-
-    fn L(comptime string: []const windows.CHAR) []const windows.WCHAR {
-        comptime var result: [string.len + 1]windows.WCHAR = undefined;
-        inline for (string) |char, index| {
-            result[index] = @as(windows.WCHAR, char);
-        }
-        result[string.len] = @as(windows.WCHAR, 0);
-        return &result;
-    }
-
+    
     const WaitOnAddress = struct {
         var wake_by_address_single_ptr: WakeOnAddressFn = undefined;
         var wake_by_address_all_ptr: WakeOnAddressFn = undefined;
@@ -424,8 +415,12 @@ const WindowsFutex = struct {
         fn initialize() bool {
             // MSDN says that the functions are in kernel32.dll, but apparently they aren't...
             const synch_dll = windows.kernel32.GetModuleHandleW(blk: {
-                const name = L("api-ms-win-core-synch-l1-2-0.dll");
-                break :blk @ptrCast([*:0]const windows.WCHAR, name.ptr);
+                const dll = "api-ms-win-core-synch-l1-2-0.dll";
+                comptime var wdll = [_]windows.WCHAR{0} ** (dll.len + 1);
+                inline for (dll) |char, index| {
+                    wdll[index] = @as(windows.WCHAR, char);
+                }
+                break :blk @ptrCast([*:0]const windows.WCHAR, &wdll);
             }) orelse return false;
 
             const wait_ptr = windows.kernel32.GetProcAddress(

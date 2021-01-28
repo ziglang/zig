@@ -103,6 +103,7 @@ test "Once - Spin" {
 test "Once - OS" {
     try testOnce(Once(std.sync.futex.os), std.Thread);
 }
+
 test "Once - Evented" {
     if (!std.io.is_async or std.builtin.single_threaded) return error.SkipZigTest;
     try testOnce(
@@ -125,22 +126,29 @@ fn testOnce(
     {
         var once = TestOnce(Wrapper.incr){};
         testing.expect(Wrapper.count == 0);
-        once.call();
-        testing.expect(Wrapper.count == 1);
-        once.call();
-        testing.expect(Wrapper.count == 1);
+
+        var calls: usize = 10;
+        while (calls > 0) : (calls -= 1) {
+            once.call();
+            testing.expect(Wrapper.count == 1);
+        }
     }
 
-    Wrapper.count = 0;
+    
     const Thread = TestThread orelse return;
 
     {
+        Wrapper.count = 0;
         const IncrementOnce = TestOnce(Wrapper.incr);
         var once = IncrementOnce{};
-        testing.expect(Wrapper.count == 0);
-        var threads: [3]*Thread = undefined;
+
+        const allocator = std.testing.allocator;
+        const threads = try allocator.alloc(*Thread, 10);
+        defer allocator.free(threads);
+
         for (threads) |*t| t.* = try Thread.spawn(&once, IncrementOnce.call);
         for (threads) |t| t.wait();
+
         testing.expect(Wrapper.count == 1);
     }
 }
