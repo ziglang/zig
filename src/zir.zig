@@ -61,6 +61,8 @@ pub const Inst = struct {
         as,
         /// Inline assembly.
         @"asm",
+        /// Await an async function.
+        @"await",
         /// Bitwise AND. `&`
         bit_and,
         /// TODO delete this instruction, it has no purpose.
@@ -212,6 +214,8 @@ pub const Inst = struct {
         mul,
         /// Twos complement wrapping integer multiplication.
         mulwrap,
+        /// An await inside a nosuspend scope.
+        nosuspend_await,
         /// Given a reference to a function and a parameter index, returns the
         /// type of the parameter. TODO what happens when the parameter is `anytype`?
         param_type,
@@ -226,6 +230,8 @@ pub const Inst = struct {
         /// the memory location is in the stack frame, local to the scope containing the
         /// instruction.
         ref,
+        /// Resume an async function.
+        @"resume",
         /// Obtains a pointer to the return value.
         ret_ptr,
         /// Obtains the return type of the in-scope function.
@@ -348,6 +354,11 @@ pub const Inst = struct {
         enum_type,
         /// Does nothing; returns a void value.
         void_value,
+        /// Suspend an async function.
+        @"suspend",
+        /// Suspend an async function.
+        /// Same as .suspend but with a block.
+        suspend_block,
         /// A switch expression.
         switchbr,
         /// Same as `switchbr` but the target is a pointer to the value being switched on.
@@ -369,6 +380,7 @@ pub const Inst = struct {
                 .unreachable_unsafe,
                 .unreachable_safe,
                 .void_value,
+                .@"suspend",
                 => NoOp,
 
                 .alloc,
@@ -417,6 +429,9 @@ pub const Inst = struct {
                 .import,
                 .set_eval_branch_quota,
                 .indexable_ptr_len,
+                .@"resume",
+                .@"await",
+                .nosuspend_await,
                 => UnOp,
 
                 .add,
@@ -461,6 +476,7 @@ pub const Inst = struct {
                 .block_flat,
                 .block_comptime,
                 .block_comptime_flat,
+                .suspend_block,
                 => Block,
 
                 .switchbr, .switchbr_ref => SwitchBr,
@@ -633,6 +649,9 @@ pub const Inst = struct {
                 .struct_type,
                 .void_value,
                 .switch_range,
+                .@"resume",
+                .@"await",
+                .nosuspend_await,
                 => false,
 
                 .@"break",
@@ -649,6 +668,8 @@ pub const Inst = struct {
                 .container_field,
                 .switchbr,
                 .switchbr_ref,
+                .@"suspend",
+                .suspend_block,
                 => true,
             };
         }

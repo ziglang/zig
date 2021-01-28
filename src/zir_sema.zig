@@ -160,6 +160,11 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .switchbr => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?, false),
         .switchbr_ref => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr_ref).?, true),
         .switch_range => return zirSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
+        .@"await" => return zirAwait(mod, scope, old_inst.castTag(.@"await").?),
+        .nosuspend_await => return zirAwait(mod, scope, old_inst.castTag(.nosuspend_await).?),
+        .@"resume" => return zirResume(mod, scope, old_inst.castTag(.@"resume").?),
+        .@"suspend" => return zirSuspend(mod, scope, old_inst.castTag(.@"suspend").?),
+        .suspend_block => return zirSuspendBlock(mod, scope, old_inst.castTag(.suspend_block).?),
 
         .container_field_named,
         .container_field_typed,
@@ -1078,6 +1083,22 @@ fn zirFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!*Inst {
         .ty = fn_type,
         .val = try Value.Tag.function.create(scope.arena(), new_func),
     });
+}
+
+fn zirAwait(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement await", .{});
+}
+
+fn zirResume(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement resume", .{});
+}
+
+fn zirSuspend(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement suspend", .{});
+}
+
+fn zirSuspendBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement suspend", .{});
 }
 
 fn zirIntType(mod: *Module, scope: *Scope, inttype: *zir.Inst.IntType) InnerError!*Inst {
@@ -2046,7 +2067,7 @@ fn zirBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*In
                 rhs.ty.arrayLen(),
             });
         }
-        return mod.fail(scope, inst.base.src, "TODO implement support for vectors in analyzeInstBitwise", .{});
+        return mod.fail(scope, inst.base.src, "TODO implement support for vectors in zirBitwise", .{});
     } else if (lhs.ty.zigTypeTag() == .Vector or rhs.ty.zigTypeTag() == .Vector) {
         return mod.fail(scope, inst.base.src, "mixed scalar and vector operands to binary expression: '{}' and '{}'", .{
             lhs.ty,
@@ -2127,7 +2148,7 @@ fn zirArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!
                 rhs.ty.arrayLen(),
             });
         }
-        return mod.fail(scope, inst.base.src, "TODO implement support for vectors in analyzeInstBinOp", .{});
+        return mod.fail(scope, inst.base.src, "TODO implement support for vectors in zirBinOp", .{});
     } else if (lhs.ty.zigTypeTag() == .Vector or rhs.ty.zigTypeTag() == .Vector) {
         return mod.fail(scope, inst.base.src, "mixed scalar and vector operands to binary expression: '{}' and '{}'", .{
             lhs.ty,
