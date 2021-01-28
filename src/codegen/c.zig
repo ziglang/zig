@@ -207,10 +207,12 @@ pub const DeclGen = struct {
                 if (t.isPtrLikeOptional()) {
                     return dg.renderValue(writer, child_type, val);
                 }
+                try writer.writeByte('(');
+                try dg.renderType(writer, t);
                 if (val.tag() == .null_value) {
-                    try writer.writeAll("{ .is_null = true }");
+                    try writer.writeAll("){ .is_null = true }");
                 } else {
-                    try writer.writeAll("{ .is_null = false, .payload = ");
+                    try writer.writeAll("){ .is_null = false, .payload = ");
                     try dg.renderValue(writer, child_type, val);
                     try writer.writeAll(" }");
                 }
@@ -319,7 +321,11 @@ pub const DeclGen = struct {
                 if (t.isPtrLikeOptional()) {
                     return dg.renderType(w, child_type);
                 }
-                return dg.fail(dg.decl.src(), "TODO: C backend: more optional types", .{});
+
+                // TODO this needs to be typedeffed since different structs are different types.
+                try w.writeAll("struct { ");
+                try dg.renderType(w, child_type);
+                try w.writeAll(" payload; bool is_null; }");
             },
             .Null, .Undefined => unreachable, // must be const or comptime
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement type {s}", .{
@@ -834,6 +840,7 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
 fn genIsNull(o: *Object, inst: *Inst.UnOp) !CValue {
     const writer = o.writer();
     const invert_logic = inst.base.tag == .is_non_null or inst.base.tag == .is_non_null_ptr;
+    const operator = if (invert_logic) "!=" else "==";
     const maybe_deref = if (inst.base.tag == .is_null_ptr or inst.base.tag == .is_non_null_ptr) "[0]" else "";
     const operand = try o.resolveInst(inst.operand);
 
@@ -843,10 +850,8 @@ fn genIsNull(o: *Object, inst: *Inst.UnOp) !CValue {
 
     if (inst.operand.ty.isPtrLikeOptional()) {
         // operand is a regular pointer, test `operand !=/== NULL`
-        const operator = if (invert_logic) "!=" else "==";
         try writer.print("){s} {s} NULL;\n", .{ maybe_deref, operator });
     } else {
-        const operator = if (invert_logic) "!=" else "==";
         try writer.print("){s}.is_null {s} true;\n", .{ maybe_deref, operator });
     }
     return local;
@@ -856,17 +861,26 @@ fn genOptionalPayload(o: *Object, inst: *Inst.UnOp) !CValue {
     const writer = o.writer();
     const operand = try o.resolveInst(inst.operand);
 
-    if (opt_ty.isPtrLikeOptional()) {
-        // the operand is just a regular pointer, no need to do anything special.
-        return operand;
-    }
-
     const opt_ty = if (inst.operand.ty.zigTypeTag() == .Pointer)
         inst.operand.ty.elemType()
     else
         inst.operand.ty;
 
-    return o.dg.fail(o.dg.decl.src(), "TODO: C backend: genOptionalPayload non ptr-like optionals", .{});
+    if (opt_ty.isPtrLikeOptional()) {
+        // the operand is just a regular pointer, no need to do anything special.
+        // *?*T -> **T and ?*T -> *T are **T -> **T and *T -> *T in C
+        return operand;
+    }
+
+    const maybe_deref = if (inst.operand.ty.zigTypeTag() == .Pointer) "->" else ".";
+    const maybe_addrof = if (inst.base.ty.zigTypeTag() == .Pointer) "&" else "";
+
+    const local = try o.allocLocal(inst.base.ty, .Const);
+    try writer.print(" = {s}(", .{maybe_addrof});
+    try o.writeCValue(writer, operand);
+
+    try writer.print("){s}payload;\n", .{maybe_deref});
+    return local;
 }
 
 fn genWrapOptional(o: *Object, inst: *Inst.UnOp) !CValue {
@@ -878,7 +892,12 @@ fn genWrapOptional(o: *Object, inst: *Inst.UnOp) !CValue {
         return operand;
     }
 
-    return o.dg.fail(o.dg.decl.src(), "TODO: C backend: genWrapOptional non ptr-like optionals", .{});
+    // .wrap_optional is used to convert non-optionals into optionals so it can never be null.
+    const local = try o.allocLocal(inst.base.ty, .Const);
+    try writer.writeAll(" = { .is_null = false, .payload =");
+    try o.writeCValue(writer, operand);
+    try writer.writeAll("};\n");
+    return local;
 }
 
 fn IndentWriter(comptime UnderlyingWriter: type) type {
