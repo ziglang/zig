@@ -1254,6 +1254,7 @@ pub const Value = union(enum) {
     Null,
     Bool: bool,
     Integer: i64,
+    UInteger: u64,
     Float: f64,
     String: []const u8,
     Array: Array,
@@ -1268,6 +1269,7 @@ pub const Value = union(enum) {
             .Null => try stringify(null, options, out_stream),
             .Bool => |inner| try stringify(inner, options, out_stream),
             .Integer => |inner| try stringify(inner, options, out_stream),
+            .UInteger => |inner| try stringify(inner, options, out_stream),
             .Float => |inner| try stringify(inner, options, out_stream),
             .String => |inner| try stringify(inner, options, out_stream),
             .Array => |inner| try stringify(inner.items, options, out_stream),
@@ -1341,6 +1343,12 @@ test "Value.jsonStringify" {
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
+        try (Value{ .UInteger = 43 }).jsonStringify(.{}, fbs.writer());
+        testing.expectEqualSlices(u8, fbs.getWritten(), "43");
+    }
+    {
+        var buffer: [10]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
         try (Value{ .Float = 42 }).jsonStringify(.{}, fbs.writer());
         testing.expectEqualSlices(u8, fbs.getWritten(), "4.2e+01");
     }
@@ -1356,7 +1364,7 @@ test "Value.jsonStringify" {
         var vals = [_]Value{
             .{ .Integer = 1 },
             .{ .Integer = 2 },
-            .{ .Integer = 3 },
+            .{ .UInteger = 3 },
         };
         try (Value{
             .Array = Array.fromOwnedSlice(undefined, &vals),
@@ -2092,7 +2100,12 @@ pub const Parser = struct {
 
     fn parseNumber(p: *Parser, n: std.meta.TagPayloadType(Token, Token.Number), input: []const u8, i: usize) !Value {
         return if (n.is_integer)
-            Value{ .Integer = try std.fmt.parseInt(i64, n.slice(input, i), 10) }
+            Value{
+                .Integer = std.fmt.parseInt(i64, n.slice(input, i), 10) catch |e| switch (e) {
+                    error.Overflow => return Value{ .UInteger = try std.fmt.parseInt(u64, n.slice(input, i), 10) },
+                    else => |err| return err,
+                },
+            }
         else
             Value{ .Float = try std.fmt.parseFloat(f64, n.slice(input, i)) };
     }
@@ -2180,7 +2193,8 @@ test "json.parser.dynamic" {
         \\      "Animated" : false,
         \\      "IDs": [116, 943, 234, 38793],
         \\      "ArrayOfObject": [{"n": "m"}],
-        \\      "double": 1.3412
+        \\      "double": 1.3412,
+        \\      "ALargeUint": 18446744073709551615
         \\    }
         \\}
     ;
@@ -2212,6 +2226,9 @@ test "json.parser.dynamic" {
 
     const double = image.Object.get("double").?;
     testing.expect(double.Float == 1.3412);
+
+    const large = image.Object.get("ALargeUint").?;
+    testing.expect(large.UInteger == 18446744073709551615);
 }
 
 test "import more json tests" {
