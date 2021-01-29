@@ -272,13 +272,55 @@ pub const Builder = struct {
         return LibExeObjStep.createSharedLibrary(self, name, root_src_param, kind);
     }
 
+    pub fn addSharedLibraryFromWriteFileStep(
+        self: *Builder,
+        name: []const u8,
+        wfs: *WriteFileStep,
+        basename: []const u8,
+        kind: LibExeObjStep.SharedLibKind,
+    ) *LibExeObjStep {
+        return LibExeObjStep.createSharedLibrary(self, name, @as(FileSource, .{
+            .write_file = .{
+                .step = wfs,
+                .basename = basename,
+            },
+        }), kind);
+    }
+
     pub fn addStaticLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
         return LibExeObjStep.createStaticLibrary(self, name, root_src_param);
     }
 
+    pub fn addStaticLibraryFromWriteFileStep(
+        self: *Builder,
+        name: []const u8,
+        wfs: *WriteFileStep,
+        basename: []const u8,
+    ) *LibExeObjStep {
+        return LibExeObjStep.createStaticLibrary(self, name, @as(FileSource, .{
+            .write_file = .{
+                .step = wfs,
+                .basename = basename,
+            },
+        }));
+    }
+
     pub fn addTest(self: *Builder, root_src: []const u8) *LibExeObjStep {
         return LibExeObjStep.createTest(self, "test", .{ .path = root_src });
+    }
+
+    pub fn addTestFromWriteFileStep(
+        self: *Builder,
+        wfs: *WriteFileStep,
+        basename: []const u8,
+    ) *LibExeObjStep {
+        return LibExeObjStep.createTest(self, "test", @as(FileSource, .{
+            .write_file = .{
+                .step = wfs,
+                .basename = basename,
+            },
+        }));
     }
 
     pub fn addAssemble(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
