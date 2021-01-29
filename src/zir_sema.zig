@@ -91,8 +91,10 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .@"fn" => return zirFn(mod, scope, old_inst.castTag(.@"fn").?),
         .@"export" => return zirExport(mod, scope, old_inst.castTag(.@"export").?),
         .primitive => return zirPrimitive(mod, scope, old_inst.castTag(.primitive).?),
-        .fn_type => return zirFnType(mod, scope, old_inst.castTag(.fn_type).?),
-        .fn_type_cc => return zirFnTypeCc(mod, scope, old_inst.castTag(.fn_type_cc).?),
+        .fn_type => return zirFnType(mod, scope, old_inst.castTag(.fn_type).?, false),
+        .fn_type_cc => return zirFnTypeCc(mod, scope, old_inst.castTag(.fn_type_cc).?, false),
+        .fn_type_var_args => return zirFnType(mod, scope, old_inst.castTag(.fn_type_var_args).?, true),
+        .fn_type_cc_var_args => return zirFnTypeCc(mod, scope, old_inst.castTag(.fn_type_cc_var_args).?, true),
         .intcast => return zirIntcast(mod, scope, old_inst.castTag(.intcast).?),
         .bitcast => return zirBitcast(mod, scope, old_inst.castTag(.bitcast).?),
         .floatcast => return zirFloatcast(mod, scope, old_inst.castTag(.floatcast).?),
@@ -522,9 +524,11 @@ fn zirParamType(mod: *Module, scope: *Scope, inst: *zir.Inst.ParamType) InnerErr
         },
     };
 
-    // TODO support C-style var args
     const param_count = fn_ty.fnParamLen();
     if (arg_index >= param_count) {
+        if (fn_ty.fnIsVarArgs()) {
+            return mod.constType(scope, inst.base.src, Type.initTag(.var_args_param));
+        }
         return mod.fail(scope, inst.base.src, "arg index {d} out of bounds; '{}' has {d} argument(s)", .{
             arg_index,
             fn_ty,
@@ -946,6 +950,7 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
     const call_params_len = inst.positionals.args.len;
     const fn_params_len = func.ty.fnParamLen();
     if (func.ty.fnIsVarArgs()) {
+        assert(cc == .C);
         if (call_params_len < fn_params_len) {
             // TODO add error note: declared here
             return mod.fail(
@@ -955,7 +960,6 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
                 .{ fn_params_len, call_params_len },
             );
         }
-        return mod.fail(scope, inst.base.src, "TODO implement support for calling var args functions", .{});
     } else if (fn_params_len != call_params_len) {
         // TODO add error note: declared here
         return mod.fail(
@@ -974,15 +978,10 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
     }
 
     // TODO handle function calls of generic functions
-
-    const fn_param_types = try mod.gpa.alloc(Type, fn_params_len);
-    defer mod.gpa.free(fn_param_types);
-    func.ty.fnParamTypes(fn_param_types);
-
-    const casted_args = try scope.arena().alloc(*Inst, fn_params_len);
+    const casted_args = try scope.arena().alloc(*Inst, call_params_len);
     for (inst.positionals.args) |src_arg, i| {
-        const uncasted_arg = try resolveInst(mod, scope, src_arg);
-        casted_args[i] = try mod.coerce(scope, fn_param_types[i], uncasted_arg);
+        // the args are already casted to the result of a param type instruction.
+        casted_args[i] = try resolveInst(mod, scope, src_arg);
     }
 
     const ret_type = func.ty.fnReturnType();
@@ -1503,7 +1502,7 @@ fn zirEnsureErrPayloadVoid(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) 
     return mod.constVoid(scope, unwrap.base.src);
 }
 
-fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
+fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType, var_args: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1514,10 +1513,11 @@ fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*
         fntype.positionals.param_types,
         fntype.positionals.return_type,
         .Unspecified,
+        var_args,
     );
 }
 
-fn zirFnTypeCc(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnTypeCc) InnerError!*Inst {
+fn zirFnTypeCc(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnTypeCc, var_args: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1534,6 +1534,7 @@ fn zirFnTypeCc(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnTypeCc) InnerErr
         fntype.positionals.param_types,
         fntype.positionals.return_type,
         cc,
+        var_args,
     );
 }
 
@@ -1544,11 +1545,12 @@ fn fnTypeCommon(
     zir_param_types: []*zir.Inst,
     zir_return_type: *zir.Inst,
     cc: std.builtin.CallingConvention,
+    var_args: bool,
 ) InnerError!*Inst {
     const return_type = try resolveType(mod, scope, zir_return_type);
 
     // Hot path for some common function types.
-    if (zir_param_types.len == 0) {
+    if (zir_param_types.len == 0 and !var_args) {
         if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
             return mod.constType(scope, zir_inst.src, Type.initTag(.fn_noreturn_no_args));
         }
@@ -1581,6 +1583,7 @@ fn fnTypeCommon(
         .param_types = param_types,
         .return_type = return_type,
         .cc = cc,
+        .is_var_args = var_args,
     });
     return mod.constType(scope, zir_inst.src, fn_ty);
 }

@@ -178,8 +178,12 @@ pub const Inst = struct {
         @"fn",
         /// Returns a function type, assuming unspecified calling convention.
         fn_type,
+        /// Same as `fn_type` but the function is variadic.
+        fn_type_var_args,
         /// Returns a function type, with a calling convention instruction operand.
         fn_type_cc,
+        /// Same as `fn_type_cc` but the function is variadic.
+        fn_type_cc_var_args,
         /// @import(operand)
         import,
         /// Integer literal.
@@ -502,8 +506,8 @@ pub const Inst = struct {
                 .@"export" => Export,
                 .param_type => ParamType,
                 .primitive => Primitive,
-                .fn_type => FnType,
-                .fn_type_cc => FnTypeCc,
+                .fn_type, .fn_type_var_args => FnType,
+                .fn_type_cc, .fn_type_cc_var_args => FnTypeCc,
                 .elem_ptr, .elem_val => Elem,
                 .condbr => CondBr,
                 .ptr_type => PtrType,
@@ -579,7 +583,9 @@ pub const Inst = struct {
                 .field_val_named,
                 .@"fn",
                 .fn_type,
+                .fn_type_var_args,
                 .fn_type_cc,
+                .fn_type_cc_var_args,
                 .int,
                 .intcast,
                 .int_type,

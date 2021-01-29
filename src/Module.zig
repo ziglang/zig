@@ -1183,7 +1183,8 @@ fn astgenAndSemaFn(
     const param_count = blk: {
         var count: usize = 0;
         var it = fn_proto.iterate(tree);
-        while (it.next()) |_| {
+        while (it.next()) |param| {
+            if (param.anytype_ellipsis3) |some| if (token_tags[some] == .ellipsis3) break;
             count += 1;
         }
         break :blk count;
@@ -1196,6 +1197,7 @@ fn astgenAndSemaFn(
     });
     const type_type_rl: astgen.ResultLoc = .{ .ty = type_type };
 
+    var is_var_args = false;
     {
         var param_type_i: usize = 0;
         var it = fn_proto.iterate(tree);
@@ -1208,12 +1210,10 @@ fn astgenAndSemaFn(
                         "TODO implement anytype parameter",
                         .{},
                     ),
-                    .ellipsis3 => return mod.failTok(
-                        &fn_type_scope.base,
-                        token,
-                        "TODO implement var args",
-                        .{},
-                    ),
+                    .ellipsis3 => {
+                        is_var_args = true;
+                        break;
+                    },
                     else => unreachable,
                 }
             }
@@ -1295,7 +1295,13 @@ fn astgenAndSemaFn(
         type_type_rl,
         fn_proto.ast.return_type,
     );
-    const fn_type_inst = if (fn_proto.ast.callconv_expr != 0) cc: {
+
+    const is_extern = if (fn_proto.extern_export_token) |maybe_export_token|
+        token_tags[maybe_export_token] == .keyword_extern
+    else
+        false;
+
+    const cc_inst = if (fn_proto.ast.callconv_expr != 0) cc: {
         // TODO instead of enum literal type, this needs to be the
         // std.builtin.CallingConvention enum. We need to implement importing other files
         // and enums in order to fix this.
@@ -1304,18 +1310,31 @@ fn astgenAndSemaFn(
             .ty = Type.initTag(.type),
             .val = Value.initTag(.enum_literal_type),
         });
-        const cc = try astgen.comptimeExpr(mod, &fn_type_scope.base, .{
+        break :cc try astgen.comptimeExpr(mod, &fn_type_scope.base, .{
             .ty = enum_lit_ty,
         }, fn_proto.ast.callconv_expr);
-        break :cc try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type_cc, .{
+    } else if (is_extern) cc: {
+        // note: https://github.com/ziglang/zig/issues/5269
+        const src = token_starts[fn_proto.extern_export_token.?];
+        break :cc try astgen.addZIRInst(mod, &fn_type_scope.base, src, zir.Inst.EnumLiteral, .{ .name = "C" }, .{});
+    } else null;
+
+    const fn_type_inst = if (cc_inst) |cc| fn_type: {
+        var fn_type = try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type_cc, .{
             .return_type = return_type_inst,
             .param_types = param_types,
             .cc = cc,
         });
-    } else try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type, .{
-        .return_type = return_type_inst,
-        .param_types = param_types,
-    });
+        if (is_var_args) fn_type.tag = .fn_type_cc_var_args;
+        break :fn_type fn_type;
+    } else fn_type: {
+        var fn_type = try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type, .{
+            .return_type = return_type_inst,
+            .param_types = param_types,
+        });
+        if (is_var_args) fn_type.tag = .fn_type_var_args;
+        break :fn_type fn_type;
+    };
 
     if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
         zir.dumpZir(mod.gpa, "fn_type", decl.name, fn_type_scope.instructions.items) catch {};
@@ -1348,7 +1367,12 @@ fn astgenAndSemaFn(
     const fn_type = try zir_sema.analyzeBodyValueAsType(mod, &block_scope, fn_type_inst, .{
         .instructions = fn_type_scope.instructions.items,
     });
+
     if (body_node == 0) {
+        if (!is_extern) {
+            return mod.failNode(&block_scope.base, fn_proto.ast.fn_token, "non-extern function has no body", .{});
+        }
+
         // Extern function.
         var type_changed = true;
         if (decl.typedValueManaged()) |tvm| {
@@ -1376,6 +1400,10 @@ fn astgenAndSemaFn(
         }
 
         return type_changed;
+    }
+
+    if (fn_type.fnIsVarArgs()) {
+        return mod.failNode(&block_scope.base, fn_proto.ast.fn_token, "non-extern function is variadic", .{});
     }
 
     const new_func = try decl_arena.allocator.create(Fn);
@@ -3356,6 +3384,9 @@ pub fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Ty
 }
 
 pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) InnerError!*Inst {
+    if (dest_type.tag() == .var_args_param) {
+        return self.coerceVarArgParam(scope, inst);
+    }
     // If the types are the same, we can return the operand.
     if (dest_type.eql(inst.ty))
         return inst;
@@ -3506,6 +3537,15 @@ pub fn coerceNum(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) Inn
         }
     }
     return null;
+}
+
+pub fn coerceVarArgParam(mod: *Module, scope: *Scope, inst: *Inst) !*Inst {
+    switch (inst.ty.zigTypeTag()) {
+        .ComptimeInt, .ComptimeFloat => return mod.fail(scope, inst.src, "integer and float literals in var args function must be casted", .{}),
+        else => {},
+    }
+    // TODO implement more of this function.
+    return inst;
 }
 
 pub fn storePtr(self: *Module, scope: *Scope, src: usize, ptr: *Inst, uncasted_value: *Inst) !*Inst {

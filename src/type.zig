@@ -97,6 +97,8 @@ pub const Type = extern union {
             .@"struct", .empty_struct => return .Struct,
             .@"enum" => return .Enum,
             .@"union" => return .Union,
+
+            .var_args_param => unreachable, // can be any type
         }
     }
 
@@ -258,6 +260,8 @@ pub const Type = extern union {
                     if (!a.fnParamType(i).eql(b.fnParamType(i)))
                         return false;
                 }
+                if (a.fnIsVarArgs() != b.fnIsVarArgs())
+                    return false;
                 return true;
             },
             .Optional => {
@@ -323,6 +327,7 @@ pub const Type = extern union {
                 while (i < params_len) : (i += 1) {
                     std.hash.autoHash(&hasher, self.fnParamType(i).hash());
                 }
+                std.hash.autoHash(&hasher, self.fnIsVarArgs());
             },
             .Optional => {
                 var buf: Payload.ElemType = undefined;
@@ -397,6 +402,7 @@ pub const Type = extern union {
             .@"anyframe",
             .inferred_alloc_const,
             .inferred_alloc_mut,
+            .var_args_param,
             => unreachable,
 
             .array_u8,
@@ -446,6 +452,7 @@ pub const Type = extern union {
                     .return_type = try payload.return_type.copy(allocator),
                     .param_types = param_types,
                     .cc = payload.cc,
+                    .is_var_args = payload.is_var_args,
                 });
             },
             .pointer => {
@@ -535,6 +542,7 @@ pub const Type = extern union {
                 .comptime_int,
                 .comptime_float,
                 .noreturn,
+                .var_args_param,
                 => return out_stream.writeAll(@tagName(t)),
 
                 .enum_literal => return out_stream.writeAll("@Type(.EnumLiteral)"),
@@ -557,6 +565,12 @@ pub const Type = extern union {
                     for (payload.param_types) |param_type, i| {
                         if (i != 0) try out_stream.writeAll(", ");
                         try param_type.format("", .{}, out_stream);
+                    }
+                    if (payload.is_var_args) {
+                        if (payload.param_types.len != 0) {
+                            try out_stream.writeAll(", ");
+                        }
+                        try out_stream.writeAll("...");
                     }
                     try out_stream.writeAll(") callconv(.");
                     try out_stream.writeAll(@tagName(payload.cc));
@@ -844,6 +858,7 @@ pub const Type = extern union {
 
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
+            .var_args_param => unreachable,
         };
     }
 
@@ -969,6 +984,7 @@ pub const Type = extern union {
             .inferred_alloc_const,
             .inferred_alloc_mut,
             .@"opaque",
+            .var_args_param,
             => unreachable,
         };
     }
@@ -995,6 +1011,7 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
+            .var_args_param => unreachable,
 
             .u8,
             .i8,
@@ -1179,6 +1196,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
 
             .single_const_pointer,
@@ -1256,6 +1274,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
 
             .const_slice,
@@ -1354,6 +1373,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
 
             .const_slice,
@@ -1434,6 +1454,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
 
             .single_const_pointer,
@@ -1523,6 +1544,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
 
             .pointer => {
@@ -1607,6 +1629,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
 
             .pointer => {
@@ -1733,6 +1756,7 @@ pub const Type = extern union {
             .@"struct" => unreachable,
             .@"union" => unreachable,
             .@"opaque" => unreachable,
+            .var_args_param => unreachable,
 
             .array => self.castTag(.array).?.data.elem_type,
             .array_sentinel => self.castTag(.array_sentinel).?.data.elem_type,
@@ -1862,6 +1886,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
 
             .array => self.castTag(.array).?.data.len,
@@ -1936,6 +1961,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
 
             .single_const_pointer,
@@ -2025,6 +2051,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
 
             .int_signed,
@@ -2110,6 +2137,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
 
             .int_unsigned,
@@ -2181,6 +2209,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
 
             .int_unsigned => .{
@@ -2280,6 +2309,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
 
             .usize,
@@ -2400,6 +2430,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
         };
     }
@@ -2486,6 +2517,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
         }
     }
@@ -2571,6 +2603,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
         }
     }
@@ -2656,6 +2689,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
         };
     }
@@ -2738,6 +2772,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
         };
     }
@@ -2749,7 +2784,7 @@ pub const Type = extern union {
             .fn_void_no_args => false,
             .fn_naked_noreturn_no_args => false,
             .fn_ccc_void_no_args => false,
-            .function => false,
+            .function => self.castTag(.function).?.data.is_var_args,
 
             .f16,
             .f32,
@@ -2820,6 +2855,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => unreachable,
         };
     }
@@ -2902,6 +2938,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => false,
         };
     }
@@ -2962,6 +2999,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .@"opaque",
+            .var_args_param,
             => return null,
 
             .@"enum" => @panic("TODO onePossibleValue enum"),
@@ -3079,6 +3117,7 @@ pub const Type = extern union {
             .@"struct",
             .@"union",
             .@"opaque",
+            .var_args_param,
             => return false,
 
             .c_const_pointer,
@@ -3168,6 +3207,7 @@ pub const Type = extern union {
             .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
+            .var_args_param,
             => unreachable,
 
             .empty_struct => self.castTag(.empty_struct).?.data,
@@ -3285,6 +3325,9 @@ pub const Type = extern union {
         anyerror_void_error_union,
         @"anyframe",
         const_slice_u8,
+        /// This is a special type for variadic parameters of a function call.
+        /// Casts to it will validate that the type can be passed to a c calling convetion function.
+        var_args_param,
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support most of the normal type queries.
         /// However it does respond to `isConstPtr`, `ptrSize`, `zigTypeTag`, etc.
@@ -3373,6 +3416,7 @@ pub const Type = extern union {
                 .const_slice_u8,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
+                .var_args_param,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,
@@ -3479,6 +3523,7 @@ pub const Type = extern union {
                 param_types: []Type,
                 return_type: Type,
                 cc: std.builtin.CallingConvention,
+                is_var_args: bool,
             },
         };
 

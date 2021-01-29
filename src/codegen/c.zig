@@ -215,8 +215,9 @@ pub const DeclGen = struct {
         try dg.renderType(w, tv.ty.fnReturnType());
         const decl_name = mem.span(dg.decl.name);
         try w.print(" {s}(", .{decl_name});
-        var param_len = tv.ty.fnParamLen();
-        if (param_len == 0)
+        const param_len = tv.ty.fnParamLen();
+        const is_var_args = tv.ty.fnIsVarArgs();
+        if (param_len == 0 and !is_var_args)
             try w.writeAll("void")
         else {
             var index: usize = 0;
@@ -227,6 +228,10 @@ pub const DeclGen = struct {
                 try dg.renderType(w, tv.ty.fnParamType(index));
                 try w.print(" a{d}", .{index});
             }
+        }
+        if (is_var_args) {
+            if (param_len != 0) try w.writeAll(", ");
+            try w.writeAll("...");
         }
         try w.writeByte(')');
     }

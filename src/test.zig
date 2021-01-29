@@ -871,6 +871,7 @@ pub const TestContext = struct {
                                 "-std=c89",
                                 "-pedantic",
                                 "-Werror",
+                                "-Wno-incompatible-library-redeclaration", // https://github.com/ziglang/zig/issues/875
                                 "-Wno-declaration-after-statement",
                                 "--",
                                 "-lc",
