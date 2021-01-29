@@ -798,6 +798,28 @@ elseif(MINGW)
   target_link_libraries(zig ntdll)
 endif()
 
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/doc)
+add_custom_command(
+  OUTPUT "${CMAKE_BINARY_DIR}/doc/docgen"
+  COMMAND "${ZIG_EXECUTABLE}" "build-exe" "${CMAKE_SOURCE_DIR}/doc/docgen.zig"
+  DEPENDS "${ZIG_EXECUTABLE}"
+  COMMENT STATUS "Building docgen utility"
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/doc"
+)
+
+add_custom_command(
+  OUTPUT "${CMAKE_BINARY_DIR}/doc/langref.html"
+  COMMAND "${CMAKE_BINARY_DIR}/doc/docgen" "${ZIG_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/doc/langref.html.in" "${CMAKE_BINARY_DIR}/doc/langref.html"
+  DEPENDS "${CMAKE_BINARY_DIR}/doc/docgen" "${CMAKE_SOURCE_DIR}/doc/langref.html.in" "${ZIG_EXECUTABLE}"
+  COMMENT STATUS "Building langref"
+)
+
+add_custom_target(doc DEPENDS "${CMAKE_BINARY_DIR}/doc/langref.html")
+include(GNUInstallDirs)
+install(FILES "${CMAKE_BINARY_DIR}/doc/langref.html"
+        DESTINATION ${CMAKE_INSTALL_DOCDIR}/langref.html
+        OPTIONAL)
+
 install(TARGETS zig DESTINATION bin)
 
 set(ZIG_INSTALL_ARGS "build"
