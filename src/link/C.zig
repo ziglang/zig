@@ -150,6 +150,19 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
         .iov_len = zig_h.len,
     });
 
+    var error_defs_buf = std.ArrayList(u8).init(comp.gpa);
+    defer error_defs_buf.deinit();
+
+    var it = module.global_error_set.iterator();
+    while (it.next()) |entry| {
+        try error_defs_buf.writer().print("#define zig_error_{s} {d}\n", .{ entry.key, entry.value });
+    }
+    try error_defs_buf.writer().writeByte('\n');
+    all_buffers.appendAssumeCapacity(.{
+        .iov_base = error_defs_buf.items.ptr,
+        .iov_len = error_defs_buf.items.len,
+    });
+
     var fn_count: usize = 0;
 
     // Forward decls and non-functions first.

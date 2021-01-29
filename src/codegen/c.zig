@@ -217,6 +217,11 @@ pub const DeclGen = struct {
                     try writer.writeAll(" }");
                 }
             },
+            .ErrorSet => {
+                const payload = val.castTag(.@"error").?;
+                // error values will be #defined at the top of the file
+                return writer.print("zig_error_{s}", .{payload.data.name});
+            },
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement value {s}", .{
                 @tagName(e),
             }),
@@ -326,6 +331,16 @@ pub const DeclGen = struct {
                 try w.writeAll("struct { ");
                 try dg.renderType(w, child_type);
                 try w.writeAll(" payload; bool is_null; }");
+            },
+            .ErrorSet => {
+                comptime std.debug.assert(Type.initTag(.anyerror).abiSize(std.Target.current) == 2);
+                try w.writeAll("uint16_t");
+            },
+            .ErrorUnion => {
+                // TODO this needs to be typedeffed since different structs are different types.
+                try w.writeAll("struct { ");
+                try dg.renderType(w, t.errorUnionChild());
+                try w.writeAll(" payload; uint16_t error; }");
             },
             .Null, .Undefined => unreachable, // must be const or comptime
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement type {s}", .{
@@ -464,6 +479,8 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .wrap_optional => try genWrapOptional(o, inst.castTag(.wrap_optional).?),
             .optional_payload => try genOptionalPayload(o, inst.castTag(.optional_payload).?),
             .optional_payload_ptr => try genOptionalPayload(o, inst.castTag(.optional_payload).?),
+            .is_err => try genIsErr(o, inst.castTag(.is_err).?),
+            .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?),
             else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
         };
         switch (result_value) {
@@ -897,6 +914,18 @@ fn genWrapOptional(o: *Object, inst: *Inst.UnOp) !CValue {
     try writer.writeAll(" = { .is_null = false, .payload =");
     try o.writeCValue(writer, operand);
     try writer.writeAll("};\n");
+    return local;
+}
+
+fn genIsErr(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const maybe_deref = if (inst.base.tag == .is_err_ptr) "[0]" else "";
+    const operand = try o.resolveInst(inst.operand);
+
+    const local = try o.allocLocal(Type.initTag(.bool), .Const);
+    try writer.writeAll(" = (");
+    try o.writeCValue(writer, operand);
+    try writer.print("){s}.error != 0;\n", .{maybe_deref});
     return local;
 }
 
