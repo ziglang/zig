@@ -32,6 +32,34 @@ pub const CValue = union(enum) {
 };
 
 pub const CValueMap = std.AutoHashMap(*Inst, CValue);
+pub const TypedefMap = std.HashMap(Type, struct { name: []const u8, rendered: []u8 }, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
+
+fn formatTypeAsCIdentifier(
+    data: Type,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    var buffer = [1]u8{0} ** 128;
+    // We don't care if it gets cut off, it's still more unique than a number
+    var buf = std.fmt.bufPrint(&buffer, "{}", .{data}) catch &buffer;
+
+    for (buf) |c, i| {
+        switch (c) {
+            0 => return writer.writeAll(buf[0..i]),
+            'a'...'z', 'A'...'Z', '_', '$' => {},
+            '0'...'9' => if (i == 0) {
+                buf[i] = '_';
+            },
+            else => buf[i] = '_',
+        }
+    }
+    return writer.writeAll(buf);
+}
+
+pub fn typeToCIdentifier(t: Type) std.fmt.Formatter(formatTypeAsCIdentifier) {
+    return .{ .data = t };
+}
 
 /// This data is available when outputting .c code for a Module.
 /// It is not available when generating .h file.
@@ -115,6 +143,7 @@ pub const DeclGen = struct {
     decl: *Decl,
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Module.ErrorMsg,
+    typedefs: TypedefMap,
 
     fn fail(dg: *DeclGen, src: usize, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         dg.error_msg = try Module.ErrorMsg.create(dg.module.gpa, .{
@@ -325,22 +354,55 @@ pub const DeclGen = struct {
                 const child_type = t.optionalChild(&opt_buf);
                 if (t.isPtrLikeOptional()) {
                     return dg.renderType(w, child_type);
+                } else if (dg.typedefs.get(t)) |some| {
+                    return w.writeAll(some.name);
                 }
 
-                // TODO this needs to be typedeffed since different structs are different types.
-                try w.writeAll("struct { ");
-                try dg.renderType(w, child_type);
-                try w.writeAll(" payload; bool is_null; }");
+                var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
+                defer buffer.deinit();
+                const bw = buffer.writer();
+
+                try bw.writeAll("typedef struct { ");
+                try dg.renderType(bw, child_type);
+                try bw.writeAll(" payload; bool is_null; } ");
+                const name_index = buffer.items.len;
+                try bw.print("zig_opt_{s}_t;\n", .{typeToCIdentifier(child_type)});
+
+                const rendered = buffer.toOwnedSlice();
+                errdefer dg.typedefs.allocator.free(rendered);
+                const name = rendered[name_index .. rendered.len - 2];
+
+                try dg.typedefs.ensureCapacity(dg.typedefs.capacity() + 1);
+                try w.writeAll(name);
+                dg.typedefs.putAssumeCapacityNoClobber(t, .{ .name = name, .rendered = rendered });
             },
             .ErrorSet => {
                 comptime std.debug.assert(Type.initTag(.anyerror).abiSize(std.Target.current) == 2);
                 try w.writeAll("uint16_t");
             },
             .ErrorUnion => {
-                // TODO this needs to be typedeffed since different structs are different types.
-                try w.writeAll("struct { ");
-                try dg.renderType(w, t.errorUnionChild());
-                try w.writeAll(" payload; uint16_t error; }");
+                if (dg.typedefs.get(t)) |some| {
+                    return w.writeAll(some.name);
+                }
+                const child_type = t.errorUnionChild();
+
+                var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
+                defer buffer.deinit();
+                const bw = buffer.writer();
+
+                try bw.writeAll("typedef struct { ");
+                try dg.renderType(bw, t.errorUnionChild());
+                try bw.writeAll(" payload; uint16_t error; } ");
+                const name_index = buffer.items.len;
+                try bw.print("zig_err_union_{s}_t;\n", .{typeToCIdentifier(child_type)});
+
+                const rendered = buffer.toOwnedSlice();
+                errdefer dg.typedefs.allocator.free(rendered);
+                const name = rendered[name_index .. rendered.len - 2];
+
+                try dg.typedefs.ensureCapacity(dg.typedefs.capacity() + 1);
+                try w.writeAll(name);
+                dg.typedefs.putAssumeCapacityNoClobber(t, .{ .name = name, .rendered = rendered });
             },
             .Null, .Undefined => unreachable, // must be const or comptime
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement type {s}", .{
