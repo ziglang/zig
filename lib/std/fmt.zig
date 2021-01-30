@@ -659,7 +659,7 @@ pub fn formatIntValue(
         radix = 8;
         uppercase = false;
     } else {
-        @compileError("Unsupported '" ++ fmt ++ "' format string for '" ++ @typeName(@TypeOf(value)) ++ "' type");
+        @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
     }
 
     return formatInt(int_value, radix, uppercase, options, writer);
@@ -686,7 +686,7 @@ fn formatFloatValue(
             else => |e| return e,
         };
     } else {
-        @compileError("Unsupported '" ++ fmt ++ "' format string for '" ++ @typeName(@TypeOf(value)) ++ "' type");
+        @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
     }
 
     return formatBuf(buf_stream.getWritten(), options, writer);
@@ -720,7 +720,7 @@ pub fn formatText(
     } else if (comptime std.mem.eql(u8, fmt, "Z")) {
         @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else {
-        @compileError("Unsupported '" ++ fmt ++ "' format string for '" ++ @typeName(@TypeOf(value)) ++ "' type");
+        @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
     }
 }
 
