@@ -2006,23 +2006,6 @@ pub const LibExeObjStep = struct {
         self.step.dependOn(&write_file.step);
     }
 
-    /// Adds build option corresponding to the absolute (resolved) path.
-    /// Path is either an absolute path or a path relative to the build
-    /// working directory.
-    pub fn addPathBuildOption(
-        self: *LibExeObjStep,
-        name: []const u8,
-        path: []const u8,
-    ) void {
-        // Note that pathFromRoot uses resolve path, so this will have
-        // correct behavior even if getOutputPath is already absolute.
-        const escaped_abs_path = self.builder.fmt(
-            "{s}",
-            std.zig.fmtEscapes(self.builder.pathFromRoot(path)),
-        );
-        self.addBuildOption([]const u8, name, escaped_abs_path);
-    }
-
     pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .RawPathSystem = self.builder.dupe(path) }) catch unreachable;
     }
@@ -2244,16 +2227,21 @@ pub const LibExeObjStep = struct {
             self.build_options_write_file_args.items.len > 0)
         {
             // Render build artifact and write file options at the last minute, now that the path is known.
+            //
+            // Note that pathFromRoot uses resolve path, so this will have
+            // correct behavior even if getOutputPath is already absolute.
             for (self.build_options_artifact_args.items) |item| {
-                self.addPathBuildOption(
+                self.addBuildOption(
+                    []const u8,
                     item.name,
-                    item.artifact.getOutputPath(),
+                    self.builder.pathFromRoot(item.artifact.getOutputPath()),
                 );
             }
             for (self.build_options_write_file_args.items) |item| {
-                self.addPathBuildOption(
+                self.addBuildOption(
+                    []const u8,
                     item.name,
-                    item.write_file.getOutputPath(item.basename),
+                    self.builder.pathFromRoot(item.write_file.getOutputPath(item.basename)),
                 );
             }
 
