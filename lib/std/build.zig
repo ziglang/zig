@@ -2016,7 +2016,7 @@ pub const LibExeObjStep = struct {
     ) void {
         // Note that pathFromRoot uses resolve path, so this will have
         // correct behavior even if getOutputPath is already absolute.
-        const abs_path = self.builder.pathFromRoot(path);
+        const abs_path = std.zig.fmtEscapes(self.builder.pathFromRoot(path));
         self.addBuildOption([]const u8, name, abs_path);
     }
 
@@ -2240,7 +2240,6 @@ pub const LibExeObjStep = struct {
             self.build_options_artifact_args.items.len > 0 or
             self.build_options_write_file_args.items.len > 0)
         {
-            const path_option_fmt = "pub const {s}: []const u8 = \"{}\";\n";
             // Render build artifact and write file options at the last minute, now that the path is known.
             for (self.build_options_artifact_args.items) |item| {
                 self.addPathBuildOption(
