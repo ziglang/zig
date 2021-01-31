@@ -282,8 +282,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcPanic";
         case IrInstSrcIdTagName:
             return "SrcTagName";
-        case IrInstSrcIdTagType:
-            return "SrcTagType";
         case IrInstSrcIdFieldParentPtr:
             return "SrcFieldParentPtr";
         case IrInstSrcIdByteOffsetOf:
@@ -2354,12 +2352,6 @@ static void ir_print_arg_type(IrPrintSrc *irp, IrInstSrcArgType *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_enum_tag_type(IrPrintSrc *irp, IrInstSrcTagType *instruction) {
-    fprintf(irp->f, "@TagType(");
-    ir_print_other_inst_src(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_export(IrPrintSrc *irp, IrInstSrcExport *instruction) {
     fprintf(irp->f, "@export(");
     ir_print_other_inst_src(irp, instruction->target);
@@ -2952,9 +2944,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdArgType:
             ir_print_arg_type(irp, (IrInstSrcArgType *)instruction);
-            break;
-        case IrInstSrcIdTagType:
-            ir_print_enum_tag_type(irp, (IrInstSrcTagType *)instruction);
             break;
         case IrInstSrcIdExport:
             ir_print_export(irp, (IrInstSrcExport *)instruction);

@@ -516,8 +516,6 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetAlignStack *>(inst));
         case IrInstSrcIdArgType:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcArgType *>(inst));
-        case IrInstSrcIdTagType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTagType *>(inst));
         case IrInstSrcIdExport:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExport *>(inst));
         case IrInstSrcIdExtern:
@@ -1494,10 +1492,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcPanic *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcTagName *) {
     return IrInstSrcIdTagName;
-}
-
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTagType *) {
-    return IrInstSrcIdTagType;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcFieldParentPtr *) {
@@ -4450,17 +4444,6 @@ static IrInstGen *ir_build_tag_name_gen(IrAnalyze *ira, IrInst *source_instr, Ir
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_tag_type(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
-        IrInstSrc *target)
-{
-    IrInstSrcTagType *instruction = ir_build_instruction<IrInstSrcTagType>(irb, scope, source_node);
-    instruction->target = target;
-
-    ir_ref_instruction(target, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
 static IrInstSrc *ir_build_field_parent_ptr_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
         IrInstSrc *type_value, IrInstSrc *field_name, IrInstSrc *field_ptr)
 {
@@ -7201,16 +7184,6 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 IrInstSrc *tag_name = ir_build_tag_name_src(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, tag_name, lval, result_loc);
-            }
-        case BuiltinFnIdTagType:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_inst_src)
-                    return arg0_value;
-
-                IrInstSrc *tag_type = ir_build_tag_type(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, tag_type, lval, result_loc);
             }
         case BuiltinFnIdFieldParentPtr:
             {
@@ -31051,30 +31024,6 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
     return ir_const_type(ira, &instruction->base.base, result_type);
 }
 
-static IrInstGen *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstSrcTagType *instruction) {
-    Error err;
-    IrInstGen *target_inst = instruction->target->child;
-    ZigType *enum_type = ir_resolve_type(ira, target_inst);
-    if (type_is_invalid(enum_type))
-        return ira->codegen->invalid_inst_gen;
-
-    if (enum_type->id == ZigTypeIdEnum) {
-        if ((err = type_resolve(ira->codegen, enum_type, ResolveStatusSizeKnown)))
-            return ira->codegen->invalid_inst_gen;
-
-        return ir_const_type(ira, &instruction->base.base, enum_type->data.enumeration.tag_int_type);
-    } else if (enum_type->id == ZigTypeIdUnion) {
-        ZigType *tag_type = ir_resolve_union_tag_type(ira, instruction->target->base.source_node, enum_type);
-        if (type_is_invalid(tag_type))
-            return ira->codegen->invalid_inst_gen;
-        return ir_const_type(ira, &instruction->base.base, tag_type);
-    } else {
-        ir_add_error(ira, &target_inst->base, buf_sprintf("expected enum or union, found '%s'",
-            buf_ptr(&enum_type->name)));
-        return ira->codegen->invalid_inst_gen;
-    }
-}
-
 static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op) {
     ZigType *operand_type = ir_resolve_type(ira, op);
     if (type_is_invalid(operand_type))
@@ -32435,8 +32384,6 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_set_align_stack(ira, (IrInstSrcSetAlignStack *)instruction);
         case IrInstSrcIdArgType:
             return ir_analyze_instruction_arg_type(ira, (IrInstSrcArgType *)instruction);
-        case IrInstSrcIdTagType:
-            return ir_analyze_instruction_tag_type(ira, (IrInstSrcTagType *)instruction);
         case IrInstSrcIdExport:
             return ir_analyze_instruction_export(ira, (IrInstSrcExport *)instruction);
         case IrInstSrcIdExtern:
@@ -32879,7 +32826,6 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdImplicitCast:
         case IrInstSrcIdResolveResult:
         case IrInstSrcIdArgType:
-        case IrInstSrcIdTagType:
         case IrInstSrcIdErrorReturnTrace:
         case IrInstSrcIdErrorUnion:
         case IrInstSrcIdFloatOp:

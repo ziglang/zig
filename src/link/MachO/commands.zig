@@ -140,7 +140,7 @@ pub const LoadCommand = union(enum) {
     }
 
     fn eql(self: LoadCommand, other: LoadCommand) bool {
-        if (@as(@TagType(LoadCommand), self) != @as(@TagType(LoadCommand), other)) return false;
+        if (@as(meta.Tag(LoadCommand), self) != @as(meta.Tag(LoadCommand), other)) return false;
         return switch (self) {
             .DyldInfoOnly => |x| meta.eql(x, other.DyldInfoOnly),
             .Symtab => |x| meta.eql(x, other.Symtab),

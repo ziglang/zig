@@ -499,7 +499,7 @@ pub fn addPkgTests(
         if (skip_single_threaded and test_target.single_threaded)
             continue;
 
-        const ArchTag = @TagType(builtin.Arch);
+        const ArchTag = std.meta.Tag(builtin.Arch);
         if (test_target.disable_native and
             test_target.target.getOsTag() == std.Target.current.os.tag and
             test_target.target.getCpuArch() == std.Target.current.cpu.arch)

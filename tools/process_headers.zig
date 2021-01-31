@@ -47,7 +47,7 @@ const MultiAbi = union(enum) {
     fn eql(a: MultiAbi, b: MultiAbi) bool {
         if (@enumToInt(a) != @enumToInt(b))
             return false;
-        if (@TagType(MultiAbi)(a) != .specific)
+        if (std.meta.Tag(MultiAbi)(a) != .specific)
             return true;
         return a.specific == b.specific;
     }

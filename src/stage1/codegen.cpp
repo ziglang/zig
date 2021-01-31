@@ -8842,7 +8842,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdIntToPtr, "intToPtr", 2);
     create_builtin_fn(g, BuiltinFnIdPtrToInt, "ptrToInt", 1);
     create_builtin_fn(g, BuiltinFnIdTagName, "tagName", 1);
-    create_builtin_fn(g, BuiltinFnIdTagType, "TagType", 1);
     create_builtin_fn(g, BuiltinFnIdFieldParentPtr, "fieldParentPtr", 3);
     create_builtin_fn(g, BuiltinFnIdByteOffsetOf, "byteOffsetOf", 2);
     create_builtin_fn(g, BuiltinFnIdBitOffsetOf, "bitOffsetOf", 2);

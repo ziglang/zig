@@ -3077,7 +3077,6 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
                     .{ "@round", false },
                     .{ "@subWithOverflow", false },
                     .{ "@tagName", false },
-                    .{ "@TagType", false },
                     .{ "@This", false },
                     .{ "@truncate", false },
                     .{ "@Type", false },

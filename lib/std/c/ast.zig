@@ -110,7 +110,7 @@ pub const Error = union(enum) {
 
     pub const ExpectedToken = struct {
         token: TokenIndex,
-        expected_id: @TagType(Token.Id),
+        expected_id: std.meta.Tag(Token.Id),
 
         pub fn render(self: *const ExpectedToken, tree: *Tree, stream: anytype) !void {
             const found_token = tree.tokens.at(self.token);

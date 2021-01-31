@@ -323,7 +323,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    e: E,
         \\};
         \\export fn entry() void {
-        \\    if (@TagType(E) != u8) @compileError("did not infer u8 tag type");
+        \\    if (@typeInfo(E).Enum.tag_type != u8) @compileError("did not infer u8 tag type");
         \\    const s: S = undefined;
         \\}
     , &[_][]const u8{
@@ -2728,7 +2728,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const InvalidToken = struct {};
         \\const ExpectedVarDeclOrFn = struct {};
     , &[_][]const u8{
-        "tmp.zig:4:9: error: expected type '@TagType(Error)', found 'type'",
+        "tmp.zig:4:9: error: expected type '@typeInfo(Error).Union.tag_type.?', found 'type'",
     });
 
     cases.addTest("binary OR operator on error sets",
@@ -7462,24 +7462,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:4:5: note: declared here",
     });
 
-    cases.add("@TagType when union has no attached enum",
-        \\const Foo = union {
-        \\    A: i32,
-        \\};
-        \\export fn entry() void {
-        \\    const x = @TagType(Foo);
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:5:24: error: union 'Foo' has no tag",
-        "tmp.zig:1:13: note: consider 'union(enum)' here",
-    });
-
     cases.add("non-integer tag type to automatic union enum",
         \\const Foo = union(enum(f32)) {
         \\    A: i32,
         \\};
         \\export fn entry() void {
-        \\    const x = @TagType(Foo);
+        \\    const x = @typeInfo(Foo).Union.tag_type.?;
         \\}
     , &[_][]const u8{
         "tmp.zig:1:24: error: expected integer tag type, found 'f32'",
@@ -7490,7 +7478,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    A: i32,
         \\};
         \\export fn entry() void {
-        \\    const x = @TagType(Foo);
+        \\    const x = @typeInfo(Foo).Union.tag_type.?;
         \\}
     , &[_][]const u8{
         "tmp.zig:1:19: error: expected enum tag type, found 'u32'",
