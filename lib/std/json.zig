@@ -1471,7 +1471,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
             errdefer {
                 inline for (structInfo.fields) |field, i| {
-                    if (fields_seen[i]) {
+                    if (fields_seen[i] and !field.is_comptime) {
                         parseFree(field.field_type, @field(r, field.name), options);
                     }
                 }
@@ -1504,7 +1504,15 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                         parseFree(field.field_type, @field(r, field.name), options);
                                     }
                                 }
-                                @field(r, field.name) = try parse(field.field_type, tokens, options);
+                                if (field.is_comptime) {
+                                    const value = try parse(field.field_type, tokens, options);
+                                    defer parseFree(field.field_type, value, options);
+                                    if (value != @field(r, field.name)) {
+                                        return error.UnexpectedValue;
+                                    }
+                                } else {
+                                    @field(r, field.name) = try parse(field.field_type, tokens, options);
+                                }
                                 fields_seen[i] = true;
                                 found = true;
                                 break;
@@ -1518,7 +1526,9 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             inline for (structInfo.fields) |field, i| {
                 if (!fields_seen[i]) {
                     if (field.default_value) |default| {
-                        @field(r, field.name) = default;
+                        if (!field.is_comptime) {
+                            @field(r, field.name) = default;
+                        }
                     } else {
                         return error.MissingField;
                     }
@@ -1787,6 +1797,19 @@ test "parseFree descends into tagged union" {
     testing.expectEqual(@as(usize, 0), fail_alloc.deallocations);
     parseFree(T, r, options);
     testing.expectEqual(@as(usize, 1), fail_alloc.deallocations);
+}
+
+test "parse with comptime field" {
+    const T = struct {
+        comptime a: i32 = 0,
+        b: bool,
+    };
+    testing.expectEqual(T{ .a = 0, .b = true }, try parse(T, &TokenStream.init(
+        \\{
+        \\  "a": 0,
+        \\  "b": true
+        \\}
+    ), ParseOptions{}));
 }
 
 test "parse into struct with no fields" {
