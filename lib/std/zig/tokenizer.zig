@@ -7,7 +7,7 @@ const std = @import("../std.zig");
 const mem = std.mem;
 
 pub const Token = struct {
-    id: Id,
+    tag: Tag,
     loc: Loc,
 
     pub const Loc = struct {
@@ -15,7 +15,7 @@ pub const Token = struct {
         end: usize,
     };
 
-    pub const keywords = std.ComptimeStringMap(Id, .{
+    pub const keywords = std.ComptimeStringMap(Tag, .{
         .{ "align", .Keyword_align },
         .{ "allowzero", .Keyword_allowzero },
         .{ "and", .Keyword_and },
@@ -71,11 +71,11 @@ pub const Token = struct {
         .{ "while", .Keyword_while },
     });
 
-    pub fn getKeyword(bytes: []const u8) ?Id {
+    pub fn getKeyword(bytes: []const u8) ?Tag {
         return keywords.get(bytes);
     }
 
-    pub const Id = enum {
+    pub const Tag = enum {
         Invalid,
         Invalid_ampersands,
         Invalid_periodasterisks,
@@ -198,8 +198,8 @@ pub const Token = struct {
         Keyword_volatile,
         Keyword_while,
 
-        pub fn symbol(id: Id) []const u8 {
-            return switch (id) {
+        pub fn symbol(tag: Tag) []const u8 {
+            return switch (tag) {
                 .Invalid => "Invalid",
                 .Invalid_ampersands => "&&",
                 .Invalid_periodasterisks => ".**",
@@ -334,7 +334,7 @@ pub const Tokenizer = struct {
 
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
-        std.debug.warn("{s} \"{s}\"\n", .{ @tagName(token.id), self.buffer[token.start..token.end] });
+        std.debug.warn("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.start..token.end] });
     }
 
     pub fn init(buffer: []const u8) Tokenizer {
@@ -421,7 +421,7 @@ pub const Tokenizer = struct {
         const start_index = self.index;
         var state: State = .start;
         var result = Token{
-            .id = .Eof,
+            .tag = .Eof,
             .loc = .{
                 .start = self.index,
                 .end = undefined,
@@ -438,14 +438,14 @@ pub const Tokenizer = struct {
                     },
                     '"' => {
                         state = .string_literal;
-                        result.id = .StringLiteral;
+                        result.tag = .StringLiteral;
                     },
                     '\'' => {
                         state = .char_literal;
                     },
                     'a'...'z', 'A'...'Z', '_' => {
                         state = .identifier;
-                        result.id = .Identifier;
+                        result.tag = .Identifier;
                     },
                     '@' => {
                         state = .saw_at_sign;
@@ -460,42 +460,42 @@ pub const Tokenizer = struct {
                         state = .pipe;
                     },
                     '(' => {
-                        result.id = .LParen;
+                        result.tag = .LParen;
                         self.index += 1;
                         break;
                     },
                     ')' => {
-                        result.id = .RParen;
+                        result.tag = .RParen;
                         self.index += 1;
                         break;
                     },
                     '[' => {
-                        result.id = .LBracket;
+                        result.tag = .LBracket;
                         self.index += 1;
                         break;
                     },
                     ']' => {
-                        result.id = .RBracket;
+                        result.tag = .RBracket;
                         self.index += 1;
                         break;
                     },
                     ';' => {
-                        result.id = .Semicolon;
+                        result.tag = .Semicolon;
                         self.index += 1;
                         break;
                     },
                     ',' => {
-                        result.id = .Comma;
+                        result.tag = .Comma;
                         self.index += 1;
                         break;
                     },
                     '?' => {
-                        result.id = .QuestionMark;
+                        result.tag = .QuestionMark;
                         self.index += 1;
                         break;
                     },
                     ':' => {
-                        result.id = .Colon;
+                        result.tag = .Colon;
                         self.index += 1;
                         break;
                     },
@@ -519,20 +519,20 @@ pub const Tokenizer = struct {
                     },
                     '\\' => {
                         state = .backslash;
-                        result.id = .MultilineStringLiteralLine;
+                        result.tag = .MultilineStringLiteralLine;
                     },
                     '{' => {
-                        result.id = .LBrace;
+                        result.tag = .LBrace;
                         self.index += 1;
                         break;
                     },
                     '}' => {
-                        result.id = .RBrace;
+                        result.tag = .RBrace;
                         self.index += 1;
                         break;
                     },
                     '~' => {
-                        result.id = .Tilde;
+                        result.tag = .Tilde;
                         self.index += 1;
                         break;
                     },
@@ -550,14 +550,14 @@ pub const Tokenizer = struct {
                     },
                     '0' => {
                         state = .zero;
-                        result.id = .IntegerLiteral;
+                        result.tag = .IntegerLiteral;
                     },
                     '1'...'9' => {
                         state = .int_literal_dec;
-                        result.id = .IntegerLiteral;
+                        result.tag = .IntegerLiteral;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         self.index += 1;
                         break;
                     },
@@ -565,42 +565,42 @@ pub const Tokenizer = struct {
 
                 .saw_at_sign => switch (c) {
                     '"' => {
-                        result.id = .Identifier;
+                        result.tag = .Identifier;
                         state = .string_literal;
                     },
                     else => {
                         // reinterpret as a builtin
                         self.index -= 1;
                         state = .builtin;
-                        result.id = .Builtin;
+                        result.tag = .Builtin;
                     },
                 },
 
                 .ampersand => switch (c) {
                     '&' => {
-                        result.id = .Invalid_ampersands;
+                        result.tag = .Invalid_ampersands;
                         self.index += 1;
                         break;
                     },
                     '=' => {
-                        result.id = .AmpersandEqual;
+                        result.tag = .AmpersandEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Ampersand;
+                        result.tag = .Ampersand;
                         break;
                     },
                 },
 
                 .asterisk => switch (c) {
                     '=' => {
-                        result.id = .AsteriskEqual;
+                        result.tag = .AsteriskEqual;
                         self.index += 1;
                         break;
                     },
                     '*' => {
-                        result.id = .AsteriskAsterisk;
+                        result.tag = .AsteriskAsterisk;
                         self.index += 1;
                         break;
                     },
@@ -608,43 +608,43 @@ pub const Tokenizer = struct {
                         state = .asterisk_percent;
                     },
                     else => {
-                        result.id = .Asterisk;
+                        result.tag = .Asterisk;
                         break;
                     },
                 },
 
                 .asterisk_percent => switch (c) {
                     '=' => {
-                        result.id = .AsteriskPercentEqual;
+                        result.tag = .AsteriskPercentEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .AsteriskPercent;
+                        result.tag = .AsteriskPercent;
                         break;
                     },
                 },
 
                 .percent => switch (c) {
                     '=' => {
-                        result.id = .PercentEqual;
+                        result.tag = .PercentEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Percent;
+                        result.tag = .Percent;
                         break;
                     },
                 },
 
                 .plus => switch (c) {
                     '=' => {
-                        result.id = .PlusEqual;
+                        result.tag = .PlusEqual;
                         self.index += 1;
                         break;
                     },
                     '+' => {
-                        result.id = .PlusPlus;
+                        result.tag = .PlusPlus;
                         self.index += 1;
                         break;
                     },
@@ -652,31 +652,31 @@ pub const Tokenizer = struct {
                         state = .plus_percent;
                     },
                     else => {
-                        result.id = .Plus;
+                        result.tag = .Plus;
                         break;
                     },
                 },
 
                 .plus_percent => switch (c) {
                     '=' => {
-                        result.id = .PlusPercentEqual;
+                        result.tag = .PlusPercentEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .PlusPercent;
+                        result.tag = .PlusPercent;
                         break;
                     },
                 },
 
                 .caret => switch (c) {
                     '=' => {
-                        result.id = .CaretEqual;
+                        result.tag = .CaretEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Caret;
+                        result.tag = .Caret;
                         break;
                     },
                 },
@@ -684,8 +684,8 @@ pub const Tokenizer = struct {
                 .identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
-                        if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |id| {
-                            result.id = id;
+                        if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
+                            result.tag = tag;
                         }
                         break;
                     },
@@ -724,7 +724,7 @@ pub const Tokenizer = struct {
                         state = .char_literal_backslash;
                     },
                     '\'', 0x80...0xbf, 0xf8...0xff => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                     0xc0...0xdf => { // 110xxxxx
@@ -746,7 +746,7 @@ pub const Tokenizer = struct {
 
                 .char_literal_backslash => switch (c) {
                     '\n' => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                     'x' => {
@@ -769,7 +769,7 @@ pub const Tokenizer = struct {
                         }
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -780,7 +780,7 @@ pub const Tokenizer = struct {
                         seen_escape_digits = 0;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         state = .char_literal_unicode_invalid;
                     },
                 },
@@ -791,14 +791,14 @@ pub const Tokenizer = struct {
                     },
                     '}' => {
                         if (seen_escape_digits == 0) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                             state = .char_literal_unicode_invalid;
                         } else {
                             state = .char_literal_end;
                         }
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         state = .char_literal_unicode_invalid;
                     },
                 },
@@ -813,12 +813,12 @@ pub const Tokenizer = struct {
 
                 .char_literal_end => switch (c) {
                     '\'' => {
-                        result.id = .CharLiteral;
+                        result.tag = .CharLiteral;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -831,7 +831,7 @@ pub const Tokenizer = struct {
                         }
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -847,58 +847,58 @@ pub const Tokenizer = struct {
 
                 .bang => switch (c) {
                     '=' => {
-                        result.id = .BangEqual;
+                        result.tag = .BangEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Bang;
+                        result.tag = .Bang;
                         break;
                     },
                 },
 
                 .pipe => switch (c) {
                     '=' => {
-                        result.id = .PipeEqual;
+                        result.tag = .PipeEqual;
                         self.index += 1;
                         break;
                     },
                     '|' => {
-                        result.id = .PipePipe;
+                        result.tag = .PipePipe;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Pipe;
+                        result.tag = .Pipe;
                         break;
                     },
                 },
 
                 .equal => switch (c) {
                     '=' => {
-                        result.id = .EqualEqual;
+                        result.tag = .EqualEqual;
                         self.index += 1;
                         break;
                     },
                     '>' => {
-                        result.id = .EqualAngleBracketRight;
+                        result.tag = .EqualAngleBracketRight;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Equal;
+                        result.tag = .Equal;
                         break;
                     },
                 },
 
                 .minus => switch (c) {
                     '>' => {
-                        result.id = .Arrow;
+                        result.tag = .Arrow;
                         self.index += 1;
                         break;
                     },
                     '=' => {
-                        result.id = .MinusEqual;
+                        result.tag = .MinusEqual;
                         self.index += 1;
                         break;
                     },
@@ -906,19 +906,19 @@ pub const Tokenizer = struct {
                         state = .minus_percent;
                     },
                     else => {
-                        result.id = .Minus;
+                        result.tag = .Minus;
                         break;
                     },
                 },
 
                 .minus_percent => switch (c) {
                     '=' => {
-                        result.id = .MinusPercentEqual;
+                        result.tag = .MinusPercentEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .MinusPercent;
+                        result.tag = .MinusPercent;
                         break;
                     },
                 },
@@ -928,24 +928,24 @@ pub const Tokenizer = struct {
                         state = .angle_bracket_angle_bracket_left;
                     },
                     '=' => {
-                        result.id = .AngleBracketLeftEqual;
+                        result.tag = .AngleBracketLeftEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .AngleBracketLeft;
+                        result.tag = .AngleBracketLeft;
                         break;
                     },
                 },
 
                 .angle_bracket_angle_bracket_left => switch (c) {
                     '=' => {
-                        result.id = .AngleBracketAngleBracketLeftEqual;
+                        result.tag = .AngleBracketAngleBracketLeftEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .AngleBracketAngleBracketLeft;
+                        result.tag = .AngleBracketAngleBracketLeft;
                         break;
                     },
                 },
@@ -955,24 +955,24 @@ pub const Tokenizer = struct {
                         state = .angle_bracket_angle_bracket_right;
                     },
                     '=' => {
-                        result.id = .AngleBracketRightEqual;
+                        result.tag = .AngleBracketRightEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .AngleBracketRight;
+                        result.tag = .AngleBracketRight;
                         break;
                     },
                 },
 
                 .angle_bracket_angle_bracket_right => switch (c) {
                     '=' => {
-                        result.id = .AngleBracketAngleBracketRightEqual;
+                        result.tag = .AngleBracketAngleBracketRightEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .AngleBracketAngleBracketRight;
+                        result.tag = .AngleBracketAngleBracketRight;
                         break;
                     },
                 },
@@ -985,30 +985,30 @@ pub const Tokenizer = struct {
                         state = .period_asterisk;
                     },
                     else => {
-                        result.id = .Period;
+                        result.tag = .Period;
                         break;
                     },
                 },
 
                 .period_2 => switch (c) {
                     '.' => {
-                        result.id = .Ellipsis3;
+                        result.tag = .Ellipsis3;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Ellipsis2;
+                        result.tag = .Ellipsis2;
                         break;
                     },
                 },
 
                 .period_asterisk => switch (c) {
                     '*' => {
-                        result.id = .Invalid_periodasterisks;
+                        result.tag = .Invalid_periodasterisks;
                         break;
                     },
                     else => {
-                        result.id = .PeriodAsterisk;
+                        result.tag = .PeriodAsterisk;
                         break;
                     },
                 },
@@ -1016,15 +1016,15 @@ pub const Tokenizer = struct {
                 .slash => switch (c) {
                     '/' => {
                         state = .line_comment_start;
-                        result.id = .LineComment;
+                        result.tag = .LineComment;
                     },
                     '=' => {
-                        result.id = .SlashEqual;
+                        result.tag = .SlashEqual;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .Slash;
+                        result.tag = .Slash;
                         break;
                     },
                 },
@@ -1033,7 +1033,7 @@ pub const Tokenizer = struct {
                         state = .doc_comment_start;
                     },
                     '!' => {
-                        result.id = .ContainerDocComment;
+                        result.tag = .ContainerDocComment;
                         state = .container_doc_comment;
                     },
                     '\n' => break,
@@ -1048,16 +1048,16 @@ pub const Tokenizer = struct {
                         state = .line_comment;
                     },
                     '\n' => {
-                        result.id = .DocComment;
+                        result.tag = .DocComment;
                         break;
                     },
                     '\t', '\r' => {
                         state = .doc_comment;
-                        result.id = .DocComment;
+                        result.tag = .DocComment;
                     },
                     else => {
                         state = .doc_comment;
-                        result.id = .DocComment;
+                        result.tag = .DocComment;
                         self.checkLiteralCharacter();
                     },
                 },
@@ -1083,7 +1083,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
@@ -1093,7 +1093,7 @@ pub const Tokenizer = struct {
                         state = .int_literal_bin;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -1104,7 +1104,7 @@ pub const Tokenizer = struct {
                     '0'...'1' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
@@ -1114,7 +1114,7 @@ pub const Tokenizer = struct {
                         state = .int_literal_oct;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -1125,7 +1125,7 @@ pub const Tokenizer = struct {
                     '0'...'7' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
@@ -1135,7 +1135,7 @@ pub const Tokenizer = struct {
                         state = .int_literal_dec;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -1145,16 +1145,16 @@ pub const Tokenizer = struct {
                     },
                     '.' => {
                         state = .num_dot_dec;
-                        result.id = .FloatLiteral;
+                        result.tag = .FloatLiteral;
                     },
                     'e', 'E' => {
                         state = .float_exponent_unsigned;
-                        result.id = .FloatLiteral;
+                        result.tag = .FloatLiteral;
                     },
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
@@ -1164,7 +1164,7 @@ pub const Tokenizer = struct {
                         state = .int_literal_hex;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -1174,23 +1174,23 @@ pub const Tokenizer = struct {
                     },
                     '.' => {
                         state = .num_dot_hex;
-                        result.id = .FloatLiteral;
+                        result.tag = .FloatLiteral;
                     },
                     'p', 'P' => {
                         state = .float_exponent_unsigned;
-                        result.id = .FloatLiteral;
+                        result.tag = .FloatLiteral;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
                 },
                 .num_dot_dec => switch (c) {
                     '.' => {
-                        result.id = .IntegerLiteral;
+                        result.tag = .IntegerLiteral;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1203,14 +1203,14 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
                 },
                 .num_dot_hex => switch (c) {
                     '.' => {
-                        result.id = .IntegerLiteral;
+                        result.tag = .IntegerLiteral;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1219,12 +1219,12 @@ pub const Tokenizer = struct {
                         state = .float_exponent_unsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {
-                        result.id = .FloatLiteral;
+                        result.tag = .FloatLiteral;
                         state = .float_fraction_hex;
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
@@ -1234,7 +1234,7 @@ pub const Tokenizer = struct {
                         state = .float_fraction_dec;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -1248,7 +1248,7 @@ pub const Tokenizer = struct {
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
@@ -1258,7 +1258,7 @@ pub const Tokenizer = struct {
                         state = .float_fraction_hex;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -1272,7 +1272,7 @@ pub const Tokenizer = struct {
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
@@ -1292,7 +1292,7 @@ pub const Tokenizer = struct {
                         state = .float_exponent_num;
                     },
                     else => {
-                        result.id = .Invalid;
+                        result.tag = .Invalid;
                         break;
                     },
                 },
@@ -1303,7 +1303,7 @@ pub const Tokenizer = struct {
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.id = .Invalid;
+                            result.tag = .Invalid;
                         }
                         break;
                     },
@@ -1327,18 +1327,18 @@ pub const Tokenizer = struct {
                 => {},
 
                 .identifier => {
-                    if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |id| {
-                        result.id = id;
+                    if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
+                        result.tag = tag;
                     }
                 },
                 .line_comment, .line_comment_start => {
-                    result.id = .LineComment;
+                    result.tag = .LineComment;
                 },
                 .doc_comment, .doc_comment_start => {
-                    result.id = .DocComment;
+                    result.tag = .DocComment;
                 },
                 .container_doc_comment => {
-                    result.id = .ContainerDocComment;
+                    result.tag = .ContainerDocComment;
                 },
 
                 .int_literal_dec_no_underscore,
@@ -1361,76 +1361,76 @@ pub const Tokenizer = struct {
                 .char_literal_unicode,
                 .string_literal_backslash,
                 => {
-                    result.id = .Invalid;
+                    result.tag = .Invalid;
                 },
 
                 .equal => {
-                    result.id = .Equal;
+                    result.tag = .Equal;
                 },
                 .bang => {
-                    result.id = .Bang;
+                    result.tag = .Bang;
                 },
                 .minus => {
-                    result.id = .Minus;
+                    result.tag = .Minus;
                 },
                 .slash => {
-                    result.id = .Slash;
+                    result.tag = .Slash;
                 },
                 .zero => {
-                    result.id = .IntegerLiteral;
+                    result.tag = .IntegerLiteral;
                 },
                 .ampersand => {
-                    result.id = .Ampersand;
+                    result.tag = .Ampersand;
                 },
                 .period => {
-                    result.id = .Period;
+                    result.tag = .Period;
                 },
                 .period_2 => {
-                    result.id = .Ellipsis2;
+                    result.tag = .Ellipsis2;
                 },
                 .period_asterisk => {
-                    result.id = .PeriodAsterisk;
+                    result.tag = .PeriodAsterisk;
                 },
                 .pipe => {
-                    result.id = .Pipe;
+                    result.tag = .Pipe;
                 },
                 .angle_bracket_angle_bracket_right => {
-                    result.id = .AngleBracketAngleBracketRight;
+                    result.tag = .AngleBracketAngleBracketRight;
                 },
                 .angle_bracket_right => {
-                    result.id = .AngleBracketRight;
+                    result.tag = .AngleBracketRight;
                 },
                 .angle_bracket_angle_bracket_left => {
-                    result.id = .AngleBracketAngleBracketLeft;
+                    result.tag = .AngleBracketAngleBracketLeft;
                 },
                 .angle_bracket_left => {
-                    result.id = .AngleBracketLeft;
+                    result.tag = .AngleBracketLeft;
                 },
                 .plus_percent => {
-                    result.id = .PlusPercent;
+                    result.tag = .PlusPercent;
                 },
                 .plus => {
-                    result.id = .Plus;
+                    result.tag = .Plus;
                 },
                 .percent => {
-                    result.id = .Percent;
+                    result.tag = .Percent;
                 },
                 .caret => {
-                    result.id = .Caret;
+                    result.tag = .Caret;
                 },
                 .asterisk_percent => {
-                    result.id = .AsteriskPercent;
+                    result.tag = .AsteriskPercent;
                 },
                 .asterisk => {
-                    result.id = .Asterisk;
+                    result.tag = .Asterisk;
                 },
                 .minus_percent => {
-                    result.id = .MinusPercent;
+                    result.tag = .MinusPercent;
                 },
             }
         }
 
-        if (result.id == .Eof) {
+        if (result.tag == .Eof) {
             if (self.pending_invalid_token) |token| {
                 self.pending_invalid_token = null;
                 return token;
@@ -1446,7 +1446,7 @@ pub const Tokenizer = struct {
         const invalid_length = self.getInvalidCharacterLength();
         if (invalid_length == 0) return;
         self.pending_invalid_token = .{
-            .id = .Invalid,
+            .tag = .Invalid,
             .loc = .{
                 .start = self.index,
                 .end = self.index + invalid_length,
@@ -1493,14 +1493,14 @@ pub const Tokenizer = struct {
 };
 
 test "tokenizer" {
-    testTokenize("test", &[_]Token.Id{.Keyword_test});
+    testTokenize("test", &[_]Token.Tag{.Keyword_test});
 }
 
 test "tokenizer - unknown length pointer and then c pointer" {
     testTokenize(
         \\[*]u8
         \\[*c]u8
-    , &[_]Token.Id{
+    , &[_]Token.Tag{
         .LBracket,
         .Asterisk,
         .RBracket,
@@ -1516,70 +1516,70 @@ test "tokenizer - unknown length pointer and then c pointer" {
 test "tokenizer - char literal with hex escape" {
     testTokenize(
         \\'\x1b'
-    , &[_]Token.Id{.CharLiteral});
+    , &[_]Token.Tag{.CharLiteral});
     testTokenize(
         \\'\x1'
-    , &[_]Token.Id{ .Invalid, .Invalid });
+    , &[_]Token.Tag{ .Invalid, .Invalid });
 }
 
 test "tokenizer - char literal with unicode escapes" {
     // Valid unicode escapes
     testTokenize(
         \\'\u{3}'
-    , &[_]Token.Id{.CharLiteral});
+    , &[_]Token.Tag{.CharLiteral});
     testTokenize(
         \\'\u{01}'
-    , &[_]Token.Id{.CharLiteral});
+    , &[_]Token.Tag{.CharLiteral});
     testTokenize(
         \\'\u{2a}'
-    , &[_]Token.Id{.CharLiteral});
+    , &[_]Token.Tag{.CharLiteral});
     testTokenize(
         \\'\u{3f9}'
-    , &[_]Token.Id{.CharLiteral});
+    , &[_]Token.Tag{.CharLiteral});
     testTokenize(
         \\'\u{6E09aBc1523}'
-    , &[_]Token.Id{.CharLiteral});
+    , &[_]Token.Tag{.CharLiteral});
     testTokenize(
         \\"\u{440}"
-    , &[_]Token.Id{.StringLiteral});
+    , &[_]Token.Tag{.StringLiteral});
 
     // Invalid unicode escapes
     testTokenize(
         \\'\u'
-    , &[_]Token.Id{.Invalid});
+    , &[_]Token.Tag{.Invalid});
     testTokenize(
         \\'\u{{'
-    , &[_]Token.Id{ .Invalid, .Invalid });
+    , &[_]Token.Tag{ .Invalid, .Invalid });
     testTokenize(
         \\'\u{}'
-    , &[_]Token.Id{ .Invalid, .Invalid });
+    , &[_]Token.Tag{ .Invalid, .Invalid });
     testTokenize(
         \\'\u{s}'
-    , &[_]Token.Id{ .Invalid, .Invalid });
+    , &[_]Token.Tag{ .Invalid, .Invalid });
     testTokenize(
         \\'\u{2z}'
-    , &[_]Token.Id{ .Invalid, .Invalid });
+    , &[_]Token.Tag{ .Invalid, .Invalid });
     testTokenize(
         \\'\u{4a'
-    , &[_]Token.Id{.Invalid});
+    , &[_]Token.Tag{.Invalid});
 
     // Test old-style unicode literals
     testTokenize(
         \\'\u0333'
-    , &[_]Token.Id{ .Invalid, .Invalid });
+    , &[_]Token.Tag{ .Invalid, .Invalid });
     testTokenize(
         \\'\U0333'
-    , &[_]Token.Id{ .Invalid, .IntegerLiteral, .Invalid });
+    , &[_]Token.Tag{ .Invalid, .IntegerLiteral, .Invalid });
 }
 
 test "tokenizer - char literal with unicode code point" {
     testTokenize(
         \\'💩'
-    , &[_]Token.Id{.CharLiteral});
+    , &[_]Token.Tag{.CharLiteral});
 }
 
 test "tokenizer - float literal e exponent" {
-    testTokenize("a = 4.94065645841246544177e-324;\n", &[_]Token.Id{
+    testTokenize("a = 4.94065645841246544177e-324;\n", &[_]Token.Tag{
         .Identifier,
         .Equal,
         .FloatLiteral,
@@ -1588,7 +1588,7 @@ test "tokenizer - float literal e exponent" {
 }
 
 test "tokenizer - float literal p exponent" {
-    testTokenize("a = 0x1.a827999fcef32p+1022;\n", &[_]Token.Id{
+    testTokenize("a = 0x1.a827999fcef32p+1022;\n", &[_]Token.Tag{
         .Identifier,
         .Equal,
         .FloatLiteral,
@@ -1597,71 +1597,71 @@ test "tokenizer - float literal p exponent" {
 }
 
 test "tokenizer - chars" {
-    testTokenize("'c'", &[_]Token.Id{.CharLiteral});
+    testTokenize("'c'", &[_]Token.Tag{.CharLiteral});
 }
 
 test "tokenizer - invalid token characters" {
-    testTokenize("#", &[_]Token.Id{.Invalid});
-    testTokenize("`", &[_]Token.Id{.Invalid});
-    testTokenize("'c", &[_]Token.Id{.Invalid});
-    testTokenize("'", &[_]Token.Id{.Invalid});
-    testTokenize("''", &[_]Token.Id{ .Invalid, .Invalid });
+    testTokenize("#", &[_]Token.Tag{.Invalid});
+    testTokenize("`", &[_]Token.Tag{.Invalid});
+    testTokenize("'c", &[_]Token.Tag{.Invalid});
+    testTokenize("'", &[_]Token.Tag{.Invalid});
+    testTokenize("''", &[_]Token.Tag{ .Invalid, .Invalid });
 }
 
 test "tokenizer - invalid literal/comment characters" {
-    testTokenize("\"\x00\"", &[_]Token.Id{
+    testTokenize("\"\x00\"", &[_]Token.Tag{
         .StringLiteral,
         .Invalid,
     });
-    testTokenize("//\x00", &[_]Token.Id{
+    testTokenize("//\x00", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\x1f", &[_]Token.Id{
+    testTokenize("//\x1f", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\x7f", &[_]Token.Id{
+    testTokenize("//\x7f", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
 }
 
 test "tokenizer - utf8" {
-    testTokenize("//\xc2\x80", &[_]Token.Id{.LineComment});
-    testTokenize("//\xf4\x8f\xbf\xbf", &[_]Token.Id{.LineComment});
+    testTokenize("//\xc2\x80", &[_]Token.Tag{.LineComment});
+    testTokenize("//\xf4\x8f\xbf\xbf", &[_]Token.Tag{.LineComment});
 }
 
 test "tokenizer - invalid utf8" {
-    testTokenize("//\x80", &[_]Token.Id{
+    testTokenize("//\x80", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xbf", &[_]Token.Id{
+    testTokenize("//\xbf", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xf8", &[_]Token.Id{
+    testTokenize("//\xf8", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xff", &[_]Token.Id{
+    testTokenize("//\xff", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xc2\xc0", &[_]Token.Id{
+    testTokenize("//\xc2\xc0", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xe0", &[_]Token.Id{
+    testTokenize("//\xe0", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xf0", &[_]Token.Id{
+    testTokenize("//\xf0", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xf0\x90\x80\xc0", &[_]Token.Id{
+    testTokenize("//\xf0\x90\x80\xc0", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
@@ -1669,28 +1669,28 @@ test "tokenizer - invalid utf8" {
 
 test "tokenizer - illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", &[_]Token.Id{.LineComment});
-    testTokenize("//\xc2\x85", &[_]Token.Id{
+    testTokenize("//\xc2\x84", &[_]Token.Tag{.LineComment});
+    testTokenize("//\xc2\x85", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xc2\x86", &[_]Token.Id{.LineComment});
-    testTokenize("//\xe2\x80\xa7", &[_]Token.Id{.LineComment});
-    testTokenize("//\xe2\x80\xa8", &[_]Token.Id{
+    testTokenize("//\xc2\x86", &[_]Token.Tag{.LineComment});
+    testTokenize("//\xe2\x80\xa7", &[_]Token.Tag{.LineComment});
+    testTokenize("//\xe2\x80\xa8", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xe2\x80\xa9", &[_]Token.Id{
+    testTokenize("//\xe2\x80\xa9", &[_]Token.Tag{
         .LineComment,
         .Invalid,
     });
-    testTokenize("//\xe2\x80\xaa", &[_]Token.Id{.LineComment});
+    testTokenize("//\xe2\x80\xaa", &[_]Token.Tag{.LineComment});
 }
 
 test "tokenizer - string identifier and builtin fns" {
     testTokenize(
         \\const @"if" = @import("std");
-    , &[_]Token.Id{
+    , &[_]Token.Tag{
         .Keyword_const,
         .Identifier,
         .Equal,
@@ -1705,7 +1705,7 @@ test "tokenizer - string identifier and builtin fns" {
 test "tokenizer - multiline string literal with literal tab" {
     testTokenize(
         \\\\foo	bar
-    , &[_]Token.Id{
+    , &[_]Token.Tag{
         .MultilineStringLiteralLine,
     });
 }
@@ -1718,7 +1718,7 @@ test "tokenizer - comments with literal tab" {
         \\//	foo
         \\///	foo
         \\///	/foo
-    , &[_]Token.Id{
+    , &[_]Token.Tag{
         .LineComment,
         .ContainerDocComment,
         .DocComment,
@@ -1729,21 +1729,21 @@ test "tokenizer - comments with literal tab" {
 }
 
 test "tokenizer - pipe and then invalid" {
-    testTokenize("||=", &[_]Token.Id{
+    testTokenize("||=", &[_]Token.Tag{
         .PipePipe,
         .Equal,
     });
 }
 
 test "tokenizer - line comment and doc comment" {
-    testTokenize("//", &[_]Token.Id{.LineComment});
-    testTokenize("// a / b", &[_]Token.Id{.LineComment});
-    testTokenize("// /", &[_]Token.Id{.LineComment});
-    testTokenize("/// a", &[_]Token.Id{.DocComment});
-    testTokenize("///", &[_]Token.Id{.DocComment});
-    testTokenize("////", &[_]Token.Id{.LineComment});
-    testTokenize("//!", &[_]Token.Id{.ContainerDocComment});
-    testTokenize("//!!", &[_]Token.Id{.ContainerDocComment});
+    testTokenize("//", &[_]Token.Tag{.LineComment});
+    testTokenize("// a / b", &[_]Token.Tag{.LineComment});
+    testTokenize("// /", &[_]Token.Tag{.LineComment});
+    testTokenize("/// a", &[_]Token.Tag{.DocComment});
+    testTokenize("///", &[_]Token.Tag{.DocComment});
+    testTokenize("////", &[_]Token.Tag{.LineComment});
+    testTokenize("//!", &[_]Token.Tag{.ContainerDocComment});
+    testTokenize("//!!", &[_]Token.Tag{.ContainerDocComment});
 }
 
 test "tokenizer - line comment followed by identifier" {
@@ -1751,7 +1751,7 @@ test "tokenizer - line comment followed by identifier" {
         \\    Unexpected,
         \\    // another
         \\    Another,
-    , &[_]Token.Id{
+    , &[_]Token.Tag{
         .Identifier,
         .Comma,
         .LineComment,
@@ -1761,14 +1761,14 @@ test "tokenizer - line comment followed by identifier" {
 }
 
 test "tokenizer - UTF-8 BOM is recognized and skipped" {
-    testTokenize("\xEF\xBB\xBFa;\n", &[_]Token.Id{
+    testTokenize("\xEF\xBB\xBFa;\n", &[_]Token.Tag{
         .Identifier,
         .Semicolon,
     });
 }
 
 test "correctly parse pointer assignment" {
-    testTokenize("b.*=3;\n", &[_]Token.Id{
+    testTokenize("b.*=3;\n", &[_]Token.Tag{
         .Identifier,
         .PeriodAsterisk,
         .Equal,
@@ -1778,14 +1778,14 @@ test "correctly parse pointer assignment" {
 }
 
 test "correctly parse pointer dereference followed by asterisk" {
-    testTokenize("\"b\".* ** 10", &[_]Token.Id{
+    testTokenize("\"b\".* ** 10", &[_]Token.Tag{
         .StringLiteral,
         .PeriodAsterisk,
         .AsteriskAsterisk,
         .IntegerLiteral,
     });
 
-    testTokenize("(\"b\".*)** 10", &[_]Token.Id{
+    testTokenize("(\"b\".*)** 10", &[_]Token.Tag{
         .LParen,
         .StringLiteral,
         .PeriodAsterisk,
@@ -1794,7 +1794,7 @@ test "correctly parse pointer dereference followed by asterisk" {
         .IntegerLiteral,
     });
 
-    testTokenize("\"b\".*** 10", &[_]Token.Id{
+    testTokenize("\"b\".*** 10", &[_]Token.Tag{
         .StringLiteral,
         .Invalid_periodasterisks,
         .AsteriskAsterisk,
@@ -1803,252 +1803,252 @@ test "correctly parse pointer dereference followed by asterisk" {
 }
 
 test "tokenizer - range literals" {
-    testTokenize("0...9", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
-    testTokenize("'0'...'9'", &[_]Token.Id{ .CharLiteral, .Ellipsis3, .CharLiteral });
-    testTokenize("0x00...0x09", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
-    testTokenize("0b00...0b11", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
-    testTokenize("0o00...0o11", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0...9", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("'0'...'9'", &[_]Token.Tag{ .CharLiteral, .Ellipsis3, .CharLiteral });
+    testTokenize("0x00...0x09", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0b00...0b11", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0o00...0o11", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
 }
 
 test "tokenizer - number literals decimal" {
-    testTokenize("0", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("1", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("2", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("3", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("4", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("5", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("6", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("7", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("8", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("9", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("1..", &[_]Token.Id{ .IntegerLiteral, .Ellipsis2 });
-    testTokenize("0a", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("9b", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1z", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1z_1", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("9z3", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("1", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("2", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("3", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("4", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("5", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("6", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("7", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("8", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("9", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("1..", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis2 });
+    testTokenize("0a", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("9b", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1z", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1z_1", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("9z3", &[_]Token.Tag{ .Invalid, .Identifier });
 
-    testTokenize("0_0", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0001", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("01234567890", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("012_345_6789_0", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0_1_2_3_4_5_6_7_8_9_0", &[_]Token.Id{.IntegerLiteral});
+    testTokenize("0_0", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0001", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("01234567890", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("012_345_6789_0", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0_1_2_3_4_5_6_7_8_9_0", &[_]Token.Tag{.IntegerLiteral});
 
-    testTokenize("00_", &[_]Token.Id{.Invalid});
-    testTokenize("0_0_", &[_]Token.Id{.Invalid});
-    testTokenize("0__0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0_0f", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0_0_f", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0_0_f_00", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1_,", &[_]Token.Id{ .Invalid, .Comma });
+    testTokenize("00_", &[_]Token.Tag{.Invalid});
+    testTokenize("0_0_", &[_]Token.Tag{.Invalid});
+    testTokenize("0__0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0_0f", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0_0_f", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0_0_f_00", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1_,", &[_]Token.Tag{ .Invalid, .Comma });
 
-    testTokenize("1.", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0.0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1.0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("10.0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0e0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1e0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1e100", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1.e100", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1.0e100", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1.0e+100", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1.0e-100", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("1.+", &[_]Token.Id{ .FloatLiteral, .Plus });
+    testTokenize("1.", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0.0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1.0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("10.0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0e0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1e0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1e100", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1.e100", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1.0e100", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1.0e+100", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1.0e-100", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("1.+", &[_]Token.Tag{ .FloatLiteral, .Plus });
 
-    testTokenize("1e", &[_]Token.Id{.Invalid});
-    testTokenize("1.0e1f0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.0p100", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.0p-100", &[_]Token.Id{ .Invalid, .Identifier, .Minus, .IntegerLiteral });
-    testTokenize("1.0p1f0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.0_,", &[_]Token.Id{ .Invalid, .Comma });
-    testTokenize("1_.0", &[_]Token.Id{ .Invalid, .Period, .IntegerLiteral });
-    testTokenize("1._", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.a", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.z", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1._0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1._+", &[_]Token.Id{ .Invalid, .Identifier, .Plus });
-    testTokenize("1._e", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.0e", &[_]Token.Id{.Invalid});
-    testTokenize("1.0e,", &[_]Token.Id{ .Invalid, .Comma });
-    testTokenize("1.0e_", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.0e+_", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.0e-_", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("1.0e0_+", &[_]Token.Id{ .Invalid, .Plus });
+    testTokenize("1e", &[_]Token.Tag{.Invalid});
+    testTokenize("1.0e1f0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.0p100", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.0p-100", &[_]Token.Tag{ .Invalid, .Identifier, .Minus, .IntegerLiteral });
+    testTokenize("1.0p1f0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.0_,", &[_]Token.Tag{ .Invalid, .Comma });
+    testTokenize("1_.0", &[_]Token.Tag{ .Invalid, .Period, .IntegerLiteral });
+    testTokenize("1._", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.a", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.z", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1._0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1._+", &[_]Token.Tag{ .Invalid, .Identifier, .Plus });
+    testTokenize("1._e", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.0e", &[_]Token.Tag{.Invalid});
+    testTokenize("1.0e,", &[_]Token.Tag{ .Invalid, .Comma });
+    testTokenize("1.0e_", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.0e+_", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.0e-_", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("1.0e0_+", &[_]Token.Tag{ .Invalid, .Plus });
 }
 
 test "tokenizer - number literals binary" {
-    testTokenize("0b0", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0b1", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0b2", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0b3", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0b4", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0b5", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0b6", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0b7", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0b8", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0b9", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0ba", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0bb", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0bc", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0bd", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0be", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0bf", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0bz", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0b0", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0b1", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0b2", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0b3", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0b4", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0b5", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0b6", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0b7", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0b8", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0b9", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0ba", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0bb", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0bc", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0bd", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0be", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0bf", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0bz", &[_]Token.Tag{ .Invalid, .Identifier });
 
-    testTokenize("0b0000_0000", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0b1111_1111", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0b10_10_10_10", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0b0_1_0_1_0_1_0_1", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0b1.", &[_]Token.Id{ .IntegerLiteral, .Period });
-    testTokenize("0b1.0", &[_]Token.Id{ .IntegerLiteral, .Period, .IntegerLiteral });
+    testTokenize("0b0000_0000", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0b1111_1111", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0b10_10_10_10", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0b0_1_0_1_0_1_0_1", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0b1.", &[_]Token.Tag{ .IntegerLiteral, .Period });
+    testTokenize("0b1.0", &[_]Token.Tag{ .IntegerLiteral, .Period, .IntegerLiteral });
 
-    testTokenize("0B0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0b_", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0b_0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0b1_", &[_]Token.Id{.Invalid});
-    testTokenize("0b0__1", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0b0_1_", &[_]Token.Id{.Invalid});
-    testTokenize("0b1e", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0b1p", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0b1e0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0b1p0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0b1_,", &[_]Token.Id{ .Invalid, .Comma });
+    testTokenize("0B0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b_", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b_0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b1_", &[_]Token.Tag{.Invalid});
+    testTokenize("0b0__1", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b0_1_", &[_]Token.Tag{.Invalid});
+    testTokenize("0b1e", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b1p", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b1e0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b1p0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b1_,", &[_]Token.Tag{ .Invalid, .Comma });
 }
 
 test "tokenizer - number literals octal" {
-    testTokenize("0o0", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o1", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o2", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o3", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o4", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o5", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o6", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o7", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o8", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0o9", &[_]Token.Id{ .Invalid, .IntegerLiteral });
-    testTokenize("0oa", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0ob", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0oc", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0od", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0oe", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0of", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0oz", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0o0", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o1", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o2", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o3", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o4", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o5", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o6", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o7", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o8", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0o9", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
+    testTokenize("0oa", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0ob", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0oc", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0od", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0oe", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0of", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0oz", &[_]Token.Tag{ .Invalid, .Identifier });
 
-    testTokenize("0o01234567", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o0123_4567", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o01_23_45_67", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o0_1_2_3_4_5_6_7", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0o7.", &[_]Token.Id{ .IntegerLiteral, .Period });
-    testTokenize("0o7.0", &[_]Token.Id{ .IntegerLiteral, .Period, .IntegerLiteral });
+    testTokenize("0o01234567", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o0123_4567", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o01_23_45_67", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o0_1_2_3_4_5_6_7", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0o7.", &[_]Token.Tag{ .IntegerLiteral, .Period });
+    testTokenize("0o7.0", &[_]Token.Tag{ .IntegerLiteral, .Period, .IntegerLiteral });
 
-    testTokenize("0O0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0o_", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0o_0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0o1_", &[_]Token.Id{.Invalid});
-    testTokenize("0o0__1", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0o0_1_", &[_]Token.Id{.Invalid});
-    testTokenize("0o1e", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0o1p", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0o1e0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0o1p0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0o_,", &[_]Token.Id{ .Invalid, .Identifier, .Comma });
+    testTokenize("0O0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o_", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o_0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o1_", &[_]Token.Tag{.Invalid});
+    testTokenize("0o0__1", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o0_1_", &[_]Token.Tag{.Invalid});
+    testTokenize("0o1e", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o1p", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o1e0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o1p0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o_,", &[_]Token.Tag{ .Invalid, .Identifier, .Comma });
 }
 
 test "tokenizer - number literals hexadeciaml" {
-    testTokenize("0x0", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x1", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x2", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x3", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x4", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x5", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x6", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x7", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x8", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x9", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xa", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xb", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xc", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xd", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xe", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xf", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xA", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xB", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xC", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xD", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xE", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0xF", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x0z", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0xz", &[_]Token.Id{ .Invalid, .Identifier });
+    testTokenize("0x0", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x1", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x2", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x3", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x4", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x5", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x6", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x7", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x8", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x9", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xa", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xb", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xc", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xd", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xe", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xf", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xA", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xB", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xC", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xD", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xE", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0xF", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x0z", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0xz", &[_]Token.Tag{ .Invalid, .Identifier });
 
-    testTokenize("0x0123456789ABCDEF", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x0123_4567_89AB_CDEF", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x01_23_45_67_89AB_CDE_F", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &[_]Token.Id{.IntegerLiteral});
+    testTokenize("0x0123456789ABCDEF", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x0123_4567_89AB_CDEF", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x01_23_45_67_89AB_CDE_F", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &[_]Token.Tag{.IntegerLiteral});
 
-    testTokenize("0X0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x_", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x_1", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x1_", &[_]Token.Id{.Invalid});
-    testTokenize("0x0__1", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0_1_", &[_]Token.Id{.Invalid});
-    testTokenize("0x_,", &[_]Token.Id{ .Invalid, .Identifier, .Comma });
+    testTokenize("0X0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x_", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x_1", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x1_", &[_]Token.Tag{.Invalid});
+    testTokenize("0x0__1", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0_1_", &[_]Token.Tag{.Invalid});
+    testTokenize("0x_,", &[_]Token.Tag{ .Invalid, .Identifier, .Comma });
 
-    testTokenize("0x1.", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0x1.0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xF.", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xF.0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xF.F", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xF.Fp0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xF.FP0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0x1p0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xfp0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0x1.+0xF.", &[_]Token.Id{ .FloatLiteral, .Plus, .FloatLiteral });
+    testTokenize("0x1.", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0x1.0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xF.", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xF.0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xF.F", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xF.Fp0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xF.FP0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0x1p0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xfp0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0x1.+0xF.", &[_]Token.Tag{ .FloatLiteral, .Plus, .FloatLiteral });
 
-    testTokenize("0x0123456.789ABCDEF", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0x0_123_456.789_ABC_DEF", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0x0p0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0x0.0p0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xff.ffp10", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xff.ffP10", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xff.p10", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xffp10", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xff_ff.ff_ffp1_0_0_0", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &[_]Token.Id{.FloatLiteral});
-    testTokenize("0xf_f_f_f.f_f_f_fp-1_00_0", &[_]Token.Id{.FloatLiteral});
+    testTokenize("0x0123456.789ABCDEF", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0x0_123_456.789_ABC_DEF", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0x0p0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0x0.0p0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xff.ffp10", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xff.ffP10", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xff.p10", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xffp10", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xff_ff.ff_ffp1_0_0_0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0xf_f_f_f.f_f_f_fp-1_00_0", &[_]Token.Tag{.FloatLiteral});
 
-    testTokenize("0x1e", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x1e0", &[_]Token.Id{.IntegerLiteral});
-    testTokenize("0x1p", &[_]Token.Id{.Invalid});
-    testTokenize("0xfp0z1", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0xff.ffpff", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0.p", &[_]Token.Id{.Invalid});
-    testTokenize("0x0.z", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0._", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0_.0", &[_]Token.Id{ .Invalid, .Period, .IntegerLiteral });
-    testTokenize("0x0_.0.0", &[_]Token.Id{ .Invalid, .Period, .FloatLiteral });
-    testTokenize("0x0._0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0.0_", &[_]Token.Id{.Invalid});
-    testTokenize("0x0_p0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0_.p0", &[_]Token.Id{ .Invalid, .Period, .Identifier });
-    testTokenize("0x0._p0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0.0_p0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0._0p0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0.0p_0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0.0p+_0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0.0p-_0", &[_]Token.Id{ .Invalid, .Identifier });
-    testTokenize("0x0.0p0_", &[_]Token.Id{ .Invalid, .Eof });
+    testTokenize("0x1e", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x1e0", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x1p", &[_]Token.Tag{.Invalid});
+    testTokenize("0xfp0z1", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0xff.ffpff", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0.p", &[_]Token.Tag{.Invalid});
+    testTokenize("0x0.z", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0._", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0_.0", &[_]Token.Tag{ .Invalid, .Period, .IntegerLiteral });
+    testTokenize("0x0_.0.0", &[_]Token.Tag{ .Invalid, .Period, .FloatLiteral });
+    testTokenize("0x0._0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0.0_", &[_]Token.Tag{.Invalid});
+    testTokenize("0x0_p0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0_.p0", &[_]Token.Tag{ .Invalid, .Period, .Identifier });
+    testTokenize("0x0._p0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0.0_p0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0._0p0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0.0p_0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0.0p+_0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0.0p-_0", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0.0p0_", &[_]Token.Tag{ .Invalid, .Eof });
 }
 
-fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
+fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
-        if (token.id != expected_token_id) {
-            std.debug.panic("expected {s}, found {s}\n", .{ @tagName(expected_token_id), @tagName(token.id) });
+        if (token.tag != expected_token_id) {
+            std.debug.panic("expected {s}, found {s}\n", .{ @tagName(expected_token_id), @tagName(token.tag) });
         }
     }
     const last_token = tokenizer.next();
-    std.testing.expect(last_token.id == .Eof);
+    std.testing.expect(last_token.tag == .Eof);
 }

@@ -3736,12 +3736,13 @@ var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
     const stderr = io.getStdErr().writer();
 
-    const tree = try std.zig.parse(allocator, source);
-    defer tree.deinit();
+    var tree = try std.zig.parse(allocator, source);
+    defer tree.deinit(allocator);
 
-    for (tree.errors) |*parse_error| {
-        const token = tree.token_locs[parse_error.loc()];
-        const loc = tree.tokenLocation(0, parse_error.loc());
+    for (tree.errors) |parse_error| {
+        const error_token = tree.errorToken(parse_error);
+        const token_start = tree.tokens.items(.start)[error_token];
+        const loc = tree.tokenLocation(0, error_token);
         try stderr.print("(memory buffer):{d}:{d}: error: ", .{ loc.line + 1, loc.column + 1 });
         try tree.renderError(parse_error, stderr);
         try stderr.print("\n{s}\n", .{source[loc.line_start..loc.line_end]});
@@ -3750,13 +3751,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
             while (i < loc.column) : (i += 1) {
                 try stderr.writeAll(" ");
             }
-        }
-        {
-            const caret_count = token.end - token.start;
-            var i: usize = 0;
-            while (i < caret_count) : (i += 1) {
-                try stderr.writeAll("~");
-            }
+            try stderr.writeAll("^");
         }
         try stderr.writeAll("\n");
     }
@@ -3825,8 +3820,8 @@ fn testCanonical(source: []const u8) !void {
 const Error = @TagType(std.zig.ast.Error);
 
 fn testError(source: []const u8, expected_errors: []const Error) !void {
-    const tree = try std.zig.parse(std.testing.allocator, source);
-    defer tree.deinit();
+    var tree = try std.zig.parse(std.testing.allocator, source);
+    defer tree.deinit(std.testing.allocator);
 
     std.testing.expect(tree.errors.len == expected_errors.len);
     for (expected_errors) |expected, i| {
