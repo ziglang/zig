@@ -98,7 +98,7 @@
 //! in a `std.HashMap` using the backing allocator.
 
 const std = @import("std");
-const log = std.log.scoped(.std);
+const log = std.log.scoped(.gpa);
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -162,6 +162,9 @@ pub const Config = struct {
     /// logged error messages with stack trace details. The downside is that every allocation
     /// will be leaked!
     never_unmap: bool = false,
+
+    /// Enables emitting info messages with the size and address of every allocation.
+    verbose_log: bool = false,
 };
 
 pub fn GeneralPurposeAllocator(comptime config: Config) type {
@@ -454,10 +457,19 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const result_len = try self.backing_allocator.resizeFn(self.backing_allocator, old_mem, old_align, new_size, len_align, ret_addr);
 
             if (result_len == 0) {
+                if (config.verbose_log) {
+                    log.info("large free {d} bytes at {*}", .{ old_mem.len, old_mem.ptr });
+                }
+
                 self.large_allocations.removeAssertDiscard(@ptrToInt(old_mem.ptr));
                 return 0;
             }
 
+            if (config.verbose_log) {
+                log.info("large resize {d} bytes at {*} to {d}", .{
+                    old_mem.len, old_mem.ptr, new_size,
+                });
+            }
             entry.value.bytes = old_mem.ptr[0..result_len];
             collectStackTrace(ret_addr, &entry.value.stack_addresses);
             return result_len;
@@ -568,6 +580,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 } else {
                     @memset(old_mem.ptr, undefined, old_mem.len);
                 }
+                if (config.verbose_log) {
+                    log.info("small free {d} bytes at {*}", .{ old_mem.len, old_mem.ptr });
+                }
                 return @as(usize, 0);
             }
             const new_aligned_size = math.max(new_size, old_align);
@@ -575,6 +590,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             if (new_size_class <= size_class) {
                 if (old_mem.len > new_size) {
                     @memset(old_mem.ptr + new_size, undefined, old_mem.len - new_size);
+                }
+                if (config.verbose_log) {
+                    log.info("small resize {d} bytes at {*} to {d}", .{
+                        old_mem.len, old_mem.ptr, new_size,
+                    });
                 }
                 return new_size;
             }
@@ -623,6 +643,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 gop.entry.value.bytes = slice;
                 collectStackTrace(ret_addr, &gop.entry.value.stack_addresses);
 
+                if (config.verbose_log) {
+                    log.info("large alloc {d} bytes at {*}", .{ slice.len, slice.ptr });
+                }
                 return slice;
             }
 
@@ -632,6 +655,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
             const ptr = try self.allocSlot(new_size_class, ret_addr);
+            if (config.verbose_log) {
+                log.info("small alloc {d} bytes at {*}", .{ len, ptr });
+            }
             return ptr[0..len];
         }
 
