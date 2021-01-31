@@ -10,6 +10,7 @@ const ctok = std.c.tokenizer;
 const CToken = std.c.Token;
 const mem = std.mem;
 const math = std.math;
+const Type = @import("type.zig").Type;
 
 const CallingConvention = std.builtin.CallingConvention;
 
@@ -5178,6 +5179,176 @@ fn transType(rp: RestorePoint, ty: *const clang.Type, source_loc: clang.SourceLo
     }
 }
 
+fn transType1(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocation) TypeError!Type {
+    switch (ty.getTypeClass()) {
+        .Builtin => {
+            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            return Type.initTag(switch (builtin_ty.getKind()) {
+                .Void => .c_void,
+                .Bool => .bool,
+                .Char_U, .UChar, .Char_S, .Char8 => .u8,
+                .SChar => .i8,
+                .UShort => .c_ushort,
+                .UInt => .c_uint,
+                .ULong => .c_ulong,
+                .ULongLong => .c_ulonglong,
+                .Short => .c_short,
+                .Int => .c_int,
+                .Long => .c_long,
+                .LongLong => .c_longlong,
+                .UInt128 => .u128,
+                .Int128 => .i128,
+                .Float => .f32,
+                .Double => .f64,
+                .Float128 => .f128,
+                .Float16 => .f16,
+                .LongDouble => .c_longdouble,
+                else => return fail(c, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
+            });
+        },
+        .FunctionProto => {
+            const fn_proto_ty = @ptrCast(*const clang.FunctionProtoType, ty);
+            return transFnProto(c, null, fn_proto_ty, source_loc, null, false);
+        },
+        .FunctionNoProto => {
+            const fn_no_proto_ty = @ptrCast(*const clang.FunctionType, ty);
+            return transFnNoProto(c, fn_no_proto_ty, source_loc, null, false);
+        },
+        .Paren => {
+            const paren_ty = @ptrCast(*const clang.ParenType, ty);
+            return transQualType(c, paren_ty.getInnerType(), source_loc);
+        },
+        .Pointer => {
+            const child_qt = ty.getPointeeType();
+            if (qualTypeChildIsFnProto(child_qt)) {
+                return Type.optional_single_mut_pointer.create(c.arena, try transQualType(c, child_qt, source_loc));
+            }
+            const is_const = child_qt.isConstQualified();
+            const is_volatile = child_qt.isVolatileQualified();
+            const elem_type = try transQualType(c, child_qt, source_loc);
+            if (elem_type.zigTypeTag() == .Opaque) {
+                if (!is_volatile) {
+                    if (is_const) {
+                        return Type.optional_single_const_pointer.create(c.arena, elem_type);
+                    } else {
+                        return Type.optional_single_mut_pointer.create(c.arena, elem_type);
+                    }
+                }
+
+                return Type.pointer.create(c.arena, .{
+                    .pointee_type = elem_type,
+                    .sentinel = null,
+                    .@"align" = 0,
+                    .bit_offset = 0,
+                    .host_size = 0,
+                    .@"allowzero" = false,
+                    .mutable = !is_const,
+                    .@"volatile" = true,
+                    .size = .Single,
+                });
+            }
+
+            if (!is_volatile) {
+                if (is_const) {
+                    return Type.c_const_pointer.create(c.arena, elem_type);
+                } else {
+                    return Type.c_mut_pointer.create(c.arena, elem_type);
+                }
+            }
+
+            return Type.pointer.create(c.arena, .{
+                .pointee_type = elem_type,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = !is_const,
+                .@"volatile" = true,
+                .size = .C,
+            });
+        },
+        .ConstantArray => {
+            const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
+
+            const size_ap_int = const_arr_ty.getSize();
+            const size = size_ap_int.getLimitedValue(math.maxInt(usize));
+            const elem_type = try transType1(c, const_arr_ty.getElementType().getTypePtr(), source_loc);
+            
+            return Type.array.create(c.arena, .{ .len = size, .elem_type = elem_type });
+        },
+        .IncompleteArray => {
+            const incomplete_array_ty = @ptrCast(*const clang.IncompleteArrayType, ty);
+
+            const child_qt = incomplete_array_ty.getElementType();
+            const is_const = child_qt.isConstQualified();
+            const is_volatile = child_qt.isVolatileQualified();
+            const elem_type = try transQualType(c, child_qt, source_loc);
+
+            if (!is_volatile) {
+                if (is_const) {
+                    return Type.c_const_pointer.create(c.arena, elem_type);
+                } else {
+                    return Type.c_mut_pointer.create(c.arena, elem_type);
+                }
+            }
+
+            return Type.pointer.create(c.arena, .{
+                .pointee_type = elem_type,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = !is_const,
+                .@"volatile" = true,
+                .size = .C,
+            });
+        },
+        .Typedef => {
+            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+
+            const typedef_decl = typedef_ty.getDecl();
+            return (try transTypeDef(c, typedef_decl, false)) orelse
+                fail(c, error.UnsupportedType, source_loc, "unable to translate typedef declaration", .{});
+        },
+        .Record => {
+            const record_ty = @ptrCast(*const clang.RecordType, ty);
+
+            const record_decl = record_ty.getDecl();
+            return (try transRecordDecl(c, record_decl)) orelse
+                fail(c, error.UnsupportedType, source_loc, "unable to resolve record declaration", .{});
+        },
+        .Enum => {
+            const enum_ty = @ptrCast(*const clang.EnumType, ty);
+
+            const enum_decl = enum_ty.getDecl();
+            return (try transEnumDecl(c, enum_decl)) orelse
+                fail(c, error.UnsupportedType, source_loc, "unable to translate enum declaration", .{});
+        },
+        .Elaborated => {
+            const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
+            return transQualType(c, elaborated_ty.getNamedType(), source_loc);
+        },
+        .Decayed => {
+            const decayed_ty = @ptrCast(*const clang.DecayedType, ty);
+            return transQualType(c, decayed_ty.getDecayedType(), source_loc);
+        },
+        .Attributed => {
+            const attributed_ty = @ptrCast(*const clang.AttributedType, ty);
+            return transQualType(c, attributed_ty.getEquivalentType(), source_loc);
+        },
+        .MacroQualified => {
+            const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, ty);
+            return transQualType(c, macroqualified_ty.getModifiedType(), source_loc);
+        },
+        else => {
+            const type_name = c.str(ty.getTypeClassName());
+            return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{}'", .{type_name});
+        },
+    }
+}
+
 fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
     const ty = qt.getTypePtr();
     switch (qt.getTypeClass()) {
@@ -5472,6 +5643,17 @@ fn revertAndWarn(
 fn emitWarning(c: *Context, loc: clang.SourceLocation, comptime format: []const u8, args: anytype) !void {
     const args_prefix = .{c.locStr(loc)};
     _ = try appendTokenFmt(c, .LineComment, "// {s}: warning: " ++ format, args_prefix ++ args);
+}
+
+fn fail(
+    rp: RestorePoint,
+    err: anytype,
+    source_loc: clang.SourceLocation,
+    comptime format: []const u8,
+    args: anytype,
+) (@TypeOf(err) || error{OutOfMemory}) {
+    try emitWarning(c, source_loc, format, args);
+    return err;
 }
 
 pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, comptime format: []const u8, args: anytype) !void {
