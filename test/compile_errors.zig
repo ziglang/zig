@@ -7981,6 +7981,20 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:37: note: referenced here",
     });
 
+    // issue #7810
+    cases.add("comptime slice-len increment beyond bounds",
+        \\export fn foo_slice_len_increment_beyond_bounds() void {
+        \\    comptime {
+        \\        var buf_storage: [8]u8 = undefined;
+        \\        var buf: []const u8 = buf_storage[0..];
+        \\        buf.len += 1;
+        \\        buf[8] = 42;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        ":6:12: error: out of bounds slice",
+    });
+
     cases.add("comptime slice-sentinel is out of bounds (unterminated)",
         \\export fn foo_array() void {
         \\    comptime {
