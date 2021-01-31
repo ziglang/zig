@@ -66,25 +66,12 @@ pub const Target = struct {
                 };
             }
 
-            pub fn dynamicLibSuffix(tag: Tag, abi: Abi) [:0]const u8 {
+            pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
                 if (tag.isDarwin()) {
                     return ".dylib";
                 }
-
                 switch (tag) {
-                    .windows => {
-                        // This is a special convention for mingw. According to [1] there are
-                        // issues with dyamically linking to a mingw `.dll` file directly, so
-                        // mingw statically links against a `.dll.a` import library instead [2].
-                        //
-                        // [1]: https://stackoverflow.com/a/15853231
-                        // [2]: https://cmake.org/pipermail/cmake/2013-May/054650.html
-                        if (abi == .gnu) {
-                            return ".dll.a";
-                        } else {
-                            return ".dll";
-                        }
-                    },
+                    .windows => return ".dll",
                     else => return ".so",
                 }
             }
@@ -1265,7 +1252,7 @@ pub const Target = struct {
     }
 
     pub fn dynamicLibSuffix(self: Target) [:0]const u8 {
-        return self.os.tag.dynamicLibSuffix(self.abi);
+        return self.os.tag.dynamicLibSuffix();
     }
 
     pub fn libPrefix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {

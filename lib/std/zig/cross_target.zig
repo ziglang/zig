@@ -482,7 +482,7 @@ pub const CrossTarget = struct {
     }
 
     pub fn dynamicLibSuffix(self: CrossTarget) [:0]const u8 {
-        return self.getOsTag().dynamicLibSuffix(self.getAbi());
+        return self.getOsTag().dynamicLibSuffix();
     }
 
     pub fn libPrefix(self: CrossTarget) [:0]const u8 {
