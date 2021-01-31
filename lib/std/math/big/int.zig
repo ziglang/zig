@@ -549,8 +549,8 @@ pub const Mutable = struct {
             return;
         }
 
-        const r_len = llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
-        r.len = a.limbs.len - (shift / limb_bits);
+        llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        r.normalize(a.limbs.len - (shift / limb_bits));
         r.positive = a.positive;
     }
 
@@ -1348,7 +1348,9 @@ pub const Const = struct {
 
     /// Returns true if `a == 0`.
     pub fn eqZero(a: Const) bool {
-        return a.limbs.len == 1 and a.limbs[0] == 0;
+        var d: Limb = 0;
+        for (a.limbs) |limb| d |= limb;
+        return d == 0;
     }
 
     /// Returns true if `|a| == |b|`.
