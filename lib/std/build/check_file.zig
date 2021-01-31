@@ -27,8 +27,8 @@ pub const CheckFileStep = struct {
         self.* = CheckFileStep{
             .builder = builder,
             .step = Step.init(.CheckFile, "CheckFile", builder.allocator, make),
-            .source = source,
-            .expected_matches = expected_matches,
+            .source = source.dupe(builder),
+            .expected_matches = builder.dupeStrings(expected_matches),
         };
         self.source.addStepDependencies(&self.step);
         return self;

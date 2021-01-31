@@ -32,7 +32,10 @@ pub const WriteFileStep = struct {
     }
 
     pub fn add(self: *WriteFileStep, basename: []const u8, bytes: []const u8) void {
-        self.files.append(.{ .basename = basename, .bytes = bytes }) catch unreachable;
+        self.files.append(.{
+            .basename = self.builder.dupePath(basename),
+            .bytes = self.builder.dupe(bytes),
+        }) catch unreachable;
     }
 
     /// Unless setOutputDir was called, this function must be called only in
