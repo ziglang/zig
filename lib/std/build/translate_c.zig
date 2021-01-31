@@ -57,11 +57,11 @@ pub const TranslateCStep = struct {
     }
 
     pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
-        self.include_dirs.append(include_dir) catch unreachable;
+        self.include_dirs.append(self.builder.dupePath(include_dir)) catch unreachable;
     }
 
     pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8) *CheckFileStep {
-        return CheckFileStep.create(self.builder, .{ .translate_c = self }, expected_matches);
+        return CheckFileStep.create(self.builder, .{ .translate_c = self }, self.builder.dupeStrings(expected_matches));
     }
 
     fn make(step: *Step) !void {
