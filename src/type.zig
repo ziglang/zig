@@ -3408,6 +3408,11 @@ pub const Type = extern union {
             };
         }
 
+        pub fn init(comptime t: Tag) Type {
+            comptime std.debug.assert(@enumToInt(t) < Tag.no_payload_count);
+            return .{ .tag_if_small_enough = @enumToInt(t) };
+        }
+
         pub fn create(comptime t: Tag, ally: *Allocator, data: Data(t)) error{OutOfMemory}!Type {
             const ptr = try ally.create(t.Type());
             ptr.* = .{
