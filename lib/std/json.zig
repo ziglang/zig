@@ -1454,6 +1454,8 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                         // Parsing some types won't have OutOfMemory in their
                         // error-sets, for the condition to be valid, merge it in.
                         if (@as(@TypeOf(err) || error{OutOfMemory}, err) == error.OutOfMemory) return err;
+                        // Bubble up AllocatorRequired, as it indicates missing option
+                        if (@as(@TypeOf(err) || error{AllocatorRequired}, err) == error.AllocatorRequired) return err;
                         // otherwise continue through the `inline for`
                     }
                 }
@@ -1741,18 +1743,6 @@ test "parse into tagged union" {
         testing.expectEqual(T{ .float = 1.5 }, try parse(T, &TokenStream.init("1.5"), ParseOptions{}));
     }
 
-    { // if union matches string member, fails with NoUnionMembersMatched rather than AllocatorRequired
-        // Note that this behaviour wasn't necessarily by design, but was
-        // what fell out of the implementation and may result in interesting
-        // API breakage if changed
-        const T = union(enum) {
-            int: i32,
-            float: f64,
-            string: []const u8,
-        };
-        testing.expectError(error.NoUnionMembersMatched, parse(T, &TokenStream.init("\"foo\""), ParseOptions{}));
-    }
-
     { // failing allocations should be bubbled up instantly without trying next member
         var fail_alloc = testing.FailingAllocator.init(testing.allocator, 0);
         const options = ParseOptions{ .allocator = &fail_alloc.allocator };
@@ -1779,6 +1769,25 @@ test "parse into tagged union" {
             B: struct { y: u32 },
         };
         testing.expectEqual(T{ .B = .{ .y = 42 } }, try parse(T, &TokenStream.init("{\"y\":42}"), ParseOptions{}));
+    }
+}
+
+test "parse union bubbles up AllocatorRequired" {
+    { // string member first in union (and not matching)
+        const T = union(enum) {
+            string: []const u8,
+            int: i32,
+        };
+        testing.expectError(error.AllocatorRequired, parse(T, &TokenStream.init("42"), ParseOptions{}));
+    }
+
+    { // string member not first in union (and matching)
+        const T = union(enum) {
+            int: i32,
+            float: f64,
+            string: []const u8,
+        };
+        testing.expectError(error.AllocatorRequired, parse(T, &TokenStream.init("\"foo\""), ParseOptions{}));
     }
 }
 
