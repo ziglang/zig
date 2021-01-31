@@ -119,10 +119,10 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
                 @compileError("Unable to compare untagged union values");
             }
 
-            const TagType = @TagType(@TypeOf(expected));
+            const Tag = std.meta.Tag(@TypeOf(expected));
 
-            const expectedTag = @as(TagType, expected);
-            const actualTag = @as(TagType, actual);
+            const expectedTag = @as(Tag, expected);
+            const actualTag = @as(Tag, actual);
 
             expectEqual(expectedTag, actualTag);
 

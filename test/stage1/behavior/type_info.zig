@@ -14,7 +14,7 @@ test "type info: tag type, void info" {
 }
 
 fn testBasic() void {
-    expect(@TagType(TypeInfo) == TypeId);
+    expect(@typeInfo(TypeInfo).Union.tag_type == TypeId);
     const void_info = @typeInfo(void);
     expect(void_info == TypeId.Void);
     expect(void_info.Void == {});

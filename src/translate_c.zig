@@ -3288,7 +3288,7 @@ const ClangFunctionType = union(enum) {
     NoProto: *const clang.FunctionType,
 
     fn getReturnType(self: @This()) clang.QualType {
-        switch (@as(@TagType(@This()), self)) {
+        switch (@as(std.meta.Tag(@This()), self)) {
             .Proto => return self.Proto.getReturnType(),
             .NoProto => return self.NoProto.getReturnType(),
         }

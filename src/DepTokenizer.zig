@@ -266,11 +266,11 @@ pub fn next(self: *Tokenizer) ?Token {
     unreachable;
 }
 
-fn errorPosition(comptime id: @TagType(Token), index: usize, bytes: []const u8) Token {
+fn errorPosition(comptime id: std.meta.Tag(Token), index: usize, bytes: []const u8) Token {
     return @unionInit(Token, @tagName(id), .{ .index = index, .bytes = bytes });
 }
 
-fn errorIllegalChar(comptime id: @TagType(Token), index: usize, char: u8) Token {
+fn errorIllegalChar(comptime id: std.meta.Tag(Token), index: usize, char: u8) Token {
     return @unionInit(Token, @tagName(id), .{ .index = index, .char = char });
 }
 

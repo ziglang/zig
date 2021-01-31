@@ -246,7 +246,7 @@ pub const StreamingParser = struct {
         // Only call this function to generate array/object final state.
         pub fn fromInt(x: anytype) State {
             debug.assert(x == 0 or x == 1);
-            const T = @TagType(State);
+            const T = std.meta.Tag(State);
             return @intToEnum(State, @intCast(T, x));
         }
     };
@@ -1138,7 +1138,7 @@ pub const TokenStream = struct {
     }
 };
 
-fn checkNext(p: *TokenStream, id: std.meta.TagType(Token)) void {
+fn checkNext(p: *TokenStream, id: std.meta.Tag(Token)) void {
     const token = (p.next() catch unreachable).?;
     debug.assert(std.meta.activeTag(token) == id);
 }
@@ -1782,7 +1782,7 @@ test "parseFree descends into tagged union" {
     };
     // use a string with unicode escape so we know result can't be a reference to global constant
     const r = try parse(T, &TokenStream.init("\"with\\u0105unicode\""), options);
-    testing.expectEqual(@TagType(T).string, @as(@TagType(T), r));
+    testing.expectEqual(std.meta.Tag(T).string, @as(std.meta.Tag(T), r));
     testing.expectEqualSlices(u8, "withąunicode", r.string);
     testing.expectEqual(@as(usize, 0), fail_alloc.deallocations);
     parseFree(T, r, options);
@@ -2077,7 +2077,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayloadType(Token, Token.String), input: []const u8, i: usize) !Value {
+    fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayload(Token, Token.String), input: []const u8, i: usize) !Value {
         const slice = s.slice(input, i);
         switch (s.escapes) {
             .None => return Value{ .String = if (p.copy_strings) try allocator.dupe(u8, slice) else slice },
@@ -2090,7 +2090,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parseNumber(p: *Parser, n: std.meta.TagPayloadType(Token, Token.Number), input: []const u8, i: usize) !Value {
+    fn parseNumber(p: *Parser, n: std.meta.TagPayload(Token, Token.Number), input: []const u8, i: usize) !Value {
         return if (n.is_integer)
             Value{ .Integer = try std.fmt.parseInt(i64, n.slice(input, i), 10) }
         else

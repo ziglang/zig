@@ -750,7 +750,7 @@ pub const TestContext = struct {
 
                     for (actual_errors.list) |actual_error| {
                         for (case_error_list) |case_msg, i| {
-                            const ex_tag: @TagType(@TypeOf(case_msg)) = case_msg;
+                            const ex_tag: std.meta.Tag(@TypeOf(case_msg)) = case_msg;
                             switch (actual_error) {
                                 .src => |actual_msg| {
                                     for (actual_msg.notes) |*note| {
@@ -789,7 +789,7 @@ pub const TestContext = struct {
                     }
                     while (notes_to_check.popOrNull()) |note| {
                         for (case_error_list) |case_msg, i| {
-                            const ex_tag: @TagType(@TypeOf(case_msg)) = case_msg;
+                            const ex_tag: std.meta.Tag(@TypeOf(case_msg)) = case_msg;
                             switch (note.*) {
                                 .src => |actual_msg| {
                                     for (actual_msg.notes) |*sub_note| {

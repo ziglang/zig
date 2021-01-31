@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const Tag = std.meta.Tag;
 
 const Value = union(enum) {
     Int: u64,
@@ -128,7 +129,7 @@ const MultipleChoice = union(enum(u32)) {
 test "simple union(enum(u32))" {
     var x = MultipleChoice.C;
     expect(x == MultipleChoice.C);
-    expect(@enumToInt(@as(@TagType(MultipleChoice), x)) == 60);
+    expect(@enumToInt(@as(Tag(MultipleChoice), x)) == 60);
 }
 
 const MultipleChoice2 = union(enum(u32)) {
@@ -144,13 +145,13 @@ const MultipleChoice2 = union(enum(u32)) {
 };
 
 test "union(enum(u32)) with specified and unspecified tag values" {
-    comptime expect(@TagType(@TagType(MultipleChoice2)) == u32);
+    comptime expect(Tag(Tag(MultipleChoice2)) == u32);
     testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
     comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    expect(@enumToInt(@as(@TagType(MultipleChoice2), x)) == 60);
+    expect(@enumToInt(@as(Tag(MultipleChoice2), x)) == 60);
     expect(1123 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
@@ -204,11 +205,11 @@ test "union field access gives the enum values" {
 }
 
 test "cast union to tag type of union" {
-    testCastUnionToTagType(TheUnion{ .B = 1234 });
-    comptime testCastUnionToTagType(TheUnion{ .B = 1234 });
+    testCastUnionToTag(TheUnion{ .B = 1234 });
+    comptime testCastUnionToTag(TheUnion{ .B = 1234 });
 }
 
-fn testCastUnionToTagType(x: TheUnion) void {
+fn testCastUnionToTag(x: TheUnion) void {
     expect(@as(TheTag, x) == TheTag.B);
 }
 
@@ -298,7 +299,7 @@ const TaggedUnionWithAVoid = union(enum) {
 
 fn testTaggedUnionInit(x: anytype) bool {
     const y = TaggedUnionWithAVoid{ .A = x };
-    return @as(@TagType(TaggedUnionWithAVoid), y) == TaggedUnionWithAVoid.A;
+    return @as(Tag(TaggedUnionWithAVoid), y) == TaggedUnionWithAVoid.A;
 }
 
 pub const UnionEnumNoPayloads = union(enum) {
@@ -309,8 +310,8 @@ pub const UnionEnumNoPayloads = union(enum) {
 test "tagged union with no payloads" {
     const a = UnionEnumNoPayloads{ .B = {} };
     switch (a) {
-        @TagType(UnionEnumNoPayloads).A => @panic("wrong"),
-        @TagType(UnionEnumNoPayloads).B => {},
+        Tag(UnionEnumNoPayloads).A => @panic("wrong"),
+        Tag(UnionEnumNoPayloads).B => {},
     }
 }
 
@@ -325,9 +326,9 @@ test "union with only 1 field casted to its enum type" {
     };
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
-    const Tag = @TagType(Expr);
-    comptime expect(@TagType(Tag) == u0);
-    var t = @as(Tag, e);
+    const ExprTag = Tag(Expr);
+    comptime expect(Tag(ExprTag) == u0);
+    var t = @as(ExprTag, e);
     expect(t == Expr.Literal);
 }
 
@@ -337,17 +338,17 @@ test "union with only 1 field casted to its enum type which has enum value speci
         Bool: bool,
     };
 
-    const Tag = enum(comptime_int) {
+    const ExprTag = enum(comptime_int) {
         Literal = 33,
     };
 
-    const Expr = union(Tag) {
+    const Expr = union(ExprTag) {
         Literal: Literal,
     };
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
-    comptime expect(@TagType(Tag) == comptime_int);
-    var t = @as(Tag, e);
+    comptime expect(Tag(ExprTag) == comptime_int);
+    var t = @as(ExprTag, e);
     expect(t == Expr.Literal);
     expect(@enumToInt(t) == 33);
     comptime expect(@enumToInt(t) == 33);
@@ -501,7 +502,7 @@ test "union with one member defaults to u0 tag type" {
     const U0 = union(enum) {
         X: u32,
     };
-    comptime expect(@TagType(@TagType(U0)) == u0);
+    comptime expect(Tag(Tag(U0)) == u0);
 }
 
 test "union with comptime_int tag" {
@@ -510,7 +511,7 @@ test "union with comptime_int tag" {
         Y: u16,
         Z: u8,
     };
-    comptime expect(@TagType(@TagType(Union)) == comptime_int);
+    comptime expect(Tag(Tag(Union)) == comptime_int);
 }
 
 test "extern union doesn't trigger field check at comptime" {
@@ -591,7 +592,7 @@ test "function call result coerces from tagged union to the tag" {
             Two: usize,
         };
 
-        const ArchTag = @TagType(Arch);
+        const ArchTag = Tag(Arch);
 
         fn doTheTest() void {
             var x: ArchTag = getArch1();
@@ -696,8 +697,8 @@ test "cast from pointer to anonymous struct to pointer to union" {
 
 test "method call on an empty union" {
     const S = struct {
-        const MyUnion = union(Tag) {
-            pub const Tag = enum { X1, X2 };
+        const MyUnion = union(MyUnionTag) {
+            pub const MyUnionTag = enum { X1, X2 };
             X1: [0]u8,
             X2: [0]u8,
 
@@ -797,7 +798,7 @@ test "union enum type gets a separate scope" {
         };
 
         fn doTheTest() void {
-            expect(!@hasDecl(@TagType(U), "foo"));
+            expect(!@hasDecl(Tag(U), "foo"));
         }
     };
 

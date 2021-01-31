@@ -26,7 +26,7 @@ pub const Options = struct {
         None,
 
         /// Some warnings are errors
-        Some: []@TagType(ast.Error),
+        Some: []std.meta.Tag(ast.Error),
 
         /// All warnings are errors
         All,
@@ -1363,7 +1363,7 @@ const Parser = struct {
         return &node.base;
     }
 
-    fn eatToken(parser: *Parser, id: @TagType(Token.Id)) ?TokenIndex {
+    fn eatToken(parser: *Parser, id: std.meta.Tag(Token.Id)) ?TokenIndex {
         while (true) {
             switch ((parser.it.next() orelse return null).id) {
                 .LineComment, .MultiLineComment, .Nl => continue,
@@ -1377,7 +1377,7 @@ const Parser = struct {
         }
     }
 
-    fn expectToken(parser: *Parser, id: @TagType(Token.Id)) Error!TokenIndex {
+    fn expectToken(parser: *Parser, id: std.meta.Tag(Token.Id)) Error!TokenIndex {
         while (true) {
             switch ((parser.it.next() orelse return error.ParseError).id) {
                 .LineComment, .MultiLineComment, .Nl => continue,
