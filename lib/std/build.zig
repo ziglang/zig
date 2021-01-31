@@ -2016,8 +2016,11 @@ pub const LibExeObjStep = struct {
     ) void {
         // Note that pathFromRoot uses resolve path, so this will have
         // correct behavior even if getOutputPath is already absolute.
-        const abs_path = std.zig.fmtEscapes(self.builder.pathFromRoot(path));
-        self.addBuildOption([]const u8, name, abs_path);
+        const escaped_abs_path = self.builder.fmt(
+            "{s}",
+            std.zig.fmtEscapes(self.builder.pathFromRoot(path)),
+        );
+        self.addBuildOption([]const u8, name, escaped_abs_path);
     }
 
     pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
