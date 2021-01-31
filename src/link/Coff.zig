@@ -1148,6 +1148,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                         for (mingw.always_link_libs) |name| {
                             if (!self.base.options.system_libs.contains(name)) {
                                 const lib_basename = try allocPrint(arena, "{s}.lib", .{name});
+
                                 try argv.append(try comp.get_libc_crt_file(arena, lib_basename));
                             }
                         }
@@ -1216,7 +1217,31 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         }
 
         for (self.base.options.system_libs.items()) |entry| {
-            const lib_basename = try allocPrint(arena, "{s}.lib", .{entry.key});
+            // Avoid linking against libraries that are syscalls or specific to mingw.
+            // We need to statically link against these, so we need `.lib` instead of
+            // `.dll.a`, even if we are dynamically linking.
+            var isMingwStaticOSLib: bool = false;
+            findMingwStatics: for (mingw.always_link_libs) |name| {
+                if (mem.eql(u8, name, entry.key)) {
+                    isMingwStaticOSLib = true;
+                    break :findMingwStatics;
+                }
+            }
+
+            const libSuffix = if (is_exe_or_dyn_lib)
+                self.base.options.target.dynamicLibSuffix()
+            else
+                self.base.options.target.staticLibSuffix();
+
+            const lib_basename: []u8 = if (isMingwStaticOSLib)
+                try allocPrint(arena, "{s}.lib", .{entry.key})
+            else
+                try allocPrint(arena, "{s}{s}{s}", .{
+                    self.base.options.target.libPrefix(),
+                    entry.key,
+                    libSuffix,
+                });
+
             if (comp.crt_files.get(lib_basename)) |crt_file| {
                 try argv.append(crt_file.full_object_path);
             } else {
