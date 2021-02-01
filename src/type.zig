@@ -3597,6 +3597,9 @@ pub const CType = enum {
             .amdpal,
             .hermit,
             .hurd,
+            .opencl,
+            .glsl450,
+            .vulkan,
             => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }

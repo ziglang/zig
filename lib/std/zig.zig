@@ -141,6 +141,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
             .Lib => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
         },
         .c => return std.fmt.allocPrint(allocator, "{s}.c", .{root_name}),
+        .spirv => return std.fmt.allocPrint(allocator, "{s}.spv", .{root_name}),
         .hex => return std.fmt.allocPrint(allocator, "{s}.ihex", .{root_name}),
         .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),
     }

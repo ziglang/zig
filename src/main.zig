@@ -312,6 +312,7 @@ const usage_build_generic =
     \\    pe                      Portable Executable (Windows)
     \\    coff                    Common Object File Format (Windows)
     \\    macho                   macOS relocatables
+    \\    spirv                   Standard, Portable Intermediate Representation V (SPIR-V)
     \\    hex    (planned)        Intel IHEX
     \\    raw    (planned)        Dump machine code directly
     \\  -dirafter [dir]           Add directory to AFTER include search path
@@ -1588,6 +1589,8 @@ fn buildOutputType(
             break :blk .hex;
         } else if (mem.eql(u8, ofmt, "raw")) {
             break :blk .raw;
+        } else if (mem.eql(u8, ofmt, "spirv")) {
+            break :blk .spirv;
         } else {
             fatal("unsupported object format: {s}", .{ofmt});
         }

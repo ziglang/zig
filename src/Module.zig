@@ -1673,7 +1673,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
                             // in `Decl` to notice that the line number did not change.
                             self.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
                         },
-                        .c, .wasm => {},
+                        .c, .wasm, .spirv => {},
                     }
                 }
             } else {
@@ -1906,6 +1906,7 @@ fn allocateNewDecl(
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .c => .{ .c = link.File.C.DeclBlock.empty },
             .wasm => .{ .wasm = {} },
+            .spirv => .{ .spirv = {} },
         },
         .fn_link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
@@ -1913,6 +1914,7 @@ fn allocateNewDecl(
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .c => .{ .c = link.File.C.FnBlock.empty },
             .wasm => .{ .wasm = null },
+            .spirv => .{ .spirv = .{} },
         },
         .generation = 0,
         .is_pub = false,
@@ -2010,6 +2012,7 @@ pub fn analyzeExport(
             .macho => .{ .macho = link.File.MachO.Export{} },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = {} },
+            .spirv => .{ .spirv = {} },
         },
         .owner_decl = owner_decl,
         .exported_decl = exported_decl,
