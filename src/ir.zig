@@ -521,7 +521,7 @@ pub const Inst = struct {
         pub const base_tag = Tag.switchbr;
 
         base: Inst,
-        target_ptr: *Inst,
+        target: *Inst,
         cases: []Case,
         /// Set of instructions whose lifetimes end at the start of one of the cases.
         /// In same order as cases, deaths[0..case_0_count, case_0_count .. case_1_count, ... ].
@@ -544,7 +544,7 @@ pub const Inst = struct {
             var i = index;
 
             if (i < 1)
-                return self.target_ptr;
+                return self.target;
             i -= 1;
 
             return null;

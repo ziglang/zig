@@ -2215,7 +2215,7 @@ pub fn addSwitchBr(
     self: *Module,
     block: *Scope.Block,
     src: usize,
-    target_ptr: *Inst,
+    target: *Inst,
     cases: []Inst.SwitchBr.Case,
     else_body: ir.Body,
 ) !*Inst {
@@ -2226,7 +2226,7 @@ pub fn addSwitchBr(
             .ty = Type.initTag(.noreturn),
             .src = src,
         },
-        .target_ptr = target_ptr,
+        .target = target,
         .cases = cases,
         .else_body = else_body,
     };
