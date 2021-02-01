@@ -2887,7 +2887,7 @@ fn printErrMsgToFile(
     color: Color,
 ) !void {
     const color_on = switch (color) {
-        .auto => file.isTty(),
+        .auto => file.isTty() and !(std.os.isDumbTerm()),
         .on => true,
         .off => false,
     };

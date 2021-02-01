@@ -844,6 +844,12 @@ bool os_stderr_tty(void) {
 #endif
 }
 
+bool os_is_dumb_term(void) {
+    char* term = getenv("TERM");
+    if (term == nullptr) return false;
+    return strcmp(term, "dumb") == 0;
+}
+
 Error os_rename(Buf *src_path, Buf *dest_path) {
     if (buf_eql_buf(src_path, dest_path)) {
         return ErrorNone;

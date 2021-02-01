@@ -2501,6 +2501,13 @@ pub fn setregid(rgid: gid_t, egid: gid_t) SetIdError!void {
     }
 }
 
+/// Does the environment have TERM set to "dumb"
+pub fn isDumbTerm() bool {
+    if (getenv("TERM")) |term|
+        return std.mem.eql(u8, term, "dumb");
+    return false;
+}
+
 /// Test whether a file descriptor refers to a terminal.
 pub fn isatty(handle: fd_t) bool {
     if (builtin.os.tag == .windows) {
