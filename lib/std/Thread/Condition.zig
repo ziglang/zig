@@ -8,7 +8,7 @@
 //! to wake up. Spurious wakeups are possible.
 //! This API supports static initialization and does not require deinitialization.
 
-impl: Impl,
+impl: Impl = .{},
 
 const std = @import("../std.zig");
 const Condition = @This();
@@ -16,6 +16,18 @@ const windows = std.os.windows;
 const linux = std.os.linux;
 const Mutex = std.Thread.Mutex;
 const assert = std.debug.assert;
+
+pub fn wait(cond: *Condition, mutex: *Mutex) void {
+    cond.impl.wait(mutex);
+}
+
+pub fn signal(cond: *Condition) void {
+    cond.impl.signal();
+}
+
+pub fn broadcast(cond: *Condition) void {
+    cond.impl.broadcast();
+}
 
 const Impl = if (std.builtin.single_threaded)
     SingleThreadedCondition
@@ -62,7 +74,7 @@ pub const PthreadCondition = struct {
     cond: std.c.pthread_cond_t = .{},
 
     pub fn wait(cond: *PthreadCondition, mutex: *Mutex) void {
-        const rc = std.c.pthread_cond_wait(&cond.cond, &mutex.mutex);
+        const rc = std.c.pthread_cond_wait(&cond.cond, &mutex.impl.pthread_mutex);
         assert(rc == 0);
     }
 
