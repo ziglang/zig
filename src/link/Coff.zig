@@ -1218,17 +1218,14 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         {
             var libSuffix: []const u8 = undefined;
             const suffixTarget = self.base.options.target;
-            if (is_exe_or_dyn_lib) {
-                if (suffixTarget.os.tag == .windows and suffixTarget.abi == .gnu) {
-                    // This is a Mingw workaround.
-                    // lld does not support directly linking against a DLL file like GNU Gold does.
-                    // So we need to actually link against the "import library" which has the
-                    // ".dll.a" file extension.
-                    libSuffix = ".dll.a";
-                } else {
-                    libSuffix = suffixTarget.dynamicLibSuffix();
-                }
+            if (suffixTarget.os.tag == .windows and suffixTarget.abi == .gnu) {
+                // This is a Mingw workaround.
+                // lld does not support directly linking against a DLL file like GNU Gold does.
+                // So we need to actually link against the "import library" which has the
+                // ".dll.a" file extension.
+                libSuffix = ".dll.a";
             } else {
+                // Even when dynamically linking, link against `.lib` import libraries.
                 libSuffix = suffixTarget.staticLibSuffix();
             }
 
