@@ -43,7 +43,6 @@ pub const Token = struct {
         .{ "if", .Keyword_if },
         .{ "inline", .Keyword_inline },
         .{ "noalias", .Keyword_noalias },
-        .{ "noasync", .Keyword_nosuspend }, // TODO: remove this
         .{ "noinline", .Keyword_noinline },
         .{ "nosuspend", .Keyword_nosuspend },
         .{ "null", .Keyword_null },
@@ -141,10 +140,8 @@ pub const Token = struct {
         Tilde,
         IntegerLiteral,
         FloatLiteral,
-        LineComment,
         DocComment,
         ContainerDocComment,
-        ShebangLine,
         Keyword_align,
         Keyword_allowzero,
         Keyword_and,
@@ -211,10 +208,8 @@ pub const Token = struct {
                 .Builtin => "Builtin",
                 .IntegerLiteral => "IntegerLiteral",
                 .FloatLiteral => "FloatLiteral",
-                .LineComment => "LineComment",
                 .DocComment => "DocComment",
                 .ContainerDocComment => "ContainerDocComment",
-                .ShebangLine => "ShebangLine",
 
                 .Bang => "!",
                 .Pipe => "|",
@@ -1016,7 +1011,6 @@ pub const Tokenizer = struct {
                 .slash => switch (c) {
                     '/' => {
                         state = .line_comment_start;
-                        result.tag = .LineComment;
                     },
                     '=' => {
                         result.tag = .SlashEqual;
@@ -1036,7 +1030,7 @@ pub const Tokenizer = struct {
                         result.tag = .ContainerDocComment;
                         state = .container_doc_comment;
                     },
-                    '\n' => break,
+                    '\n' => state = .start,
                     '\t', '\r' => state = .line_comment,
                     else => {
                         state = .line_comment;
@@ -1061,7 +1055,12 @@ pub const Tokenizer = struct {
                         self.checkLiteralCharacter();
                     },
                 },
-                .line_comment, .doc_comment, .container_doc_comment => switch (c) {
+                .line_comment => switch (c) {
+                    '\n' => state = .start,
+                    '\t', '\r' => {},
+                    else => self.checkLiteralCharacter(),
+                },
+                .doc_comment, .container_doc_comment => switch (c) {
                     '\n' => break,
                     '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
@@ -1324,15 +1323,14 @@ pub const Tokenizer = struct {
                 .string_literal, // find this error later
                 .multiline_string_literal_line,
                 .builtin,
+                .line_comment,
+                .line_comment_start,
                 => {},
 
                 .identifier => {
                     if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
                         result.tag = tag;
                     }
-                },
-                .line_comment, .line_comment_start => {
-                    result.tag = .LineComment;
                 },
                 .doc_comment, .doc_comment_start => {
                     result.tag = .DocComment;
@@ -1614,77 +1612,63 @@ test "tokenizer - invalid literal/comment characters" {
         .Invalid,
     });
     testTokenize("//\x00", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\x1f", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\x7f", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
 }
 
 test "tokenizer - utf8" {
-    testTokenize("//\xc2\x80", &[_]Token.Tag{.LineComment});
-    testTokenize("//\xf4\x8f\xbf\xbf", &[_]Token.Tag{.LineComment});
+    testTokenize("//\xc2\x80", &[_]Token.Tag{});
+    testTokenize("//\xf4\x8f\xbf\xbf", &[_]Token.Tag{});
 }
 
 test "tokenizer - invalid utf8" {
     testTokenize("//\x80", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\xbf", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\xf8", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\xff", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\xc2\xc0", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\xe0", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\xf0", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\xf0\x90\x80\xc0", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
 }
 
 test "tokenizer - illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", &[_]Token.Tag{.LineComment});
+    testTokenize("//\xc2\x84", &[_]Token.Tag{});
     testTokenize("//\xc2\x85", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
-    testTokenize("//\xc2\x86", &[_]Token.Tag{.LineComment});
-    testTokenize("//\xe2\x80\xa7", &[_]Token.Tag{.LineComment});
+    testTokenize("//\xc2\x86", &[_]Token.Tag{});
+    testTokenize("//\xe2\x80\xa7", &[_]Token.Tag{});
     testTokenize("//\xe2\x80\xa8", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
     testTokenize("//\xe2\x80\xa9", &[_]Token.Tag{
-        .LineComment,
         .Invalid,
     });
-    testTokenize("//\xe2\x80\xaa", &[_]Token.Tag{.LineComment});
+    testTokenize("//\xe2\x80\xaa", &[_]Token.Tag{});
 }
 
 test "tokenizer - string identifier and builtin fns" {
@@ -1719,10 +1703,8 @@ test "tokenizer - comments with literal tab" {
         \\///	foo
         \\///	/foo
     , &[_]Token.Tag{
-        .LineComment,
         .ContainerDocComment,
         .DocComment,
-        .LineComment,
         .DocComment,
         .DocComment,
     });
@@ -1736,12 +1718,12 @@ test "tokenizer - pipe and then invalid" {
 }
 
 test "tokenizer - line comment and doc comment" {
-    testTokenize("//", &[_]Token.Tag{.LineComment});
-    testTokenize("// a / b", &[_]Token.Tag{.LineComment});
-    testTokenize("// /", &[_]Token.Tag{.LineComment});
+    testTokenize("//", &[_]Token.Tag{});
+    testTokenize("// a / b", &[_]Token.Tag{});
+    testTokenize("// /", &[_]Token.Tag{});
     testTokenize("/// a", &[_]Token.Tag{.DocComment});
     testTokenize("///", &[_]Token.Tag{.DocComment});
-    testTokenize("////", &[_]Token.Tag{.LineComment});
+    testTokenize("////", &[_]Token.Tag{});
     testTokenize("//!", &[_]Token.Tag{.ContainerDocComment});
     testTokenize("//!!", &[_]Token.Tag{.ContainerDocComment});
 }
@@ -1754,7 +1736,6 @@ test "tokenizer - line comment followed by identifier" {
     , &[_]Token.Tag{
         .Identifier,
         .Comma,
-        .LineComment,
         .Identifier,
         .Comma,
     });

@@ -28,7 +28,6 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!Tree {
     var tokenizer = std.zig.Tokenizer.init(source);
     while (true) {
         const token = tokenizer.next();
-        if (token.tag == .LineComment) continue;
         try tokens.append(gpa, .{
             .tag = token.tag,
             .start = @intCast(u32, token.loc.start),
