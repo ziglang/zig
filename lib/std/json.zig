@@ -1374,6 +1374,65 @@ test "Value.jsonStringify" {
     }
 }
 
+/// parse tokens from a stream, returning `false` if they do not decode to `value`
+fn parsesTo(comptime T: type, value: T, tokens: *TokenStream, options: ParseOptions) !bool {
+    // TODO: should be able to write this function to not require an allocator
+    const tmp = try parse(T, tokens, options);
+    defer parseFree(T, tmp, options);
+
+    return parsedEqual(tmp, value);
+}
+
+/// Returns if a value returned by `parse` is deep-equal to another value
+fn parsedEqual(a: anytype, b: @TypeOf(a)) bool {
+    switch (@typeInfo(@TypeOf(a))) {
+        .Optional => {
+            if (a == null and b == null) return true;
+            if (a == null or b == null) return false;
+            return parsedEqual(a.?, b.?);
+        },
+        .Union => |unionInfo| {
+            if (info.tag_type) |UnionTag| {
+                const tag_a = std.meta.activeTag(a);
+                const tag_b = std.meta.activeTag(b);
+                if (tag_a != tag_b) return false;
+
+                inline for (info.fields) |field_info| {
+                    if (@field(UnionTag, field_info.name) == tag_a) {
+                        return parsedEqual(@field(a, field_info.name), @field(b, field_info.name));
+                    }
+                }
+                return false;
+            } else {
+                unreachable;
+            }
+        },
+        .Array => {
+            for (a) |e, i|
+                if (!parsedEqual(e, b[i])) return false;
+            return true;
+        },
+        .Struct => |info| {
+            inline for (info.fields) |field_info| {
+                if (!parsedEqual(@field(a, field_info.name), @field(b, field_info.name))) return false;
+            }
+            return true;
+        },
+        .Pointer => |ptrInfo| switch (ptrInfo.size) {
+            .One => return parsedEqual(a.*, b.*),
+            .Slice => {
+                if (a.len != b.len) return false;
+                for (a) |e, i|
+                    if (!parsedEqual(e, b[i])) return false;
+                return true;
+            },
+            .Many, .C => unreachable,
+        },
+        else => return a == b,
+    }
+    unreachable;
+}
+
 pub const ParseOptions = struct {
     allocator: ?*Allocator = null,
 
@@ -1454,6 +1513,8 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                         // Parsing some types won't have OutOfMemory in their
                         // error-sets, for the condition to be valid, merge it in.
                         if (@as(@TypeOf(err) || error{OutOfMemory}, err) == error.OutOfMemory) return err;
+                        // Bubble up AllocatorRequired, as it indicates missing option
+                        if (@as(@TypeOf(err) || error{AllocatorRequired}, err) == error.AllocatorRequired) return err;
                         // otherwise continue through the `inline for`
                     }
                 }
@@ -1471,7 +1532,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
             errdefer {
                 inline for (structInfo.fields) |field, i| {
-                    if (fields_seen[i]) {
+                    if (fields_seen[i] and !field.is_comptime) {
                         parseFree(field.field_type, @field(r, field.name), options);
                     }
                 }
@@ -1504,7 +1565,13 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                         parseFree(field.field_type, @field(r, field.name), options);
                                     }
                                 }
-                                @field(r, field.name) = try parse(field.field_type, tokens, options);
+                                if (field.is_comptime) {
+                                    if (!try parsesTo(field.field_type, field.default_value.?, tokens, options)) {
+                                        return error.UnexpectedValue;
+                                    }
+                                } else {
+                                    @field(r, field.name) = try parse(field.field_type, tokens, options);
+                                }
                                 fields_seen[i] = true;
                                 found = true;
                                 break;
@@ -1518,7 +1585,9 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             inline for (structInfo.fields) |field, i| {
                 if (!fields_seen[i]) {
                     if (field.default_value) |default| {
-                        @field(r, field.name) = default;
+                        if (!field.is_comptime) {
+                            @field(r, field.name) = default;
+                        }
                     } else {
                         return error.MissingField;
                     }
@@ -1731,18 +1800,6 @@ test "parse into tagged union" {
         testing.expectEqual(T{ .float = 1.5 }, try parse(T, &TokenStream.init("1.5"), ParseOptions{}));
     }
 
-    { // if union matches string member, fails with NoUnionMembersMatched rather than AllocatorRequired
-        // Note that this behaviour wasn't necessarily by design, but was
-        // what fell out of the implementation and may result in interesting
-        // API breakage if changed
-        const T = union(enum) {
-            int: i32,
-            float: f64,
-            string: []const u8,
-        };
-        testing.expectError(error.NoUnionMembersMatched, parse(T, &TokenStream.init("\"foo\""), ParseOptions{}));
-    }
-
     { // failing allocations should be bubbled up instantly without trying next member
         var fail_alloc = testing.FailingAllocator.init(testing.allocator, 0);
         const options = ParseOptions{ .allocator = &fail_alloc.allocator };
@@ -1772,6 +1829,25 @@ test "parse into tagged union" {
     }
 }
 
+test "parse union bubbles up AllocatorRequired" {
+    { // string member first in union (and not matching)
+        const T = union(enum) {
+            string: []const u8,
+            int: i32,
+        };
+        testing.expectError(error.AllocatorRequired, parse(T, &TokenStream.init("42"), ParseOptions{}));
+    }
+
+    { // string member not first in union (and matching)
+        const T = union(enum) {
+            int: i32,
+            float: f64,
+            string: []const u8,
+        };
+        testing.expectError(error.AllocatorRequired, parse(T, &TokenStream.init("\"foo\""), ParseOptions{}));
+    }
+}
+
 test "parseFree descends into tagged union" {
     var fail_alloc = testing.FailingAllocator.init(testing.allocator, 1);
     const options = ParseOptions{ .allocator = &fail_alloc.allocator };
@@ -1787,6 +1863,43 @@ test "parseFree descends into tagged union" {
     testing.expectEqual(@as(usize, 0), fail_alloc.deallocations);
     parseFree(T, r, options);
     testing.expectEqual(@as(usize, 1), fail_alloc.deallocations);
+}
+
+test "parse with comptime field" {
+    {
+        const T = struct {
+            comptime a: i32 = 0,
+            b: bool,
+        };
+        testing.expectEqual(T{ .a = 0, .b = true }, try parse(T, &TokenStream.init(
+            \\{
+            \\  "a": 0,
+            \\  "b": true
+            \\}
+        ), ParseOptions{}));
+    }
+
+    { // string comptime values currently require an allocator
+        const T = union(enum) {
+            foo: struct {
+                comptime kind: []const u8 = "boolean",
+                b: bool,
+            },
+            bar: struct {
+                comptime kind: []const u8 = "float",
+                b: f64,
+            },
+        };
+
+        const r = try std.json.parse(T, &std.json.TokenStream.init(
+            \\{
+            \\  "kind": "float",
+            \\  "b": 1.0
+            \\}
+        ), .{
+            .allocator = std.testing.allocator,
+        });
+    }
 }
 
 test "parse into struct with no fields" {
