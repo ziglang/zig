@@ -103,13 +103,14 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     var context = codegen.Context{
         .gpa = self.base.allocator,
-        .values = codegen.ValueTable.init(self.base.allocator),
+        .values = .{},
         .code = managed_code,
         .func_type_data = managed_functype,
         .decl = decl,
         .err_msg = undefined,
+        .locals = .{},
     };
-    defer context.values.deinit();
+    defer context.deinit();
 
     // generate the 'code' section for the function declaration
     context.gen() catch |err| switch (err) {
@@ -120,6 +121,13 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         },
         else => |e| return err,
     };
+
+    // as locals are patched afterwards, the offsets of funcidx's are off,
+    // here we update them to correct them
+    for (decl.fn_link.wasm.?.idx_refs.items) |*func| {
+        // For each local, add 6 bytes (count + type)
+        func.offset += @intCast(u32, context.locals.items.len * 6);
+    }
 
     fn_data.functype = context.func_type_data.toUnmanaged();
     fn_data.code = context.code.toUnmanaged();
@@ -237,7 +245,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 try writer.writeAll(fn_data.code.items[current..idx_ref.offset]);
                 current = idx_ref.offset;
                 // Use a fixed width here to make calculating the code size
-                // in codegen.wasm.genCode() simpler.
+                // in codegen.wasm.gen() simpler.
                 var buf: [5]u8 = undefined;
                 leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
                 try writer.writeAll(&buf);
