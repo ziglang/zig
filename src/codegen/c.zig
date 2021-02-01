@@ -414,11 +414,13 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .loop => try genLoop(o, inst.castTag(.loop).?),
             .condbr => try genCondBr(o, inst.castTag(.condbr).?),
             .br => try genBr(o, inst.castTag(.br).?),
-            .brvoid => try genBrVoid(o, inst.castTag(.brvoid).?.block),
+            .br_void => try genBrVoid(o, inst.castTag(.br_void).?.block),
             .switchbr => try genSwitchBr(o, inst.castTag(.switchbr).?),
-            // booland and boolor are non-short-circuit operations
-            .booland, .bitand => try genBinOp(o, inst.castTag(.booland).?, " & "),
-            .boolor, .bitor => try genBinOp(o, inst.castTag(.boolor).?, " | "),
+            // bool_and and bool_or are non-short-circuit operations
+            .bool_and => try genBinOp(o, inst.castTag(.bool_and).?, " & "),
+            .bool_or => try genBinOp(o, inst.castTag(.bool_or).?, " | "),
+            .bit_and => try genBinOp(o, inst.castTag(.bit_and).?, " & "),
+            .bit_or => try genBinOp(o, inst.castTag(.bit_or).?, " | "),
             .xor => try genBinOp(o, inst.castTag(.xor).?, " ^ "),
             .not => try genUnOp(o, inst.castTag(.not).?, "!"),
             else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),

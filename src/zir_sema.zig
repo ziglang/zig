@@ -154,6 +154,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .bool_and => return zirBoolOp(mod, scope, old_inst.castTag(.bool_and).?),
         .bool_or => return zirBoolOp(mod, scope, old_inst.castTag(.bool_or).?),
         .void_value => return mod.constVoid(scope, old_inst.src),
+        .switchbr => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?),
+        .switch_range => return zirSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
 
         .container_field_named,
         .container_field_typed,
@@ -1533,6 +1535,232 @@ fn zirSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!
     const start = try resolveInst(mod, scope, inst.positionals.rhs);
 
     return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, null, null);
+}
+
+fn zirSwitchRange(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const start = try resolveInst(mod, scope, inst.positionals.lhs);
+    const end = try resolveInst(mod, scope, inst.positionals.rhs);
+
+    switch (start.ty.zigTypeTag()) {
+        .Int, .ComptimeInt => {},
+        else => return mod.constVoid(scope, inst.base.src),
+    }
+    switch (end.ty.zigTypeTag()) {
+        .Int, .ComptimeInt => {},
+        else => return mod.constVoid(scope, inst.base.src),
+    }
+    // .switch_range must be inside a comptime scope
+    const start_val = start.value().?;
+    const end_val = end.value().?;
+    if (start_val.compare(.gte, end_val)) {
+        return mod.fail(scope, inst.base.src, "range start value must be smaller than the end value", .{});
+    }
+    return mod.constVoid(scope, inst.base.src);
+}
+
+fn zirSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const target = try resolveInst(mod, scope, inst.positionals.target);
+    try validateSwitch(mod, scope, target, inst);
+
+    if (try mod.resolveDefinedValue(scope, target)) |target_val| {
+        for (inst.positionals.cases) |case| {
+            const resolved = try resolveInst(mod, scope, case.item);
+            const casted = try mod.coerce(scope, target.ty, resolved);
+            const item = try mod.resolveConstValue(scope, casted);
+
+            if (target_val.eql(item)) {
+                try analyzeBody(mod, scope.cast(Scope.Block).?, case.body);
+                return mod.constNoReturn(scope, inst.base.src);
+            }
+        }
+        try analyzeBody(mod, scope.cast(Scope.Block).?, inst.positionals.else_body);
+        return mod.constNoReturn(scope, inst.base.src);
+    }
+
+    if (inst.positionals.cases.len == 0) {
+        // no cases just analyze else_branch
+        try analyzeBody(mod, scope.cast(Scope.Block).?, inst.positionals.else_body);
+        return mod.constNoReturn(scope, inst.base.src);
+    }
+
+    const parent_block = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const cases = try parent_block.arena.alloc(Inst.SwitchBr.Case, inst.positionals.cases.len);
+
+    var case_block: Scope.Block = .{
+        .parent = parent_block,
+        .inst_table = parent_block.inst_table,
+        .func = parent_block.func,
+        .owner_decl = parent_block.owner_decl,
+        .src_decl = parent_block.src_decl,
+        .instructions = .{},
+        .arena = parent_block.arena,
+        .inlining = parent_block.inlining,
+        .is_comptime = parent_block.is_comptime,
+        .branch_quota = parent_block.branch_quota,
+    };
+    defer case_block.instructions.deinit(mod.gpa);
+
+    for (inst.positionals.cases) |case, i| {
+        // Reset without freeing.
+        case_block.instructions.items.len = 0;
+
+        const resolved = try resolveInst(mod, scope, case.item);
+        const casted = try mod.coerce(scope, target.ty, resolved);
+        const item = try mod.resolveConstValue(scope, casted);
+
+        try analyzeBody(mod, &case_block, case.body);
+
+        cases[i] = .{
+            .item = item,
+            .body = .{ .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items) },
+        };
+    }
+
+    case_block.instructions.items.len = 0;
+    try analyzeBody(mod, &case_block, inst.positionals.else_body);
+
+    const else_body: ir.Body = .{
+        .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items),
+    };
+
+    return mod.addSwitchBr(parent_block, inst.base.src, target, cases, else_body);
+}
+
+fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.SwitchBr) InnerError!void {
+    // validate usage of '_' prongs
+    if (inst.kw_args.special_prong == .underscore and target.ty.zigTypeTag() != .Enum) {
+        return mod.fail(scope, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});
+        // TODO notes "'_' prong here" inst.positionals.cases[last].src
+    }
+
+    // check that target type supports ranges
+    if (inst.kw_args.range) |range_inst| {
+        switch (target.ty.zigTypeTag()) {
+            .Int, .ComptimeInt => {},
+            else => {
+                return mod.fail(scope, target.src, "ranges not allowed when switching on type {}", .{target.ty});
+                // TODO notes "range used here" range_inst.src
+            },
+        }
+    }
+
+    // validate for duplicate items/missing else prong
+    switch (target.ty.zigTypeTag()) {
+        .Enum => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Enum", .{}),
+        .ErrorSet => return mod.fail(scope, inst.base.src, "TODO validateSwitch .ErrorSet", .{}),
+        .Union => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Union", .{}),
+        .Int, .ComptimeInt => {
+            var range_set = @import("RangeSet.zig").init(mod.gpa);
+            defer range_set.deinit();
+
+            for (inst.positionals.items) |item| {
+                const maybe_src = if (item.castTag(.switch_range)) |range| blk: {
+                    const start_resolved = try resolveInst(mod, scope, range.positionals.lhs);
+                    const start_casted = try mod.coerce(scope, target.ty, start_resolved);
+                    const end_resolved = try resolveInst(mod, scope, range.positionals.rhs);
+                    const end_casted = try mod.coerce(scope, target.ty, end_resolved);
+
+                    break :blk try range_set.add(
+                        try mod.resolveConstValue(scope, start_casted),
+                        try mod.resolveConstValue(scope, end_casted),
+                        item.src,
+                    );
+                } else blk: {
+                    const resolved = try resolveInst(mod, scope, item);
+                    const casted = try mod.coerce(scope, target.ty, resolved);
+                    const value = try mod.resolveConstValue(scope, casted);
+                    break :blk try range_set.add(value, value, item.src);
+                };
+
+                if (maybe_src) |previous_src| {
+                    return mod.fail(scope, item.src, "duplicate switch value", .{});
+                    // TODO notes "previous value is here" previous_src
+                }
+            }
+
+            if (target.ty.zigTypeTag() == .Int) {
+                var arena = std.heap.ArenaAllocator.init(mod.gpa);
+                defer arena.deinit();
+
+                const start = try target.ty.minInt(&arena, mod.getTarget());
+                const end = try target.ty.maxInt(&arena, mod.getTarget());
+                if (try range_set.spans(start, end)) {
+                    if (inst.kw_args.special_prong == .@"else") {
+                        return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
+                    }
+                    return;
+                }
+            }
+
+            if (inst.kw_args.special_prong != .@"else") {
+                return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
+            }
+        },
+        .Bool => {
+            var true_count: u8 = 0;
+            var false_count: u8 = 0;
+            for (inst.positionals.items) |item| {
+                const resolved = try resolveInst(mod, scope, item);
+                const casted = try mod.coerce(scope, Type.initTag(.bool), resolved);
+                if ((try mod.resolveConstValue(scope, casted)).toBool()) {
+                    true_count += 1;
+                } else {
+                    false_count += 1;
+                }
+
+                if (true_count + false_count > 2) {
+                    return mod.fail(scope, item.src, "duplicate switch value", .{});
+                }
+            }
+            if ((true_count + false_count < 2) and inst.kw_args.special_prong != .@"else") {
+                return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
+            }
+            if ((true_count + false_count == 2) and inst.kw_args.special_prong == .@"else") {
+                return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
+            }
+        },
+        .EnumLiteral, .Void, .Fn, .Pointer, .Type => {
+            if (inst.kw_args.special_prong != .@"else") {
+                return mod.fail(scope, inst.base.src, "else prong required when switching on type '{}'", .{target.ty});
+            }
+
+            var seen_values = std.HashMap(Value, usize, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage).init(mod.gpa);
+            defer seen_values.deinit();
+
+            for (inst.positionals.items) |item| {
+                const resolved = try resolveInst(mod, scope, item);
+                const casted = try mod.coerce(scope, target.ty, resolved);
+                const val = try mod.resolveConstValue(scope, casted);
+
+                if (try seen_values.fetchPut(val, item.src)) |prev| {
+                    return mod.fail(scope, item.src, "duplicate switch value", .{});
+                    // TODO notes "previous value here" prev.value
+                }
+            }
+        },
+
+        .ErrorUnion,
+        .NoReturn,
+        .Array,
+        .Struct,
+        .Undefined,
+        .Null,
+        .Optional,
+        .BoundFn,
+        .Opaque,
+        .Vector,
+        .Frame,
+        .AnyFrame,
+        .ComptimeFloat,
+        .Float,
+        => {
+            return mod.fail(scope, target.src, "invalid switch target type '{}'", .{target.ty});
+        },
+    }
 }
 
 fn zirImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {

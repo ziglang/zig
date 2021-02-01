@@ -338,6 +338,12 @@ pub const Inst = struct {
         enum_type,
         /// Does nothing; returns a void value.
         void_value,
+        /// A switch expression.
+        switchbr,
+        /// A range in a switch case, `lhs...rhs`.
+        /// Only checks that `lhs >= rhs` if they are ints, everything else is
+        /// validated by the .switch instruction.
+        switch_range,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -435,6 +441,7 @@ pub const Inst = struct {
                 .error_union_type,
                 .merge_error_sets,
                 .slice_start,
+                .switch_range,
                 => BinOp,
 
                 .block,
@@ -478,6 +485,7 @@ pub const Inst = struct {
                 .enum_type => EnumType,
                 .union_type => UnionType,
                 .struct_type => StructType,
+                .switchbr => SwitchBr,
             };
         }
 
@@ -605,6 +613,8 @@ pub const Inst = struct {
                 .union_type,
                 .struct_type,
                 .void_value,
+                .switch_range,
+                .switchbr,
                 => false,
 
                 .@"break",
@@ -1171,6 +1181,36 @@ pub const Inst = struct {
             none,
         };
     };
+
+    pub const SwitchBr = struct {
+        pub const base_tag = Tag.switchbr;
+        base: Inst,
+
+        positionals: struct {
+            target: *Inst,
+            /// List of all individual items and ranges
+            items: []*Inst,
+            cases: []Case,
+            else_body: Body,
+        },
+        kw_args: struct {
+            /// Pointer to first range if such exists.
+            range: ?*Inst = null,
+            special_prong: SpecialProng = .none,
+        },
+
+        // Not anonymous due to stage1 limitations
+        pub const SpecialProng = enum {
+            none,
+            @"else",
+            underscore,
+        };
+
+        pub const Case = struct {
+            item: *Inst,
+            body: Body,
+        };
+    };
 };
 
 pub const ErrorMsg = struct {
@@ -1430,6 +1470,26 @@ const Writer = struct {
                     try stream.print("\"{}\"", .{std.zig.fmtEscapes(str)});
                 }
                 try stream.writeByte(']');
+            },
+            []Inst.SwitchBr.Case => {
+                if (param.len == 0) {
+                    return stream.writeAll("{}");
+                }
+                try stream.writeAll("{\n");
+                for (param) |*case, i| {
+                    if (i != 0) {
+                        try stream.writeAll(",\n");
+                    }
+                    try stream.writeByteNTimes(' ', self.indent);
+                    self.indent += 2;
+                    try self.writeParamToStream(stream, &case.item);
+                    try stream.writeAll(" => ");
+                    try self.writeParamToStream(stream, &case.body);
+                    self.indent -= 2;
+                }
+                try stream.writeByte('\n');
+                try stream.writeByteNTimes(' ', self.indent - 2);
+                try stream.writeByte('}');
             },
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
