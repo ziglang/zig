@@ -336,12 +336,6 @@ pub const Inst = struct {
         enum_literal,
         /// Create an enum type.
         enum_type,
-        /// A switch expression.
-        switchbr,
-        /// A range in a switch case, `lhs...rhs`.
-        /// Only checks that `lhs >= rhs` if they are ints, everything else is
-        /// validated by the .switch instruction.
-        switch_range,
         /// Does nothing; returns a void value.
         void_value,
 
@@ -441,7 +435,6 @@ pub const Inst = struct {
                 .error_union_type,
                 .merge_error_sets,
                 .slice_start,
-                .switch_range,
                 => BinOp,
 
                 .block,
@@ -478,7 +471,6 @@ pub const Inst = struct {
                 .enum_literal => EnumLiteral,
                 .error_set => ErrorSet,
                 .slice => Slice,
-                .switchbr => SwitchBr,
                 .typeof_peer => TypeOfPeer,
                 .container_field_named => ContainerFieldNamed,
                 .container_field_typed => ContainerFieldTyped,
@@ -605,7 +597,6 @@ pub const Inst = struct {
                 .slice,
                 .slice_start,
                 .import,
-                .switch_range,
                 .typeof_peer,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
@@ -625,7 +616,6 @@ pub const Inst = struct {
                 .unreachable_unsafe,
                 .unreachable_safe,
                 .loop,
-                .switchbr,
                 .container_field_named,
                 .container_field_typed,
                 .container_field,
@@ -1091,32 +1081,6 @@ pub const Inst = struct {
         },
     };
 
-    pub const SwitchBr = struct {
-        pub const base_tag = Tag.switchbr;
-        base: Inst,
-
-        positionals: struct {
-            target_ptr: *Inst,
-            /// List of all individual items and ranges
-            items: []*Inst,
-            cases: []Case,
-            else_body: Body,
-        },
-        kw_args: struct {
-            /// Pointer to first range if such exists.
-            range: ?*Inst = null,
-            special_prong: enum {
-                none,
-                @"else",
-                underscore,
-            } = .none,
-        },
-
-        pub const Case = struct {
-            item: *Inst,
-            body: Body,
-        };
-    };
     pub const TypeOfPeer = struct {
         pub const base_tag = .typeof_peer;
         base: Inst,
@@ -1466,26 +1430,6 @@ const Writer = struct {
                     try stream.print("\"{}\"", .{std.zig.fmtEscapes(str)});
                 }
                 try stream.writeByte(']');
-            },
-            []Inst.SwitchBr.Case => {
-                if (param.len == 0) {
-                    return stream.writeAll("{}");
-                }
-                try stream.writeAll("{\n");
-                for (param) |*case, i| {
-                    if (i != 0) {
-                        try stream.writeAll(",\n");
-                    }
-                    try stream.writeByteNTimes(' ', self.indent);
-                    self.indent += 2;
-                    try self.writeParamToStream(stream, &case.item);
-                    try stream.writeAll(" => ");
-                    try self.writeParamToStream(stream, &case.body);
-                    self.indent -= 2;
-                }
-                try stream.writeByte('\n');
-                try stream.writeByteNTimes(' ', self.indent - 2);
-                try stream.writeByte('}');
             },
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }

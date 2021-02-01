@@ -375,6 +375,10 @@ pub const Scope = struct {
         }
     }
 
+    pub fn isComptime(self: *Scope) bool {
+        return self.getGenZIR().force_comptime;
+    }
+
     pub fn ownerDecl(self: *Scope) ?*Decl {
         return switch (self.tag) {
             .block => self.cast(Block).?.owner_decl,
@@ -712,6 +716,7 @@ pub const Scope = struct {
         parent: *Scope,
         decl: *Decl,
         arena: *Allocator,
+        force_comptime: bool,
         /// The first N instructions in a function body ZIR are arg instructions.
         instructions: std.ArrayListUnmanaged(*zir.Inst) = .{},
         label: ?Label = null,
@@ -1008,6 +1013,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .arena = &fn_type_scope_arena.allocator,
                 .parent = &decl.container.base,
+                .force_comptime = true,
             };
             defer fn_type_scope.instructions.deinit(self.gpa);
 
@@ -1171,6 +1177,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .decl = decl,
                     .arena = &decl_arena.allocator,
                     .parent = &decl.container.base,
+                    .force_comptime = false,
                 };
                 defer gen_scope.instructions.deinit(self.gpa);
 
@@ -1369,6 +1376,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .decl = decl,
                     .arena = &gen_scope_arena.allocator,
                     .parent = &decl.container.base,
+                    .force_comptime = false,
                 };
                 defer gen_scope.instructions.deinit(self.gpa);
 
@@ -1428,6 +1436,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .decl = decl,
                     .arena = &type_scope_arena.allocator,
                     .parent = &decl.container.base,
+                    .force_comptime = true,
                 };
                 defer type_scope.instructions.deinit(self.gpa);
 
@@ -1497,13 +1506,15 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
             decl.analysis = .in_progress;
 
-            // A comptime decl does not store any value so we can just deinit this arena after analysis is done.
+            // A comptime decl does not store any value so we can just deinit
+            // this arena after analysis is done.
             var analysis_arena = std.heap.ArenaAllocator.init(self.gpa);
             defer analysis_arena.deinit();
             var gen_scope: Scope.GenZIR = .{
                 .decl = decl,
                 .arena = &analysis_arena.allocator,
                 .parent = &decl.container.base,
+                .force_comptime = true,
             };
             defer gen_scope.instructions.deinit(self.gpa);
 
