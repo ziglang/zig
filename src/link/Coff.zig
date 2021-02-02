@@ -1218,7 +1218,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         {
             var libSuffix: []const u8 = undefined;
             const suffixTarget = self.base.options.target;
-            if (suffixTarget.os.tag == .windows and suffixTarget.abi == .gnu) {
+            if (suffixTarget.os.tag == .windows and suffixTarget.abi == .gnu and std.Target.current.os.tag == .windows) {
                 // This is a Mingw workaround.
                 // lld does not support directly linking against a DLL file like GNU Gold does.
                 // So we need to actually link against the "import library" which has the
