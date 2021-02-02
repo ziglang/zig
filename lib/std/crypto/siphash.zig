@@ -10,7 +10,7 @@
 // - protection against against DoS attacks for hash tables and bloom filters
 // - authentication of short-lived messages in online protocols
 //
-// https://131002.net/siphash/
+// https://www.aumasson.jp/siphash/siphash.pdf
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
