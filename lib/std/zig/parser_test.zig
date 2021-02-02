@@ -21,247 +21,6 @@ test "zig fmt: two spaced line comments before decl" {
     );
 }
 
-//test "recovery: top level" {
-//    try testError(
-//        \\test "" {inline}
-//        \\test "" {inline}
-//    , &[_]Error{
-//        .ExpectedInlinable,
-//        .ExpectedInlinable,
-//    });
-//}
-//
-//test "recovery: block statements" {
-//    try testError(
-//        \\test "" {
-//        \\    foo + +;
-//        \\    inline;
-//        \\}
-//    , &[_]Error{
-//        .InvalidToken,
-//        .ExpectedInlinable,
-//    });
-//}
-//
-//test "recovery: missing comma" {
-//    try testError(
-//        \\test "" {
-//        \\    switch (foo) {
-//        \\        2 => {}
-//        \\        3 => {}
-//        \\        else => {
-//        \\            foo && bar +;
-//        \\        }
-//        \\    }
-//        \\}
-//    , &[_]Error{
-//        .ExpectedToken,
-//        .ExpectedToken,
-//        .InvalidAnd,
-//        .InvalidToken,
-//    });
-//}
-//
-//test "recovery: extra qualifier" {
-//    try testError(
-//        \\const a: *const const u8;
-//        \\test ""
-//    , &[_]Error{
-//        .ExtraConstQualifier,
-//        .ExpectedLBrace,
-//    });
-//}
-//
-//test "recovery: missing return type" {
-//    try testError(
-//        \\fn foo() {
-//        \\    a && b;
-//        \\}
-//        \\test ""
-//    , &[_]Error{
-//        .ExpectedReturnType,
-//        .InvalidAnd,
-//        .ExpectedLBrace,
-//    });
-//}
-//
-//test "recovery: continue after invalid decl" {
-//    try testError(
-//        \\fn foo {
-//        \\    inline;
-//        \\}
-//        \\pub test "" {
-//        \\    async a && b;
-//        \\}
-//    , &[_]Error{
-//        .ExpectedToken,
-//        .ExpectedPubItem,
-//        .ExpectedParamList,
-//        .InvalidAnd,
-//    });
-//    try testError(
-//        \\threadlocal test "" {
-//        \\    @a && b;
-//        \\}
-//    , &[_]Error{
-//        .ExpectedVarDecl,
-//        .ExpectedParamList,
-//        .InvalidAnd,
-//    });
-//}
-//
-//test "recovery: invalid extern/inline" {
-//    try testError(
-//        \\inline test "" { a && b; }
-//    , &[_]Error{
-//        .ExpectedFn,
-//        .InvalidAnd,
-//    });
-//    try testError(
-//        \\extern "" test "" { a && b; }
-//    , &[_]Error{
-//        .ExpectedVarDeclOrFn,
-//        .InvalidAnd,
-//    });
-//}
-//
-//test "recovery: missing semicolon" {
-//    try testError(
-//        \\test "" {
-//        \\    comptime a && b
-//        \\    c && d
-//        \\    @foo
-//        \\}
-//    , &[_]Error{
-//        .InvalidAnd,
-//        .ExpectedToken,
-//        .InvalidAnd,
-//        .ExpectedToken,
-//        .ExpectedParamList,
-//        .ExpectedToken,
-//    });
-//}
-//
-//test "recovery: invalid container members" {
-//    try testError(
-//        \\usingnamespace;
-//        \\foo+
-//        \\bar@,
-//        \\while (a == 2) { test "" {}}
-//        \\test "" {
-//        \\    a && b
-//        \\}
-//    , &[_]Error{
-//        .ExpectedExpr,
-//        .ExpectedToken,
-//        .ExpectedToken,
-//        .ExpectedContainerMembers,
-//        .InvalidAnd,
-//        .ExpectedToken,
-//    });
-//}
-//
-//test "recovery: invalid parameter" {
-//    try testError(
-//        \\fn main() void {
-//        \\    a(comptime T: type)
-//        \\}
-//    , &[_]Error{
-//        .ExpectedToken,
-//    });
-//}
-//
-//test "recovery: extra '}' at top level" {
-//    try testError(
-//        \\}}}
-//        \\test "" {
-//        \\    a && b;
-//        \\}
-//    , &[_]Error{
-//        .ExpectedContainerMembers,
-//        .ExpectedContainerMembers,
-//        .ExpectedContainerMembers,
-//        .InvalidAnd,
-//    });
-//}
-//
-//test "recovery: mismatched bracket at top level" {
-//    try testError(
-//        \\const S = struct {
-//        \\    arr: 128]?G
-//        \\};
-//    , &[_]Error{
-//        .ExpectedToken,
-//    });
-//}
-//
-//test "recovery: invalid global error set access" {
-//    try testError(
-//        \\test "" {
-//        \\    error && foo;
-//        \\}
-//    , &[_]Error{
-//        .ExpectedToken,
-//        .ExpectedIdentifier,
-//        .InvalidAnd,
-//    });
-//}
-//
-//test "recovery: invalid asterisk after pointer dereference" {
-//    try testError(
-//        \\test "" {
-//        \\    var sequence = "repeat".*** 10;
-//        \\}
-//    , &[_]Error{
-//        .AsteriskAfterPointerDereference,
-//    });
-//    try testError(
-//        \\test "" {
-//        \\    var sequence = "repeat".** 10&&a;
-//        \\}
-//    , &[_]Error{
-//        .AsteriskAfterPointerDereference,
-//        .InvalidAnd,
-//    });
-//}
-//
-//test "recovery: missing semicolon after if, for, while stmt" {
-//    try testError(
-//        \\test "" {
-//        \\    if (foo) bar
-//        \\    for (foo) |a| bar
-//        \\    while (foo) bar
-//        \\    a && b;
-//        \\}
-//    , &[_]Error{
-//        .ExpectedSemiOrElse,
-//        .ExpectedSemiOrElse,
-//        .ExpectedSemiOrElse,
-//        .InvalidAnd,
-//    });
-//}
-//
-//test "recovery: invalid comptime" {
-//    try testError(
-//        \\comptime
-//    , &[_]Error{
-//        .ExpectedBlockOrField,
-//    });
-//}
-//
-//test "recovery: missing block after for/while loops" {
-//    try testError(
-//        \\test "" { while (foo) }
-//    , &[_]Error{
-//        .ExpectedBlockOrAssignment,
-//    });
-//    try testError(
-//        \\test "" { for (foo) |bar| }
-//    , &[_]Error{
-//        .ExpectedBlockOrAssignment,
-//    });
-//}
-//
 //test "zig fmt: respect line breaks after var declarations" {
 //    try testCanonical(
 //        \\const crc =
@@ -306,13 +65,22 @@ test "zig fmt: two spaced line comments before decl" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: empty file" {
-//    try testCanonical(
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: empty file" {
+    try testCanonical(
+        \\
+    );
+}
+
+test "zig fmt: doc comments on test" {
+    try testCanonical(
+        \\/// hello
+        \\/// world
+        \\test "" {}
+        \\
+    );
+}
+
 //test "zig fmt: if statment" {
 //    try testCanonical(
 //        \\test "" {
@@ -3711,6 +3479,247 @@ test "zig fmt: two spaced line comments before decl" {
 //        \\}
 //        \\
 //    );
+//}
+//
+//test "recovery: top level" {
+//    try testError(
+//        \\test "" {inline}
+//        \\test "" {inline}
+//    , &[_]Error{
+//        .ExpectedInlinable,
+//        .ExpectedInlinable,
+//    });
+//}
+//
+//test "recovery: block statements" {
+//    try testError(
+//        \\test "" {
+//        \\    foo + +;
+//        \\    inline;
+//        \\}
+//    , &[_]Error{
+//        .InvalidToken,
+//        .ExpectedInlinable,
+//    });
+//}
+//
+//test "recovery: missing comma" {
+//    try testError(
+//        \\test "" {
+//        \\    switch (foo) {
+//        \\        2 => {}
+//        \\        3 => {}
+//        \\        else => {
+//        \\            foo && bar +;
+//        \\        }
+//        \\    }
+//        \\}
+//    , &[_]Error{
+//        .ExpectedToken,
+//        .ExpectedToken,
+//        .InvalidAnd,
+//        .InvalidToken,
+//    });
+//}
+//
+//test "recovery: extra qualifier" {
+//    try testError(
+//        \\const a: *const const u8;
+//        \\test ""
+//    , &[_]Error{
+//        .ExtraConstQualifier,
+//        .ExpectedLBrace,
+//    });
+//}
+//
+//test "recovery: missing return type" {
+//    try testError(
+//        \\fn foo() {
+//        \\    a && b;
+//        \\}
+//        \\test ""
+//    , &[_]Error{
+//        .ExpectedReturnType,
+//        .InvalidAnd,
+//        .ExpectedLBrace,
+//    });
+//}
+//
+//test "recovery: continue after invalid decl" {
+//    try testError(
+//        \\fn foo {
+//        \\    inline;
+//        \\}
+//        \\pub test "" {
+//        \\    async a && b;
+//        \\}
+//    , &[_]Error{
+//        .ExpectedToken,
+//        .ExpectedPubItem,
+//        .ExpectedParamList,
+//        .InvalidAnd,
+//    });
+//    try testError(
+//        \\threadlocal test "" {
+//        \\    @a && b;
+//        \\}
+//    , &[_]Error{
+//        .ExpectedVarDecl,
+//        .ExpectedParamList,
+//        .InvalidAnd,
+//    });
+//}
+//
+//test "recovery: invalid extern/inline" {
+//    try testError(
+//        \\inline test "" { a && b; }
+//    , &[_]Error{
+//        .ExpectedFn,
+//        .InvalidAnd,
+//    });
+//    try testError(
+//        \\extern "" test "" { a && b; }
+//    , &[_]Error{
+//        .ExpectedVarDeclOrFn,
+//        .InvalidAnd,
+//    });
+//}
+//
+//test "recovery: missing semicolon" {
+//    try testError(
+//        \\test "" {
+//        \\    comptime a && b
+//        \\    c && d
+//        \\    @foo
+//        \\}
+//    , &[_]Error{
+//        .InvalidAnd,
+//        .ExpectedToken,
+//        .InvalidAnd,
+//        .ExpectedToken,
+//        .ExpectedParamList,
+//        .ExpectedToken,
+//    });
+//}
+//
+//test "recovery: invalid container members" {
+//    try testError(
+//        \\usingnamespace;
+//        \\foo+
+//        \\bar@,
+//        \\while (a == 2) { test "" {}}
+//        \\test "" {
+//        \\    a && b
+//        \\}
+//    , &[_]Error{
+//        .ExpectedExpr,
+//        .ExpectedToken,
+//        .ExpectedToken,
+//        .ExpectedContainerMembers,
+//        .InvalidAnd,
+//        .ExpectedToken,
+//    });
+//}
+//
+//test "recovery: invalid parameter" {
+//    try testError(
+//        \\fn main() void {
+//        \\    a(comptime T: type)
+//        \\}
+//    , &[_]Error{
+//        .ExpectedToken,
+//    });
+//}
+//
+//test "recovery: extra '}' at top level" {
+//    try testError(
+//        \\}}}
+//        \\test "" {
+//        \\    a && b;
+//        \\}
+//    , &[_]Error{
+//        .ExpectedContainerMembers,
+//        .ExpectedContainerMembers,
+//        .ExpectedContainerMembers,
+//        .InvalidAnd,
+//    });
+//}
+//
+//test "recovery: mismatched bracket at top level" {
+//    try testError(
+//        \\const S = struct {
+//        \\    arr: 128]?G
+//        \\};
+//    , &[_]Error{
+//        .ExpectedToken,
+//    });
+//}
+//
+//test "recovery: invalid global error set access" {
+//    try testError(
+//        \\test "" {
+//        \\    error && foo;
+//        \\}
+//    , &[_]Error{
+//        .ExpectedToken,
+//        .ExpectedIdentifier,
+//        .InvalidAnd,
+//    });
+//}
+//
+//test "recovery: invalid asterisk after pointer dereference" {
+//    try testError(
+//        \\test "" {
+//        \\    var sequence = "repeat".*** 10;
+//        \\}
+//    , &[_]Error{
+//        .AsteriskAfterPointerDereference,
+//    });
+//    try testError(
+//        \\test "" {
+//        \\    var sequence = "repeat".** 10&&a;
+//        \\}
+//    , &[_]Error{
+//        .AsteriskAfterPointerDereference,
+//        .InvalidAnd,
+//    });
+//}
+//
+//test "recovery: missing semicolon after if, for, while stmt" {
+//    try testError(
+//        \\test "" {
+//        \\    if (foo) bar
+//        \\    for (foo) |a| bar
+//        \\    while (foo) bar
+//        \\    a && b;
+//        \\}
+//    , &[_]Error{
+//        .ExpectedSemiOrElse,
+//        .ExpectedSemiOrElse,
+//        .ExpectedSemiOrElse,
+//        .InvalidAnd,
+//    });
+//}
+//
+//test "recovery: invalid comptime" {
+//    try testError(
+//        \\comptime
+//    , &[_]Error{
+//        .ExpectedBlockOrField,
+//    });
+//}
+//
+//test "recovery: missing block after for/while loops" {
+//    try testError(
+//        \\test "" { while (foo) }
+//    , &[_]Error{
+//        .ExpectedBlockOrAssignment,
+//    });
+//    try testError(
+//        \\test "" { for (foo) |bar| }
+//    , &[_]Error{
+//        .ExpectedBlockOrAssignment,
+//    });
 //}
 
 const std = @import("std");
