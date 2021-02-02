@@ -1035,7 +1035,10 @@ pub const Tokenizer = struct {
                         result.tag = .ContainerDocComment;
                         state = .container_doc_comment;
                     },
-                    '\n' => state = .start,
+                    '\n' => {
+                        state = .start;
+                        result.loc.start = self.index + 1;
+                    },
                     '\t', '\r' => state = .line_comment,
                     else => {
                         state = .line_comment;
@@ -1061,7 +1064,10 @@ pub const Tokenizer = struct {
                     },
                 },
                 .line_comment => switch (c) {
-                    '\n' => state = .start,
+                    '\n' => {
+                        state = .start;
+                        result.loc.start = self.index + 1;
+                    },
                     '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
@@ -1497,6 +1503,18 @@ pub const Tokenizer = struct {
 
 test "tokenizer" {
     testTokenize("test", &[_]Token.Tag{.Keyword_test});
+}
+
+test "line comment followed by top-level comptime" {
+    testTokenize(
+        \\// line comment
+        \\comptime {}
+        \\
+    , &[_]Token.Tag{
+        .Keyword_comptime,
+        .LBrace,
+        .RBrace,
+    });
 }
 
 test "tokenizer - unknown length pointer and then c pointer" {

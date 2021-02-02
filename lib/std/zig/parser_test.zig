@@ -5,6 +5,17 @@
 // and substantial portions of the software.
 test "zig fmt: simple top level comptime block" {
     try testCanonical(
+        \\// line comment
+        \\comptime {}
+        \\
+    );
+}
+
+test "zig fmt: two spaced line comments before decl" {
+    try testCanonical(
+        \\// line comment
+        \\
+        \\// another
         \\comptime {}
         \\
     );

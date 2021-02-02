@@ -36,10 +36,11 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize, prefix: [
     var index: usize = start;
     var count: usize = 0;
     while (true) {
-        // Scan forward to the next line comment, counting newlines.
-        const comment_start = mem.indexOf(u8, tree.source[index..end], "//") orelse return count;
-        const newline = mem.indexOfScalar(u8, tree.source[comment_start..end], '\n').?;
-        const untrimmed_comment = tree.source[comment_start..][0..newline];
+        const comment_start = index +
+            (mem.indexOf(u8, tree.source[index..end], "//") orelse return count);
+        const newline = comment_start +
+            mem.indexOfScalar(u8, tree.source[comment_start..end], '\n').?;
+        const untrimmed_comment = tree.source[comment_start..newline];
         const trimmed_comment = mem.trimRight(u8, untrimmed_comment, " \r\t");
         if (count == 0) {
             count += 1;
@@ -52,7 +53,7 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize, prefix: [
             }
         }
         try ais.writer().print("{s}\n", .{trimmed_comment});
-        index += comment_start + newline;
+        index = newline + 1;
     }
 }
 
