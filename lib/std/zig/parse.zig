@@ -594,7 +594,7 @@ const Parser = struct {
             p.eatToken(.Keyword_var) orelse
             return null_node;
 
-        const name_token = try p.expectToken(.Identifier);
+        _ = try p.expectToken(.Identifier);
         const type_node: Node.Index = if (p.eatToken(.Colon) == null) 0 else try p.expectTypeExpr();
         const align_node = try p.parseByteAlign();
         const section_node = try p.parseLinkSection();

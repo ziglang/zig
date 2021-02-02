@@ -195,22 +195,23 @@ pub const Token = struct {
         Keyword_volatile,
         Keyword_while,
 
-        pub fn symbol(tag: Tag) []const u8 {
+        pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
-                .Invalid => "Invalid",
+                .Invalid,
+                .Identifier,
+                .StringLiteral,
+                .MultilineStringLiteralLine,
+                .CharLiteral,
+                .Eof,
+                .Builtin,
+                .IntegerLiteral,
+                .FloatLiteral,
+                .DocComment,
+                .ContainerDocComment,
+                => null,
+
                 .Invalid_ampersands => "&&",
                 .Invalid_periodasterisks => ".**",
-                .Identifier => "Identifier",
-                .StringLiteral => "StringLiteral",
-                .MultilineStringLiteralLine => "MultilineStringLiteralLine",
-                .CharLiteral => "CharLiteral",
-                .Eof => "Eof",
-                .Builtin => "Builtin",
-                .IntegerLiteral => "IntegerLiteral",
-                .FloatLiteral => "FloatLiteral",
-                .DocComment => "DocComment",
-                .ContainerDocComment => "ContainerDocComment",
-
                 .Bang => "!",
                 .Pipe => "|",
                 .PipePipe => "||",
@@ -318,6 +319,10 @@ pub const Token = struct {
                 .Keyword_volatile => "volatile",
                 .Keyword_while => "while",
             };
+        }
+
+        pub fn symbol(tag: Tag) []const u8 {
+            return tag.lexeme() orelse @tagName(tag);
         }
     };
 };
