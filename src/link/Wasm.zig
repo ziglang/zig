@@ -85,8 +85,6 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     const typed_value = decl.typed_value.most_recent.typed_value;
     if (typed_value.ty.zigTypeTag() != .Fn)
         return error.TODOImplementNonFnDeclsForWasm;
-    if (typed_value.val.tag() == .extern_fn)
-        return error.TODOImplementExternFnDeclsForWasm;
 
     if (decl.fn_link.wasm) |*fn_data| {
         fn_data.functype.items.len = 0;
@@ -184,17 +182,63 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         );
     }
 
+    // Import section
+    {
+        // TODO: implement non-functions imports
+        const header_offset = try reserveVecSectionHeader(file);
+        const writer = file.writer();
+        var count: u32 = 0;
+        for (self.funcs.items) |decl, typeidx| {
+            if (decl.typed_value.most_recent.typed_value.val.tag() != .extern_fn) {
+                continue;
+            }
+
+            // TODO: can we set/save the module name somewhere?
+            // For now, emit "env" like LLVM does
+            const module_name = "env";
+            try leb.writeULEB128(writer, @intCast(u32, module_name.len));
+            try writer.writeAll(module_name);
+
+            // wasm requires the length of the import name and doesn't require a null-termination
+            const decl_len = mem.len(decl.name);
+            try leb.writeULEB128(writer, @intCast(u32, decl_len));
+            try writer.writeAll(decl.name[0..decl_len]);
+
+            // emit kind and the function type
+            try writer.writeByte(wasm.kind(.function));
+            try leb.writeULEB128(writer, @intCast(u32, typeidx));
+
+            count += 1;
+        }
+
+        try writeVecSectionHeader(
+            file,
+            header_offset,
+            .import,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            count,
+        );
+    }
+
     // Function section
     {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        for (self.funcs.items) |_, typeidx| try leb.writeULEB128(writer, @intCast(u32, typeidx));
+        var count: u32 = 0;
+        for (self.funcs.items) |decl, typeidx| {
+            // Extern functions only have a type, so skip the function signature section
+            if (decl.typed_value.most_recent.typed_value.val.tag() != .function) {
+                continue;
+            }
+            try leb.writeULEB128(writer, @intCast(u32, typeidx));
+            count += 1;
+        }
         try writeVecSectionHeader(
             file,
             header_offset,
             .function,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.funcs.items.len),
+            count,
         );
     }
 
@@ -214,7 +258,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                         // Type of the export
                         try writer.writeByte(0x00);
                         // Exported function index
-                        try leb.writeULEB128(writer, self.getFuncidx(exprt.exported_decl).?);
+                        try leb.writeULEB128(writer, self.getFuncidx(exprt.exported_decl).? + 1);
                     },
                     else => return error.TODOImplementNonFnDeclsForWasm,
                 }
@@ -235,7 +279,13 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
+        var count: u32 = 0;
         for (self.funcs.items) |decl| {
+            // Do not emit any code for extern functions
+            if (decl.typed_value.most_recent.typed_value.val.tag() != .function) {
+                std.debug.print("Skipping decl: {s}\n", .{decl.name});
+                continue;
+            }
             const fn_data = &decl.fn_link.wasm.?;
 
             // Write the already generated code to the file, inserting
@@ -247,18 +297,20 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 // Use a fixed width here to make calculating the code size
                 // in codegen.wasm.gen() simpler.
                 var buf: [5]u8 = undefined;
-                leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
+                std.debug.print("idx_ref: {s} - {d}\n", .{ idx_ref.decl.name, self.getFuncidx(idx_ref.decl).? });
+                leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).? - 1);
                 try writer.writeAll(&buf);
             }
 
             try writer.writeAll(fn_data.code.items[current..]);
+            count += 1;
         }
         try writeVecSectionHeader(
             file,
             header_offset,
             .code,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.funcs.items.len),
+            count,
         );
     }
 }
