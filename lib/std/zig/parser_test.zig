@@ -81,16 +81,16 @@ test "zig fmt: doc comments on test" {
     );
 }
 
-//test "zig fmt: if statment" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    if (optional()) |some|
-//        \\        bar = some.foo();
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: if statment" {
+    try testCanonical(
+        \\test "" {
+        \\    if (optional()) |some|
+        \\        bar = some.foo();
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: top-level fields" {
 //    try testCanonical(
 //        \\a: did_you_know,

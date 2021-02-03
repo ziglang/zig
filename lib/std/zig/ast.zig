@@ -16,11 +16,7 @@ pub const TokenList = std.MultiArrayList(struct {
     tag: Token.Tag,
     start: ByteOffset,
 });
-pub const NodeList = std.MultiArrayList(struct {
-    tag: Node.Tag,
-    main_token: TokenIndex,
-    data: Node.Data,
-});
+pub const NodeList = std.MultiArrayList(Node);
 
 pub const Tree = struct {
     /// Reference to externally-owned data.
@@ -74,6 +70,16 @@ pub const Tree = struct {
             }
         }
         return loc;
+    }
+
+    pub fn extraData(tree: Tree, index: usize, comptime T: type) T {
+        const fields = std.meta.fields(T);
+        var result: T = undefined;
+        inline for (fields) |field, i| {
+            comptime assert(field.field_type == Node.Index);
+            @field(result, field.name) = tree.extra_data[index + i];
+        }
+        return result;
     }
 
     pub fn renderError(tree: Tree, parse_error: Error, stream: anytype) !void {
@@ -189,7 +195,8 @@ pub const Tree = struct {
         const tags = tree.nodes.items(.tag);
         const datas = tree.nodes.items(.data);
         const main_tokens = tree.nodes.items(.main_token);
-        switch (tags[node]) {
+        var n = node;
+        while (true) switch (tags[n]) {
             .Root => return 0,
 
             .UsingNamespace,
@@ -210,20 +217,25 @@ pub const Tree = struct {
             .StructInitDot,
             .Switch,
             .IfSimple,
-            .IfSimpleOptional,
             .If,
-            .IfOptional,
-            .IfError,
             .Suspend,
             .Resume,
             .Continue,
             .Break,
             .Return,
             .AnyFrameType,
-            .OneToken,
             .Identifier,
+            .AnyFrameLiteral,
+            .CharLiteral,
+            .IntegerLiteral,
+            .FloatLiteral,
+            .FalseLiteral,
+            .TrueLiteral,
+            .NullLiteral,
+            .UndefinedLiteral,
+            .UnreachableLiteral,
             .EnumLiteral,
-            .MultilineStringLiteral,
+            .StringLiteral,
             .GroupedExpression,
             .BuiltinCallTwo,
             .BuiltinCall,
@@ -234,7 +246,7 @@ pub const Tree = struct {
             .Block,
             .AsmSimple,
             .Asm,
-            => return main_tokens[node],
+            => return main_tokens[n],
 
             .Catch,
             .FieldAccess,
@@ -290,7 +302,7 @@ pub const Tree = struct {
             .SwitchCaseOne,
             .SwitchRange,
             .FnDecl,
-            => return tree.firstToken(datas[node].lhs),
+            => n = datas[n].lhs,
 
             .GlobalVarDecl,
             .LocalVarDecl,
@@ -305,12 +317,8 @@ pub const Tree = struct {
             .StructInit,
             .SwitchCaseMulti,
             .WhileSimple,
-            .WhileSimpleOptional,
             .WhileCont,
-            .WhileContOptional,
             .While,
-            .WhileOptional,
-            .WhileError,
             .ForSimple,
             .For,
             .FnProtoSimple,
@@ -329,19 +337,19 @@ pub const Tree = struct {
             .ErrorValue,
             .ErrorUnion,
             => @panic("TODO finish implementing firstToken"),
-        }
+        };
     }
 
     pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         const tags = tree.nodes.items(.tag);
         const datas = tree.nodes.items(.data);
         const main_tokens = tree.nodes.items(.main_token);
-        switch (tags[node]) {
-            .Root,
+        var n = node;
+        var end_offset: TokenIndex = 0;
+        while (true) switch (tags[n]) {
+            .Root => return @intCast(TokenIndex, tree.tokens.len - 1),
+
             .UsingNamespace,
-            .TestDecl,
-            .ErrDefer,
-            .Defer,
             .BoolNot,
             .Negation,
             .BitNot,
@@ -350,39 +358,16 @@ pub const Tree = struct {
             .Try,
             .Await,
             .OptionalType,
-            .ArrayInitDotTwo,
-            .ArrayInitDot,
-            .StructInitDotTwo,
-            .StructInitDot,
-            .Switch,
-            .IfSimple,
-            .IfSimpleOptional,
-            .If,
-            .IfOptional,
-            .IfError,
             .Suspend,
             .Resume,
-            .Continue,
             .Break,
             .Return,
-            .AnyFrameType,
-            .OneToken,
-            .Identifier,
-            .EnumLiteral,
-            .MultilineStringLiteral,
-            .GroupedExpression,
-            .BuiltinCallTwo,
-            .BuiltinCall,
-            .ErrorSetDecl,
-            .AnyType,
-            .Comptime,
-            .Nosuspend,
-            .Block,
-            .AsmSimple,
-            .Asm,
+            => n = datas[n].lhs,
+
+            .TestDecl,
+            .ErrDefer,
+            .Defer,
             .Catch,
-            .FieldAccess,
-            .UnwrapOptional,
             .EqualEqual,
             .BangEqual,
             .LessThan,
@@ -422,6 +407,63 @@ pub const Tree = struct {
             .OrElse,
             .BoolAnd,
             .BoolOr,
+            .AnyFrameType,
+            .ErrorUnion,
+            .Comptime,
+            .Nosuspend,
+            .IfSimple,
+            .WhileSimple,
+            => n = datas[n].rhs,
+
+            .FieldAccess,
+            .UnwrapOptional,
+            .GroupedExpression,
+            .StringLiteral,
+            => return datas[n].rhs + end_offset,
+
+            .AnyType,
+            .AnyFrameLiteral,
+            .CharLiteral,
+            .IntegerLiteral,
+            .FloatLiteral,
+            .FalseLiteral,
+            .TrueLiteral,
+            .NullLiteral,
+            .UndefinedLiteral,
+            .UnreachableLiteral,
+            => return main_tokens[n] + end_offset,
+
+            .Call => {
+                end_offset += 1; // for the `)`
+                const params = tree.extraData(datas[n].rhs, Node.SubRange);
+                if (params.end - params.start == 0) {
+                    return main_tokens[n] + end_offset;
+                }
+                n = tree.extra_data[params.end - 1]; // last parameter
+            },
+            .CallOne => {
+                end_offset += 1; // for the `)`
+                if (datas[n].rhs == 0) {
+                    return main_tokens[n] + end_offset;
+                }
+                n = datas[n].rhs;
+            },
+
+            .ArrayInitDotTwo,
+            .ArrayInitDot,
+            .StructInitDotTwo,
+            .StructInitDot,
+            .Switch,
+            .If,
+            .Continue,
+            .Identifier,
+            .EnumLiteral,
+            .BuiltinCallTwo,
+            .BuiltinCall,
+            .ErrorSetDecl,
+            .Block,
+            .AsmSimple,
+            .Asm,
             .SliceOpen,
             .Slice,
             .Deref,
@@ -429,8 +471,6 @@ pub const Tree = struct {
             .ArrayInitOne,
             .ArrayInit,
             .StructInitOne,
-            .CallOne,
-            .Call,
             .SwitchCaseOne,
             .SwitchRange,
             .FnDecl,
@@ -446,13 +486,8 @@ pub const Tree = struct {
             .SliceType,
             .StructInit,
             .SwitchCaseMulti,
-            .WhileSimple,
-            .WhileSimpleOptional,
             .WhileCont,
-            .WhileContOptional,
             .While,
-            .WhileOptional,
-            .WhileError,
             .ForSimple,
             .For,
             .FnProtoSimple,
@@ -469,10 +504,176 @@ pub const Tree = struct {
             .AsmOutput,
             .AsmInput,
             .ErrorValue,
-            .ErrorUnion,
             => @panic("TODO finish implementing lastToken"),
-        }
+        };
     }
+
+    pub fn tokensOnSameLine(tree: Tree, token1: TokenIndex, token2: TokenIndex) bool {
+        const token_starts = tree.tokens.items(.start);
+        const source = tree.source[token_starts[token1]..token_starts[token2]];
+        return mem.indexOfScalar(u8, source, '\n') == null;
+    }
+
+    pub fn globalVarDecl(tree: Tree, node: Node.Index) Full.VarDecl {
+        assert(tree.nodes.items(.tag)[node] == .GlobalVarDecl);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.GlobalVarDecl);
+        return tree.fullVarDecl(.{
+            .type_node = extra.type_node,
+            .align_node = extra.align_node,
+            .section_node = extra.section_node,
+            .init_node = data.rhs,
+            .mut_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn localVarDecl(tree: Tree, node: Node.Index) Full.VarDecl {
+        assert(tree.nodes.items(.tag)[node] == .LocalVarDecl);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.LocalVarDecl);
+        return tree.fullVarDecl(.{
+            .type_node = extra.type_node,
+            .align_node = extra.align_node,
+            .section_node = 0,
+            .init_node = data.rhs,
+            .mut_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn simpleVarDecl(tree: Tree, node: Node.Index) Full.VarDecl {
+        assert(tree.nodes.items(.tag)[node] == .SimpleVarDecl);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullVarDecl(.{
+            .type_node = data.lhs,
+            .align_node = 0,
+            .section_node = 0,
+            .init_node = data.rhs,
+            .mut_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn alignedVarDecl(tree: Tree, node: Node.Index) Full.VarDecl {
+        assert(tree.nodes.items(.tag)[node] == .AlignedVarDecl);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullVarDecl(.{
+            .type_node = 0,
+            .align_node = data.lhs,
+            .section_node = 0,
+            .init_node = data.rhs,
+            .mut_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn ifSimple(tree: Tree, node: Node.Index) Full.If {
+        assert(tree.nodes.items(.tag)[node] == .IfSimple);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullIf(.{
+            .cond_expr = data.lhs,
+            .then_expr = data.rhs,
+            .else_expr = 0,
+            .if_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn ifFull(tree: Tree, node: Node.Index) Full.If {
+        assert(tree.nodes.items(.tag)[node] == .If);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.If);
+        return tree.fullIf(.{
+            .cond_expr = data.lhs,
+            .then_expr = extra.then_expr,
+            .else_expr = extra.else_expr,
+            .if_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    fn fullVarDecl(tree: Tree, info: Full.VarDecl.Ast) Full.VarDecl {
+        const token_tags = tree.tokens.items(.tag);
+        var result: Full.VarDecl = .{
+            .ast = info,
+            .visib_token = null,
+            .extern_export_token = null,
+            .lib_name = null,
+            .threadlocal_token = null,
+            .comptime_token = null,
+        };
+        var i = info.mut_token;
+        while (i > 0) {
+            i -= 1;
+            switch (token_tags[i]) {
+                .Keyword_extern, .Keyword_export => result.extern_export_token = i,
+                .Keyword_comptime => result.comptime_token = i,
+                .Keyword_pub => result.visib_token = i,
+                .Keyword_threadlocal => result.threadlocal_token = i,
+                .StringLiteral => result.lib_name = i,
+                else => break,
+            }
+        }
+        return result;
+    }
+
+    fn fullIf(tree: Tree, info: Full.If.Ast) Full.If {
+        const token_tags = tree.tokens.items(.tag);
+        var result: Full.If = .{
+            .ast = info,
+            .payload_token = null,
+            .error_token = null,
+            .else_token = undefined,
+        };
+        // if (cond_expr) |x|
+        //              ^ ^
+        const payload_pipe = tree.lastToken(info.cond_expr) + 2;
+        if (token_tags[payload_pipe] == .Pipe) {
+            result.payload_token = payload_pipe + 1;
+        }
+        if (info.else_expr != 0) {
+            // then_expr else |x|
+            //           ^    ^
+            result.else_token = tree.lastToken(info.then_expr) + 1;
+            if (token_tags[result.else_token + 1] == .Pipe) {
+                result.error_token = result.else_token + 2;
+            }
+        }
+        return result;
+    }
+};
+
+/// Fully assembled AST node information.
+pub const Full = struct {
+    pub const VarDecl = struct {
+        visib_token: ?TokenIndex,
+        extern_export_token: ?TokenIndex,
+        lib_name: ?TokenIndex,
+        threadlocal_token: ?TokenIndex,
+        comptime_token: ?TokenIndex,
+        ast: Ast,
+
+        pub const Ast = struct {
+            mut_token: TokenIndex,
+            type_node: Node.Index,
+            align_node: Node.Index,
+            section_node: Node.Index,
+            init_node: Node.Index,
+        };
+    };
+
+    pub const If = struct {
+        // Points to the first token after the `|`. Will either be an identifier or
+        // a `*` (with an identifier immediately after it).
+        payload_token: ?TokenIndex,
+        // Points to the identifier after the `|`.
+        error_token: ?TokenIndex,
+        // Populated only if else_expr != 0.
+        else_token: TokenIndex,
+        ast: Ast,
+
+        pub const Ast = struct {
+            if_token: TokenIndex,
+            cond_expr: Node.Index,
+            then_expr: Node.Index,
+            else_expr: Node.Index,
+        };
+    };
 };
 
 pub const Error = union(enum) {
@@ -706,7 +907,9 @@ pub const Error = union(enum) {
 };
 
 pub const Node = struct {
-    index: Index,
+    tag: Tag,
+    main_token: TokenIndex,
+    data: Data,
 
     pub const Index = u32;
 
@@ -718,22 +921,26 @@ pub const Node = struct {
     pub const Tag = enum {
         /// sub_list[lhs...rhs]
         Root,
-        /// lhs is the sub-expression. rhs is unused.
+        /// `usingnamespace lhs;`. rhs unused. main_token is `usingnamespace`.
         UsingNamespace,
         /// lhs is test name token (must be string literal), if any.
         /// rhs is the body node.
         TestDecl,
         /// lhs is the index into extra_data.
         /// rhs is the initialization expression, if any.
+        /// main_token is `var` or `const`.
         GlobalVarDecl,
         /// `var a: x align(y) = rhs`
-        /// lhs is the index into local_var_decl_list.
+        /// lhs is the index into extra_data.
+        /// main_token is `var` or `const`.
         LocalVarDecl,
         /// `var a: lhs = rhs`. lhs and rhs may be unused.
         /// Can be local or global.
+        /// main_token is `var` or `const`.
         SimpleVarDecl,
         /// `var a align(lhs) = rhs`. lhs and rhs may be unused.
         /// Can be local or global.
+        /// main_token is `var` or `const`.
         AlignedVarDecl,
         /// lhs is the identifier token payload if any,
         /// rhs is the deferred expression.
@@ -901,33 +1108,26 @@ pub const Node = struct {
         /// `lhs...rhs`.
         SwitchRange,
         /// `while (lhs) rhs`.
-        WhileSimple,
         /// `while (lhs) |x| rhs`.
-        WhileSimpleOptional,
+        WhileSimple,
+        /// `while (lhs) : (a) b`. `WhileCont[rhs]`.
         /// `while (lhs) : (a) b`. `WhileCont[rhs]`.
         WhileCont,
-        /// `while (lhs) : (a) b`. `WhileCont[rhs]`.
-        WhileContOptional,
         /// `while (lhs) : (a) b else c`. `While[rhs]`.
-        While,
         /// `while (lhs) |x| : (a) b else c`. `While[rhs]`.
-        WhileOptional,
         /// `while (lhs) |x| : (a) b else |y| c`. `While[rhs]`.
-        WhileError,
+        While,
         /// `for (lhs) rhs`.
         ForSimple,
         /// `for (lhs) a else b`. `if_list[rhs]`.
         For,
         /// `if (lhs) rhs`.
-        IfSimple,
         /// `if (lhs) |a| rhs`.
-        IfSimpleOptional,
+        IfSimple,
         /// `if (lhs) a else b`. `if_list[rhs]`.
-        If,
         /// `if (lhs) |x| a else b`. `if_list[rhs]`.
-        IfOptional,
         /// `if (lhs) |x| a else |y| b`. `if_list[rhs]`.
-        IfError,
+        If,
         /// `suspend lhs`. lhs can be omitted. rhs is unused.
         Suspend,
         /// `resume lhs`. rhs is unused.
@@ -955,10 +1155,24 @@ pub const Node = struct {
         FnDecl,
         /// `anyframe->rhs`. main_token is `anyframe`. `lhs` is arrow token index.
         AnyFrameType,
-        /// Could be integer literal, float literal, char literal, bool literal,
-        /// null literal, undefined literal, unreachable, depending on the token.
         /// Both lhs and rhs unused.
-        OneToken,
+        AnyFrameLiteral,
+        /// Both lhs and rhs unused.
+        CharLiteral,
+        /// Both lhs and rhs unused.
+        IntegerLiteral,
+        /// Both lhs and rhs unused.
+        FloatLiteral,
+        /// Both lhs and rhs unused.
+        FalseLiteral,
+        /// Both lhs and rhs unused.
+        TrueLiteral,
+        /// Both lhs and rhs unused.
+        NullLiteral,
+        /// Both lhs and rhs unused.
+        UndefinedLiteral,
+        /// Both lhs and rhs unused.
+        UnreachableLiteral,
         /// Both lhs and rhs unused.
         /// Most identifiers will not have explicit AST nodes, however for expressions
         /// which could be one of many different kinds of AST nodes, there will be an
@@ -966,8 +1180,11 @@ pub const Node = struct {
         Identifier,
         /// lhs is the dot token index, rhs unused, main_token is the identifier.
         EnumLiteral,
-        /// Both lhs and rhs unused.
-        MultilineStringLiteral,
+        /// main_token is the first token index (redundant with lhs)
+        /// lhs is the first token index; rhs is the last token index.
+        /// Could be a series of MultilineStringLiteralLine tokens, or a single
+        /// StringLiteral token.
+        StringLiteral,
         /// `(lhs)`. main_token is the `(`; rhs is the token index of the `)`.
         GroupedExpression,
         /// `@a(lhs, rhs)`. lhs and rhs may be omitted.

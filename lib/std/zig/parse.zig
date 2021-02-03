@@ -832,7 +832,7 @@ const Parser = struct {
             }
             if (p.eatToken(.Semicolon)) |_| {
                 return p.addNode(.{
-                    .tag = if (then_payload == 0) .IfSimple else .IfSimpleOptional,
+                    .tag = .IfSimple,
                     .main_token = if_token,
                     .data = .{
                         .lhs = condition,
@@ -848,7 +848,7 @@ const Parser = struct {
                 return p.fail(.{ .ExpectedSemiOrElse = .{ .token = p.tok_i } });
             }
             return p.addNode(.{
-                .tag = if (then_payload == 0) .IfSimple else .IfSimpleOptional,
+                .tag = .IfSimple,
                 .main_token = if_token,
                 .data = .{
                     .lhs = condition,
@@ -858,14 +858,8 @@ const Parser = struct {
         };
         const else_payload = try p.parsePayload();
         const else_expr = try p.expectStatement();
-        const tag = if (else_payload != 0)
-            Node.Tag.IfError
-        else if (then_payload != 0)
-            Node.Tag.IfOptional
-        else
-            Node.Tag.If;
         return p.addNode(.{
-            .tag = tag,
+            .tag = .If,
             .main_token = if_token,
             .data = .{
                 .lhs = condition,
@@ -994,7 +988,7 @@ const Parser = struct {
             if (p.eatToken(.Semicolon)) |_| {
                 if (continue_expr == 0) {
                     return p.addNode(.{
-                        .tag = if (then_payload == 0) .WhileSimple else .WhileSimpleOptional,
+                        .tag = .WhileSimple,
                         .main_token = while_token,
                         .data = .{
                             .lhs = condition,
@@ -1003,7 +997,7 @@ const Parser = struct {
                     });
                 } else {
                     return p.addNode(.{
-                        .tag = if (then_payload == 0) .WhileCont else .WhileContOptional,
+                        .tag = .WhileCont,
                         .main_token = while_token,
                         .data = .{
                             .lhs = condition,
@@ -1024,7 +1018,7 @@ const Parser = struct {
             }
             if (continue_expr == 0) {
                 return p.addNode(.{
-                    .tag = if (then_payload == 0) .WhileSimple else .WhileSimpleOptional,
+                    .tag = .WhileSimple,
                     .main_token = while_token,
                     .data = .{
                         .lhs = condition,
@@ -1033,7 +1027,7 @@ const Parser = struct {
                 });
             } else {
                 return p.addNode(.{
-                    .tag = if (then_payload == 0) .WhileCont else .WhileContOptional,
+                    .tag = .WhileCont,
                     .main_token = while_token,
                     .data = .{
                         .lhs = condition,
@@ -1047,14 +1041,8 @@ const Parser = struct {
         };
         const else_payload = try p.parsePayload();
         const else_expr = try p.expectStatement();
-        const tag = if (else_payload != 0)
-            Node.Tag.WhileError
-        else if (then_payload != 0)
-            Node.Tag.WhileOptional
-        else
-            Node.Tag.While;
         return p.addNode(.{
-            .tag = tag,
+            .tag = .While,
             .main_token = while_token,
             .data = .{
                 .lhs = condition,
@@ -1948,7 +1936,7 @@ const Parser = struct {
         const else_token = p.eatToken(.Keyword_else) orelse {
             if (continue_expr == 0) {
                 return p.addNode(.{
-                    .tag = if (then_payload == 0) .WhileSimple else .WhileSimpleOptional,
+                    .tag = .WhileSimple,
                     .main_token = while_token,
                     .data = .{
                         .lhs = condition,
@@ -1957,7 +1945,7 @@ const Parser = struct {
                 });
             } else {
                 return p.addNode(.{
-                    .tag = if (then_payload == 0) .WhileCont else .WhileContOptional,
+                    .tag = .WhileCont,
                     .main_token = while_token,
                     .data = .{
                         .lhs = condition,
@@ -1971,14 +1959,8 @@ const Parser = struct {
         };
         const else_payload = try p.parsePayload();
         const else_expr = try p.expectExpr();
-        const tag = if (else_payload != 0)
-            Node.Tag.WhileError
-        else if (then_payload != 0)
-            Node.Tag.WhileOptional
-        else
-            Node.Tag.While;
         return p.addNode(.{
-            .tag = tag,
+            .tag = .While,
             .main_token = while_token,
             .data = .{
                 .lhs = condition,
@@ -2229,24 +2211,89 @@ const Parser = struct {
     /// LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
     fn parsePrimaryTypeExpr(p: *Parser) !Node.Index {
         switch (p.token_tags[p.tok_i]) {
-            .CharLiteral,
-            .IntegerLiteral,
-            .FloatLiteral,
-            .StringLiteral,
-            .Keyword_false,
-            .Keyword_true,
-            .Keyword_null,
-            .Keyword_undefined,
-            .Keyword_unreachable,
-            .Keyword_anyframe,
-            => return p.addNode(.{
-                .tag = .OneToken,
+            .CharLiteral => return p.addNode(.{
+                .tag = .CharLiteral,
                 .main_token = p.nextToken(),
                 .data = .{
                     .lhs = undefined,
                     .rhs = undefined,
                 },
             }),
+            .IntegerLiteral => return p.addNode(.{
+                .tag = .IntegerLiteral,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            }),
+            .FloatLiteral => return p.addNode(.{
+                .tag = .FloatLiteral,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            }),
+            .Keyword_false => return p.addNode(.{
+                .tag = .FalseLiteral,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            }),
+            .Keyword_true => return p.addNode(.{
+                .tag = .TrueLiteral,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            }),
+            .Keyword_null => return p.addNode(.{
+                .tag = .NullLiteral,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            }),
+            .Keyword_undefined => return p.addNode(.{
+                .tag = .UndefinedLiteral,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            }),
+            .Keyword_unreachable => return p.addNode(.{
+                .tag = .UnreachableLiteral,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            }),
+            .Keyword_anyframe => return p.addNode(.{
+                .tag = .AnyFrameLiteral,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            }),
+            .StringLiteral => {
+                const main_token = p.nextToken();
+                return p.addNode(.{
+                    .tag = .StringLiteral,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = main_token,
+                        .rhs = main_token,
+                    },
+                });
+            },
 
             .Builtin => return p.parseBuiltinCall(),
             .Keyword_fn => return p.parseFnProto(),
@@ -2280,11 +2327,11 @@ const Parser = struct {
                     p.tok_i += 1;
                 }
                 return p.addNode(.{
-                    .tag = .OneToken,
+                    .tag = .StringLiteral,
                     .main_token = first_line,
                     .data = .{
-                        .lhs = undefined,
-                        .rhs = undefined,
+                        .lhs = first_line,
+                        .rhs = p.tok_i - 1,
                     },
                 });
             },
@@ -2641,7 +2688,7 @@ const Parser = struct {
         const else_token = p.eatToken(.Keyword_else) orelse {
             if (continue_expr == 0) {
                 return p.addNode(.{
-                    .tag = if (then_payload == 0) .WhileSimple else .WhileSimpleOptional,
+                    .tag = .WhileSimple,
                     .main_token = while_token,
                     .data = .{
                         .lhs = condition,
@@ -2650,7 +2697,7 @@ const Parser = struct {
                 });
             } else {
                 return p.addNode(.{
-                    .tag = if (then_payload == 0) .WhileCont else .WhileContOptional,
+                    .tag = .WhileCont,
                     .main_token = while_token,
                     .data = .{
                         .lhs = condition,
@@ -2664,14 +2711,8 @@ const Parser = struct {
         };
         const else_payload = try p.parsePayload();
         const else_expr = try p.expectTypeExpr();
-        const tag = if (else_payload != 0)
-            Node.Tag.WhileError
-        else if (then_payload != 0)
-            Node.Tag.WhileOptional
-        else
-            Node.Tag.While;
         return p.addNode(.{
-            .tag = tag,
+            .tag = .While,
             .main_token = while_token,
             .data = .{
                 .lhs = condition,
@@ -3450,7 +3491,7 @@ const Parser = struct {
             });
             // Pretend this was an identifier so we can continue parsing.
             return p.addNode(.{
-                .tag = .OneToken,
+                .tag = .Identifier,
                 .main_token = builtin_token,
                 .data = .{
                     .lhs = undefined,
@@ -3470,59 +3511,31 @@ const Parser = struct {
         });
     }
 
-    fn parseOneToken(p: *Parser, token_tag: Token.Tag) !Node.Index {
-        const token = p.eatToken(token_tag) orelse return null_node;
-        return p.addNode(.{
-            .tag = .OneToken,
-            .main_token = token,
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
-        });
-    }
-
-    fn expectOneToken(p: *Parser, token_tag: Token.Tag) !Node.Index {
-        const node = try p.expectOneTokenRecoverable(token_tag);
-        if (node == 0) return error.ParseError;
-        return node;
-    }
-
-    fn expectOneTokenRecoverable(p: *Parser, token_tag: Token.Tag) !Node.Index {
-        const node = p.parseOneToken(token_tag);
-        if (node == 0) {
-            try p.warn(.{
-                .ExpectedToken = .{
-                    .token = p.tok_i,
-                    .expected_id = token_tag,
-                },
-            });
-        }
-        return node;
-    }
-
     // string literal or multiline string literal
     fn parseStringLiteral(p: *Parser) !Node.Index {
         switch (p.token_tags[p.tok_i]) {
-            .StringLiteral => return p.addNode(.{
-                .tag = .OneToken,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
+            .StringLiteral => {
+                const main_token = p.nextToken();
+                return p.addNode(.{
+                    .tag = .StringLiteral,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = main_token,
+                        .rhs = main_token,
+                    },
+                });
+            },
             .MultilineStringLiteralLine => {
                 const first_line = p.nextToken();
                 while (p.token_tags[p.tok_i] == .MultilineStringLiteralLine) {
                     p.tok_i += 1;
                 }
                 return p.addNode(.{
-                    .tag = .OneToken,
+                    .tag = .StringLiteral,
                     .main_token = first_line,
                     .data = .{
-                        .lhs = undefined,
-                        .rhs = undefined,
+                        .lhs = first_line,
+                        .rhs = p.tok_i - 1,
                     },
                 });
             },
@@ -3539,11 +3552,14 @@ const Parser = struct {
     }
 
     fn expectIntegerLiteral(p: *Parser) !Node.Index {
-        const node = p.parseOneToken(.IntegerLiteral);
-        if (node != 0) {
-            return p.fail(.{ .ExpectedIntegerLiteral = .{ .token = p.tok_i } });
-        }
-        return node;
+        return p.addNode(.{
+            .tag = .IntegerLiteral,
+            .main_token = try p.expectToken(.IntegerLiteral),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        });
     }
 
     /// KEYWORD_if LPAREN Expr RPAREN PtrPayload? Body (KEYWORD_else Payload? Body)?
@@ -3558,7 +3574,7 @@ const Parser = struct {
         if (then_expr == 0) return p.fail(.{ .InvalidToken = .{ .token = p.tok_i } });
 
         const else_token = p.eatToken(.Keyword_else) orelse return p.addNode(.{
-            .tag = if (then_payload == 0) .IfSimple else .IfSimpleOptional,
+            .tag = .IfSimple,
             .main_token = if_token,
             .data = .{
                 .lhs = condition,
@@ -3569,14 +3585,8 @@ const Parser = struct {
         const else_expr = try bodyParseFn(p);
         if (else_expr == 0) return p.fail(.{ .InvalidToken = .{ .token = p.tok_i } });
 
-        const tag = if (else_payload != 0)
-            Node.Tag.IfError
-        else if (then_payload != 0)
-            Node.Tag.IfOptional
-        else
-            Node.Tag.If;
         return p.addNode(.{
-            .tag = tag,
+            .tag = .If,
             .main_token = if_token,
             .data = .{
                 .lhs = condition,
