@@ -1257,13 +1257,13 @@ fn zirMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerEr
         .error_set => {
             var multiple = rhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
             var it = multiple.iterator();
-            while (it.next()) |name| {
-                const entry = try mod.getErrorValue(name.key);
+            while (it.next()) |entry| {
                 payload.data.fields.putAssumeCapacity(entry.key, entry.value);
             }
         },
         else => unreachable,
     }
+    // TODO create name in format "error:line:column"
     const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
         .ty = Type.initTag(.type),
         .val = Value.initPayload(&payload.base),
