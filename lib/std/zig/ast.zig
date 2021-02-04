@@ -195,6 +195,7 @@ pub const Tree = struct {
         const tags = tree.nodes.items(.tag);
         const datas = tree.nodes.items(.data);
         const main_tokens = tree.nodes.items(.main_token);
+        const token_tags = tree.tokens.items(.tag);
         var n = node;
         while (true) switch (tags[n]) {
             .Root => return 0,
@@ -304,39 +305,49 @@ pub const Tree = struct {
             .FnDecl,
             => n = datas[n].lhs,
 
-            .GlobalVarDecl,
-            .LocalVarDecl,
-            .SimpleVarDecl,
-            .AlignedVarDecl,
-            .ArrayType,
-            .ArrayTypeSentinel,
-            .PtrTypeAligned,
-            .PtrTypeSentinel,
-            .PtrType,
-            .SliceType,
-            .StructInit,
-            .SwitchCaseMulti,
-            .WhileSimple,
-            .WhileCont,
-            .While,
-            .ForSimple,
-            .For,
-            .FnProtoSimple,
-            .FnProtoSimpleMulti,
-            .FnProtoOne,
-            .FnProto,
-            .ContainerDecl,
-            .ContainerDeclArg,
-            .TaggedUnion,
-            .TaggedUnionEnumTag,
             .ContainerFieldInit,
             .ContainerFieldAlign,
             .ContainerField,
-            .AsmOutput,
-            .AsmInput,
-            .ErrorValue,
-            .ErrorUnion,
-            => @panic("TODO finish implementing firstToken"),
+            => {
+                const name_token = main_tokens[n];
+                if (name_token > 0 and
+                    token_tags[name_token - 1] == .Keyword_comptime)
+                {
+                    return name_token - 1;
+                } else {
+                    return name_token;
+                }
+            },
+
+            .GlobalVarDecl => unreachable,
+            .LocalVarDecl => unreachable,
+            .SimpleVarDecl => unreachable,
+            .AlignedVarDecl => unreachable,
+            .ArrayType => unreachable,
+            .ArrayTypeSentinel => unreachable,
+            .PtrTypeAligned => unreachable,
+            .PtrTypeSentinel => unreachable,
+            .PtrType => unreachable,
+            .SliceType => unreachable,
+            .StructInit => unreachable,
+            .SwitchCaseMulti => unreachable,
+            .WhileSimple => unreachable,
+            .WhileCont => unreachable,
+            .While => unreachable,
+            .ForSimple => unreachable,
+            .For => unreachable,
+            .FnProtoSimple => unreachable,
+            .FnProtoSimpleMulti => unreachable,
+            .FnProtoOne => unreachable,
+            .FnProto => unreachable,
+            .ContainerDecl => unreachable,
+            .ContainerDeclArg => unreachable,
+            .TaggedUnion => unreachable,
+            .TaggedUnionEnumTag => unreachable,
+            .AsmOutput => unreachable,
+            .AsmInput => unreachable,
+            .ErrorValue => unreachable,
+            .ErrorUnion => unreachable,
         };
     }
 
@@ -431,6 +442,7 @@ pub const Tree = struct {
             .NullLiteral,
             .UndefinedLiteral,
             .UnreachableLiteral,
+            .Identifier,
             => return main_tokens[n] + end_offset,
 
             .Call => {
@@ -449,62 +461,61 @@ pub const Tree = struct {
                 n = datas[n].rhs;
             },
 
-            .ArrayInitDotTwo,
-            .ArrayInitDot,
-            .StructInitDotTwo,
-            .StructInitDot,
-            .Switch,
-            .If,
-            .Continue,
-            .Identifier,
-            .EnumLiteral,
-            .BuiltinCallTwo,
-            .BuiltinCall,
-            .ErrorSetDecl,
-            .Block,
-            .AsmSimple,
-            .Asm,
-            .SliceOpen,
-            .Slice,
-            .Deref,
-            .ArrayAccess,
-            .ArrayInitOne,
-            .ArrayInit,
-            .StructInitOne,
-            .SwitchCaseOne,
-            .SwitchRange,
-            .FnDecl,
-            .GlobalVarDecl,
-            .LocalVarDecl,
-            .SimpleVarDecl,
-            .AlignedVarDecl,
-            .ArrayType,
-            .ArrayTypeSentinel,
-            .PtrTypeAligned,
-            .PtrTypeSentinel,
-            .PtrType,
-            .SliceType,
-            .StructInit,
-            .SwitchCaseMulti,
-            .WhileCont,
-            .While,
-            .ForSimple,
-            .For,
-            .FnProtoSimple,
-            .FnProtoSimpleMulti,
-            .FnProtoOne,
-            .FnProto,
-            .ContainerDecl,
-            .ContainerDeclArg,
-            .TaggedUnion,
-            .TaggedUnionEnumTag,
-            .ContainerFieldInit,
-            .ContainerFieldAlign,
-            .ContainerField,
-            .AsmOutput,
-            .AsmInput,
-            .ErrorValue,
-            => @panic("TODO finish implementing lastToken"),
+            .ContainerFieldInit => unreachable,
+            .ContainerFieldAlign => unreachable,
+            .ContainerField => unreachable,
+
+            .ArrayInitDotTwo => unreachable,
+            .ArrayInitDot => unreachable,
+            .StructInitDotTwo => unreachable,
+            .StructInitDot => unreachable,
+            .Switch => unreachable,
+            .If => unreachable,
+            .Continue => unreachable,
+            .EnumLiteral => unreachable,
+            .BuiltinCallTwo => unreachable,
+            .BuiltinCall => unreachable,
+            .ErrorSetDecl => unreachable,
+            .Block => unreachable,
+            .AsmSimple => unreachable,
+            .Asm => unreachable,
+            .SliceOpen => unreachable,
+            .Slice => unreachable,
+            .Deref => unreachable,
+            .ArrayAccess => unreachable,
+            .ArrayInitOne => unreachable,
+            .ArrayInit => unreachable,
+            .StructInitOne => unreachable,
+            .SwitchCaseOne => unreachable,
+            .SwitchRange => unreachable,
+            .FnDecl => unreachable,
+            .GlobalVarDecl => unreachable,
+            .LocalVarDecl => unreachable,
+            .SimpleVarDecl => unreachable,
+            .AlignedVarDecl => unreachable,
+            .ArrayType => unreachable,
+            .ArrayTypeSentinel => unreachable,
+            .PtrTypeAligned => unreachable,
+            .PtrTypeSentinel => unreachable,
+            .PtrType => unreachable,
+            .SliceType => unreachable,
+            .StructInit => unreachable,
+            .SwitchCaseMulti => unreachable,
+            .WhileCont => unreachable,
+            .While => unreachable,
+            .ForSimple => unreachable,
+            .For => unreachable,
+            .FnProtoSimple => unreachable,
+            .FnProtoSimpleMulti => unreachable,
+            .FnProtoOne => unreachable,
+            .FnProto => unreachable,
+            .ContainerDecl => unreachable,
+            .ContainerDeclArg => unreachable,
+            .TaggedUnion => unreachable,
+            .TaggedUnionEnumTag => unreachable,
+            .AsmOutput => unreachable,
+            .AsmInput => unreachable,
+            .ErrorValue => unreachable,
         };
     }
 
@@ -587,6 +598,40 @@ pub const Tree = struct {
         });
     }
 
+    pub fn containerField(tree: Tree, node: Node.Index) Full.ContainerField {
+        assert(tree.nodes.items(.tag)[node] == .ContainerField);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.ContainerField);
+        return tree.fullContainerField(.{
+            .name_token = tree.nodes.items(.main_token)[node],
+            .type_expr = data.lhs,
+            .value_expr = extra.value_expr,
+            .align_expr = extra.align_expr,
+        });
+    }
+
+    pub fn containerFieldInit(tree: Tree, node: Node.Index) Full.ContainerField {
+        assert(tree.nodes.items(.tag)[node] == .ContainerFieldInit);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullContainerField(.{
+            .name_token = tree.nodes.items(.main_token)[node],
+            .type_expr = data.lhs,
+            .value_expr = data.rhs,
+            .align_expr = 0,
+        });
+    }
+
+    pub fn containerFieldAlign(tree: Tree, node: Node.Index) Full.ContainerField {
+        assert(tree.nodes.items(.tag)[node] == .ContainerFieldAlign);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullContainerField(.{
+            .name_token = tree.nodes.items(.main_token)[node],
+            .type_expr = data.lhs,
+            .value_expr = 0,
+            .align_expr = data.rhs,
+        });
+    }
+
     fn fullVarDecl(tree: Tree, info: Full.VarDecl.Ast) Full.VarDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: Full.VarDecl = .{
@@ -636,6 +681,20 @@ pub const Tree = struct {
         }
         return result;
     }
+
+    fn fullContainerField(tree: Tree, info: Full.ContainerField.Ast) Full.ContainerField {
+        const token_tags = tree.tokens.items(.tag);
+        var result: Full.ContainerField = .{
+            .ast = info,
+            .comptime_token = null,
+        };
+        // comptime name: type = init,
+        // ^
+        if (info.name_token > 0 and token_tags[info.name_token - 1] == .Keyword_comptime) {
+            result.comptime_token = info.name_token - 1;
+        }
+        return result;
+    }
 };
 
 /// Fully assembled AST node information.
@@ -672,6 +731,18 @@ pub const Full = struct {
             cond_expr: Node.Index,
             then_expr: Node.Index,
             else_expr: Node.Index,
+        };
+    };
+
+    pub const ContainerField = struct {
+        comptime_token: ?TokenIndex,
+        ast: Ast,
+
+        pub const Ast = struct {
+            name_token: TokenIndex,
+            type_expr: Node.Index,
+            value_expr: Node.Index,
+            align_expr: Node.Index,
         };
     };
 };
