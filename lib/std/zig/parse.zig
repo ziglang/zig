@@ -541,7 +541,7 @@ const Parser = struct {
                 .multi => |list| {
                     const span = try p.listToSpan(list);
                     return p.addNode(.{
-                        .tag = .FnProtoSimpleMulti,
+                        .tag = .FnProtoMulti,
                         .main_token = fn_token,
                         .data = .{
                             .lhs = try p.addExtra(Node.SubRange{
@@ -808,6 +808,22 @@ const Parser = struct {
             return p.fail(.{ .InvalidToken = .{ .token = p.tok_i } });
         }
         return statement;
+    }
+
+    /// If a parse error occurs, reports an error, but then finds the next statement
+    /// and returns that one instead. If a parse error occurs but there is no following
+    /// statement, returns 0.
+    fn expectStatementRecoverable(p: *Parser) error{OutOfMemory}!Node.Index {
+        while (true) {
+            return p.expectStatement() catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ParseError => {
+                    p.findNextStmt(); // Try to skip to the next statement.
+                    if (p.token_tags[p.tok_i] == .RBrace) return null_node;
+                    continue;
+                },
+            };
+        }
     }
 
     /// IfStatement
@@ -1859,25 +1875,53 @@ const Parser = struct {
     fn parseBlock(p: *Parser) !Node.Index {
         const lbrace = p.eatToken(.LBrace) orelse return null_node;
 
+        if (p.eatToken(.RBrace)) |_| {
+            return p.addNode(.{
+                .tag = .BlockTwo,
+                .main_token = lbrace,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = 0,
+                },
+            });
+        }
+
+        const stmt_one = try p.expectStatementRecoverable();
+        if (p.eatToken(.RBrace)) |_| {
+            return p.addNode(.{
+                .tag = .BlockTwo,
+                .main_token = lbrace,
+                .data = .{
+                    .lhs = stmt_one,
+                    .rhs = 0,
+                },
+            });
+        }
+        const stmt_two = try p.expectStatementRecoverable();
+        if (p.eatToken(.RBrace)) |_| {
+            return p.addNode(.{
+                .tag = .BlockTwo,
+                .main_token = lbrace,
+                .data = .{
+                    .lhs = stmt_one,
+                    .rhs = stmt_two,
+                },
+            });
+        }
+
         var statements = std.ArrayList(Node.Index).init(p.gpa);
         defer statements.deinit();
 
+        try statements.appendSlice(&[_]Node.Index{ stmt_one, stmt_two });
+
         while (true) {
-            const statement = (p.parseStatement() catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.ParseError => {
-                    // try to skip to the next statement
-                    p.findNextStmt();
-                    continue;
-                },
-            });
+            const statement = try p.expectStatementRecoverable();
             if (statement == 0) break;
             try statements.append(statement);
+            if (p.token_tags[p.tok_i] == .RBrace) break;
         }
-
-        const rbrace = try p.expectToken(.RBrace);
+        _ = try p.expectToken(.RBrace);
         const statements_span = try p.listToSpan(statements.items);
-
         return p.addNode(.{
             .tag = .Block,
             .main_token = lbrace,

@@ -100,44 +100,44 @@ test "zig fmt: top-level fields" {
     );
 }
 
-//test "zig fmt: decl between fields" {
-//    try testError(
-//        \\const S = struct {
-//        \\    const foo = 2;
-//        \\    const bar = 2;
-//        \\    const baz = 2;
-//        \\    a: usize,
-//        \\    const foo1 = 2;
-//        \\    const bar1 = 2;
-//        \\    const baz1 = 2;
-//        \\    b: usize,
-//        \\};
-//    , &[_]Error{
-//        .DeclBetweenFields,
-//    });
-//}
-//
-//test "zig fmt: eof after missing comma" {
-//    try testError(
-//        \\foo()
-//    , &[_]Error{
-//        .ExpectedToken,
-//    });
-//}
-//
-//test "zig fmt: errdefer with payload" {
-//    try testCanonical(
-//        \\pub fn main() anyerror!void {
-//        \\    errdefer |a| x += 1;
-//        \\    errdefer |a| {}
-//        \\    errdefer |a| {
-//        \\        x += 1;
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: decl between fields" {
+    try testError(
+        \\const S = struct {
+        \\    const foo = 2;
+        \\    const bar = 2;
+        \\    const baz = 2;
+        \\    a: usize,
+        \\    const foo1 = 2;
+        \\    const bar1 = 2;
+        \\    const baz1 = 2;
+        \\    b: usize,
+        \\};
+    , &[_]Error{
+        .DeclBetweenFields,
+    });
+}
+
+test "zig fmt: eof after missing comma" {
+    try testError(
+        \\foo()
+    , &[_]Error{
+        .ExpectedToken,
+    });
+}
+
+test "zig fmt: errdefer with payload" {
+    try testCanonical(
+        \\pub fn main() anyerror!void {
+        \\    errdefer |a| x += 1;
+        \\    errdefer |a| {}
+        \\    errdefer |a| {
+        \\        x += 1;
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: nosuspend block" {
 //    try testCanonical(
 //        \\pub fn main() anyerror!void {

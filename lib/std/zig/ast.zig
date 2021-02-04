@@ -244,9 +244,12 @@ pub const Tree = struct {
             .AnyType,
             .Comptime,
             .Nosuspend,
-            .Block,
             .AsmSimple,
             .Asm,
+            .FnProtoSimple,
+            .FnProtoMulti,
+            .FnProtoOne,
+            .FnProto,
             => return main_tokens[n],
 
             .Catch,
@@ -303,6 +306,7 @@ pub const Tree = struct {
             .SwitchCaseOne,
             .SwitchRange,
             .FnDecl,
+            .ErrorUnion,
             => n = datas[n].lhs,
 
             .ContainerFieldInit,
@@ -342,6 +346,18 @@ pub const Tree = struct {
                 return i;
             },
 
+            .Block,
+            .BlockTwo,
+            => {
+                // Look for a label.
+                const lbrace = main_tokens[n];
+                if (token_tags[lbrace - 1] == .Colon) {
+                    return lbrace - 2;
+                } else {
+                    return lbrace;
+                }
+            },
+
             .ArrayType => unreachable, // TODO
             .ArrayTypeSentinel => unreachable, // TODO
             .PtrTypeAligned => unreachable, // TODO
@@ -355,10 +371,6 @@ pub const Tree = struct {
             .While => unreachable, // TODO
             .ForSimple => unreachable, // TODO
             .For => unreachable, // TODO
-            .FnProtoSimple => unreachable, // TODO
-            .FnProtoSimpleMulti => unreachable, // TODO
-            .FnProtoOne => unreachable, // TODO
-            .FnProto => unreachable, // TODO
             .ContainerDecl => unreachable, // TODO
             .ContainerDeclArg => unreachable, // TODO
             .TaggedUnion => unreachable, // TODO
@@ -366,7 +378,6 @@ pub const Tree = struct {
             .AsmOutput => unreachable, // TODO
             .AsmInput => unreachable, // TODO
             .ErrorValue => unreachable, // TODO
-            .ErrorUnion => unreachable, // TODO
         };
     }
 
@@ -468,12 +479,19 @@ pub const Tree = struct {
             .Call,
             .BuiltinCall,
             => {
-                end_offset += 1; // for the `)`
+                end_offset += 1; // for the rparen
                 const params = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (params.end - params.start == 0) {
                     return main_tokens[n] + end_offset;
                 }
                 n = tree.extra_data[params.end - 1]; // last parameter
+            },
+            .Block => {
+                end_offset += 1; // for the rbrace
+                if (datas[n].rhs - datas[n].lhs == 0) {
+                    return main_tokens[n] + end_offset;
+                }
+                n = tree.extra_data[datas[n].rhs - 1]; // last statement
             },
             .CallOne,
             .ArrayAccess,
@@ -485,8 +503,8 @@ pub const Tree = struct {
                 n = datas[n].rhs;
             },
 
-            .BuiltinCallTwo => {
-                end_offset += 1; // for the rparen
+            .BuiltinCallTwo, .BlockTwo => {
+                end_offset += 1; // for the rparen/rbrace
                 if (datas[n].rhs == 0) {
                     if (datas[n].lhs == 0) {
                         return main_tokens[n] + end_offset;
@@ -511,7 +529,6 @@ pub const Tree = struct {
             .Continue => unreachable, // TODO
             .EnumLiteral => unreachable, // TODO
             .ErrorSetDecl => unreachable, // TODO
-            .Block => unreachable, // TODO
             .AsmSimple => unreachable, // TODO
             .Asm => unreachable, // TODO
             .SliceOpen => unreachable, // TODO
@@ -539,7 +556,7 @@ pub const Tree = struct {
             .ForSimple => unreachable, // TODO
             .For => unreachable, // TODO
             .FnProtoSimple => unreachable, // TODO
-            .FnProtoSimpleMulti => unreachable, // TODO
+            .FnProtoMulti => unreachable, // TODO
             .FnProtoOne => unreachable, // TODO
             .FnProto => unreachable, // TODO
             .ContainerDecl => unreachable, // TODO
@@ -665,6 +682,67 @@ pub const Tree = struct {
         });
     }
 
+    pub fn fnProtoSimple(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) Full.FnProto {
+        assert(tree.nodes.items(.tag)[node] == .FnProtoSimple);
+        const data = tree.nodes.items(.data)[node];
+        buffer[0] = data.lhs;
+        const params = if (data.lhs == 0) buffer[0..0] else buffer[0..1];
+        return tree.fullFnProto(.{
+            .fn_token = tree.nodes.items(.main_token)[node],
+            .return_type = data.rhs,
+            .params = params,
+            .align_expr = 0,
+            .section_expr = 0,
+            .callconv_expr = 0,
+        });
+    }
+
+    pub fn fnProtoMulti(tree: Tree, node: Node.Index) Full.FnProto {
+        assert(tree.nodes.items(.tag)[node] == .FnProtoMulti);
+        const data = tree.nodes.items(.data)[node];
+        const params_range = tree.extraData(data.lhs, Node.SubRange);
+        const params = tree.extra_data[params_range.start..params_range.end];
+        return tree.fullFnProto(.{
+            .fn_token = tree.nodes.items(.main_token)[node],
+            .return_type = data.rhs,
+            .params = params,
+            .align_expr = 0,
+            .section_expr = 0,
+            .callconv_expr = 0,
+        });
+    }
+
+    pub fn fnProtoOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) Full.FnProto {
+        assert(tree.nodes.items(.tag)[node] == .FnProtoOne);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.FnProtoOne);
+        buffer[0] = extra.param;
+        const params = if (extra.param == 0) buffer[0..0] else buffer[0..1];
+        return tree.fullFnProto(.{
+            .fn_token = tree.nodes.items(.main_token)[node],
+            .return_type = data.rhs,
+            .params = params,
+            .align_expr = extra.align_expr,
+            .section_expr = extra.section_expr,
+            .callconv_expr = extra.callconv_expr,
+        });
+    }
+
+    pub fn fnProto(tree: Tree, node: Node.Index) Full.FnProto {
+        assert(tree.nodes.items(.tag)[node] == .FnProto);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.FnProto);
+        const params = tree.extra_data[extra.params_start..extra.params_end];
+        return tree.fullFnProto(.{
+            .fn_token = tree.nodes.items(.main_token)[node],
+            .return_type = data.rhs,
+            .params = params,
+            .align_expr = extra.align_expr,
+            .section_expr = extra.section_expr,
+            .callconv_expr = extra.callconv_expr,
+        });
+    }
+
     fn fullVarDecl(tree: Tree, info: Full.VarDecl.Ast) Full.VarDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: Full.VarDecl = .{
@@ -728,6 +806,14 @@ pub const Tree = struct {
         }
         return result;
     }
+
+    fn fullFnProto(tree: Tree, info: Full.FnProto.Ast) Full.FnProto {
+        const token_tags = tree.tokens.items(.tag);
+        var result: Full.FnProto = .{
+            .ast = info,
+        };
+        return result;
+    }
 };
 
 /// Fully assembled AST node information.
@@ -776,6 +862,19 @@ pub const Full = struct {
             type_expr: Node.Index,
             value_expr: Node.Index,
             align_expr: Node.Index,
+        };
+    };
+
+    pub const FnProto = struct {
+        ast: Ast,
+
+        pub const Ast = struct {
+            fn_token: TokenIndex,
+            return_type: Node.Index,
+            params: []const Node.Index,
+            align_expr: Node.Index,
+            section_expr: Node.Index,
+            callconv_expr: Node.Index,
         };
     };
 };
@@ -1247,7 +1346,7 @@ pub const Node = struct {
         FnProtoSimple,
         /// `fn(a: b, c: d) rhs`. `sub_range_list[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
-        FnProtoSimpleMulti,
+        FnProtoMulti,
         /// `fn(a: b) rhs linksection(e) callconv(f)`. lhs is index into extra_data.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
@@ -1321,6 +1420,9 @@ pub const Node = struct {
         Comptime,
         /// `nosuspend lhs`. rhs unused.
         Nosuspend,
+        /// `{lhs; rhs;}`. rhs or lhs can be omitted.
+        /// main_token points at the `{`.
+        BlockTwo,
         /// `{}`. `sub_list[lhs..rhs]`.
         /// main_token points at the `{`.
         Block,

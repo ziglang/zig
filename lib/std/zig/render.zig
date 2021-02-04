@@ -77,22 +77,11 @@ fn renderExtraNewline(ais: *Ais, tree: ast.Tree, node: ast.Node.Index) Error!voi
 }
 
 fn renderExtraNewlineToken(ais: *Ais, tree: ast.Tree, first_token: ast.TokenIndex) Error!void {
-    @panic("TODO implement renderExtraNewlineToken");
-    //var prev_token = first_token;
-    //if (prev_token == 0) return;
-    //const token_tags = tree.tokens.items(.tag);
-    //var newline_threshold: usize = 2;
-    //while (token_tags[prev_token - 1] == .DocComment) {
-    //    if (tree.tokenLocation(tree.token_locs[prev_token - 1].end, prev_token).line == 1) {
-    //        newline_threshold += 1;
-    //    }
-    //    prev_token -= 1;
-    //}
-    //const prev_token_end = tree.token_locs[prev_token - 1].end;
-    //const loc = tree.tokenLocation(prev_token_end, first_token);
-    //if (loc.line >= newline_threshold) {
-    //    try ais.insertNewline();
-    //}
+    if (first_token == 0) return;
+    const token_starts = tree.tokens.items(.start);
+    if (tree.tokenLocation(token_starts[first_token - 1], first_token).line >= 2) {
+        return ais.insertNewline();
+    }
 }
 
 fn renderContainerDecl(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) Error!void {
@@ -101,24 +90,43 @@ fn renderContainerDecl(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: S
     const datas = tree.nodes.items(.data);
     try renderDocComments(ais, tree, tree.firstToken(decl));
     switch (tree.nodes.items(.tag)[decl]) {
-        .FnProtoSimple => unreachable, // TODO
-        .FnProtoSimpleMulti => unreachable, // TODO
-        .FnProtoOne => unreachable, // TODO
-        .FnDecl => unreachable, // TODO
-        .FnProto => unreachable, // TODO
-        //    .FnProto => {
-        //        const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
+        .FnDecl => {
+            // Some examples:
+            // pub extern "foo" fn ...
+            // export fn ...
+            const fn_proto = datas[decl].lhs;
+            const fn_token = main_tokens[fn_proto];
+            // Go back to the first token we should render here.
+            var i = fn_token;
+            while (i > 0) {
+                i -= 1;
+                switch (token_tags[i]) {
+                    .Keyword_extern,
+                    .Keyword_export,
+                    .Keyword_pub,
+                    .StringLiteral,
+                    => continue,
 
-        //        try renderDocComments(ais, tree, fn_proto, fn_proto.getDocComments());
-
-        //        if (fn_proto.getBodyNode()) |body_node| {
-        //            try renderExpression(ais, tree, decl, .Space);
-        //            try renderExpression(ais, tree, body_node, space);
-        //        } else {
-        //            try renderExpression(ais, tree, decl, .None);
-        //            try renderToken(ais, tree, tree.nextToken(decl.lastToken()), space);
-        //        }
-        //    },
+                    else => {
+                        i += 1;
+                        break;
+                    },
+                }
+            }
+            while (i < fn_token) : (i += 1) {
+                try renderToken(ais, tree, i, .Space);
+            }
+            try renderExpression(ais, tree, fn_proto, .Space);
+            return renderExpression(ais, tree, datas[decl].rhs, space);
+        },
+        .FnProtoSimple,
+        .FnProtoMulti,
+        .FnProtoOne,
+        .FnProto,
+        => {
+            try renderExpression(ais, tree, decl, .None);
+            try renderToken(ais, tree, tree.lastToken(decl) + 1, space); // semicolon
+        },
 
         .UsingNamespace => unreachable, // TODO
         //    .Use => {
@@ -186,90 +194,48 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    }
         //    return renderToken(ais, tree, any_type.token, space);
         //},
-        .Block => {
-            const lbrace = main_tokens[node];
-            if (token_tags[lbrace - 1] == .Colon and
-                token_tags[lbrace - 2] == .Identifier)
-            {
-                try renderToken(ais, tree, lbrace - 2, .None);
-                try renderToken(ais, tree, lbrace - 1, .Space);
-            }
-            const nodes_data = tree.nodes.items(.data);
-            const statements = tree.extra_data[nodes_data[node].lhs..nodes_data[node].rhs];
-
-            if (statements.len == 0) {
-                ais.pushIndentNextLine();
-                try renderToken(ais, tree, lbrace, .None);
-                ais.popIndent();
-                const rbrace = lbrace + 1;
-                return renderToken(ais, tree, rbrace, space);
+        .BlockTwo => {
+            var statements = [2]ast.Node.Index{ datas[node].lhs, datas[node].rhs };
+            if (datas[node].lhs == 0) {
+                return renderBlock(ais, tree, main_tokens[node], statements[0..0], space);
+            } else if (datas[node].rhs == 0) {
+                return renderBlock(ais, tree, main_tokens[node], statements[0..1], space);
             } else {
-                ais.pushIndentNextLine();
-
-                try renderToken(ais, tree, lbrace, .Newline);
-
-                for (statements) |stmt, i| {
-                    switch (node_tags[stmt]) {
-                        .GlobalVarDecl => try renderVarDecl(ais, tree, tree.globalVarDecl(stmt)),
-                        .LocalVarDecl => try renderVarDecl(ais, tree, tree.localVarDecl(stmt)),
-                        .SimpleVarDecl => try renderVarDecl(ais, tree, tree.simpleVarDecl(stmt)),
-                        .AlignedVarDecl => try renderVarDecl(ais, tree, tree.alignedVarDecl(stmt)),
-                        else => {
-                            const semicolon = tree.lastToken(stmt) + 1;
-                            if (token_tags[semicolon] == .Semicolon) {
-                                try renderExpression(ais, tree, stmt, .None);
-                                try renderToken(ais, tree, semicolon, .Newline);
-                            } else {
-                                try renderExpression(ais, tree, stmt, .Newline);
-                            }
-                        },
-                    }
-
-                    if (i + 1 < statements.len) {
-                        try renderExtraNewline(ais, tree, statements[i + 1]);
-                    }
-                }
-                ais.popIndent();
-                // The rbrace could be +1 or +2 from the last token of the last
-                // statement in the block because lastToken() does not count semicolons.
-                const maybe_rbrace = tree.lastToken(statements[statements.len - 1]) + 1;
-                if (token_tags[maybe_rbrace] == .RBrace) {
-                    return renderToken(ais, tree, maybe_rbrace, space);
-                } else {
-                    assert(token_tags[maybe_rbrace + 1] == .RBrace);
-                    return renderToken(ais, tree, maybe_rbrace + 1, space);
-                }
+                return renderBlock(ais, tree, main_tokens[node], statements[0..2], space);
             }
         },
+        .Block => {
+            const lbrace = main_tokens[node];
+            const statements = tree.extra_data[datas[node].lhs..datas[node].rhs];
+            return renderBlock(ais, tree, main_tokens[node], statements, space);
+        },
 
-        .Defer => unreachable, // TODO
-        .ErrDefer => unreachable, // TODO
-        //.Defer => {
-        //    const defer_node = @fieldParentPtr(ast.Node.Defer, "base", base);
+        .ErrDefer => {
+            const defer_token = main_tokens[node];
+            const payload_token = datas[node].lhs;
+            const expr = datas[node].rhs;
 
-        //    try renderToken(ais, tree, defer_node.defer_token, Space.Space);
-        //    if (defer_node.payload) |payload| {
-        //        try renderExpression(ais, tree, payload, Space.Space);
-        //    }
-        //    return renderExpression(ais, tree, defer_node.expr, space);
-        //},
-        .Comptime => {
+            try renderToken(ais, tree, defer_token, .Space);
+            if (payload_token != 0) {
+                try renderToken(ais, tree, payload_token - 1, .None); // |
+                try renderToken(ais, tree, payload_token, .None); // identifier
+                try renderToken(ais, tree, payload_token + 1, .Space); // |
+            }
+            return renderExpression(ais, tree, expr, space);
+        },
+
+        .Defer => {
+            const defer_token = main_tokens[node];
+            const expr = datas[node].rhs;
+            try renderToken(ais, tree, defer_token, .Space);
+            return renderExpression(ais, tree, expr, space);
+        },
+        .Comptime, .Nosuspend => {
             const comptime_token = main_tokens[node];
             const block = datas[node].lhs;
             try renderToken(ais, tree, comptime_token, .Space);
             return renderExpression(ais, tree, block, space);
         },
-        .Nosuspend => unreachable, // TODO
-        //.Nosuspend => {
-        //    const nosuspend_node = @fieldParentPtr(ast.Node.Nosuspend, "base", base);
-        //    if (mem.eql(u8, tree.tokenSlice(nosuspend_node.nosuspend_token), "noasync")) {
-        //        // TODO: remove this
-        //        try ais.writer().writeAll("nosuspend ");
-        //    } else {
-        //        try renderToken(ais, tree, nosuspend_node.nosuspend_token, Space.Space);
-        //    }
-        //    return renderExpression(ais, tree, nosuspend_node.expr, space);
-        //},
 
         .Suspend => unreachable, // TODO
         //.Suspend => {
@@ -1274,140 +1240,16 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderBuiltinCall(ais, tree, main_tokens[node], params, space);
         },
 
-        .FnProtoSimple => unreachable, // TODO
-        .FnProtoSimpleMulti => unreachable, // TODO
-        .FnProtoOne => unreachable, // TODO
-        .FnProto => unreachable, // TODO
-        //.FnProto => {
-        //    const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", base);
-
-        //    if (fn_proto.getVisibToken()) |visib_token_index| {
-        //        const visib_token = tree.token_tags[visib_token_index];
-        //        assert(visib_token == .Keyword_pub or visib_token == .Keyword_export);
-
-        //        try renderToken(ais, tree, visib_token_index, Space.Space); // pub
-        //    }
-
-        //    if (fn_proto.getExternExportInlineToken()) |extern_export_inline_token| {
-        //        if (fn_proto.getIsExternPrototype() == null)
-        //            try renderToken(ais, tree, extern_export_inline_token, Space.Space); // extern/export/inline
-        //    }
-
-        //    if (fn_proto.getLibName()) |lib_name| {
-        //        try renderExpression(ais, tree, lib_name, Space.Space);
-        //    }
-
-        //    const lparen = if (fn_proto.getNameToken()) |name_token| blk: {
-        //        try renderToken(ais, tree, fn_proto.fn_token, Space.Space); // fn
-        //        try renderToken(ais, tree, name_token, Space.None); // name
-        //        break :blk tree.nextToken(name_token);
-        //    } else blk: {
-        //        try renderToken(ais, tree, fn_proto.fn_token, Space.Space); // fn
-        //        break :blk tree.nextToken(fn_proto.fn_token);
-        //    };
-        //    assert(tree.token_tags[lparen] == .LParen);
-
-        //    const rparen = tree.prevToken(
-        //        // the first token for the annotation expressions is the left
-        //        // parenthesis, hence the need for two prevToken
-        //        if (fn_proto.getAlignExpr()) |align_expr|
-        //            tree.prevToken(tree.prevToken(align_expr.firstToken()))
-        //        else if (fn_proto.getSectionExpr()) |section_expr|
-        //            tree.prevToken(tree.prevToken(section_expr.firstToken()))
-        //        else if (fn_proto.getCallconvExpr()) |callconv_expr|
-        //            tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
-        //        else switch (fn_proto.return_type) {
-        //            .Explicit => |node| node.firstToken(),
-        //            .InferErrorSet => |node| tree.prevToken(node.firstToken()),
-        //            .Invalid => unreachable,
-        //        },
-        //    );
-        //    assert(tree.token_tags[rparen] == .RParen);
-
-        //    const src_params_trailing_comma = blk: {
-        //        const maybe_comma = tree.token_tags[rparen - 1];
-        //        break :blk maybe_comma == .Comma or maybe_comma == .LineComment;
-        //    };
-
-        //    if (!src_params_trailing_comma) {
-        //        try renderToken(ais, tree, lparen, Space.None); // (
-
-        //        // render all on one line, no trailing comma
-        //        for (fn_proto.params()) |param_decl, i| {
-        //            try renderParamDecl(allocator, ais, tree, param_decl, Space.None);
-
-        //            if (i + 1 < fn_proto.params_len or fn_proto.getVarArgsToken() != null) {
-        //                const comma = tree.nextToken(param_decl.lastToken());
-        //                try renderToken(ais, tree, comma, Space.Space); // ,
-        //            }
-        //        }
-        //        if (fn_proto.getVarArgsToken()) |var_args_token| {
-        //            try renderToken(ais, tree, var_args_token, Space.None);
-        //        }
-        //    } else {
-        //        // one param per line
-        //        ais.pushIndent();
-        //        defer ais.popIndent();
-        //        try renderToken(ais, tree, lparen, Space.Newline); // (
-
-        //        for (fn_proto.params()) |param_decl| {
-        //            try renderParamDecl(allocator, ais, tree, param_decl, Space.Comma);
-        //        }
-        //        if (fn_proto.getVarArgsToken()) |var_args_token| {
-        //            try renderToken(ais, tree, var_args_token, Space.Comma);
-        //        }
-        //    }
-
-        //    try renderToken(ais, tree, rparen, Space.Space); // )
-
-        //    if (fn_proto.getAlignExpr()) |align_expr| {
-        //        const align_rparen = tree.nextToken(align_expr.lastToken());
-        //        const align_lparen = tree.prevToken(align_expr.firstToken());
-        //        const align_kw = tree.prevToken(align_lparen);
-
-        //        try renderToken(ais, tree, align_kw, Space.None); // align
-        //        try renderToken(ais, tree, align_lparen, Space.None); // (
-        //        try renderExpression(ais, tree, align_expr, Space.None);
-        //        try renderToken(ais, tree, align_rparen, Space.Space); // )
-        //    }
-
-        //    if (fn_proto.getSectionExpr()) |section_expr| {
-        //        const section_rparen = tree.nextToken(section_expr.lastToken());
-        //        const section_lparen = tree.prevToken(section_expr.firstToken());
-        //        const section_kw = tree.prevToken(section_lparen);
-
-        //        try renderToken(ais, tree, section_kw, Space.None); // section
-        //        try renderToken(ais, tree, section_lparen, Space.None); // (
-        //        try renderExpression(ais, tree, section_expr, Space.None);
-        //        try renderToken(ais, tree, section_rparen, Space.Space); // )
-        //    }
-
-        //    if (fn_proto.getCallconvExpr()) |callconv_expr| {
-        //        const callconv_rparen = tree.nextToken(callconv_expr.lastToken());
-        //        const callconv_lparen = tree.prevToken(callconv_expr.firstToken());
-        //        const callconv_kw = tree.prevToken(callconv_lparen);
-
-        //        try renderToken(ais, tree, callconv_kw, Space.None); // callconv
-        //        try renderToken(ais, tree, callconv_lparen, Space.None); // (
-        //        try renderExpression(ais, tree, callconv_expr, Space.None);
-        //        try renderToken(ais, tree, callconv_rparen, Space.Space); // )
-        //    } else if (fn_proto.getIsExternPrototype() != null) {
-        //        try ais.writer().writeAll("callconv(.C) ");
-        //    } else if (fn_proto.getIsAsync() != null) {
-        //        try ais.writer().writeAll("callconv(.Async) ");
-        //    }
-
-        //    switch (fn_proto.return_type) {
-        //        .Explicit => |node| {
-        //            return renderExpression(ais, tree, node, space);
-        //        },
-        //        .InferErrorSet => |node| {
-        //            try renderToken(ais, tree, tree.prevToken(node.firstToken()), Space.None); // !
-        //            return renderExpression(ais, tree, node, space);
-        //        },
-        //        .Invalid => unreachable,
-        //    }
-        //},
+        .FnProtoSimple => {
+            var params: [1]ast.Node.Index = undefined;
+            return renderFnProto(ais, tree, tree.fnProtoSimple(&params, node), space);
+        },
+        .FnProtoMulti => return renderFnProto(ais, tree, tree.fnProtoMulti(node), space),
+        .FnProtoOne => {
+            var params: [1]ast.Node.Index = undefined;
+            return renderFnProto(ais, tree, tree.fnProtoOne(&params, node), space);
+        },
+        .FnProto => return renderFnProto(ais, tree, tree.fnProto(node), space),
 
         .AnyFrameType => unreachable, // TODO
         //.AnyFrameType => {
@@ -2130,30 +1972,6 @@ fn renderContainerField(
     return renderExpressionComma(ais, tree, field.ast.value_expr, space); // value
 }
 
-fn renderParamDecl(
-    allocator: *mem.Allocator,
-    ais: *Ais,
-    tree: ast.Tree,
-    param_decl: ast.Node.FnProto.ParamDecl,
-    space: Space,
-) Error!void {
-    try renderDocComments(ais, tree, param_decl, param_decl.doc_comments);
-
-    if (param_decl.comptime_token) |comptime_token| {
-        try renderToken(ais, tree, comptime_token, Space.Space);
-    }
-    if (param_decl.noalias_token) |noalias_token| {
-        try renderToken(ais, tree, noalias_token, Space.Space);
-    }
-    if (param_decl.name_token) |name_token| {
-        try renderToken(ais, tree, name_token, Space.None);
-        try renderToken(ais, tree, tree.nextToken(name_token), Space.Space); // :
-    }
-    switch (param_decl.param_type) {
-        .any_type, .type_expr => |node| try renderExpression(ais, tree, node, space),
-    }
-}
-
 fn renderBuiltinCall(
     ais: *Ais,
     tree: ast.Tree,
@@ -2197,6 +2015,239 @@ fn renderBuiltinCall(
         ais.popIndent();
 
         return renderToken(ais, tree, after_last_param_token + 1, space); // )
+    }
+}
+
+fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.Full.FnProto, space: Space) Error!void {
+    const token_tags = tree.tokens.items(.tag);
+
+    const after_fn_token = fn_proto.ast.fn_token + 1;
+    const lparen = if (token_tags[after_fn_token] == .Identifier) blk: {
+        try renderToken(ais, tree, fn_proto.ast.fn_token, .Space); // fn
+        try renderToken(ais, tree, after_fn_token, .None); // name
+        break :blk after_fn_token + 1;
+    } else blk: {
+        try renderToken(ais, tree, fn_proto.ast.fn_token, .Space); // fn
+        break :blk fn_proto.ast.fn_token + 1;
+    };
+    assert(token_tags[lparen] == .LParen);
+
+    const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
+    const rparen = blk: {
+        // The first token for the annotation expressions is the left
+        // parenthesis, hence the need for two previous tokens.
+        if (fn_proto.ast.align_expr != 0) {
+            break :blk tree.firstToken(fn_proto.ast.align_expr) - 3;
+        }
+        if (fn_proto.ast.section_expr != 0) {
+            break :blk tree.firstToken(fn_proto.ast.section_expr) - 3;
+        }
+        if (fn_proto.ast.callconv_expr != 0) {
+            break :blk tree.firstToken(fn_proto.ast.callconv_expr) - 3;
+        }
+        if (token_tags[maybe_bang] == .Bang) {
+            break :blk maybe_bang - 1;
+        }
+        break :blk maybe_bang;
+    };
+    assert(token_tags[rparen] == .RParen);
+
+    // The params list is a sparse set that does *not* include anytype or ... parameters.
+
+    if (token_tags[rparen - 1] != .Comma) {
+        // Render all on one line, no trailing comma.
+        try renderToken(ais, tree, lparen, .None); // (
+
+        var param_i: usize = 0;
+        var last_param_token = lparen;
+        while (true) {
+            last_param_token += 1;
+            switch (token_tags[last_param_token]) {
+                .DocComment => {
+                    try renderToken(ais, tree, last_param_token, .Newline);
+                    continue;
+                },
+                .Ellipsis3 => {
+                    try renderToken(ais, tree, last_param_token, .None); // ...
+                    break;
+                },
+                .Keyword_noalias, .Keyword_comptime => {
+                    try renderToken(ais, tree, last_param_token, .Space);
+                    last_param_token += 1;
+                },
+                .Identifier => {},
+                .Keyword_anytype => {
+                    try renderToken(ais, tree, last_param_token, .None); // anytype
+                    continue;
+                },
+                .RParen => break,
+                .Comma => {
+                    try renderToken(ais, tree, last_param_token, .Space); // ,
+                    last_param_token += 1;
+                },
+                else => unreachable,
+            }
+            if (token_tags[last_param_token] == .Identifier) {
+                try renderToken(ais, tree, last_param_token, .None); // name
+                last_param_token += 1;
+                try renderToken(ais, tree, last_param_token, .Space); // :
+                last_param_token += 1;
+            }
+            if (token_tags[last_param_token] == .Keyword_anytype) {
+                try renderToken(ais, tree, last_param_token, .None); // anytype
+                continue;
+            }
+            const param = fn_proto.ast.params[param_i];
+            param_i += 1;
+            try renderExpression(ais, tree, param, .None);
+            last_param_token = tree.lastToken(param) + 1;
+        }
+    } else {
+        // One param per line.
+        ais.pushIndent();
+        try renderToken(ais, tree, lparen, .Newline); // (
+
+        var param_i: usize = 0;
+        var last_param_token = lparen;
+        while (true) {
+            last_param_token += 1;
+            switch (token_tags[last_param_token]) {
+                .DocComment => {
+                    try renderToken(ais, tree, last_param_token, .Newline);
+                    continue;
+                },
+                .Ellipsis3 => {
+                    try renderToken(ais, tree, last_param_token, .Comma); // ...
+                    break;
+                },
+                .Keyword_noalias, .Keyword_comptime => {
+                    try renderToken(ais, tree, last_param_token, .Space);
+                    last_param_token += 1;
+                },
+                .Identifier => {},
+                .Keyword_anytype => {
+                    try renderToken(ais, tree, last_param_token, .Comma); // anytype
+                    continue;
+                },
+                .RParen => break,
+                else => unreachable,
+            }
+            if (token_tags[last_param_token] == .Identifier) {
+                try renderToken(ais, tree, last_param_token, .None); // name
+                last_param_token += 1;
+                try renderToken(ais, tree, last_param_token, .Space); // :
+                last_param_token += 1;
+            }
+            if (token_tags[last_param_token] == .Keyword_anytype) {
+                try renderToken(ais, tree, last_param_token, .Comma); // anytype
+                continue;
+            }
+            const param = fn_proto.ast.params[param_i];
+            param_i += 1;
+            try renderExpression(ais, tree, param, .Comma);
+            last_param_token = tree.lastToken(param) + 2;
+        }
+        ais.popIndent();
+    }
+
+    try renderToken(ais, tree, rparen, .Space); // )
+
+    if (fn_proto.ast.align_expr != 0) {
+        const align_lparen = tree.firstToken(fn_proto.ast.align_expr) - 1;
+        const align_rparen = tree.lastToken(fn_proto.ast.align_expr) + 1;
+
+        try renderToken(ais, tree, align_lparen - 1, .None); // align
+        try renderToken(ais, tree, align_lparen, .None); // (
+        try renderExpression(ais, tree, fn_proto.ast.align_expr, .None);
+        try renderToken(ais, tree, align_rparen, .Space); // )
+    }
+
+    if (fn_proto.ast.section_expr != 0) {
+        const section_lparen = tree.firstToken(fn_proto.ast.section_expr) - 1;
+        const section_rparen = tree.lastToken(fn_proto.ast.section_expr) + 1;
+
+        try renderToken(ais, tree, section_lparen - 1, .None); // section
+        try renderToken(ais, tree, section_lparen, .None); // (
+        try renderExpression(ais, tree, fn_proto.ast.section_expr, .None);
+        try renderToken(ais, tree, section_rparen, .Space); // )
+    }
+
+    if (fn_proto.ast.callconv_expr != 0) {
+        const callconv_lparen = tree.firstToken(fn_proto.ast.callconv_expr) - 1;
+        const callconv_rparen = tree.lastToken(fn_proto.ast.callconv_expr) + 1;
+
+        try renderToken(ais, tree, callconv_lparen - 1, .None); // callconv
+        try renderToken(ais, tree, callconv_lparen, .None); // (
+        try renderExpression(ais, tree, fn_proto.ast.callconv_expr, .None);
+        try renderToken(ais, tree, callconv_rparen, .Space); // )
+    }
+
+    if (token_tags[maybe_bang] == .Bang) {
+        try renderToken(ais, tree, maybe_bang, .None); // !
+    }
+    return renderExpression(ais, tree, fn_proto.ast.return_type, space);
+}
+
+fn renderBlock(
+    ais: *Ais,
+    tree: ast.Tree,
+    lbrace: ast.TokenIndex,
+    statements: []const ast.Node.Index,
+    space: Space,
+) Error!void {
+    const token_tags = tree.tokens.items(.tag);
+    const node_tags = tree.nodes.items(.tag);
+
+    if (token_tags[lbrace - 1] == .Colon and
+        token_tags[lbrace - 2] == .Identifier)
+    {
+        try renderToken(ais, tree, lbrace - 2, .None);
+        try renderToken(ais, tree, lbrace - 1, .Space);
+    }
+    const nodes_data = tree.nodes.items(.data);
+
+    if (statements.len == 0) {
+        ais.pushIndentNextLine();
+        try renderToken(ais, tree, lbrace, .None);
+        ais.popIndent();
+        const rbrace = lbrace + 1;
+        return renderToken(ais, tree, rbrace, space);
+    } else {
+        ais.pushIndentNextLine();
+
+        try renderToken(ais, tree, lbrace, .Newline);
+
+        for (statements) |stmt, i| {
+            switch (node_tags[stmt]) {
+                .GlobalVarDecl => try renderVarDecl(ais, tree, tree.globalVarDecl(stmt)),
+                .LocalVarDecl => try renderVarDecl(ais, tree, tree.localVarDecl(stmt)),
+                .SimpleVarDecl => try renderVarDecl(ais, tree, tree.simpleVarDecl(stmt)),
+                .AlignedVarDecl => try renderVarDecl(ais, tree, tree.alignedVarDecl(stmt)),
+                else => {
+                    const semicolon = tree.lastToken(stmt) + 1;
+                    if (token_tags[semicolon] == .Semicolon) {
+                        try renderExpression(ais, tree, stmt, .None);
+                        try renderToken(ais, tree, semicolon, .Newline);
+                    } else {
+                        try renderExpression(ais, tree, stmt, .Newline);
+                    }
+                },
+            }
+
+            if (i + 1 < statements.len) {
+                try renderExtraNewline(ais, tree, statements[i + 1]);
+            }
+        }
+        ais.popIndent();
+        // The rbrace could be +1 or +2 from the last token of the last
+        // statement in the block because lastToken() does not count semicolons.
+        const maybe_rbrace = tree.lastToken(statements[statements.len - 1]) + 1;
+        if (token_tags[maybe_rbrace] == .RBrace) {
+            return renderToken(ais, tree, maybe_rbrace, space);
+        } else {
+            assert(token_tags[maybe_rbrace + 1] == .RBrace);
+            return renderToken(ais, tree, maybe_rbrace + 1, space);
+        }
     }
 }
 
