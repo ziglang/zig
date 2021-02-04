@@ -360,7 +360,7 @@ pub const StackIterator = struct {
         };
     }
 
-    // Negative offset of the saved BP wrt the frame pointer.
+    // Offset of the saved BP wrt the frame pointer.
     const fp_offset = if (builtin.arch.isRISCV())
         // On RISC-V the frame pointer points to the top of the saved register
         // area, on pretty much every other architecture it points to the stack
@@ -398,7 +398,11 @@ pub const StackIterator = struct {
     }
 
     fn next_internal(self: *StackIterator) ?usize {
-        const fp = math.sub(usize, self.fp, fp_offset) catch return null;
+        const fp = if (builtin.arch.isSPARC())
+            // On SPARC the offset is positive. (!)
+            math.add(usize, self.fp, fp_offset) catch return null
+        else
+            math.sub(usize, self.fp, fp_offset) catch return null;
 
         // Sanity check.
         if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)))
