@@ -991,21 +991,16 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    return renderToken(ais, tree, suffix_op.rtoken, space); // ]
         //},
 
-        .Deref => unreachable, // TODO
-        //.Deref => {
-        //    const suffix_op = base.castTag(.Deref).?;
+        .Deref => {
+            try renderExpression(ais, tree, datas[node].lhs, .None);
+            return renderToken(ais, tree, main_tokens[node], space);
+        },
 
-        //    try renderExpression(ais, tree, suffix_op.lhs, Space.None);
-        //    return renderToken(ais, tree, suffix_op.rtoken, space); // .*
-        //},
-        .UnwrapOptional => unreachable, // TODO
-        //.UnwrapOptional => {
-        //    const suffix_op = base.castTag(.UnwrapOptional).?;
-
-        //    try renderExpression(ais, tree, suffix_op.lhs, Space.None);
-        //    try renderToken(ais, tree, tree.prevToken(suffix_op.rtoken), Space.None); // .
-        //    return renderToken(ais, tree, suffix_op.rtoken, space); // ?
-        //},
+        .UnwrapOptional => {
+            try renderExpression(ais, tree, datas[node].lhs, .None);
+            try renderToken(ais, tree, main_tokens[node], .None);
+            return renderToken(ais, tree, datas[node].rhs, space);
+        },
 
         .Break => unreachable, // TODO
         //.Break => {
