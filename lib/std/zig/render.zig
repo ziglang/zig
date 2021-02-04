@@ -308,7 +308,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             const field_access = datas[node];
             try renderExpression(ais, tree, field_access.lhs, .None);
             try renderToken(ais, tree, main_tokens[node], .None);
-            return renderToken(ais, tree, field_access.rhs, .None);
+            return renderToken(ais, tree, field_access.rhs, space);
         },
 
         .ErrorUnion,
@@ -362,18 +362,15 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         => {
             const infix = datas[node];
             try renderExpression(ais, tree, infix.lhs, .Space);
-
             const op_token = main_tokens[node];
-            const after_op_space: Space = if (tree.tokensOnSameLine(op_token, op_token + 1))
-                .Space
-            else
-                .Newline;
-            {
+            if (tree.tokensOnSameLine(op_token, op_token + 1)) {
+                try renderToken(ais, tree, op_token, .Space);
+            } else {
                 ais.pushIndent();
-                try renderToken(ais, tree, op_token, after_op_space);
+                try renderToken(ais, tree, op_token, .Newline);
                 ais.popIndent();
+                ais.pushIndentOneShot();
             }
-            ais.pushIndentOneShot();
             return renderExpression(ais, tree, infix.rhs, space);
         },
 
@@ -955,28 +952,15 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderToken(ais, tree, after_last_param_tok, space); // )
         },
 
-        .ArrayAccess => unreachable, // TODO
-        //.ArrayAccess => {
-        //    const suffix_op = base.castTag(.ArrayAccess).?;
-
-        //    const lbracket = tree.nextToken(suffix_op.lhs.lastToken());
-        //    const rbracket = tree.nextToken(suffix_op.index_expr.lastToken());
-
-        //    try renderExpression(ais, tree, suffix_op.lhs, Space.None);
-        //    try renderToken(ais, tree, lbracket, Space.None); // [
-
-        //    const starts_with_comment = tree.token_tags[lbracket + 1] == .LineComment;
-        //    const ends_with_comment = tree.token_tags[rbracket - 1] == .LineComment;
-        //    {
-        //        const new_space = if (ends_with_comment) Space.Newline else Space.None;
-
-        //        ais.pushIndent();
-        //        defer ais.popIndent();
-        //        try renderExpression(ais, tree, suffix_op.index_expr, new_space);
-        //    }
-        //    if (starts_with_comment) try ais.maybeInsertNewline();
-        //    return renderToken(ais, tree, rbracket, space); // ]
-        //},
+        .ArrayAccess => {
+            const suffix = datas[node];
+            const lbracket = tree.firstToken(suffix.rhs) - 1;
+            const rbracket = tree.lastToken(suffix.rhs) + 1;
+            try renderExpression(ais, tree, suffix.lhs, .None);
+            try renderToken(ais, tree, lbracket, .None); // [
+            try renderExpression(ais, tree, suffix.rhs, .None);
+            return renderToken(ais, tree, rbracket, space); // ]
+        },
 
         .Slice => unreachable, // TODO
         .SliceOpen => unreachable, // TODO
@@ -1278,68 +1262,22 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    }
         //},
 
-        .BuiltinCall => unreachable, // TODO
-        .BuiltinCallTwo => unreachable, // TODO
-        //.BuiltinCall => {
-        //    const builtin_call = @fieldParentPtr(ast.Node.BuiltinCall, "base", base);
-
-        //    // TODO remove after 0.7.0 release
-        //    if (mem.eql(u8, tree.tokenSlice(builtin_call.builtin_token), "@OpaqueType"))
-        //        return ais.writer().writeAll("opaque {}");
-
-        //    // TODO remove after 0.7.0 release
-        //    {
-        //        const params = builtin_call.paramsConst();
-        //        if (mem.eql(u8, tree.tokenSlice(builtin_call.builtin_token), "@Type") and
-        //            params.len == 1)
-        //        {
-        //            if (params[0].castTag(.EnumLiteral)) |enum_literal|
-        //                if (mem.eql(u8, tree.tokenSlice(enum_literal.name), "Opaque"))
-        //                    return ais.writer().writeAll("opaque {}");
-        //        }
-        //    }
-
-        //    try renderToken(ais, tree, builtin_call.builtin_token, Space.None); // @name
-
-        //    const src_params_trailing_comma = blk: {
-        //        if (builtin_call.params_len == 0) break :blk false;
-        //        const last_node = builtin_call.params()[builtin_call.params_len - 1];
-        //        const maybe_comma = tree.nextToken(last_node.lastToken());
-        //        break :blk tree.token_tags[maybe_comma] == .Comma;
-        //    };
-
-        //    const lparen = tree.nextToken(builtin_call.builtin_token);
-
-        //    if (!src_params_trailing_comma) {
-        //        try renderToken(ais, tree, lparen, Space.None); // (
-
-        //        // render all on one line, no trailing comma
-        //        const params = builtin_call.params();
-        //        for (params) |param_node, i| {
-        //            const maybe_comment = param_node.firstToken() - 1;
-        //            if (param_node.*.tag == .MultilineStringLiteral or tree.token_tags[maybe_comment] == .LineComment) {
-        //                ais.pushIndentOneShot();
-        //            }
-        //            try renderExpression(ais, tree, param_node, Space.None);
-
-        //            if (i + 1 < params.len) {
-        //                const comma_token = tree.nextToken(param_node.lastToken());
-        //                try renderToken(ais, tree, comma_token, Space.Space); // ,
-        //            }
-        //        }
-        //    } else {
-        //        // one param per line
-        //        ais.pushIndent();
-        //        defer ais.popIndent();
-        //        try renderToken(ais, tree, lparen, Space.Newline); // (
-
-        //        for (builtin_call.params()) |param_node| {
-        //            try renderExpression(ais, tree, param_node, Space.Comma);
-        //        }
-        //    }
-
-        //    return renderToken(ais, tree, builtin_call.rparen_token, space); // )
-        //},
+        .BuiltinCallTwo => {
+            if (datas[node].lhs == 0) {
+                const params = [_]ast.Node.Index{};
+                return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
+            } else if (datas[node].rhs == 0) {
+                const params = [_]ast.Node.Index{datas[node].lhs};
+                return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
+            } else {
+                const params = [_]ast.Node.Index{ datas[node].lhs, datas[node].rhs };
+                return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
+            }
+        },
+        .BuiltinCall => {
+            const params = tree.extra_data[datas[node].lhs..datas[node].rhs];
+            return renderBuiltinCall(ais, tree, main_tokens[node], params, space);
+        },
 
         .FnProtoSimple => unreachable, // TODO
         .FnProtoSimpleMulti => unreachable, // TODO
@@ -2218,6 +2156,52 @@ fn renderParamDecl(
     }
     switch (param_decl.param_type) {
         .any_type, .type_expr => |node| try renderExpression(ais, tree, node, space),
+    }
+}
+
+fn renderBuiltinCall(
+    ais: *Ais,
+    tree: ast.Tree,
+    builtin_token: ast.TokenIndex,
+    params: []const ast.Node.Index,
+    space: Space,
+) Error!void {
+    const token_tags = tree.tokens.items(.tag);
+
+    try renderToken(ais, tree, builtin_token, .None); // @name
+
+    if (params.len == 0) {
+        try renderToken(ais, tree, builtin_token + 1, .None); // (
+        return renderToken(ais, tree, builtin_token + 2, space); // )
+    }
+
+    const last_param = params[params.len - 1];
+    const after_last_param_token = tree.lastToken(last_param) + 1;
+
+    if (token_tags[after_last_param_token] != .Comma) {
+        // Render all on one line, no trailing comma.
+        try renderToken(ais, tree, builtin_token + 1, .None); // (
+
+        for (params) |param_node, i| {
+            try renderExpression(ais, tree, param_node, .None);
+
+            if (i + 1 < params.len) {
+                const comma_token = tree.lastToken(param_node) + 1;
+                try renderToken(ais, tree, comma_token, .Space); // ,
+            }
+        }
+        return renderToken(ais, tree, after_last_param_token, space); // )
+    } else {
+        // Render one param per line.
+        ais.pushIndent();
+        try renderToken(ais, tree, builtin_token + 1, Space.Newline); // (
+
+        for (params) |param_node| {
+            try renderExpression(ais, tree, param_node, .Comma);
+        }
+        ais.popIndent();
+
+        return renderToken(ais, tree, after_last_param_token + 1, space); // )
     }
 }
 

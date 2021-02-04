@@ -21,21 +21,21 @@ test "zig fmt: two spaced line comments before decl" {
     );
 }
 
-//test "zig fmt: respect line breaks after var declarations" {
-//    try testCanonical(
-//        \\const crc =
-//        \\    lookup_tables[0][p[7]] ^
-//        \\    lookup_tables[1][p[6]] ^
-//        \\    lookup_tables[2][p[5]] ^
-//        \\    lookup_tables[3][p[4]] ^
-//        \\    lookup_tables[4][@truncate(u8, self.crc >> 24)] ^
-//        \\    lookup_tables[5][@truncate(u8, self.crc >> 16)] ^
-//        \\    lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
-//        \\    lookup_tables[7][@truncate(u8, self.crc >> 0)];
-//        \\
-//    );
-//}
-//
+test "zig fmt: respect line breaks after var declarations" {
+    try testCanonical(
+        \\const crc =
+        \\    lookup_tables[0][p[7]] ^
+        \\    lookup_tables[1][p[6]] ^
+        \\    lookup_tables[2][p[5]] ^
+        \\    lookup_tables[3][p[4]] ^
+        \\    lookup_tables[4][@truncate(u8, self.crc >> 24)] ^
+        \\    lookup_tables[5][@truncate(u8, self.crc >> 16)] ^
+        \\    lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
+        \\    lookup_tables[7][@truncate(u8, self.crc >> 0)];
+        \\
+    );
+}
+
 //test "zig fmt: multiline string mixed with comments" {
 //    try testCanonical(
 //        \\const s1 =

@@ -319,35 +319,54 @@ pub const Tree = struct {
                 }
             },
 
-            .GlobalVarDecl => unreachable,
-            .LocalVarDecl => unreachable,
-            .SimpleVarDecl => unreachable,
-            .AlignedVarDecl => unreachable,
-            .ArrayType => unreachable,
-            .ArrayTypeSentinel => unreachable,
-            .PtrTypeAligned => unreachable,
-            .PtrTypeSentinel => unreachable,
-            .PtrType => unreachable,
-            .SliceType => unreachable,
-            .StructInit => unreachable,
-            .SwitchCaseMulti => unreachable,
-            .WhileSimple => unreachable,
-            .WhileCont => unreachable,
-            .While => unreachable,
-            .ForSimple => unreachable,
-            .For => unreachable,
-            .FnProtoSimple => unreachable,
-            .FnProtoSimpleMulti => unreachable,
-            .FnProtoOne => unreachable,
-            .FnProto => unreachable,
-            .ContainerDecl => unreachable,
-            .ContainerDeclArg => unreachable,
-            .TaggedUnion => unreachable,
-            .TaggedUnionEnumTag => unreachable,
-            .AsmOutput => unreachable,
-            .AsmInput => unreachable,
-            .ErrorValue => unreachable,
-            .ErrorUnion => unreachable,
+            .GlobalVarDecl,
+            .LocalVarDecl,
+            .SimpleVarDecl,
+            .AlignedVarDecl,
+            => {
+                var i = main_tokens[n]; // mut token
+                while (i > 0) {
+                    i -= 1;
+                    switch (token_tags[i]) {
+                        .Keyword_extern,
+                        .Keyword_export,
+                        .Keyword_comptime,
+                        .Keyword_pub,
+                        .Keyword_threadlocal,
+                        .StringLiteral,
+                        => continue,
+
+                        else => return i + 1,
+                    }
+                }
+                return i;
+            },
+
+            .ArrayType => unreachable, // TODO
+            .ArrayTypeSentinel => unreachable, // TODO
+            .PtrTypeAligned => unreachable, // TODO
+            .PtrTypeSentinel => unreachable, // TODO
+            .PtrType => unreachable, // TODO
+            .SliceType => unreachable, // TODO
+            .StructInit => unreachable, // TODO
+            .SwitchCaseMulti => unreachable, // TODO
+            .WhileSimple => unreachable, // TODO
+            .WhileCont => unreachable, // TODO
+            .While => unreachable, // TODO
+            .ForSimple => unreachable, // TODO
+            .For => unreachable, // TODO
+            .FnProtoSimple => unreachable, // TODO
+            .FnProtoSimpleMulti => unreachable, // TODO
+            .FnProtoOne => unreachable, // TODO
+            .FnProto => unreachable, // TODO
+            .ContainerDecl => unreachable, // TODO
+            .ContainerDeclArg => unreachable, // TODO
+            .TaggedUnion => unreachable, // TODO
+            .TaggedUnionEnumTag => unreachable, // TODO
+            .AsmOutput => unreachable, // TODO
+            .AsmInput => unreachable, // TODO
+            .ErrorValue => unreachable, // TODO
+            .ErrorUnion => unreachable, // TODO
         };
     }
 
@@ -445,7 +464,9 @@ pub const Tree = struct {
             .Identifier,
             => return main_tokens[n] + end_offset,
 
-            .Call => {
+            .Call,
+            .BuiltinCall,
+            => {
                 end_offset += 1; // for the `)`
                 const params = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (params.end - params.start == 0) {
@@ -453,69 +474,81 @@ pub const Tree = struct {
                 }
                 n = tree.extra_data[params.end - 1]; // last parameter
             },
-            .CallOne => {
-                end_offset += 1; // for the `)`
+            .CallOne,
+            .ArrayAccess,
+            => {
+                end_offset += 1; // for the rparen/rbracket
                 if (datas[n].rhs == 0) {
                     return main_tokens[n] + end_offset;
                 }
                 n = datas[n].rhs;
             },
 
+            .BuiltinCallTwo => {
+                end_offset += 1; // for the rparen
+                if (datas[n].rhs == 0) {
+                    if (datas[n].lhs == 0) {
+                        return main_tokens[n] + end_offset;
+                    } else {
+                        n = datas[n].lhs;
+                    }
+                } else {
+                    n = datas[n].rhs;
+                }
+            },
+
             .ContainerFieldInit => unreachable,
             .ContainerFieldAlign => unreachable,
             .ContainerField => unreachable,
 
-            .ArrayInitDotTwo => unreachable,
-            .ArrayInitDot => unreachable,
-            .StructInitDotTwo => unreachable,
-            .StructInitDot => unreachable,
-            .Switch => unreachable,
-            .If => unreachable,
-            .Continue => unreachable,
-            .EnumLiteral => unreachable,
-            .BuiltinCallTwo => unreachable,
-            .BuiltinCall => unreachable,
-            .ErrorSetDecl => unreachable,
-            .Block => unreachable,
-            .AsmSimple => unreachable,
-            .Asm => unreachable,
-            .SliceOpen => unreachable,
-            .Slice => unreachable,
-            .Deref => unreachable,
-            .ArrayAccess => unreachable,
-            .ArrayInitOne => unreachable,
-            .ArrayInit => unreachable,
-            .StructInitOne => unreachable,
-            .SwitchCaseOne => unreachable,
-            .SwitchRange => unreachable,
-            .FnDecl => unreachable,
-            .GlobalVarDecl => unreachable,
-            .LocalVarDecl => unreachable,
-            .SimpleVarDecl => unreachable,
-            .AlignedVarDecl => unreachable,
-            .ArrayType => unreachable,
-            .ArrayTypeSentinel => unreachable,
-            .PtrTypeAligned => unreachable,
-            .PtrTypeSentinel => unreachable,
-            .PtrType => unreachable,
-            .SliceType => unreachable,
-            .StructInit => unreachable,
-            .SwitchCaseMulti => unreachable,
-            .WhileCont => unreachable,
-            .While => unreachable,
-            .ForSimple => unreachable,
-            .For => unreachable,
-            .FnProtoSimple => unreachable,
-            .FnProtoSimpleMulti => unreachable,
-            .FnProtoOne => unreachable,
-            .FnProto => unreachable,
-            .ContainerDecl => unreachable,
-            .ContainerDeclArg => unreachable,
-            .TaggedUnion => unreachable,
-            .TaggedUnionEnumTag => unreachable,
-            .AsmOutput => unreachable,
-            .AsmInput => unreachable,
-            .ErrorValue => unreachable,
+            .ArrayInitDotTwo => unreachable, // TODO
+            .ArrayInitDot => unreachable, // TODO
+            .StructInitDotTwo => unreachable, // TODO
+            .StructInitDot => unreachable, // TODO
+            .Switch => unreachable, // TODO
+            .If => unreachable, // TODO
+            .Continue => unreachable, // TODO
+            .EnumLiteral => unreachable, // TODO
+            .ErrorSetDecl => unreachable, // TODO
+            .Block => unreachable, // TODO
+            .AsmSimple => unreachable, // TODO
+            .Asm => unreachable, // TODO
+            .SliceOpen => unreachable, // TODO
+            .Slice => unreachable, // TODO
+            .Deref => unreachable, // TODO
+            .ArrayInitOne => unreachable, // TODO
+            .ArrayInit => unreachable, // TODO
+            .StructInitOne => unreachable, // TODO
+            .SwitchCaseOne => unreachable, // TODO
+            .SwitchRange => unreachable, // TODO
+            .FnDecl => unreachable, // TODO
+            .GlobalVarDecl => unreachable, // TODO
+            .LocalVarDecl => unreachable, // TODO
+            .SimpleVarDecl => unreachable, // TODO
+            .AlignedVarDecl => unreachable, // TODO
+            .ArrayType => unreachable, // TODO
+            .ArrayTypeSentinel => unreachable, // TODO
+            .PtrTypeAligned => unreachable, // TODO
+            .PtrTypeSentinel => unreachable, // TODO
+            .PtrType => unreachable, // TODO
+            .SliceType => unreachable, // TODO
+            .StructInit => unreachable, // TODO
+            .SwitchCaseMulti => unreachable, // TODO
+            .WhileCont => unreachable, // TODO
+            .While => unreachable, // TODO
+            .ForSimple => unreachable, // TODO
+            .For => unreachable, // TODO
+            .FnProtoSimple => unreachable, // TODO
+            .FnProtoSimpleMulti => unreachable, // TODO
+            .FnProtoOne => unreachable, // TODO
+            .FnProto => unreachable, // TODO
+            .ContainerDecl => unreachable, // TODO
+            .ContainerDeclArg => unreachable, // TODO
+            .TaggedUnion => unreachable, // TODO
+            .TaggedUnionEnumTag => unreachable, // TODO
+            .AsmOutput => unreachable, // TODO
+            .AsmInput => unreachable, // TODO
+            .ErrorValue => unreachable, // TODO
         };
     }
 

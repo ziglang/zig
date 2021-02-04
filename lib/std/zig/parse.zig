@@ -3483,9 +3483,8 @@ const Parser = struct {
     /// ExprList <- (Expr COMMA)* Expr?
     /// TODO detect when we can emit BuiltinCallTwo instead of BuiltinCall.
     fn parseBuiltinCall(p: *Parser) !Node.Index {
-        const builtin_token = p.eatToken(.Builtin) orelse return null_node;
-
-        const lparen = (try p.expectTokenRecoverable(.LParen)) orelse {
+        const builtin_token = p.assertToken(.Builtin);
+        _ = (try p.expectTokenRecoverable(.LParen)) orelse {
             try p.warn(.{
                 .ExpectedParamList = .{ .token = p.tok_i },
             });
@@ -3499,8 +3498,104 @@ const Parser = struct {
                 },
             });
         };
-        const params = try ListParseFn(parseExpr)(p);
-        _ = try p.expectToken(.RParen);
+        if (p.eatToken(.RParen)) |_| {
+            return p.addNode(.{
+                .tag = .BuiltinCallTwo,
+                .main_token = builtin_token,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = 0,
+                },
+            });
+        }
+        const param_one = try p.expectExpr();
+        switch (p.token_tags[p.nextToken()]) {
+            .Comma => {
+                if (p.eatToken(.RParen)) |_| {
+                    return p.addNode(.{
+                        .tag = .BuiltinCallTwo,
+                        .main_token = builtin_token,
+                        .data = .{
+                            .lhs = param_one,
+                            .rhs = 0,
+                        },
+                    });
+                }
+            },
+            .RParen => return p.addNode(.{
+                .tag = .BuiltinCallTwo,
+                .main_token = builtin_token,
+                .data = .{
+                    .lhs = param_one,
+                    .rhs = 0,
+                },
+            }),
+            else => {
+                // This is likely just a missing comma;
+                // give an error but continue parsing this list.
+                p.tok_i -= 1;
+                try p.warn(.{
+                    .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
+                });
+            },
+        }
+        const param_two = try p.expectExpr();
+        switch (p.token_tags[p.nextToken()]) {
+            .Comma => {
+                if (p.eatToken(.RParen)) |_| {
+                    return p.addNode(.{
+                        .tag = .BuiltinCallTwo,
+                        .main_token = builtin_token,
+                        .data = .{
+                            .lhs = param_one,
+                            .rhs = param_two,
+                        },
+                    });
+                }
+            },
+            .RParen => return p.addNode(.{
+                .tag = .BuiltinCallTwo,
+                .main_token = builtin_token,
+                .data = .{
+                    .lhs = param_one,
+                    .rhs = param_two,
+                },
+            }),
+            else => {
+                // This is likely just a missing comma;
+                // give an error but continue parsing this list.
+                p.tok_i -= 1;
+                try p.warn(.{
+                    .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
+                });
+            },
+        }
+
+        var list = std.ArrayList(Node.Index).init(p.gpa);
+        defer list.deinit();
+
+        try list.appendSlice(&[_]Node.Index{ param_one, param_two });
+
+        while (true) {
+            const param = try p.expectExpr();
+            try list.append(param);
+            switch (p.token_tags[p.nextToken()]) {
+                .Comma => {
+                    if (p.eatToken(.RParen)) |_| break;
+                    continue;
+                },
+                .RParen => break,
+                else => {
+                    // This is likely just a missing comma;
+                    // give an error but continue parsing this list.
+                    p.tok_i -= 1;
+                    try p.warn(.{
+                        .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
+                    });
+                },
+            }
+        }
+        const params = try p.listToSpan(list.items);
         return p.addNode(.{
             .tag = .BuiltinCall,
             .main_token = builtin_token,
