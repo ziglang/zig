@@ -263,7 +263,7 @@ pub const ExternalKind = enum(u8) {
 };
 
 /// Returns the integer value of a given `ExternalKind`
-pub fn kind(val: ExternalKind) u8 {
+pub fn externalKind(val: ExternalKind) u8 {
     return @enumToInt(val);
 }
 

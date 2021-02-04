@@ -33,9 +33,18 @@ base: link.File,
 
 /// List of all function Decls to be written to the output file. The index of
 /// each Decl in this list at the time of writing the binary is used as the
-/// function index.
+/// function index. In the event where ext_funcs' size is not 0, the index of
+/// each function is added on top of the ext_funcs' length.
 /// TODO: can/should we access some data structure in Module directly?
 funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
+/// List of all extern function Decls to be written to the `import` section of the
+/// wasm binary. The positin in the list defines the function index
+ext_funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
+/// When importing objects from the host environment, a name must be supplied.
+/// LLVM uses "env" by default when none is given. This would be a good default for Zig
+/// to support existing code.
+/// TODO: Allow setting this through a flag?
+host_name: []const u8 = "env",
 
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.object_format == .wasm);
@@ -76,7 +85,13 @@ pub fn deinit(self: *Wasm) void {
         decl.fn_link.wasm.?.code.deinit(self.base.allocator);
         decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
     }
+    for (self.ext_funcs.items) |decl| {
+        decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
+        decl.fn_link.wasm.?.code.deinit(self.base.allocator);
+        decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
+    }
     self.funcs.deinit(self.base.allocator);
+    self.ext_funcs.deinit(self.base.allocator);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -92,7 +107,12 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         fn_data.idx_refs.items.len = 0;
     } else {
         decl.fn_link.wasm = .{};
-        try self.funcs.append(self.base.allocator, decl);
+        // dependent on function type, appends it to the correct list
+        switch (decl.typed_value.most_recent.typed_value.val.tag()) {
+            .function => try self.funcs.append(self.base.allocator, decl),
+            .extern_fn => try self.ext_funcs.append(self.base.allocator, decl),
+            else => return error.TODOImplementNonFnDeclsForWasm,
+        }
     }
     const fn_data = &decl.fn_link.wasm.?;
 
@@ -141,7 +161,12 @@ pub fn updateDeclExports(
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     // TODO: remove this assert when non-function Decls are implemented
     assert(decl.typed_value.most_recent.typed_value.ty.zigTypeTag() == .Fn);
-    _ = self.funcs.swapRemove(self.getFuncidx(decl).?);
+    const func_idx = self.getFuncidx(decl).?;
+    switch (decl.typed_value.most_recent.typed_value.val.tag()) {
+        .function => _ = self.funcs.swapRemove(func_idx),
+        .extern_fn => _ = self.ext_funcs.swapRemove(func_idx),
+        else => unreachable,
+    }
     decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.?.code.deinit(self.base.allocator);
     decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
@@ -170,15 +195,18 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     // Type section
     {
         const header_offset = try reserveVecSectionHeader(file);
-        for (self.funcs.items) |decl| {
-            try file.writeAll(decl.fn_link.wasm.?.functype.items);
-        }
+
+        // extern functions are defined in the wasm binary first through the `import`
+        // section, so define their func types first
+        for (self.ext_funcs.items) |decl| try file.writeAll(decl.fn_link.wasm.?.functype.items);
+        for (self.funcs.items) |decl| try file.writeAll(decl.fn_link.wasm.?.functype.items);
+
         try writeVecSectionHeader(
             file,
             header_offset,
             .type,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.funcs.items.len),
+            @intCast(u32, self.ext_funcs.items.len + self.funcs.items.len),
         );
     }
 
@@ -187,28 +215,18 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         // TODO: implement non-functions imports
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        var count: u32 = 0;
-        for (self.funcs.items) |decl, typeidx| {
-            if (decl.typed_value.most_recent.typed_value.val.tag() != .extern_fn) {
-                continue;
-            }
+        for (self.ext_funcs.items) |decl, typeidx| {
+            try leb.writeULEB128(writer, @intCast(u32, self.host_name.len));
+            try writer.writeAll(self.host_name);
 
-            // TODO: can we set/save the module name somewhere?
-            // For now, emit "env" like LLVM does
-            const module_name = "env";
-            try leb.writeULEB128(writer, @intCast(u32, module_name.len));
-            try writer.writeAll(module_name);
-
-            // wasm requires the length of the import name and doesn't require a null-termination
+            // wasm requires the length of the import name with no null-termination
             const decl_len = mem.len(decl.name);
             try leb.writeULEB128(writer, @intCast(u32, decl_len));
             try writer.writeAll(decl.name[0..decl_len]);
 
             // emit kind and the function type
-            try writer.writeByte(wasm.kind(.function));
+            try writer.writeByte(wasm.externalKind(.function));
             try leb.writeULEB128(writer, @intCast(u32, typeidx));
-
-            count += 1;
         }
 
         try writeVecSectionHeader(
@@ -216,7 +234,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             header_offset,
             .import,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            count,
+            @intCast(u32, self.ext_funcs.items.len),
         );
     }
 
@@ -224,21 +242,17 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        var count: u32 = 0;
-        for (self.funcs.items) |decl, typeidx| {
-            // Extern functions only have a type, so skip the function signature section
-            if (decl.typed_value.most_recent.typed_value.val.tag() != .function) {
-                continue;
-            }
-            try leb.writeULEB128(writer, @intCast(u32, typeidx));
-            count += 1;
+        for (self.funcs.items) |_, typeidx| {
+            const func_idx = @intCast(u32, self.getFuncIdxOffset() + typeidx);
+            try leb.writeULEB128(writer, func_idx);
         }
+
         try writeVecSectionHeader(
             file,
             header_offset,
             .function,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            count,
+            @intCast(u32, self.funcs.items.len),
         );
     }
 
@@ -256,9 +270,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 switch (exprt.exported_decl.typed_value.most_recent.typed_value.ty.zigTypeTag()) {
                     .Fn => {
                         // Type of the export
-                        try writer.writeByte(0x00);
+                        try writer.writeByte(wasm.externalKind(.function));
                         // Exported function index
-                        try leb.writeULEB128(writer, self.getFuncidx(exprt.exported_decl).? + 1);
+                        try leb.writeULEB128(writer, self.getFuncidx(exprt.exported_decl).?);
                     },
                     else => return error.TODOImplementNonFnDeclsForWasm,
                 }
@@ -279,13 +293,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        var count: u32 = 0;
         for (self.funcs.items) |decl| {
-            // Do not emit any code for extern functions
-            if (decl.typed_value.most_recent.typed_value.val.tag() != .function) {
-                std.debug.print("Skipping decl: {s}\n", .{decl.name});
-                continue;
-            }
             const fn_data = &decl.fn_link.wasm.?;
 
             // Write the already generated code to the file, inserting
@@ -297,20 +305,18 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 // Use a fixed width here to make calculating the code size
                 // in codegen.wasm.gen() simpler.
                 var buf: [5]u8 = undefined;
-                std.debug.print("idx_ref: {s} - {d}\n", .{ idx_ref.decl.name, self.getFuncidx(idx_ref.decl).? });
-                leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).? - 1);
+                leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
                 try writer.writeAll(&buf);
             }
 
             try writer.writeAll(fn_data.code.items[current..]);
-            count += 1;
         }
         try writeVecSectionHeader(
             file,
             header_offset,
             .code,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            count,
+            @intCast(u32, self.funcs.items.len),
         );
     }
 }
@@ -575,11 +581,29 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 }
 
 /// Get the current index of a given Decl in the function list
-/// TODO: we could maintain a hash map to potentially make this
+/// This will correctly provide the index, regardless whether the function is extern or not
+/// TODO: we could maintain a hash map to potentially make this simpler
 fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
-    return for (self.funcs.items) |func, idx| {
-        if (func == decl) break @intCast(u32, idx);
+    var offset: u32 = 0;
+    const slice = switch (decl.typed_value.most_recent.typed_value.val.tag()) {
+        .function => blk: {
+            // when the target is a regular function, we have to calculate
+            // the offset of where the index starts
+            offset += self.getFuncIdxOffset();
+            break :blk self.funcs.items;
+        },
+        .extern_fn => self.ext_funcs.items,
+        else => return null,
+    };
+    return for (slice) |func, idx| {
+        if (func == decl) break @intCast(u32, offset + idx);
     } else null;
+}
+
+/// Based on the size of `ext_funcs` returns the
+/// offset of the function indices
+fn getFuncIdxOffset(self: Wasm) u32 {
+    return @intCast(u32, self.ext_funcs.items.len);
 }
 
 fn reserveVecSectionHeader(file: fs.File) !u64 {

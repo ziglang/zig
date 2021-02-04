@@ -161,7 +161,6 @@ pub const Context = struct {
     pub fn gen(self: *Context) InnerError!void {
         assert(self.code.items.len == 0);
         try self.genFunctype();
-        const writer = self.code.writer();
 
         // Write instructions
         // TODO: check for and handle death of instructions
@@ -194,6 +193,7 @@ pub const Context = struct {
             }
         }
 
+        const writer = self.code.writer();
         try writer.writeByte(wasm.opcode(.end));
 
         // Fill in the size of the generated code to the reserved space at the
