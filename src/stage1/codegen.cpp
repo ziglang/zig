@@ -4160,7 +4160,9 @@ static LLVMValueRef gen_frame_size(CodeGen *g, LLVMValueRef fn_val) {
     LLVMValueRef casted_fn_val = LLVMBuildBitCast(g->builder, fn_val, ptr_usize_llvm_type, "");
     LLVMValueRef negative_one = LLVMConstInt(LLVMInt32Type(), -1, true);
     LLVMValueRef prefix_ptr = LLVMBuildInBoundsGEP(g->builder, casted_fn_val, &negative_one, 1, "");
-    return LLVMBuildLoad(g->builder, prefix_ptr, "");
+    LLVMValueRef load_inst = LLVMBuildLoad(g->builder, prefix_ptr, "");
+    LLVMSetAlignment(load_inst, 1);
+    return load_inst;
 }
 
 static void gen_init_stack_trace(CodeGen *g, LLVMValueRef trace_field_ptr, LLVMValueRef addrs_field_ptr) {
