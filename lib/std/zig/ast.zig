@@ -462,6 +462,7 @@ pub const Tree = struct {
             .UndefinedLiteral,
             .UnreachableLiteral,
             .Identifier,
+            .Deref,
             => return main_tokens[n] + end_offset,
 
             .Call,
@@ -515,7 +516,6 @@ pub const Tree = struct {
             .Asm => unreachable, // TODO
             .SliceOpen => unreachable, // TODO
             .Slice => unreachable, // TODO
-            .Deref => unreachable, // TODO
             .ArrayInitOne => unreachable, // TODO
             .ArrayInit => unreachable, // TODO
             .StructInitOne => unreachable, // TODO

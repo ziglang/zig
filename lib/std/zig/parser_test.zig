@@ -1503,15 +1503,15 @@ test "zig fmt: top-level fields" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: ptr deref operator and unwrap optional operator" {
-//    try testCanonical(
-//        \\const a = b.*;
-//        \\const a = b.?;
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: ptr deref operator and unwrap optional operator" {
+   try testCanonical(
+       \\const a = b.*;
+       \\const a = b.?;
+       \\
+   );
+}
+
 //test "zig fmt: comment after if before another if" {
 //    try testCanonical(
 //        \\test "aoeu" {
