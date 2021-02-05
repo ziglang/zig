@@ -212,8 +212,6 @@ pub const Tree = struct {
             .Try,
             .Await,
             .OptionalType,
-            .ArrayInitDotTwo,
-            .ArrayInitDot,
             .Switch,
             .IfSimple,
             .If,
@@ -250,9 +248,12 @@ pub const Tree = struct {
             .FnProto,
             => return main_tokens[n],
 
+            .ArrayInitDot,
+            .ArrayInitDotTwo,
+            .ArrayInitDotTwoComma,
+            .StructInitDot,
             .StructInitDotTwo,
             .StructInitDotTwoComma,
-            .StructInitDot,
             => return main_tokens[n] - 1,
 
             .Catch,
@@ -304,6 +305,7 @@ pub const Tree = struct {
             .ArrayInitOne,
             .ArrayInit,
             .StructInitOne,
+            .StructInit,
             .CallOne,
             .Call,
             .SwitchCaseOne,
@@ -367,7 +369,6 @@ pub const Tree = struct {
             .PtrTypeSentinel => unreachable, // TODO
             .PtrType => unreachable, // TODO
             .SliceType => unreachable, // TODO
-            .StructInit => unreachable, // TODO
             .SwitchCaseMulti => unreachable, // TODO
             .WhileSimple => unreachable, // TODO
             .WhileCont => unreachable, // TODO
@@ -506,6 +507,7 @@ pub const Tree = struct {
                 n = datas[n].rhs;
             },
 
+            .ArrayInitDotTwo,
             .BuiltinCallTwo,
             .BlockTwo,
             .StructInitDotTwo,
@@ -519,7 +521,9 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
-            .StructInitDotTwoComma => {
+            .ArrayInitDotTwoComma,
+            .StructInitDotTwoComma,
+            => {
                 end_offset += 2; // for the comma + rbrace
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
@@ -590,13 +594,16 @@ pub const Tree = struct {
             // require recursion due to the optional comma followed by rbrace.
             // TODO follow the pattern set by StructInitDotTwoComma which will allow
             // lastToken to work for all of these.
+            .ArrayInit => unreachable,
+            .ArrayInitOne => unreachable,
+            .ArrayInitDot => unreachable,
+            .StructInit => unreachable,
+            .StructInitOne => unreachable,
             .StructInitDot => unreachable,
             .ContainerFieldInit => unreachable,
             .ContainerFieldAlign => unreachable,
             .ContainerField => unreachable,
 
-            .ArrayInitDotTwo => unreachable, // TODO
-            .ArrayInitDot => unreachable, // TODO
             .Switch => unreachable, // TODO
             .If => unreachable, // TODO
             .Continue => unreachable, // TODO
@@ -606,9 +613,6 @@ pub const Tree = struct {
             .Asm => unreachable, // TODO
             .SliceOpen => unreachable, // TODO
             .Slice => unreachable, // TODO
-            .ArrayInitOne => unreachable, // TODO
-            .ArrayInit => unreachable, // TODO
-            .StructInitOne => unreachable, // TODO
             .SwitchCaseOne => unreachable, // TODO
             .SwitchRange => unreachable, // TODO
             .FnDecl => unreachable, // TODO
@@ -618,7 +622,6 @@ pub const Tree = struct {
             .PtrTypeSentinel => unreachable, // TODO
             .PtrType => unreachable, // TODO
             .SliceType => unreachable, // TODO
-            .StructInit => unreachable, // TODO
             .SwitchCaseMulti => unreachable, // TODO
             .WhileCont => unreachable, // TODO
             .While => unreachable, // TODO
@@ -863,6 +866,65 @@ pub const Tree = struct {
         });
     }
 
+    pub fn arrayInitOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) Full.ArrayInit {
+        assert(tree.nodes.items(.tag)[node] == .ArrayInitOne);
+        const data = tree.nodes.items(.data)[node];
+        buffer[0] = data.rhs;
+        const elements = if (data.rhs == 0) buffer[0..0] else buffer[0..1];
+        return .{
+            .ast = .{
+                .lbrace = tree.nodes.items(.main_token)[node],
+                .elements = elements,
+                .type_expr = data.lhs,
+            },
+        };
+    }
+
+    pub fn arrayInitDotTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) Full.ArrayInit {
+        assert(tree.nodes.items(.tag)[node] == .ArrayInitDotTwo or
+            tree.nodes.items(.tag)[node] == .ArrayInitDotTwoComma);
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{ data.lhs, data.rhs };
+        const elements = if (data.rhs != 0)
+            buffer[0..2]
+        else if (data.lhs != 0)
+            buffer[0..1]
+        else
+            buffer[0..0];
+        return .{
+            .ast = .{
+                .lbrace = tree.nodes.items(.main_token)[node],
+                .elements = elements,
+                .type_expr = 0,
+            },
+        };
+    }
+
+    pub fn arrayInitDot(tree: Tree, node: Node.Index) Full.ArrayInit {
+        assert(tree.nodes.items(.tag)[node] == .ArrayInitDot);
+        const data = tree.nodes.items(.data)[node];
+        return .{
+            .ast = .{
+                .lbrace = tree.nodes.items(.main_token)[node],
+                .elements = tree.extra_data[data.lhs..data.rhs],
+                .type_expr = 0,
+            },
+        };
+    }
+
+    pub fn arrayInit(tree: Tree, node: Node.Index) Full.ArrayInit {
+        assert(tree.nodes.items(.tag)[node] == .ArrayInit);
+        const data = tree.nodes.items(.data)[node];
+        const elem_range = tree.extraData(data.rhs, Node.SubRange);
+        return .{
+            .ast = .{
+                .lbrace = tree.nodes.items(.main_token)[node],
+                .elements = tree.extra_data[elem_range.start..elem_range.end],
+                .type_expr = data.lhs,
+            },
+        };
+    }
+
     fn fullVarDecl(tree: Tree, info: Full.VarDecl.Ast) Full.VarDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: Full.VarDecl = .{
@@ -1012,6 +1074,16 @@ pub const Full = struct {
         pub const Ast = struct {
             lbrace: TokenIndex,
             fields: []const Node.Index,
+            type_expr: Node.Index,
+        };
+    };
+
+    pub const ArrayInit = struct {
+        ast: Ast,
+
+        pub const Ast = struct {
+            lbrace: TokenIndex,
+            elements: []const Node.Index,
             type_expr: Node.Index,
         };
     };
@@ -1421,6 +1493,9 @@ pub const Node = struct {
         ArrayInitOne,
         /// `.{lhs, rhs}`. lhs and rhs can be omitted.
         ArrayInitDotTwo,
+        /// Same as `ArrayInitDotTwo` except there is known to be a trailing comma
+        /// before the final rbrace.
+        ArrayInitDotTwoComma,
         /// `.{a, b}`. `sub_list[lhs..rhs]`.
         ArrayInitDot,
         /// `lhs{a, b}`. `sub_range_list[rhs]`. lhs can be omitted which means `.{a, b}`.

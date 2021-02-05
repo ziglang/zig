@@ -2536,7 +2536,7 @@ const Parser = struct {
                     const comma_one = p.eatToken(.Comma);
                     if (p.eatToken(.RBrace)) |_| {
                         return p.addNode(.{
-                            .tag = .ArrayInitDotTwo,
+                            .tag = if (comma_one != null) .ArrayInitDotTwoComma else .ArrayInitDotTwo,
                             .main_token = lbrace,
                             .data = .{
                                 .lhs = elem_init_one,
@@ -2553,7 +2553,7 @@ const Parser = struct {
                     const comma_two = p.eatToken(.Comma);
                     if (p.eatToken(.RBrace)) |_| {
                         return p.addNode(.{
-                            .tag = .ArrayInitDotTwo,
+                            .tag = if (comma_one != null) .ArrayInitDotTwoComma else .ArrayInitDotTwo,
                             .main_token = lbrace,
                             .data = .{
                                 .lhs = elem_init_one,
@@ -2576,7 +2576,10 @@ const Parser = struct {
                         if (next == 0) break;
                         try init_list.append(next);
                         switch (p.token_tags[p.nextToken()]) {
-                            .Comma => continue,
+                            .Comma => {
+                                if (p.eatToken(.RBrace)) |_| break;
+                                continue;
+                            },
                             .RBrace => break,
                             .Colon, .RParen, .RBracket => {
                                 p.tok_i -= 1;
