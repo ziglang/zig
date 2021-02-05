@@ -138,17 +138,17 @@ test "zig fmt: errdefer with payload" {
     );
 }
 
-//test "zig fmt: nosuspend block" {
-//    try testCanonical(
-//        \\pub fn main() anyerror!void {
-//        \\    nosuspend {
-//        \\        var foo: Foo = .{ .bar = 42 };
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: nosuspend block" {
+    try testCanonical(
+        \\pub fn main() anyerror!void {
+        \\    nosuspend {
+        \\        var foo: Foo = .{ .bar = 42 };
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: nosuspend await" {
 //    try testCanonical(
 //        \\fn foo() void {
@@ -1505,11 +1505,11 @@ test "zig fmt: errdefer with payload" {
 //}
 
 test "zig fmt: ptr deref operator and unwrap optional operator" {
-   try testCanonical(
-       \\const a = b.*;
-       \\const a = b.?;
-       \\
-   );
+    try testCanonical(
+        \\const a = b.*;
+        \\const a = b.?;
+        \\
+    );
 }
 
 //test "zig fmt: comment after if before another if" {

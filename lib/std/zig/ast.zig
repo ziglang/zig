@@ -214,8 +214,6 @@ pub const Tree = struct {
             .OptionalType,
             .ArrayInitDotTwo,
             .ArrayInitDot,
-            .StructInitDotTwo,
-            .StructInitDot,
             .Switch,
             .IfSimple,
             .If,
@@ -251,6 +249,11 @@ pub const Tree = struct {
             .FnProtoOne,
             .FnProto,
             => return main_tokens[n],
+
+            .StructInitDotTwo,
+            .StructInitDotTwoComma,
+            .StructInitDot,
+            => return main_tokens[n] - 1,
 
             .Catch,
             .FieldAccess,
@@ -403,6 +406,7 @@ pub const Tree = struct {
             .Resume,
             .Break,
             .Return,
+            .Nosuspend,
             => n = datas[n].lhs,
 
             .TestDecl,
@@ -451,7 +455,6 @@ pub const Tree = struct {
             .AnyFrameType,
             .ErrorUnion,
             .Comptime,
-            .Nosuspend,
             .IfSimple,
             .WhileSimple,
             => n = datas[n].rhs,
@@ -503,27 +506,97 @@ pub const Tree = struct {
                 n = datas[n].rhs;
             },
 
-            .BuiltinCallTwo, .BlockTwo => {
+            .BuiltinCallTwo,
+            .BlockTwo,
+            .StructInitDotTwo,
+            => {
                 end_offset += 1; // for the rparen/rbrace
-                if (datas[n].rhs == 0) {
-                    if (datas[n].lhs == 0) {
-                        return main_tokens[n] + end_offset;
-                    } else {
-                        n = datas[n].lhs;
-                    }
-                } else {
+                if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .StructInitDotTwoComma => {
+                end_offset += 2; // for the comma + rbrace
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    unreachable;
+                }
+            },
+            .SimpleVarDecl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 1; // from mut token to name
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .AlignedVarDecl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    end_offset += 1; // for the rparen
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 1; // from mut token to name
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .GlobalVarDecl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else {
+                    const extra = tree.extraData(datas[n].lhs, Node.GlobalVarDecl);
+                    if (extra.section_node != 0) {
+                        end_offset += 1; // for the rparen
+                        n = extra.section_node;
+                    } else if (extra.align_node != 0) {
+                        end_offset += 1; // for the rparen
+                        n = extra.align_node;
+                    } else if (extra.type_node != 0) {
+                        n = extra.type_node;
+                    } else {
+                        end_offset += 1; // from mut token to name
+                        return main_tokens[n] + end_offset;
+                    }
+                }
+            },
+            .LocalVarDecl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else {
+                    const extra = tree.extraData(datas[n].lhs, Node.LocalVarDecl);
+                    if (extra.align_node != 0) {
+                        end_offset += 1; // for the rparen
+                        n = extra.align_node;
+                    } else if (extra.type_node != 0) {
+                        n = extra.type_node;
+                    } else {
+                        end_offset += 1; // from mut token to name
+                        return main_tokens[n] + end_offset;
+                    }
                 }
             },
 
+            // These are not supported by lastToken() because implementation would
+            // require recursion due to the optional comma followed by rbrace.
+            // TODO follow the pattern set by StructInitDotTwoComma which will allow
+            // lastToken to work for all of these.
+            .StructInitDot => unreachable,
             .ContainerFieldInit => unreachable,
             .ContainerFieldAlign => unreachable,
             .ContainerField => unreachable,
 
             .ArrayInitDotTwo => unreachable, // TODO
             .ArrayInitDot => unreachable, // TODO
-            .StructInitDotTwo => unreachable, // TODO
-            .StructInitDot => unreachable, // TODO
             .Switch => unreachable, // TODO
             .If => unreachable, // TODO
             .Continue => unreachable, // TODO
@@ -539,10 +612,6 @@ pub const Tree = struct {
             .SwitchCaseOne => unreachable, // TODO
             .SwitchRange => unreachable, // TODO
             .FnDecl => unreachable, // TODO
-            .GlobalVarDecl => unreachable, // TODO
-            .LocalVarDecl => unreachable, // TODO
-            .SimpleVarDecl => unreachable, // TODO
-            .AlignedVarDecl => unreachable, // TODO
             .ArrayType => unreachable, // TODO
             .ArrayTypeSentinel => unreachable, // TODO
             .PtrTypeAligned => unreachable, // TODO
@@ -743,6 +812,57 @@ pub const Tree = struct {
         });
     }
 
+    pub fn structInitOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) Full.StructInit {
+        assert(tree.nodes.items(.tag)[node] == .StructInitOne);
+        const data = tree.nodes.items(.data)[node];
+        buffer[0] = data.rhs;
+        const fields = if (data.rhs == 0) buffer[0..0] else buffer[0..1];
+        return tree.fullStructInit(.{
+            .lbrace = tree.nodes.items(.main_token)[node],
+            .fields = fields,
+            .type_expr = data.lhs,
+        });
+    }
+
+    pub fn structInitDotTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) Full.StructInit {
+        assert(tree.nodes.items(.tag)[node] == .StructInitDotTwo or
+            tree.nodes.items(.tag)[node] == .StructInitDotTwoComma);
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{ data.lhs, data.rhs };
+        const fields = if (data.rhs != 0)
+            buffer[0..2]
+        else if (data.lhs != 0)
+            buffer[0..1]
+        else
+            buffer[0..0];
+        return tree.fullStructInit(.{
+            .lbrace = tree.nodes.items(.main_token)[node],
+            .fields = fields,
+            .type_expr = 0,
+        });
+    }
+
+    pub fn structInitDot(tree: Tree, node: Node.Index) Full.StructInit {
+        assert(tree.nodes.items(.tag)[node] == .StructInitDot);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullStructInit(.{
+            .lbrace = tree.nodes.items(.main_token)[node],
+            .fields = tree.extra_data[data.lhs..data.rhs],
+            .type_expr = 0,
+        });
+    }
+
+    pub fn structInit(tree: Tree, node: Node.Index) Full.StructInit {
+        assert(tree.nodes.items(.tag)[node] == .StructInit);
+        const data = tree.nodes.items(.data)[node];
+        const fields_range = tree.extraData(data.rhs, Node.SubRange);
+        return tree.fullStructInit(.{
+            .lbrace = tree.nodes.items(.main_token)[node],
+            .fields = tree.extra_data[fields_range.start..fields_range.end],
+            .type_expr = data.lhs,
+        });
+    }
+
     fn fullVarDecl(tree: Tree, info: Full.VarDecl.Ast) Full.VarDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: Full.VarDecl = .{
@@ -814,6 +934,14 @@ pub const Tree = struct {
         };
         return result;
     }
+
+    fn fullStructInit(tree: Tree, info: Full.StructInit.Ast) Full.StructInit {
+        const token_tags = tree.tokens.items(.tag);
+        var result: Full.StructInit = .{
+            .ast = info,
+        };
+        return result;
+    }
 };
 
 /// Fully assembled AST node information.
@@ -875,6 +1003,16 @@ pub const Full = struct {
             align_expr: Node.Index,
             section_expr: Node.Index,
             callconv_expr: Node.Index,
+        };
+    };
+
+    pub const StructInit = struct {
+        ast: Ast,
+
+        pub const Ast = struct {
+            lbrace: TokenIndex,
+            fields: []const Node.Index,
+            type_expr: Node.Index,
         };
     };
 };
@@ -1288,13 +1426,20 @@ pub const Node = struct {
         /// `lhs{a, b}`. `sub_range_list[rhs]`. lhs can be omitted which means `.{a, b}`.
         ArrayInit,
         /// `lhs{.a = rhs}`. rhs can be omitted making it empty.
+        /// main_token is the lbrace.
         StructInitOne,
         /// `.{.a = lhs, .b = rhs}`. lhs and rhs can be omitted.
+        /// main_token is the lbrace.
         StructInitDotTwo,
+        /// Same as `StructInitDotTwo` except there is known to be a trailing comma
+        /// before the final rbrace.
+        StructInitDotTwoComma,
         /// `.{.a = b, .c = d}`. `sub_list[lhs..rhs]`.
+        /// main_token is the lbrace.
         StructInitDot,
         /// `lhs{.a = b, .c = d}`. `sub_range_list[rhs]`.
         /// lhs can be omitted which means `.{.a = b, .c = d}`.
+        /// main_token is the lbrace.
         StructInit,
         /// `lhs(rhs)`. rhs can be omitted.
         CallOne,
@@ -1421,10 +1566,10 @@ pub const Node = struct {
         /// `nosuspend lhs`. rhs unused.
         Nosuspend,
         /// `{lhs; rhs;}`. rhs or lhs can be omitted.
-        /// main_token points at the `{`.
+        /// main_token points at the lbrace.
         BlockTwo,
         /// `{}`. `sub_list[lhs..rhs]`.
-        /// main_token points at the `{`.
+        /// main_token points at the lbrace.
         Block,
         /// `asm(lhs)`. rhs unused.
         AsmSimple,

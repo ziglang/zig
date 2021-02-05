@@ -2447,8 +2447,12 @@ const Parser = struct {
                     if (field_init_one != 0) {
                         const comma_one = p.eatToken(.Comma);
                         if (p.eatToken(.RBrace)) |_| {
+                            const tag: Node.Tag = if (comma_one != null)
+                                .StructInitDotTwoComma
+                            else
+                                .StructInitDotTwo;
                             return p.addNode(.{
-                                .tag = .StructInitDotTwo,
+                                .tag = tag,
                                 .main_token = lbrace,
                                 .data = .{
                                     .lhs = field_init_one,
@@ -2464,8 +2468,12 @@ const Parser = struct {
                         const field_init_two = try p.expectFieldInit();
                         const comma_two = p.eatToken(.Comma);
                         if (p.eatToken(.RBrace)) |_| {
+                            const tag: Node.Tag = if (comma_two != null)
+                                .StructInitDotTwoComma
+                            else
+                                .StructInitDotTwo;
                             return p.addNode(.{
-                                .tag = .StructInitDotTwo,
+                                .tag = tag,
                                 .main_token = lbrace,
                                 .data = .{
                                     .lhs = field_init_one,
