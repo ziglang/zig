@@ -336,24 +336,160 @@ test "zig fmt: nosuspend block" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: anon struct literal syntax" {
-//    try testCanonical(
-//        \\const x = .{
-//        \\    .a = b,
-//        \\    .c = d,
-//        \\};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: anon list literal syntax" {
-//    try testCanonical(
-//        \\const x = .{ a, b, c };
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: anon struct literal 1 element" {
+    try testCanonical(
+        \\const x = .{ .a = b };
+        \\
+    );
+}
+
+test "zig fmt: anon struct literal 1 element comma" {
+    try testCanonical(
+        \\const x = .{
+        \\    .a = b,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anon struct literal 2 element" {
+    try testCanonical(
+        \\const x = .{ .a = b, .c = d };
+        \\
+    );
+}
+
+test "zig fmt: anon struct literal 2 element comma" {
+    try testCanonical(
+        \\const x = .{
+        \\    .a = b,
+        \\    .c = d,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anon struct literal 3 element" {
+    try testCanonical(
+        \\const x = .{ .a = b, .c = d, .e = f };
+        \\
+    );
+}
+
+test "zig fmt: anon struct literal 3 element comma" {
+    try testCanonical(
+        \\const x = .{
+        \\    .a = b,
+        \\    .c = d,
+        \\    .e = f,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: struct literal 1 element" {
+    try testCanonical(
+        \\const x = X{ .a = b };
+        \\
+    );
+}
+
+test "zig fmt: struct literal 1 element comma" {
+    try testCanonical(
+        \\const x = X{
+        \\    .a = b,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: struct literal 2 element" {
+    try testCanonical(
+        \\const x = X{ .a = b, .c = d };
+        \\
+    );
+}
+
+test "zig fmt: struct literal 2 element comma" {
+    try testCanonical(
+        \\const x = X{
+        \\    .a = b,
+        \\    .c = d,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: struct literal 3 element" {
+    try testCanonical(
+        \\const x = X{ .a = b, .c = d, .e = f };
+        \\
+    );
+}
+
+test "zig fmt: struct literal 3 element comma" {
+    try testCanonical(
+        \\const x = X{
+        \\    .a = b,
+        \\    .c = d,
+        \\    .e = f,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anon list literal 1 element" {
+    try testCanonical(
+        \\const x = .{a};
+        \\
+    );
+}
+
+test "zig fmt: anon list literal 1 element comma" {
+    try testCanonical(
+        \\const x = .{
+        \\    a,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anon list literal 2 element" {
+    try testCanonical(
+        \\const x = .{ a, b };
+        \\
+    );
+}
+
+test "zig fmt: anon list literal 2 element comma" {
+    try testCanonical(
+        \\const x = .{
+        \\    a,
+        \\    b,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anon list literal 3 element" {
+    try testCanonical(
+        \\const x = .{ a, b, c };
+        \\
+    );
+}
+
+test "zig fmt: anon list literal 3 element comma" {
+    try testCanonical(
+        \\const x = .{
+        \\    a,
+        \\    b,
+        \\    c,
+        \\};
+        \\
+    );
+}
+
 //test "zig fmt: async function" {
 //    try testCanonical(
 //        \\pub const Server = struct {
