@@ -365,6 +365,26 @@ pub const Tree = struct {
                 }
             },
 
+            .ContainerDecl,
+            .ContainerDeclComma,
+            .ContainerDeclTwo,
+            .ContainerDeclTwoComma,
+            .ContainerDeclArg,
+            .ContainerDeclArgComma,
+            .TaggedUnion,
+            .TaggedUnionComma,
+            .TaggedUnionTwo,
+            .TaggedUnionTwoComma,
+            .TaggedUnionEnumTag,
+            .TaggedUnionEnumTagComma,
+            => {
+                const main_token = main_tokens[n];
+                switch (token_tags[main_token - 1]) {
+                    .Keyword_packed, .Keyword_extern => return main_token - 1,
+                    else => return main_token,
+                }
+            },
+
             .PtrTypeAligned => unreachable, // TODO
             .PtrTypeSentinel => unreachable, // TODO
             .PtrType => unreachable, // TODO
@@ -375,10 +395,6 @@ pub const Tree = struct {
             .While => unreachable, // TODO
             .ForSimple => unreachable, // TODO
             .For => unreachable, // TODO
-            .ContainerDecl => unreachable, // TODO
-            .ContainerDeclArg => unreachable, // TODO
-            .TaggedUnion => unreachable, // TODO
-            .TaggedUnionEnumTag => unreachable, // TODO
             .AsmOutput => unreachable, // TODO
             .AsmInput => unreachable, // TODO
             .ErrorValue => unreachable, // TODO
@@ -408,6 +424,7 @@ pub const Tree = struct {
             .Break,
             .Return,
             .Nosuspend,
+            .Comptime,
             => n = datas[n].lhs,
 
             .TestDecl,
@@ -455,7 +472,6 @@ pub const Tree = struct {
             .BoolOr,
             .AnyFrameType,
             .ErrorUnion,
-            .Comptime,
             .IfSimple,
             .WhileSimple,
             => n = datas[n].rhs,
@@ -490,12 +506,36 @@ pub const Tree = struct {
                 }
                 n = tree.extra_data[params.end - 1]; // last parameter
             },
-            .Block => {
+            .ContainerDeclArg => {
+                const members = tree.extraData(datas[n].rhs, Node.SubRange);
+                if (members.end - members.start == 0) {
+                    end_offset += 1; // for the rparen
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 1; // for the rbrace
+                    n = tree.extra_data[members.end - 1]; // last parameter
+                }
+            },
+            .ContainerDeclArgComma => {
+                const members = tree.extraData(datas[n].rhs, Node.SubRange);
+                assert(members.end - members.start > 0);
+                end_offset += 2; // for the comma + rbrace
+                n = tree.extra_data[members.end - 1]; // last parameter
+            },
+            .Block,
+            .ContainerDecl,
+            .TaggedUnion,
+            => {
                 end_offset += 1; // for the rbrace
                 if (datas[n].rhs - datas[n].lhs == 0) {
                     return main_tokens[n] + end_offset;
                 }
                 n = tree.extra_data[datas[n].rhs - 1]; // last statement
+            },
+            .ContainerDeclComma, .TaggedUnionComma => {
+                assert(datas[n].rhs - datas[n].lhs > 0);
+                end_offset += 2; // for the comma + rbrace
+                n = tree.extra_data[datas[n].rhs - 1]; // last member
             },
             .CallOne,
             .ArrayAccess,
@@ -511,6 +551,8 @@ pub const Tree = struct {
             .BuiltinCallTwo,
             .BlockTwo,
             .StructInitDotTwo,
+            .ContainerDeclTwo,
+            .TaggedUnionTwo,
             => {
                 end_offset += 1; // for the rparen/rbrace
                 if (datas[n].rhs != 0) {
@@ -523,6 +565,8 @@ pub const Tree = struct {
             },
             .ArrayInitDotTwoComma,
             .StructInitDotTwoComma,
+            .ContainerDeclTwoComma,
+            .TaggedUnionTwoComma,
             => {
                 end_offset += 2; // for the comma + rbrace
                 if (datas[n].rhs != 0) {
@@ -589,6 +633,38 @@ pub const Tree = struct {
                     }
                 }
             },
+            .ContainerFieldInit => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .ContainerFieldAlign => {
+                if (datas[n].rhs != 0) {
+                    end_offset += 1; // for the rparen
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .ContainerField => {
+                const extra = tree.extraData(datas[n].rhs, Node.ContainerField);
+                if (extra.value_expr != 0) {
+                    n = extra.value_expr;
+                } else if (extra.align_expr != 0) {
+                    end_offset += 1; // for the rparen
+                    n = extra.align_expr;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
 
             // These are not supported by lastToken() because implementation would
             // require recursion due to the optional comma followed by rbrace.
@@ -600,10 +676,9 @@ pub const Tree = struct {
             .StructInit => unreachable,
             .StructInitOne => unreachable,
             .StructInitDot => unreachable,
-            .ContainerFieldInit => unreachable,
-            .ContainerFieldAlign => unreachable,
-            .ContainerField => unreachable,
 
+            .TaggedUnionEnumTag => unreachable, // TODO
+            .TaggedUnionEnumTagComma => unreachable, // TODO
             .Switch => unreachable, // TODO
             .If => unreachable, // TODO
             .Continue => unreachable, // TODO
@@ -631,10 +706,6 @@ pub const Tree = struct {
             .FnProtoMulti => unreachable, // TODO
             .FnProtoOne => unreachable, // TODO
             .FnProto => unreachable, // TODO
-            .ContainerDecl => unreachable, // TODO
-            .ContainerDeclArg => unreachable, // TODO
-            .TaggedUnion => unreachable, // TODO
-            .TaggedUnionEnumTag => unreachable, // TODO
             .AsmOutput => unreachable, // TODO
             .AsmInput => unreachable, // TODO
             .ErrorValue => unreachable, // TODO
@@ -952,6 +1023,93 @@ pub const Tree = struct {
         };
     }
 
+    pub fn containerDeclTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) Full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .ContainerDeclTwo or
+            tree.nodes.items(.tag)[node] == .ContainerDeclTwoComma);
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{ data.lhs, data.rhs };
+        const members = if (data.rhs != 0)
+            buffer[0..2]
+        else if (data.lhs != 0)
+            buffer[0..1]
+        else
+            buffer[0..0];
+        return tree.fullContainerDecl(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .enum_token = null,
+            .members = members,
+            .arg = 0,
+        });
+    }
+
+    pub fn containerDecl(tree: Tree, node: Node.Index) Full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .ContainerDecl or
+            tree.nodes.items(.tag)[node] == .ContainerDeclComma);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullContainerDecl(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .enum_token = null,
+            .members = tree.extra_data[data.lhs..data.rhs],
+            .arg = 0,
+        });
+    }
+
+    pub fn containerDeclArg(tree: Tree, node: Node.Index) Full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .ContainerDeclArg);
+        const data = tree.nodes.items(.data)[node];
+        const members_range = tree.extraData(data.rhs, Node.SubRange);
+        return tree.fullContainerDecl(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .enum_token = null,
+            .members = tree.extra_data[members_range.start..members_range.end],
+            .arg = data.lhs,
+        });
+    }
+
+    pub fn taggedUnionTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) Full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .TaggedUnionTwo);
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{ data.lhs, data.rhs };
+        const members = if (data.rhs != 0)
+            buffer[0..2]
+        else if (data.lhs != 0)
+            buffer[0..1]
+        else
+            buffer[0..0];
+        const main_token = tree.nodes.items(.main_token)[node];
+        return tree.fullContainerDecl(.{
+            .main_token = main_token,
+            .enum_token = main_token + 2, // union lparen enum
+            .members = members,
+            .arg = 0,
+        });
+    }
+
+    pub fn taggedUnion(tree: Tree, node: Node.Index) Full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .TaggedUnion);
+        const data = tree.nodes.items(.data)[node];
+        const main_token = tree.nodes.items(.main_token)[node];
+        return tree.fullContainerDecl(.{
+            .main_token = main_token,
+            .enum_token = main_token + 2, // union lparen enum
+            .members = tree.extra_data[data.lhs..data.rhs],
+            .arg = 0,
+        });
+    }
+
+    pub fn taggedUnionEnumTag(tree: Tree, node: Node.Index) Full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .TaggedUnionEnumTag);
+        const data = tree.nodes.items(.data)[node];
+        const members_range = tree.extraData(data.rhs, Node.SubRange);
+        const main_token = tree.nodes.items(.main_token)[node];
+        return tree.fullContainerDecl(.{
+            .main_token = main_token,
+            .enum_token = main_token + 2, // union lparen enum
+            .members = tree.extra_data[data.lhs..data.rhs],
+            .arg = data.lhs,
+        });
+    }
+
     fn fullVarDecl(tree: Tree, info: Full.VarDecl.Ast) Full.VarDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: Full.VarDecl = .{
@@ -1029,6 +1187,19 @@ pub const Tree = struct {
         var result: Full.StructInit = .{
             .ast = info,
         };
+        return result;
+    }
+
+    fn fullContainerDecl(tree: Tree, info: Full.ContainerDecl.Ast) Full.ContainerDecl {
+        const token_tags = tree.tokens.items(.tag);
+        var result: Full.ContainerDecl = .{
+            .ast = info,
+            .layout_token = null,
+        };
+        switch (token_tags[info.main_token - 1]) {
+            .Keyword_extern, .Keyword_packed => result.layout_token = info.main_token - 1,
+            else => {},
+        }
         return result;
     }
 };
@@ -1123,6 +1294,19 @@ pub const Full = struct {
             elem_count: Node.Index,
             sentinel: ?Node.Index,
             elem_type: Node.Index,
+        };
+    };
+
+    pub const ContainerDecl = struct {
+        layout_token: ?TokenIndex,
+        ast: Ast,
+
+        pub const Ast = struct {
+            main_token: TokenIndex,
+            /// Populated when main_token is Keyword_union.
+            enum_token: ?TokenIndex,
+            members: []const Node.Index,
+            arg: Node.Index,
         };
     };
 };
@@ -1543,9 +1727,11 @@ pub const Node = struct {
         StructInitOne,
         /// `.{.a = lhs, .b = rhs}`. lhs and rhs can be omitted.
         /// main_token is the lbrace.
+        /// No trailing comma before the rbrace.
         StructInitDotTwo,
         /// Same as `StructInitDotTwo` except there is known to be a trailing comma
-        /// before the final rbrace.
+        /// before the final rbrace. This tag exists to facilitate lastToken() implemented
+        /// without recursion.
         StructInitDotTwoComma,
         /// `.{.a = b, .c = d}`. `sub_list[lhs..rhs]`.
         /// main_token is the lbrace.
@@ -1655,21 +1841,50 @@ pub const Node = struct {
         /// `error{a, b}`.
         /// lhs and rhs both unused.
         ErrorSetDecl,
-        /// `struct {}`, `union {}`, etc. `sub_list[lhs..rhs]`.
+        /// `struct {}`, `union {}`, `opaque {}`, `enum {}`. `extra_data[lhs..rhs]`.
+        /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
         ContainerDecl,
-        /// `union(lhs)` / `enum(lhs)`. `sub_range_list[rhs]`.
+        /// Same as ContainerDecl but there is known to be a trailing comma before the rbrace.
+        ContainerDeclComma,
+        /// `struct {lhs, rhs}`, `union {lhs, rhs}`, `opaque {lhs, rhs}`, `enum {lhs, rhs}`.
+        /// lhs or rhs can be omitted.
+        /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
+        ContainerDeclTwo,
+        /// Same as ContainerDeclTwo except there is known to be a trailing comma
+        /// before the rbrace.
+        ContainerDeclTwoComma,
+        /// `union(lhs)` / `enum(lhs)`. `SubRange[rhs]`.
         ContainerDeclArg,
+        /// Same as ContainerDeclArg but there is known to be a trailing comma before the rbrace.
+        ContainerDeclArgComma,
         /// `union(enum) {}`. `sub_list[lhs..rhs]`.
         /// Note that tagged unions with explicitly provided enums are represented
         /// by `ContainerDeclArg`.
         TaggedUnion,
-        /// `union(enum(lhs)) {}`. `sub_list_range[rhs]`.
+        /// Same as TaggedUnion but there is known to be a trailing comma before the rbrace.
+        TaggedUnionComma,
+        /// `union(enum) {lhs, rhs}`. lhs or rhs may be omitted.
+        /// Note that tagged unions with explicitly provided enums are represented
+        /// by `ContainerDeclArg`.
+        TaggedUnionTwo,
+        /// Same as TaggedUnionTwo but there is known to be a trailing comma before the rbrace.
+        TaggedUnionTwoComma,
+        /// `union(enum(lhs)) {}`. `SubRange[rhs]`.
         TaggedUnionEnumTag,
+        /// Same as TaggedUnionEnumTag but there is known to be a trailing comma
+        /// before the rbrace.
+        TaggedUnionEnumTagComma,
         /// `a: lhs = rhs,`. lhs and rhs can be omitted.
+        /// main_token is the field name identifier.
+        /// lastToken() does not include the possible trailing comma.
         ContainerFieldInit,
         /// `a: lhs align(rhs),`. rhs can be omitted.
+        /// main_token is the field name identifier.
+        /// lastToken() does not include the possible trailing comma.
         ContainerFieldAlign,
         /// `a: lhs align(c) = d,`. `container_field_list[rhs]`.
+        /// main_token is the field name identifier.
+        /// lastToken() does not include the possible trailing comma.
         ContainerField,
         /// `anytype`. both lhs and rhs unused.
         /// Used by `ContainerField`.
@@ -1699,6 +1914,17 @@ pub const Node = struct {
         ErrorValue,
         /// `lhs!rhs`. main_token is the `!`.
         ErrorUnion,
+
+        pub fn isContainerField(tag: Tag) bool {
+            return switch (tag) {
+                .ContainerFieldInit,
+                .ContainerFieldAlign,
+                .ContainerField,
+                => true,
+
+                else => false,
+            };
+        }
     };
 
     pub const Data = struct {

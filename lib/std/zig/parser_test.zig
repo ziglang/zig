@@ -149,45 +149,82 @@ test "zig fmt: nosuspend block" {
     );
 }
 
-//test "zig fmt: nosuspend await" {
-//    try testCanonical(
-//        \\fn foo() void {
-//        \\    x = nosuspend await y;
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: trailing comma in container declaration" {
-//    try testCanonical(
-//        \\const X = struct { foo: i32 };
-//        \\const X = struct { foo: i32, bar: i32 };
-//        \\const X = struct { foo: i32 = 1, bar: i32 = 2 };
-//        \\const X = struct { foo: i32 align(4), bar: i32 align(4) };
-//        \\const X = struct { foo: i32 align(4) = 1, bar: i32 align(4) = 2 };
-//        \\
-//    );
-//    try testCanonical(
-//        \\test "" {
-//        \\    comptime {
-//        \\        const X = struct {
-//        \\            x: i32
-//        \\        };
-//        \\    }
-//        \\}
-//        \\
-//    );
-//    try testTransform(
-//        \\const X = struct {
-//        \\    foo: i32, bar: i8 };
-//    ,
-//        \\const X = struct {
-//        \\    foo: i32, bar: i8
-//        \\};
-//        \\
-//    );
-//}
-//
+test "zig fmt: nosuspend await" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    x = nosuspend await y;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: container declaration, single line" {
+    try testCanonical(
+        \\const X = struct { foo: i32 };
+        \\const X = struct { foo: i32, bar: i32 };
+        \\const X = struct { foo: i32 = 1, bar: i32 = 2 };
+        \\const X = struct { foo: i32 align(4), bar: i32 align(4) };
+        \\const X = struct { foo: i32 align(4) = 1, bar: i32 align(4) = 2 };
+        \\
+    );
+}
+
+test "zig fmt: container declaration, one item, multi line trailing comma" {
+    try testCanonical(
+        \\test "" {
+        \\    comptime {
+        \\        const X = struct {
+        \\            x: i32,
+        \\        };
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: container declaration, no trailing comma on separate line" {
+    try testTransform(
+        \\test "" {
+        \\    comptime {
+        \\        const X = struct {
+        \\            x: i32
+        \\        };
+        \\    }
+        \\}
+        \\
+    ,
+        \\test "" {
+        \\    comptime {
+        \\        const X = struct { x: i32 };
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: container declaration, line break, no trailing comma" {
+    try testTransform(
+        \\const X = struct {
+        \\    foo: i32, bar: i8 };
+    ,
+        \\const X = struct { foo: i32, bar: i8 };
+        \\
+    );
+}
+
+test "zig fmt: container declaration, transform trailing comma" {
+    try testTransform(
+        \\const X = struct {
+        \\    foo: i32, bar: i8, };
+    ,
+        \\const X = struct {
+        \\    foo: i32,
+        \\    bar: i8,
+        \\};
+        \\
+    );
+}
+
 //test "zig fmt: trailing comma in fn parameter list" {
 //    try testCanonical(
 //        \\pub fn f(

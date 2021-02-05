@@ -64,9 +64,10 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!Tree {
             .rhs = undefined,
         },
     });
-    const root_decls = try parser.parseContainerMembers(true);
-    // parseContainerMembers will try to skip as much
-    // invalid tokens as it can, so we are now at EOF.
+    const root_members = try parser.parseContainerMembers();
+    const root_decls = try root_members.toSpan(&parser);
+    // parseContainerMembers will try to skip as much invalid tokens as
+    // it can, so we are now at EOF.
     assert(parser.token_tags[parser.tok_i] == .Eof);
     parser.nodes.items(.data)[0] = .{
         .lhs = root_decls.start,
@@ -104,6 +105,22 @@ const Parser = struct {
             switch (self) {
                 .zero_or_one => {},
                 .multi => |list| gpa.free(list),
+            }
+        }
+    };
+
+    const Members = struct {
+        len: usize,
+        lhs: Node.Index,
+        rhs: Node.Index,
+        trailing_comma: bool,
+
+        fn toSpan(self: Members, p: *Parser) !Node.SubRange {
+            if (self.len <= 2) {
+                const nodes = [2]Node.Index{ self.lhs, self.rhs };
+                return p.listToSpan(nodes[0..self.len]);
+            } else {
+                return Node.SubRange{ .start = self.lhs, .end = self.rhs };
             }
         }
     };
@@ -151,169 +168,225 @@ const Parser = struct {
     ///      / ContainerField COMMA ContainerMembers
     ///      / ContainerField
     ///      /
-    fn parseContainerMembers(p: *Parser, top_level: bool) !Node.SubRange {
+    /// TopLevelComptime <- KEYWORD_comptime BlockExpr
+    fn parseContainerMembers(p: *Parser) !Members {
         var list = std.ArrayList(Node.Index).init(p.gpa);
         defer list.deinit();
 
         var field_state: union(enum) {
-            /// no fields have been seen
+            /// No fields have been seen.
             none,
-            /// currently parsing fields
+            /// Currently parsing fields.
             seen,
-            /// saw fields and then a declaration after them.
-            /// payload is first token of previous declaration.
-            end: TokenIndex,
-            /// ther was a declaration between fields, don't report more errors
+            /// Saw fields and then a declaration after them.
+            /// Payload is first token of previous declaration.
+            end: Node.Index,
+            /// There was a declaration between fields, don't report more errors.
             err,
         } = .none;
 
         // Skip container doc comments.
         while (p.eatToken(.ContainerDocComment)) |_| {}
 
+        var trailing_comma = false;
         while (true) {
             const doc_comment = p.eatDocComments();
 
-            const test_decl_node = p.parseTestDecl() catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.ParseError => {
-                    p.findNextContainerMember();
-                    continue;
-                },
-            };
-            if (test_decl_node != 0) {
-                if (field_state == .seen) {
-                    field_state = .{ .end = p.nodes.items(.main_token)[test_decl_node] };
-                }
-                try list.append(test_decl_node);
-                continue;
-            }
-
-            const comptime_node = p.parseTopLevelComptime() catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.ParseError => {
-                    p.findNextContainerMember();
-                    continue;
-                },
-            };
-            if (comptime_node != 0) {
-                if (field_state == .seen) {
-                    field_state = .{ .end = p.nodes.items(.main_token)[comptime_node] };
-                }
-                try list.append(comptime_node);
-                continue;
-            }
-
-            const visib_token = p.eatToken(.Keyword_pub);
-
-            const top_level_decl = p.parseTopLevelDecl() catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.ParseError => {
-                    p.findNextContainerMember();
-                    continue;
-                },
-            };
-            if (top_level_decl != 0) {
-                if (field_state == .seen) {
-                    field_state = .{
-                        .end = visib_token orelse p.nodes.items(.main_token)[top_level_decl],
-                    };
-                }
-                try list.append(top_level_decl);
-                continue;
-            }
-
-            if (visib_token != null) {
-                try p.warn(.{ .ExpectedPubItem = .{ .token = p.tok_i } });
-                // ignore this pub
-                continue;
-            }
-
-            const container_field = p.parseContainerField() catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.ParseError => {
-                    // attempt to recover
-                    p.findNextContainerMember();
-                    continue;
-                },
-            };
-            if (container_field != 0) {
-                switch (field_state) {
-                    .none => field_state = .seen,
-                    .err, .seen => {},
-                    .end => |tok| {
-                        try p.warn(.{ .DeclBetweenFields = .{ .token = tok } });
-                        // continue parsing, error will be reported later
-                        field_state = .err;
-                    },
-                }
-                try list.append(container_field);
-                const comma = p.eatToken(.Comma) orelse {
-                    // try to continue parsing
-                    const index = p.tok_i;
-                    p.findNextContainerMember();
-                    const next = p.token_tags[p.tok_i];
-                    switch (next) {
-                        .Eof => {
-                            // no invalid tokens were found
-                            if (index == p.tok_i) break;
-
-                            // Invalid tokens, add error and exit
-                            try p.warn(.{
-                                .ExpectedToken = .{ .token = index, .expected_id = .Comma },
-                            });
-                            break;
-                        },
-                        else => {
-                            if (next == .RBrace) {
-                                if (!top_level) break;
-                                p.tok_i += 1;
-                            }
-
-                            // add error and continue
-                            try p.warn(.{
-                                .ExpectedToken = .{ .token = index, .expected_id = .Comma },
-                            });
-                            continue;
-                        },
+            switch (p.token_tags[p.tok_i]) {
+                .Keyword_test => {
+                    const test_decl_node = try p.expectTestDeclRecoverable();
+                    if (test_decl_node != 0) {
+                        if (field_state == .seen) {
+                            field_state = .{ .end = test_decl_node };
+                        }
+                        try list.append(test_decl_node);
                     }
-                };
-                continue;
-            }
-
-            // Dangling doc comment
-            if (doc_comment) |tok| {
-                try p.warn(.{
-                    .UnattachedDocComment = .{ .token = tok },
-                });
-            }
-
-            const next = p.token_tags[p.tok_i];
-            switch (next) {
-                .Eof => break,
-                .Keyword_comptime => {
+                    trailing_comma = false;
+                },
+                .Keyword_comptime => switch (p.token_tags[p.tok_i + 1]) {
+                    .Identifier => {
+                        p.tok_i += 1;
+                        const container_field = try p.expectContainerFieldRecoverable();
+                        if (container_field != 0) {
+                            switch (field_state) {
+                                .none => field_state = .seen,
+                                .err, .seen => {},
+                                .end => |node| {
+                                    try p.warn(.{
+                                        .DeclBetweenFields = .{ .token = p.nodes.items(.main_token)[node] },
+                                    });
+                                    // Continue parsing; error will be reported later.
+                                    field_state = .err;
+                                },
+                            }
+                            try list.append(container_field);
+                            switch (p.token_tags[p.tok_i]) {
+                                .Comma => {
+                                    p.tok_i += 1;
+                                    trailing_comma = true;
+                                    continue;
+                                },
+                                .RBrace, .Eof => {
+                                    trailing_comma = false;
+                                    break;
+                                },
+                                else => {},
+                            }
+                            // There is not allowed to be a decl after a field with no comma.
+                            // Report error but recover parser.
+                            try p.warn(.{
+                                .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
+                            });
+                            p.findNextContainerMember();
+                        }
+                    },
+                    .LBrace => {
+                        const comptime_token = p.nextToken();
+                        const block = p.parseBlock() catch |err| switch (err) {
+                            error.OutOfMemory => return error.OutOfMemory,
+                            error.ParseError => blk: {
+                                p.findNextContainerMember();
+                                break :blk null_node;
+                            },
+                        };
+                        if (block != 0) {
+                            const comptime_node = try p.addNode(.{
+                                .tag = .Comptime,
+                                .main_token = comptime_token,
+                                .data = .{
+                                    .lhs = block,
+                                    .rhs = undefined,
+                                },
+                            });
+                            if (field_state == .seen) {
+                                field_state = .{ .end = comptime_node };
+                            }
+                            try list.append(comptime_node);
+                        }
+                        trailing_comma = false;
+                    },
+                    else => {
+                        p.tok_i += 1;
+                        try p.warn(.{ .ExpectedBlockOrField = .{ .token = p.tok_i } });
+                    },
+                },
+                .Keyword_pub => {
                     p.tok_i += 1;
-                    try p.warn(.{
-                        .ExpectedBlockOrField = .{ .token = p.tok_i },
-                    });
+                    const top_level_decl = try p.expectTopLevelDeclRecoverable();
+                    if (top_level_decl != 0) {
+                        if (field_state == .seen) {
+                            field_state = .{ .end = top_level_decl };
+                        }
+                        try list.append(top_level_decl);
+                    }
+                    trailing_comma = false;
+                },
+                .Keyword_usingnamespace => {
+                    const node = try p.expectUsingNamespaceRecoverable();
+                    if (node != 0) {
+                        if (field_state == .seen) {
+                            field_state = .{ .end = node };
+                        }
+                        try list.append(node);
+                    }
+                    trailing_comma = false;
+                },
+                .Keyword_const,
+                .Keyword_var,
+                .Keyword_threadlocal,
+                .Keyword_export,
+                .Keyword_extern,
+                .Keyword_inline,
+                .Keyword_noinline,
+                .Keyword_fn,
+                => {
+                    const top_level_decl = try p.expectTopLevelDeclRecoverable();
+                    if (top_level_decl != 0) {
+                        if (field_state == .seen) {
+                            field_state = .{ .end = top_level_decl };
+                        }
+                        try list.append(top_level_decl);
+                    }
+                    trailing_comma = false;
+                },
+                .Identifier => {
+                    const container_field = try p.expectContainerFieldRecoverable();
+                    if (container_field != 0) {
+                        switch (field_state) {
+                            .none => field_state = .seen,
+                            .err, .seen => {},
+                            .end => |node| {
+                                try p.warn(.{
+                                    .DeclBetweenFields = .{ .token = p.nodes.items(.main_token)[node] },
+                                });
+                                // Continue parsing; error will be reported later.
+                                field_state = .err;
+                            },
+                        }
+                        try list.append(container_field);
+                        switch (p.token_tags[p.tok_i]) {
+                            .Comma => {
+                                p.tok_i += 1;
+                                trailing_comma = true;
+                                continue;
+                            },
+                            .RBrace, .Eof => {
+                                trailing_comma = false;
+                                break;
+                            },
+                            else => {},
+                        }
+                        // There is not allowed to be a decl after a field with no comma.
+                        // Report error but recover parser.
+                        try p.warn(.{
+                            .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
+                        });
+                        p.findNextContainerMember();
+                    }
+                },
+                .Eof, .RBrace => {
+                    if (doc_comment) |tok| {
+                        try p.warn(.{ .UnattachedDocComment = .{ .token = tok } });
+                    }
+                    break;
                 },
                 else => {
-                    const index = p.tok_i;
-                    if (next == .RBrace) {
-                        if (!top_level) break;
-                        p.tok_i += 1;
-                    }
-
-                    // this was likely not supposed to end yet,
-                    // try to find the next declaration
+                    try p.warn(.{ .ExpectedContainerMembers = .{ .token = p.tok_i } });
+                    // This was likely not supposed to end yet; try to find the next declaration.
                     p.findNextContainerMember();
-                    try p.warn(.{
-                        .ExpectedContainerMembers = .{ .token = index },
-                    });
                 },
             }
         }
 
-        return p.listToSpan(list.items);
+        switch (list.items.len) {
+            0 => return Members{
+                .len = 0,
+                .lhs = 0,
+                .rhs = 0,
+                .trailing_comma = trailing_comma,
+            },
+            1 => return Members{
+                .len = 1,
+                .lhs = list.items[0],
+                .rhs = 0,
+                .trailing_comma = trailing_comma,
+            },
+            2 => return Members{
+                .len = 2,
+                .lhs = list.items[0],
+                .rhs = list.items[1],
+                .trailing_comma = trailing_comma,
+            },
+            else => {
+                const span = try p.listToSpan(list.items);
+                return Members{
+                    .len = list.items.len,
+                    .lhs = span.start,
+                    .rhs = span.end,
+                    .trailing_comma = trailing_comma,
+                };
+            },
+        }
     }
 
     /// Attempts to find next container member by searching for certain tokens
@@ -398,44 +471,36 @@ const Parser = struct {
     }
 
     /// TestDecl <- KEYWORD_test STRINGLITERALSINGLE? Block
-    fn parseTestDecl(p: *Parser) !Node.Index {
-        const test_token = p.eatToken(.Keyword_test) orelse return null_node;
-        const name_token = try p.expectToken(.StringLiteral);
+    fn expectTestDecl(p: *Parser) !Node.Index {
+        const test_token = try p.expectToken(.Keyword_test);
+        const name_token = p.eatToken(.StringLiteral);
         const block_node = try p.parseBlock();
         if (block_node == 0) return p.fail(.{ .ExpectedLBrace = .{ .token = p.tok_i } });
         return p.addNode(.{
             .tag = .TestDecl,
             .main_token = test_token,
             .data = .{
-                .lhs = name_token,
+                .lhs = name_token orelse 0,
                 .rhs = block_node,
             },
         });
     }
 
-    /// TopLevelComptime <- KEYWORD_comptime BlockExpr
-    fn parseTopLevelComptime(p: *Parser) !Node.Index {
-        if (p.token_tags[p.tok_i] == .Keyword_comptime and
-            p.token_tags[p.tok_i + 1] == .LBrace)
-        {
-            return p.addNode(.{
-                .tag = .Comptime,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = try p.parseBlock(),
-                    .rhs = undefined,
-                },
-            });
-        } else {
-            return null_node;
-        }
+    fn expectTestDeclRecoverable(p: *Parser) error{OutOfMemory}!Node.Index {
+        return p.expectTestDecl() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                p.findNextContainerMember();
+                return null_node;
+            },
+        };
     }
 
     /// TopLevelDecl
     ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
     ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
     ///      / KEYWORD_usingnamespace Expr SEMICOLON
-    fn parseTopLevelDecl(p: *Parser) !Node.Index {
+    fn expectTopLevelDecl(p: *Parser) !Node.Index {
         const extern_export_inline_token = p.nextToken();
         var expect_fn: bool = false;
         var exported: bool = false;
@@ -496,7 +561,21 @@ const Parser = struct {
             return p.fail(.{ .ExpectedVarDeclOrFn = .{ .token = p.tok_i } });
         }
 
-        const usingnamespace_token = p.eatToken(.Keyword_usingnamespace) orelse return null_node;
+        return p.expectUsingNamespace();
+    }
+
+    fn expectTopLevelDeclRecoverable(p: *Parser) error{OutOfMemory}!Node.Index {
+        return p.expectTopLevelDecl() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                p.findNextContainerMember();
+                return null_node;
+            },
+        };
+    }
+
+    fn expectUsingNamespace(p: *Parser) !Node.Index {
+        const usingnamespace_token = try p.expectToken(.Keyword_usingnamespace);
         const expr = try p.expectExpr();
         const semicolon_token = try p.expectToken(.Semicolon);
         try p.parseAppendedDocComment(semicolon_token);
@@ -508,6 +587,16 @@ const Parser = struct {
                 .rhs = undefined,
             },
         });
+    }
+
+    fn expectUsingNamespaceRecoverable(p: *Parser) error{OutOfMemory}!Node.Index {
+        return p.expectUsingNamespace() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                p.findNextContainerMember();
+                return null_node;
+            },
+        };
     }
 
     /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
@@ -648,12 +737,9 @@ const Parser = struct {
     }
 
     /// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
-    fn parseContainerField(p: *Parser) !Node.Index {
+    fn expectContainerField(p: *Parser) !Node.Index {
         const comptime_token = p.eatToken(.Keyword_comptime);
-        const name_token = p.eatToken(.Identifier) orelse {
-            if (comptime_token) |_| p.tok_i -= 1;
-            return null_node;
-        };
+        const name_token = try p.expectToken(.Identifier);
 
         var align_expr: Node.Index = 0;
         var type_expr: Node.Index = 0;
@@ -706,6 +792,16 @@ const Parser = struct {
                 },
             });
         }
+    }
+
+    fn expectContainerFieldRecoverable(p: *Parser) error{OutOfMemory}!Node.Index {
+        return p.expectContainerField() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ParseError => {
+                p.findNextContainerMember();
+                return null_node;
+            },
+        };
     }
 
     /// Statement
@@ -3333,16 +3429,20 @@ const Parser = struct {
                             _ = try p.expectToken(.RParen);
 
                             _ = try p.expectToken(.LBrace);
-                            const members = try p.parseContainerMembers(false);
+                            const members = try p.parseContainerMembers();
+                            const members_span = try members.toSpan(p);
                             _ = try p.expectToken(.RBrace);
                             return p.addNode(.{
-                                .tag = .TaggedUnionEnumTag,
+                                .tag = switch (members.trailing_comma) {
+                                    true => .TaggedUnionEnumTagComma,
+                                    false => .TaggedUnionEnumTag,
+                                },
                                 .main_token = main_token,
                                 .data = .{
                                     .lhs = enum_tag_expr,
                                     .rhs = try p.addExtra(Node.SubRange{
-                                        .start = members.start,
-                                        .end = members.end,
+                                        .start = members_span.start,
+                                        .end = members_span.end,
                                     }),
                                 },
                             });
@@ -3350,16 +3450,34 @@ const Parser = struct {
                             _ = try p.expectToken(.RParen);
 
                             _ = try p.expectToken(.LBrace);
-                            const members = try p.parseContainerMembers(false);
+                            const members = try p.parseContainerMembers();
                             _ = try p.expectToken(.RBrace);
-                            return p.addNode(.{
-                                .tag = .TaggedUnion,
-                                .main_token = main_token,
-                                .data = .{
-                                    .lhs = members.start,
-                                    .rhs = members.end,
-                                },
-                            });
+                            if (members.len <= 2) {
+                                return p.addNode(.{
+                                    .tag = switch (members.trailing_comma) {
+                                        true => .TaggedUnionTwoComma,
+                                        false => .TaggedUnionTwo,
+                                    },
+                                    .main_token = main_token,
+                                    .data = .{
+                                        .lhs = members.lhs,
+                                        .rhs = members.rhs,
+                                    },
+                                });
+                            } else {
+                                const span = try members.toSpan(p);
+                                return p.addNode(.{
+                                    .tag = switch (members.trailing_comma) {
+                                        true => .TaggedUnionComma,
+                                        false => .TaggedUnion,
+                                    },
+                                    .main_token = main_token,
+                                    .data = .{
+                                        .lhs = span.start,
+                                        .rhs = span.end,
+                                    },
+                                });
+                            }
                         }
                     } else {
                         const expr = try p.expectExpr();
@@ -3373,26 +3491,48 @@ const Parser = struct {
             else => unreachable,
         };
         _ = try p.expectToken(.LBrace);
-        const members = try p.parseContainerMembers(false);
+        const members = try p.parseContainerMembers();
         _ = try p.expectToken(.RBrace);
         if (arg_expr == 0) {
-            return p.addNode(.{
-                .tag = .ContainerDecl,
-                .main_token = main_token,
-                .data = .{
-                    .lhs = members.start,
-                    .rhs = members.end,
-                },
-            });
+            if (members.len <= 2) {
+                return p.addNode(.{
+                    .tag = switch (members.trailing_comma) {
+                        true => .ContainerDeclTwoComma,
+                        false => .ContainerDeclTwo,
+                    },
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = members.lhs,
+                        .rhs = members.rhs,
+                    },
+                });
+            } else {
+                const span = try members.toSpan(p);
+                return p.addNode(.{
+                    .tag = switch (members.trailing_comma) {
+                        true => .ContainerDeclComma,
+                        false => .ContainerDecl,
+                    },
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = span.start,
+                        .rhs = span.end,
+                    },
+                });
+            }
         } else {
+            const span = try members.toSpan(p);
             return p.addNode(.{
-                .tag = .ContainerDeclArg,
+                .tag = switch (members.trailing_comma) {
+                    true => .ContainerDeclArgComma,
+                    false => .ContainerDeclArg,
+                },
                 .main_token = main_token,
                 .data = .{
                     .lhs = arg_expr,
                     .rhs = try p.addExtra(Node.SubRange{
-                        .start = members.start,
-                        .end = members.end,
+                        .start = span.start,
+                        .end = span.end,
                     }),
                 },
             });
