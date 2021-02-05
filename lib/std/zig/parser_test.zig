@@ -1435,14 +1435,15 @@ test "zig fmt: nosuspend block" {
 //        \\
 //    );
 //}
-//test "zig fmt: float literal with exponent" {
-//    try testCanonical(
-//        \\pub const f64_true_min = 4.94065645841246544177e-324;
-//        \\const threshold = 0x1.a827999fcef32p+1022;
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\pub const f64_true_min = 4.94065645841246544177e-324;
+        \\const threshold = 0x1.a827999fcef32p+1022;
+        \\
+    );
+}
+
 //test "zig fmt: if-else end of comptime" {
 //    try testCanonical(
 //        \\comptime {
