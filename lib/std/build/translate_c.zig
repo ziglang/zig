@@ -21,6 +21,7 @@ pub const TranslateCStep = struct {
     output_dir: ?[]const u8,
     out_basename: []const u8,
     target: CrossTarget = CrossTarget{},
+    output_file: build.GeneratedFile,
 
     pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         const self = builder.allocator.create(TranslateCStep) catch unreachable;
@@ -31,9 +32,18 @@ pub const TranslateCStep = struct {
             .include_dirs = std.ArrayList([]const u8).init(builder.allocator),
             .output_dir = null,
             .out_basename = undefined,
+            .output_file = build.GeneratedFile{
+                .step = &self.step,
+                .getPathFn = getGeneratedFilePath,
+            },
         };
         source.addStepDependencies(&self.step);
         return self;
+    }
+
+    fn getGeneratedFilePath(file: *const build.GeneratedFile) []const u8 {
+        const self = @fieldParentPtr(TranslateCStep, "step", file.step);
+        return self.getOutputPath();
     }
 
     /// Unless setOutputDir was called, this function must be called only in
@@ -52,7 +62,7 @@ pub const TranslateCStep = struct {
 
     /// Creates a step to build an executable from the translated source.
     pub fn addExecutable(self: *TranslateCStep) *LibExeObjStep {
-        return self.builder.addExecutableSource("translated_c", @as(build.FileSource, .{ .translate_c = self }));
+        return self.builder.addExecutableSource("translated_c", @as(build.FileSource, .{ .generated = &self.output_file }));
     }
 
     pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
@@ -60,7 +70,7 @@ pub const TranslateCStep = struct {
     }
 
     pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8) *CheckFileStep {
-        return CheckFileStep.create(self.builder, .{ .translate_c = self }, self.builder.dupeStrings(expected_matches));
+        return CheckFileStep.create(self.builder, .{ .generated = &self.output_file }, self.builder.dupeStrings(expected_matches));
     }
 
     fn make(step: *Step) !void {
