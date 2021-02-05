@@ -359,34 +359,8 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderExpression(ais, tree, datas[node].lhs, space);
         },
 
-        .ArrayType => unreachable, // TODO
-        //.ArrayType => {
-        //    const array_type = @fieldParentPtr(ast.Node.ArrayType, "base", base);
-        //    return renderArrayType(
-        //        allocator,
-        //        ais,
-        //        tree,
-        //        array_type.op_token,
-        //        array_type.rhs,
-        //        array_type.len_expr,
-        //        null,
-        //        space,
-        //    );
-        //},
-        .ArrayTypeSentinel => unreachable, // TODO
-        //.ArrayTypeSentinel => {
-        //    const array_type = @fieldParentPtr(ast.Node.ArrayTypeSentinel, "base", base);
-        //    return renderArrayType(
-        //        allocator,
-        //        ais,
-        //        tree,
-        //        array_type.op_token,
-        //        array_type.rhs,
-        //        array_type.len_expr,
-        //        array_type.sentinel,
-        //        space,
-        //    );
-        //},
+        .ArrayType => return renderArrayType(ais, tree, tree.arrayType(node), space),
+        .ArrayTypeSentinel => return renderArrayType(ais, tree, tree.arrayTypeSentinel(node), space),
 
         .PtrType => unreachable, // TODO
         .PtrTypeAligned => unreachable, // TODO
@@ -1279,47 +1253,21 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
     }
 }
 
+// TODO: handle comments inside the brackets
 fn renderArrayType(
-    allocator: *mem.Allocator,
     ais: *Ais,
     tree: ast.Tree,
-    lbracket: ast.TokenIndex,
-    rhs: ast.Node.Index,
-    len_expr: ast.Node.Index,
-    opt_sentinel: ?ast.Node.Index,
+    array_type: ast.Full.ArrayType,
     space: Space,
 ) Error!void {
-    const rbracket = tree.nextToken(if (opt_sentinel) |sentinel|
-        sentinel.lastToken()
-    else
-        len_expr.lastToken());
-
-    const starts_with_comment = tree.token_tags[lbracket + 1] == .LineComment;
-    const ends_with_comment = tree.token_tags[rbracket - 1] == .LineComment;
-    const new_space = if (ends_with_comment) Space.Newline else Space.None;
-    {
-        const do_indent = (starts_with_comment or ends_with_comment);
-        if (do_indent) ais.pushIndent();
-        defer if (do_indent) ais.popIndent();
-
-        try renderToken(ais, tree, lbracket, Space.None); // [
-        try renderExpression(ais, tree, len_expr, new_space);
-
-        if (starts_with_comment) {
-            try ais.maybeInsertNewline();
-        }
-        if (opt_sentinel) |sentinel| {
-            const colon_token = tree.prevToken(sentinel.firstToken());
-            try renderToken(ais, tree, colon_token, Space.None); // :
-            try renderExpression(ais, tree, sentinel, Space.None);
-        }
-        if (starts_with_comment) {
-            try ais.maybeInsertNewline();
-        }
+    try renderToken(ais, tree, array_type.ast.lbracket, .None); // lbracket
+    try renderExpression(ais, tree, array_type.ast.elem_count, .None);
+    if (array_type.ast.sentinel) |sentinel| {
+        try renderToken(ais, tree, tree.firstToken(sentinel) - 1, .None); // colon
+        try renderExpression(ais, tree, sentinel, .None);
     }
-    try renderToken(ais, tree, rbracket, Space.None); // ]
-
-    return renderExpression(ais, tree, rhs, space);
+    try renderToken(ais, tree, tree.firstToken(array_type.ast.elem_type) - 1, .None); // rbracket
+    return renderExpression(ais, tree, array_type.ast.elem_type, space);
 }
 
 fn renderAsmOutput(
@@ -1900,6 +1848,7 @@ fn renderBlock(
     }
 }
 
+// TODO: handle comments between fields
 fn renderStructInit(
     ais: *Ais,
     tree: ast.Tree,
@@ -1953,6 +1902,7 @@ fn renderStructInit(
     }
 }
 
+// TODO: handle comments between elements
 fn renderArrayInit(
     ais: *Ais,
     tree: ast.Tree,
