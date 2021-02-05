@@ -490,6 +490,64 @@ test "zig fmt: anon list literal 3 element comma" {
     );
 }
 
+test "zig fmt: array literal 1 element" {
+    try testCanonical(
+        \\const x = [_]u32{a};
+        \\
+    );
+}
+
+test "zig fmt: array literal 1 element comma" {
+    try testCanonical(
+        \\const x = [1]u32{
+        \\    a,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: array literal 2 element" {
+    try testCanonical(
+        \\const x = [_]u32{ a, b };
+        \\
+    );
+}
+
+test "zig fmt: array literal 2 element comma" {
+    try testCanonical(
+        \\const x = [2]u32{
+        \\    a,
+        \\    b,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: array literal 3 element" {
+    try testCanonical(
+        \\const x = [_]u32{ a, b, c };
+        \\
+    );
+}
+
+test "zig fmt: array literal 3 element comma" {
+    try testCanonical(
+        \\const x = [3]u32{
+        \\    a,
+        \\    b,
+        \\    c,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: sentinel array literal 1 element" {
+    try testCanonical(
+        \\const x = [_:9000]u32{a};
+        \\
+    );
+}
+
 //test "zig fmt: async function" {
 //    try testCanonical(
 //        \\pub const Server = struct {

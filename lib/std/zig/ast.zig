@@ -246,6 +246,8 @@ pub const Tree = struct {
             .FnProtoMulti,
             .FnProtoOne,
             .FnProto,
+            .ArrayType,
+            .ArrayTypeSentinel,
             => return main_tokens[n],
 
             .ArrayInitDot,
@@ -363,8 +365,6 @@ pub const Tree = struct {
                 }
             },
 
-            .ArrayType => unreachable, // TODO
-            .ArrayTypeSentinel => unreachable, // TODO
             .PtrTypeAligned => unreachable, // TODO
             .PtrTypeSentinel => unreachable, // TODO
             .PtrType => unreachable, // TODO
@@ -925,6 +925,33 @@ pub const Tree = struct {
         };
     }
 
+    pub fn arrayType(tree: Tree, node: Node.Index) Full.ArrayType {
+        assert(tree.nodes.items(.tag)[node] == .ArrayType);
+        const data = tree.nodes.items(.data)[node];
+        return .{
+            .ast = .{
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .elem_count = data.lhs,
+                .sentinel = null,
+                .elem_type = data.rhs,
+            },
+        };
+    }
+
+    pub fn arrayTypeSentinel(tree: Tree, node: Node.Index) Full.ArrayType {
+        assert(tree.nodes.items(.tag)[node] == .ArrayTypeSentinel);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.ArrayTypeSentinel);
+        return .{
+            .ast = .{
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .elem_count = data.lhs,
+                .sentinel = extra.sentinel,
+                .elem_type = extra.elem_type,
+            },
+        };
+    }
+
     fn fullVarDecl(tree: Tree, info: Full.VarDecl.Ast) Full.VarDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: Full.VarDecl = .{
@@ -1085,6 +1112,17 @@ pub const Full = struct {
             lbrace: TokenIndex,
             elements: []const Node.Index,
             type_expr: Node.Index,
+        };
+    };
+
+    pub const ArrayType = struct {
+        ast: Ast,
+
+        pub const Ast = struct {
+            lbracket: TokenIndex,
+            elem_count: Node.Index,
+            sentinel: ?Node.Index,
+            elem_type: Node.Index,
         };
     };
 };
