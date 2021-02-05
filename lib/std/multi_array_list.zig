@@ -20,7 +20,8 @@ pub fn MultiArrayList(comptime S: type) type {
         pub const Field = meta.FieldEnum(S);
 
         pub const Slice = struct {
-            /// The index corresponds to sizes.bytes, not in field order.
+            /// This array is indexed by the field index which can be obtained
+            /// by using @enumToInt() on the Field enum
             ptrs: [fields.len][*]u8,
             len: usize,
             capacity: usize,
@@ -57,8 +58,7 @@ pub fn MultiArrayList(comptime S: type) type {
 
         const fields = meta.fields(S);
         /// `sizes.bytes` is an array of @sizeOf each S field. Sorted by alignment, descending.
-        /// `sizes.indexes` is an array mapping from field to its index in the `sizes.bytes` array.
-        /// `sizes.fields` is an array with the field indexes of the `sizes.bytes` array.
+        /// `sizes.fields` is an array mapping from `sizes.bytes` array index to field index.
         const sizes = blk: {
             const Data = struct {
                 size: usize,
@@ -81,16 +81,13 @@ pub fn MultiArrayList(comptime S: type) type {
             var trash: i32 = undefined; // workaround for stage1 compiler bug
             std.sort.sort(Data, &data, &trash, Sort.lessThan);
             var sizes_bytes: [fields.len]usize = undefined;
-            var sizes_indexes: [fields.len]usize = undefined;
             var field_indexes: [fields.len]usize = undefined;
             for (data) |elem, i| {
                 sizes_bytes[i] = elem.size;
-                sizes_indexes[elem.size_index] = i;
                 field_indexes[i] = elem.size_index;
             }
             break :blk .{
                 .bytes = sizes_bytes,
-                .indexes = sizes_indexes,
                 .fields = field_indexes,
             };
         };
@@ -183,8 +180,11 @@ pub fn MultiArrayList(comptime S: type) type {
                 capacityInBytes(new_len),
                 .exact,
             ) catch {
+                inline for (fields) |field_info, i| {
+                    const field = @intToEnum(Field, i);
+                    mem.set(field_info.field_type, self.slice().items(field)[new_len..], undefined);
+                }
                 self.len = new_len;
-                // TODO memset the invalidated items to undefined
                 return;
             };
             var other = Self{
