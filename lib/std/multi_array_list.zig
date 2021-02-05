@@ -180,9 +180,15 @@ pub fn MultiArrayList(comptime S: type) type {
                 capacityInBytes(new_len),
                 .exact,
             ) catch {
+                const self_slice = self.slice();
                 inline for (fields) |field_info, i| {
                     const field = @intToEnum(Field, i);
-                    mem.set(field_info.field_type, self.slice().items(field)[new_len..], undefined);
+                    const dest_slice = self_slice.items(field)[new_len..];
+                    const byte_count = dest_slice.len * @sizeOf(field_info.field_type);
+                    // We use memset here for more efficient codegen in safety-checked,
+                    // valgrind-enabled builds. Otherwise the valgrind client request
+                    // will be repeated for every element.
+                    @memset(@ptrCast([*]u8, dest_slice.ptr), undefined, byte_count);
                 }
                 self.len = new_len;
                 return;
