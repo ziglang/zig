@@ -939,7 +939,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// Copies a value to a register without tracking the register. The register is not considered
         /// allocated. A second call to `copyToTmpRegister` may return the same register.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
-        fn copyToTmpRegister(self: *Self, src: usize, mcv: MCValue) !Register {
+        fn copyToTmpRegister(self: *Self, src: usize, ty: Type, mcv: MCValue) !Register {
             const reg = self.findUnusedReg() orelse b: {
                 // We'll take over the first register. Move the instruction that was previously
                 // there to a stack allocation.
@@ -956,7 +956,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                 break :b reg;
             };
-            try self.genSetReg(src, reg, mcv);
+            try self.genSetReg(src, ty, reg, mcv);
             return reg;
         }
 
@@ -983,7 +983,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                 break :b reg;
             };
-            try self.genSetReg(reg_owner.src, reg, mcv);
+            try self.genSetReg(reg_owner.src, reg_owner.ty, reg, mcv);
             return MCValue{ .register = reg };
         }
 
@@ -1351,13 +1351,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // Load immediate into register if it doesn't fit
                     // as an operand
                     break :blk Instruction.Operand.fromU32(@intCast(u32, imm)) orelse
-                        Instruction.Operand.reg(try self.copyToTmpRegister(src, op2), Instruction.Operand.Shift.none);
+                        Instruction.Operand.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), op2), Instruction.Operand.Shift.none);
                 },
                 .register => |reg| Instruction.Operand.reg(reg, Instruction.Operand.Shift.none),
                 .stack_offset,
                 .embedded_in_code,
                 .memory,
-                => Instruction.Operand.reg(try self.copyToTmpRegister(src, op2), Instruction.Operand.Shift.none),
+                => Instruction.Operand.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), op2), Instruction.Operand.Shift.none),
             };
 
             switch (op) {
@@ -1443,7 +1443,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (src_mcv) {
                 .immediate => |imm| {
                     if (imm > math.maxInt(u31)) {
-                        src_mcv = MCValue{ .register = try self.copyToTmpRegister(src_inst.src, src_mcv) };
+                        src_mcv = MCValue{ .register = try self.copyToTmpRegister(src_inst.src, Type.initTag(.u64), src_mcv) };
                     }
                 },
                 else => {},
@@ -1474,7 +1474,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .register => |dst_reg| {
                     switch (src_mcv) {
                         .none => unreachable,
-                        .undef => try self.genSetReg(src, dst_reg, .undef),
+                        .undef => try self.genSetReg(src, dst_ty, dst_reg, .undef),
                         .dead, .unreach => unreachable,
                         .ptr_stack_offset => unreachable,
                         .ptr_embedded_in_code => unreachable,
@@ -1684,7 +1684,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             switch (mc_arg) {
                                 .none => continue,
                                 .register => |reg| {
-                                    try self.genSetReg(arg.src, reg, arg_mcv);
+                                    try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
                                     // TODO interact with the register allocator to mark the instruction as moved.
                                 },
                                 .stack_offset => {
@@ -1753,7 +1753,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 else
                                     unreachable;
 
-                                try self.genSetReg(inst.base.src, .ra, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.usize), .ra, .{ .memory = got_addr });
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.ra, 0, .ra).toU32());
                             } else if (func_value.castTag(.extern_fn)) |_| {
                                 return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
@@ -1826,7 +1826,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .compare_flags_signed => unreachable,
                                 .compare_flags_unsigned => unreachable,
                                 .register => |reg| {
-                                    try self.genSetReg(arg.src, reg, arg_mcv);
+                                    try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
                                     // TODO interact with the register allocator to mark the instruction as moved.
                                 },
                                 .stack_offset => {
@@ -1854,7 +1854,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 else
                                     unreachable;
 
-                                try self.genSetReg(inst.base.src, .lr, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.usize), .lr, .{ .memory = got_addr });
 
                                 // TODO: add Instruction.supportedOn
                                 // function for ARM
@@ -1889,7 +1889,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .compare_flags_signed => unreachable,
                                 .compare_flags_unsigned => unreachable,
                                 .register => |reg| {
-                                    try self.genSetReg(arg.src, reg, arg_mcv);
+                                    try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
                                     // TODO interact with the register allocator to mark the instruction as moved.
                                 },
                                 .stack_offset => {
@@ -1917,7 +1917,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 else
                                     unreachable;
 
-                                try self.genSetReg(inst.base.src, .x30, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.usize), .x30, .{ .memory = got_addr });
 
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
                             } else if (func_value.castTag(.extern_fn)) |_| {
@@ -1940,7 +1940,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     switch (mc_arg) {
                         .none => continue,
                         .register => |reg| {
-                            try self.genSetReg(arg.src, reg, arg_mcv);
+                            try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
                             // TODO interact with the register allocator to mark the instruction as moved.
                         },
                         .stack_offset => {
@@ -1973,12 +1973,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const got_addr = got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
                         switch (arch) {
                             .x86_64 => {
-                                try self.genSetReg(inst.base.src, .rax, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.u32), .rax, .{ .memory = got_addr });
                                 // callq *%rax
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             },
                             .aarch64 => {
-                                try self.genSetReg(inst.base.src, .x30, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.u32), .x30, .{ .memory = got_addr });
                                 // blr x30
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
                             },
@@ -2579,7 +2579,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg = parseRegName(reg_name) orelse
                             return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
-                        try self.genSetReg(inst.base.src, reg, arg);
+                        try self.genSetReg(inst.base.src, inst.args[i].ty, reg, arg);
                     }
 
                     if (mem.eql(u8, inst.asm_source, "svc #0")) {
@@ -2609,7 +2609,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg = parseRegName(reg_name) orelse
                             return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
-                        try self.genSetReg(inst.base.src, reg, arg);
+                        try self.genSetReg(inst.base.src, inst.args[i].ty, reg, arg);
                     }
 
                     if (mem.eql(u8, inst.asm_source, "svc #0")) {
@@ -2641,7 +2641,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg = parseRegName(reg_name) orelse
                             return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
-                        try self.genSetReg(inst.base.src, reg, arg);
+                        try self.genSetReg(inst.base.src, inst.args[i].ty, reg, arg);
                     }
 
                     if (mem.eql(u8, inst.asm_source, "ecall")) {
@@ -2671,7 +2671,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg = parseRegName(reg_name) orelse
                             return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
                         const arg = try self.resolveInst(inst.args[i]);
-                        try self.genSetReg(inst.base.src, reg, arg);
+                        try self.genSetReg(inst.base.src, inst.args[i].ty, reg, arg);
                     }
 
                     if (mem.eql(u8, inst.asm_source, "syscall")) {
@@ -2733,7 +2733,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn setRegOrMem(self: *Self, src: usize, ty: Type, loc: MCValue, val: MCValue) !void {
             switch (loc) {
                 .none => return,
-                .register => |reg| return self.genSetReg(src, reg, val),
+                .register => |reg| return self.genSetReg(src, ty, reg, val),
                 .stack_offset => |off| return self.genSetStack(src, ty, off, val),
                 .memory => {
                     return self.fail(src, "TODO implement setRegOrMem for memory", .{});
@@ -2768,7 +2768,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => {
-                        const reg = try self.copyToTmpRegister(src, mcv);
+                        const reg = try self.copyToTmpRegister(src, ty, mcv);
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                     .embedded_in_code => |code_offset| {
@@ -2782,7 +2782,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             1, 4 => {
                                 const offset = if (math.cast(u12, adj_off)) |imm| blk: {
                                     break :blk Instruction.Offset.imm(imm);
-                                } else |_| Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
+                                } else |_| Instruction.Offset.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), MCValue{ .immediate = adj_off }), 0);
                                 const str = switch (abi_size) {
                                     1 => Instruction.strb,
                                     4 => Instruction.str,
@@ -2797,7 +2797,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             2 => {
                                 const offset = if (adj_off <= math.maxInt(u8)) blk: {
                                     break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, adj_off));
-                                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
+                                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), MCValue{ .immediate = adj_off }));
 
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.strh(.al, reg, .fp, .{
                                     .offset = offset,
@@ -2814,7 +2814,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (stack_offset == off)
                             return; // Copy stack variable to itself; nothing to do.
 
-                        const reg = try self.copyToTmpRegister(src, mcv);
+                        const reg = try self.copyToTmpRegister(src, ty, mcv);
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                 },
@@ -2903,7 +2903,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (stack_offset == off)
                             return; // Copy stack variable to itself; nothing to do.
 
-                        const reg = try self.copyToTmpRegister(src, mcv);
+                        const reg = try self.copyToTmpRegister(src, ty, mcv);
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                 },
@@ -2931,7 +2931,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => {
-                        const reg = try self.copyToTmpRegister(src, mcv);
+                        const reg = try self.copyToTmpRegister(src, ty, mcv);
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                     .embedded_in_code => |code_offset| {
@@ -2946,7 +2946,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const offset = if (math.cast(i9, adj_off)) |imm|
                                     Instruction.LoadStoreOffset.imm_post_index(-imm)
                                 else |_|
-                                    Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
+                                    Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u64), MCValue{ .immediate = adj_off }));
                                 const rn: Register = switch (arch) {
                                     .aarch64, .aarch64_be => .x29,
                                     .aarch64_32 => .w29,
@@ -2967,7 +2967,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (stack_offset == off)
                             return; // Copy stack variable to itself; nothing to do.
 
-                        const reg = try self.copyToTmpRegister(src, mcv);
+                        const reg = try self.copyToTmpRegister(src, ty, mcv);
                         return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
                     },
                 },
@@ -2975,7 +2975,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genSetReg(self: *Self, src: usize, reg: Register, mcv: MCValue) InnerError!void {
+        fn genSetReg(self: *Self, src: usize, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
             switch (arch) {
                 .arm, .armeb => switch (mcv) {
                     .dead => unreachable,
@@ -2986,7 +2986,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (!self.wantSafety())
                             return; // The already existing value will do just fine.
                         // Write the debug undefined value.
-                        return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa });
+                        return self.genSetReg(src, ty, reg, .{ .immediate = 0xaaaaaaaa });
                     },
                     .compare_flags_unsigned,
                     .compare_flags_signed,
@@ -3051,21 +3051,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .memory => |addr| {
                         // The value is in memory at a hard-coded address.
                         // If the type is a pointer, it means the pointer address is at this memory location.
-                        try self.genSetReg(src, reg, .{ .immediate = addr });
+                        try self.genSetReg(src, ty, reg, .{ .immediate = addr });
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
                     },
                     .stack_offset => |unadjusted_off| {
                         // TODO: maybe addressing from sp instead of fp
-                        // TODO: supply type information to genSetReg as we do to genSetStack
-                        // const abi_size = ty.abiSize(self.target.*);
-                        const abi_size = 4;
+                        const abi_size = ty.abiSize(self.target.*);
                         const adj_off = unadjusted_off + abi_size;
 
                         switch (abi_size) {
                             1, 4 => {
                                 const offset = if (adj_off <= math.maxInt(u12)) blk: {
                                     break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
-                                } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }), 0);
+                                } else Instruction.Offset.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), MCValue{ .immediate = adj_off }), 0);
                                 const ldr = switch (abi_size) {
                                     1 => Instruction.ldrb,
                                     4 => Instruction.ldr,
@@ -3080,7 +3078,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             2 => {
                                 const offset = if (adj_off <= math.maxInt(u8)) blk: {
                                     break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, adj_off));
-                                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = adj_off }));
+                                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), MCValue{ .immediate = adj_off }));
 
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldrh(.al, reg, .fp, .{
                                     .offset = offset,
@@ -3102,8 +3100,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return; // The already existing value will do just fine.
                         // Write the debug undefined value.
                         switch (reg.size()) {
-                            32 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa }),
-                            64 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            32 => return self.genSetReg(src, ty, reg, .{ .immediate = 0xaaaaaaaa }),
+                            64 => return self.genSetReg(src, ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
                             else => unreachable, // unexpected register size
                         }
                     },
@@ -3216,7 +3214,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         } else {
                             // The value is in memory at a hard-coded address.
                             // If the type is a pointer, it means the pointer address is at this memory location.
-                            try self.genSetReg(src, reg, .{ .immediate = addr });
+                            try self.genSetReg(src, Type.initTag(.usize), reg, .{ .immediate = addr });
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .register = .{ .rn = reg } }).toU32());
                         }
                     },
@@ -3231,7 +3229,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (!self.wantSafety())
                             return; // The already existing value will do just fine.
                         // Write the debug undefined value.
-                        return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
+                        return self.genSetReg(src, ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
                     },
                     .immediate => |unsigned_x| {
                         const x = @bitCast(i64, unsigned_x);
@@ -3256,7 +3254,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .memory => |addr| {
                         // The value is in memory at a hard-coded address.
                         // If the type is a pointer, it means the pointer address is at this memory location.
-                        try self.genSetReg(src, reg, .{ .immediate = addr });
+                        try self.genSetReg(src, ty, reg, .{ .immediate = addr });
 
                         mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ld(reg, 0, reg).toU32());
                         // LOAD imm=[i12 offset = 0], rs1 =
@@ -3275,10 +3273,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return; // The already existing value will do just fine.
                         // Write the debug undefined value.
                         switch (reg.size()) {
-                            8 => return self.genSetReg(src, reg, .{ .immediate = 0xaa }),
-                            16 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaa }),
-                            32 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa }),
-                            64 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            8 => return self.genSetReg(src, ty, reg, .{ .immediate = 0xaa }),
+                            16 => return self.genSetReg(src, ty, reg, .{ .immediate = 0xaaaa }),
+                            32 => return self.genSetReg(src, ty, reg, .{ .immediate = 0xaaaaaaaa }),
+                            64 => return self.genSetReg(src, ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
                             else => unreachable,
                         }
                     },
@@ -3492,7 +3490,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 assert(id3 != 4 and id3 != 5);
 
                                 // Rather than duplicate the logic used for the move, we just use a self-call with a new MCValue.
-                                try self.genSetReg(src, reg, MCValue{ .immediate = x });
+                                try self.genSetReg(src, ty, reg, MCValue{ .immediate = x });
 
                                 // Now, the register contains the address of the value to load into it
                                 // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
@@ -3591,7 +3589,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // This immediate is unsigned.
                     const U = std.meta.Int(.unsigned, ti.bits - @boolToInt(ti.signedness == .signed));
                     if (imm >= math.maxInt(U)) {
-                        return MCValue{ .register = try self.copyToTmpRegister(inst.src, mcv) };
+                        return MCValue{ .register = try self.copyToTmpRegister(inst.src, Type.initTag(.usize), mcv) };
                     }
                 },
                 else => {},
