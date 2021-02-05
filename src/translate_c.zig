@@ -3208,6 +3208,38 @@ fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const clang.ArraySub
     return maybeSuppressResult(rp, scope, result_used, &node.base);
 }
 
+/// Check if an expression is ultimately a reference to a function declaration
+/// (which means it should not be unwrapped with `.?` in translated code)
+fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
+    switch (expr.getStmtClass()) {
+        .ParenExprClass => {
+            const op_expr = @ptrCast(*const clang.ParenExpr, expr).getSubExpr();
+            return cIsFunctionDeclRef(op_expr);
+        },
+        .DeclRefExprClass => {
+            const decl_ref = @ptrCast(*const clang.DeclRefExpr, expr);
+            const value_decl = decl_ref.getDecl();
+            const qt = value_decl.getType();
+            return qualTypeChildIsFnProto(qt);
+        },
+        .ImplicitCastExprClass => {
+            const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, expr);
+            const cast_kind = implicit_cast.getCastKind();
+            if (cast_kind == .BuiltinFnToFnPtr) return true;
+            if (cast_kind == .FunctionToPointerDecay) {
+                return cIsFunctionDeclRef(implicit_cast.getSubExpr());
+            }
+            return false;
+        },
+        .UnaryOperatorClass => {
+            const un_op = @ptrCast(*const clang.UnaryOperator, expr);
+            const opcode = un_op.getOpcode();
+            return (opcode == .AddrOf or opcode == .Deref) and cIsFunctionDeclRef(un_op.getSubExpr());
+        },
+        else => return false,
+    }
+}
+
 fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.CallExpr, result_used: ResultUsed) TransError!*ast.Node {
     const callee = stmt.getCallee();
     var raw_fn_expr = try transExpr(rp, scope, callee, .used, .r_value);
@@ -3215,24 +3247,9 @@ fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.CallExpr, r
     var is_ptr = false;
     const fn_ty = qualTypeGetFnProto(callee.getType(), &is_ptr);
 
-    const fn_expr = if (is_ptr and fn_ty != null) blk: {
-        if (callee.getStmtClass() == .ImplicitCastExprClass) {
-            const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, callee);
-            const cast_kind = implicit_cast.getCastKind();
-            if (cast_kind == .BuiltinFnToFnPtr) break :blk raw_fn_expr;
-            if (cast_kind == .FunctionToPointerDecay) {
-                const subexpr = implicit_cast.getSubExpr();
-                if (subexpr.getStmtClass() == .DeclRefExprClass) {
-                    const decl_ref = @ptrCast(*const clang.DeclRefExpr, subexpr);
-                    const named_decl = decl_ref.getFoundDecl();
-                    if (@ptrCast(*const clang.Decl, named_decl).getKind() == .Function) {
-                        break :blk raw_fn_expr;
-                    }
-                }
-            }
-        }
-        break :blk try transCreateNodeUnwrapNull(rp.c, raw_fn_expr);
-    } else
+    const fn_expr = if (is_ptr and fn_ty != null and !cIsFunctionDeclRef(callee))
+        try transCreateNodeUnwrapNull(rp.c, raw_fn_expr)
+    else
         raw_fn_expr;
 
     const num_args = stmt.getNumArgs();
@@ -3379,6 +3396,9 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const clang.UnaryO
         else
             return transCreatePreCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
         .AddrOf => {
+            if (cIsFunctionDeclRef(op_expr)) {
+                return transExpr(rp, scope, op_expr, used, .r_value);
+            }
             const op_node = try transCreateNodeSimplePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
             op_node.rhs = try transExpr(rp, scope, op_expr, used, .r_value);
             return &op_node.base;

@@ -2802,8 +2802,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_f64(3);
         \\    fn_bool(@as(c_int, 123) != 0);
         \\    fn_bool(@as(c_int, 0) != 0);
-        \\    fn_bool(@ptrToInt(&fn_int) != 0);
-        \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
+        \\    fn_bool(@ptrToInt(fn_int) != 0);
+        \\    fn_int(@intCast(c_int, @ptrToInt(fn_int)));
         \\    fn_ptr(@intToPtr(?*c_void, @as(c_int, 42)));
         \\}
     });
