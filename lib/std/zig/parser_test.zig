@@ -345,7 +345,59 @@ test "zig fmt: builtin call with trailing comma" {
 //        \\
 //    );
 //}
-//
+
+test "zig fmt: pointer-to-one with modifiers" {
+    try testCanonical(
+        \\const x: *u32 = undefined;
+        \\const y: *allowzero align(8) const volatile u32 = undefined;
+        \\const z: *allowzero align(8:4:2) const volatile u32 = undefined;
+        \\
+    );
+}
+
+test "zig fmt: pointer-to-many with modifiers" {
+    try testCanonical(
+        \\const x: [*]u32 = undefined;
+        \\const y: [*]allowzero align(8) const volatile u32 = undefined;
+        \\const z: [*]allowzero align(8:4:2) const volatile u32 = undefined;
+        \\
+    );
+}
+
+test "zig fmt: sentinel pointer with modifiers" {
+    try testCanonical(
+        \\const x: [*:42]u32 = undefined;
+        \\const y: [*:42]allowzero align(8) const volatile u32 = undefined;
+        \\const y: [*:42]allowzero align(8:4:2) const volatile u32 = undefined;
+        \\
+    );
+}
+
+test "zig fmt: c pointer with modifiers" {
+    try testCanonical(
+        \\const x: [*c]u32 = undefined;
+        \\const y: [*c]allowzero align(8) const volatile u32 = undefined;
+        \\const z: [*c]allowzero align(8:4:2) const volatile u32 = undefined;
+        \\
+    );
+}
+
+test "zig fmt: slice with modifiers" {
+    try testCanonical(
+        \\const x: []u32 = undefined;
+        \\const y: []allowzero align(8) const volatile u32 = undefined;
+        \\
+    );
+}
+
+test "zig fmt: sentinel slice with modifiers" {
+    try testCanonical(
+        \\const x: [:42]u32 = undefined;
+        \\const y: [:42]allowzero align(8) const volatile u32 = undefined;
+        \\
+    );
+}
+
 //test "zig fmt: anon literal in array" {
 //    try testCanonical(
 //        \\var arr: [2]Foo = .{

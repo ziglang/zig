@@ -370,120 +370,10 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .ArrayType => return renderArrayType(ais, tree, tree.arrayType(node), space),
         .ArrayTypeSentinel => return renderArrayType(ais, tree, tree.arrayTypeSentinel(node), space),
 
-        .PtrType => unreachable, // TODO
-        .PtrTypeAligned => unreachable, // TODO
-        .PtrTypeSentinel => unreachable, // TODO
-        //.PtrType => {
-        //    const ptr_type = @fieldParentPtr(ast.Node.PtrType, "base", base);
-        //    const op_tok_id = tree.token_tags[ptr_type.op_token];
-        //    switch (op_tok_id) {
-        //        .Asterisk, .AsteriskAsterisk => try ais.writer().writeByte('*'),
-        //        .LBracket => if (tree.token_tags[ptr_type.op_token + 2] == .Identifier)
-        //            try ais.writer().writeAll("[*c")
-        //        else
-        //            try ais.writer().writeAll("[*"),
-        //        else => unreachable,
-        //    }
-        //    if (ptr_type.ptr_info.sentinel) |sentinel| {
-        //        const colon_token = tree.prevToken(sentinel.firstToken());
-        //        try renderToken(ais, tree, colon_token, Space.None); // :
-        //        const sentinel_space = switch (op_tok_id) {
-        //            .LBracket => Space.None,
-        //            else => Space.Space,
-        //        };
-        //        try renderExpression(ais, tree, sentinel, sentinel_space);
-        //    }
-        //    switch (op_tok_id) {
-        //        .Asterisk, .AsteriskAsterisk => {},
-        //        .LBracket => try ais.writer().writeByte(']'),
-        //        else => unreachable,
-        //    }
-        //    if (ptr_type.ptr_info.allowzero_token) |allowzero_token| {
-        //        try renderToken(ais, tree, allowzero_token, Space.Space); // allowzero
-        //    }
-        //    if (ptr_type.ptr_info.align_info) |align_info| {
-        //        const lparen_token = tree.prevToken(align_info.node.firstToken());
-        //        const align_token = tree.prevToken(lparen_token);
-
-        //        try renderToken(ais, tree, align_token, Space.None); // align
-        //        try renderToken(ais, tree, lparen_token, Space.None); // (
-
-        //        try renderExpression(ais, tree, align_info.node, Space.None);
-
-        //        if (align_info.bit_range) |bit_range| {
-        //            const colon1 = tree.prevToken(bit_range.start.firstToken());
-        //            const colon2 = tree.prevToken(bit_range.end.firstToken());
-
-        //            try renderToken(ais, tree, colon1, Space.None); // :
-        //            try renderExpression(ais, tree, bit_range.start, Space.None);
-        //            try renderToken(ais, tree, colon2, Space.None); // :
-        //            try renderExpression(ais, tree, bit_range.end, Space.None);
-
-        //            const rparen_token = tree.nextToken(bit_range.end.lastToken());
-        //            try renderToken(ais, tree, rparen_token, Space.Space); // )
-        //        } else {
-        //            const rparen_token = tree.nextToken(align_info.node.lastToken());
-        //            try renderToken(ais, tree, rparen_token, Space.Space); // )
-        //        }
-        //    }
-        //    if (ptr_type.ptr_info.const_token) |const_token| {
-        //        try renderToken(ais, tree, const_token, Space.Space); // const
-        //    }
-        //    if (ptr_type.ptr_info.volatile_token) |volatile_token| {
-        //        try renderToken(ais, tree, volatile_token, Space.Space); // volatile
-        //    }
-        //    return renderExpression(ais, tree, ptr_type.rhs, space);
-        //},
-
-        .SliceType => unreachable, // TODO
-        //.SliceType => {
-        //    const slice_type = @fieldParentPtr(ast.Node.SliceType, "base", base);
-        //    try renderToken(ais, tree, slice_type.op_token, Space.None); // [
-        //    if (slice_type.ptr_info.sentinel) |sentinel| {
-        //        const colon_token = tree.prevToken(sentinel.firstToken());
-        //        try renderToken(ais, tree, colon_token, Space.None); // :
-        //        try renderExpression(ais, tree, sentinel, Space.None);
-        //        try renderToken(ais, tree, tree.nextToken(sentinel.lastToken()), Space.None); // ]
-        //    } else {
-        //        try renderToken(ais, tree, tree.nextToken(slice_type.op_token), Space.None); // ]
-        //    }
-
-        //    if (slice_type.ptr_info.allowzero_token) |allowzero_token| {
-        //        try renderToken(ais, tree, allowzero_token, Space.Space); // allowzero
-        //    }
-        //    if (slice_type.ptr_info.align_info) |align_info| {
-        //        const lparen_token = tree.prevToken(align_info.node.firstToken());
-        //        const align_token = tree.prevToken(lparen_token);
-
-        //        try renderToken(ais, tree, align_token, Space.None); // align
-        //        try renderToken(ais, tree, lparen_token, Space.None); // (
-
-        //        try renderExpression(ais, tree, align_info.node, Space.None);
-
-        //        if (align_info.bit_range) |bit_range| {
-        //            const colon1 = tree.prevToken(bit_range.start.firstToken());
-        //            const colon2 = tree.prevToken(bit_range.end.firstToken());
-
-        //            try renderToken(ais, tree, colon1, Space.None); // :
-        //            try renderExpression(ais, tree, bit_range.start, Space.None);
-        //            try renderToken(ais, tree, colon2, Space.None); // :
-        //            try renderExpression(ais, tree, bit_range.end, Space.None);
-
-        //            const rparen_token = tree.nextToken(bit_range.end.lastToken());
-        //            try renderToken(ais, tree, rparen_token, Space.Space); // )
-        //        } else {
-        //            const rparen_token = tree.nextToken(align_info.node.lastToken());
-        //            try renderToken(ais, tree, rparen_token, Space.Space); // )
-        //        }
-        //    }
-        //    if (slice_type.ptr_info.const_token) |const_token| {
-        //        try renderToken(ais, tree, const_token, Space.Space);
-        //    }
-        //    if (slice_type.ptr_info.volatile_token) |volatile_token| {
-        //        try renderToken(ais, tree, volatile_token, Space.Space);
-        //    }
-        //    return renderExpression(ais, tree, slice_type.rhs, space);
-        //},
+        .PtrTypeAligned => return renderPtrType(ais, tree, tree.ptrTypeAligned(node), space),
+        .PtrTypeSentinel => return renderPtrType(ais, tree, tree.ptrTypeSentinel(node), space),
+        .PtrType => return renderPtrType(ais, tree, tree.ptrType(node), space),
+        .PtrTypeBitRange => return renderPtrType(ais, tree, tree.ptrTypeBitRange(node), space),
 
         .ArrayInitOne => {
             var elements: [1]ast.Node.Index = undefined;
@@ -1178,6 +1068,78 @@ fn renderArrayType(
     }
     try renderToken(ais, tree, tree.firstToken(array_type.ast.elem_type) - 1, .None); // rbracket
     return renderExpression(ais, tree, array_type.ast.elem_type, space);
+}
+
+fn renderPtrType(
+    ais: *Ais,
+    tree: ast.Tree,
+    ptr_type: ast.Full.PtrType,
+    space: Space,
+) Error!void {
+    switch (ptr_type.kind) {
+        .one => {
+            try renderToken(ais, tree, ptr_type.ast.main_token, .None); // asterisk
+        },
+        .many => {
+            try renderToken(ais, tree, ptr_type.ast.main_token - 1, .None); // lbracket
+            try renderToken(ais, tree, ptr_type.ast.main_token, .None); // asterisk
+            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .None); // rbracket
+        },
+        .sentinel => {
+            try renderToken(ais, tree, ptr_type.ast.main_token - 1, .None); // lbracket
+            try renderToken(ais, tree, ptr_type.ast.main_token, .None); // asterisk
+            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .None); // colon
+            try renderExpression(ais, tree, ptr_type.ast.sentinel, .None);
+            try renderToken(ais, tree, tree.lastToken(ptr_type.ast.sentinel) + 1, .None); // rbracket
+        },
+        .c => {
+            try renderToken(ais, tree, ptr_type.ast.main_token - 1, .None); // lbracket
+            try renderToken(ais, tree, ptr_type.ast.main_token, .None); // asterisk
+            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .None); // c
+            try renderToken(ais, tree, ptr_type.ast.main_token + 2, .None); // rbracket
+        },
+        .slice => {
+            try renderToken(ais, tree, ptr_type.ast.main_token, .None); // lbracket
+            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .None); // rbracket
+        },
+        .slice_sentinel => {
+            try renderToken(ais, tree, ptr_type.ast.main_token, .None); // lbracket
+            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .None); // colon
+            try renderExpression(ais, tree, ptr_type.ast.sentinel, .None);
+            try renderToken(ais, tree, tree.lastToken(ptr_type.ast.sentinel) + 1, .None); // rbracket
+        },
+    }
+
+    if (ptr_type.allowzero_token) |allowzero_token| {
+        try renderToken(ais, tree, allowzero_token, .Space);
+    }
+
+    if (ptr_type.ast.align_node != 0) {
+        const align_first = tree.firstToken(ptr_type.ast.align_node);
+        try renderToken(ais, tree, align_first - 2, .None); // align
+        try renderToken(ais, tree, align_first - 1, .None); // lparen
+        try renderExpression(ais, tree, ptr_type.ast.align_node, .None);
+        if (ptr_type.ast.bit_range_start != 0) {
+            assert(ptr_type.ast.bit_range_end != 0);
+            try renderToken(ais, tree, tree.firstToken(ptr_type.ast.bit_range_start) - 1, .None); // colon
+            try renderExpression(ais, tree, ptr_type.ast.bit_range_start, .None);
+            try renderToken(ais, tree, tree.firstToken(ptr_type.ast.bit_range_end) - 1, .None); // colon
+            try renderExpression(ais, tree, ptr_type.ast.bit_range_end, .None);
+            try renderToken(ais, tree, tree.lastToken(ptr_type.ast.bit_range_end) + 1, .Space); // rparen
+        } else {
+            try renderToken(ais, tree, tree.lastToken(ptr_type.ast.align_node) + 1, .Space); // rparen
+        }
+    }
+
+    if (ptr_type.const_token) |const_token| {
+        try renderToken(ais, tree, const_token, .Space);
+    }
+
+    if (ptr_type.volatile_token) |volatile_token| {
+        try renderToken(ais, tree, volatile_token, .Space);
+    }
+
+    try renderExpression(ais, tree, ptr_type.ast.child_type, space);
 }
 
 fn renderAsmOutput(
