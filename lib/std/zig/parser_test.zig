@@ -263,38 +263,38 @@ test "zig fmt: trailing comma in fn parameter list" {
     );
 }
 
-//test "zig fmt: comptime struct field" {
-//    try testCanonical(
-//        \\const Foo = struct {
-//        \\    a: i32,
-//        \\    comptime b: i32 = 1234,
-//        \\};
-//        \\
-//    );
-//}
-//
+test "zig fmt: comptime struct field" {
+    try testCanonical(
+        \\const Foo = struct {
+        \\    a: i32,
+        \\    comptime b: i32 = 1234,
+        \\};
+        \\
+    );
+}
+
 //test "zig fmt: c pointer type" {
 //    try testCanonical(
 //        \\pub extern fn repro() [*c]const u8;
 //        \\
 //    );
 //}
-//
-//test "zig fmt: builtin call with trailing comma" {
-//    try testCanonical(
-//        \\pub fn main() void {
-//        \\    @breakpoint();
-//        \\    _ = @boolToInt(a);
-//        \\    _ = @call(
-//        \\        a,
-//        \\        b,
-//        \\        c,
-//        \\    );
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: builtin call with trailing comma" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    @breakpoint();
+        \\    _ = @boolToInt(a);
+        \\    _ = @call(
+        \\        a,
+        \\        b,
+        \\        c,
+        \\    );
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: asm expression with comptime content" {
 //    try testCanonical(
 //        \\comptime {
@@ -3988,14 +3988,9 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
         return error.ParseError;
     }
 
-    var buffer = std.ArrayList(u8).init(allocator);
-    errdefer buffer.deinit();
-
-    const writer = buffer.writer();
-    try std.zig.render(allocator, writer, tree);
-    const result = buffer.toOwnedSlice();
-    anything_changed.* = !mem.eql(u8, result, source);
-    return result;
+    const formatted = try std.zig.render(allocator, tree);
+    anything_changed.* = !mem.eql(u8, formatted, source);
+    return formatted;
 }
 fn testTransform(source: []const u8, expected_source: []const u8) !void {
     const needed_alloc_count = x: {

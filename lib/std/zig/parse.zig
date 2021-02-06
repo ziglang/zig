@@ -3676,7 +3676,6 @@ const Parser = struct {
 
     /// FnCallArguments <- LPAREN ExprList RPAREN
     /// ExprList <- (Expr COMMA)* Expr?
-    /// TODO detect when we can emit BuiltinCallTwo instead of BuiltinCall.
     fn parseBuiltinCall(p: *Parser) !Node.Index {
         const builtin_token = p.assertToken(.Builtin);
         _ = (try p.expectTokenRecoverable(.LParen)) orelse {
@@ -3708,7 +3707,7 @@ const Parser = struct {
             .Comma => {
                 if (p.eatToken(.RParen)) |_| {
                     return p.addNode(.{
-                        .tag = .BuiltinCallTwo,
+                        .tag = .BuiltinCallTwoComma,
                         .main_token = builtin_token,
                         .data = .{
                             .lhs = param_one,
@@ -3739,7 +3738,7 @@ const Parser = struct {
             .Comma => {
                 if (p.eatToken(.RParen)) |_| {
                     return p.addNode(.{
-                        .tag = .BuiltinCallTwo,
+                        .tag = .BuiltinCallTwoComma,
                         .main_token = builtin_token,
                         .data = .{
                             .lhs = param_one,
@@ -3776,10 +3775,30 @@ const Parser = struct {
             try list.append(param);
             switch (p.token_tags[p.nextToken()]) {
                 .Comma => {
-                    if (p.eatToken(.RParen)) |_| break;
+                    if (p.eatToken(.RParen)) |_| {
+                        const params = try p.listToSpan(list.items);
+                        return p.addNode(.{
+                            .tag = .BuiltinCallComma,
+                            .main_token = builtin_token,
+                            .data = .{
+                                .lhs = params.start,
+                                .rhs = params.end,
+                            },
+                        });
+                    }
                     continue;
                 },
-                .RParen => break,
+                .RParen => {
+                    const params = try p.listToSpan(list.items);
+                    return p.addNode(.{
+                        .tag = .BuiltinCall,
+                        .main_token = builtin_token,
+                        .data = .{
+                            .lhs = params.start,
+                            .rhs = params.end,
+                        },
+                    });
+                },
                 else => {
                     // This is likely just a missing comma;
                     // give an error but continue parsing this list.
@@ -3790,15 +3809,6 @@ const Parser = struct {
                 },
             }
         }
-        const params = try p.listToSpan(list.items);
-        return p.addNode(.{
-            .tag = .BuiltinCall,
-            .main_token = builtin_token,
-            .data = .{
-                .lhs = params.start,
-                .rhs = params.end,
-            },
-        });
     }
 
     // string literal or multiline string literal

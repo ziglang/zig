@@ -22,13 +22,19 @@ pub const Error = error{
 const Writer = std.ArrayList(u8).Writer;
 const Ais = std.io.AutoIndentingStream(Writer);
 
-/// Returns whether anything changed.
-/// `gpa` is used for allocating extra stack memory if needed, because
-/// this function utilizes recursion.
-pub fn render(gpa: *mem.Allocator, writer: Writer, tree: ast.Tree) Error!void {
-    assert(tree.errors.len == 0); // cannot render an invalid tree
-    var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, writer);
-    return renderRoot(&auto_indenting_stream, tree);
+/// `gpa` is used both for allocating the resulting formatted source code, but also
+/// for allocating extra stack memory if needed, because this function utilizes recursion.
+/// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
+/// Caller owns the returned slice of bytes, allocated with `gpa`.
+pub fn render(gpa: *mem.Allocator, tree: ast.Tree) Error![]u8 {
+    assert(tree.errors.len == 0); // Cannot render an invalid tree.
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, buffer.writer());
+    try renderRoot(&auto_indenting_stream, tree);
+    return buffer.toOwnedSlice();
 }
 
 /// Assumes there are no tokens in between start and end.
@@ -770,7 +776,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    }
         //},
 
-        .BuiltinCallTwo => {
+        .BuiltinCallTwo, .BuiltinCallTwoComma => {
             if (datas[node].lhs == 0) {
                 const params = [_]ast.Node.Index{};
                 return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
@@ -782,7 +788,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                 return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
             }
         },
-        .BuiltinCall => {
+        .BuiltinCall, .BuiltinCallComma => {
             const params = tree.extra_data[datas[node].lhs..datas[node].rhs];
             return renderBuiltinCall(ais, tree, main_tokens[node], params, space);
         },

@@ -234,7 +234,9 @@ pub const Tree = struct {
             .StringLiteral,
             .GroupedExpression,
             .BuiltinCallTwo,
+            .BuiltinCallTwoComma,
             .BuiltinCall,
+            .BuiltinCallComma,
             .ErrorSetDecl,
             .AnyType,
             .Comptime,
@@ -474,6 +476,7 @@ pub const Tree = struct {
             .ErrorUnion,
             .IfSimple,
             .WhileSimple,
+            .FnDecl,
             => n = datas[n].rhs,
 
             .FieldAccess,
@@ -497,9 +500,7 @@ pub const Tree = struct {
             .EnumLiteral,
             => return main_tokens[n] + end_offset,
 
-            .Call,
-            .BuiltinCall,
-            => {
+            .Call => {
                 end_offset += 1; // for the rparen
                 const params = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (params.end - params.start == 0) {
@@ -526,6 +527,7 @@ pub const Tree = struct {
             .Block,
             .ContainerDecl,
             .TaggedUnion,
+            .BuiltinCall,
             => {
                 end_offset += 1; // for the rbrace
                 if (datas[n].rhs - datas[n].lhs == 0) {
@@ -533,9 +535,12 @@ pub const Tree = struct {
                 }
                 n = tree.extra_data[datas[n].rhs - 1]; // last statement
             },
-            .ContainerDeclComma, .TaggedUnionComma => {
+            .ContainerDeclComma,
+            .TaggedUnionComma,
+            .BuiltinCallComma,
+            => {
                 assert(datas[n].rhs - datas[n].lhs > 0);
-                end_offset += 2; // for the comma + rbrace
+                end_offset += 2; // for the comma + rbrace/rparen
                 n = tree.extra_data[datas[n].rhs - 1]; // last member
             },
             .CallOne,
@@ -565,11 +570,12 @@ pub const Tree = struct {
                 }
             },
             .ArrayInitDotTwoComma,
+            .BuiltinCallTwoComma,
             .StructInitDotTwoComma,
             .ContainerDeclTwoComma,
             .TaggedUnionTwoComma,
             => {
-                end_offset += 2; // for the comma + rbrace
+                end_offset += 2; // for the comma + rbrace/rparen
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else if (datas[n].lhs != 0) {
@@ -690,7 +696,6 @@ pub const Tree = struct {
             .Slice => unreachable, // TODO
             .SwitchCaseOne => unreachable, // TODO
             .SwitchRange => unreachable, // TODO
-            .FnDecl => unreachable, // TODO
             .ArrayType => unreachable, // TODO
             .ArrayTypeSentinel => unreachable, // TODO
             .PtrTypeAligned => unreachable, // TODO
@@ -1836,8 +1841,12 @@ pub const Node = struct {
         GroupedExpression,
         /// `@a(lhs, rhs)`. lhs and rhs may be omitted.
         BuiltinCallTwo,
+        /// Same as BuiltinCallTwo but there is known to be a trailing comma before the rparen.
+        BuiltinCallTwoComma,
         /// `@a(b, c)`. `sub_list[lhs..rhs]`.
         BuiltinCall,
+        /// Same as BuiltinCall but there is known to be a trailing comma before the rparen.
+        BuiltinCallComma,
         /// `error{a, b}`.
         /// lhs and rhs both unused.
         ErrorSetDecl,
