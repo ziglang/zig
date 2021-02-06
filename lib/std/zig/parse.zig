@@ -1618,10 +1618,10 @@ const Parser = struct {
                     });
                 } else {
                     return p.addNode(.{
-                        .tag = .PtrType,
+                        .tag = .PtrTypeBitRange,
                         .main_token = asterisk,
                         .data = .{
-                            .lhs = try p.addExtra(Node.PtrType{
+                            .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                 .sentinel = 0,
                                 .align_node = mods.align_node,
                                 .bit_range_start = mods.bit_range_start,
@@ -1648,10 +1648,10 @@ const Parser = struct {
                         });
                     } else {
                         break :inner try p.addNode(.{
-                            .tag = .PtrType,
+                            .tag = .PtrTypeBitRange,
                             .main_token = asterisk,
                             .data = .{
-                                .lhs = try p.addExtra(Node.PtrType{
+                                .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                     .sentinel = 0,
                                     .align_node = mods.align_node,
                                     .bit_range_start = mods.bit_range_start,
@@ -1713,10 +1713,10 @@ const Parser = struct {
                             });
                         } else {
                             return p.addNode(.{
-                                .tag = .SliceType,
+                                .tag = .PtrType,
                                 .main_token = asterisk,
                                 .data = .{
-                                    .lhs = try p.addExtra(.{
+                                    .lhs = try p.addExtra(Node.PtrType{
                                         .sentinel = sentinel,
                                         .align_node = mods.align_node,
                                     }),
@@ -1726,10 +1726,10 @@ const Parser = struct {
                         }
                     } else {
                         return p.addNode(.{
-                            .tag = .PtrType,
+                            .tag = .PtrTypeBitRange,
                             .main_token = asterisk,
                             .data = .{
-                                .lhs = try p.addExtra(.{
+                                .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                     .sentinel = sentinel,
                                     .align_node = mods.align_node,
                                     .bit_range_start = mods.bit_range_start,
@@ -1777,10 +1777,10 @@ const Parser = struct {
                             });
                         } else {
                             return p.addNode(.{
-                                .tag = .SliceType,
+                                .tag = .PtrType,
                                 .main_token = lbracket,
                                 .data = .{
-                                    .lhs = try p.addExtra(.{
+                                    .lhs = try p.addExtra(Node.PtrType{
                                         .sentinel = sentinel,
                                         .align_node = mods.align_node,
                                     }),

@@ -387,10 +387,22 @@ pub const Tree = struct {
                 }
             },
 
-            .PtrTypeAligned => unreachable, // TODO
-            .PtrTypeSentinel => unreachable, // TODO
-            .PtrType => unreachable, // TODO
-            .SliceType => unreachable, // TODO
+            .PtrTypeAligned,
+            .PtrTypeSentinel,
+            .PtrType,
+            .PtrTypeBitRange,
+            => {
+                const main_token = main_tokens[n];
+                return switch (token_tags[main_token]) {
+                    .Asterisk => switch (token_tags[main_token - 1]) {
+                        .LBrace => main_token - 1,
+                        else => main_token,
+                    },
+                    .LBrace => main_token,
+                    else => unreachable,
+                };
+            },
+
             .SwitchCaseMulti => unreachable, // TODO
             .WhileSimple => unreachable, // TODO
             .WhileCont => unreachable, // TODO
@@ -477,6 +489,10 @@ pub const Tree = struct {
             .IfSimple,
             .WhileSimple,
             .FnDecl,
+            .PtrTypeAligned,
+            .PtrTypeSentinel,
+            .PtrType,
+            .PtrTypeBitRange,
             => n = datas[n].rhs,
 
             .FieldAccess,
@@ -698,10 +714,6 @@ pub const Tree = struct {
             .SwitchRange => unreachable, // TODO
             .ArrayType => unreachable, // TODO
             .ArrayTypeSentinel => unreachable, // TODO
-            .PtrTypeAligned => unreachable, // TODO
-            .PtrTypeSentinel => unreachable, // TODO
-            .PtrType => unreachable, // TODO
-            .SliceType => unreachable, // TODO
             .SwitchCaseMulti => unreachable, // TODO
             .WhileCont => unreachable, // TODO
             .While => unreachable, // TODO
@@ -1028,6 +1040,60 @@ pub const Tree = struct {
         };
     }
 
+    pub fn ptrTypeAligned(tree: Tree, node: Node.Index) Full.PtrType {
+        assert(tree.nodes.items(.tag)[node] == .PtrTypeAligned);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullPtrType(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .align_node = data.lhs,
+            .sentinel = 0,
+            .bit_range_start = 0,
+            .bit_range_end = 0,
+            .child_type = data.rhs,
+        });
+    }
+
+    pub fn ptrTypeSentinel(tree: Tree, node: Node.Index) Full.PtrType {
+        assert(tree.nodes.items(.tag)[node] == .PtrTypeSentinel);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullPtrType(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .align_node = 0,
+            .sentinel = data.lhs,
+            .bit_range_start = 0,
+            .bit_range_end = 0,
+            .child_type = data.rhs,
+        });
+    }
+
+    pub fn ptrType(tree: Tree, node: Node.Index) Full.PtrType {
+        assert(tree.nodes.items(.tag)[node] == .PtrType);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.PtrType);
+        return tree.fullPtrType(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .align_node = extra.align_node,
+            .sentinel = extra.sentinel,
+            .bit_range_start = 0,
+            .bit_range_end = 0,
+            .child_type = data.rhs,
+        });
+    }
+
+    pub fn ptrTypeBitRange(tree: Tree, node: Node.Index) Full.PtrType {
+        assert(tree.nodes.items(.tag)[node] == .PtrTypeBitRange);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.PtrTypeBitRange);
+        return tree.fullPtrType(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .align_node = extra.align_node,
+            .sentinel = extra.sentinel,
+            .bit_range_start = extra.bit_range_start,
+            .bit_range_end = extra.bit_range_end,
+            .child_type = data.rhs,
+        });
+    }
+
     pub fn containerDeclTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) Full.ContainerDecl {
         assert(tree.nodes.items(.tag)[node] == .ContainerDeclTwo or
             tree.nodes.items(.tag)[node] == .ContainerDeclTwoComma);
@@ -1195,6 +1261,64 @@ pub const Tree = struct {
         return result;
     }
 
+    fn fullPtrType(tree: Tree, info: Full.PtrType.Ast) Full.PtrType {
+        const token_tags = tree.tokens.items(.tag);
+        // TODO: looks like stage1 isn't quite smart enough to handle enum
+        // literals in some places here
+        const Kind = Full.PtrType.Kind;
+        const kind: Kind = switch (token_tags[info.main_token]) {
+            .Asterisk => switch (token_tags[info.main_token + 1]) {
+                .RBracket => .many,
+                .Colon => .sentinel,
+                .Identifier => if (token_tags[info.main_token - 1] == .LBracket) Kind.c else .one,
+                else => .one,
+            },
+            .LBracket => switch (token_tags[info.main_token + 1]) {
+                .RBracket => Kind.slice,
+                .Colon => .slice_sentinel,
+                else => unreachable,
+            },
+            else => unreachable,
+        };
+        var result: Full.PtrType = .{
+            .kind = kind,
+            .allowzero_token = null,
+            .const_token = null,
+            .volatile_token = null,
+            .ast = info,
+        };
+        // We need to be careful that we don't iterate over any sub-expressions
+        // here while looking for modifiers as that could result in false
+        // positives. Therefore, start after a sentinel if there is one and
+        // skip over any align node and bit range nodes.
+        var i = if (kind == .sentinel or kind == .slice_sentinel) blk: {
+            assert(info.sentinel != 0);
+            break :blk tree.lastToken(info.sentinel) + 1;
+        } else blk: {
+            assert(info.sentinel == 0);
+            break :blk info.main_token;
+        };
+        const end = tree.firstToken(info.child_type);
+        while (i < end) : (i += 1) {
+            switch (token_tags[i]) {
+                .Keyword_allowzero => result.allowzero_token = i,
+                .Keyword_const => result.const_token = i,
+                .Keyword_volatile => result.volatile_token = i,
+                .Keyword_align => {
+                    assert(info.align_node != 0);
+                    if (info.bit_range_end != 0) {
+                        assert(info.bit_range_start != 0);
+                        i = tree.lastToken(info.bit_range_end) + 1;
+                    } else {
+                        i = tree.lastToken(info.align_node) + 1;
+                    }
+                },
+                else => {},
+            }
+        }
+        return result;
+    }
+
     fn fullContainerDecl(tree: Tree, info: Full.ContainerDecl.Ast) Full.ContainerDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: Full.ContainerDecl = .{
@@ -1299,6 +1423,32 @@ pub const Full = struct {
             elem_count: Node.Index,
             sentinel: ?Node.Index,
             elem_type: Node.Index,
+        };
+    };
+
+    pub const PtrType = struct {
+        kind: Kind,
+        allowzero_token: ?TokenIndex,
+        const_token: ?TokenIndex,
+        volatile_token: ?TokenIndex,
+        ast: Ast,
+
+        pub const Kind = enum {
+            one,
+            many,
+            sentinel,
+            c,
+            slice,
+            slice_sentinel,
+        };
+
+        pub const Ast = struct {
+            main_token: TokenIndex,
+            align_node: Node.Index,
+            sentinel: Node.Index,
+            bit_range_start: Node.Index,
+            bit_range_end: Node.Index,
+            child_type: Node.Index,
         };
     };
 
@@ -1696,16 +1846,19 @@ pub const Node = struct {
         /// `[*]align(lhs) rhs`. lhs can be omitted.
         /// `*align(lhs) rhs`. lhs can be omitted.
         /// `[]rhs`.
+        /// main_token is the asterisk if a pointer or the lbrace if a slice
         PtrTypeAligned,
         /// `[*:lhs]rhs`. lhs can be omitted.
         /// `*rhs`.
         /// `[:lhs]rhs`.
+        /// main_token is the asterisk if a pointer or the lbrace if a slice
         PtrTypeSentinel,
         /// lhs is index into PtrType. rhs is the element type expression.
+        /// main_token is the asterisk if a pointer or the lbrace if a slice
         PtrType,
-        /// lhs is index into SliceType. rhs is the element type expression.
-        /// Can be pointer or slice, depending on main_token.
-        SliceType,
+        /// lhs is index into PtrTypeBitRange. rhs is the element type expression.
+        /// main_token is the asterisk if a pointer or the lbrace if a slice
+        PtrTypeBitRange,
         /// `lhs[rhs..]`
         /// main_token is the `[`.
         SliceOpen,
@@ -1954,14 +2107,15 @@ pub const Node = struct {
     pub const PtrType = struct {
         sentinel: Index,
         align_node: Index,
+    };
+
+    pub const PtrTypeBitRange = struct {
+        sentinel: Index,
+        align_node: Index,
         bit_range_start: Index,
         bit_range_end: Index,
     };
 
-    pub const SliceType = struct {
-        sentinel: Index,
-        align_node: Index,
-    };
     pub const SubRange = struct {
         /// Index into sub_list.
         start: Index,
