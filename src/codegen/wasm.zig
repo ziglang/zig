@@ -207,8 +207,8 @@ pub const Context = struct {
             .add => self.genAdd(inst.castTag(.add).?),
             .alloc => self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(inst.castTag(.arg).?),
-            .breakpoint => self.genBreakpoint(inst.castTag(.breakpoint).?),
             .block => self.genBlock(inst.castTag(.block).?),
+            .breakpoint => self.genBreakpoint(inst.castTag(.breakpoint).?),
             .br => self.genBr(inst.castTag(.br).?),
             .call => self.genCall(inst.castTag(.call).?),
             .cmp_eq => self.genCmp(inst.castTag(.cmp_eq).?, .eq),
@@ -546,7 +546,7 @@ pub const Context = struct {
         try writer.writeByte(wasm.opcode(.i32_const));
         try leb.writeILEB128(writer, @as(i32, 0));
 
-        try self.code.append(wasm.opcode(.i32_ne));
+        try writer.writeByte(wasm.opcode(.i32_eq));
 
         return WValue{ .code_offset = offset };
     }
