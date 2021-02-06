@@ -1138,13 +1138,10 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    return renderToken(ais, tree, asm_node.rparen, space);
         //},
 
-        .EnumLiteral => unreachable, // TODO
-        //.EnumLiteral => {
-        //    const enum_literal = @fieldParentPtr(ast.Node.EnumLiteral, "base", base);
-
-        //    try renderToken(ais, tree, enum_literal.dot, Space.None); // .
-        //    return renderToken(ais, tree, enum_literal.name, space); // name
-        //},
+        .EnumLiteral => {
+            try renderToken(ais, tree, main_tokens[node] - 1, .None); // .
+            return renderToken(ais, tree, main_tokens[node], space); // name
+        },
 
         .FnDecl => unreachable,
         .ContainerField => unreachable,
@@ -1538,6 +1535,7 @@ fn renderBuiltinCall(
 
 fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.Full.FnProto, space: Space) Error!void {
     const token_tags = tree.tokens.items(.tag);
+    const token_starts = tree.tokens.items(.start);
 
     const after_fn_token = fn_proto.ast.fn_token + 1;
     const lparen = if (token_tags[after_fn_token] == .Identifier) blk: {
@@ -1552,21 +1550,35 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.Full.FnProto, space: S
 
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     const rparen = blk: {
-        // The first token for the annotation expressions is the left
-        // parenthesis, hence the need for two previous tokens.
+        // These may appear in any order, so we have to check the token_starts array
+        // to find out which is first.
+        var rparen: ast.TokenIndex = maybe_bang;
+        var smallest_start = token_starts[maybe_bang];
         if (fn_proto.ast.align_expr != 0) {
-            break :blk tree.firstToken(fn_proto.ast.align_expr) - 3;
+            const tok = tree.firstToken(fn_proto.ast.align_expr) - 3;
+            const start = token_starts[tok];
+            if (start < smallest_start) {
+                rparen = tok;
+                smallest_start = start;
+            }
         }
         if (fn_proto.ast.section_expr != 0) {
-            break :blk tree.firstToken(fn_proto.ast.section_expr) - 3;
+            const tok = tree.firstToken(fn_proto.ast.section_expr) - 3;
+            const start = token_starts[tok];
+            if (start < smallest_start) {
+                rparen = tok;
+                smallest_start = start;
+            }
         }
         if (fn_proto.ast.callconv_expr != 0) {
-            break :blk tree.firstToken(fn_proto.ast.callconv_expr) - 3;
+            const tok = tree.firstToken(fn_proto.ast.callconv_expr) - 3;
+            const start = token_starts[tok];
+            if (start < smallest_start) {
+                rparen = tok;
+                smallest_start = start;
+            }
         }
-        if (token_tags[maybe_bang] == .Bang) {
-            break :blk maybe_bang - 1;
-        }
-        break :blk maybe_bang;
+        break :blk rparen;
     };
     assert(token_tags[rparen] == .RParen);
 
@@ -1663,7 +1675,7 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.Full.FnProto, space: S
             const param = fn_proto.ast.params[param_i];
             param_i += 1;
             try renderExpression(ais, tree, param, .Comma);
-            last_param_token = tree.lastToken(param) + 2;
+            last_param_token = tree.lastToken(param) + 1;
         }
         ais.popIndent();
     }

@@ -225,44 +225,44 @@ test "zig fmt: container declaration, transform trailing comma" {
     );
 }
 
-//test "zig fmt: trailing comma in fn parameter list" {
-//    try testCanonical(
-//        \\pub fn f(
-//        \\    a: i32,
-//        \\    b: i32,
-//        \\) i32 {}
-//        \\pub fn f(
-//        \\    a: i32,
-//        \\    b: i32,
-//        \\) align(8) i32 {}
-//        \\pub fn f(
-//        \\    a: i32,
-//        \\    b: i32,
-//        \\) linksection(".text") i32 {}
-//        \\pub fn f(
-//        \\    a: i32,
-//        \\    b: i32,
-//        \\) callconv(.C) i32 {}
-//        \\pub fn f(
-//        \\    a: i32,
-//        \\    b: i32,
-//        \\) align(8) linksection(".text") i32 {}
-//        \\pub fn f(
-//        \\    a: i32,
-//        \\    b: i32,
-//        \\) align(8) callconv(.C) i32 {}
-//        \\pub fn f(
-//        \\    a: i32,
-//        \\    b: i32,
-//        \\) align(8) linksection(".text") callconv(.C) i32 {}
-//        \\pub fn f(
-//        \\    a: i32,
-//        \\    b: i32,
-//        \\) linksection(".text") callconv(.C) i32 {}
-//        \\
-//    );
-//}
-//
+test "zig fmt: trailing comma in fn parameter list" {
+    try testCanonical(
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) align(8) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) linksection(".text") i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) callconv(.C) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) align(8) linksection(".text") i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) align(8) callconv(.C) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) align(8) linksection(".text") callconv(.C) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) linksection(".text") callconv(.C) i32 {}
+        \\
+    );
+}
+
 //test "zig fmt: comptime struct field" {
 //    try testCanonical(
 //        \\const Foo = struct {

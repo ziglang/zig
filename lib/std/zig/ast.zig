@@ -231,7 +231,6 @@ pub const Tree = struct {
             .NullLiteral,
             .UndefinedLiteral,
             .UnreachableLiteral,
-            .EnumLiteral,
             .StringLiteral,
             .GroupedExpression,
             .BuiltinCallTwo,
@@ -256,6 +255,7 @@ pub const Tree = struct {
             .StructInitDot,
             .StructInitDotTwo,
             .StructInitDotTwoComma,
+            .EnumLiteral,
             => return main_tokens[n] - 1,
 
             .Catch,
@@ -494,6 +494,7 @@ pub const Tree = struct {
             .UnreachableLiteral,
             .Identifier,
             .Deref,
+            .EnumLiteral,
             => return main_tokens[n] + end_offset,
 
             .Call,
@@ -682,7 +683,6 @@ pub const Tree = struct {
             .Switch => unreachable, // TODO
             .If => unreachable, // TODO
             .Continue => unreachable, // TODO
-            .EnumLiteral => unreachable, // TODO
             .ErrorSetDecl => unreachable, // TODO
             .AsmSimple => unreachable, // TODO
             .Asm => unreachable, // TODO
