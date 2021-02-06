@@ -1,7 +1,7 @@
 const std = @import("std");
 const Type = @import("../type.zig").Type;
 
-pub const Node = struct {
+pub const Node = extern union {
     /// If the tag value is less than Tag.no_payload_count, then no pointer
     /// dereference is needed.
     tag_if_small_enough: usize,
@@ -13,12 +13,15 @@ pub const Node = struct {
         opaque_literal,
         true_literal,
         false_literal,
+        empty_block,
+        /// pub usingnamespace @import("std").c.builtins;
+        usingnamespace_builtins,
         // After this, the tag requires a payload.
 
-        int,
-        float,
-        string,
-        char,
+        int_literal,
+        float_literal,
+        string_literal,
+        char_literal,
         identifier,
         @"if",
         @"while",
@@ -44,6 +47,67 @@ pub const Node = struct {
         discard,
         block,
 
+        // a + b
+        add,
+        // a = b
+        add_assign,
+        // c = (a = b)
+        add_assign_value,
+        add_wrap,
+        add_wrap_assign,
+        add_wrap_assign_value,
+        sub,
+        sub_assign,
+        sub_assign_value,
+        sub_wrap,
+        sub_wrap_assign,
+        sub_wrap_assign_value,
+        mul,
+        mul_assign,
+        mul_assign_value,
+        mul_wrap,
+        mul_wrap_assign,
+        mul_wrap_assign_value,
+        div,
+        div_assign,
+        div_assign_value,
+        shl,
+        shl_assign,
+        shl_assign_value,
+        shr,
+        shr_assign,
+        shr_assign_value,
+        mod,
+        mod_assign,
+        mod_assign_value,
+        @"and",
+        and_assign,
+        and_assign_value,
+        @"or",
+        or_assign,
+        or_assign_value,
+        xor,
+        xor_assign,
+        xor_assign_value,
+        less_than,
+        less_than_equal,
+        greater_than,
+        greater_than_equal,
+        equal,
+        not_equal,
+        bit_and,
+        bit_or,
+        bit_xor,
+
+        /// @import("std").math.Log2Int(operand)
+        std_math_Log2Int,
+        /// @intCast(lhs, rhs)
+        int_cast,
+        /// @rem(lhs, rhs)
+        rem,
+        /// @divTrunc(lhs, rhs)
+        div_trunc,
+
         pub const last_no_payload_tag = Tag.false_literal;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
@@ -54,7 +118,69 @@ pub const Node = struct {
                 .opaque_literal,
                 .true_literal,
                 .false_litral,
+                .empty_block,
+                .usingnamespace_builtins,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
+
+                .array_access,
+                .std_mem_zeroes,
+                .@"return",
+                .discard,
+                .std_math_Log2Int,
+                => Payload.UnOp,
+
+                .add,
+                .add_assign,
+                .add_assign_value,
+                .add_wrap,
+                .add_wrap_assign,
+                .add_wrap_assign_value,
+                .sub,
+                .sub_assign,
+                .sub_assign_value,
+                .sub_wrap,
+                .sub_wrap_assign,
+                .sub_wrap_assign_value,
+                .mul,
+                .mul_assign,
+                .mul_assign_value,
+                .mul_wrap,
+                .mul_wrap_assign,
+                .mul_wrap_assign_value,
+                .div,
+                .div_assign,
+                .div_assign_value,
+                .shl,
+                .shl_assign,
+                .shl_assign_value,
+                .shr,
+                .shr_assign,
+                .shr_assign_value,
+                .mod,
+                .mod_assign,
+                .mod_assign_value,
+                .@"and",
+                .and_assign,
+                .and_assign_value,
+                .@"or",
+                .or_assign,
+                .or_assign_value,
+                .xor,
+                .xor_assign,
+                .xor_assign_value,
+                .less_than,
+                .less_than_equal,
+                .greater_than,
+                .greater_than_equal,
+                .equal,
+                .not_equal,
+                .bit_and,
+                .bit_or,
+                .bit_xor,
+                .div_trunc,
+                .rem,
+                .int_cast,
+                => Payload.BinOp,
 
                 .int,
                 .float,
@@ -71,11 +197,6 @@ pub const Node = struct {
                 .@"switch" => Payload.Switch,
                 .@"break" => Payload.Break,
                 .call => Payload.Call,
-                .array_access,
-                .std_mem_zeroes,
-                .@"return",
-                .discard,
-                => Payload.SingleArg,
                 .var_decl => Payload.VarDecl,
                 .func => Payload.Func,
                 .@"enum" => Payload.Enum,
@@ -123,9 +244,17 @@ pub const Payload = struct {
         data: []const u8,
     };
 
-    pub const SingleArg = struct {
+    pub const UnOp = struct {
         base: Node,
         data: *Node,
+    };
+
+    pub const BinOp = struct {
+        base: Node,
+        data: struct {
+            lhs: *Node,
+            rhs: *Node,
+        },
     };
 
     pub const If = struct {
