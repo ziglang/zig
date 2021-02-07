@@ -470,6 +470,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
 
         .SliceOpen => try renderSlice(ais, tree, tree.sliceOpen(node), space),
         .Slice => try renderSlice(ais, tree, tree.slice(node), space),
+        .SliceSentinel => try renderSlice(ais, tree, tree.sliceSentinel(node), space),
 
         .Deref => {
             try renderExpression(ais, tree, datas[node].lhs, .None);
