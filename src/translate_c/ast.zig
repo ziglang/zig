@@ -109,11 +109,16 @@ pub const Node = extern union {
         div_trunc,
         /// @boolToInt(lhs, rhs)
         bool_to_int,
+        /// @as(lhs, rhs)
+        as,
 
         negate,
         negate_wrap,
         bit_not,
         not,
+        address_of,
+        // operand.?.*
+        unwrap_deref,
 
         block,
         @"break",
@@ -151,9 +156,8 @@ pub const Node = extern union {
                 .bit_not,
                 .not,
                 .optional_type,
-                .c_pointer,
-                .single_pointer,
-                .array_type,
+                .address_of,
+                .unwrap_deref,
                 => Payload.UnOp,
 
                 .add,
@@ -208,6 +212,7 @@ pub const Node = extern union {
                 .rem,
                 .int_cast,
                 .bool_to_int,
+                .as,
                 => Payload.BinOp,
 
                 .int,
@@ -236,6 +241,9 @@ pub const Node = extern union {
                 .container_init => Payload.ContainerInit,
                 .std_meta_cast => Payload.Infix,
                 .block => Payload.Block,
+                .c_pointer => Payload.Pointer,
+                .single_pointer => Payload.Pointer,
+                .array_type => Payload.Array,
             };
         }
 
@@ -424,9 +432,26 @@ pub const Payload = struct {
         base: Node = .{ .tag = .@"break" },
         data: *Block
     };
+
+    pub const Array = struct {
+        base: Node,
+        data: struct {
+            elem_type: Node,
+            len: Node,
+        },
+    };
+
+    pub const Pointer = struct {
+        base: Node,
+        data: struct {
+            elem_type: Node,
+            is_const: bool,
+            is_volatile: bool,
+        },
+    };
 };
 
-/// Converts the nodes into a Zig ast and then renders it.
-pub fn render(allocator: *Allocator, nodes: []const Node) !void {
+/// Converts the nodes into a Zig ast.
+pub fn render(allocator: *Allocator, nodes: []const Node) !*ast.Tree {
     @panic("TODO");
 }

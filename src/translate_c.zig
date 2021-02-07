@@ -8,7 +8,6 @@ const ctok = std.c.tokenizer;
 const CToken = std.c.Token;
 const mem = std.mem;
 const math = std.math;
-const Type = @import("type.zig").Type;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 
@@ -20,7 +19,7 @@ pub const Error = error{OutOfMemory};
 const TypeError = Error || error{UnsupportedType};
 const TransError = TypeError || error{UnsupportedTranslation};
 
-const SymbolTable = std.StringArrayHashMap(*ast.Node);
+const SymbolTable = std.StringArrayHashMap(Node);
 const AliasList = std.ArrayList(struct {
     alias: []const u8,
     name: []const u8,
@@ -38,13 +37,13 @@ const Scope = struct {
         Loop,
     };
 
-    /// Represents an in-progress ast.Node.Switch. This struct is stack-allocated.
-    /// When it is deinitialized, it produces an ast.Node.Switch which is allocated
+    /// Represents an in-progress Node.Switch. This struct is stack-allocated.
+    /// When it is deinitialized, it produces an Node.Switch which is allocated
     /// into the main arena.
     const Switch = struct {
         base: Scope,
         pending_block: Block,
-        cases: []*ast.Node,
+        cases: []Node,
         case_index: usize,
         switch_label: ?[]const u8,
         default_label: ?[]const u8,
@@ -156,6 +155,7 @@ const Scope = struct {
         sym_table: SymbolTable,
         macro_table: SymbolTable,
         context: *Context,
+        nodes: std.ArrayList(Node),
 
         fn init(c: *Context) Root {
             return .{
@@ -163,10 +163,17 @@ const Scope = struct {
                     .id = .Root,
                     .parent = null,
                 },
-                .sym_table = SymbolTable.init(c.arena),
-                .macro_table = SymbolTable.init(c.arena),
+                .sym_table = SymbolTable.init(c.gpa),
+                .macro_table = SymbolTable.init(c.gpa),
                 .context = c,
+                .nodes = std.ArrayList(Node).init(c.gpa),
             };
+        }
+
+        fn deinit(scope: *Root) void {
+            scope.sym_table.deinit();
+            scope.macro_table.deinit();
+            scope.nodes.deinit();
         }
 
         /// Check if the global scope contains this name, without looking into the "future", e.g.
@@ -195,11 +202,11 @@ const Scope = struct {
         }
     }
 
-    fn findBlockReturnType(inner: *Scope, c: *Context) ?clang.QualType {
+    fn findBlockReturnType(inner: *Scope, c: *Context) clang.QualType {
         var scope = inner;
         while (true) {
             switch (scope.id) {
-                .Root => return null,
+                .Root => unreachable,
                 .Block => {
                     const block = @fieldParentPtr(Block, "base", scope);
                     if (block.return_type) |qt| return qt;
@@ -248,23 +255,35 @@ const Scope = struct {
             }
         }
     }
+
+    /// Appends a node to the first block scope if inside a function, or to the root tree if not.
+    fn appendNode(scope: *Scope, node: Node) !void {
+        var scope = inner;
+        while (true) {
+            switch (scope.id) {
+                .Root => {
+                    const root = @fieldParentPtr(Root, "base", scope).contains(name);
+                    return root.nodes.append(node);
+                },
+                .Block => {
+                    const block = @fieldParentPtr(Block, "base", scope).contains(name);
+                    return block.statements.append(node);
+                },
+                else => scope = scope.parent.?,
+            }
+        }
+    }
 };
 
 pub const Context = struct {
     gpa: *mem.Allocator,
     arena: *mem.Allocator,
-    token_ids: std.ArrayListUnmanaged(Token.Id) = .{},
-    token_locs: std.ArrayListUnmanaged(Token.Loc) = .{},
-    errors: std.ArrayListUnmanaged(ast.Error) = .{},
-    source_buffer: *std.ArrayList(u8),
-    err: Error,
     source_manager: *clang.SourceManager,
     decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .{},
     alias_list: AliasList,
     global_scope: *Scope.Root,
     clang_context: *clang.ASTContext,
     mangle_count: u32 = 0,
-    root_decls: std.ArrayListUnmanaged(*ast.Node) = .{},
     opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .{},
 
     /// This one is different than the root scope's name table. This contains
@@ -293,40 +312,6 @@ pub const Context = struct {
         const column = c.source_manager.getSpellingColumnNumber(spelling_loc);
         return std.fmt.allocPrint(c.arena, "{s}:{d}:{d}", .{ filename, line, column });
     }
-
-    fn createCall(c: *Context, fn_expr: *ast.Node, params_len: ast.NodeIndex) !*ast.Node.Call {
-        _ = try appendToken(c, .LParen, "(");
-        const node = try ast.Node.Call.alloc(c.arena, params_len);
-        node.* = .{
-            .lhs = fn_expr,
-            .params_len = params_len,
-            .async_token = null,
-            .rtoken = undefined, // set after appending args
-        };
-        return node;
-    }
-
-    fn createBuiltinCall(c: *Context, name: []const u8, params_len: ast.NodeIndex) !*ast.Node.BuiltinCall {
-        const builtin_token = try appendToken(c, .Builtin, name);
-        _ = try appendToken(c, .LParen, "(");
-        const node = try ast.Node.BuiltinCall.alloc(c.arena, params_len);
-        node.* = .{
-            .builtin_token = builtin_token,
-            .params_len = params_len,
-            .rparen_token = undefined, // set after appending args
-        };
-        return node;
-    }
-
-    fn createBlock(c: *Context, statements_len: ast.NodeIndex) !*ast.Node.Block {
-        const block_node = try ast.Node.Block.alloc(c.arena, statements_len);
-        block_node.* = .{
-            .lbrace = try appendToken(c, .LBrace, "{"),
-            .statements_len = statements_len,
-            .rbrace = undefined,
-        };
-        return block_node;
-    }
 };
 
 pub fn translate(
@@ -348,9 +333,6 @@ pub fn translate(
     };
     defer ast_unit.delete();
 
-    var source_buffer = std.ArrayList(u8).init(gpa);
-    defer source_buffer.deinit();
-
     // For memory that has the same lifetime as the Tree that we return
     // from this function.
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -367,9 +349,7 @@ pub fn translate(
     var context = Context{
         .gpa = gpa,
         .arena = &arena.allocator,
-        .source_buffer = &source_buffer,
         .source_manager = ast_unit.getSourceManager(),
-        .err = undefined,
         .alias_list = AliasList.init(gpa),
         .global_scope = try arena.allocator.create(Scope.Root),
         .clang_context = ast_unit.getASTContext(),
@@ -378,15 +358,12 @@ pub fn translate(
     defer {
         context.decl_table.deinit(gpa);
         context.alias_list.deinit();
-        context.token_ids.deinit(gpa);
-        context.token_locs.deinit(gpa);
-        context.errors.deinit(gpa);
         context.global_names.deinit(gpa);
-        context.root_decls.deinit(gpa);
         context.opaque_demotes.deinit(gpa);
+        context.global_scope.deini();
     }
 
-    _ = try Node.usingnamespace_builtins.init();
+    try context.global_scope.nodes.append(try Node.usingnamespace_builtins.init());
 
     try prepopulateGlobalNameTable(ast_unit, &context);
 
@@ -403,29 +380,7 @@ pub fn translate(
         }
     }
 
-    const eof_token = try appendToken(&context, .Eof, "");
-    const root_node = try ast.Node.Root.create(&arena.allocator, context.root_decls.items.len, eof_token);
-    mem.copy(*ast.Node, root_node.decls(), context.root_decls.items);
-
-    if (false) {
-        std.debug.warn("debug source:\n{s}\n==EOF==\ntokens:\n", .{source_buffer.items});
-        for (context.token_ids.items) |token| {
-            std.debug.warn("{}\n", .{token});
-        }
-    }
-
-    const tree = try arena.allocator.create(ast.Tree);
-    tree.* = .{
-        .gpa = gpa,
-        .source = try arena.allocator.dupe(u8, source_buffer.items),
-        .token_ids = context.token_ids.toOwnedSlice(gpa),
-        .token_locs = context.token_locs.toOwnedSlice(gpa),
-        .errors = context.errors.toOwnedSlice(gpa),
-        .root_node = root_node,
-        .arena = arena.state,
-        .generated = true,
-    };
-    return tree;
+    return ast.render(context.global_scope.nodes.items);
 }
 
 fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
@@ -498,7 +453,7 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
         },
         else => {
             const decl_name = try c.str(decl.getDeclKindName());
-            try emitWarning(c, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
+            try warn(c, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
         },
     }
 }
@@ -1880,21 +1835,21 @@ const SuppressCast = enum {
     no_as,
 };
 fn transIntegerLiteral(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     expr: *const clang.IntegerLiteral,
     result_used: ResultUsed,
     suppress_as: SuppressCast,
-) TransError!*ast.Node {
+) TransError!Node {
     var eval_result: clang.ExprEvalResult = undefined;
-    if (!expr.EvaluateAsInt(&eval_result, rp.c.clang_context)) {
+    if (!expr.EvaluateAsInt(&eval_result, c.clang_context)) {
         const loc = expr.getBeginLoc();
-        return revertAndWarn(rp, error.UnsupportedTranslation, loc, "invalid integer literal", .{});
+        return revertAndWarn(c, error.UnsupportedTranslation, loc, "invalid integer literal", .{});
     }
 
     if (suppress_as == .no_as) {
-        const int_lit_node = try transCreateNodeAPInt(rp.c, eval_result.Val.getInt());
-        return maybeSuppressResult(rp, scope, result_used, int_lit_node);
+        const int_lit_node = try transCreateNodeAPInt(c, eval_result.Val.getInt());
+        return maybeSuppressResult(c, scope, result_used, int_lit_node);
     }
 
     // Integer literals in C have types, and this can matter for several reasons.
@@ -1908,51 +1863,26 @@ fn transIntegerLiteral(
     // But the first step is to be correct, and the next step is to make the output more elegant.
 
     // @as(T, x)
-    const expr_base = @ptrCast(*const clang.Expr, expr);
-    const as_node = try rp.c.createBuiltinCall("@as", 2);
-    const ty_node = try transQualType(rp, expr_base.getType(), expr_base.getBeginLoc());
-    as_node.params()[0] = ty_node;
-    _ = try appendToken(rp.c, .Comma, ",");
-    as_node.params()[1] = try transCreateNodeAPInt(rp.c, eval_result.Val.getInt());
-
-    as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-    return maybeSuppressResult(rp, scope, result_used, &as_node.base);
-}
-
-/// In C if a function has return type `int` and the return value is a boolean
-/// expression, there is no implicit cast. So the translated Zig will need to
-/// call @boolToInt
-fn zigShouldCastBooleanReturnToInt(node: ?*ast.Node, qt: ?clang.QualType) bool {
-    if (node == null or qt == null) return false;
-    return isBoolRes(node.?) and cIsNativeInt(qt.?);
+    const ty_node = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc());
+    const rhs = try transCreateNodeAPInt(c, eval_result.Val.getInt());
+    const as = try Node.as.create(c.arena, .{ .lhs = ty_node, .rhs = rhs });
+    return maybeSuppressResult(c, scope, result_used, as);
 }
 
 fn transReturnStmt(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     expr: *const clang.ReturnStmt,
 ) TransError!*ast.Node {
-    const return_kw = try appendToken(rp.c, .Keyword_return, "return");
-    var rhs: ?*ast.Node = if (expr.getRetValue()) |val_expr|
-        try transExprCoercing(rp, scope, val_expr, .used, .r_value)
-    else
-        null;
-    const return_qt = scope.findBlockReturnType(rp.c);
-    if (zigShouldCastBooleanReturnToInt(rhs, return_qt)) {
-        const bool_to_int_node = try rp.c.createBuiltinCall("@boolToInt", 1);
-        bool_to_int_node.params()[0] = rhs.?;
-        bool_to_int_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+    const val_expr = expr.getRetValue() orelse
+        return Node.return_void.init();
 
-        rhs = &bool_to_int_node.base;
+    var rhs = try transExprCoercing(c, scope, val_expr, .used, .r_value);
+    const return_qt = scope.findBlockReturnType(c);
+    if (isBoolRes(rhs) and !qualTypeIsBoolean(return_qt)) {
+        rhs = try Node.bool_to_int.create(c.arena, rhs);
     }
-    const return_expr = try ast.Node.ControlFlowExpression.create(rp.c.arena, .{
-        .ltoken = return_kw,
-        .tag = .Return,
-    }, .{
-        .rhs = rhs,
-    });
-    _ = try appendToken(rp.c, .Semicolon, ";");
-    return &return_expr.base;
+    return Node.@"return".create(c.arena, rhs);
 }
 
 fn transStringLiteral(
@@ -2249,6 +2179,33 @@ fn transExpr(
     lrvalue: LRValue,
 ) TransError!Node {
     return transStmt(c, scope, @ptrCast(*const clang.Stmt, expr), used, lrvalue);
+}
+
+/// Same as `transExpr` but with the knowledge that the operand will be type coerced, and therefore
+/// an `@as` would be redundant. This is used to prevent redundant `@as` in integer literals.
+fn transExprCoercing(
+    c: *Context,
+    scope: *Scope,
+    expr: *const clang.Expr,
+    used: ResultUsed,
+    lrvalue: LRValue,
+) TransError!Node {
+    switch (@ptrCast(*const clang.Stmt, expr).getStmtClass()) {
+        .IntegerLiteralClass => {
+            return transIntegerLiteral(c, scope, @ptrCast(*const clang.IntegerLiteral, expr), .used, .no_as);
+        },
+        .CharacterLiteralClass => {
+            return transCharLiteral(c, scope, @ptrCast(*const clang.CharacterLiteral, expr), .used, .no_as);
+        },
+        .UnaryOperatorClass => {
+            const un_expr = @ptrCast(*const clang.UnaryOperator, expr);
+            if (un_expr.getOpcode() == .Extension) {
+                return transExprCoercing(c, scope, un_expr.getSubExpr(), used, lrvalue);
+            }
+        },
+        else => {},
+    }
+    return transExpr(c, scope, expr, .used, .r_value);
 }
 
 fn transInitListExprRecord(
@@ -3257,71 +3214,59 @@ fn qualTypeHasWrappingOverflow(qt: clang.QualType) bool {
     }
 }
 
-fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const clang.UnaryOperator, used: ResultUsed) TransError!*ast.Node {
+fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperator, used: ResultUsed) TransError!Node {
     const op_expr = stmt.getSubExpr();
     switch (stmt.getOpcode()) {
         .PostInc => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreatePostCrement(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", used)
+            return transCreatePostCrement(c, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", used)
         else
-            return transCreatePostCrement(rp, scope, stmt, .AssignAdd, .PlusEqual, "+=", used),
+            return transCreatePostCrement(c, scope, stmt, .AssignAdd, .PlusEqual, "+=", used),
         .PostDec => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreatePostCrement(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", used)
+            return transCreatePostCrement(c, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", used)
         else
-            return transCreatePostCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
+            return transCreatePostCrement(c, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
         .PreInc => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreatePreCrement(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", used)
+            return transCreatePreCrement(c, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", used)
         else
-            return transCreatePreCrement(rp, scope, stmt, .AssignAdd, .PlusEqual, "+=", used),
+            return transCreatePreCrement(c, scope, stmt, .AssignAdd, .PlusEqual, "+=", used),
         .PreDec => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreatePreCrement(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", used)
+            return transCreatePreCrement(c, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", used)
         else
-            return transCreatePreCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
+            return transCreatePreCrement(c, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
         .AddrOf => {
             if (cIsFunctionDeclRef(op_expr)) {
                 return transExpr(rp, scope, op_expr, used, .r_value);
             }
-            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
-            op_node.rhs = try transExpr(rp, scope, op_expr, used, .r_value);
-            return &op_node.base;
+            return Node.address_of.create(c.arena, try transExpr(c, scope, op_expr, used, .r_value));
         },
         .Deref => {
-            const value_node = try transExpr(rp, scope, op_expr, used, .r_value);
+            const node = try transExpr(c, scope, op_expr, used, .r_value);
             var is_ptr = false;
             const fn_ty = qualTypeGetFnProto(op_expr.getType(), &is_ptr);
             if (fn_ty != null and is_ptr)
-                return value_node;
-            const unwrapped = try transCreateNodeUnwrapNull(rp.c, value_node);
-            return transCreateNodePtrDeref(rp.c, unwrapped);
+                return node;
+            return Node.unwrap_deref.create(c.arena, node);
         },
-        .Plus => return transExpr(rp, scope, op_expr, used, .r_value),
+        .Plus => return transExpr(c, scope, op_expr, used, .r_value),
         .Minus => {
             if (!qualTypeHasWrappingOverflow(op_expr.getType())) {
-                const op_node = try transCreateNodeSimplePrefixOp(rp.c, .Negation, .Minus, "-");
-                op_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
-                return &op_node.base;
+                return Node.negate.create(c.arena, try transExpr(c, scope, op_expr, .used, .r_value));
             } else if (cIsUnsignedInteger(op_expr.getType())) {
-                // we gotta emit 0 -% x
-                const zero = try transCreateNodeInt(rp.c, 0);
-                const token = try appendToken(rp.c, .MinusPercent, "-%");
-                const expr = try transExpr(rp, scope, op_expr, .used, .r_value);
-                return transCreateNodeInfixOp(rp, scope, zero, .SubWrap, token, expr, used, true);
+                // use -% x for unsigned integers
+                return Node.negate_wrap.create(c.arena, try transExpr(c, scope, op_expr, .used, .r_value));
             } else
-                return revertAndWarn(rp, error.UnsupportedTranslation, stmt.getBeginLoc(), "C negation with non float non integer", .{});
+                return revertAndWarn(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "C negation with non float non integer", .{});
         },
         .Not => {
-            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .BitNot, .Tilde, "~");
-            op_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
-            return &op_node.base;
+            return Node.bit_not.create(c.arena, try transExpr(c, scope, op_expr, .used, .r_value));
         },
         .LNot => {
-            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .BoolNot, .Bang, "!");
-            op_node.rhs = try transBoolExpr(rp, scope, op_expr, .used, .r_value, true);
-            return &op_node.base;
+            return Node.not.create(c.arena, try transExpr(c, scope, op_expr, .used, .r_value));
         },
         .Extension => {
-            return transExpr(rp, scope, stmt.getSubExpr(), used, .l_value);
+            return transExpr(c, scope, stmt.getSubExpr(), used, .l_value);
         },
-        else => return revertAndWarn(rp, error.UnsupportedTranslation, stmt.getBeginLoc(), "unsupported C translation {}", .{stmt.getOpcode()}),
+        else => return revertAndWarn(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "unsupported C translation {}", .{stmt.getOpcode()}),
     }
 }
 
@@ -3910,8 +3855,7 @@ fn maybeSuppressResult(
     return &op_node.base;
 }
 
-fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {
-    try c.root_decls.append(c.gpa, decl_node);
+fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
     _ = try c.global_scope.sym_table.put(name, decl_node);
 }
 
@@ -4356,7 +4300,7 @@ fn transCreateNodePtrType(
     return node;
 }
 
-fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !*ast.Node {
+fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
     const num_limbs = math.cast(usize, int.getNumWords()) catch |err| switch (err) {
         error.Overflow => return error.OutOfMemory,
     };
@@ -4396,14 +4340,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !*ast.Node {
     const str = big.toStringAlloc(c.arena, 10, false) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
-    defer c.arena.free(str);
-    const token = try appendToken(c, .IntegerLiteral, str);
-    const node = try c.arena.create(ast.Node.OneToken);
-    node.* = .{
-        .base = .{ .tag = .IntegerLiteral },
-        .token = token,
-    };
-    return &node.base;
+    return Node.int_literal.create(c.arena, str);
 }
 
 fn transCreateNodeUndefinedLiteral(c: *Context) !*ast.Node {
