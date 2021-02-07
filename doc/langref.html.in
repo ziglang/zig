@@ -10760,10 +10760,14 @@ fn readU32Be() u32 {}
           </td>
           <td>
             The {#syntax#}nosuspend{#endsyntax#} keyword can be used in front of a block, statement or expression.
-            It marks a scope where async functions are not allowed to actually suspend execution.
-            Attempting to suspend execution inside a {#syntax#}nosuspend{#endsyntax#} scope results in safety-checked {#link|Undefined Behavior#}.
-            Code inside a {#syntax#}nosuspend{#endsyntax#} scope does not cause the enclosing function to become an {#link|async function|Async Functions#}.
+            It marks a scope where async functions are not allowed to suspend execution.
             <ul>
+              <li>Attempting to suspend execution inside a {#syntax#}nosuspend{#endsyntax#} scope results in safety-checked {#link|Undefined Behavior#}.
+                <ul>
+                  <li>An async function which {#link|resumes itself from a suspend block|Resuming from Suspend Blocks#} is not considered suspended, so this construct is allowed inside {#syntax#}nosuspend{#endsyntax#}.</li>
+                </ul>
+              </li>
+              <li>Code inside a {#syntax#}nosuspend{#endsyntax#} scope does not cause the enclosing function to become an {#link|async function|Async Functions#}.</li>
               <li>See also {#link|Async Functions#}</li>
             </ul>
           </td>
