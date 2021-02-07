@@ -466,34 +466,8 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderToken(ais, tree, rbracket, space); // ]
         },
 
-        .Slice => unreachable, // TODO
-        .SliceOpen => unreachable, // TODO
-        //.Slice => {
-        //    const suffix_op = base.castTag(.Slice).?;
-        //    try renderExpression(ais, tree, suffix_op.lhs, Space.None);
-
-        //    const lbracket = tree.prevToken(suffix_op.start.firstToken());
-        //    const dotdot = tree.nextToken(suffix_op.start.lastToken());
-
-        //    const after_start_space_bool = nodeCausesSliceOpSpace(suffix_op.start) or
-        //        (if (suffix_op.end) |end| nodeCausesSliceOpSpace(end) else false);
-        //    const after_start_space = if (after_start_space_bool) Space.Space else Space.None;
-        //    const after_op_space = if (suffix_op.end != null) after_start_space else Space.None;
-
-        //    try renderToken(ais, tree, lbracket, Space.None); // [
-        //    try renderExpression(ais, tree, suffix_op.start, after_start_space);
-        //    try renderToken(ais, tree, dotdot, after_op_space); // ..
-        //    if (suffix_op.end) |end| {
-        //        const after_end_space = if (suffix_op.sentinel != null) Space.Space else Space.None;
-        //        try renderExpression(ais, tree, end, after_end_space);
-        //    }
-        //    if (suffix_op.sentinel) |sentinel| {
-        //        const colon = tree.prevToken(sentinel.firstToken());
-        //        try renderToken(ais, tree, colon, Space.None); // :
-        //        try renderExpression(ais, tree, sentinel, Space.None);
-        //    }
-        //    return renderToken(ais, tree, suffix_op.rtoken, space); // ]
-        //},
+        .SliceOpen => try renderSlice(ais, tree, tree.sliceOpen(node), space),
+        .Slice => try renderSlice(ais, tree, tree.slice(node), space),
 
         .Deref => {
             try renderExpression(ais, tree, datas[node].lhs, .None);
@@ -1140,6 +1114,40 @@ fn renderPtrType(
     }
 
     try renderExpression(ais, tree, ptr_type.ast.child_type, space);
+}
+
+fn renderSlice(
+    ais: *Ais,
+    tree: ast.Tree,
+    slice: ast.Full.Slice,
+    space: Space,
+) Error!void {
+    const node_tags = tree.nodes.items(.tag);
+    const after_start_space_bool = nodeCausesSliceOpSpace(node_tags[slice.ast.start]) or
+        if (slice.ast.end != 0) nodeCausesSliceOpSpace(node_tags[slice.ast.end]) else false;
+    const after_start_space = if (after_start_space_bool) Space.Space else Space.None;
+    const after_dots_space = if (slice.ast.end != 0) after_start_space else Space.None;
+
+    try renderExpression(ais, tree, slice.ast.sliced, .None);
+    try renderToken(ais, tree, slice.ast.lbracket, .None); // lbracket
+
+    const start_last = tree.lastToken(slice.ast.start);
+    try renderExpression(ais, tree, slice.ast.start, after_start_space);
+    try renderToken(ais, tree, start_last + 1, after_dots_space); // ellipsis2 ("..")
+    if (slice.ast.end == 0) {
+        return renderToken(ais, tree, start_last + 2, space); // rbracket
+    }
+
+    const end_last = tree.lastToken(slice.ast.end);
+    const after_end_space = if (slice.ast.sentinel != 0) Space.Space else Space.None;
+    try renderExpression(ais, tree, slice.ast.end, after_end_space);
+    if (slice.ast.sentinel == 0) {
+        return renderToken(ais, tree, end_last + 1, space); // rbracket
+    }
+
+    try renderToken(ais, tree, end_last + 1, .None); // colon
+    try renderExpression(ais, tree, slice.ast.sentinel, .None);
+    try renderToken(ais, tree, tree.lastToken(slice.ast.sentinel) + 1, space); // rbracket
 }
 
 fn renderAsmOutput(
@@ -2099,8 +2107,8 @@ fn nodeIsBlock(tag: ast.Node.Tag) bool {
     };
 }
 
-fn nodeCausesSliceOpSpace(base: ast.Node.Index) bool {
-    return switch (base.tag) {
+fn nodeCausesSliceOpSpace(tag: ast.Node.Tag) bool {
+    return switch (tag) {
         .Catch,
         .Add,
         .AddWrap,
@@ -2139,7 +2147,6 @@ fn nodeCausesSliceOpSpace(base: ast.Node.Index) bool {
         .Mod,
         .Mul,
         .MulWrap,
-        .Range,
         .Sub,
         .SubWrap,
         .OrElse,

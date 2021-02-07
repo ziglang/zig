@@ -688,6 +688,20 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
+            .SliceOpen => {
+                end_offset += 2; // ellipsis2 and rbracket
+                n = datas[n].rhs;
+            },
+            .Slice => {
+                const extra = tree.extraData(datas[n].rhs, Node.Slice);
+                if (extra.sentinel != 0) {
+                    n = extra.sentinel;
+                } else {
+                    assert(extra.end != 0); // should have used SliceOpen if end and sentinel are 0
+                    n = extra.end;
+                }
+                end_offset += 1; // rbracket
+            },
 
             // These are not supported by lastToken() because implementation would
             // require recursion due to the optional comma followed by rbrace.
@@ -708,8 +722,6 @@ pub const Tree = struct {
             .ErrorSetDecl => unreachable, // TODO
             .AsmSimple => unreachable, // TODO
             .Asm => unreachable, // TODO
-            .SliceOpen => unreachable, // TODO
-            .Slice => unreachable, // TODO
             .SwitchCaseOne => unreachable, // TODO
             .SwitchRange => unreachable, // TODO
             .ArrayType => unreachable, // TODO
@@ -1094,6 +1106,35 @@ pub const Tree = struct {
         });
     }
 
+    pub fn sliceOpen(tree: Tree, node: Node.Index) Full.Slice {
+        assert(tree.nodes.items(.tag)[node] == .SliceOpen);
+        const data = tree.nodes.items(.data)[node];
+        return .{
+            .ast = .{
+                .sliced = data.lhs,
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .start = data.rhs,
+                .end = 0,
+                .sentinel = 0,
+            },
+        };
+    }
+
+    pub fn slice(tree: Tree, node: Node.Index) Full.Slice {
+        assert(tree.nodes.items(.tag)[node] == .Slice);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.Slice);
+        return .{
+            .ast = .{
+                .sliced = data.lhs,
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .start = extra.start,
+                .end = extra.end,
+                .sentinel = extra.sentinel,
+            },
+        };
+    }
+
     pub fn containerDeclTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) Full.ContainerDecl {
         assert(tree.nodes.items(.tag)[node] == .ContainerDeclTwo or
             tree.nodes.items(.tag)[node] == .ContainerDeclTwoComma);
@@ -1449,6 +1490,18 @@ pub const Full = struct {
             bit_range_start: Node.Index,
             bit_range_end: Node.Index,
             child_type: Node.Index,
+        };
+    };
+
+    pub const Slice = struct {
+        ast: Ast,
+
+        pub const Ast = struct {
+            sliced: Node.Index,
+            lbracket: TokenIndex,
+            start: Node.Index,
+            end: Node.Index,
+            sentinel: Node.Index,
         };
     };
 
@@ -1860,10 +1913,10 @@ pub const Node = struct {
         /// main_token is the asterisk if a pointer or the lbrace if a slice
         PtrTypeBitRange,
         /// `lhs[rhs..]`
-        /// main_token is the `[`.
+        /// main_token is the lbracket.
         SliceOpen,
-        /// `lhs[b..c :d]`. `slice_list[rhs]`.
-        /// main_token is the `[`.
+        /// `lhs[b..c :d]`. rhs is index into Slice
+        /// main_token is the lbracket.
         Slice,
         /// `lhs.*`. rhs is unused.
         Deref,
