@@ -357,7 +357,9 @@ pub const Tree = struct {
             },
 
             .Block,
+            .BlockSemicolon,
             .BlockTwo,
+            .BlockTwoSemicolon,
             => {
                 // Look for a label.
                 const lbrace = main_tokens[n];
@@ -552,18 +554,17 @@ pub const Tree = struct {
             .TaggedUnion,
             .BuiltinCall,
             => {
+                assert(datas[n].rhs - datas[n].lhs > 0);
                 end_offset += 1; // for the rbrace
-                if (datas[n].rhs - datas[n].lhs == 0) {
-                    return main_tokens[n] + end_offset;
-                }
                 n = tree.extra_data[datas[n].rhs - 1]; // last statement
             },
+            .BlockSemicolon,
             .ContainerDeclComma,
             .TaggedUnionComma,
             .BuiltinCallComma,
             => {
                 assert(datas[n].rhs - datas[n].lhs > 0);
-                end_offset += 2; // for the comma + rbrace/rparen
+                end_offset += 2; // for the comma/semicolon + rbrace/rparen
                 n = tree.extra_data[datas[n].rhs - 1]; // last member
             },
             .CallOne,
@@ -594,11 +595,12 @@ pub const Tree = struct {
             },
             .ArrayInitDotTwoComma,
             .BuiltinCallTwoComma,
+            .BlockTwoSemicolon,
             .StructInitDotTwoComma,
             .ContainerDeclTwoComma,
             .TaggedUnionTwoComma,
             => {
-                end_offset += 2; // for the comma + rbrace/rparen
+                end_offset += 2; // for the comma/semicolon + rbrace/rparen
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else if (datas[n].lhs != 0) {
@@ -2137,12 +2139,16 @@ pub const Node = struct {
         Comptime,
         /// `nosuspend lhs`. rhs unused.
         Nosuspend,
-        /// `{lhs; rhs;}`. rhs or lhs can be omitted.
+        /// `{lhs rhs}`. rhs or lhs can be omitted.
         /// main_token points at the lbrace.
         BlockTwo,
+        /// Same as BlockTwo but there is known to be a semicolon before the rbrace.
+        BlockTwoSemicolon,
         /// `{}`. `sub_list[lhs..rhs]`.
         /// main_token points at the lbrace.
         Block,
+        /// Same as BlockTwo but there is known to be a semicolon before the rbrace.
+        BlockSemicolon,
         /// `asm(lhs)`. rhs unused.
         AsmSimple,
         /// `asm(lhs, a)`. `sub_range_list[rhs]`.
