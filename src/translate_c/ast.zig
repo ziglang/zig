@@ -107,6 +107,25 @@ pub const Node = extern union {
         rem,
         /// @divTrunc(lhs, rhs)
         div_trunc,
+        /// @boolToInt(lhs, rhs)
+        bool_to_int,
+
+        negate,
+        negate_wrap,
+        bit_not,
+        not,
+
+        block,
+        @"break",
+
+        sizeof,
+        alignof,
+        type,
+
+        optional_type,
+        c_pointer,
+        single_pointer,
+        array_type,
 
         pub const last_no_payload_tag = Tag.false_literal;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -127,6 +146,14 @@ pub const Node = extern union {
                 .@"return",
                 .discard,
                 .std_math_Log2Int,
+                .negate,
+                .negate_wrap,
+                .bit_not,
+                .not,
+                .optional_type,
+                .c_pointer,
+                .single_pointer,
+                .array_type,
                 => Payload.UnOp,
 
                 .add,
@@ -180,6 +207,7 @@ pub const Node = extern union {
                 .div_trunc,
                 .rem,
                 .int_cast,
+                .bool_to_int,
                 => Payload.BinOp,
 
                 .int,
@@ -191,6 +219,9 @@ pub const Node = extern union {
                 .field_access_arrow,
                 .warning,
                 .failed_decl,
+                .sizeof,
+                .alignof,
+                .type,
                 => Payload.Value,
                 .@"if" => Payload.If,
                 .@"while" => Payload.While,
@@ -234,8 +265,8 @@ pub const Payload = struct {
     pub const Infix = struct {
         base: Node,
         data: struct {
-            lhs: *Node,
-            rhs: *Node,
+            lhs: Node,
+            rhs: Node,
         },
     };
 
@@ -246,44 +277,44 @@ pub const Payload = struct {
 
     pub const UnOp = struct {
         base: Node,
-        data: *Node,
+        data: Node,
     };
 
     pub const BinOp = struct {
         base: Node,
         data: struct {
-            lhs: *Node,
-            rhs: *Node,
+            lhs: Node,
+            rhs: Node,
         },
     };
 
     pub const If = struct {
         base: Node = .{ .tag = .@"if" },
         data: struct {
-            cond: *Node,
-            then: *Node,
-            @"else": ?*Node,
+            cond: Node,
+            then: Node,
+            @"else": ?Node,
         },
     };
 
     pub const While = struct {
         base: Node = .{ .tag = .@"while" },
         data: struct {
-            cond: *Node,
-            body: *Node,
+            cond: Node,
+            body: Node,
         },
     };
 
     pub const Switch = struct {
         base: Node = .{ .tag = .@"switch" },
         data: struct {
-            cond: *Node,
+            cond: Node,
             cases: []Prong,
             default: ?[]const u8,
 
             pub const Prong = struct {
-                lhs: *Node,
-                rhs: ?*Node,
+                lhs: Node,
+                rhs: ?Node,
                 label: []const u8,
             };
         },
@@ -293,15 +324,15 @@ pub const Payload = struct {
         base: Node = .{ .tag = .@"break" },
         data: struct {
             label: ?[]const u8,
-            rhs: ?*Node,
+            rhs: ?Node,
         },
     };
 
     pub const Call = struct {
         base: Node = .{.call},
         data: struct {
-            lhs: *Node,
-            args: []*Node,
+            lhs: Node,
+            args: []Node,
         },
     };
 
@@ -314,7 +345,7 @@ pub const Payload = struct {
             @"export": bool,
             name: []const u8,
             type: Type,
-            init: *Node,
+            init: Node,
         },
     };
 
@@ -328,7 +359,7 @@ pub const Payload = struct {
             cc: std.builtin.CallingConvention,
             params: []Param,
             return_type: Type,
-            body: ?*Node,
+            body: ?Node,
 
             pub const Param = struct {
                 @"noalias": bool,
@@ -368,7 +399,7 @@ pub const Payload = struct {
 
     pub const ArrayInit = struct {
         base: Node = .{ .tag = .array_init },
-        data: []*Node,
+        data: []Node,
     };
 
     pub const ContainerInit = struct {
@@ -377,16 +408,21 @@ pub const Payload = struct {
 
         pub const Initializer = struct {
             name: []const u8,
-            value: *Node,
+            value: Node,
         };
     };
 
     pub const Block = struct {
-        base: Node = .{ .tag = .block },
+        base: Node,
         data: struct {
             label: ?[]const u8,
-            stmts: []*Node,
+            stmts: []Node
         },
+    };
+
+    pub const Break = struct {
+        base: Node = .{ .tag = .@"break" },
+        data: *Block
     };
 };
 

@@ -68,16 +68,15 @@ const Scope = struct {
         }
     };
 
-    /// Represents an in-progress ast.Node.Block. This struct is stack-allocated.
-    /// When it is deinitialized, it produces an ast.Node.Block which is allocated
+    /// Represents an in-progress Node.Block. This struct is stack-allocated.
+    /// When it is deinitialized, it produces an Node.Block which is allocated
     /// into the main arena.
     const Block = struct {
         base: Scope,
-        statements: std.ArrayList(*ast.Node),
+        statements: std.ArrayList(Node),
         variables: AliasList,
-        label: ?ast.TokenIndex,
         mangle_count: u32 = 0,
-        lbrace: ast.TokenIndex,
+        label: ?[]const u8 = null,
 
         /// When the block corresponds to a function, keep track of the return type
         /// so that the return expression can be cast, if necessary
@@ -89,14 +88,11 @@ const Scope = struct {
                     .id = .Block,
                     .parent = parent,
                 },
-                .statements = std.ArrayList(*ast.Node).init(c.gpa),
+                .statements = std.ArrayList(Node).init(c.gpa),
                 .variables = AliasList.init(c.gpa),
-                .label = null,
-                .lbrace = try appendToken(c, .LBrace, "{"),
             };
             if (labeled) {
-                blk.label = try appendIdentifier(c, try blk.makeMangledName(c, "blk"));
-                _ = try appendToken(c, .Colon, ":");
+                blk.label = try blk.makeMangledName(c, "blk");
             }
             return blk;
         }
@@ -107,31 +103,16 @@ const Scope = struct {
             self.* = undefined;
         }
 
-        fn complete(self: *Block, c: *Context) !*ast.Node {
+        fn complete(self: *Block, c: *Context) !Node {
             // We reserve 1 extra statement if the parent is a Loop. This is in case of
             // do while, we want to put `if (cond) break;` at the end.
             const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .Loop);
-            const rbrace = try appendToken(c, .RBrace, "}");
-            if (self.label) |label| {
-                const node = try ast.Node.LabeledBlock.alloc(c.arena, alloc_len);
-                node.* = .{
-                    .statements_len = self.statements.items.len,
-                    .lbrace = self.lbrace,
-                    .rbrace = rbrace,
-                    .label = label,
-                };
-                mem.copy(*ast.Node, node.statements(), self.statements.items);
-                return &node.base;
-            } else {
-                const node = try ast.Node.Block.alloc(c.arena, alloc_len);
-                node.* = .{
-                    .statements_len = self.statements.items.len,
-                    .lbrace = self.lbrace,
-                    .rbrace = rbrace,
-                };
-                mem.copy(*ast.Node, node.statements(), self.statements.items);
-                return &node.base;
-            }
+            const stmts = try c.arena.alloc(Node, alloc_len);
+            mem.copy(Node, stmts, self.statements.items);
+            return Node.block.create(c.arena, .{
+                .lable = self.label,
+                .stmts = stmts,
+            });
         }
 
         /// Given the desired name, return a name that does not shadow anything from outer scopes.
@@ -1390,7 +1371,7 @@ fn transBinaryOperator(
                 // signed integer division uses @divTrunc
                 const lhs = try transExpr(c, scope, stmt.getLHS(), .used, .l_value);
                 const rhs = try transExpr(c, scope, stmt.getRHS(), .used, .r_value);
-                const div_trunc = try Node.div_trunc.create(c.arena, .{ .lhs = lhs, .rhs = rhs});
+                const div_trunc = try Node.div_trunc.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
                 return maybeSuppressResult(c, scope, result_used, div_trunc);
             }
         },
@@ -1399,7 +1380,7 @@ fn transBinaryOperator(
                 // signed integer division uses @rem
                 const lhs = try transExpr(c, scope, stmt.getLHS(), .used, .l_value);
                 const rhs = try transExpr(c, scope, stmt.getRHS(), .used, .r_value);
-                const rem = try Node.rem.create(c.arena, .{ .lhs = lhs, .rhs = rhs});
+                const rem = try Node.rem.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
                 return maybeSuppressResult(c, scope, result_used, rem);
             }
         },
@@ -1410,6 +1391,12 @@ fn transBinaryOperator(
         .Shr => {
             const node = try transCreateNodeShiftOp(c, scope, stmt, .shr);
             return maybeSuppressResult(c, scope, result_used, node);
+        },
+        .LAnd => {
+            return transCreateNodeBoolInfixOp(c, scope, stmt, .bool_and, result_used, true);
+        },
+        .LOr => {
+            return transCreateNodeBoolInfixOp(c, scope, stmt, .bool_or, result_used, true);
         },
         else => {},
     }
@@ -1471,17 +1458,19 @@ fn transBinaryOperator(
         .Or => {
             op_id = .bit_or;
         },
-        .LAnd => {
-            op_id = .@"and";
-        },
-        .LOr => {
-            op_id = .@"or";
-        },
         else => unreachable,
     }
 
-    const lhs = try transExpr(c, scope, stmt.getLHS(), .used, .l_value);
-    const rhs = try transExpr(c, scope, stmt.getRHS(), .used, .r_value);
+    const lhs_uncasted = try transExpr(c, scope, stmt.getLHS(), .used, .l_value);
+    const rhs_uncasted = try transExpr(c, scope, stmt.getRHS(), .used, .r_value);
+
+    const lhs = if (isBoolRes(lhs_uncasted)) 
+        try Node.bool_to_int.create(c.arena, lhs_uncasted)
+    else lhs_uncasted;
+
+    const rhs = if (isBoolRes(rhs_uncasted)) 
+        try Node.bool_to_int.create(c.arena, rhs_uncasted)
+    else rhs_uncasted;
 
     const payload = try c.arena.create(ast.Payload.BinOp);
     payload.* = .{
@@ -1495,7 +1484,7 @@ fn transBinaryOperator(
 }
 
 fn transCompoundStmtInline(
-    rp: RestorePoint,
+    c: *Context,
     parent_scope: *Scope,
     stmt: *const clang.CompoundStmt,
     block: *Scope.Block,
@@ -1503,16 +1492,16 @@ fn transCompoundStmtInline(
     var it = stmt.body_begin();
     const end_it = stmt.body_end();
     while (it != end_it) : (it += 1) {
-        const result = try transStmt(rp, parent_scope, it[0], .unused, .r_value);
+        const result = try transStmt(c, parent_scope, it[0], .unused, .r_value);
         try block.statements.append(result);
     }
 }
 
-fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const clang.CompoundStmt) TransError!*ast.Node {
-    var block_scope = try Scope.Block.init(rp.c, scope, false);
+fn transCompoundStmt(c: *Context, scope: *Scope, stmt: *const clang.CompoundStmt) TransError!Node {
+    var block_scope = try Scope.Block.init(c, scope, false);
     defer block_scope.deinit();
-    try transCompoundStmtInline(rp, &block_scope.base, stmt, &block_scope);
-    return try block_scope.complete(rp.c);
+    try transCompoundStmtInline(c, &block_scope.base, stmt, &block_scope);
+    return try block_scope.complete(c);
 }
 
 fn transCStyleCastExprClass(
@@ -3233,22 +3222,18 @@ fn qualTypeGetFnProto(qt: clang.QualType, is_ptr: *bool) ?ClangFunctionType {
 }
 
 fn transUnaryExprOrTypeTraitExpr(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.UnaryExprOrTypeTraitExpr,
     result_used: ResultUsed,
-) TransError!*ast.Node {
+) TransError!Node {
     const loc = stmt.getBeginLoc();
-    const type_node = try transQualType(
-        rp,
-        stmt.getTypeOfArgument(),
-        loc,
-    );
+    const type_node = try transQualType(rp, stmt.getTypeOfArgument(), loc);
 
     const kind = stmt.getKind();
-    const kind_str = switch (kind) {
-        .SizeOf => "@sizeOf",
-        .AlignOf => "@alignOf",
+    switch (kind) {
+        .SizeOf => return Node.sizeof.create(c.arena, type_node),
+        .AlignOf => return Node.alignof.create(c.arena, type_node),
         .PreferredAlignOf,
         .VecStep,
         .OpenMPRequiredSimdAlign,
@@ -3259,12 +3244,7 @@ fn transUnaryExprOrTypeTraitExpr(
             "Unsupported type trait kind {}",
             .{kind},
         ),
-    };
-
-    const builtin_node = try rp.c.createBuiltinCall(kind_str, 1);
-    builtin_node.params()[0] = type_node;
-    builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-    return maybeSuppressResult(rp, scope, result_used, &builtin_node.base);
+    }
 }
 
 fn qualTypeHasWrappingOverflow(qt: clang.QualType) bool {
@@ -3967,8 +3947,8 @@ fn transQualTypeInitialized(
     return transQualType(rp, qt, source_loc);
 }
 
-fn transQualType(rp: RestorePoint, qt: clang.QualType, source_loc: clang.SourceLocation) TypeError!*ast.Node {
-    return transType(rp, qt.getTypePtr(), source_loc);
+fn transQualType(c: *Context, qt: clang.QualType, source_loc: clang.SourceLocation) TypeError!Node {
+    return transType(c, qt.getTypePtr(), source_loc);
 }
 
 /// Produces a Zig AST node by translating a Clang QualType, respecting the width, but modifying the signed-ness.
@@ -4318,19 +4298,27 @@ fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []c
     return &field_access_node.base;
 }
 
-fn transCreateNodeSimplePrefixOp(
+fn transCreateNodeBoolInfixOp(
     c: *Context,
-    comptime tag: ast.Node.Tag,
-    op_tok_id: std.zig.Token.Id,
-    bytes: []const u8,
-) !*ast.Node.SimplePrefixOp {
-    const node = try c.arena.create(ast.Node.SimplePrefixOp);
-    node.* = .{
-        .base = .{ .tag = tag },
-        .op_token = try appendToken(c, op_tok_id, bytes),
-        .rhs = undefined, // translate and set afterward
+    scope: *Scope,
+    stmt: *const clang.BinaryOperator,
+    op: ast.Node.Tag,
+    used: ResultUsed,
+) !Node {
+    std.debug.assert(op == .bool_and or op == .bool_or);
+
+    const lhs = try transBoolExpr(rp, scope, stmt.getLHS(), .used, .l_value, true);
+    const rhs = try transBoolExpr(rp, scope, stmt.getRHS(), .used, .r_value, true);
+
+    const payload = try c.arena.create(ast.Payload.BinOp);
+    payload.* = .{
+        .base = .{ .tag = op },
+        .data = .{
+            .lhs = lhs,
+            .rhs = rhs,
+        },
     };
-    return node;
+    return maybeSuppressResult(c, scope, used, &payload.base);
 }
 
 fn transCreateNodePtrType(
@@ -4784,30 +4772,30 @@ fn transCreateNodeArrayAccess(c: *Context, lhs: *ast.Node) !*ast.Node.ArrayAcces
     return node;
 }
 
-fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocation) TypeError!Type {
+fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocation) TypeError!Node {
     switch (ty.getTypeClass()) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
-            return Type.initTag(switch (builtin_ty.getKind()) {
-                .Void => .c_void,
-                .Bool => .bool,
-                .Char_U, .UChar, .Char_S, .Char8 => .u8,
-                .SChar => .i8,
-                .UShort => .c_ushort,
-                .UInt => .c_uint,
-                .ULong => .c_ulong,
-                .ULongLong => .c_ulonglong,
-                .Short => .c_short,
-                .Int => .c_int,
-                .Long => .c_long,
-                .LongLong => .c_longlong,
-                .UInt128 => .u128,
-                .Int128 => .i128,
-                .Float => .f32,
-                .Double => .f64,
-                .Float128 => .f128,
-                .Float16 => .f16,
-                .LongDouble => .c_longdouble,
+            return Node.type.create(c.arena, switch (builtin_ty.getKind()) {
+                .Void => "c_void",
+                .Bool => "bool",
+                .Char_U, .UChar, .Char_S, .Char8 => "u8",
+                .SChar => "i8",
+                .UShort => "c_ushort",
+                .UInt => "c_uint",
+                .ULong => "c_ulong",
+                .ULongLong => "c_ulonglong",
+                .Short => "c_short",
+                .Int => "c_int",
+                .Long => "c_long",
+                .LongLong => "c_longlong",
+                .UInt128 => "u128",
+                .Int128 => "i128",
+                .Float => "f32",
+                .Double => "f64",
+                .Float128 => "f128",
+                .Float16 => "f16",
+                .LongDouble => "c_longdouble",
                 else => return fail(c, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
             });
         },
@@ -4826,61 +4814,25 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
         .Pointer => {
             const child_qt = ty.getPointeeType();
             if (qualTypeChildIsFnProto(child_qt)) {
-                return Type.optional_single_mut_pointer.create(c.arena, try transQualType(c, child_qt, source_loc));
+                return Node.optional_type.create(c.arena, try transQualType(c, child_qt, source_loc));
             }
             const is_const = child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, child_qt, source_loc);
-            if (elem_type.zigTypeTag() == .Opaque) {
-                if (!is_volatile) {
-                    if (is_const) {
-                        return Type.optional_single_const_pointer.create(c.arena, elem_type);
-                    } else {
-                        return Type.optional_single_mut_pointer.create(c.arena, elem_type);
-                    }
-                }
-
-                return Type.pointer.create(c.arena, .{
-                    .pointee_type = elem_type,
-                    .sentinel = null,
-                    .@"align" = 0,
-                    .bit_offset = 0,
-                    .host_size = 0,
-                    .@"allowzero" = false,
-                    .mutable = !is_const,
-                    .@"volatile" = true,
-                    .size = .Single,
-                });
+            if (typeIsOpaque(rp.c, child_qt.getTypePtr(), source_loc) or qualTypeWasDemotedToOpaque(rp.c, child_qt)) {
+                return Node.single_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
             }
 
-            if (!is_volatile) {
-                if (is_const) {
-                    return Type.c_const_pointer.create(c.arena, elem_type);
-                } else {
-                    return Type.c_mut_pointer.create(c.arena, elem_type);
-                }
-            }
-
-            return Type.pointer.create(c.arena, .{
-                .pointee_type = elem_type,
-                .sentinel = null,
-                .@"align" = 0,
-                .bit_offset = 0,
-                .host_size = 0,
-                .@"allowzero" = false,
-                .mutable = !is_const,
-                .@"volatile" = true,
-                .size = .C,
-            });
+            return Node.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
         },
         .ConstantArray => {
             const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
 
             const size_ap_int = const_arr_ty.getSize();
             const size = size_ap_int.getLimitedValue(math.maxInt(usize));
-            const elem_type = try transType1(c, const_arr_ty.getElementType().getTypePtr(), source_loc);
-            
-            return Type.array.create(c.arena, .{ .len = size, .elem_type = elem_type });
+            const elem_type = try transType(c, const_arr_ty.getElementType().getTypePtr(), source_loc);
+
+            return Node.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
         },
         .IncompleteArray => {
             const incomplete_array_ty = @ptrCast(*const clang.IncompleteArrayType, ty);
@@ -4890,25 +4842,7 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, child_qt, source_loc);
 
-            if (!is_volatile) {
-                if (is_const) {
-                    return Type.c_const_pointer.create(c.arena, elem_type);
-                } else {
-                    return Type.c_mut_pointer.create(c.arena, elem_type);
-                }
-            }
-
-            return Type.pointer.create(c.arena, .{
-                .pointee_type = elem_type,
-                .sentinel = null,
-                .@"align" = 0,
-                .bit_offset = 0,
-                .host_size = 0,
-                .@"allowzero" = false,
-                .mutable = !is_const,
-                .@"volatile" = true,
-                .size = .C,
-            });
+            return Node.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
         },
         .Typedef => {
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
@@ -5233,25 +5167,14 @@ fn finishTransFnProto(
     return fn_proto;
 }
 
-fn revertAndWarn(
-    rp: RestorePoint,
-    err: anytype,
-    source_loc: clang.SourceLocation,
-    comptime format: []const u8,
-    args: anytype,
-) (@TypeOf(err) || error{OutOfMemory}) {
-    rp.activate();
-    try emitWarning(rp.c, source_loc, format, args);
-    return err;
-}
-
-fn emitWarning(c: *Context, loc: clang.SourceLocation, comptime format: []const u8, args: anytype) !void {
+fn warn(c: *Context, scope: *Scope, loc: clang.SourceLocation, comptime format: []const u8, args: anytype) !void {
     const args_prefix = .{c.locStr(loc)};
-    _ = try appendTokenFmt(c, .LineComment, "// {s}: warning: " ++ format, args_prefix ++ args);
+    const value = std.fmt.allocPrint(c.arena, "// {s}: warning: " ++ format, args_prefix ++ args);
+    try scope.appendNode(c.gpa, try Node.warning.create(c.arena, value));
 }
 
 fn fail(
-    rp: RestorePoint,
+    c: *Context,
     err: anytype,
     source_loc: clang.SourceLocation,
     comptime format: []const u8,
