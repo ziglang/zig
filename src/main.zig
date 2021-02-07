@@ -1536,8 +1536,9 @@ fn buildOutputType(
         }
 
         const has_sysroot = if (comptime std.Target.current.isDarwin()) outer: {
-            const at_least_big_sur = target_info.target.os.getVersionRange().semver.min.major >= 11;
-            if (at_least_big_sur) {
+            const min = target_info.target.os.getVersionRange().semver.min;
+            const at_least_catalina = min.major >= 11 or (min.major >= 10 and min.minor >= 15);
+            if (at_least_catalina) {
                 const sdk_path = try std.zig.system.getSDKPath(arena);
                 try clang_argv.ensureCapacity(clang_argv.items.len + 2);
                 clang_argv.appendAssumeCapacity("-isysroot");
