@@ -257,27 +257,29 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    }
         //},
 
-        .Catch => unreachable, // TODO
-        //.Catch => {
-        //    const infix_op_node = @fieldParentPtr(ast.Node.Catch, "base", base);
+        .Catch => {
+            const main_token = main_tokens[node];
+            const fallback_first = tree.firstToken(datas[node].rhs);
 
-        //    const op_space = Space.Space;
-        //    try renderExpression(ais, tree, infix_op_node.lhs, op_space);
+            const same_line = tree.tokensOnSameLine(main_token, fallback_first);
+            const after_op_space = if (same_line) Space.Space else Space.Newline;
 
-        //    const after_op_space = blk: {
-        //        const same_line = tree.tokensOnSameLine(infix_op_node.op_token, tree.nextToken(infix_op_node.op_token));
-        //        break :blk if (same_line) op_space else Space.Newline;
-        //    };
+            try renderExpression(ais, tree, datas[node].lhs, .Space); // target
 
-        //    try renderToken(ais, tree, infix_op_node.op_token, after_op_space);
+            if (token_tags[fallback_first - 1] == .Pipe) {
+                try renderToken(ais, tree, main_token, .Space); // catch keyword
+                try renderToken(ais, tree, main_token + 1, .None); // pipe
+                try renderToken(ais, tree, main_token + 2, .None); // payload identifier
+                try renderToken(ais, tree, main_token + 3, after_op_space); // pipe
+            } else {
+                assert(token_tags[fallback_first - 1] == .Keyword_catch);
+                try renderToken(ais, tree, main_token, after_op_space); // catch keyword
+            }
 
-        //    if (infix_op_node.payload) |payload| {
-        //        try renderExpression(ais, tree, payload, Space.Space);
-        //    }
+            ais.pushIndentOneShot();
+            try renderExpression(ais, tree, datas[node].rhs, space); // fallback
+        },
 
-        //    ais.pushIndentOneShot();
-        //    return renderExpression(ais, tree, infix_op_node.rhs, space);
-        //},
         .FieldAccess => {
             const field_access = datas[node];
             try renderExpression(ais, tree, field_access.lhs, .None);
@@ -516,16 +518,14 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    }
         //},
 
-        .Return => unreachable, // TODO
-        //.Return => {
-        //    const flow_expr = base.castTag(.Return).?;
-        //    if (flow_expr.getRHS()) |rhs| {
-        //        try renderToken(ais, tree, flow_expr.ltoken, Space.Space);
-        //        return renderExpression(ais, tree, rhs, space);
-        //    } else {
-        //        return renderToken(ais, tree, flow_expr.ltoken, space);
-        //    }
-        //},
+        .Return => {
+            if (datas[node].lhs != 0) {
+                try renderToken(ais, tree, main_tokens[node], .Space);
+                try renderExpression(ais, tree, datas[node].lhs, space);
+            } else {
+                try renderToken(ais, tree, main_tokens[node], space);
+            }
+        },
 
         .GroupedExpression => unreachable, // TODO
         //.GroupedExpression => {

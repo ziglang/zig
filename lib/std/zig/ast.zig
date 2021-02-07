@@ -436,7 +436,6 @@ pub const Tree = struct {
             .Suspend,
             .Resume,
             .Break,
-            .Return,
             .Nosuspend,
             .Comptime,
             => n = datas[n].lhs,
@@ -515,6 +514,12 @@ pub const Tree = struct {
             .Deref,
             .EnumLiteral,
             => return main_tokens[n] + end_offset,
+
+            .Return => if (datas[n].lhs != 0) {
+                n = datas[n].lhs;
+            } else {
+                return main_tokens[n] + end_offset;
+            },
 
             .Call => {
                 end_offset += 1; // for the rparen
@@ -1791,7 +1796,9 @@ pub const Node = struct {
         /// lhs is unused.
         /// rhs is the deferred expression.
         Defer,
-        /// lhs is target expr; rhs is fallback expr.
+        /// lhs catch rhs
+        /// lhs catch |err| rhs
+        /// main_token is the catch
         /// payload is determined by looking at the prev tokens before rhs.
         Catch,
         /// `lhs.a`. main_token is the dot. rhs is the identifier token index.
