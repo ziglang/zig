@@ -2348,9 +2348,7 @@ pub fn addCCArgs(
                 else => {},
             }
 
-            if (comp.bin_file.options.strip) {
-                try argv.append("-s");
-            } else {
+            if (!comp.bin_file.options.strip) {
                 try argv.append("-g");
                 switch (comp.bin_file.options.object_format) {
                     .coff, .pe => try argv.append("-gcodeview"),
