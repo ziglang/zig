@@ -1295,38 +1295,31 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const rhs = try self.resolveInst(op_rhs);
 
             // Destination must be a register
-            // Source may be register, memory or an immediate
-            //
-            // So there are two options: (lhs is src and rhs is dest)
-            // or (rhs is src and lhs is dest)
-            const lhs_is_dest = blk: {
-                if (self.reuseOperand(inst, 0, lhs)) {
-                    break :blk true;
-                } else if (self.reuseOperand(inst, 1, rhs)) {
-                    break :blk false;
-                } else {
-                    break :blk lhs == .register;
-                }
-            };
-
             var dst_mcv: MCValue = undefined;
-            var src_mcv: MCValue = undefined;
-            var src_inst: *ir.Inst = undefined;
-            if (lhs_is_dest) {
+            var lhs_mcv: MCValue = undefined;
+            var rhs_mcv: MCValue = undefined;
+            if (self.reuseOperand(inst, 0, lhs)) {
                 // LHS is the destination
                 // RHS is the source
-                src_inst = op_rhs;
-                src_mcv = rhs;
-                dst_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
-            } else {
+                lhs_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
+                rhs_mcv = rhs;
+                dst_mcv = lhs_mcv;
+            } else if (self.reuseOperand(inst, 1, rhs)) {
                 // RHS is the destination
                 // LHS is the source
-                src_inst = op_lhs;
-                src_mcv = lhs;
-                dst_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
+                lhs_mcv = lhs;
+                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
+                dst_mcv = rhs_mcv;
+            } else {
+                // TODO save 1 copy instruction by directly allocating the destination register
+                // LHS is the destination
+                // RHS is the source
+                lhs_mcv = try self.copyToNewRegister(inst, lhs);
+                rhs_mcv = rhs;
+                dst_mcv = lhs_mcv;
             }
 
-            try self.genArmBinOpCode(inst.src, dst_mcv.register, src_mcv, lhs_is_dest, op);
+            try self.genArmBinOpCode(inst.src, dst_mcv.register, lhs_mcv, rhs_mcv, op);
             return dst_mcv;
         }
 
@@ -1334,11 +1327,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             self: *Self,
             src: usize,
             dst_reg: Register,
-            src_mcv: MCValue,
-            lhs_is_dest: bool,
+            lhs_mcv: MCValue,
+            rhs_mcv: MCValue,
             op: ir.Inst.Tag,
         ) !void {
-            const operand = switch (src_mcv) {
+            assert(lhs_mcv == .register or lhs_mcv == .register);
+
+            const swap_lhs_and_rhs = rhs_mcv == .register and lhs_mcv != .register;
+            const op1 = if (swap_lhs_and_rhs) rhs_mcv.register else lhs_mcv.register;
+            const op2 = if (swap_lhs_and_rhs) lhs_mcv else rhs_mcv;
+
+            const operand = switch (op2) {
                 .none => unreachable,
                 .undef => unreachable,
                 .dead, .unreach => unreachable,
@@ -1352,37 +1351,37 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // Load immediate into register if it doesn't fit
                     // as an operand
                     break :blk Instruction.Operand.fromU32(@intCast(u32, imm)) orelse
-                        Instruction.Operand.reg(try self.copyToTmpRegister(src, src_mcv), Instruction.Operand.Shift.none);
+                        Instruction.Operand.reg(try self.copyToTmpRegister(src, op2), Instruction.Operand.Shift.none);
                 },
-                .register => |src_reg| Instruction.Operand.reg(src_reg, Instruction.Operand.Shift.none),
+                .register => |reg| Instruction.Operand.reg(reg, Instruction.Operand.Shift.none),
                 .stack_offset,
                 .embedded_in_code,
                 .memory,
-                => Instruction.Operand.reg(try self.copyToTmpRegister(src, src_mcv), Instruction.Operand.Shift.none),
+                => Instruction.Operand.reg(try self.copyToTmpRegister(src, op2), Instruction.Operand.Shift.none),
             };
 
             switch (op) {
                 .add => {
-                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.add(.al, dst_reg, dst_reg, operand).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.add(.al, dst_reg, op1, operand).toU32());
                 },
                 .sub => {
-                    if (lhs_is_dest) {
-                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.sub(.al, dst_reg, dst_reg, operand).toU32());
+                    if (swap_lhs_and_rhs) {
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.rsb(.al, dst_reg, op1, operand).toU32());
                     } else {
-                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.rsb(.al, dst_reg, dst_reg, operand).toU32());
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.sub(.al, dst_reg, op1, operand).toU32());
                     }
                 },
                 .bool_and, .bit_and => {
-                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.@"and"(.al, dst_reg, dst_reg, operand).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.@"and"(.al, dst_reg, op1, operand).toU32());
                 },
                 .bool_or, .bit_or => {
-                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, dst_reg, dst_reg, operand).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, dst_reg, op1, operand).toU32());
                 },
                 .not, .xor => {
-                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.eor(.al, dst_reg, dst_reg, operand).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.eor(.al, dst_reg, op1, operand).toU32());
                 },
                 .cmp_eq => {
-                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.cmp(.al, dst_reg, operand).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.cmp(.al, op1, operand).toU32());
                 },
                 else => unreachable, // not a binary instruction
             }
@@ -2135,7 +2134,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const src_mcv = rhs;
                     const dst_mcv = if (lhs != .register) try self.copyToNewRegister(&inst.base, lhs) else lhs;
 
-                    try self.genArmBinOpCode(inst.base.src, dst_mcv.register, src_mcv, true, .cmp_eq);
+                    try self.genArmBinOpCode(inst.base.src, dst_mcv.register, dst_mcv, src_mcv, .cmp_eq);
                     const info = inst.lhs.ty.intInfo(self.target.*);
                     return switch (info.signedness) {
                         .signed => MCValue{ .compare_flags_signed = op },
