@@ -273,6 +273,24 @@ test "zig fmt: comptime struct field" {
     );
 }
 
+test "zig fmt: break from block" {
+    try testCanonical(
+        \\const a = blk: {
+        \\    break :blk 42;
+        \\};
+        \\const b = blk: {
+        \\    break :blk;
+        \\};
+        \\const c = {
+        \\    break 42;
+        \\};
+        \\const d = {
+        \\    break;
+        \\};
+        \\
+    );
+}
+
 //test "zig fmt: c pointer type" {
 //    try testCanonical(
 //        \\pub extern fn repro() [*c]const u8;

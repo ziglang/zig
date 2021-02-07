@@ -438,7 +438,6 @@ pub const Tree = struct {
             .OptionalType,
             .Suspend,
             .Resume,
-            .Break,
             .Nosuspend,
             .Comptime,
             => n = datas[n].lhs,
@@ -713,6 +712,16 @@ pub const Tree = struct {
                 assert(extra.sentinel != 0); // should have used Slice
                 end_offset += 1; // rbracket
                 n = extra.sentinel;
+            },
+
+            .Break => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    return datas[n].lhs + end_offset;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
             },
 
             // These are not supported by lastToken() because implementation would
@@ -2023,7 +2032,8 @@ pub const Node = struct {
         Resume,
         /// `continue`. lhs is token index of label if any. rhs is unused.
         Continue,
-        /// `break rhs`. rhs can be omitted. lhs is label token index, if any.
+        /// `break :lhs rhs`
+        /// both lhs and rhs may be omitted.
         Break,
         /// `return lhs`. lhs can be omitted. rhs is unused.
         Return,

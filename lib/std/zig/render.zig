@@ -487,28 +487,26 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderToken(ais, tree, datas[node].rhs, space);
         },
 
-        .Break => unreachable, // TODO
-        //.Break => {
-        //    const flow_expr = base.castTag(.Break).?;
-        //    const maybe_rhs = flow_expr.getRHS();
-        //    const maybe_label = flow_expr.getLabel();
-
-        //    if (maybe_label == null and maybe_rhs == null) {
-        //        return renderToken(ais, tree, flow_expr.ltoken, space); // break
-        //    }
-
-        //    try renderToken(ais, tree, flow_expr.ltoken, Space.Space); // break
-        //    if (maybe_label) |label| {
-        //        const colon = tree.nextToken(flow_expr.ltoken);
-        //        try renderToken(ais, tree, colon, Space.None); // :
-
-        //        if (maybe_rhs == null) {
-        //            return renderToken(ais, tree, label, space); // label
-        //        }
-        //        try renderToken(ais, tree, label, Space.Space); // label
-        //    }
-        //    return renderExpression(ais, tree, maybe_rhs.?, space);
-        //},
+        .Break => {
+            const main_token = main_tokens[node];
+            const label_token = datas[node].lhs;
+            const target = datas[node].rhs;
+            if (label_token == 0 and target == 0) {
+                try renderToken(ais, tree, main_token, space); // break keyword
+            } else if (label_token == 0 and target != 0) {
+                try renderToken(ais, tree, main_token, .Space); // break keyword
+                try renderExpression(ais, tree, target, space);
+            } else if (label_token != 0 and target == 0) {
+                try renderToken(ais, tree, main_token, .Space); // break keyword
+                try renderToken(ais, tree, label_token - 1, .None); // colon
+                try renderToken(ais, tree, label_token, space); // identifier
+            } else if (label_token != 0 and target != 0) {
+                try renderToken(ais, tree, main_token, .Space); // break keyword
+                try renderToken(ais, tree, label_token - 1, .None); // colon
+                try renderToken(ais, tree, label_token, .Space); // identifier
+                try renderExpression(ais, tree, target, space);
+            }
+        },
 
         .Continue => unreachable, // TODO
         //.Continue => {
