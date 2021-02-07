@@ -2622,18 +2622,22 @@ test "zig fmt: ptr deref operator and unwrap optional operator" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: catch" {
-//    try testCanonical(
-//        \\test "catch" {
-//        \\    const a: anyerror!u8 = 0;
-//        \\    _ = a catch return;
-//        \\    _ = a catch |err| return;
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: catch" {
+    try testCanonical(
+        \\test "catch" {
+        \\    const a: anyerror!u8 = 0;
+        \\    _ = a catch return;
+        \\    _ = a catch
+        \\        return;
+        \\    _ = a catch |err| return;
+        \\    _ = a catch |err|
+        \\        return;
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: blocks" {
 //    try testCanonical(
 //        \\test "blocks" {
