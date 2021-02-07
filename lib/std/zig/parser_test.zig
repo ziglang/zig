@@ -655,6 +655,24 @@ test "zig fmt: slices with spaces in bounds" {
     );
 }
 
+test "zig fmt: block in slice expression" {
+    try testCanonical(
+        \\const a = b[{
+        \\    _ = x;
+        \\}..];
+        \\const c = d[0..{
+        \\    _ = x;
+        \\    _ = y;
+        \\}];
+        \\const e = f[0..1 :{
+        \\    _ = x;
+        \\    _ = y;
+        \\    _ = z;
+        \\}];
+        \\
+    );
+}
+
 //test "zig fmt: async function" {
 //    try testCanonical(
 //        \\pub const Server = struct {

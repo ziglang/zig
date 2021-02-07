@@ -1984,8 +1984,9 @@ const Parser = struct {
 
         const stmt_one = try p.expectStatementRecoverable();
         if (p.eatToken(.RBrace)) |_| {
+            const semicolon = p.token_tags[p.tok_i - 2] == .Semicolon;
             return p.addNode(.{
-                .tag = .BlockTwo,
+                .tag = if (semicolon) .BlockTwoSemicolon else .BlockTwo,
                 .main_token = lbrace,
                 .data = .{
                     .lhs = stmt_one,
@@ -1995,8 +1996,9 @@ const Parser = struct {
         }
         const stmt_two = try p.expectStatementRecoverable();
         if (p.eatToken(.RBrace)) |_| {
+            const semicolon = p.token_tags[p.tok_i - 2] == .Semicolon;
             return p.addNode(.{
-                .tag = .BlockTwo,
+                .tag = if (semicolon) .BlockTwoSemicolon else .BlockTwo,
                 .main_token = lbrace,
                 .data = .{
                     .lhs = stmt_one,
@@ -2017,9 +2019,10 @@ const Parser = struct {
             if (p.token_tags[p.tok_i] == .RBrace) break;
         }
         _ = try p.expectToken(.RBrace);
+        const semicolon = p.token_tags[p.tok_i - 2] == .Semicolon;
         const statements_span = try p.listToSpan(statements.items);
         return p.addNode(.{
-            .tag = .Block,
+            .tag = if (semicolon) .BlockSemicolon else .Block,
             .main_token = lbrace,
             .data = .{
                 .lhs = statements_span.start,

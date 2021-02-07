@@ -202,7 +202,9 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    }
         //    return renderToken(ais, tree, any_type.token, space);
         //},
-        .BlockTwo => {
+        .BlockTwo,
+        .BlockTwoSemicolon,
+        => {
             const statements = [2]ast.Node.Index{ datas[node].lhs, datas[node].rhs };
             if (datas[node].lhs == 0) {
                 return renderBlock(ais, tree, main_tokens[node], statements[0..0], space);
@@ -212,7 +214,9 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                 return renderBlock(ais, tree, main_tokens[node], statements[0..2], space);
             }
         },
-        .Block => {
+        .Block,
+        .BlockSemicolon,
+        => {
             const lbrace = main_tokens[node];
             const statements = tree.extra_data[datas[node].lhs..datas[node].rhs];
             return renderBlock(ais, tree, main_tokens[node], statements, space);
