@@ -14,6 +14,10 @@ pub const Node = extern union {
         true_literal,
         false_literal,
         empty_block,
+        return_void,
+        zero_literal,
+        void_type,
+        noreturn_type,
         /// pub usingnamespace @import("std").c.builtins;
         usingnamespace_builtins,
         // After this, the tag requires a payload.
@@ -99,6 +103,7 @@ pub const Node = extern union {
         bit_or,
         bit_xor,
 
+        log2_int_type,
         /// @import("std").math.Log2Int(operand)
         std_math_Log2Int,
         /// @intCast(lhs, rhs)
@@ -132,7 +137,13 @@ pub const Node = extern union {
         single_pointer,
         array_type,
 
-        pub const last_no_payload_tag = Tag.false_literal;
+
+        // pub const name = @compileError(msg);
+        fail_decl,
+        // var actual = mangled;
+        arg_redecl,
+
+        pub const last_no_payload_tag = Tag.usingnamespace_builtins;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(tag: Tag) ?type {
@@ -144,6 +155,10 @@ pub const Node = extern union {
                 .false_litral,
                 .empty_block,
                 .usingnamespace_builtins,
+                .return_void,
+                .zero_literal,
+                .void_type,
+                .noreturn_type,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_access,
@@ -227,6 +242,7 @@ pub const Node = extern union {
                 .sizeof,
                 .alignof,
                 .type,
+                .fail_decl,
                 => Payload.Value,
                 .@"if" => Payload.If,
                 .@"while" => Payload.While,
@@ -244,6 +260,8 @@ pub const Node = extern union {
                 .c_pointer => Payload.Pointer,
                 .single_pointer => Payload.Pointer,
                 .array_type => Payload.Array,
+                .arg_redecl => Payload.ArgRedecl,
+                .log2_int_type => Payload.Log2IntType,
             };
         }
 
@@ -265,6 +283,24 @@ pub const Node = extern union {
             return std.meta.fieldInfo(t.Type(), .data).field_type;
         }
     };
+
+    pub fn tag(self: Node) Tag {
+        if (self.tag_if_small_enough < Tag.no_payload_count) {
+            return @intToEnum(Tag, @intCast(@TagType(Tag), self.tag_if_small_enough));
+        } else {
+            return self.ptr_otherwise.tag;
+        }
+    }
+
+    pub fn castTag(self: Node, comptime t: Tag) ?*t.Type() {
+        if (self.tag_if_small_enough < Tag.no_payload_count)
+            return null;
+
+        if (self.ptr_otherwise.tag == t)
+            return @fieldParentPtr(t.Type(), "base", self.ptr_otherwise);
+
+        return null;
+    }
 };
 
 pub const Payload = struct {
@@ -360,19 +396,22 @@ pub const Payload = struct {
     pub const Func = struct {
         base: Node = .{.func},
         data: struct {
-            @"pub": bool,
-            @"extern": bool,
-            @"export": bool,
+            is_pub: bool,
+            is_extern: bool,
+            is_export: bool,
+            is_var_args: bool,
             name: []const u8,
-            cc: std.builtin.CallingConvention,
+            link_section_string: ?[]const u8,
+            explicit_callconv: ?std.builtin.CallingConvention,
             params: []Param,
-            return_type: Type,
+            return_type: Node,
             body: ?Node,
+            alignment: c_uint,
 
             pub const Param = struct {
-                @"noalias": bool,
+                is_noalias: bool,
                 name: ?[]const u8,
-                type: Type,
+                type: Node,
             };
         },
     };
@@ -448,6 +487,19 @@ pub const Payload = struct {
             is_const: bool,
             is_volatile: bool,
         },
+    };
+
+    pub const ArgRedecl = struct {
+        base: Node,
+        data: struct {
+            actual: []const u8,
+            mangled: []const u8,
+        },
+    };
+
+    pub const Log2IntType = struct {
+        base: Node,
+        data: std.math.Log2Int(u64),
     };
 };
 

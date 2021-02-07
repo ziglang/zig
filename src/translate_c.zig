@@ -469,7 +469,6 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             return visitFnDecl(c, def);
     }
 
-    const rp = makeRestorePoint(c);
     const fn_decl_loc = fn_decl.getLocation();
     const has_body = fn_decl.hasBody();
     const storage_class = fn_decl.getStorageClass();
@@ -513,9 +512,9 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
                 decl_ctx.has_body = false;
                 decl_ctx.storage_class = .Extern;
                 decl_ctx.is_export = false;
-                try emitWarning(c, fn_decl_loc, "TODO unable to translate variadic function, demoted to declaration", .{});
+                try warn(c, fn_decl_loc, "TODO unable to translate variadic function, demoted to declaration", .{});
             }
-            break :blk transFnProto(rp, fn_decl, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
+            break :blk transFnProto(c, fn_decl, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function", .{});
                 },
@@ -524,7 +523,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         },
         .FunctionNoProto => blk: {
             const fn_no_proto_type = @ptrCast(*const clang.FunctionType, fn_type);
-            break :blk transFnNoProto(rp, fn_no_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
+            break :blk transFnNoProto(c, fn_no_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function", .{});
                 },
@@ -535,13 +534,12 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     };
 
     if (!decl_ctx.has_body) {
-        const semi_tok = try appendToken(c, .Semicolon, ";");
         return addTopLevelDecl(c, fn_name, &proto_node.base);
     }
 
     // actual function definition with body
     const body_stmt = fn_decl.getBody();
-    var block_scope = try Scope.Block.init(rp.c, &c.global_scope.base, false);
+    var block_scope = try Scope.Block.init(c, &c.global_scope.base, false);
     block_scope.return_type = return_qt;
     defer block_scope.deinit();
 
@@ -559,34 +557,22 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         const is_const = qual_type.isConstQualified();
 
         const mangled_param_name = try block_scope.makeMangledName(c, param_name);
+        param.name = mangled_param_name;
 
         if (!is_const) {
             const bare_arg_name = try std.fmt.allocPrint(c.arena, "arg_{s}", .{mangled_param_name});
             const arg_name = try block_scope.makeMangledName(c, bare_arg_name);
+            param.name = arg_name;
 
-            const mut_tok = try appendToken(c, .Keyword_var, "var");
-            const name_tok = try appendIdentifier(c, mangled_param_name);
-            const eq_token = try appendToken(c, .Equal, "=");
-            const init_node = try transCreateNodeIdentifier(c, arg_name);
-            const semicolon_token = try appendToken(c, .Semicolon, ";");
-            const node = try ast.Node.VarDecl.create(c.arena, .{
-                .mut_token = mut_tok,
-                .name_token = name_tok,
-                .semicolon_token = semicolon_token,
-            }, .{
-                .eq_token = eq_token,
-                .init_node = init_node,
-            });
-            try block_scope.statements.append(&node.base);
-            param.name_token = try appendIdentifier(c, arg_name);
-            _ = try appendToken(c, .Colon, ":");
+            const redecl_node = try Node.arg_redecl.create(c.arena, .{ .actual = mangled_param_name, .mangled = arg_name });
+            try block_scope.statements.append(redecl_node);
         }
 
         param_id += 1;
     }
 
     const casted_body = @ptrCast(*const clang.CompoundStmt, body_stmt);
-    transCompoundStmtInline(rp, &block_scope.base, casted_body, &block_scope) catch |err| switch (err) {
+    transCompoundStmtInline(c, &block_scope.base, casted_body, &block_scope) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.UnsupportedTranslation,
         error.UnsupportedType,
@@ -600,37 +586,31 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         if (block_scope.statements.items.len > 0) {
             var last = block_scope.statements.items[block_scope.statements.items.len - 1];
             while (true) {
-                switch (last.tag) {
-                    .Block, .LabeledBlock => {
-                        const stmts = last.blockStatements();
-                        if (stmts.len == 0) break;
+                switch (last.tag()) {
+                    .block => {
+                        const block = last.castTag(.block).?;
+                        if (block.data.stmts.len == 0) break;
 
-                        last = stmts[stmts.len - 1];
+                        last = block.data.stmts[block.data.stmts.len - 1];
                     },
                     // no extra return needed
-                    .Return => break :blk,
+                    .@"return", .return_void => break :blk,
                     else => break,
                 }
             }
         }
 
-        const return_expr = try ast.Node.ControlFlowExpression.create(rp.c.arena, .{
-            .ltoken = try appendToken(rp.c, .Keyword_return, "return"),
-            .tag = .Return,
-        }, .{
-            .rhs = transZeroInitExpr(rp, scope, fn_decl_loc, return_qt.getTypePtr()) catch |err| switch (err) {
-                error.OutOfMemory => |e| return e,
-                error.UnsupportedTranslation,
-                error.UnsupportedType,
-                => return failDecl(c, fn_decl_loc, fn_name, "unable to create a return value for function", .{}),
-            },
-        });
-        _ = try appendToken(rp.c, .Semicolon, ";");
-        try block_scope.statements.append(&return_expr.base);
+        const rhs = transZeroInitExpr(c, scope, fn_decl_loc, return_qt.getTypePtr()) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.UnsupportedTranslation,
+            error.UnsupportedType,
+            => return failDecl(c, fn_decl_loc, fn_name, "unable to create a return value for function", .{}),
+        };
+        const ret = try Node.@"return".create(c.arena, rhs);
+        try block_scope.statements.append(ret);
     }
 
-    const body_node = try block_scope.complete(rp.c);
-    proto_node.setBodyNode(body_node);
+    proto_node.body = try block_scope.complete(c);
     return addTopLevelDecl(c, fn_name, &proto_node.base);
 }
 
@@ -2440,16 +2420,16 @@ fn transInitListExpr(
 }
 
 fn transZeroInitExpr(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     source_loc: clang.SourceLocation,
     ty: *const clang.Type,
-) TransError!*ast.Node {
+) TransError!Node {
     switch (ty.getTypeClass()) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
             switch (builtin_ty.getKind()) {
-                .Bool => return try transCreateNodeBoolLiteral(rp.c, false),
+                .Bool => return Node.false_literal.init(),
                 .Char_U,
                 .UChar,
                 .Char_S,
@@ -2470,16 +2450,16 @@ fn transZeroInitExpr(
                 .Float128,
                 .Float16,
                 .LongDouble,
-                => return transCreateNodeInt(rp.c, 0),
-                else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
+                => return Node.zero_literal.init(),
+                else => return fail(c, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
             }
         },
-        .Pointer => return transCreateNodeNullLiteral(rp.c),
+        .Pointer => return Node.null_literal.init(),
         .Typedef => {
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
             const typedef_decl = typedef_ty.getDecl();
             return transZeroInitExpr(
-                rp,
+                c,
                 scope,
                 source_loc,
                 typedef_decl.getUnderlyingType().getTypePtr(),
@@ -2488,7 +2468,7 @@ fn transZeroInitExpr(
         else => {},
     }
 
-    return revertAndWarn(rp, error.UnsupportedType, source_loc, "type does not have an implicit init value", .{});
+    return fail(c, error.UnsupportedType, source_loc, "type does not have an implicit init value", .{});
 }
 
 fn transImplicitValueInitExpr(
@@ -3985,7 +3965,7 @@ fn qualTypeToLog2IntRef(c: *Context, qt: clang.QualType, source_loc: clang.Sourc
     if (int_bit_width != 0) {
         // we can perform the log2 now.
         const cast_bit_width = math.log2_int(u64, int_bit_width);
-        return Node.uint_type.create(c.arena, cast_bit_width);
+        return Node.log2_int_type.create(c.arena, cast_bit_width);
     }
 
     const zig_type = try transQualType(c, qt, source_loc);
@@ -4886,7 +4866,7 @@ const FnDeclContext = struct {
 };
 
 fn transCC(
-    rp: RestorePoint,
+    c: *Context,
     fn_ty: *const clang.FunctionType,
     source_loc: clang.SourceLocation,
 ) !CallingConvention {
@@ -4899,7 +4879,7 @@ fn transCC(
         .X86ThisCall => return CallingConvention.Thiscall,
         .AAPCS => return CallingConvention.AAPCS,
         .AAPCS_VFP => return CallingConvention.AAPCSVFP,
-        else => return revertAndWarn(
+        else => return fail(
             rp,
             error.UnsupportedType,
             source_loc,
@@ -4910,33 +4890,33 @@ fn transCC(
 }
 
 fn transFnProto(
-    rp: RestorePoint,
+    c: *Context,
     fn_decl: ?*const clang.FunctionDecl,
     fn_proto_ty: *const clang.FunctionProtoType,
     source_loc: clang.SourceLocation,
     fn_decl_context: ?FnDeclContext,
     is_pub: bool,
-) !*ast.Node.FnProto {
+) !Node.FnProto {
     const fn_ty = @ptrCast(*const clang.FunctionType, fn_proto_ty);
-    const cc = try transCC(rp, fn_ty, source_loc);
+    const cc = try transCC(c, fn_ty, source_loc);
     const is_var_args = fn_proto_ty.isVariadic();
-    return finishTransFnProto(rp, fn_decl, fn_proto_ty, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
+    return finishTransFnProto(c, fn_decl, fn_proto_ty, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 
 fn transFnNoProto(
-    rp: RestorePoint,
+    c: *Context,
     fn_ty: *const clang.FunctionType,
     source_loc: clang.SourceLocation,
     fn_decl_context: ?FnDeclContext,
     is_pub: bool,
-) !*ast.Node.FnProto {
-    const cc = try transCC(rp, fn_ty, source_loc);
+) !Node.FnProto {
+    const cc = try transCC(c, fn_ty, source_loc);
     const is_var_args = if (fn_decl_context) |ctx| (!ctx.is_export and ctx.storage_class != .Static) else true;
-    return finishTransFnProto(rp, null, null, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
+    return finishTransFnProto(c, null, null, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 
 fn finishTransFnProto(
-    rp: RestorePoint,
+    c: *Context,
     fn_decl: ?*const clang.FunctionDecl,
     fn_proto_ty: ?*const clang.FunctionProtoType,
     fn_ty: *const clang.FunctionType,
@@ -4945,128 +4925,77 @@ fn finishTransFnProto(
     is_var_args: bool,
     cc: CallingConvention,
     is_pub: bool,
-) !*ast.Node.FnProto {
+) !*ast.Payload.Func {
     const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
     const is_extern = if (fn_decl_context) |ctx| !ctx.has_body else false;
 
     // TODO check for always_inline attribute
     // TODO check for align attribute
 
-    // pub extern fn name(...) T
-    const pub_tok = if (is_pub) try appendToken(rp.c, .Keyword_pub, "pub") else null;
-    const extern_export_inline_tok = if (is_export)
-        try appendToken(rp.c, .Keyword_export, "export")
-    else if (is_extern)
-        try appendToken(rp.c, .Keyword_extern, "extern")
-    else
-        null;
-    const fn_tok = try appendToken(rp.c, .Keyword_fn, "fn");
-    const name_tok = if (fn_decl_context) |ctx| try appendIdentifier(rp.c, ctx.fn_name) else null;
-    const lparen_tok = try appendToken(rp.c, .LParen, "(");
-
-    var fn_params = std.ArrayList(ast.Node.FnProto.ParamDecl).init(rp.c.gpa);
+    var fn_params = std.ArrayList(ast.Payload.Func.Param).init(c.gpa);
     defer fn_params.deinit();
     const param_count: usize = if (fn_proto_ty != null) fn_proto_ty.?.getNumParams() else 0;
-    try fn_params.ensureCapacity(param_count + 1); // +1 for possible var args node
+    try fn_params.ensureCapacity(param_count);
 
     var i: usize = 0;
     while (i < param_count) : (i += 1) {
         const param_qt = fn_proto_ty.?.getParamType(@intCast(c_uint, i));
+        const is_noalias = param_qt.isRestrictQualified();
 
-        const noalias_tok = if (param_qt.isRestrictQualified()) try appendToken(rp.c, .Keyword_noalias, "noalias") else null;
+        const param_name: ?[]const u8 =
+            if (fn_decl) |decl|
+        blk: {
+            const param = decl.getParamDecl(@intCast(c_uint, i));
+            const param_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, param).getName_bytes_begin());
+            if (param_name.len < 1)
+                break :blk null;
 
-        const param_name_tok: ?ast.TokenIndex = blk: {
-            if (fn_decl) |decl| {
-                const param = decl.getParamDecl(@intCast(c_uint, i));
-                const param_name: []const u8 = try rp.c.str(@ptrCast(*const clang.NamedDecl, param).getName_bytes_begin());
-                if (param_name.len < 1)
-                    break :blk null;
-
-                const result = try appendIdentifier(rp.c, param_name);
-                _ = try appendToken(rp.c, .Colon, ":");
-                break :blk result;
-            }
-            break :blk null;
-        };
-
-        const type_node = try transQualType(rp, param_qt, source_loc);
+            break :blk param_name;
+        } else null;
+        const type_node = try transQualType(c, param_qt, source_loc);
 
         fn_params.addOneAssumeCapacity().* = .{
-            .doc_comments = null,
-            .comptime_token = null,
-            .noalias_token = noalias_tok,
-            .name_token = param_name_tok,
-            .param_type = .{ .type_expr = type_node },
+            .is_noalias = is_noalias,
+            .name = param_name,
+            .type = type_node,
         };
-
-        if (i + 1 < param_count) {
-            _ = try appendToken(rp.c, .Comma, ",");
-        }
     }
 
-    const var_args_token: ?ast.TokenIndex = if (is_var_args) blk: {
-        if (param_count > 0) {
-            _ = try appendToken(rp.c, .Comma, ",");
-        }
-        break :blk try appendToken(rp.c, .Ellipsis3, "...");
-    } else null;
-
-    const rparen_tok = try appendToken(rp.c, .RParen, ")");
-
-    const linksection_expr = blk: {
+    const link_section_string: ?[]const u8 = blk: {
         if (fn_decl) |decl| {
             var str_len: usize = undefined;
             if (decl.getSectionAttribute(&str_len)) |str_ptr| {
-                _ = try appendToken(rp.c, .Keyword_linksection, "linksection");
-                _ = try appendToken(rp.c, .LParen, "(");
-                const expr = try transCreateNodeStringLiteral(
-                    rp.c,
-                    try std.fmt.allocPrint(rp.c.arena, "\"{s}\"", .{str_ptr[0..str_len]}),
-                );
-                _ = try appendToken(rp.c, .RParen, ")");
-
-                break :blk expr;
+                break :blk str_ptr[0..str_len];
             }
         }
         break :blk null;
     };
 
-    const align_expr = blk: {
+    const alignment: c_uint = blk: {
         if (fn_decl) |decl| {
-            const alignment = decl.getAlignedAttribute(rp.c.clang_context);
+            const alignment = decl.getAlignedAttribute(c.clang_context);
             if (alignment != 0) {
-                _ = try appendToken(rp.c, .Keyword_align, "align");
-                _ = try appendToken(rp.c, .LParen, "(");
                 // Clang reports the alignment in bits
-                const expr = try transCreateNodeInt(rp.c, alignment / 8);
-                _ = try appendToken(rp.c, .RParen, ")");
-
-                break :blk expr;
+                break :blk alignment / 8;
             }
         }
         break :blk null;
     };
 
-    const callconv_expr = if ((is_export or is_extern) and cc == .C) null else blk: {
-        _ = try appendToken(rp.c, .Keyword_callconv, "callconv");
-        _ = try appendToken(rp.c, .LParen, "(");
-        const expr = try transCreateNodeEnumLiteral(rp.c, @tagName(cc));
-        _ = try appendToken(rp.c, .RParen, ")");
-        break :blk expr;
-    };
+    const explicit_callconv = if ((is_export or is_extern) and cc == .C) null else cc;
 
     const return_type_node = blk: {
         if (fn_ty.getNoReturnAttr()) {
-            break :blk try transCreateNodeIdentifier(rp.c, "noreturn");
+            break :blk Node.noreturn_type.init();
         } else {
             const return_qt = fn_ty.getReturnType();
             if (isCVoid(return_qt)) {
                 // convert primitive c_void to actual void (only for return type)
-                break :blk try transCreateNodeIdentifier(rp.c, "void");
+                break :blk Node.void_type.init();
             } else {
-                break :blk transQualType(rp, return_qt, source_loc) catch |err| switch (err) {
+                break :blk transQualType(c, return_qt, source_loc) catch |err| switch (err) {
                     error.UnsupportedType => {
-                        try emitWarning(rp.c, source_loc, "unsupported function proto return type", .{});
+                        try warn(c, source_loc, "unsupported function proto return type", .{});
                         return err;
                     },
                     error.OutOfMemory => |e| return e,
@@ -5075,32 +5004,23 @@ fn finishTransFnProto(
         }
     };
 
-    // We need to reserve an undefined (but non-null) body node to set later.
-    var body_node: ?*ast.Node = null;
-    if (fn_decl_context) |ctx| {
-        if (ctx.has_body) {
-            // TODO: we should be able to use undefined here but
-            // it causes a bug. This is undefined without zig language
-            // being aware of it.
-            body_node = @intToPtr(*ast.Node, 0x08);
-        }
-    }
-
-    const fn_proto = try ast.Node.FnProto.create(rp.c.arena, .{
-        .params_len = fn_params.items.len,
-        .return_type = .{ .Explicit = return_type_node },
-        .fn_token = fn_tok,
-    }, .{
-        .visib_token = pub_tok,
-        .name_token = name_tok,
-        .extern_export_inline_token = extern_export_inline_tok,
-        .align_expr = align_expr,
-        .section_expr = linksection_expr,
-        .callconv_expr = callconv_expr,
-        .body_node = body_node,
-        .var_args_token = var_args_token,
-    });
-    mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
+    const fn_proto = try c.arena.create(ast.Payload.Func);
+    fn_proto.* = .{
+        .base = .{ .tag = .func },
+        .data = .{
+            .is_pub = is_pub,
+            .is_extern = is_extern,
+            .is_export = is_export,
+            .is_var_args = is_var_args,
+            .name = name,
+            .link_section_string = link_section_string,
+            .explicit_callconv = explicit_callconv,
+            .params = c.arena.dupe(ast.Payload.Func.Param, fn_params.items),
+            .return_type = return_node,
+            .body = null,
+            .alignment = alignment,
+        },
+    };
     return fn_proto;
 }
 
@@ -5122,124 +5042,12 @@ fn fail(
 }
 
 pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, comptime format: []const u8, args: anytype) !void {
+    // location
     // pub const name = @compileError(msg);
-    const pub_tok = try appendToken(c, .Keyword_pub, "pub");
-    const const_tok = try appendToken(c, .Keyword_const, "const");
-    const name_tok = try appendIdentifier(c, name);
-    const eq_tok = try appendToken(c, .Equal, "=");
-    const builtin_tok = try appendToken(c, .Builtin, "@compileError");
-    const lparen_tok = try appendToken(c, .LParen, "(");
-    const msg_tok = try appendTokenFmt(c, .StringLiteral, "\"" ++ format ++ "\"", args);
-    const rparen_tok = try appendToken(c, .RParen, ")");
-    const semi_tok = try appendToken(c, .Semicolon, ";");
-    _ = try appendTokenFmt(c, .LineComment, "// {s}", .{c.locStr(loc)});
-
-    const msg_node = try c.arena.create(ast.Node.OneToken);
-    msg_node.* = .{
-        .base = .{ .tag = .StringLiteral },
-        .token = msg_tok,
-    };
-
-    const call_node = try ast.Node.BuiltinCall.alloc(c.arena, 1);
-    call_node.* = .{
-        .builtin_token = builtin_tok,
-        .params_len = 1,
-        .rparen_token = rparen_tok,
-    };
-    call_node.params()[0] = &msg_node.base;
-
-    const var_decl_node = try ast.Node.VarDecl.create(c.arena, .{
-        .name_token = name_tok,
-        .mut_token = const_tok,
-        .semicolon_token = semi_tok,
-    }, .{
-        .visib_token = pub_tok,
-        .eq_token = eq_tok,
-        .init_node = &call_node.base,
-    });
-    try addTopLevelDecl(c, name, &var_decl_node.base);
-}
-
-fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenIndex {
-    std.debug.assert(token_id != .Identifier); // use appendIdentifier
-    return appendTokenFmt(c, token_id, "{s}", .{bytes});
-}
-
-fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: anytype) !ast.TokenIndex {
-    assert(token_id != .Invalid);
-
-    try c.token_ids.ensureCapacity(c.gpa, c.token_ids.items.len + 1);
-    try c.token_locs.ensureCapacity(c.gpa, c.token_locs.items.len + 1);
-
-    const start_index = c.source_buffer.items.len;
-    try c.source_buffer.writer().print(format ++ " ", args);
-
-    c.token_ids.appendAssumeCapacity(token_id);
-    c.token_locs.appendAssumeCapacity(.{
-        .start = start_index,
-        .end = c.source_buffer.items.len - 1, // back up before the space
-    });
-
-    return c.token_ids.items.len - 1;
-}
-
-// TODO hook up with codegen
-fn isZigPrimitiveType(name: []const u8) bool {
-    if (name.len > 1 and (name[0] == 'u' or name[0] == 'i')) {
-        for (name[1..]) |c| {
-            switch (c) {
-                '0'...'9' => {},
-                else => return false,
-            }
-        }
-        return true;
-    }
-    // void is invalid in c so it doesn't need to be checked.
-    return mem.eql(u8, name, "comptime_float") or
-        mem.eql(u8, name, "comptime_int") or
-        mem.eql(u8, name, "bool") or
-        mem.eql(u8, name, "isize") or
-        mem.eql(u8, name, "usize") or
-        mem.eql(u8, name, "f16") or
-        mem.eql(u8, name, "f32") or
-        mem.eql(u8, name, "f64") or
-        mem.eql(u8, name, "f128") or
-        mem.eql(u8, name, "c_longdouble") or
-        mem.eql(u8, name, "noreturn") or
-        mem.eql(u8, name, "type") or
-        mem.eql(u8, name, "anyerror") or
-        mem.eql(u8, name, "c_short") or
-        mem.eql(u8, name, "c_ushort") or
-        mem.eql(u8, name, "c_int") or
-        mem.eql(u8, name, "c_uint") or
-        mem.eql(u8, name, "c_long") or
-        mem.eql(u8, name, "c_ulong") or
-        mem.eql(u8, name, "c_longlong") or
-        mem.eql(u8, name, "c_ulonglong");
-}
-
-fn appendIdentifier(c: *Context, name: []const u8) !ast.TokenIndex {
-    return appendTokenFmt(c, .Identifier, "{}", .{std.zig.fmtId(name)});
-}
-
-fn transCreateNodeIdentifier(c: *Context, name: []const u8) !*ast.Node {
-    const token_index = try appendIdentifier(c, name);
-    const identifier = try c.arena.create(ast.Node.OneToken);
-    identifier.* = .{
-        .base = .{ .tag = .Identifier },
-        .token = token_index,
-    };
-    return &identifier.base;
-}
-
-fn transCreateNodeIdentifierUnchecked(c: *Context, name: []const u8) !*ast.Node {
-    const token_index = try appendTokenFmt(c, .Identifier, "{s}", .{name});
-    const identifier = try c.arena.create(ast.Node.OneToken);
-    identifier.* = .{
-        .base = .{ .tag = .Identifier },
-        .token = token_index,
-    };
-    return &identifier.base;
+    const location_comment = std.fmt.allocPrint(c.arena, "// {s}", .{c.locStr(loc)});
+    try c.global_scope.nodes.append(try Node.warning.create(c.arena, location_comment));
+    const fail_msg = std.fmt.allocPrint(c.arena, format, args);
+    try c.global_scope.nodes.append(try Node.fail_decl.create(c.arena, fail_msg));
 }
 
 pub fn freeErrors(errors: []ClangErrMsg) void {
