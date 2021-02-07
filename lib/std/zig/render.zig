@@ -563,7 +563,55 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .TaggedUnionEnumTagComma,
         => return renderContainerDecl(ais, tree, tree.taggedUnionEnumTag(node), space),
 
-        .ErrorSetDecl => unreachable, // TODO
+        // TODO: handle comments properly
+        .ErrorSetDecl => {
+            const error_token = main_tokens[node];
+            const lbrace = error_token + 1;
+            const rbrace = datas[node].rhs;
+
+            try renderToken(ais, tree, error_token, .None);
+
+            if (lbrace + 1 == rbrace) {
+                // There is nothing between the braces so render condensed: `error{}`
+                try renderToken(ais, tree, lbrace, .None);
+                try renderToken(ais, tree, rbrace, space);
+            } else if (lbrace + 2 == rbrace and token_tags[lbrace + 1] == .Identifier) {
+                // There is exactly one member and no trailing comma or
+                // comments, so render without surrounding spaces: `error{Foo}`
+                try renderToken(ais, tree, lbrace, .None);
+                try renderToken(ais, tree, lbrace + 1, .None); // identifier
+                try renderToken(ais, tree, rbrace, space);
+            } else if (token_tags[rbrace - 1] == .Comma) {
+                // There is a trailing comma so render each member on a new line.
+                try renderToken(ais, tree, lbrace, .Newline);
+                ais.pushIndent();
+                var i = lbrace + 1;
+                while (i < rbrace) : (i += 1) {
+                    try renderExtraNewlineToken(ais, tree, i);
+                    switch (token_tags[i]) {
+                        .DocComment => try renderToken(ais, tree, i, .Newline),
+                        .Identifier => try renderToken(ais, tree, i, .Comma),
+                        .Comma => {},
+                        else => unreachable,
+                    }
+                }
+                ais.popIndent();
+                try renderToken(ais, tree, rbrace, space);
+            } else {
+                // There is no trailing comma so render everything on one line.
+                try renderToken(ais, tree, lbrace, .Space);
+                var i = lbrace + 1;
+                while (i < rbrace) : (i += 1) {
+                    switch (token_tags[i]) {
+                        .DocComment => unreachable, // TODO
+                        .Identifier => try renderToken(ais, tree, i, .CommaSpace),
+                        .Comma => {},
+                        else => unreachable,
+                    }
+                }
+                try renderToken(ais, tree, rbrace, space);
+            }
+        },
         //.ErrorSetDecl => {
         //    const err_set_decl = @fieldParentPtr(ast.Node.ErrorSetDecl, "base", base);
 

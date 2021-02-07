@@ -2714,13 +2714,13 @@ const Parser = struct {
                     const error_token = p.tok_i;
                     p.tok_i += 2;
 
-                    if (p.eatToken(.RBrace)) |_| {
+                    if (p.eatToken(.RBrace)) |rbrace| {
                         return p.addNode(.{
                             .tag = .ErrorSetDecl,
                             .main_token = error_token,
                             .data = .{
                                 .lhs = undefined,
-                                .rhs = undefined,
+                                .rhs = rbrace,
                             },
                         });
                     }
@@ -2758,7 +2758,7 @@ const Parser = struct {
                         .main_token = error_token,
                         .data = .{
                             .lhs = undefined,
-                            .rhs = undefined,
+                            .rhs = p.tok_i - 1, // rbrace
                         },
                     });
                 },

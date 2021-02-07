@@ -498,6 +498,7 @@ pub const Tree = struct {
             .UnwrapOptional,
             .GroupedExpression,
             .StringLiteral,
+            .ErrorSetDecl,
             => return datas[n].rhs + end_offset,
 
             .AnyType,
@@ -724,7 +725,6 @@ pub const Tree = struct {
             .Switch => unreachable, // TODO
             .If => unreachable, // TODO
             .Continue => unreachable, // TODO
-            .ErrorSetDecl => unreachable, // TODO
             .AsmSimple => unreachable, // TODO
             .Asm => unreachable, // TODO
             .SwitchCaseOne => unreachable, // TODO
@@ -2061,7 +2061,7 @@ pub const Node = struct {
         /// Same as BuiltinCall but there is known to be a trailing comma before the rparen.
         BuiltinCallComma,
         /// `error{a, b}`.
-        /// lhs and rhs both unused.
+        /// rhs is the rbrace, lhs is unused.
         ErrorSetDecl,
         /// `struct {}`, `union {}`, `opaque {}`, `enum {}`. `extra_data[lhs..rhs]`.
         /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
