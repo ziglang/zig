@@ -2015,7 +2015,36 @@ test "zig fmt: ptr deref operator and unwrap optional operator" {
 //        \\
 //    );
 //}
-//
+
+// TODO: replace this with the next test case when possible
+test "zig fmt: error set declaration" {
+    try testCanonical(
+        \\const E = error{
+        \\    A,
+        \\    B,
+        \\
+        \\    C,
+        \\};
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\};
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\
+        \\    /// another
+        \\    Another,
+        \\    /// and one more
+        \\    Another,
+        \\};
+        \\const Error = error{OutOfMemory};
+        \\const Error = error{};
+        \\const Error = error{ OutOfMemory, OutOfTime };
+        \\
+    );
+}
+
 //test "zig fmt: error set declaration" {
 //    try testCanonical(
 //        \\const E = error{
