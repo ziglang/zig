@@ -3326,23 +3326,35 @@ const Parser = struct {
                             },
                         });
                     }
-                    const sentinel: Node.Index = if (p.eatToken(.Colon)) |_|
-                        try p.parseExpr()
-                    else
-                        0;
-                    _ = try p.expectToken(.RBracket);
-                    return p.addNode(.{
-                        .tag = .Slice,
-                        .main_token = lbracket,
-                        .data = .{
-                            .lhs = lhs,
-                            .rhs = try p.addExtra(.{
-                                .start = index_expr,
-                                .end = end_expr,
-                                .sentinel = sentinel,
-                            }),
-                        },
-                    });
+                    if (p.eatToken(.Colon)) |_| {
+                        const sentinel = try p.parseExpr();
+                        _ = try p.expectToken(.RBracket);
+                        return p.addNode(.{
+                            .tag = .SliceSentinel,
+                            .main_token = lbracket,
+                            .data = .{
+                                .lhs = lhs,
+                                .rhs = try p.addExtra(Node.SliceSentinel{
+                                    .start = index_expr,
+                                    .end = end_expr,
+                                    .sentinel = sentinel,
+                                }),
+                            },
+                        });
+                    } else {
+                        _ = try p.expectToken(.RBracket);
+                        return p.addNode(.{
+                            .tag = .Slice,
+                            .main_token = lbracket,
+                            .data = .{
+                                .lhs = lhs,
+                                .rhs = try p.addExtra(Node.Slice{
+                                    .start = index_expr,
+                                    .end = end_expr,
+                                }),
+                            },
+                        });
+                    }
                 }
                 _ = try p.expectToken(.RBracket);
                 return p.addNode(.{

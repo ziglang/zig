@@ -304,6 +304,7 @@ pub const Tree = struct {
             .BoolOr,
             .SliceOpen,
             .Slice,
+            .SliceSentinel,
             .Deref,
             .ArrayAccess,
             .ArrayInitOne,
@@ -694,19 +695,22 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
+
             .SliceOpen => {
                 end_offset += 2; // ellipsis2 and rbracket
                 n = datas[n].rhs;
             },
             .Slice => {
                 const extra = tree.extraData(datas[n].rhs, Node.Slice);
-                if (extra.sentinel != 0) {
-                    n = extra.sentinel;
-                } else {
-                    assert(extra.end != 0); // should have used SliceOpen if end and sentinel are 0
-                    n = extra.end;
-                }
+                assert(extra.end != 0); // should have used SliceOpen
                 end_offset += 1; // rbracket
+                n = extra.end;
+            },
+            .SliceSentinel => {
+                const extra = tree.extraData(datas[n].rhs, Node.SliceSentinel);
+                assert(extra.sentinel != 0); // should have used Slice
+                end_offset += 1; // rbracket
+                n = extra.sentinel;
             },
 
             // These are not supported by lastToken() because implementation would
@@ -1129,6 +1133,21 @@ pub const Tree = struct {
         assert(tree.nodes.items(.tag)[node] == .Slice);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.rhs, Node.Slice);
+        return .{
+            .ast = .{
+                .sliced = data.lhs,
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .start = extra.start,
+                .end = extra.end,
+                .sentinel = 0,
+            },
+        };
+    }
+
+    pub fn sliceSentinel(tree: Tree, node: Node.Index) Full.Slice {
+        assert(tree.nodes.items(.tag)[node] == .SliceSentinel);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.SliceSentinel);
         return .{
             .ast = .{
                 .sliced = data.lhs,
@@ -1922,9 +1941,12 @@ pub const Node = struct {
         /// `lhs[rhs..]`
         /// main_token is the lbracket.
         SliceOpen,
-        /// `lhs[b..c :d]`. rhs is index into Slice
+        /// `lhs[b..c]`. rhs is index into Slice
         /// main_token is the lbracket.
         Slice,
+        /// `lhs[b..c :d]`. rhs is index into SliceSentinel
+        /// main_token is the lbracket.
+        SliceSentinel,
         /// `lhs.*`. rhs is unused.
         Deref,
         /// `lhs[rhs]`.
@@ -2200,6 +2222,11 @@ pub const Node = struct {
     };
 
     pub const Slice = struct {
+        start: Index,
+        end: Index,
+    };
+
+    pub const SliceSentinel = struct {
         start: Index,
         end: Index,
         sentinel: Index,
