@@ -1671,32 +1671,32 @@ test "zig fmt: block in slice expression" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: switch cases trailing comma" {
-//    try testTransform(
-//        \\fn switch_cases(x: i32) void {
-//        \\    switch (x) {
-//        \\        1,2,3 => {},
-//        \\        4,5, => {},
-//        \\        6... 8, => {},
-//        \\        else => {},
-//        \\    }
-//        \\}
-//    ,
-//        \\fn switch_cases(x: i32) void {
-//        \\    switch (x) {
-//        \\        1, 2, 3 => {},
-//        \\        4,
-//        \\        5,
-//        \\        => {},
-//        \\        6...8 => {},
-//        \\        else => {},
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: switch cases trailing comma" {
+    try testTransform(
+        \\test "switch cases trailing comma"{
+        \\    switch (x) {
+        \\        1,2,3 => {},
+        \\        4,5, => {},
+        \\        6... 8, => {},
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        \\test "switch cases trailing comma" {
+        \\    switch (x) {
+        \\        1, 2, 3 => {},
+        \\        4,
+        \\        5,
+        \\        => {},
+        \\        6...8 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: slice align" {
 //    try testCanonical(
 //        \\const A = struct {
@@ -1996,16 +1996,16 @@ test "zig fmt: ptr deref operator and unwrap optional operator" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: switch with empty body" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    foo() catch |err| switch (err) {};
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: switch with empty body" {
+    try testCanonical(
+        \\test "" {
+        \\    foo() catch |err| switch (err) {};
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: line comments in struct initializer" {
 //    try testCanonical(
 //        \\fn foo() void {
@@ -2725,42 +2725,42 @@ test "zig fmt: blocks" {
     );
 }
 
-//test "zig fmt: switch" {
-//    try testCanonical(
-//        \\test "switch" {
-//        \\    switch (0) {
-//        \\        0 => {},
-//        \\        1 => unreachable,
-//        \\        2, 3 => {},
-//        \\        4...7 => {},
-//        \\        1 + 4 * 3 + 22 => {},
-//        \\        else => {
-//        \\            const a = 1;
-//        \\            const b = a;
-//        \\        },
-//        \\    }
-//        \\
-//        \\    const res = switch (0) {
-//        \\        0 => 0,
-//        \\        1 => 2,
-//        \\        1 => a = 4,
-//        \\        else => 4,
-//        \\    };
-//        \\
-//        \\    const Union = union(enum) {
-//        \\        Int: i64,
-//        \\        Float: f64,
-//        \\    };
-//        \\
-//        \\    switch (u) {
-//        \\        Union.Int => |int| {},
-//        \\        Union.Float => |*float| unreachable,
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: switch" {
+    try testCanonical(
+        \\test "switch" {
+        \\    switch (0) {
+        \\        0 => {},
+        \\        1 => unreachable,
+        \\        2, 3 => {},
+        \\        4...7 => {},
+        \\        1 + 4 * 3 + 22 => {},
+        \\        else => {
+        \\            const a = 1;
+        \\            const b = a;
+        \\        },
+        \\    }
+        \\
+        \\    const res = switch (0) {
+        \\        0 => 0,
+        \\        1 => 2,
+        \\        1 => a = 4,
+        \\        else => 4,
+        \\    };
+        \\
+        \\    const Union = union(enum) {
+        \\        Int: i64,
+        \\        Float: f64,
+        \\    };
+        \\
+        \\    switch (u) {
+        \\        Union.Int => |int| {},
+        \\        Union.Float => |*float| unreachable,
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: while" {
 //    try testCanonical(
 //        \\test "while" {

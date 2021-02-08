@@ -2887,10 +2887,11 @@ const Parser = struct {
         _ = try p.expectToken(.RParen);
         _ = try p.expectToken(.LBrace);
         const cases = try p.parseSwitchProngList();
+        const trailing_comma = p.token_tags[p.tok_i - 1] == .Comma;
         _ = try p.expectToken(.RBrace);
 
         return p.addNode(.{
-            .tag = .Switch,
+            .tag = if (trailing_comma) .SwitchComma else .Switch,
             .main_token = switch_token,
             .data = .{
                 .lhs = expr_node,
@@ -3208,7 +3209,7 @@ const Parser = struct {
         const arrow_token = try p.expectToken(.EqualAngleBracketRight);
         _ = try p.parsePtrPayload();
         return p.addNode(.{
-            .tag = .SwitchCaseMulti,
+            .tag = .SwitchCase,
             .main_token = arrow_token,
             .data = .{
                 .lhs = try p.addExtra(Node.SubRange{

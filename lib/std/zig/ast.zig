@@ -213,6 +213,7 @@ pub const Tree = struct {
             .Await,
             .OptionalType,
             .Switch,
+            .SwitchComma,
             .IfSimple,
             .If,
             .Suspend,
@@ -313,7 +314,6 @@ pub const Tree = struct {
             .StructInit,
             .CallOne,
             .Call,
-            .SwitchCaseOne,
             .SwitchRange,
             .FnDecl,
             .ErrorUnion,
@@ -406,7 +406,19 @@ pub const Tree = struct {
                 };
             },
 
-            .SwitchCaseMulti => unreachable, // TODO
+            .SwitchCaseOne => {
+                if (datas[n].lhs == 0) {
+                    return main_tokens[n] - 1; // else token
+                } else {
+                    n = datas[n].lhs;
+                }
+            },
+            .SwitchCase => {
+                const extra = tree.extraData(datas[n].lhs, Node.SubRange);
+                assert(extra.end - extra.start > 0);
+                n = extra.start;
+            },
+
             .WhileSimple => unreachable, // TODO
             .WhileCont => unreachable, // TODO
             .While => unreachable, // TODO
@@ -494,6 +506,8 @@ pub const Tree = struct {
             .PtrTypeSentinel,
             .PtrType,
             .PtrTypeBitRange,
+            .SwitchCaseOne,
+            .SwitchCase,
             => n = datas[n].rhs,
 
             .FieldAccess,
@@ -532,6 +546,16 @@ pub const Tree = struct {
                 }
                 n = tree.extra_data[params.end - 1]; // last parameter
             },
+            .Switch => {
+                const cases = tree.extraData(datas[n].rhs, Node.SubRange);
+                if (cases.end - cases.start == 0) {
+                    end_offset += 3; // rparen, lbrace, rbrace
+                    n = datas[n].lhs; // condition expression
+                } else {
+                    end_offset += 1; // for the rbrace
+                    n = tree.extra_data[cases.end - 1]; // last case
+                }
+            },
             .ContainerDeclArg => {
                 const members = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (members.end - members.start == 0) {
@@ -542,7 +566,9 @@ pub const Tree = struct {
                     n = tree.extra_data[members.end - 1]; // last parameter
                 }
             },
-            .ContainerDeclArgComma => {
+            .ContainerDeclArgComma,
+            .SwitchComma,
+            => {
                 const members = tree.extraData(datas[n].rhs, Node.SubRange);
                 assert(members.end - members.start > 0);
                 end_offset += 2; // for the comma + rbrace
@@ -737,16 +763,13 @@ pub const Tree = struct {
 
             .TaggedUnionEnumTag => unreachable, // TODO
             .TaggedUnionEnumTagComma => unreachable, // TODO
-            .Switch => unreachable, // TODO
             .If => unreachable, // TODO
             .Continue => unreachable, // TODO
             .AsmSimple => unreachable, // TODO
             .Asm => unreachable, // TODO
-            .SwitchCaseOne => unreachable, // TODO
             .SwitchRange => unreachable, // TODO
             .ArrayType => unreachable, // TODO
             .ArrayTypeSentinel => unreachable, // TODO
-            .SwitchCaseMulti => unreachable, // TODO
             .WhileCont => unreachable, // TODO
             .While => unreachable, // TODO
             .ForSimple => unreachable, // TODO
@@ -1202,7 +1225,8 @@ pub const Tree = struct {
     }
 
     pub fn containerDeclArg(tree: Tree, node: Node.Index) Full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .ContainerDeclArg);
+        assert(tree.nodes.items(.tag)[node] == .ContainerDeclArg or
+            tree.nodes.items(.tag)[node] == .ContainerDeclArgComma);
         const data = tree.nodes.items(.data)[node];
         const members_range = tree.extraData(data.rhs, Node.SubRange);
         return tree.fullContainerDecl(.{
@@ -1214,7 +1238,8 @@ pub const Tree = struct {
     }
 
     pub fn taggedUnionTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) Full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .TaggedUnionTwo);
+        assert(tree.nodes.items(.tag)[node] == .TaggedUnionTwo or
+            tree.nodes.items(.tag)[node] == .TaggedUnionTwoComma);
         const data = tree.nodes.items(.data)[node];
         buffer.* = .{ data.lhs, data.rhs };
         const members = if (data.rhs != 0)
@@ -1233,7 +1258,8 @@ pub const Tree = struct {
     }
 
     pub fn taggedUnion(tree: Tree, node: Node.Index) Full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .TaggedUnion);
+        assert(tree.nodes.items(.tag)[node] == .TaggedUnion or
+            tree.nodes.items(.tag)[node] == .TaggedUnionComma);
         const data = tree.nodes.items(.data)[node];
         const main_token = tree.nodes.items(.main_token)[node];
         return tree.fullContainerDecl(.{
@@ -1245,7 +1271,8 @@ pub const Tree = struct {
     }
 
     pub fn taggedUnionEnumTag(tree: Tree, node: Node.Index) Full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .TaggedUnionEnumTag);
+        assert(tree.nodes.items(.tag)[node] == .TaggedUnionEnumTag or
+            tree.nodes.items(.tag)[node] == .TaggedUnionEnumTagComma);
         const data = tree.nodes.items(.data)[node];
         const members_range = tree.extraData(data.rhs, Node.SubRange);
         const main_token = tree.nodes.items(.main_token)[node];
@@ -1254,6 +1281,25 @@ pub const Tree = struct {
             .enum_token = main_token + 2, // union lparen enum
             .members = tree.extra_data[data.lhs..data.rhs],
             .arg = data.lhs,
+        });
+    }
+
+    pub fn switchCaseOne(tree: Tree, node: Node.Index) Full.SwitchCase {
+        const data = &tree.nodes.items(.data)[node];
+        return tree.fullSwitchCase(.{
+            .values = if (data.lhs == 0) &.{} else @ptrCast([*]Node.Index, &data.lhs)[0..1],
+            .arrow_token = tree.nodes.items(.main_token)[node],
+            .target_expr = data.rhs,
+        });
+    }
+
+    pub fn switchCase(tree: Tree, node: Node.Index) Full.SwitchCase {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.SubRange);
+        return tree.fullSwitchCase(.{
+            .values = tree.extra_data[extra.start..extra.end],
+            .arrow_token = tree.nodes.items(.main_token)[node],
+            .target_expr = data.rhs,
         });
     }
 
@@ -1407,6 +1453,18 @@ pub const Tree = struct {
         }
         return result;
     }
+
+    fn fullSwitchCase(tree: Tree, info: Full.SwitchCase.Ast) Full.SwitchCase {
+        const token_tags = tree.tokens.items(.tag);
+        var result: Full.SwitchCase = .{
+            .ast = info,
+            .payload_token = null,
+        };
+        if (token_tags[info.arrow_token + 1] == .Pipe) {
+            result.payload_token = info.arrow_token + 2;
+        }
+        return result;
+    }
 };
 
 /// Fully assembled AST node information.
@@ -1550,6 +1608,20 @@ pub const Full = struct {
             enum_token: ?TokenIndex,
             members: []const Node.Index,
             arg: Node.Index,
+        };
+    };
+
+    pub const SwitchCase = struct {
+        /// Points to the first token after the `|`. Will either be an identifier or
+        /// a `*` (with an identifier immediately after it).
+        payload_token: ?TokenIndex,
+        ast: Ast,
+
+        pub const Ast = struct {
+            /// If empty, this is an else case
+            values: []const Node.Index,
+            arrow_token: TokenIndex,
+            target_expr: Node.Index,
         };
     };
 };
@@ -1996,13 +2068,16 @@ pub const Node = struct {
         /// `lhs(a, b, c)`. `sub_range_list[rhs]`.
         /// main_token is the `(`.
         Call,
-        /// `switch(lhs) {}`. `sub_range_list[rhs]`.
+        /// `switch(lhs) {}`. `SubRange[rhs]`.
         Switch,
+        /// Same as Switch except there is known to be a trailing comma
+        /// before the final rbrace
+        SwitchComma,
         /// `lhs => rhs`. If lhs is omitted it means `else`.
         /// main_token is the `=>`
         SwitchCaseOne,
-        /// `a, b, c => rhs`. `sub_range_list[lhs]`.
-        SwitchCaseMulti,
+        /// `a, b, c => rhs`. `SubRange[lhs]`.
+        SwitchCase,
         /// `lhs...rhs`.
         SwitchRange,
         /// `while (lhs) rhs`.
