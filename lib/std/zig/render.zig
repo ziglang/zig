@@ -207,19 +207,18 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         => {
             const statements = [2]ast.Node.Index{ datas[node].lhs, datas[node].rhs };
             if (datas[node].lhs == 0) {
-                return renderBlock(ais, tree, main_tokens[node], statements[0..0], space);
+                return renderBlock(ais, tree, node, statements[0..0], space);
             } else if (datas[node].rhs == 0) {
-                return renderBlock(ais, tree, main_tokens[node], statements[0..1], space);
+                return renderBlock(ais, tree, node, statements[0..1], space);
             } else {
-                return renderBlock(ais, tree, main_tokens[node], statements[0..2], space);
+                return renderBlock(ais, tree, node, statements[0..2], space);
             }
         },
         .Block,
         .BlockSemicolon,
         => {
-            const lbrace = main_tokens[node];
             const statements = tree.extra_data[datas[node].lhs..datas[node].rhs];
-            return renderBlock(ais, tree, main_tokens[node], statements, space);
+            return renderBlock(ais, tree, node, statements, space);
         },
 
         .ErrDefer => {
@@ -615,81 +614,6 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                 try renderToken(ais, tree, rbrace, space);
             }
         },
-        //.ErrorSetDecl => {
-        //    const err_set_decl = @fieldParentPtr(ast.Node.ErrorSetDecl, "base", base);
-
-        //    const lbrace = tree.nextToken(err_set_decl.error_token);
-
-        //    if (err_set_decl.decls_len == 0) {
-        //        try renderToken(ais, tree, err_set_decl.error_token, Space.None);
-        //        try renderToken(ais, tree, lbrace, Space.None);
-        //        return renderToken(ais, tree, err_set_decl.rbrace_token, space);
-        //    }
-
-        //    if (err_set_decl.decls_len == 1) blk: {
-        //        const node = err_set_decl.decls()[0];
-
-        //        // if there are any doc comments or same line comments
-        //        // don't try to put it all on one line
-        //        if (node.cast(ast.Node.ErrorTag)) |tag| {
-        //            if (tag.doc_comments != null) break :blk;
-        //        } else {
-        //            break :blk;
-        //        }
-
-        //        try renderToken(ais, tree, err_set_decl.error_token, Space.None); // error
-        //        try renderToken(ais, tree, lbrace, Space.None); // lbrace
-        //        try renderExpression(ais, tree, node, Space.None);
-        //        return renderToken(ais, tree, err_set_decl.rbrace_token, space); // rbrace
-        //    }
-
-        //    try renderToken(ais, tree, err_set_decl.error_token, Space.None); // error
-
-        //    const src_has_trailing_comma = blk: {
-        //        const maybe_comma = tree.prevToken(err_set_decl.rbrace_token);
-        //        break :blk tree.token_tags[maybe_comma] == .Comma;
-        //    };
-
-        //    if (src_has_trailing_comma) {
-        //        {
-        //            ais.pushIndent();
-        //            defer ais.popIndent();
-
-        //            try renderToken(ais, tree, lbrace, Space.Newline); // lbrace
-        //            const decls = err_set_decl.decls();
-        //            for (decls) |node, i| {
-        //                if (i + 1 < decls.len) {
-        //                    try renderExpression(ais, tree, node, Space.None);
-        //                    try renderToken(ais, tree, tree.nextToken(node.lastToken()), Space.Newline); // ,
-
-        //                    try renderExtraNewline(ais, tree, decls[i + 1]);
-        //                } else {
-        //                    try renderExpression(ais, tree, node, Space.Comma);
-        //                }
-        //            }
-        //        }
-
-        //        return renderToken(ais, tree, err_set_decl.rbrace_token, space); // rbrace
-        //    } else {
-        //        try renderToken(ais, tree, lbrace, Space.Space); // lbrace
-
-        //        const decls = err_set_decl.decls();
-        //        for (decls) |node, i| {
-        //            if (i + 1 < decls.len) {
-        //                try renderExpression(ais, tree, node, Space.None);
-
-        //                const comma_token = tree.nextToken(node.lastToken());
-        //                assert(tree.token_tags[comma_token] == .Comma);
-        //                try renderToken(ais, tree, comma_token, Space.Space); // ,
-        //                try renderExtraNewline(ais, tree, decls[i + 1]);
-        //            } else {
-        //                try renderExpression(ais, tree, node, Space.Space);
-        //            }
-        //        }
-
-        //        return renderToken(ais, tree, err_set_decl.rbrace_token, space); // rbrace
-        //    }
-        //},
 
         .BuiltinCallTwo, .BuiltinCallTwoComma => {
             if (datas[node].lhs == 0) {
@@ -732,92 +656,38 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         //    }
         //},
 
-        .Switch => unreachable, // TODO
-        //.Switch => {
-        //    const switch_node = @fieldParentPtr(ast.Node.Switch, "base", base);
+        .Switch,
+        .SwitchComma,
+        => {
+            const switch_token = main_tokens[node];
+            const condition = datas[node].lhs;
+            const extra = tree.extraData(datas[node].rhs, ast.Node.SubRange);
+            const cases = tree.extra_data[extra.start..extra.end];
+            const rparen = tree.lastToken(condition) + 1;
 
-        //    try renderToken(ais, tree, switch_node.switch_token, Space.Space); // switch
-        //    try renderToken(ais, tree, tree.nextToken(switch_node.switch_token), Space.None); // (
+            try renderToken(ais, tree, switch_token, .Space); // switch keyword
+            try renderToken(ais, tree, switch_token + 1, .None); // lparen
+            try renderExpression(ais, tree, condition, .None); // condtion expression
+            try renderToken(ais, tree, rparen, .Space); // rparen
 
-        //    const rparen = tree.nextToken(switch_node.expr.lastToken());
-        //    const lbrace = tree.nextToken(rparen);
+            if (cases.len == 0) {
+                try renderToken(ais, tree, rparen + 1, .None); // lbrace
+                try renderToken(ais, tree, rparen + 2, space); // rbrace
+            } else {
+                try renderToken(ais, tree, rparen + 1, .Newline); // lbrace
+                ais.pushIndent();
+                try renderExpression(ais, tree, cases[0], .Comma);
+                for (cases[1..]) |case| {
+                    try renderExtraNewline(ais, tree, case);
+                    try renderExpression(ais, tree, case, .Comma);
+                }
+                ais.popIndent();
+                try renderToken(ais, tree, tree.lastToken(node), space); // rbrace
+            }
+        },
 
-        //    if (switch_node.cases_len == 0) {
-        //        try renderExpression(ais, tree, switch_node.expr, Space.None);
-        //        try renderToken(ais, tree, rparen, Space.Space); // )
-        //        try renderToken(ais, tree, lbrace, Space.None); // lbrace
-        //        return renderToken(ais, tree, switch_node.rbrace, space); // rbrace
-        //    }
-
-        //    try renderExpression(ais, tree, switch_node.expr, Space.None);
-        //    try renderToken(ais, tree, rparen, Space.Space); // )
-
-        //    {
-        //        ais.pushIndentNextLine();
-        //        defer ais.popIndent();
-        //        try renderToken(ais, tree, lbrace, Space.Newline); // lbrace
-
-        //        const cases = switch_node.cases();
-        //        for (cases) |node, i| {
-        //            try renderExpression(ais, tree, node, Space.Comma);
-
-        //            if (i + 1 < cases.len) {
-        //                try renderExtraNewline(ais, tree, cases[i + 1]);
-        //            }
-        //        }
-        //    }
-
-        //    return renderToken(ais, tree, switch_node.rbrace, space); // rbrace
-        //},
-
-        .SwitchCaseOne => unreachable, // TODO
-        .SwitchCaseMulti => unreachable, // TODO
-        //.SwitchCase => {
-        //    const switch_case = @fieldParentPtr(ast.Node.SwitchCase, "base", base);
-
-        //    assert(switch_case.items_len != 0);
-        //    const src_has_trailing_comma = blk: {
-        //        const last_node = switch_case.items()[switch_case.items_len - 1];
-        //        const maybe_comma = tree.nextToken(last_node.lastToken());
-        //        break :blk tree.token_tags[maybe_comma] == .Comma;
-        //    };
-
-        //    if (switch_case.items_len == 1 or !src_has_trailing_comma) {
-        //        const items = switch_case.items();
-        //        for (items) |node, i| {
-        //            if (i + 1 < items.len) {
-        //                try renderExpression(ais, tree, node, Space.None);
-
-        //                const comma_token = tree.nextToken(node.lastToken());
-        //                try renderToken(ais, tree, comma_token, Space.Space); // ,
-        //                try renderExtraNewline(ais, tree, items[i + 1]);
-        //            } else {
-        //                try renderExpression(ais, tree, node, Space.Space);
-        //            }
-        //        }
-        //    } else {
-        //        const items = switch_case.items();
-        //        for (items) |node, i| {
-        //            if (i + 1 < items.len) {
-        //                try renderExpression(ais, tree, node, Space.None);
-
-        //                const comma_token = tree.nextToken(node.lastToken());
-        //                try renderToken(ais, tree, comma_token, Space.Newline); // ,
-        //                try renderExtraNewline(ais, tree, items[i + 1]);
-        //            } else {
-        //                try renderExpression(ais, tree, node, Space.Comma);
-        //            }
-        //        }
-        //    }
-
-        //    try renderToken(ais, tree, switch_case.arrow_token, Space.Space); // =>
-
-        //    if (switch_case.payload) |payload| {
-        //        try renderExpression(ais, tree, payload, Space.Space);
-        //    }
-
-        //    return renderExpression(ais, tree, switch_case.expr, space);
-        //},
+        .SwitchCaseOne => try renderSwitchCase(ais, tree, tree.switchCaseOne(node), space),
+        .SwitchCase => try renderSwitchCase(ais, tree, tree.switchCase(node), space),
 
         .WhileSimple => unreachable, // TODO
         .WhileCont => unreachable, // TODO
@@ -1745,16 +1615,64 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.Full.FnProto, space: S
     return renderExpression(ais, tree, fn_proto.ast.return_type, space);
 }
 
+fn renderSwitchCase(
+    ais: *Ais,
+    tree: ast.Tree,
+    switch_case: ast.Full.SwitchCase,
+    space: Space,
+) Error!void {
+    const token_tags = tree.tokens.items(.tag);
+    const trailing_comma = token_tags[switch_case.ast.arrow_token - 1] == .Comma;
+
+    // Render everything before the arrow
+    if (switch_case.ast.values.len == 0) {
+        try renderToken(ais, tree, switch_case.ast.arrow_token - 1, .Space); // else keyword
+    } else if (switch_case.ast.values.len == 1) {
+        // render on one line and drop the trailing comma if any
+        try renderExpression(ais, tree, switch_case.ast.values[0], .Space);
+    } else if (trailing_comma) {
+        // Render each value on a new line
+        try renderExpression(ais, tree, switch_case.ast.values[0], .Comma);
+        for (switch_case.ast.values[1..]) |value_expr| {
+            try renderExtraNewline(ais, tree, value_expr);
+            try renderExpression(ais, tree, value_expr, .Comma);
+        }
+    } else {
+        // Render on one line
+        for (switch_case.ast.values) |value_expr| {
+            try renderExpression(ais, tree, value_expr, .CommaSpace);
+        }
+    }
+
+    // Render the arrow and everything after it
+    try renderToken(ais, tree, switch_case.ast.arrow_token, .Space);
+
+    if (switch_case.payload_token) |payload_token| {
+        try renderToken(ais, tree, payload_token - 1, .None); // pipe
+        if (token_tags[payload_token] == .Asterisk) {
+            try renderToken(ais, tree, payload_token, .None); // asterisk
+            try renderToken(ais, tree, payload_token + 1, .None); // identifier
+            try renderToken(ais, tree, payload_token + 2, .Space); // pipe
+        } else {
+            try renderToken(ais, tree, payload_token, .None); // identifier
+            try renderToken(ais, tree, payload_token + 1, .Space); // pipe
+        }
+    }
+
+    try renderExpression(ais, tree, switch_case.ast.target_expr, space);
+}
+
 fn renderBlock(
     ais: *Ais,
     tree: ast.Tree,
-    lbrace: ast.TokenIndex,
+    block_node: ast.Node.Index,
     statements: []const ast.Node.Index,
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
     const node_tags = tree.nodes.items(.tag);
     const nodes_data = tree.nodes.items(.data);
+    const lbrace = tree.nodes.items(.main_token)[block_node];
 
     if (token_tags[lbrace - 1] == .Colon and
         token_tags[lbrace - 2] == .Identifier)
@@ -1783,15 +1701,8 @@ fn renderBlock(
         }
     }
     ais.popIndent();
-    // The rbrace could be +1 or +2 from the last token of the last
-    // statement in the block because lastToken() does not count semicolons.
-    const maybe_rbrace = tree.lastToken(statements[statements.len - 1]) + 1;
-    if (token_tags[maybe_rbrace] == .RBrace) {
-        return renderToken(ais, tree, maybe_rbrace, space);
-    } else {
-        assert(token_tags[maybe_rbrace + 1] == .RBrace);
-        return renderToken(ais, tree, maybe_rbrace + 1, space);
-    }
+
+    try renderToken(ais, tree, tree.lastToken(block_node), space); // rbrace
 }
 
 // TODO: handle comments between fields
