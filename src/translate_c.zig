@@ -78,6 +78,10 @@ const Scope = struct {
         mangle_count: u32 = 0,
         lbrace: ast.TokenIndex,
 
+        /// When the block corresponds to a function, keep track of the return type
+        /// so that the return expression can be cast, if necessary
+        return_type: ?clang.QualType = null,
+
         fn init(c: *Context, parent: *Scope, labeled: bool) !Block {
             var blk = Block{
                 .base = .{
@@ -204,6 +208,21 @@ const Scope = struct {
                 .Root => unreachable,
                 .Block => return @fieldParentPtr(Block, "base", scope),
                 .Condition => return @fieldParentPtr(Condition, "base", scope).getBlockScope(c),
+                else => scope = scope.parent.?,
+            }
+        }
+    }
+
+    fn findBlockReturnType(inner: *Scope, c: *Context) ?clang.QualType {
+        var scope = inner;
+        while (true) {
+            switch (scope.id) {
+                .Root => return null,
+                .Block => {
+                    const block = @fieldParentPtr(Block, "base", scope);
+                    if (block.return_type) |qt| return qt;
+                    scope = scope.parent.?;
+                },
                 else => scope = scope.parent.?,
             }
         }
@@ -580,6 +599,8 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             else => break fn_type,
         }
     } else unreachable;
+    const fn_ty = @ptrCast(*const clang.FunctionType, fn_type);
+    const return_qt = fn_ty.getReturnType();
 
     const proto_node = switch (fn_type.getTypeClass()) {
         .FunctionProto => blk: {
@@ -617,7 +638,9 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     // actual function definition with body
     const body_stmt = fn_decl.getBody();
     var block_scope = try Scope.Block.init(rp.c, &c.global_scope.base, false);
+    block_scope.return_type = return_qt;
     defer block_scope.deinit();
+
     var scope = &block_scope.base;
 
     var param_id: c_uint = 0;
@@ -667,10 +690,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     };
     // add return statement if the function didn't have one
     blk: {
-        const fn_ty = @ptrCast(*const clang.FunctionType, fn_type);
-
         if (fn_ty.getNoReturnAttr()) break :blk;
-        const return_qt = fn_ty.getReturnType();
         if (isCVoid(return_qt)) break :blk;
 
         if (block_scope.statements.items.len > 0) {
@@ -2018,16 +2038,32 @@ fn transIntegerLiteral(
     return maybeSuppressResult(rp, scope, result_used, &as_node.base);
 }
 
+/// In C if a function has return type `int` and the return value is a boolean
+/// expression, there is no implicit cast. So the translated Zig will need to
+/// call @boolToInt
+fn zigShouldCastBooleanReturnToInt(node: ?*ast.Node, qt: ?clang.QualType) bool {
+    if (node == null or qt == null) return false;
+    return isBoolRes(node.?) and cIsNativeInt(qt.?);
+}
+
 fn transReturnStmt(
     rp: RestorePoint,
     scope: *Scope,
     expr: *const clang.ReturnStmt,
 ) TransError!*ast.Node {
     const return_kw = try appendToken(rp.c, .Keyword_return, "return");
-    const rhs: ?*ast.Node = if (expr.getRetValue()) |val_expr|
+    var rhs: ?*ast.Node = if (expr.getRetValue()) |val_expr|
         try transExprCoercing(rp, scope, val_expr, .used, .r_value)
     else
         null;
+    const return_qt = scope.findBlockReturnType(rp.c);
+    if (zigShouldCastBooleanReturnToInt(rhs, return_qt)) {
+        const bool_to_int_node = try rp.c.createBuiltinCall("@boolToInt", 1);
+        bool_to_int_node.params()[0] = rhs.?;
+        bool_to_int_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+        rhs = &bool_to_int_node.base;
+    }
     const return_expr = try ast.Node.ControlFlowExpression.create(rp.c.arena, .{
         .ltoken = return_kw,
         .tag = .Return,

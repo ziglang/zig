@@ -1305,10 +1305,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a: c_int = undefined;
         \\    var b: f32 = undefined;
         \\    var c: ?*c_void = undefined;
-        \\    return !(a == @as(c_int, 0));
-        \\    return !(a != 0);
-        \\    return !(b != 0);
-        \\    return !(c != null);
+        \\    return @boolToInt(!(a == @as(c_int, 0)));
+        \\    return @boolToInt(!(a != 0));
+        \\    return @boolToInt(!(b != 0));
+        \\    return @boolToInt(!(c != null));
         \\}
     });
 
