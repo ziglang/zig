@@ -1768,8 +1768,8 @@ fn renderBlock(
         return renderToken(ais, tree, lbrace + 1, space); // rbrace
     }
 
-    ais.pushIndent();
     try renderToken(ais, tree, lbrace, .Newline);
+    ais.pushIndent();
     for (statements) |stmt, i| {
         switch (node_tags[stmt]) {
             .GlobalVarDecl => try renderVarDecl(ais, tree, tree.globalVarDecl(stmt)),
