@@ -2703,28 +2703,28 @@ test "zig fmt: catch" {
     );
 }
 
-//test "zig fmt: blocks" {
-//    try testCanonical(
-//        \\test "blocks" {
-//        \\    {
-//        \\        const a = 0;
-//        \\        const b = 0;
-//        \\    }
-//        \\
-//        \\    blk: {
-//        \\        const a = 0;
-//        \\        const b = 0;
-//        \\    }
-//        \\
-//        \\    const r = blk: {
-//        \\        const a = 0;
-//        \\        const b = 0;
-//        \\    };
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: blocks" {
+    try testCanonical(
+        \\test "blocks" {
+        \\    {
+        \\        const a = 0;
+        \\        const b = 0;
+        \\    }
+        \\
+        \\    blk: {
+        \\        const a = 0;
+        \\        const b = 0;
+        \\    }
+        \\
+        \\    const r = blk: {
+        \\        const a = 0;
+        \\        const b = 0;
+        \\    };
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: switch" {
 //    try testCanonical(
 //        \\test "switch" {
