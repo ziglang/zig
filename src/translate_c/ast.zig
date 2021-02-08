@@ -10,6 +10,7 @@ pub const Node = extern union {
     pub const Tag = enum {
         null_literal,
         undefined_literal,
+        /// opaque {}
         opaque_literal,
         true_literal,
         false_literal,
@@ -42,6 +43,7 @@ pub const Node = extern union {
         func,
         warning,
         failed_decl,
+        /// All enums are non-exhaustive
         @"enum",
         @"struct",
         @"union",
@@ -145,8 +147,12 @@ pub const Node = extern union {
         arg_redecl,
         /// const name = init;
         typedef,
+        var_simple,
         /// pub const name = init;
         pub_typedef,
+        pub_var_simple,
+        /// pub const enum_field_name = @enumToInt(enum_name.field_name);
+        enum_redecl,
 
         pub const last_no_payload_tag = Tag.usingnamespace_builtins;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -266,7 +272,8 @@ pub const Node = extern union {
                 .array_type => Payload.Array,
                 .arg_redecl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
-                .typedef, .pub_typedef => Payload.Typedef,
+                .typedef, .pub_typedef, .pub_var_simple => Payload.SimpleVarDecl,
+                .enum_redecl => Payload.EnumRedecl,
             };
         }
 
@@ -419,41 +426,37 @@ pub const Payload = struct {
             return_type: Node,
             body: ?Node,
             alignment: ?c_uint,
-
-            pub const Param = struct {
-                is_noalias: bool,
-                name: ?[]const u8,
-                type: Node,
-            };
         },
+
+        pub const Param = struct {
+            is_noalias: bool,
+            name: ?[]const u8,
+            type: Node,
+        };
     };
 
     pub const Enum = struct {
         base: Node = .{ .tag = .@"enum" },
-        data: struct {
-            name: ?[]const u8,
-            fields: []Field,
+        data: []Field,
 
-            pub const Field = struct {
-                name: []const u8,
-                value: ?[]const u8,
-            };
-        },
+        pub const Field = struct {
+            name: []const u8,
+            value: ?Node,
+        };
     };
 
     pub const Record = struct {
         base: Node,
         data: struct {
-            name: ?[]const u8,
             @"packed": bool,
             fields: []Field,
-
-            pub const Field = struct {
-                name: []const u8,
-                type: Type,
-                alignment: c_uint,
-            };
         },
+
+        pub const Field = struct {
+            name: []const u8,
+            type: Node,
+            alignment: ?c_uint,
+        };
     };
 
     pub const ArrayInit = struct {
@@ -514,11 +517,20 @@ pub const Payload = struct {
         data: std.math.Log2Int(u64),
     };
 
-    pub const Typedef = struct {
+    pub const SimpleVarDecl = struct {
         base: Node,
         data: struct {
             name: []const u8,
             init: Node,
+        },
+    };
+
+    pub const EnumRedecl = struct {
+        base: Node,
+        data: struct {
+            enum_val_name: []const u8,
+            field_name: []const u8,
+            enum_name: []const u8,
         },
     };
 };

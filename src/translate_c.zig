@@ -783,7 +783,7 @@ fn transCreateNodeTypedef(
 
     const payload = try c.arena.create(ast.Payload.Typedef);
     payload.* = .{
-        .base = .{ .tag = ([2]ast.Node.Tag{ .typedef, .pub_typedef })[toplevel] },
+        .base = .{ .tag = ([2]ast.Node.Tag{ .typedef, .pub_typedef })[@boolToInt(toplevel)] },
         .data = .{
             .name = checked_name,
             .init = init_node,
@@ -792,7 +792,7 @@ fn transCreateNodeTypedef(
     return Node.initPayload(&payload.base);
 }
 
-fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*ast.Node {
+fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Node {
     if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |name|
         return try transCreateNodeIdentifier(c, name); // Avoid processing this decl twice
     const record_loc = record_decl.getLocation();
@@ -807,46 +807,30 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*as
     }
 
     var container_kind_name: []const u8 = undefined;
-    var container_kind: std.zig.Token.Id = undefined;
+    var is_union = false;
     if (record_decl.isUnion()) {
         container_kind_name = "union";
-        container_kind = .Keyword_union;
+        is_union = true;
     } else if (record_decl.isStruct()) {
         container_kind_name = "struct";
-        container_kind = .Keyword_struct;
     } else {
-        try emitWarning(c, record_loc, "record {s} is not a struct or union", .{bare_name});
+        try warn(c, record_loc, "record {s} is not a struct or union", .{bare_name});
         return null;
     }
 
     const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
     _ = try c.decl_table.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
 
-    const visib_tok = if (!is_unnamed) try appendToken(c, .Keyword_pub, "pub") else null;
-    const mut_tok = try appendToken(c, .Keyword_const, "const");
-    const name_tok = try appendIdentifier(c, name);
-
-    const eq_token = try appendToken(c, .Equal, "=");
-
-    var semicolon: ast.TokenIndex = undefined;
+    const is_pub = !is_unnamed;
     const init_node = blk: {
-        const rp = makeRestorePoint(c);
         const record_def = record_decl.getDefinition() orelse {
             _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-            const opaque_type = try transCreateNodeOpaqueType(c);
-            semicolon = try appendToken(c, .Semicolon, ";");
-            break :blk opaque_type;
+            break :blk Node.opaque_literal.init();
         };
 
-        const layout_tok = try if (record_decl.getPackedAttribute())
-            appendToken(c, .Keyword_packed, "packed")
-        else
-            appendToken(c, .Keyword_extern, "extern");
-        const container_tok = try appendToken(c, container_kind, container_kind_name);
-        const lbrace_token = try appendToken(c, .LBrace, "{");
-
-        var fields_and_decls = std.ArrayList(*ast.Node).init(c.gpa);
-        defer fields_and_decls.deinit();
+        const is_packed = record_decl.getPackedAttribute();
+        var fields = std.ArrayList(ast.Payload.Record.Field).init(c.gpa);
+        defer fields.deinit();
 
         var unnamed_field_count: u32 = 0;
         var it = record_def.field_begin();
@@ -858,110 +842,82 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?*as
 
             if (field_decl.isBitField()) {
                 _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                const opaque_type = try transCreateNodeOpaqueType(c);
-                semicolon = try appendToken(c, .Semicolon, ";");
-                try emitWarning(c, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
-                break :blk opaque_type;
+                try warn(c, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
+                break :blk Node.opaque_literal.init();
             }
 
             if (qualTypeCanon(field_qt).isIncompleteOrZeroLengthArrayType(c.clang_context)) {
                 _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                const opaque_type = try transCreateNodeOpaqueType(c);
-                semicolon = try appendToken(c, .Semicolon, ";");
-                try emitWarning(c, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
-                break :blk opaque_type;
+                try warn(c, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
+                break :blk Node.opaque_literal.init();
             }
 
             var is_anon = false;
-            var raw_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
-            if (field_decl.isAnonymousStructOrUnion() or raw_name.len == 0) {
+            var field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
+            if (field_decl.isAnonymousStructOrUnion() or field_name.len == 0) {
                 // Context.getMangle() is not used here because doing so causes unpredictable field names for anonymous fields.
-                raw_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{unnamed_field_count});
+                field_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{unnamed_field_count});
                 unnamed_field_count += 1;
                 is_anon = true;
             }
-            const field_name = try appendIdentifier(c, raw_name);
-            _ = try appendToken(c, .Colon, ":");
-            const field_type = transQualType(rp, field_qt, field_loc) catch |err| switch (err) {
+            const field_type = transQualType(c, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
                     _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                    const opaque_type = try transCreateNodeOpaqueType(c);
-                    semicolon = try appendToken(c, .Semicolon, ";");
-                    try emitWarning(c, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, raw_name });
-                    break :blk opaque_type;
+                    try warn(c, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, raw_name });
+                    break :blk Node.opaque_literal.init();
                 },
                 else => |e| return e,
             };
 
-            const align_expr = blk_2: {
+            const alignment = blk_2: {
                 const alignment = field_decl.getAlignedAttribute(c.clang_context);
                 if (alignment != 0) {
-                    _ = try appendToken(c, .Keyword_align, "align");
-                    _ = try appendToken(c, .LParen, "(");
                     // Clang reports the alignment in bits
-                    const expr = try transCreateNodeInt(c, alignment / 8);
-                    _ = try appendToken(c, .RParen, ")");
-
-                    break :blk_2 expr;
+                    break :blk_2 alignment / 8;
                 }
                 break :blk_2 null;
             };
 
-            const field_node = try c.arena.create(ast.Node.ContainerField);
-            field_node.* = .{
-                .doc_comments = null,
-                .comptime_token = null,
-                .name_token = field_name,
-                .type_expr = field_type,
-                .value_expr = null,
-                .align_expr = align_expr,
-            };
-
             if (is_anon) {
-                _ = try c.decl_table.put(
-                    c.gpa,
-                    @ptrToInt(field_decl.getCanonicalDecl()),
-                    raw_name,
-                );
+                _ = try c.decl_table.put(c.gpa, @ptrToInt(field_decl.getCanonicalDecl()), field_name);
             }
 
-            try fields_and_decls.append(&field_node.base);
-            _ = try appendToken(c, .Comma, ",");
+            try fields.append(.{
+                .name = field_name,
+                .type = field_type,
+                .alignment = alignment,
+            });
         }
-        const container_node = try ast.Node.ContainerDecl.alloc(c.arena, fields_and_decls.items.len);
+
+        const payload = try c.arena.create(ast.Payload.Record);
         container_node.* = .{
-            .layout_token = layout_tok,
-            .kind_token = container_tok,
-            .init_arg_expr = .None,
-            .fields_and_decls_len = fields_and_decls.items.len,
-            .lbrace_token = lbrace_token,
-            .rbrace_token = try appendToken(c, .RBrace, "}"),
+            .base = .{ .tag = ([2]ast.Node.Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
+            .data = .{
+                .is_packed = is_packed,
+                .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
+            },
         };
-        mem.copy(*ast.Node, container_node.fieldsAndDecls(), fields_and_decls.items);
-        semicolon = try appendToken(c, .Semicolon, ";");
-        break :blk &container_node.base;
+        break :blk Node.initPayload(&container_node.base);
     };
 
-    const node = try ast.Node.VarDecl.create(c.arena, .{
-        .name_token = name_tok,
-        .mut_token = mut_tok,
-        .semicolon_token = semicolon,
-    }, .{
-        .visib_token = visib_tok,
-        .eq_token = eq_token,
-        .init_node = init_node,
-    });
+    const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
+    payload.* = .{
+        .base = .{ .tag = ([2]ast.Node.Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .data = .{
+            .name = name,
+            .init = init_node,
+        },
+    };
 
-    try addTopLevelDecl(c, name, &node.base);
+    try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
     if (!is_unnamed)
         try c.alias_list.append(.{ .alias = bare_name, .name = name });
-    return transCreateNodeIdentifier(c, name);
+    return Node.identifier.create(c.arena, name);
 }
 
-fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?*ast.Node {
+fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
     if (c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |name|
         return try transCreateNodeIdentifier(c, name); // Avoid processing this decl twice
-    const rp = makeRestorePoint(c);
     const enum_loc = enum_decl.getLocation();
 
     var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
@@ -974,10 +930,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?*ast.Node
     const name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     _ = try c.decl_table.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
 
-    const visib_tok = if (!is_unnamed) try appendToken(c, .Keyword_pub, "pub") else null;
-    const mut_tok = try appendToken(c, .Keyword_const, "const");
-    const name_tok = try appendIdentifier(c, name);
-    const eq_token = try appendToken(c, .Equal, "=");
+    const is_pub = !is_unnamed;
 
     const init_node = if (enum_decl.getDefinition()) |enum_def| blk: {
         var pure_enum = true;
@@ -991,11 +944,8 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?*ast.Node
             }
         }
 
-        const extern_tok = try appendToken(c, .Keyword_extern, "extern");
-        const container_tok = try appendToken(c, .Keyword_enum, "enum");
-
-        var fields_and_decls = std.ArrayList(*ast.Node).init(c.gpa);
-        defer fields_and_decls.deinit();
+        var fields = std.ArrayList(ast.Payload.Enum.Field).init(c.gpa);
+        defer fields.deinit();
 
         const int_type = enum_decl.getIntegerType();
         // The underlying type may be null in case of forward-declared enum
@@ -1003,30 +953,23 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?*ast.Node
         // default to the usual integer type used for all the enums.
 
         // default to c_int since msvc and gcc default to different types
-        _ = try appendToken(c, .LParen, "(");
-        const init_arg_expr = ast.Node.ContainerDecl.InitArg{
-            .Type = if (int_type.ptr != null and
-                !isCBuiltinType(int_type, .UInt) and
-                !isCBuiltinType(int_type, .Int))
-                transQualType(rp, int_type, enum_loc) catch |err| switch (err) {
-                    error.UnsupportedType => {
-                        try failDecl(c, enum_loc, name, "unable to translate enum tag type", .{});
-                        return null;
-                    },
-                    else => |e| return e,
-                }
-            else
-                try transCreateNodeIdentifier(c, "c_int"),
-        };
-        _ = try appendToken(c, .RParen, ")");
-
-        const lbrace_token = try appendToken(c, .LBrace, "{");
+        const init_arg_expr = if (int_type.ptr != null and
+            !isCBuiltinType(int_type, .UInt) and
+            !isCBuiltinType(int_type, .Int))
+            transQualType(c, int_type, enum_loc) catch |err| switch (err) {
+                error.UnsupportedType => {
+                    try failDecl(c, enum_loc, name, "unable to translate enum tag type", .{});
+                    return null;
+                },
+                else => |e| return e,
+            }
+        else
+            try Node.type.create(c.arena, "c_int");
 
         it = enum_def.enumerator_begin();
         end_it = enum_def.enumerator_end();
         while (it.neq(end_it)) : (it = it.next()) {
             const enum_const = it.deref();
-
             const enum_val_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_const).getName_bytes_begin());
 
             const field_name = if (!is_unnamed and mem.startsWith(u8, enum_val_name, bare_name))
@@ -1034,100 +977,41 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?*ast.Node
             else
                 enum_val_name;
 
-            const field_name_tok = try appendIdentifier(c, field_name);
-
-            const int_node = if (!pure_enum) blk_2: {
-                _ = try appendToken(c, .Colon, "=");
-                break :blk_2 try transCreateNodeAPInt(c, enum_const.getInitVal());
-            } else
+            const int_node = if (!pure_enum)
+                try transCreateNodeAPInt(c, enum_const.getInitVal())
+            else
                 null;
 
-            const field_node = try c.arena.create(ast.Node.ContainerField);
-            field_node.* = .{
-                .doc_comments = null,
-                .comptime_token = null,
-                .name_token = field_name_tok,
-                .type_expr = null,
-                .value_expr = int_node,
-                .align_expr = null,
-            };
-
-            try fields_and_decls.append(&field_node.base);
-            _ = try appendToken(c, .Comma, ",");
+            try fields_and_decls.append(.{
+                .name = field_name,
+                .value = int_node,
+            });
 
             // In C each enum value is in the global namespace. So we put them there too.
             // At this point we can rely on the enum emitting successfully.
-            const tld_visib_tok = try appendToken(c, .Keyword_pub, "pub");
-            const tld_mut_tok = try appendToken(c, .Keyword_const, "const");
-            const tld_name_tok = try appendIdentifier(c, enum_val_name);
-            const tld_eq_token = try appendToken(c, .Equal, "=");
-            const cast_node = try rp.c.createBuiltinCall("@enumToInt", 1);
-            const enum_ident = try transCreateNodeIdentifier(c, name);
-            const period_tok = try appendToken(c, .Period, ".");
-            const field_ident = try transCreateNodeIdentifier(c, field_name);
-            const field_access_node = try c.arena.create(ast.Node.SimpleInfixOp);
-            field_access_node.* = .{
-                .base = .{ .tag = .Period },
-                .op_token = period_tok,
-                .lhs = enum_ident,
-                .rhs = field_ident,
-            };
-            cast_node.params()[0] = &field_access_node.base;
-            cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-            const tld_init_node = &cast_node.base;
-            const tld_semicolon_token = try appendToken(c, .Semicolon, ";");
-            const tld_node = try ast.Node.VarDecl.create(c.arena, .{
-                .name_token = tld_name_tok,
-                .mut_token = tld_mut_tok,
-                .semicolon_token = tld_semicolon_token,
-            }, .{
-                .visib_token = tld_visib_tok,
-                .eq_token = tld_eq_token,
-                .init_node = tld_init_node,
-            });
-            try addTopLevelDecl(c, field_name, &tld_node.base);
+            try addTopLevelDecl(c, field_name, try Node.enum_redecl.create(c.arena, .{
+                .enum_val_name = enum_val_name,
+                .field_name = field_name,
+                .enum_name = name,
+            }));
         }
-        // make non exhaustive
-        const field_node = try c.arena.create(ast.Node.ContainerField);
-        field_node.* = .{
-            .doc_comments = null,
-            .comptime_token = null,
-            .name_token = try appendIdentifier(c, "_"),
-            .type_expr = null,
-            .value_expr = null,
-            .align_expr = null,
-        };
 
-        try fields_and_decls.append(&field_node.base);
-        _ = try appendToken(c, .Comma, ",");
-        const container_node = try ast.Node.ContainerDecl.alloc(c.arena, fields_and_decls.items.len);
-        container_node.* = .{
-            .layout_token = extern_tok,
-            .kind_token = container_tok,
-            .init_arg_expr = init_arg_expr,
-            .fields_and_decls_len = fields_and_decls.items.len,
-            .lbrace_token = lbrace_token,
-            .rbrace_token = try appendToken(c, .RBrace, "}"),
-        };
-        mem.copy(*ast.Node, container_node.fieldsAndDecls(), fields_and_decls.items);
-        break :blk &container_node.base;
+        break :blk try Node.@"enum".create(c.arena, try c.arena.dupe(ast.Payload.Enum.Field, fields.items));
     } else blk: {
         _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), {});
-        break :blk try transCreateNodeOpaqueType(c);
+        break :blk Node.opaque_literal.init();
     };
 
-    const semicolon_token = try appendToken(c, .Semicolon, ";");
-    const node = try ast.Node.VarDecl.create(c.arena, .{
-        .name_token = name_tok,
-        .mut_token = mut_tok,
-        .semicolon_token = semicolon_token,
-    }, .{
-        .visib_token = visib_tok,
-        .eq_token = eq_token,
-        .init_node = init_node,
-    });
+    const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
+    payload.* = .{
+        .base = .{ .tag = ([2]ast.Node.Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .data = .{
+            .name = name,
+            .init = init_node,
+        },
+    };
 
-    try addTopLevelDecl(c, name, &node.base);
+    try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
     if (!is_unnamed)
         try c.alias_list.append(.{ .alias = bare_name, .name = name });
     return transCreateNodeIdentifier(c, name);
@@ -1382,22 +1266,22 @@ fn transCompoundStmt(c: *Context, scope: *Scope, stmt: *const clang.CompoundStmt
 }
 
 fn transCStyleCastExprClass(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.CStyleCastExpr,
     result_used: ResultUsed,
     lrvalue: LRValue,
-) TransError!*ast.Node {
+) TransError!Node {
     const sub_expr = stmt.getSubExpr();
     const cast_node = (try transCCast(
-        rp,
+        c,
         scope,
         stmt.getBeginLoc(),
         stmt.getType(),
         sub_expr.getType(),
-        try transExpr(rp, scope, sub_expr, .used, lrvalue),
+        try transExpr(c, scope, sub_expr, .used, lrvalue),
     ));
-    return maybeSuppressResult(rp, scope, result_used, cast_node);
+    return maybeSuppressResult(c, scope, result_used, cast_node);
 }
 
 fn transDeclStmtOne(
