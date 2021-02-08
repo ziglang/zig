@@ -137,11 +137,16 @@ pub const Node = extern union {
         single_pointer,
         array_type,
 
-
+        /// @import("std").mem.zeroes(T)
+        std_mem_zeroes,
         // pub const name = @compileError(msg);
         fail_decl,
         // var actual = mangled;
         arg_redecl,
+        /// const name = init;
+        typedef,
+        /// pub const name = init;
+        pub_typedef,
 
         pub const last_no_payload_tag = Tag.usingnamespace_builtins;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -257,11 +262,11 @@ pub const Node = extern union {
                 .container_init => Payload.ContainerInit,
                 .std_meta_cast => Payload.Infix,
                 .block => Payload.Block,
-                .c_pointer => Payload.Pointer,
-                .single_pointer => Payload.Pointer,
+                .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type => Payload.Array,
                 .arg_redecl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
+                .typedef, .pub_typedef => Payload.Typedef,
             };
         }
 
@@ -300,6 +305,11 @@ pub const Node = extern union {
             return @fieldParentPtr(t.Type(), "base", self.ptr_otherwise);
 
         return null;
+    }
+
+    pub fn initPayload(payload: *Payload) Node {
+        assert(@enumToInt(payload.tag) >= Tag.no_payload_count);
+        return .{ .ptr_otherwise = payload };
     }
 };
 
@@ -383,13 +393,15 @@ pub const Payload = struct {
     pub const VarDecl = struct {
         base: Node = .{ .tag = .var_decl },
         data: struct {
-            @"pub": bool,
-            @"const": bool,
-            @"extern": bool,
-            @"export": bool,
+            is_pub: bool,
+            is_const: bool,
+            is_extern: bool,
+            is_export: bool,
+            alignment: ?c_uint,
+            linksection_string: ?[]const u8,
             name: []const u8,
-            type: Type,
-            init: Node,
+            type: Node,
+            init: ?Node,
         },
     };
 
@@ -401,12 +413,12 @@ pub const Payload = struct {
             is_export: bool,
             is_var_args: bool,
             name: []const u8,
-            link_section_string: ?[]const u8,
+            linksection_string: ?[]const u8,
             explicit_callconv: ?std.builtin.CallingConvention,
             params: []Param,
             return_type: Node,
             body: ?Node,
-            alignment: c_uint,
+            alignment: ?c_uint,
 
             pub const Param = struct {
                 is_noalias: bool,
@@ -500,6 +512,14 @@ pub const Payload = struct {
     pub const Log2IntType = struct {
         base: Node,
         data: std.math.Log2Int(u64),
+    };
+
+    pub const Typedef = struct {
+        base: Node,
+        data: struct {
+            name: []const u8,
+            init: Node,
+        },
     };
 };
 
