@@ -4721,7 +4721,6 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
     const scope = &c.global_scope.base;
 
     const pub_tok = try appendToken(c, .Keyword_pub, "pub");
-    const inline_tok = try appendToken(c, .Keyword_inline, "inline");
     const fn_tok = try appendToken(c, .Keyword_fn, "fn");
     const name_tok = try appendIdentifier(c, name);
     _ = try appendToken(c, .LParen, "(");
@@ -4747,6 +4746,11 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
         };
     }
 
+    _ = try appendToken(c, .RParen, ")");
+
+    _ = try appendToken(c, .Keyword_callconv, "callconv");
+    _ = try appendToken(c, .LParen, "(");
+    const callconv_expr = try transCreateNodeEnumLiteral(c, "Inline");
     _ = try appendToken(c, .RParen, ")");
 
     const block_lbrace = try appendToken(c, .LBrace, "{");
@@ -4788,8 +4792,8 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
     }, .{
         .visib_token = pub_tok,
         .name_token = name_tok,
-        .extern_export_inline_token = inline_tok,
         .body_node = &block.base,
+        .callconv_expr = callconv_expr,
     });
     mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
     return &fn_proto.base;
@@ -5739,7 +5743,6 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &block_scope.base;
 
     const pub_tok = try appendToken(c, .Keyword_pub, "pub");
-    const inline_tok = try appendToken(c, .Keyword_inline, "inline");
     const fn_tok = try appendToken(c, .Keyword_fn, "fn");
     const name_tok = try appendIdentifier(c, m.name);
     _ = try appendToken(c, .LParen, "(");
@@ -5784,6 +5787,11 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     _ = try appendToken(c, .RParen, ")");
 
+    _ = try appendToken(c, .Keyword_callconv, "callconv");
+    _ = try appendToken(c, .LParen, "(");
+    const callconv_expr = try transCreateNodeEnumLiteral(c, "Inline");
+    _ = try appendToken(c, .RParen, ")");
+
     const type_of = try c.createBuiltinCall("@TypeOf", 1);
 
     const return_kw = try appendToken(c, .Keyword_return, "return");
@@ -5815,9 +5823,9 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .return_type = .{ .Explicit = &type_of.base },
     }, .{
         .visib_token = pub_tok,
-        .extern_export_inline_token = inline_tok,
         .name_token = name_tok,
         .body_node = block_node,
+        .callconv_expr = callconv_expr,
     });
     mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
 
