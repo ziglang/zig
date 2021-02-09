@@ -6,7 +6,7 @@ struct user_regs_struct {
 };
 
 struct user_fpsimd_struct {
-	long double vregs[32];
+	__uint128_t vregs[32];
 	unsigned int fpsr;
 	unsigned int fpcr;
 };

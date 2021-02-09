@@ -8,6 +8,7 @@ extern "C" {
 #include <features.h>
 
 #define __NEED_pid_t
+#define __NEED_struct_winsize
 
 #include <bits/alltypes.h>
 
@@ -26,6 +27,9 @@ int cfsetispeed (struct termios *, speed_t);
 
 int tcgetattr (int, struct termios *);
 int tcsetattr (int, int, const struct termios *);
+
+int tcgetwinsize (int, struct winsize *);
+int tcsetwinsize (int, const struct winsize *);
 
 int tcsendbreak (int, int);
 int tcdrain (int);

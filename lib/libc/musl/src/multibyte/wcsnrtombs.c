@@ -1,41 +1,33 @@
 #include <wchar.h>
+#include <limits.h>
+#include <string.h>
 
 size_t wcsnrtombs(char *restrict dst, const wchar_t **restrict wcs, size_t wn, size_t n, mbstate_t *restrict st)
 {
-	size_t l, cnt=0, n2;
-	char *s, buf[256];
 	const wchar_t *ws = *wcs;
-	const wchar_t *tmp_ws;
-
-	if (!dst) s = buf, n = sizeof buf;
-	else s = dst;
-
-	while ( ws && n && ( (n2=wn)>=n || n2>32 ) ) {
-		if (n2>=n) n2=n;
-		tmp_ws = ws;
-		l = wcsrtombs(s, &ws, n2, 0);
-		if (!(l+1)) {
-			cnt = l;
-			n = 0;
+	size_t cnt = 0;
+	if (!dst) n=0;
+	while (ws && wn) {
+		char tmp[MB_LEN_MAX];
+		size_t l = wcrtomb(n<MB_LEN_MAX ? tmp : dst, *ws, 0);
+		if (l==-1) {
+			cnt = -1;
 			break;
 		}
-		if (s != buf) {
-			s += l;
+		if (dst) {
+			if (n<MB_LEN_MAX) {
+				if (l>n) break;
+				memcpy(dst, tmp, l);
+			}
+			dst += l;
 			n -= l;
 		}
-		wn = ws ? wn - (ws - tmp_ws) : 0;
-		cnt += l;
-	}
-	if (ws) while (n && wn) {
-		l = wcrtomb(s, *ws, 0);
-		if ((l+1)<=1) {
-			if (!l) ws = 0;
-			else cnt = l;
+		if (!*ws) {
+			ws = 0;
 			break;
 		}
-		ws++; wn--;
-		/* safe - this loop runs fewer than sizeof(buf) times */
-		s+=l; n-=l;
+		ws++;
+		wn--;
 		cnt += l;
 	}
 	if (dst) *wcs = ws;

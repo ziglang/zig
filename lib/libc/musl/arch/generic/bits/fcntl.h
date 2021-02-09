@@ -30,9 +30,15 @@
 #define F_SETSIG 10
 #define F_GETSIG 11
 
+#if __LONG_MAX == 0x7fffffffL
 #define F_GETLK 12
 #define F_SETLK 13
 #define F_SETLKW 14
+#else
+#define F_GETLK 5
+#define F_SETLK 6
+#define F_SETLKW 7
+#endif
 
 #define F_SETOWN_EX 15
 #define F_GETOWN_EX 16

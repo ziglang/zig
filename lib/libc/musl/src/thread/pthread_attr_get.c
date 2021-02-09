@@ -70,7 +70,7 @@ int pthread_condattr_getpshared(const pthread_condattr_t *restrict a, int *restr
 
 int pthread_mutexattr_getprotocol(const pthread_mutexattr_t *restrict a, int *restrict protocol)
 {
-	*protocol = PTHREAD_PRIO_NONE;
+	*protocol = a->__attr / 8U % 2;
 	return 0;
 }
 int pthread_mutexattr_getpshared(const pthread_mutexattr_t *restrict a, int *restrict pshared)

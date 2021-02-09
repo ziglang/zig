@@ -50,7 +50,7 @@ static int name_from_hosts(struct address buf[static MAXADDRS], char canon[stati
 {
 	char line[512];
 	size_t l = strlen(name);
-	int cnt = 0, badfam = 0;
+	int cnt = 0, badfam = 0, have_canon = 0;
 	unsigned char _buf[1032];
 	FILE _f, *f = __fopen_rb_ca("/etc/hosts", &_f, _buf, sizeof _buf);
 	if (!f) switch (errno) {
@@ -80,14 +80,19 @@ static int name_from_hosts(struct address buf[static MAXADDRS], char canon[stati
 			continue;
 		default:
 			badfam = EAI_NONAME;
-			continue;
+			break;
 		}
+
+		if (have_canon) continue;
 
 		/* Extract first name as canonical name */
 		for (; *p && isspace(*p); p++);
 		for (z=p; *z && !isspace(*z); z++);
 		*z = 0;
-		if (is_valid_hostname(p)) memcpy(canon, p, z-p+1);
+		if (is_valid_hostname(p)) {
+			have_canon = 1;
+			memcpy(canon, p, z-p+1);
+		}
 	}
 	__fclose_ca(f);
 	return cnt ? cnt : badfam;

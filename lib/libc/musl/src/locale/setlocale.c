@@ -9,12 +9,11 @@ static char buf[LC_ALL*(LOCALE_NAME_MAX+1)];
 
 char *setlocale(int cat, const char *name)
 {
-	static volatile int lock[1];
 	const struct __locale_map *lm;
 
 	if ((unsigned)cat > LC_ALL) return 0;
 
-	LOCK(lock);
+	LOCK(__locale_lock);
 
 	/* For LC_ALL, setlocale is required to return a string which
 	 * encodes the current setting for all categories. The format of
@@ -36,7 +35,7 @@ char *setlocale(int cat, const char *name)
 				}
 				lm = __get_locale(i, part);
 				if (lm == LOC_MAP_FAILED) {
-					UNLOCK(lock);
+					UNLOCK(__locale_lock);
 					return 0;
 				}
 				tmp_locale.cat[i] = lm;
@@ -57,14 +56,14 @@ char *setlocale(int cat, const char *name)
 			s += l+1;
 		}
 		*--s = 0;
-		UNLOCK(lock);
+		UNLOCK(__locale_lock);
 		return same==LC_ALL ? (char *)part : buf;
 	}
 
 	if (name) {
 		lm = __get_locale(cat, name);
 		if (lm == LOC_MAP_FAILED) {
-			UNLOCK(lock);
+			UNLOCK(__locale_lock);
 			return 0;
 		}
 		libc.global_locale.cat[cat] = lm;
@@ -73,7 +72,7 @@ char *setlocale(int cat, const char *name)
 	}
 	char *ret = lm ? (char *)lm->name : "C";
 
-	UNLOCK(lock);
+	UNLOCK(__locale_lock);
 
 	return ret;
 }

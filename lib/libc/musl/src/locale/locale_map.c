@@ -1,9 +1,16 @@
 #include <locale.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <stdlib.h>
 #include "locale_impl.h"
 #include "libc.h"
 #include "lock.h"
+#include "fork_impl.h"
+
+#define malloc __libc_malloc
+#define calloc undef
+#define realloc undef
+#define free undef
 
 const char *__lctrans_impl(const char *msg, const struct __locale_map *lm)
 {
@@ -21,9 +28,11 @@ static const char envvars[][12] = {
 	"LC_MESSAGES",
 };
 
+volatile int __locale_lock[1];
+volatile int *const __locale_lockptr = __locale_lock;
+
 const struct __locale_map *__get_locale(int cat, const char *val)
 {
-	static volatile int lock[1];
 	static void *volatile loc_head;
 	const struct __locale_map *p;
 	struct __locale_map *new = 0;
@@ -54,20 +63,12 @@ const struct __locale_map *__get_locale(int cat, const char *val)
 	for (p=loc_head; p; p=p->next)
 		if (!strcmp(val, p->name)) return p;
 
-	LOCK(lock);
-
-	for (p=loc_head; p; p=p->next)
-		if (!strcmp(val, p->name)) {
-			UNLOCK(lock);
-			return p;
-		}
-
 	if (!libc.secure) path = getenv("MUSL_LOCPATH");
 	/* FIXME: add a default path? */
 
 	if (path) for (; *path; path=z+!!*z) {
 		z = __strchrnul(path, ':');
-		l = z - path - !!*z;
+		l = z - path;
 		if (l >= sizeof buf - n - 2) continue;
 		memcpy(buf, path, l);
 		buf[l] = '/';
@@ -108,6 +109,5 @@ const struct __locale_map *__get_locale(int cat, const char *val)
 	 * requested name was "C" or "POSIX". */
 	if (!new && cat == LC_CTYPE) new = (void *)&__c_dot_utf8;
 
-	UNLOCK(lock);
 	return new;
 }

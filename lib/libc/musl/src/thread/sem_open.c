@@ -12,6 +12,12 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include "lock.h"
+#include "fork_impl.h"
+
+#define malloc __libc_malloc
+#define calloc __libc_calloc
+#define realloc undef
+#define free undef
 
 static struct {
 	ino_t ino;
@@ -19,6 +25,7 @@ static struct {
 	int refcnt;
 } *semtab;
 static volatile int lock[1];
+volatile int *const __sem_open_lockptr = lock;
 
 #define FLAGS (O_RDWR|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK)
 
@@ -163,10 +170,12 @@ int sem_close(sem_t *sem)
 	int i;
 	LOCK(lock);
 	for (i=0; i<SEM_NSEMS_MAX && semtab[i].sem != sem; i++);
-	if (!--semtab[i].refcnt) {
-		semtab[i].sem = 0;
-		semtab[i].ino = 0;
+	if (--semtab[i].refcnt) {
+		UNLOCK(lock);
+		return 0;
 	}
+	semtab[i].sem = 0;
+	semtab[i].ino = 0;
 	UNLOCK(lock);
 	munmap(sem, sizeof *sem);
 	return 0;

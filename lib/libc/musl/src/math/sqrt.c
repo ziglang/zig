@@ -1,184 +1,158 @@
-/* origin: FreeBSD /usr/src/lib/msun/src/e_sqrt.c */
-/*
- * ====================================================
- * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
- *
- * Developed at SunSoft, a Sun Microsystems, Inc. business.
- * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice
- * is preserved.
- * ====================================================
- */
-/* sqrt(x)
- * Return correctly rounded sqrt.
- *           ------------------------------------------
- *           |  Use the hardware sqrt if you have one |
- *           ------------------------------------------
- * Method:
- *   Bit by bit method using integer arithmetic. (Slow, but portable)
- *   1. Normalization
- *      Scale x to y in [1,4) with even powers of 2:
- *      find an integer k such that  1 <= (y=x*2^(2k)) < 4, then
- *              sqrt(x) = 2^k * sqrt(y)
- *   2. Bit by bit computation
- *      Let q  = sqrt(y) truncated to i bit after binary point (q = 1),
- *           i                                                   0
- *                                     i+1         2
- *          s  = 2*q , and      y  =  2   * ( y - q  ).         (1)
- *           i      i            i                 i
- *
- *      To compute q    from q , one checks whether
- *                  i+1       i
- *
- *                            -(i+1) 2
- *                      (q + 2      ) <= y.                     (2)
- *                        i
- *                                                            -(i+1)
- *      If (2) is false, then q   = q ; otherwise q   = q  + 2      .
- *                             i+1   i             i+1   i
- *
- *      With some algebric manipulation, it is not difficult to see
- *      that (2) is equivalent to
- *                             -(i+1)
- *                      s  +  2       <= y                      (3)
- *                       i                i
- *
- *      The advantage of (3) is that s  and y  can be computed by
- *                                    i      i
- *      the following recurrence formula:
- *          if (3) is false
- *
- *          s     =  s  ,       y    = y   ;                    (4)
- *           i+1      i          i+1    i
- *
- *          otherwise,
- *                         -i                     -(i+1)
- *          s     =  s  + 2  ,  y    = y  -  s  - 2             (5)
- *           i+1      i          i+1    i     i
- *
- *      One may easily use induction to prove (4) and (5).
- *      Note. Since the left hand side of (3) contain only i+2 bits,
- *            it does not necessary to do a full (53-bit) comparison
- *            in (3).
- *   3. Final rounding
- *      After generating the 53 bits result, we compute one more bit.
- *      Together with the remainder, we can decide whether the
- *      result is exact, bigger than 1/2ulp, or less than 1/2ulp
- *      (it will never equal to 1/2ulp).
- *      The rounding mode can be detected by checking whether
- *      huge + tiny is equal to huge, and whether huge - tiny is
- *      equal to huge for some floating point number "huge" and "tiny".
- *
- * Special cases:
- *      sqrt(+-0) = +-0         ... exact
- *      sqrt(inf) = inf
- *      sqrt(-ve) = NaN         ... with invalid signal
- *      sqrt(NaN) = NaN         ... with invalid signal for signaling NaN
- */
-
+#include <stdint.h>
+#include <math.h>
 #include "libm.h"
+#include "sqrt_data.h"
 
-static const double tiny = 1.0e-300;
+#define FENV_SUPPORT 1
+
+/* returns a*b*2^-32 - e, with error 0 <= e < 1.  */
+static inline uint32_t mul32(uint32_t a, uint32_t b)
+{
+	return (uint64_t)a*b >> 32;
+}
+
+/* returns a*b*2^-64 - e, with error 0 <= e < 3.  */
+static inline uint64_t mul64(uint64_t a, uint64_t b)
+{
+	uint64_t ahi = a>>32;
+	uint64_t alo = a&0xffffffff;
+	uint64_t bhi = b>>32;
+	uint64_t blo = b&0xffffffff;
+	return ahi*bhi + (ahi*blo >> 32) + (alo*bhi >> 32);
+}
 
 double sqrt(double x)
 {
-	double z;
-	int32_t sign = (int)0x80000000;
-	int32_t ix0,s0,q,m,t,i;
-	uint32_t r,t1,s1,ix1,q1;
+	uint64_t ix, top, m;
 
-	EXTRACT_WORDS(ix0, ix1, x);
-
-	/* take care of Inf and NaN */
-	if ((ix0&0x7ff00000) == 0x7ff00000) {
-		return x*x + x;  /* sqrt(NaN)=NaN, sqrt(+inf)=+inf, sqrt(-inf)=sNaN */
-	}
-	/* take care of zero */
-	if (ix0 <= 0) {
-		if (((ix0&~sign)|ix1) == 0)
-			return x;  /* sqrt(+-0) = +-0 */
-		if (ix0 < 0)
-			return (x-x)/(x-x);  /* sqrt(-ve) = sNaN */
-	}
-	/* normalize x */
-	m = ix0>>20;
-	if (m == 0) {  /* subnormal x */
-		while (ix0 == 0) {
-			m -= 21;
-			ix0 |= (ix1>>11);
-			ix1 <<= 21;
-		}
-		for (i=0; (ix0&0x00100000) == 0; i++)
-			ix0<<=1;
-		m -= i - 1;
-		ix0 |= ix1>>(32-i);
-		ix1 <<= i;
-	}
-	m -= 1023;    /* unbias exponent */
-	ix0 = (ix0&0x000fffff)|0x00100000;
-	if (m & 1) {  /* odd m, double x to make it even */
-		ix0 += ix0 + ((ix1&sign)>>31);
-		ix1 += ix1;
-	}
-	m >>= 1;      /* m = [m/2] */
-
-	/* generate sqrt(x) bit by bit */
-	ix0 += ix0 + ((ix1&sign)>>31);
-	ix1 += ix1;
-	q = q1 = s0 = s1 = 0;  /* [q,q1] = sqrt(x) */
-	r = 0x00200000;        /* r = moving bit from right to left */
-
-	while (r != 0) {
-		t = s0 + r;
-		if (t <= ix0) {
-			s0   = t + r;
-			ix0 -= t;
-			q   += r;
-		}
-		ix0 += ix0 + ((ix1&sign)>>31);
-		ix1 += ix1;
-		r >>= 1;
+	/* special case handling.  */
+	ix = asuint64(x);
+	top = ix >> 52;
+	if (predict_false(top - 0x001 >= 0x7ff - 0x001)) {
+		/* x < 0x1p-1022 or inf or nan.  */
+		if (ix * 2 == 0)
+			return x;
+		if (ix == 0x7ff0000000000000)
+			return x;
+		if (ix > 0x7ff0000000000000)
+			return __math_invalid(x);
+		/* x is subnormal, normalize it.  */
+		ix = asuint64(x * 0x1p52);
+		top = ix >> 52;
+		top -= 52;
 	}
 
-	r = sign;
-	while (r != 0) {
-		t1 = s1 + r;
-		t  = s0;
-		if (t < ix0 || (t == ix0 && t1 <= ix1)) {
-			s1 = t1 + r;
-			if ((t1&sign) == sign && (s1&sign) == 0)
-				s0++;
-			ix0 -= t;
-			if (ix1 < t1)
-				ix0--;
-			ix1 -= t1;
-			q1 += r;
-		}
-		ix0 += ix0 + ((ix1&sign)>>31);
-		ix1 += ix1;
-		r >>= 1;
-	}
+	/* argument reduction:
+	   x = 4^e m; with integer e, and m in [1, 4)
+	   m: fixed point representation [2.62]
+	   2^e is the exponent part of the result.  */
+	int even = top & 1;
+	m = (ix << 11) | 0x8000000000000000;
+	if (even) m >>= 1;
+	top = (top + 0x3ff) >> 1;
 
-	/* use floating add to find out rounding direction */
-	if ((ix0|ix1) != 0) {
-		z = 1.0 - tiny; /* raise inexact flag */
-		if (z >= 1.0) {
-			z = 1.0 + tiny;
-			if (q1 == (uint32_t)0xffffffff) {
-				q1 = 0;
-				q++;
-			} else if (z > 1.0) {
-				if (q1 == (uint32_t)0xfffffffe)
-					q++;
-				q1 += 2;
-			} else
-				q1 += q1 & 1;
-		}
+	/* approximate r ~ 1/sqrt(m) and s ~ sqrt(m) when m in [1,4)
+
+	   initial estimate:
+	   7bit table lookup (1bit exponent and 6bit significand).
+
+	   iterative approximation:
+	   using 2 goldschmidt iterations with 32bit int arithmetics
+	   and a final iteration with 64bit int arithmetics.
+
+	   details:
+
+	   the relative error (e = r0 sqrt(m)-1) of a linear estimate
+	   (r0 = a m + b) is |e| < 0.085955 ~ 0x1.6p-4 at best,
+	   a table lookup is faster and needs one less iteration
+	   6 bit lookup table (128b) gives |e| < 0x1.f9p-8
+	   7 bit lookup table (256b) gives |e| < 0x1.fdp-9
+	   for single and double prec 6bit is enough but for quad
+	   prec 7bit is needed (or modified iterations). to avoid
+	   one more iteration >=13bit table would be needed (16k).
+
+	   a newton-raphson iteration for r is
+	     w = r*r
+	     u = 3 - m*w
+	     r = r*u/2
+	   can use a goldschmidt iteration for s at the end or
+	     s = m*r
+
+	   first goldschmidt iteration is
+	     s = m*r
+	     u = 3 - s*r
+	     r = r*u/2
+	     s = s*u/2
+	   next goldschmidt iteration is
+	     u = 3 - s*r
+	     r = r*u/2
+	     s = s*u/2
+	   and at the end r is not computed only s.
+
+	   they use the same amount of operations and converge at the
+	   same quadratic rate, i.e. if
+	     r1 sqrt(m) - 1 = e, then
+	     r2 sqrt(m) - 1 = -3/2 e^2 - 1/2 e^3
+	   the advantage of goldschmidt is that the mul for s and r
+	   are independent (computed in parallel), however it is not
+	   "self synchronizing": it only uses the input m in the
+	   first iteration so rounding errors accumulate. at the end
+	   or when switching to larger precision arithmetics rounding
+	   errors dominate so the first iteration should be used.
+
+	   the fixed point representations are
+	     m: 2.30 r: 0.32, s: 2.30, d: 2.30, u: 2.30, three: 2.30
+	   and after switching to 64 bit
+	     m: 2.62 r: 0.64, s: 2.62, d: 2.62, u: 2.62, three: 2.62  */
+
+	static const uint64_t three = 0xc0000000;
+	uint64_t r, s, d, u, i;
+
+	i = (ix >> 46) % 128;
+	r = (uint32_t)__rsqrt_tab[i] << 16;
+	/* |r sqrt(m) - 1| < 0x1.fdp-9 */
+	s = mul32(m>>32, r);
+	/* |s/sqrt(m) - 1| < 0x1.fdp-9 */
+	d = mul32(s, r);
+	u = three - d;
+	r = mul32(r, u) << 1;
+	/* |r sqrt(m) - 1| < 0x1.7bp-16 */
+	s = mul32(s, u) << 1;
+	/* |s/sqrt(m) - 1| < 0x1.7bp-16 */
+	d = mul32(s, r);
+	u = three - d;
+	r = mul32(r, u) << 1;
+	/* |r sqrt(m) - 1| < 0x1.3704p-29 (measured worst-case) */
+	r = r << 32;
+	s = mul64(m, r);
+	d = mul64(s, r);
+	u = (three<<32) - d;
+	s = mul64(s, u);  /* repr: 3.61 */
+	/* -0x1p-57 < s - sqrt(m) < 0x1.8001p-61 */
+	s = (s - 2) >> 9; /* repr: 12.52 */
+	/* -0x1.09p-52 < s - sqrt(m) < -0x1.fffcp-63 */
+
+	/* s < sqrt(m) < s + 0x1.09p-52,
+	   compute nearest rounded result:
+	   the nearest result to 52 bits is either s or s+0x1p-52,
+	   we can decide by comparing (2^52 s + 0.5)^2 to 2^104 m.  */
+	uint64_t d0, d1, d2;
+	double y, t;
+	d0 = (m << 42) - s*s;
+	d1 = s - d0;
+	d2 = d1 + s + 1;
+	s += d1 >> 63;
+	s &= 0x000fffffffffffff;
+	s |= top << 52;
+	y = asdouble(s);
+	if (FENV_SUPPORT) {
+		/* handle rounding modes and inexact exception:
+		   only (s+1)^2 == 2^42 m case is exact otherwise
+		   add a tiny value to cause the fenv effects.  */
+		uint64_t tiny = predict_false(d2==0) ? 0 : 0x0010000000000000;
+		tiny |= (d1^d2) & 0x8000000000000000;
+		t = asdouble(tiny);
+		y = eval_as_double(y + t);
 	}
-	ix0 = (q>>1) + 0x3fe00000;
-	ix1 = q1>>1;
-	if (q&1)
-		ix1 |= sign;
-	INSERT_WORDS(z, ix0 + ((uint32_t)m << 20), ix1);
-	return z;
+	return y;
 }

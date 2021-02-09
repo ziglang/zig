@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include "syscall.h"
+#include "lock.h"
 #include "pthread_impl.h"
 #include "fdop.h"
 
@@ -170,9 +171,6 @@ int posix_spawn(pid_t *restrict res, const char *restrict path,
 	int ec=0, cs;
 	struct args args;
 
-	if (pipe2(args.p, O_CLOEXEC))
-		return errno;
-
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cs);
 
 	args.path = path;
@@ -182,9 +180,20 @@ int posix_spawn(pid_t *restrict res, const char *restrict path,
 	args.envp = envp;
 	pthread_sigmask(SIG_BLOCK, SIGALL_SET, &args.oldmask);
 
+	/* The lock guards both against seeing a SIGABRT disposition change
+	 * by abort and against leaking the pipe fd to fork-without-exec. */
+	LOCK(__abort_lock);
+
+	if (pipe2(args.p, O_CLOEXEC)) {
+		UNLOCK(__abort_lock);
+		ec = errno;
+		goto fail;
+	}
+
 	pid = __clone(child, stack+sizeof stack,
 		CLONE_VM|CLONE_VFORK|SIGCHLD, &args);
 	close(args.p[1]);
+	UNLOCK(__abort_lock);
 
 	if (pid > 0) {
 		if (read(args.p[0], &ec, sizeof ec) != sizeof ec) ec = 0;
@@ -197,6 +206,7 @@ int posix_spawn(pid_t *restrict res, const char *restrict path,
 
 	if (!ec && res) *res = pid;
 
+fail:
 	pthread_sigmask(SIG_SETMASK, &args.oldmask, 0);
 	pthread_setcancelstate(cs, 0);
 

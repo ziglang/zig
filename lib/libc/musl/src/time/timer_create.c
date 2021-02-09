@@ -2,6 +2,7 @@
 #include <setjmp.h>
 #include <limits.h>
 #include "pthread_impl.h"
+#include "atomic.h"
 
 struct ksigevent {
 	union sigval sigev_value;
@@ -32,19 +33,6 @@ static void cleanup_fromsig(void *p)
 	longjmp(p, 1);
 }
 
-static void timer_handler(int sig, siginfo_t *si, void *ctx)
-{
-}
-
-static void install_handler()
-{
-	struct sigaction sa = {
-		.sa_sigaction = timer_handler,
-		.sa_flags = SA_SIGINFO | SA_RESTART
-	};
-	__libc_sigaction(SIGTIMER, &sa, 0);
-}
-
 static void *start(void *arg)
 {
 	pthread_t self = __pthread_self();
@@ -71,7 +59,7 @@ static void *start(void *arg)
 
 int timer_create(clockid_t clk, struct sigevent *restrict evp, timer_t *restrict res)
 {
-	static pthread_once_t once = PTHREAD_ONCE_INIT;
+	volatile static int init = 0;
 	pthread_t td;
 	pthread_attr_t attr;
 	int r;
@@ -83,11 +71,15 @@ int timer_create(clockid_t clk, struct sigevent *restrict evp, timer_t *restrict
 	switch (evp ? evp->sigev_notify : SIGEV_SIGNAL) {
 	case SIGEV_NONE:
 	case SIGEV_SIGNAL:
+	case SIGEV_THREAD_ID:
 		if (evp) {
 			ksev.sigev_value = evp->sigev_value;
 			ksev.sigev_signo = evp->sigev_signo;
 			ksev.sigev_notify = evp->sigev_notify;
-			ksev.sigev_tid = 0;
+			if (evp->sigev_notify == SIGEV_THREAD_ID)
+				ksev.sigev_tid = evp->sigev_notify_thread_id;
+			else
+				ksev.sigev_tid = 0;
 			ksevp = &ksev;
 		}
 		if (syscall(SYS_timer_create, clk, ksevp, &timerid) < 0)
@@ -95,7 +87,11 @@ int timer_create(clockid_t clk, struct sigevent *restrict evp, timer_t *restrict
 		*res = (void *)(intptr_t)timerid;
 		break;
 	case SIGEV_THREAD:
-		pthread_once(&once, install_handler);
+		if (!init) {
+			struct sigaction sa = { .sa_handler = SIG_DFL };
+			__libc_sigaction(SIGTIMER, &sa, 0);
+			a_store(&init, 1);
+		}
 		if (evp->sigev_notify_attributes)
 			attr = *evp->sigev_notify_attributes;
 		else
@@ -115,7 +111,7 @@ int timer_create(clockid_t clk, struct sigevent *restrict evp, timer_t *restrict
 
 		ksev.sigev_value.sival_ptr = 0;
 		ksev.sigev_signo = SIGTIMER;
-		ksev.sigev_notify = 4; /* SIGEV_THREAD_ID */
+		ksev.sigev_notify = SIGEV_THREAD_ID;
 		ksev.sigev_tid = td->tid;
 		if (syscall(SYS_timer_create, clk, &ksev, &timerid) < 0)
 			timerid = -1;

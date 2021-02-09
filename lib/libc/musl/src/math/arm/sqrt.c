@@ -1,6 +1,6 @@
 #include <math.h>
 
-#if __ARM_PCS_VFP || (__VFP_FP__ && !__SOFTFP__)
+#if (__ARM_PCS_VFP || (__VFP_FP__ && !__SOFTFP__)) && (__ARM_FP&8)
 
 double sqrt(double x)
 {
