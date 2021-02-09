@@ -250,6 +250,7 @@ pub const Tree = struct {
             .FnProto,
             .ArrayType,
             .ArrayTypeSentinel,
+            .ErrorValue,
             => return main_tokens[n],
 
             .ArrayInitDot,
@@ -424,12 +425,18 @@ pub const Tree = struct {
                 return main_tokens[n] - 1;
             },
 
-            .WhileSimple => unreachable, // TODO
-            .WhileCont => unreachable, // TODO
-            .While => unreachable, // TODO
-            .ForSimple => unreachable, // TODO
-            .For => unreachable, // TODO
-            .ErrorValue => unreachable, // TODO
+            .WhileSimple,
+            .WhileCont,
+            .While,
+            .ForSimple,
+            .For,
+            => {
+                const main_token = main_tokens[n];
+                return switch (token_tags[main_token - 1]) {
+                    .Keyword_inline => main_token - 1,
+                    else => main_token,
+                };
+            },
         };
     }
 
@@ -437,6 +444,7 @@ pub const Tree = struct {
         const tags = tree.nodes.items(.tag);
         const datas = tree.nodes.items(.data);
         const main_tokens = tree.nodes.items(.main_token);
+        const token_starts = tree.tokens.items(.start);
         var n = node;
         var end_offset: TokenIndex = 0;
         while (true) switch (tags[n]) {
@@ -521,6 +529,8 @@ pub const Tree = struct {
             .AsmSimple,
             .AsmOutput,
             .AsmInput,
+            .FnProtoSimple,
+            .FnProtoMulti,
             => return datas[n].rhs + end_offset,
 
             .AnyType,
@@ -759,6 +769,74 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
+            .FnProtoOne => {
+                const extra = tree.extraData(datas[n].lhs, Node.FnProtoOne);
+                // linksection, callconv, align can appear in any order, so we
+                // find the last one here.
+                var max_node: Node.Index = datas[n].rhs;
+                var max_start = token_starts[main_tokens[max_node]];
+                var max_offset: TokenIndex = 0;
+                if (extra.align_expr != 0) {
+                    const start = token_starts[main_tokens[extra.align_expr]];
+                    if (start > max_start) {
+                        max_node = extra.align_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                if (extra.section_expr != 0) {
+                    const start = token_starts[main_tokens[extra.section_expr]];
+                    if (start > max_start) {
+                        max_node = extra.section_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                if (extra.callconv_expr != 0) {
+                    const start = token_starts[main_tokens[extra.callconv_expr]];
+                    if (start > max_start) {
+                        max_node = extra.callconv_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                n = max_node;
+                end_offset += max_offset;
+            },
+            .FnProto => {
+                const extra = tree.extraData(datas[n].lhs, Node.FnProto);
+                // linksection, callconv, align can appear in any order, so we
+                // find the last one here.
+                var max_node: Node.Index = datas[n].rhs;
+                var max_start = token_starts[main_tokens[max_node]];
+                var max_offset: TokenIndex = 0;
+                if (extra.align_expr != 0) {
+                    const start = token_starts[main_tokens[extra.align_expr]];
+                    if (start > max_start) {
+                        max_node = extra.align_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                if (extra.section_expr != 0) {
+                    const start = token_starts[main_tokens[extra.section_expr]];
+                    if (start > max_start) {
+                        max_node = extra.section_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                if (extra.callconv_expr != 0) {
+                    const start = token_starts[main_tokens[extra.callconv_expr]];
+                    if (start > max_start) {
+                        max_node = extra.callconv_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                n = max_node;
+                end_offset += max_offset;
+            },
 
             // These are not supported by lastToken() because implementation would
             // require recursion due to the optional comma followed by rbrace.
@@ -782,10 +860,6 @@ pub const Tree = struct {
             .While => unreachable, // TODO
             .ForSimple => unreachable, // TODO
             .For => unreachable, // TODO
-            .FnProtoSimple => unreachable, // TODO
-            .FnProtoMulti => unreachable, // TODO
-            .FnProtoOne => unreachable, // TODO
-            .FnProto => unreachable, // TODO
             .ErrorValue => unreachable, // TODO
         };
     }
@@ -2217,11 +2291,11 @@ pub const Node = struct {
         /// `fn(a: b, c: d) rhs`. `sub_range_list[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         FnProtoMulti,
-        /// `fn(a: b) rhs linksection(e) callconv(f)`. lhs is index into extra_data.
+        /// `fn(a: b) rhs linksection(e) callconv(f)`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
         FnProtoOne,
-        /// `fn(a: b, c: d) rhs linksection(e) callconv(f)`. `fn_proto_list[lhs]`.
+        /// `fn(a: b, c: d) rhs linksection(e) callconv(f)`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         FnProto,
         /// lhs is the FnProto, rhs is the function body block.

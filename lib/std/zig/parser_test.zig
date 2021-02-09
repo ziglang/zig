@@ -337,15 +337,15 @@ test "zig fmt: asm expression with comptime content" {
     );
 }
 
-//test "zig fmt: anytype struct field" {
-//    try testCanonical(
-//        \\pub const Pointer = struct {
-//        \\    sentinel: anytype,
-//        \\};
-//        \\
-//    );
-//}
-//
+test "zig fmt: anytype struct field" {
+    try testCanonical(
+        \\pub const Pointer = struct {
+        \\    sentinel: anytype,
+        \\};
+        \\
+    );
+}
+
 //test "zig fmt: sentinel-terminated array type" {
 //    try testCanonical(
 //        \\pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
@@ -691,18 +691,18 @@ test "zig fmt: block in slice expression" {
     );
 }
 
-//test "zig fmt: async function" {
-//    try testCanonical(
-//        \\pub const Server = struct {
-//        \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.Async) void,
-//        \\};
-//        \\test "hi" {
-//        \\    var ptr = @ptrCast(fn (i32) callconv(.Async) void, other);
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: async function" {
+    try testCanonical(
+        \\pub const Server = struct {
+        \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.Async) void,
+        \\};
+        \\test "hi" {
+        \\    var ptr = @ptrCast(fn (i32) callconv(.Async) void, other);
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: whitespace fixes" {
 //    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
 //        \\test "" {

@@ -22,7 +22,7 @@ pub const Error = error{
 const Writer = std.ArrayList(u8).Writer;
 const Ais = std.io.AutoIndentingStream(Writer);
 
-/// `gpa` is used both for allocating the resulting formatted source code, but also
+/// `gpa` is used for allocating the resulting formatted source code, as well as
 /// for allocating extra stack memory if needed, because this function utilizes recursion.
 /// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
@@ -191,17 +191,8 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
 
         .ErrorValue => unreachable, // TODO
 
-        .AnyType => unreachable, // TODO
-        //.AnyType => {
-        //    const any_type = base.castTag(.AnyType).?;
-        //    if (mem.eql(u8, tree.tokenSlice(any_type.token), "var")) {
-        //        // TODO remove in next release cycle
-        //        try ais.writer().writeAll("anytype");
-        //        if (space == .Comma) try ais.writer().writeAll(",\n");
-        //        return;
-        //    }
-        //    return renderToken(ais, tree, any_type.token, space);
-        //},
+        .AnyType => return renderToken(ais, tree, main_tokens[node], space),
+
         .BlockTwo,
         .BlockTwoSemicolon,
         => {
@@ -1412,9 +1403,11 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.full.FnProto, space: S
                     try renderToken(ais, tree, last_param_token, .Space); // ,
                     last_param_token += 1;
                 },
-                else => unreachable,
+                else => {}, // Parameter type without a name.
             }
-            if (token_tags[last_param_token] == .Identifier) {
+            if (token_tags[last_param_token] == .Identifier and
+                token_tags[last_param_token + 1] == .Colon)
+            {
                 try renderToken(ais, tree, last_param_token, .None); // name
                 last_param_token += 1;
                 try renderToken(ais, tree, last_param_token, .Space); // :
@@ -1427,7 +1420,7 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.full.FnProto, space: S
             const param = fn_proto.ast.params[param_i];
             param_i += 1;
             try renderExpression(ais, tree, param, .None);
-            last_param_token = tree.lastToken(param) + 1;
+            last_param_token = tree.lastToken(param);
         }
     } else {
         // One param per line.
