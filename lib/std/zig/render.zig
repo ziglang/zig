@@ -816,118 +816,8 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .IfSimple => return renderIf(ais, tree, tree.ifSimple(node), space),
         .If => return renderIf(ais, tree, tree.ifFull(node), space),
 
-        .Asm => unreachable, // TODO
-        .AsmSimple => unreachable, // TODO
-        .AsmOutput => unreachable, // TODO
-        .AsmInput => unreachable, // TODO
-        //.Asm => {
-        //    const asm_node = @fieldParentPtr(ast.Node.Asm, "base", base);
-
-        //    try renderToken(ais, tree, asm_node.asm_token, Space.Space); // asm
-
-        //    if (asm_node.volatile_token) |volatile_token| {
-        //        try renderToken(ais, tree, volatile_token, Space.Space); // volatile
-        //        try renderToken(ais, tree, tree.nextToken(volatile_token), Space.None); // (
-        //    } else {
-        //        try renderToken(ais, tree, tree.nextToken(asm_node.asm_token), Space.None); // (
-        //    }
-
-        //    asmblk: {
-        //        ais.pushIndent();
-        //        defer ais.popIndent();
-
-        //        if (asm_node.outputs.len == 0 and asm_node.inputs.len == 0 and asm_node.clobbers.len == 0) {
-        //            try renderExpression(ais, tree, asm_node.template, Space.None);
-        //            break :asmblk;
-        //        }
-
-        //        try renderExpression(ais, tree, asm_node.template, Space.Newline);
-
-        //        ais.setIndentDelta(asm_indent_delta);
-        //        defer ais.setIndentDelta(indent_delta);
-
-        //        const colon1 = tree.nextToken(asm_node.template.lastToken());
-
-        //        const colon2 = if (asm_node.outputs.len == 0) blk: {
-        //            try renderToken(ais, tree, colon1, Space.Newline); // :
-
-        //            break :blk tree.nextToken(colon1);
-        //        } else blk: {
-        //            try renderToken(ais, tree, colon1, Space.Space); // :
-
-        //            ais.pushIndent();
-        //            defer ais.popIndent();
-
-        //            for (asm_node.outputs) |*asm_output, i| {
-        //                if (i + 1 < asm_node.outputs.len) {
-        //                    const next_asm_output = asm_node.outputs[i + 1];
-        //                    try renderAsmOutput(allocator, ais, tree, asm_output, Space.None);
-
-        //                    const comma = tree.prevToken(next_asm_output.firstToken());
-        //                    try renderToken(ais, tree, comma, Space.Newline); // ,
-        //                    try renderExtraNewlineToken(ais, tree, next_asm_output.firstToken());
-        //                } else if (asm_node.inputs.len == 0 and asm_node.clobbers.len == 0) {
-        //                    try renderAsmOutput(allocator, ais, tree, asm_output, Space.Newline);
-        //                    break :asmblk;
-        //                } else {
-        //                    try renderAsmOutput(allocator, ais, tree, asm_output, Space.Newline);
-        //                    const comma_or_colon = tree.nextToken(asm_output.lastToken());
-        //                    break :blk switch (tree.token_tags[comma_or_colon]) {
-        //                        .Comma => tree.nextToken(comma_or_colon),
-        //                        else => comma_or_colon,
-        //                    };
-        //                }
-        //            }
-        //            unreachable;
-        //        };
-
-        //        const colon3 = if (asm_node.inputs.len == 0) blk: {
-        //            try renderToken(ais, tree, colon2, Space.Newline); // :
-        //            break :blk tree.nextToken(colon2);
-        //        } else blk: {
-        //            try renderToken(ais, tree, colon2, Space.Space); // :
-        //            ais.pushIndent();
-        //            defer ais.popIndent();
-        //            for (asm_node.inputs) |*asm_input, i| {
-        //                if (i + 1 < asm_node.inputs.len) {
-        //                    const next_asm_input = &asm_node.inputs[i + 1];
-        //                    try renderAsmInput(allocator, ais, tree, asm_input, Space.None);
-
-        //                    const comma = tree.prevToken(next_asm_input.firstToken());
-        //                    try renderToken(ais, tree, comma, Space.Newline); // ,
-        //                    try renderExtraNewlineToken(ais, tree, next_asm_input.firstToken());
-        //                } else if (asm_node.clobbers.len == 0) {
-        //                    try renderAsmInput(allocator, ais, tree, asm_input, Space.Newline);
-        //                    break :asmblk;
-        //                } else {
-        //                    try renderAsmInput(allocator, ais, tree, asm_input, Space.Newline);
-        //                    const comma_or_colon = tree.nextToken(asm_input.lastToken());
-        //                    break :blk switch (tree.token_tags[comma_or_colon]) {
-        //                        .Comma => tree.nextToken(comma_or_colon),
-        //                        else => comma_or_colon,
-        //                    };
-        //                }
-        //            }
-        //            unreachable;
-        //        };
-
-        //        try renderToken(ais, tree, colon3, Space.Space); // :
-        //        ais.pushIndent();
-        //        defer ais.popIndent();
-        //        for (asm_node.clobbers) |clobber_node, i| {
-        //            if (i + 1 >= asm_node.clobbers.len) {
-        //                try renderExpression(ais, tree, clobber_node, Space.Newline);
-        //                break :asmblk;
-        //            } else {
-        //                try renderExpression(ais, tree, clobber_node, Space.None);
-        //                const comma = tree.nextToken(clobber_node.lastToken());
-        //                try renderToken(ais, tree, comma, Space.Space); // ,
-        //            }
-        //        }
-        //    }
-
-        //    return renderToken(ais, tree, asm_node.rparen, space);
-        //},
+        .AsmSimple => return renderAsm(ais, tree, tree.asmSimple(node), space),
+        .Asm => return renderAsm(ais, tree, tree.asmFull(node), space),
 
         .EnumLiteral => {
             try renderToken(ais, tree, main_tokens[node] - 1, .None); // .
@@ -945,6 +835,8 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .AlignedVarDecl => unreachable,
         .UsingNamespace => unreachable,
         .TestDecl => unreachable,
+        .AsmOutput => unreachable,
+        .AsmInput => unreachable,
     }
 }
 
@@ -952,7 +844,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
 fn renderArrayType(
     ais: *Ais,
     tree: ast.Tree,
-    array_type: ast.Full.ArrayType,
+    array_type: ast.full.ArrayType,
     space: Space,
 ) Error!void {
     try renderToken(ais, tree, array_type.ast.lbracket, .None); // lbracket
@@ -968,7 +860,7 @@ fn renderArrayType(
 fn renderPtrType(
     ais: *Ais,
     tree: ast.Tree,
-    ptr_type: ast.Full.PtrType,
+    ptr_type: ast.full.PtrType,
     space: Space,
 ) Error!void {
     switch (ptr_type.kind) {
@@ -1040,7 +932,7 @@ fn renderPtrType(
 fn renderSlice(
     ais: *Ais,
     tree: ast.Tree,
-    slice: ast.Full.Slice,
+    slice: ast.full.Slice,
     space: Space,
 ) Error!void {
     const node_tags = tree.nodes.items(.tag);
@@ -1072,48 +964,56 @@ fn renderSlice(
 }
 
 fn renderAsmOutput(
-    allocator: *mem.Allocator,
     ais: *Ais,
     tree: ast.Tree,
-    asm_output: *const ast.Node.Asm.Output,
+    asm_output: ast.Node.Index,
     space: Space,
 ) Error!void {
-    try ais.writer().writeAll("[");
-    try renderExpression(ais, tree, asm_output.symbolic_name, Space.None);
-    try ais.writer().writeAll("] ");
-    try renderExpression(ais, tree, asm_output.constraint, Space.None);
-    try ais.writer().writeAll(" (");
+    const token_tags = tree.tokens.items(.tag);
+    const node_tags = tree.nodes.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
+    const datas = tree.nodes.items(.data);
+    assert(node_tags[asm_output] == .AsmOutput);
+    const symbolic_name = main_tokens[asm_output];
 
-    switch (asm_output.kind) {
-        .Variable => |variable_name| {
-            try renderExpression(ais, tree, &variable_name.base, Space.None);
-        },
-        .Return => |return_type| {
-            try ais.writer().writeAll("-> ");
-            try renderExpression(ais, tree, return_type, Space.None);
-        },
+    try renderToken(ais, tree, symbolic_name - 1, .None); // lbracket
+    try renderToken(ais, tree, symbolic_name, .None); // ident
+    try renderToken(ais, tree, symbolic_name + 1, .Space); // rbracket
+    try renderToken(ais, tree, symbolic_name + 2, .Space); // "constraint"
+    try renderToken(ais, tree, symbolic_name + 3, .None); // lparen
+
+    if (token_tags[symbolic_name + 4] == .Arrow) {
+        try renderToken(ais, tree, symbolic_name + 4, .Space); // ->
+        try renderExpression(ais, tree, datas[asm_output].lhs, Space.None);
+        return renderToken(ais, tree, datas[asm_output].rhs, space); // rparen
+    } else {
+        try renderToken(ais, tree, symbolic_name + 4, .None); // ident
+        return renderToken(ais, tree, symbolic_name + 5, space); // rparen
     }
-
-    return renderToken(ais, tree, asm_output.lastToken(), space); // )
 }
 
 fn renderAsmInput(
-    allocator: *mem.Allocator,
     ais: *Ais,
     tree: ast.Tree,
-    asm_input: *const ast.Node.Asm.Input,
+    asm_input: ast.Node.Index,
     space: Space,
 ) Error!void {
-    try ais.writer().writeAll("[");
-    try renderExpression(ais, tree, asm_input.symbolic_name, Space.None);
-    try ais.writer().writeAll("] ");
-    try renderExpression(ais, tree, asm_input.constraint, Space.None);
-    try ais.writer().writeAll(" (");
-    try renderExpression(ais, tree, asm_input.expr, Space.None);
-    return renderToken(ais, tree, asm_input.lastToken(), space); // )
+    const node_tags = tree.nodes.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
+    const datas = tree.nodes.items(.data);
+    assert(node_tags[asm_input] == .AsmInput);
+    const symbolic_name = main_tokens[asm_input];
+
+    try renderToken(ais, tree, symbolic_name - 1, .None); // lbracket
+    try renderToken(ais, tree, symbolic_name, .None); // ident
+    try renderToken(ais, tree, symbolic_name + 1, .Space); // rbracket
+    try renderToken(ais, tree, symbolic_name + 2, .Space); // "constraint"
+    try renderToken(ais, tree, symbolic_name + 3, .None); // lparen
+    try renderExpression(ais, tree, datas[asm_input].lhs, Space.None);
+    return renderToken(ais, tree, datas[asm_input].rhs, space); // rparen
 }
 
-fn renderVarDecl(ais: *Ais, tree: ast.Tree, var_decl: ast.Full.VarDecl) Error!void {
+fn renderVarDecl(ais: *Ais, tree: ast.Tree, var_decl: ast.full.VarDecl) Error!void {
     if (var_decl.visib_token) |visib_token| {
         try renderToken(ais, tree, visib_token, Space.Space); // pub
     }
@@ -1200,7 +1100,7 @@ fn renderVarDecl(ais: *Ais, tree: ast.Tree, var_decl: ast.Full.VarDecl) Error!vo
     try renderExpression(ais, tree, var_decl.ast.init_node, .Semicolon);
 }
 
-fn renderIf(ais: *Ais, tree: ast.Tree, if_node: ast.Full.If, space: Space) Error!void {
+fn renderIf(ais: *Ais, tree: ast.Tree, if_node: ast.full.If, space: Space) Error!void {
     const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
 
@@ -1334,7 +1234,7 @@ fn renderIf(ais: *Ais, tree: ast.Tree, if_node: ast.Full.If, space: Space) Error
 fn renderContainerField(
     ais: *Ais,
     tree: ast.Tree,
-    field: ast.Full.ContainerField,
+    field: ast.full.ContainerField,
     space: Space,
 ) Error!void {
     const main_tokens = tree.nodes.items(.main_token);
@@ -1430,7 +1330,7 @@ fn renderBuiltinCall(
     }
 }
 
-fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.Full.FnProto, space: Space) Error!void {
+fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.full.FnProto, space: Space) Error!void {
     const token_tags = tree.tokens.items(.tag);
     const token_starts = tree.tokens.items(.start);
 
@@ -1618,7 +1518,7 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.Full.FnProto, space: S
 fn renderSwitchCase(
     ais: *Ais,
     tree: ast.Tree,
-    switch_case: ast.Full.SwitchCase,
+    switch_case: ast.full.SwitchCase,
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
@@ -1709,7 +1609,7 @@ fn renderBlock(
 fn renderStructInit(
     ais: *Ais,
     tree: ast.Tree,
-    struct_init: ast.Full.StructInit,
+    struct_init: ast.full.StructInit,
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
@@ -1763,7 +1663,7 @@ fn renderStructInit(
 fn renderArrayInit(
     ais: *Ais,
     tree: ast.Tree,
-    array_init: ast.Full.ArrayInit,
+    array_init: ast.full.ArrayInit,
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
@@ -1809,7 +1709,7 @@ fn renderArrayInit(
 fn renderContainerDecl(
     ais: *Ais,
     tree: ast.Tree,
-    container_decl: ast.Full.ContainerDecl,
+    container_decl: ast.full.ContainerDecl,
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
@@ -1892,6 +1792,135 @@ fn renderContainerDecl(
     ais.popIndent();
 
     return renderToken(ais, tree, rbrace, space); // rbrace
+}
+
+fn renderAsm(
+    ais: *Ais,
+    tree: ast.Tree,
+    asm_node: ast.full.Asm,
+    space: Space,
+) Error!void {
+    const token_tags = tree.tokens.items(.tag);
+
+    try renderToken(ais, tree, asm_node.ast.asm_token, .Space); // asm
+
+    if (asm_node.volatile_token) |volatile_token| {
+        try renderToken(ais, tree, volatile_token, .Space); // volatile
+        try renderToken(ais, tree, volatile_token + 1, .None); // lparen
+    } else {
+        try renderToken(ais, tree, asm_node.ast.asm_token + 1, .None); // lparen
+    }
+
+    if (asm_node.ast.items.len == 0) {
+        try renderExpression(ais, tree, asm_node.ast.template, .None);
+        if (asm_node.first_clobber) |first_clobber| {
+            // asm ("foo" ::: "a", "b")
+            var tok_i = first_clobber;
+            while (true) : (tok_i += 1) {
+                try renderToken(ais, tree, tok_i, .None);
+                tok_i += 1;
+                switch (token_tags[tok_i]) {
+                    .RParen => return renderToken(ais, tree, tok_i, space),
+                    .Comma => try renderToken(ais, tree, tok_i, .Space),
+                    else => unreachable,
+                }
+            }
+        } else {
+            // asm ("foo")
+            return renderToken(ais, tree, asm_node.ast.rparen, space); // rparen
+        }
+    }
+
+    ais.pushIndent();
+    try renderExpression(ais, tree, asm_node.ast.template, .Newline);
+    ais.setIndentDelta(asm_indent_delta);
+    const colon1 = tree.lastToken(asm_node.ast.template) + 1;
+
+    const colon2 = if (asm_node.outputs.len == 0) colon2: {
+        try renderToken(ais, tree, colon1, .Newline); // :
+        break :colon2 colon1 + 1;
+    } else colon2: {
+        try renderToken(ais, tree, colon1, .Space); // :
+
+        ais.pushIndent();
+        for (asm_node.outputs) |asm_output, i| {
+            if (i + 1 < asm_node.outputs.len) {
+                const next_asm_output = asm_node.outputs[i + 1];
+                try renderAsmOutput(ais, tree, asm_output, .None);
+
+                const comma = tree.firstToken(next_asm_output) - 1;
+                try renderToken(ais, tree, comma, .Newline); // ,
+                try renderExtraNewlineToken(ais, tree, tree.firstToken(next_asm_output));
+            } else if (asm_node.inputs.len == 0 and asm_node.first_clobber == null) {
+                try renderAsmOutput(ais, tree, asm_output, .Newline);
+                ais.popIndent();
+                ais.setIndentDelta(indent_delta);
+                ais.popIndent();
+                return renderToken(ais, tree, asm_node.ast.rparen, space); // rparen
+            } else {
+                try renderAsmOutput(ais, tree, asm_output, .Newline);
+                const comma_or_colon = tree.lastToken(asm_output) + 1;
+                ais.popIndent();
+                break :colon2 switch (token_tags[comma_or_colon]) {
+                    .Comma => comma_or_colon + 1,
+                    else => comma_or_colon,
+                };
+            }
+        } else unreachable;
+    };
+
+    const colon3 = if (asm_node.inputs.len == 0) colon3: {
+        try renderToken(ais, tree, colon2, .Newline); // :
+        break :colon3 colon2 + 1;
+    } else colon3: {
+        try renderToken(ais, tree, colon2, .Space); // :
+        ais.pushIndent();
+        for (asm_node.inputs) |asm_input, i| {
+            if (i + 1 < asm_node.inputs.len) {
+                const next_asm_input = asm_node.inputs[i + 1];
+                try renderAsmInput(ais, tree, asm_input, .None);
+
+                const first_token = tree.firstToken(next_asm_input);
+                try renderToken(ais, tree, first_token - 1, .Newline); // ,
+                try renderExtraNewlineToken(ais, tree, first_token);
+            } else if (asm_node.first_clobber == null) {
+                try renderAsmInput(ais, tree, asm_input, .Newline);
+                ais.popIndent();
+                ais.setIndentDelta(indent_delta);
+                ais.popIndent();
+                return renderToken(ais, tree, asm_node.ast.rparen, space); // rparen
+            } else {
+                try renderAsmInput(ais, tree, asm_input, .Newline);
+                const comma_or_colon = tree.lastToken(asm_input) + 1;
+                ais.popIndent();
+                break :colon3 switch (token_tags[comma_or_colon]) {
+                    .Comma => comma_or_colon + 1,
+                    else => comma_or_colon,
+                };
+            }
+        }
+        unreachable;
+    };
+
+    try renderToken(ais, tree, colon3, .Space); // :
+    const first_clobber = asm_node.first_clobber.?;
+    var tok_i = first_clobber;
+    while (true) {
+        switch (token_tags[tok_i + 1]) {
+            .RParen => {
+                ais.setIndentDelta(indent_delta);
+                ais.popIndent();
+                try renderToken(ais, tree, tok_i, .Newline);
+                return renderToken(ais, tree, tok_i + 1, space);
+            },
+            .Comma => {
+                try renderToken(ais, tree, tok_i, .None);
+                try renderToken(ais, tree, tok_i + 1, .Space);
+                tok_i += 2;
+            },
+            else => unreachable,
+        }
+    } else unreachable; // TODO shouldn't need this on while(true)
 }
 
 /// Render an expression, and the comma that follows it, if it is present in the source.

@@ -472,7 +472,7 @@ const Parser = struct {
 
     /// TestDecl <- KEYWORD_test STRINGLITERALSINGLE? Block
     fn expectTestDecl(p: *Parser) !Node.Index {
-        const test_token = try p.expectToken(.Keyword_test);
+        const test_token = p.assertToken(.Keyword_test);
         const name_token = p.eatToken(.StringLiteral);
         const block_node = try p.parseBlock();
         if (block_node == 0) return p.fail(.{ .ExpectedLBrace = .{ .token = p.tok_i } });
@@ -739,7 +739,7 @@ const Parser = struct {
     /// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
     fn expectContainerField(p: *Parser) !Node.Index {
         const comptime_token = p.eatToken(.Keyword_comptime);
-        const name_token = try p.expectToken(.Identifier);
+        const name_token = p.assertToken(.Identifier);
 
         var align_expr: Node.Index = 0;
         var type_expr: Node.Index = 0;
@@ -1846,7 +1846,7 @@ const Parser = struct {
     ///      / CurlySuffixExpr
     fn parsePrimaryExpr(p: *Parser) !Node.Index {
         switch (p.token_tags[p.tok_i]) {
-            .Keyword_asm => return p.parseAsmExpr(),
+            .Keyword_asm => return p.expectAsmExpr(),
             .Keyword_if => return p.parseIfExpr(),
             .Keyword_break => {
                 p.tok_i += 1;
@@ -2910,19 +2910,19 @@ const Parser = struct {
     /// StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
     /// AsmOutputList <- (AsmOutputItem COMMA)* AsmOutputItem?
     /// AsmInputList <- (AsmInputItem COMMA)* AsmInputItem?
-    fn parseAsmExpr(p: *Parser) !Node.Index {
+    fn expectAsmExpr(p: *Parser) !Node.Index {
         const asm_token = p.assertToken(.Keyword_asm);
         _ = p.eatToken(.Keyword_volatile);
         _ = try p.expectToken(.LParen);
         const template = try p.expectExpr();
 
-        if (p.eatToken(.RParen)) |_| {
+        if (p.eatToken(.RParen)) |rparen| {
             return p.addNode(.{
                 .tag = .AsmSimple,
                 .main_token = asm_token,
                 .data = .{
                     .lhs = template,
-                    .rhs = undefined,
+                    .rhs = rparen,
                 },
             });
         }
@@ -2981,16 +2981,17 @@ const Parser = struct {
                 }
             }
         }
-        _ = try p.expectToken(.RParen);
+        const rparen = try p.expectToken(.RParen);
         const span = try p.listToSpan(list.items);
         return p.addNode(.{
             .tag = .Asm,
             .main_token = asm_token,
             .data = .{
                 .lhs = template,
-                .rhs = try p.addExtra(Node.SubRange{
-                    .start = span.start,
-                    .end = span.end,
+                .rhs = try p.addExtra(Node.Asm{
+                    .items_start = span.start,
+                    .items_end = span.end,
+                    .rparen = rparen,
                 }),
             },
         });
@@ -3001,16 +3002,23 @@ const Parser = struct {
         _ = p.eatToken(.LBracket) orelse return null_node;
         const identifier = try p.expectToken(.Identifier);
         _ = try p.expectToken(.RBracket);
-        const constraint = try p.expectToken(.StringLiteral);
+        _ = try p.expectToken(.StringLiteral);
         _ = try p.expectToken(.LParen);
-        const rhs: Node.Index = if (p.eatToken(.Arrow)) |_| try p.expectTypeExpr() else null_node;
-        _ = try p.expectToken(.RParen);
+        const type_expr: Node.Index = blk: {
+            if (p.eatToken(.Arrow)) |_| {
+                break :blk try p.expectTypeExpr();
+            } else {
+                _ = try p.expectToken(.Identifier);
+                break :blk null_node;
+            }
+        };
+        const rparen = try p.expectToken(.RParen);
         return p.addNode(.{
             .tag = .AsmOutput,
             .main_token = identifier,
             .data = .{
-                .lhs = constraint,
-                .rhs = rhs,
+                .lhs = type_expr,
+                .rhs = rparen,
             },
         });
     }
@@ -3020,16 +3028,16 @@ const Parser = struct {
         _ = p.eatToken(.LBracket) orelse return null_node;
         const identifier = try p.expectToken(.Identifier);
         _ = try p.expectToken(.RBracket);
-        const constraint = try p.expectToken(.StringLiteral);
+        _ = try p.expectToken(.StringLiteral);
         _ = try p.expectToken(.LParen);
         const expr = try p.expectExpr();
-        _ = try p.expectToken(.RParen);
+        const rparen = try p.expectToken(.RParen);
         return p.addNode(.{
             .tag = .AsmInput,
             .main_token = identifier,
             .data = .{
-                .lhs = constraint,
-                .rhs = expr,
+                .lhs = expr,
+                .rhs = rparen,
             },
         });
     }
