@@ -267,5 +267,8 @@ hidden double __math_uflow(uint32_t);
 hidden double __math_oflow(uint32_t);
 hidden double __math_divzero(uint32_t);
 hidden double __math_invalid(double);
+#if LDBL_MANT_DIG != DBL_MANT_DIG
+hidden long double __math_invalidl(long double);
+#endif
 
 #endif

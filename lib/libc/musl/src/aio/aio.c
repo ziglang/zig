@@ -9,6 +9,12 @@
 #include "syscall.h"
 #include "atomic.h"
 #include "pthread_impl.h"
+#include "aio_impl.h"
+
+#define malloc __libc_malloc
+#define calloc __libc_calloc
+#define realloc __libc_realloc
+#define free __libc_free
 
 /* The following is a threads-based implementation of AIO with minimal
  * dependence on implementation details. Most synchronization is
@@ -70,6 +76,10 @@ static struct aio_queue *****map;
 static volatile int aio_fd_cnt;
 volatile int __aio_fut;
 
+static size_t io_thread_stack_size;
+
+#define MAX(a,b) ((a)>(b) ? (a) : (b))
+
 static struct aio_queue *__aio_get_queue(int fd, int need)
 {
 	if (fd < 0) {
@@ -84,6 +94,10 @@ static struct aio_queue *__aio_get_queue(int fd, int need)
 		pthread_rwlock_unlock(&maplock);
 		if (fcntl(fd, F_GETFD) < 0) return 0;
 		pthread_rwlock_wrlock(&maplock);
+		if (!io_thread_stack_size) {
+			unsigned long val = __getauxval(AT_MINSIGSTKSZ);
+			io_thread_stack_size = MAX(MINSIGSTKSZ+2048, val+512);
+		}
 		if (!map) map = calloc(sizeof *map, (-1U/2+1)>>24);
 		if (!map) goto out;
 		if (!map[a]) map[a] = calloc(sizeof **map, 256);
@@ -259,15 +273,6 @@ static void *io_thread_func(void *ctx)
 	return 0;
 }
 
-static size_t io_thread_stack_size = MINSIGSTKSZ+2048;
-static pthread_once_t init_stack_size_once;
-
-static void init_stack_size()
-{
-	unsigned long val = __getauxval(AT_MINSIGSTKSZ);
-	if (val > MINSIGSTKSZ) io_thread_stack_size = val + 512;
-}
-
 static int submit(struct aiocb *cb, int op)
 {
 	int ret = 0;
@@ -293,7 +298,6 @@ static int submit(struct aiocb *cb, int op)
 		else
 			pthread_attr_init(&a);
 	} else {
-		pthread_once(&init_stack_size_once, init_stack_size);
 		pthread_attr_init(&a);
 		pthread_attr_setstacksize(&a, io_thread_stack_size);
 		pthread_attr_setguardsize(&a, 0);
@@ -390,6 +394,20 @@ int __aio_close(int fd)
 	a_barrier();
 	if (aio_fd_cnt) aio_cancel(fd, 0);
 	return fd;
+}
+
+void __aio_atfork(int who)
+{
+	if (who<0) {
+		pthread_rwlock_rdlock(&maplock);
+		return;
+	}
+	if (who>0 && map) for (int a=0; a<(-1U/2+1)>>24; a++)
+		if (map[a]) for (int b=0; b<256; b++)
+			if (map[a][b]) for (int c=0; c<256; c++)
+				if (map[a][b][c]) for (int d=0; d<256; d++)
+					map[a][b][c][d] = 0;
+	pthread_rwlock_unlock(&maplock);
 }
 
 weak_alias(aio_cancel, aio_cancel64);

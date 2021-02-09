@@ -1,12 +1,14 @@
 #include <stdlib.h>
 #include "libc.h"
 #include "lock.h"
+#include "fork_impl.h"
 
 #define COUNT 32
 
 static void (*funcs[COUNT])(void);
 static int count;
 static volatile int lock[1];
+volatile int *const __at_quick_exit_lockptr = lock;
 
 void __funcs_on_quick_exit()
 {

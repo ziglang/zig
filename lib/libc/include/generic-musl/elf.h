@@ -603,6 +603,7 @@ typedef struct {
 #define PT_GNU_EH_FRAME	0x6474e550
 #define PT_GNU_STACK	0x6474e551
 #define PT_GNU_RELRO	0x6474e552
+#define PT_GNU_PROPERTY	0x6474e553
 #define PT_LOSUNW	0x6ffffffa
 #define PT_SUNWBSS	0x6ffffffa
 #define PT_SUNWSTACK	0x6ffffffb
@@ -1085,6 +1086,7 @@ typedef struct {
 
 #define NT_GNU_BUILD_ID	3
 #define NT_GNU_GOLD_VERSION	4
+#define NT_GNU_PROPERTY_TYPE_0	5
 
 
 

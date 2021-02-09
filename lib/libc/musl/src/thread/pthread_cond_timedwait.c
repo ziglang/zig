@@ -146,14 +146,18 @@ relock:
 
 	if (oldstate == WAITING) goto done;
 
-	if (!node.next) a_inc(&m->_m_waiters);
+	if (!node.next && !(m->_m_type & 8))
+		a_inc(&m->_m_waiters);
 
 	/* Unlock the barrier that's holding back the next waiter, and
 	 * either wake it or requeue it to the mutex. */
-	if (node.prev)
-		unlock_requeue(&node.prev->barrier, &m->_m_lock, m->_m_type & 128);
-	else
-		a_dec(&m->_m_waiters);
+	if (node.prev) {
+		int val = m->_m_lock;
+		if (val>0) a_cas(&m->_m_lock, val, val|0x80000000);
+		unlock_requeue(&node.prev->barrier, &m->_m_lock, m->_m_type & (8|128));
+	} else if (!(m->_m_type & 8)) {
+		a_dec(&m->_m_waiters);		
+	}
 
 	/* Since a signal was consumed, cancellation is not permitted. */
 	if (e == ECANCELED) e = 0;

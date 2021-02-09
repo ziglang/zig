@@ -2,6 +2,7 @@
 #define _INTERNAL_SYSCALL_H
 
 #include <features.h>
+#include <errno.h>
 #include <sys/syscall.h>
 #include "syscall_arch.h"
 
@@ -57,15 +58,22 @@ hidden long __syscall_ret(unsigned long),
 #define __syscall_cp(...) __SYSCALL_DISP(__syscall_cp,__VA_ARGS__)
 #define syscall_cp(...) __syscall_ret(__syscall_cp(__VA_ARGS__))
 
-#ifndef SYSCALL_USE_SOCKETCALL
-#define __socketcall(nm,a,b,c,d,e,f) __syscall(SYS_##nm, a, b, c, d, e, f)
-#define __socketcall_cp(nm,a,b,c,d,e,f) __syscall_cp(SYS_##nm, a, b, c, d, e, f)
-#else
-#define __socketcall(nm,a,b,c,d,e,f) __syscall(SYS_socketcall, __SC_##nm, \
-    ((long [6]){ (long)a, (long)b, (long)c, (long)d, (long)e, (long)f }))
-#define __socketcall_cp(nm,a,b,c,d,e,f) __syscall_cp(SYS_socketcall, __SC_##nm, \
-    ((long [6]){ (long)a, (long)b, (long)c, (long)d, (long)e, (long)f }))
+static inline long __alt_socketcall(int sys, int sock, int cp, long a, long b, long c, long d, long e, long f)
+{
+	long r;
+	if (cp) r = __syscall_cp(sys, a, b, c, d, e, f);
+	else r = __syscall(sys, a, b, c, d, e, f);
+	if (r != -ENOSYS) return r;
+#ifdef SYS_socketcall
+	if (cp) r = __syscall_cp(SYS_socketcall, sock, ((long[6]){a, b, c, d, e, f}));
+	else r = __syscall(SYS_socketcall, sock, ((long[6]){a, b, c, d, e, f}));
 #endif
+	return r;
+}
+#define __socketcall(nm, a, b, c, d, e, f) __alt_socketcall(SYS_##nm, __SC_##nm, 0, \
+	(long)(a), (long)(b), (long)(c), (long)(d), (long)(e), (long)(f))
+#define __socketcall_cp(nm, a, b, c, d, e, f) __alt_socketcall(SYS_##nm, __SC_##nm, 1, \
+	(long)(a), (long)(b), (long)(c), (long)(d), (long)(e), (long)(f))
 
 /* fixup legacy 16-bit junk */
 
@@ -337,6 +345,12 @@ hidden long __syscall_ret(unsigned long),
 #define __SC_accept4     18
 #define __SC_recvmmsg    19
 #define __SC_sendmmsg    20
+
+/* This is valid only because all socket syscalls are made via
+ * socketcall, which always fills unused argument slots with zeros. */
+#ifndef SYS_accept
+#define SYS_accept SYS_accept4
+#endif
 
 #ifndef SO_RCVTIMEO_OLD
 #define SO_RCVTIMEO_OLD  20

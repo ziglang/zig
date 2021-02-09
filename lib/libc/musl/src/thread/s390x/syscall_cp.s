@@ -14,6 +14,7 @@ __cp_begin:
 	icm %r2, 15, 0(%r2)
 	jne __cp_cancel
 
+	stg %r6, 48(%r15)
 	stg %r7, 56(%r15)
 	lgr %r1, %r3
 	lgr %r2, %r4
@@ -26,6 +27,7 @@ __cp_begin:
 
 __cp_end:
 	lg  %r7, 56(%r15)
+	lg  %r6, 48(%r15)
 	br  %r14
 
 __cp_cancel:

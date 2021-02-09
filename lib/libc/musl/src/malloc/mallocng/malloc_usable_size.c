@@ -3,6 +3,7 @@
 
 size_t malloc_usable_size(void *p)
 {
+	if (!p) return 0;
 	struct meta *g = get_meta(p);
 	int idx = get_slot_index(p);
 	size_t stride = get_stride(g);

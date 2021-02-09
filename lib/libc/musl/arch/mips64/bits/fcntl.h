@@ -13,7 +13,7 @@
 
 #define O_ASYNC      010000
 #define O_DIRECT    0100000
-#define O_LARGEFILE       0
+#define O_LARGEFILE  020000
 #define O_NOATIME  01000000
 #define O_PATH    010000000
 #define O_TMPFILE 020200000

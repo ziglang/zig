@@ -31,7 +31,8 @@ int getgrouplist(const char *user, gid_t gid, gid_t *groups, int *ngroups)
 	if (resp[INITGRFOUND]) {
 		nscdbuf = calloc(resp[INITGRNGRPS], sizeof(uint32_t));
 		if (!nscdbuf) goto cleanup;
-		if (!fread(nscdbuf, sizeof(*nscdbuf)*resp[INITGRNGRPS], 1, f)) {
+		size_t nbytes = sizeof(*nscdbuf)*resp[INITGRNGRPS];
+		if (nbytes && !fread(nscdbuf, nbytes, 1, f)) {
 			if (!ferror(f)) errno = EIO;
 			goto cleanup;
 		}

@@ -18,5 +18,5 @@ setjmp:
 	mov %rdx,48(%rdi)
 	mov (%rsp),%rdx         /* save return addr ptr for new rip */
 	mov %rdx,56(%rdi)
-	xor %rax,%rax           /* always return 0 */
+	xor %eax,%eax           /* always return 0 */
 	ret

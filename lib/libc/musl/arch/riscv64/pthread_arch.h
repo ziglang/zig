@@ -1,13 +1,12 @@
-static inline struct pthread *__pthread_self()
+static inline uintptr_t __get_tp()
 {
-	char *tp;
+	uintptr_t tp;
 	__asm__ __volatile__("mv %0, tp" : "=r"(tp));
-	return (void *)(tp - sizeof(struct pthread));
+	return tp;
 }
 
 #define TLS_ABOVE_TP
 #define GAP_ABOVE_TP 0
-#define TP_ADJ(p) ((char *)p + sizeof(struct pthread))
 
 #define DTP_OFFSET 0x800
 

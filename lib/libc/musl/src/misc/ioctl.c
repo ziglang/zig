@@ -4,6 +4,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include "syscall.h"
 
@@ -28,6 +29,12 @@ struct ioctl_compat_map {
  * number producing macros; only size of result is meaningful. */
 #define new_misaligned(n) struct { int i; time_t t; char c[(n)-4]; }
 
+struct v4l2_event {
+	uint32_t a;
+	uint64_t b[8];
+	uint32_t c[2], ts[2], d[9];
+};
+
 static const struct ioctl_compat_map compat_map[] = {
 	{ SIOCGSTAMP, SIOCGSTAMP_OLD, 8, R, 0, OFFS(0, 4) },
 	{ SIOCGSTAMPNS, SIOCGSTAMPNS_OLD, 8, R, 0, OFFS(0, 4) },
@@ -49,13 +56,14 @@ static const struct ioctl_compat_map compat_map[] = {
 	{ 0, 0, 8, WR, 1, OFFS(0,4) }, /* snd_pcm_mmap_control */
 
 	/* VIDIOC_QUERYBUF, VIDIOC_QBUF, VIDIOC_DQBUF, VIDIOC_PREPARE_BUF */
-	{ _IOWR('V',  9, new_misaligned(72)), _IOWR('V',  9, char[72]), 72, WR, 0, OFFS(20) },
-	{ _IOWR('V', 15, new_misaligned(72)), _IOWR('V', 15, char[72]), 72, WR, 0, OFFS(20) },
-	{ _IOWR('V', 17, new_misaligned(72)), _IOWR('V', 17, char[72]), 72, WR, 0, OFFS(20) },
-	{ _IOWR('V', 93, new_misaligned(72)), _IOWR('V', 93, char[72]), 72, WR, 0, OFFS(20) },
+	{ _IOWR('V',  9, new_misaligned(68)), _IOWR('V',  9, char[68]), 68, WR, 1, OFFS(20, 24) },
+	{ _IOWR('V', 15, new_misaligned(68)), _IOWR('V', 15, char[68]), 68, WR, 1, OFFS(20, 24) },
+	{ _IOWR('V', 17, new_misaligned(68)), _IOWR('V', 17, char[68]), 68, WR, 1, OFFS(20, 24) },
+	{ _IOWR('V', 93, new_misaligned(68)), _IOWR('V', 93, char[68]), 68, WR, 1, OFFS(20, 24) },
 
 	/* VIDIOC_DQEVENT */
-	{ _IOR('V', 89, new_misaligned(96)), _IOR('V', 89, char[96]), 96, R, 0, OFFS(76,80) },
+	{ _IOR('V', 89, new_misaligned(120)), _IOR('V', 89, struct v4l2_event), sizeof(struct v4l2_event),
+	  R, 0, OFFS(offsetof(struct v4l2_event, ts[0]), offsetof(struct v4l2_event, ts[1])) },
 
 	/* VIDIOC_OMAP3ISP_STAT_REQ */
 	{ _IOWR('V', 192+6, char[32]), _IOWR('V', 192+6, char[24]), 22, WR, 0, OFFS(0,4) },

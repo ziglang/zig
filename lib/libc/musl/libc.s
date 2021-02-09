@@ -105,6 +105,9 @@ in6addr_loopback:
 .globl _Exit
 .type _Exit, %function;
 _Exit:
+.globl _Fork
+.type _Fork, %function;
+_Fork:
 .weak _IO_feof_unlocked
 .type _IO_feof_unlocked, %function;
 _IO_feof_unlocked:
@@ -2116,6 +2119,9 @@ getsubopt:
 .globl gettext
 .type gettext, %function;
 gettext:
+.globl gettid
+.type gettid, %function;
+gettid:
 .globl gettimeofday
 .type gettimeofday, %function;
 gettimeofday:
@@ -2728,7 +2734,7 @@ lutimes:
 .weak madvise
 .type madvise, %function;
 madvise:
-.globl malloc
+.weak malloc
 .type malloc, %function;
 malloc:
 .globl malloc_usable_size
@@ -3709,6 +3715,9 @@ readv:
 .globl realloc
 .type realloc, %function;
 realloc:
+.globl reallocarray
+.type reallocarray, %function;
+reallocarray:
 .globl realpath
 .type realpath, %function;
 realpath:
@@ -4543,6 +4552,9 @@ tcgetpgrp:
 .globl tcgetsid
 .type tcgetsid, %function;
 tcgetsid:
+.globl tcgetwinsize
+.type tcgetwinsize, %function;
+tcgetwinsize:
 .globl tcsendbreak
 .type tcsendbreak, %function;
 tcsendbreak:
@@ -4552,6 +4564,9 @@ tcsetattr:
 .globl tcsetpgrp
 .type tcsetpgrp, %function;
 tcsetpgrp:
+.globl tcsetwinsize
+.type tcsetwinsize, %function;
+tcsetwinsize:
 .globl tdelete
 .type tdelete, %function;
 tdelete:

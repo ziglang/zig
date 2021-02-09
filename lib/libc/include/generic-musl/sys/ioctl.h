@@ -4,6 +4,8 @@
 extern "C" {
 #endif
 
+#define __NEED_struct_winsize
+
 #include <bits/alltypes.h>
 #include <bits/ioctl.h>
 
@@ -46,13 +48,6 @@ extern "C" {
 #define TIOCPKT_IOCTL     64
 
 #define TIOCSER_TEMT 1
-
-struct winsize {
-	unsigned short ws_row;
-	unsigned short ws_col;
-	unsigned short ws_xpixel;
-	unsigned short ws_ypixel;
-};
 
 #define SIOCADDRT          0x890B
 #define SIOCDELRT          0x890C

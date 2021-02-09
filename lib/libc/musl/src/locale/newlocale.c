@@ -2,16 +2,15 @@
 #include <string.h>
 #include <pthread.h>
 #include "locale_impl.h"
+#include "lock.h"
 
-static pthread_once_t default_locale_once;
+#define malloc __libc_malloc
+#define calloc undef
+#define realloc undef
+#define free undef
+
+static int default_locale_init_done;
 static struct __locale_struct default_locale, default_ctype_locale;
-
-static void default_locale_init(void)
-{
-	for (int i=0; i<LC_ALL; i++)
-		default_locale.cat[i] = __get_locale(i, "");
-	default_ctype_locale.cat[LC_CTYPE] = default_locale.cat[LC_CTYPE];
-}
 
 int __loc_is_allocated(locale_t loc)
 {
@@ -19,7 +18,7 @@ int __loc_is_allocated(locale_t loc)
 		&& loc != &default_locale && loc != &default_ctype_locale;
 }
 
-locale_t __newlocale(int mask, const char *name, locale_t loc)
+static locale_t do_newlocale(int mask, const char *name, locale_t loc)
 {
 	struct __locale_struct tmp;
 
@@ -44,7 +43,12 @@ locale_t __newlocale(int mask, const char *name, locale_t loc)
 
 	/* And provide builtins for the initial default locale, and a
 	 * variant of the C locale honoring the default locale's encoding. */
-	pthread_once(&default_locale_once, default_locale_init);
+	if (!default_locale_init_done) {
+		for (int i=0; i<LC_ALL; i++)
+			default_locale.cat[i] = __get_locale(i, "");
+		default_ctype_locale.cat[LC_CTYPE] = default_locale.cat[LC_CTYPE];
+		default_locale_init_done = 1;
+	}
 	if (!memcmp(&tmp, &default_locale, sizeof tmp)) return &default_locale;
 	if (!memcmp(&tmp, &default_ctype_locale, sizeof tmp))
 		return &default_ctype_locale;
@@ -52,6 +56,14 @@ locale_t __newlocale(int mask, const char *name, locale_t loc)
 	/* If no builtin locale matched, attempt to allocate and copy. */
 	if ((loc = malloc(sizeof *loc))) *loc = tmp;
 
+	return loc;
+}
+
+locale_t __newlocale(int mask, const char *name, locale_t loc)
+{
+	LOCK(__locale_lock);
+	loc = do_newlocale(mask, name, loc);
+	UNLOCK(__locale_lock);
 	return loc;
 }
 

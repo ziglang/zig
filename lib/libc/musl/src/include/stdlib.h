@@ -9,4 +9,10 @@ hidden int __mkostemps(char *, int, int);
 hidden int __ptsname_r(int, char *, size_t);
 hidden char *__randname(char *);
 
+hidden void *__libc_malloc(size_t);
+hidden void *__libc_malloc_impl(size_t);
+hidden void *__libc_calloc(size_t, size_t);
+hidden void *__libc_realloc(void *, size_t);
+hidden void __libc_free(void *);
+
 #endif

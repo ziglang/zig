@@ -6,6 +6,7 @@
 #include "libc.h"
 #include "lock.h"
 #include "syscall.h"
+#include "fork_impl.h"
 
 #define ALIGN 16
 
@@ -31,10 +32,12 @@ static int traverses_stack_p(uintptr_t old, uintptr_t new)
 	return 0;
 }
 
+static volatile int lock[1];
+volatile int *const __bump_lockptr = lock;
+
 static void *__simple_malloc(size_t n)
 {
 	static uintptr_t brk, cur, end;
-	static volatile int lock[1];
 	static unsigned mmap_step;
 	size_t align=1;
 	void *p;
@@ -100,4 +103,16 @@ static void *__simple_malloc(size_t n)
 	return p;
 }
 
-weak_alias(__simple_malloc, malloc);
+weak_alias(__simple_malloc, __libc_malloc_impl);
+
+void *__libc_malloc(size_t n)
+{
+	return __libc_malloc_impl(n);
+}
+
+static void *default_malloc(size_t n)
+{
+	return __libc_malloc_impl(n);
+}
+
+weak_alias(default_malloc, malloc);
