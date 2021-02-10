@@ -121,6 +121,8 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
                     .Keyword_export,
                     .Keyword_pub,
                     .StringLiteral,
+                    .Keyword_inline,
+                    .Keyword_noinline,
                     => continue,
 
                     else => {
@@ -132,8 +134,13 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
             while (i < fn_token) : (i += 1) {
                 try renderToken(ais, tree, i, .Space);
             }
-            try renderExpression(ais, tree, fn_proto, .Space);
-            return renderExpression(ais, tree, datas[decl].rhs, space);
+            if (datas[decl].rhs != 0) {
+                try renderExpression(ais, tree, fn_proto, .Space);
+                return renderExpression(ais, tree, datas[decl].rhs, space);
+            } else {
+                try renderExpression(ais, tree, fn_proto, .None);
+                return renderToken(ais, tree, tree.lastToken(fn_proto) + 1, space); // semicolon
+            }
         },
         .FnProtoSimple,
         .FnProtoMulti,

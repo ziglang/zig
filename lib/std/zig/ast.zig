@@ -521,7 +521,8 @@ pub const Tree = struct {
             .IfSimple,
             .WhileSimple,
             .ForSimple,
-            .FnDecl,
+            .FnProtoSimple,
+            .FnProtoMulti,
             .PtrTypeAligned,
             .PtrTypeSentinel,
             .PtrType,
@@ -538,8 +539,6 @@ pub const Tree = struct {
             .AsmSimple,
             .AsmOutput,
             .AsmInput,
-            .FnProtoSimple,
-            .FnProtoMulti,
             .ErrorValue,
             => return datas[n].rhs + end_offset,
 
@@ -802,6 +801,13 @@ pub const Tree = struct {
                     return datas[n].lhs + end_offset;
                 } else {
                     return main_tokens[n] + end_offset;
+                }
+            },
+            .FnDecl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else {
+                    n = datas[n].lhs;
                 }
             },
             .FnProtoOne => {
@@ -2520,7 +2526,9 @@ pub const Node = struct {
         /// `fn(a: b, c: d) rhs linksection(e) callconv(f)`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         FnProto,
-        /// lhs is the FnProto, rhs is the function body block.
+        /// lhs is the FnProto.
+        /// rhs is the function body block if non-zero.
+        /// if rhs is zero, the funtion decl has no body (e.g. an extern function)
         FnDecl,
         /// `anyframe->rhs`. main_token is `anyframe`. `lhs` is arrow token index.
         AnyFrameType,
