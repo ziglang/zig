@@ -408,10 +408,10 @@ pub const Tree = struct {
                 const main_token = main_tokens[n];
                 return switch (token_tags[main_token]) {
                     .Asterisk => switch (token_tags[main_token - 1]) {
-                        .LBrace => main_token - 1,
+                        .LBracket => main_token - 1,
                         else => main_token,
                     },
-                    .LBrace => main_token,
+                    .LBracket => main_token,
                     else => unreachable,
                 } - end_offset;
             },

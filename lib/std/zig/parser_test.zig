@@ -423,16 +423,16 @@ test "zig fmt: sentinel slice with modifiers" {
     );
 }
 
-//test "zig fmt: anon literal in array" {
-//    try testCanonical(
-//        \\var arr: [2]Foo = .{
-//        \\    .{ .a = 2 },
-//        \\    .{ .b = 3 },
-//        \\};
-//        \\
-//    );
-//}
-//
+test "zig fmt: anon literal in array" {
+    try testCanonical(
+        \\var arr: [2]Foo = .{
+        \\    .{ .a = 2 },
+        \\    .{ .b = 3 },
+        \\};
+        \\
+    );
+}
+
 //test "zig fmt: alignment in anonymous literal" {
 //    try testTransform(
 //        \\const a = .{
@@ -751,12 +751,12 @@ test "zig fmt: tagged union with enum values" {
     );
 }
 
-//test "zig fmt: allowzero pointer" {
-//    try testCanonical(
-//        \\const T = [*]allowzero const u8;
-//        \\
-//    );
-//}
+test "zig fmt: allowzero pointer" {
+    try testCanonical(
+        \\const T = [*]allowzero const u8;
+        \\
+    );
+}
 
 test "zig fmt: enum literal" {
     try testCanonical(
@@ -806,13 +806,13 @@ test "zig fmt: character literal larger than u8" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: C pointers" {
-//    try testCanonical(
-//        \\const Ptr = [*c]i32;
-//        \\
-//    );
-//}
+
+test "zig fmt: C pointers" {
+    try testCanonical(
+        \\const Ptr = [*c]i32;
+        \\
+    );
+}
 
 test "zig fmt: threadlocal" {
     try testCanonical(
