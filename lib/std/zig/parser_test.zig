@@ -353,6 +353,19 @@ test "zig fmt: anytype struct field" {
     );
 }
 
+test "zig fmt: array types last token" {
+    try testCanonical(
+        \\test {
+        \\    const x = [40]u32;
+        \\}
+        \\
+        \\test {
+        \\    const x = [40:0]u32;
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: sentinel-terminated array type" {
 //    try testCanonical(
 //        \\pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
