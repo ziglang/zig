@@ -29,7 +29,11 @@ pub const Node = extern union {
         char_literal,
         identifier,
         @"if",
+        /// if (!operand) break;
+        if_not_break,
         @"while",
+        /// while (true) operand
+        while_true,
         @"switch",
         @"continue",
         @"break",
@@ -211,6 +215,8 @@ pub const Node = extern union {
                 .ptr_to_int,
                 .enum_to_int,
                 .empty_array,
+                .while_true,
+                .if_not_break,
                 => Payload.UnOp,
 
                 .add,
@@ -399,6 +405,7 @@ pub const Payload = struct {
         data: struct {
             cond: Node,
             body: Node,
+            cont_expr: ?Node
         },
     };
 

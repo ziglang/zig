@@ -107,6 +107,7 @@ const Scope = struct {
             // do while, we want to put `if (cond) break;` at the end.
             const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .Loop);
             const stmts = try c.arena.alloc(Node, alloc_len);
+            stmts.len -= 1;
             mem.copy(Node, stmts, self.statements.items);
             return Node.block.create(c.arena, .{
                 .lable = self.label,
@@ -1748,7 +1749,7 @@ fn transCCast(
     if (dst_type.eq(src_type)) return expr;
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
         return transCPtrCast(c, loc, dst_type, src_type, expr);
-    
+
     const dst_node = try transQualType(c, dst_type, loc);
     if (cIsInteger(dst_type) and (cIsInteger(src_type) or cIsEnum(src_type))) {
         // 1. If src_type is an enum, determine the underlying signed int type
@@ -1931,7 +1932,7 @@ fn transInitListExprArray(
     if (all_count == 0) {
         return Node.empty_array.create(c.arena, try transQualType(c, child_qt, source_loc));
     }
-    
+
     const ty_node = try transType(ty);
     const init_node = if (init_count != 0) blk: {
         const init_list = try c.arena.alloc(Node, init_count);
@@ -2058,14 +2059,12 @@ fn transImplicitValueInitExpr(
 }
 
 fn transIfStmt(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.IfStmt,
-) TransError!*ast.Node {
+) TransError!Node {
     // if (c) t
     // if (c) t else e
-    const if_node = try transCreateNodeIf(rp.c);
-
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
@@ -2074,26 +2073,21 @@ fn transIfStmt(
     };
     defer cond_scope.deinit();
     const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
-    if_node.condition = try transBoolExpr(rp, &cond_scope.base, cond_expr, .used, .r_value, false);
-    _ = try appendToken(rp.c, .RParen, ")");
+    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used, .r_value);
 
-    if_node.body = try transStmt(rp, scope, stmt.getThen(), .unused, .r_value);
-
-    if (stmt.getElse()) |expr| {
-        if_node.@"else" = try transCreateNodeElse(rp.c);
-        if_node.@"else".?.body = try transStmt(rp, scope, expr, .unused, .r_value);
-    }
-    _ = try appendToken(rp.c, .Semicolon, ";");
-    return &if_node.base;
+    const then_body = try transStmt(c, scope, stmt.getThen(), .unused, .r_value);
+    const else_body = if (stmt.getElse()) |expr|
+        try transStmt(c, scope, expr, .unused, .r_value)
+    else
+        null;
+    return Node.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
 }
 
 fn transWhileLoop(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.WhileStmt,
-) TransError!*ast.Node {
-    const while_node = try transCreateNodeWhile(rp.c);
-
+) TransError!Node {
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
@@ -2102,35 +2096,28 @@ fn transWhileLoop(
     };
     defer cond_scope.deinit();
     const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
-    while_node.condition = try transBoolExpr(rp, &cond_scope.base, cond_expr, .used, .r_value, false);
-    _ = try appendToken(rp.c, .RParen, ")");
+    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used, .r_value);
 
     var loop_scope = Scope{
         .parent = scope,
         .id = .Loop,
     };
-    while_node.body = try transStmt(rp, &loop_scope, stmt.getBody(), .unused, .r_value);
-    _ = try appendToken(rp.c, .Semicolon, ";");
-    return &while_node.base;
+    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused, .r_value);
+    return Node.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = null });
 }
 
 fn transDoWhileLoop(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.DoStmt,
-) TransError!*ast.Node {
-    const while_node = try transCreateNodeWhile(rp.c);
-
-    while_node.condition = try transCreateNodeBoolLiteral(rp.c, true);
-    _ = try appendToken(rp.c, .RParen, ")");
-    var new = false;
+) TransError!Node {
     var loop_scope = Scope{
         .parent = scope,
         .id = .Loop,
     };
 
     // if (!cond) break;
-    const if_node = try transCreateNodeIf(rp.c);
+    const if_node = try transCreateNodeIf(c);
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
@@ -2138,12 +2125,8 @@ fn transDoWhileLoop(
         },
     };
     defer cond_scope.deinit();
-    const prefix_op = try transCreateNodeSimplePrefixOp(rp.c, .BoolNot, .Bang, "!");
-    prefix_op.rhs = try transBoolExpr(rp, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used, .r_value, true);
-    _ = try appendToken(rp.c, .RParen, ")");
-    if_node.condition = &prefix_op.base;
-    if_node.body = &(try transCreateNodeBreak(rp.c, null, null)).base;
-    _ = try appendToken(rp.c, .Semicolon, ";");
+    const cond = try transBoolExpr(c, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used, .r_value);
+    const if_not_break = try Node.if_not_break.create(c.arena, cond);
 
     const body_node = if (stmt.getBody().getStmtClass() == .CompoundStmtClass) blk: {
         // there's already a block in C, so we'll append our condition to it.
@@ -2156,8 +2139,12 @@ fn transDoWhileLoop(
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        const node = try transStmt(rp, &loop_scope, stmt.getBody(), .unused, .r_value);
-        break :blk node.castTag(.Block).?;
+        const node = try transStmt(c, &loop_scope, stmt.getBody(), .unused, .r_value);
+        const block = node.castTag(.block);
+        block.data.stmts.len += 1; // This is safe since we reserve one extra space in Scope.Block.complete.
+        block.data.stmts[block.data.stmts.len - 1] = if_not_break;
+        break :blk node;
+        
     } else blk: {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do
@@ -2167,27 +2154,19 @@ fn transDoWhileLoop(
         // zig:   a;
         // zig:   if (!cond) break;
         // zig: }
-        new = true;
-        const block = try rp.c.createBlock(2);
-        block.statements_len = 1; // over-allocated so we can add another below
-        block.statements()[0] = try transStmt(rp, &loop_scope, stmt.getBody(), .unused, .r_value);
-        break :blk block;
+        const statements = try c.arena.create(Node, 2);
+        statements[0] = try transStmt(c, &loop_scope, stmt.getBody(), .unused, .r_value);
+        statements[1] = if_not_break;
+        break :blk try Node.block.create(c.arena, .{ .label = null, .stmts = statements });
     };
-
-    // In both cases above, we reserved 1 extra statement.
-    body_node.statements_len += 1;
-    body_node.statements()[body_node.statements_len - 1] = &if_node.base;
-    if (new)
-        body_node.rbrace = try appendToken(rp.c, .RBrace, "}");
-    while_node.body = &body_node.base;
-    return &while_node.base;
+    return Node.while_true.create(c.arena, body_node);
 }
 
 fn transForLoop(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.ForStmt,
-) TransError!*ast.Node {
+) TransError!Node {
     var loop_scope = Scope{
         .parent = scope,
         .id = .Loop,
@@ -2197,9 +2176,9 @@ fn transForLoop(
     defer if (block_scope) |*bs| bs.deinit();
 
     if (stmt.getInit()) |init| {
-        block_scope = try Scope.Block.init(rp.c, scope, false);
+        block_scope = try Scope.Block.init(c, scope, false);
         loop_scope.parent = &block_scope.?.base;
-        const init_node = try transStmt(rp, &block_scope.?.base, init, .unused, .r_value);
+        const init_node = try transStmt(c, &block_scope.?.base, init, .unused, .r_value);
         try block_scope.?.statements.append(init_node);
     }
     var cond_scope = Scope.Condition{
@@ -2210,27 +2189,23 @@ fn transForLoop(
     };
     defer cond_scope.deinit();
 
-    const while_node = try transCreateNodeWhile(rp.c);
-    while_node.condition = if (stmt.getCond()) |cond|
-        try transBoolExpr(rp, &cond_scope.base, cond, .used, .r_value, false)
+    const cond = if (stmt.getCond()) |cond|
+        try transBoolExpr(c, &cond_scope.base, cond, .used, .r_value)
     else
-        try transCreateNodeBoolLiteral(rp.c, true);
-    _ = try appendToken(rp.c, .RParen, ")");
+        Node.true_literal.init();
 
-    if (stmt.getInc()) |incr| {
-        _ = try appendToken(rp.c, .Colon, ":");
-        _ = try appendToken(rp.c, .LParen, "(");
-        while_node.continue_expr = try transExpr(rp, &cond_scope.base, incr, .unused, .r_value);
-        _ = try appendToken(rp.c, .RParen, ")");
-    }
+    const cont_expr = if (stmt.getInc()) |incr|
+        try transExpr(c, &cond_scope.base, incr, .unused, .r_value)
+    else
+        null;
 
-    while_node.body = try transStmt(rp, &loop_scope, stmt.getBody(), .unused, .r_value);
+    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused, .r_value);
+    const while_node = try Node.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = cont_expr });
     if (block_scope) |*bs| {
-        try bs.statements.append(&while_node.base);
-        return try bs.complete(rp.c);
+        try bs.statements.append(while_node);
+        return try bs.complete(c);
     } else {
-        _ = try appendToken(rp.c, .Semicolon, ";");
-        return &while_node.base;
+        return while_node;
     }
 }
 
