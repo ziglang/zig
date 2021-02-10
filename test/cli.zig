@@ -113,7 +113,7 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
         \\    return num * num;
         \\}
         \\extern fn zig_panic() noreturn;
-        \\pub fn panic(msg: []const u8, error_return_trace: ?*@import("builtin").StackTrace) callconv(.Inline) noreturn {
+        \\pub fn panic(msg: []const u8, error_return_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    zig_panic();
         \\}
     );
