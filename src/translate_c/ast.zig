@@ -104,6 +104,7 @@ pub const Node = extern union {
         bit_and,
         bit_or,
         bit_xor,
+        array_cat,
 
         log2_int_type,
         /// @import("std").math.Log2Int(operand)
@@ -118,6 +119,24 @@ pub const Node = extern union {
         bool_to_int,
         /// @as(lhs, rhs)
         as,
+        /// @truncate(lhs, rhs)
+        truncate,
+        /// @bitCast(lhs, rhs)
+        bit_cast,
+        /// @floatCast(lhs, rhs)
+        float_cast,
+        /// @floatToInt(lhs, rhs)
+        float_to_int,
+        /// @intToFloat(lhs, rhs)
+        int_to_float,
+        /// @intToEnum(lhs, rhs)
+        int_to_enum,
+        /// @enumToInt(operand)
+        enum_to_int,
+        /// @intToPtr(lhs, rhs)
+        int_to_ptr,
+        /// @ptrToInt(operand)
+        ptr_to_int,
 
         negate,
         negate_wrap,
@@ -154,6 +173,11 @@ pub const Node = extern union {
         /// pub const enum_field_name = @enumToInt(enum_name.field_name);
         enum_redecl,
 
+        /// [0]type{}
+        empty_array,
+        /// [1]type{val} ** count
+        array_filler,
+
         pub const last_no_payload_tag = Tag.usingnamespace_builtins;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
@@ -184,6 +208,9 @@ pub const Node = extern union {
                 .optional_type,
                 .address_of,
                 .unwrap_deref,
+                .ptr_to_int,
+                .enum_to_int,
+                .empty_array,
                 => Payload.UnOp,
 
                 .add,
@@ -239,6 +266,14 @@ pub const Node = extern union {
                 .int_cast,
                 .bool_to_int,
                 .as,
+                .truncate,
+                .bit_cast,
+                .float_cast,
+                .float_to_int,
+                .int_to_float,
+                .int_to_enum,
+                .int_to_ptr,
+                .array_cat,
                 => Payload.BinOp,
 
                 .int,
@@ -274,6 +309,7 @@ pub const Node = extern union {
                 .log2_int_type => Payload.Log2IntType,
                 .typedef, .pub_typedef, .pub_var_simple => Payload.SimpleVarDecl,
                 .enum_redecl => Payload.EnumRedecl,
+                .array_filler => Payload.ArrayFiller,
             };
         }
 
@@ -531,6 +567,15 @@ pub const Payload = struct {
             enum_val_name: []const u8,
             field_name: []const u8,
             enum_name: []const u8,
+        },
+    };
+
+    pub const ArrayFiller = struct {
+        base: Node,
+        data: struct {
+            type: Node,
+            filler: Node,
+            count: usize,
         },
     };
 };
