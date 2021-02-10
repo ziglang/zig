@@ -2254,8 +2254,6 @@ const Parser = struct {
     ///      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
     /// FnCallArguments <- LPAREN ExprList RPAREN
     /// ExprList <- (Expr COMMA)* Expr?
-    /// TODO detect when there is 1 or less parameter to the call and emit
-    /// CallOne instead of Call.
     fn parseSuffixExpr(p: *Parser) !Node.Index {
         if (p.eatToken(.Keyword_async)) |async_token| {
             var res = try p.expectPrimaryTypeExpr();
@@ -2269,20 +2267,95 @@ const Parser = struct {
                 try p.warn(.{ .ExpectedParamList = .{ .token = p.tok_i } });
                 return res;
             };
-            const params = try ListParseFn(parseExpr)(p);
-            _ = try p.expectToken(.RParen);
+            if (p.eatToken(.RParen)) |_| {
+                return p.addNode(.{
+                    .tag = .AsyncCallOne,
+                    .main_token = lparen,
+                    .data = .{
+                        .lhs = res,
+                        .rhs = 0,
+                    },
+                });
+            }
+            const param_one = try p.expectExpr();
+            const comma_one = p.eatToken(.Comma);
+            if (p.eatToken(.RParen)) |_| {
+                return p.addNode(.{
+                    .tag = if (comma_one == null) .AsyncCallOne else .AsyncCallOneComma,
+                    .main_token = lparen,
+                    .data = .{
+                        .lhs = res,
+                        .rhs = param_one,
+                    },
+                });
+            }
+            if (comma_one == null) {
+                try p.warn(.{
+                    .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
+                });
+            }
 
-            return p.addNode(.{
-                .tag = .Call,
-                .main_token = lparen,
-                .data = .{
-                    .lhs = res,
-                    .rhs = try p.addExtra(Node.SubRange{
-                        .start = params.start,
-                        .end = params.end,
-                    }),
-                },
-            });
+            var param_list = std.ArrayList(Node.Index).init(p.gpa);
+            defer param_list.deinit();
+
+            try param_list.append(param_one);
+
+            while (true) {
+                const next = try p.expectExpr();
+                try param_list.append(next);
+                switch (p.token_tags[p.nextToken()]) {
+                    .Comma => {
+                        if (p.eatToken(.RParen)) |_| {
+                            const span = try p.listToSpan(param_list.items);
+                            return p.addNode(.{
+                                .tag = .AsyncCallComma,
+                                .main_token = lparen,
+                                .data = .{
+                                    .lhs = res,
+                                    .rhs = try p.addExtra(Node.SubRange{
+                                        .start = span.start,
+                                        .end = span.end,
+                                    }),
+                                },
+                            });
+                        } else {
+                            continue;
+                        }
+                    },
+                    .RParen => {
+                        const span = try p.listToSpan(param_list.items);
+                        return p.addNode(.{
+                            .tag = .AsyncCall,
+                            .main_token = lparen,
+                            .data = .{
+                                .lhs = res,
+                                .rhs = try p.addExtra(Node.SubRange{
+                                    .start = span.start,
+                                    .end = span.end,
+                                }),
+                            },
+                        });
+                    },
+                    .Colon, .RBrace, .RBracket => {
+                        p.tok_i -= 1;
+                        return p.fail(.{
+                            .ExpectedToken = .{
+                                .token = p.tok_i,
+                                .expected_id = .RParen,
+                            },
+                        });
+                    },
+                    else => {
+                        p.tok_i -= 1;
+                        try p.warn(.{
+                            .ExpectedToken = .{
+                                .token = p.tok_i,
+                                .expected_id = .Comma,
+                            },
+                        });
+                    },
+                }
+            }
         }
         var res = try p.parsePrimaryTypeExpr();
         if (res == 0) return res;
@@ -2293,21 +2366,98 @@ const Parser = struct {
                 res = suffix_op;
                 continue;
             }
-            const lparen = p.eatToken(.LParen) orelse return res;
-            const params = try ListParseFn(parseExpr)(p);
-            _ = try p.expectToken(.RParen);
+            res = res: {
+                const lparen = p.eatToken(.LParen) orelse return res;
+                if (p.eatToken(.RParen)) |_| {
+                    break :res try p.addNode(.{
+                        .tag = .CallOne,
+                        .main_token = lparen,
+                        .data = .{
+                            .lhs = res,
+                            .rhs = 0,
+                        },
+                    });
+                }
+                const param_one = try p.expectExpr();
+                const comma_one = p.eatToken(.Comma);
+                if (p.eatToken(.RParen)) |_| {
+                    break :res try p.addNode(.{
+                        .tag = if (comma_one == null) .CallOne else .CallOneComma,
+                        .main_token = lparen,
+                        .data = .{
+                            .lhs = res,
+                            .rhs = param_one,
+                        },
+                    });
+                }
+                if (comma_one == null) {
+                    try p.warn(.{
+                        .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
+                    });
+                }
 
-            res = try p.addNode(.{
-                .tag = .Call,
-                .main_token = lparen,
-                .data = .{
-                    .lhs = res,
-                    .rhs = try p.addExtra(Node.SubRange{
-                        .start = params.start,
-                        .end = params.end,
-                    }),
-                },
-            });
+                var param_list = std.ArrayList(Node.Index).init(p.gpa);
+                defer param_list.deinit();
+
+                try param_list.append(param_one);
+
+                while (true) {
+                    const next = try p.expectExpr();
+                    try param_list.append(next);
+                    switch (p.token_tags[p.nextToken()]) {
+                        .Comma => {
+                            if (p.eatToken(.RParen)) |_| {
+                                const span = try p.listToSpan(param_list.items);
+                                break :res try p.addNode(.{
+                                    .tag = .CallComma,
+                                    .main_token = lparen,
+                                    .data = .{
+                                        .lhs = res,
+                                        .rhs = try p.addExtra(Node.SubRange{
+                                            .start = span.start,
+                                            .end = span.end,
+                                        }),
+                                    },
+                                });
+                            } else {
+                                continue;
+                            }
+                        },
+                        .RParen => {
+                            const span = try p.listToSpan(param_list.items);
+                            break :res try p.addNode(.{
+                                .tag = .Call,
+                                .main_token = lparen,
+                                .data = .{
+                                    .lhs = res,
+                                    .rhs = try p.addExtra(Node.SubRange{
+                                        .start = span.start,
+                                        .end = span.end,
+                                    }),
+                                },
+                            });
+                        },
+                        .Colon, .RBrace, .RBracket => {
+                            p.tok_i -= 1;
+                            return p.fail(.{
+                                .ExpectedToken = .{
+                                    .token = p.tok_i,
+                                    .expected_id = .RParen,
+                                },
+                            });
+                        },
+                        else => {
+                            p.tok_i -= 1;
+                            try p.warn(.{
+                                .ExpectedToken = .{
+                                    .token = p.tok_i,
+                                    .expected_id = .Comma,
+                                },
+                            });
+                        },
+                    }
+                }
+            };
         }
     }
 
@@ -2588,7 +2738,7 @@ const Parser = struct {
 
                         while (true) {
                             const next = try p.expectFieldInit();
-                            if (next == 0) break;
+                            assert(next != 0);
                             try init_list.append(next);
                             switch (p.token_tags[p.nextToken()]) {
                                 .Comma => {

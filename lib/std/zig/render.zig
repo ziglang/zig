@@ -73,8 +73,18 @@ fn renderRoot(ais: *Ais, tree: ast.Tree) Error!void {
     const nodes_data = tree.nodes.items(.data);
     const root_decls = tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
 
-    for (root_decls) |decl| {
-        try renderMember(ais, tree, decl, .Newline);
+    return renderAllMembers(ais, tree, root_decls);
+}
+
+fn renderAllMembers(ais: *Ais, tree: ast.Tree, members: []const ast.Node.Index) Error!void {
+    if (members.len == 0) return;
+
+    const first_member = members[0];
+    try renderMember(ais, tree, first_member, .Newline);
+
+    for (members[1..]) |member| {
+        try renderExtraNewline(ais, tree, member);
+        try renderMember(ais, tree, member, .Newline);
     }
 }
 
@@ -391,64 +401,16 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .StructInitDot => return renderStructInit(ais, tree, tree.structInitDot(node), space),
         .StructInit => return renderStructInit(ais, tree, tree.structInit(node), space),
 
-        .CallOne => unreachable, // TODO
-        .Call => {
-            const call = datas[node];
-            const params_range = tree.extraData(call.rhs, ast.Node.SubRange);
-            const params = tree.extra_data[params_range.start..params_range.end];
-            const async_token = tree.firstToken(call.lhs) - 1;
-            if (token_tags[async_token] == .Keyword_async) {
-                try renderToken(ais, tree, async_token, .Space);
-            }
-            try renderExpression(ais, tree, call.lhs, .None);
-
-            const lparen = main_tokens[node];
-
-            if (params.len == 0) {
-                try renderToken(ais, tree, lparen, .None);
-                return renderToken(ais, tree, lparen + 1, space); // )
-            }
-
-            const last_param = params[params.len - 1];
-            const after_last_param_tok = tree.lastToken(last_param) + 1;
-            if (token_tags[after_last_param_tok] == .Comma) {
-                ais.pushIndent();
-                try renderToken(ais, tree, lparen, Space.Newline); // (
-                for (params) |param_node, i| {
-                    if (i + 1 < params.len) {
-                        try renderExpression(ais, tree, param_node, Space.None);
-
-                        // Unindent the comma for multiline string literals
-                        const is_multiline_string = node_tags[param_node] == .StringLiteral and
-                            token_tags[main_tokens[param_node]] == .MultilineStringLiteralLine;
-                        if (is_multiline_string) ais.popIndent();
-
-                        const comma = tree.lastToken(param_node) + 1;
-                        try renderToken(ais, tree, comma, Space.Newline); // ,
-
-                        if (is_multiline_string) ais.pushIndent();
-
-                        try renderExtraNewline(ais, tree, params[i + 1]);
-                    } else {
-                        try renderExpression(ais, tree, param_node, Space.Comma);
-                    }
-                }
-                ais.popIndent();
-                return renderToken(ais, tree, after_last_param_tok + 1, space); // )
-            }
-
-            try renderToken(ais, tree, lparen, Space.None); // (
-
-            for (params) |param_node, i| {
-                try renderExpression(ais, tree, param_node, Space.None);
-
-                if (i + 1 < params.len) {
-                    const comma = tree.lastToken(param_node) + 1;
-                    try renderToken(ais, tree, comma, Space.Space);
-                }
-            }
-            return renderToken(ais, tree, after_last_param_tok, space); // )
+        .CallOne, .CallOneComma, .AsyncCallOne, .AsyncCallOneComma => {
+            var params: [1]ast.Node.Index = undefined;
+            return renderCall(ais, tree, tree.callOne(&params, node), space);
         },
+
+        .Call,
+        .CallComma,
+        .AsyncCall,
+        .AsyncCallComma,
+        => return renderCall(ais, tree, tree.callFull(node), space),
 
         .ArrayAccess => {
             const suffix = datas[node];
@@ -625,18 +587,16 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         },
         .FnProto => return renderFnProto(ais, tree, tree.fnProto(node), space),
 
-        .AnyFrameType => unreachable, // TODO
-        //.AnyFrameType => {
-        //    const anyframe_type = @fieldParentPtr(ast.Node.AnyFrameType, "base", base);
-
-        //    if (anyframe_type.result) |result| {
-        //        try renderToken(ais, tree, anyframe_type.anyframe_token, Space.None); // anyframe
-        //        try renderToken(ais, tree, result.arrow_token, Space.None); // ->
-        //        return renderExpression(ais, tree, result.return_type, space);
-        //    } else {
-        //        return renderToken(ais, tree, anyframe_type.anyframe_token, space); // anyframe
-        //    }
-        //},
+        .AnyFrameType => {
+            const main_token = main_tokens[node];
+            if (datas[node].rhs != 0) {
+                try renderToken(ais, tree, main_token, .None); // anyframe
+                try renderToken(ais, tree, main_token + 1, .None); // ->
+                return renderExpression(ais, tree, datas[node].rhs, space);
+            } else {
+                return renderToken(ais, tree, main_token, space); // anyframe
+            }
+        },
 
         .Switch,
         .SwitchComma,
@@ -1730,13 +1690,7 @@ fn renderContainerDecl(
     // One member per line.
     ais.pushIndent();
     try renderToken(ais, tree, lbrace, .Newline); // lbrace
-    for (container_decl.ast.members) |member, i| {
-        try renderMember(ais, tree, member, .Newline);
-
-        if (i + 1 < container_decl.ast.members.len) {
-            try renderExtraNewline(ais, tree, container_decl.ast.members[i + 1]);
-        }
-    }
+    try renderAllMembers(ais, tree, container_decl.ast.members);
     ais.popIndent();
 
     return renderToken(ais, tree, rbrace, space); // rbrace
@@ -1869,6 +1823,69 @@ fn renderAsm(
             else => unreachable,
         }
     } else unreachable; // TODO shouldn't need this on while(true)
+}
+
+fn renderCall(
+    ais: *Ais,
+    tree: ast.Tree,
+    call: ast.full.Call,
+    space: Space,
+) Error!void {
+    const token_tags = tree.tokens.items(.tag);
+    const node_tags = tree.nodes.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
+
+    if (call.async_token) |async_token| {
+        try renderToken(ais, tree, async_token, .Space);
+    }
+    try renderExpression(ais, tree, call.ast.fn_expr, .None);
+
+    const lparen = call.ast.lparen;
+    const params = call.ast.params;
+    if (params.len == 0) {
+        try renderToken(ais, tree, lparen, .None);
+        return renderToken(ais, tree, lparen + 1, space); // )
+    }
+
+    const last_param = params[params.len - 1];
+    const after_last_param_tok = tree.lastToken(last_param) + 1;
+    if (token_tags[after_last_param_tok] == .Comma) {
+        ais.pushIndent();
+        try renderToken(ais, tree, lparen, Space.Newline); // (
+        for (params) |param_node, i| {
+            if (i + 1 < params.len) {
+                try renderExpression(ais, tree, param_node, Space.None);
+
+                // Unindent the comma for multiline string literals
+                const is_multiline_string = node_tags[param_node] == .StringLiteral and
+                    token_tags[main_tokens[param_node]] == .MultilineStringLiteralLine;
+                if (is_multiline_string) ais.popIndent();
+
+                const comma = tree.lastToken(param_node) + 1;
+                try renderToken(ais, tree, comma, Space.Newline); // ,
+
+                if (is_multiline_string) ais.pushIndent();
+
+                try renderExtraNewline(ais, tree, params[i + 1]);
+            } else {
+                try renderExpression(ais, tree, param_node, Space.Comma);
+            }
+        }
+        ais.popIndent();
+        return renderToken(ais, tree, after_last_param_tok + 1, space); // )
+    }
+
+    try renderToken(ais, tree, lparen, Space.None); // (
+
+    for (params) |param_node, i| {
+        try renderExpression(ais, tree, param_node, Space.None);
+
+        if (i + 1 < params.len) {
+            const comma = tree.lastToken(param_node) + 1;
+            try renderToken(ais, tree, comma, Space.Space);
+        }
+    }
+    return renderToken(ais, tree, after_last_param_tok, space); // )
 }
 
 /// Render an expression, and the comma that follows it, if it is present in the source.

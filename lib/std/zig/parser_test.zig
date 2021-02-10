@@ -3046,35 +3046,35 @@ test "zig fmt: for" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: async functions" {
-//    try testCanonical(
-//        \\fn simpleAsyncFn() void {
-//        \\    const a = async a.b();
-//        \\    x += 1;
-//        \\    suspend;
-//        \\    x += 1;
-//        \\    suspend;
-//        \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
-//        \\    await p;
-//        \\}
-//        \\
-//        \\test "suspend, resume, await" {
-//        \\    const p: anyframe = async testAsyncSeq();
-//        \\    resume p;
-//        \\    await p;
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: nosuspend" {
-//    try testCanonical(
-//        \\const a = nosuspend foo();
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: async functions" {
+    try testCanonical(
+        \\fn simpleAsyncFn() void {
+        \\    const a = async a.b();
+        \\    x += 1;
+        \\    suspend;
+        \\    x += 1;
+        \\    suspend;
+        \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
+        \\    await p;
+        \\}
+        \\
+        \\test "suspend, resume, await" {
+        \\    const p: anyframe = async testAsyncSeq();
+        \\    resume p;
+        \\    await p;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: nosuspend" {
+    try testCanonical(
+        \\const a = nosuspend foo();
+        \\
+    );
+}
+
 //test "zig fmt: Block after if" {
 //    try testCanonical(
 //        \\test "Block after if" {

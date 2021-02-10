@@ -196,6 +196,7 @@ pub const Tree = struct {
         const datas = tree.nodes.items(.data);
         const main_tokens = tree.nodes.items(.main_token);
         const token_tags = tree.tokens.items(.tag);
+        var end_offset: TokenIndex = 0;
         var n = node;
         while (true) switch (tags[n]) {
             .Root => return 0,
@@ -251,7 +252,7 @@ pub const Tree = struct {
             .ArrayType,
             .ArrayTypeSentinel,
             .ErrorValue,
-            => return main_tokens[n],
+            => return main_tokens[n] - end_offset,
 
             .ArrayInitDot,
             .ArrayInitDotTwo,
@@ -260,7 +261,7 @@ pub const Tree = struct {
             .StructInitDotTwo,
             .StructInitDotTwoComma,
             .EnumLiteral,
-            => return main_tokens[n] - 1,
+            => return main_tokens[n] - 1 - end_offset,
 
             .Catch,
             .FieldAccess,
@@ -314,24 +315,32 @@ pub const Tree = struct {
             .StructInitOne,
             .StructInit,
             .CallOne,
+            .CallOneComma,
             .Call,
+            .CallComma,
             .SwitchRange,
             .FnDecl,
             .ErrorUnion,
             => n = datas[n].lhs,
+
+            .AsyncCallOne,
+            .AsyncCallOneComma,
+            .AsyncCall,
+            .AsyncCallComma,
+            => {
+                end_offset += 1; // async token
+                n = datas[n].lhs;
+            },
 
             .ContainerFieldInit,
             .ContainerFieldAlign,
             .ContainerField,
             => {
                 const name_token = main_tokens[n];
-                if (name_token > 0 and
-                    token_tags[name_token - 1] == .Keyword_comptime)
-                {
-                    return name_token - 1;
-                } else {
-                    return name_token;
+                if (name_token > 0 and token_tags[name_token - 1] == .Keyword_comptime) {
+                    end_offset += 1;
                 }
+                return name_token - end_offset;
             },
 
             .GlobalVarDecl,
@@ -351,10 +360,10 @@ pub const Tree = struct {
                         .StringLiteral,
                         => continue,
 
-                        else => return i + 1,
+                        else => return i + 1 - end_offset,
                     }
                 }
-                return i;
+                return i - end_offset;
             },
 
             .Block,
@@ -365,10 +374,9 @@ pub const Tree = struct {
                 // Look for a label.
                 const lbrace = main_tokens[n];
                 if (token_tags[lbrace - 1] == .Colon) {
-                    return lbrace - 2;
-                } else {
-                    return lbrace;
+                    end_offset += 2;
                 }
+                return lbrace - end_offset;
             },
 
             .ContainerDecl,
@@ -386,9 +394,10 @@ pub const Tree = struct {
             => {
                 const main_token = main_tokens[n];
                 switch (token_tags[main_token - 1]) {
-                    .Keyword_packed, .Keyword_extern => return main_token - 1,
-                    else => return main_token,
+                    .Keyword_packed, .Keyword_extern => end_offset += 1,
+                    else => {},
                 }
+                return main_token - end_offset;
             },
 
             .PtrTypeAligned,
@@ -404,12 +413,12 @@ pub const Tree = struct {
                     },
                     .LBrace => main_token,
                     else => unreachable,
-                };
+                } - end_offset;
             },
 
             .SwitchCaseOne => {
                 if (datas[n].lhs == 0) {
-                    return main_tokens[n] - 1; // else token
+                    return main_tokens[n] - 1 - end_offset; // else token
                 } else {
                     n = datas[n].lhs;
                 }
@@ -422,7 +431,7 @@ pub const Tree = struct {
 
             .AsmOutput, .AsmInput => {
                 assert(token_tags[main_tokens[n] - 1] == .LBracket);
-                return main_tokens[n] - 1;
+                return main_tokens[n] - 1 - end_offset;
             },
 
             .WhileSimple,
@@ -435,7 +444,7 @@ pub const Tree = struct {
                 return switch (token_tags[main_token - 1]) {
                     .Keyword_inline => main_token - 1,
                     else => main_token,
-                };
+                } - end_offset;
             },
         };
     }
@@ -555,12 +564,18 @@ pub const Tree = struct {
                 return main_tokens[n] + end_offset;
             },
 
-            .Call => {
+            .Call, .AsyncCall => {
                 end_offset += 1; // for the rparen
                 const params = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (params.end - params.start == 0) {
                     return main_tokens[n] + end_offset;
                 }
+                n = tree.extra_data[params.end - 1]; // last parameter
+            },
+            .CallComma, .AsyncCallComma => {
+                end_offset += 2; // for the comma+rparen
+                const params = tree.extraData(datas[n].rhs, Node.SubRange);
+                assert(params.end > params.start);
                 n = tree.extra_data[params.end - 1]; // last parameter
             },
             .Switch => {
@@ -614,6 +629,7 @@ pub const Tree = struct {
                 n = tree.extra_data[datas[n].rhs - 1]; // last member
             },
             .CallOne,
+            .AsyncCallOne,
             .ArrayAccess,
             => {
                 end_offset += 1; // for the rparen/rbracket
@@ -622,7 +638,6 @@ pub const Tree = struct {
                 }
                 n = datas[n].rhs;
             },
-
             .ArrayInitDotTwo,
             .BlockTwo,
             .StructInitDotTwo,
@@ -755,9 +770,10 @@ pub const Tree = struct {
                 }
             },
 
-            .SliceOpen => {
-                end_offset += 2; // ellipsis2 and rbracket
+            .SliceOpen, .CallOneComma, .AsyncCallOneComma => {
+                end_offset += 2; // ellipsis2 + rbracket, or comma + rparen
                 n = datas[n].rhs;
+                assert(n != 0);
             },
             .Slice => {
                 const extra = tree.extraData(datas[n].rhs, Node.Slice);
@@ -1496,6 +1512,27 @@ pub const Tree = struct {
         });
     }
 
+    pub fn callOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.Call {
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{data.rhs};
+        const params = if (data.rhs != 0) buffer[0..1] else buffer[0..0];
+        return tree.fullCall(.{
+            .lparen = tree.nodes.items(.main_token)[node],
+            .fn_expr = data.lhs,
+            .params = params,
+        });
+    }
+
+    pub fn callFull(tree: Tree, node: Node.Index) full.Call {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.SubRange);
+        return tree.fullCall(.{
+            .lparen = tree.nodes.items(.main_token)[node],
+            .fn_expr = data.lhs,
+            .params = tree.extra_data[extra.start..extra.end],
+        });
+    }
+
     fn fullVarDecl(tree: Tree, info: full.VarDecl.Ast) full.VarDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: full.VarDecl = .{
@@ -1750,6 +1787,19 @@ pub const Tree = struct {
         }
         return result;
     }
+
+    fn fullCall(tree: Tree, info: full.Call.Ast) full.Call {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.Call = .{
+            .ast = info,
+            .async_token = null,
+        };
+        const maybe_async_token = tree.firstToken(info.fn_expr) - 1;
+        if (token_tags[maybe_async_token] == .Keyword_async) {
+            result.async_token = maybe_async_token;
+        }
+        return result;
+    }
 };
 
 /// Fully assembled AST node information.
@@ -1940,6 +1990,17 @@ pub const full = struct {
             template: Node.Index,
             items: []const Node.Index,
             rparen: TokenIndex,
+        };
+    };
+
+    pub const Call = struct {
+        ast: Ast,
+        async_token: ?TokenIndex,
+
+        pub const Ast = struct {
+            lparen: TokenIndex,
+            fn_expr: Node.Index,
+            params: []const Node.Index,
         };
     };
 };
@@ -2383,9 +2444,24 @@ pub const Node = struct {
         StructInit,
         /// `lhs(rhs)`. rhs can be omitted.
         CallOne,
-        /// `lhs(a, b, c)`. `sub_range_list[rhs]`.
+        /// `lhs(rhs,)`. rhs can be omitted.
+        CallOneComma,
+        /// `async lhs(rhs)`. rhs can be omitted.
+        AsyncCallOne,
+        /// `async lhs(rhs,)`.
+        AsyncCallOneComma,
+        /// `lhs(a, b, c)`. `SubRange[rhs]`.
         /// main_token is the `(`.
         Call,
+        /// `lhs(a, b, c,)`. `SubRange[rhs]`.
+        /// main_token is the `(`.
+        CallComma,
+        /// `async lhs(a, b, c)`. `SubRange[rhs]`.
+        /// main_token is the `(`.
+        AsyncCall,
+        /// `async lhs(a, b, c,)`. `SubRange[rhs]`.
+        /// main_token is the `(`.
+        AsyncCallComma,
         /// `switch(lhs) {}`. `SubRange[rhs]`.
         Switch,
         /// Same as Switch except there is known to be a trailing comma
