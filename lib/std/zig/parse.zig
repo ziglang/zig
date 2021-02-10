@@ -2205,14 +2205,20 @@ const Parser = struct {
         }
 
         const elem_init = try p.expectExpr();
+        const comma_one = p.eatToken(.Comma);
         if (p.eatToken(.RBrace)) |_| {
             return p.addNode(.{
-                .tag = .ArrayInitOne,
+                .tag = if (comma_one != null) .ArrayInitOneComma else .ArrayInitOne,
                 .main_token = lbrace,
                 .data = .{
                     .lhs = lhs,
                     .rhs = elem_init,
                 },
+            });
+        }
+        if (comma_one == null) {
+            try p.warn(.{
+                .ExpectedToken = .{ .token = p.tok_i, .expected_id = .Comma },
             });
         }
 
@@ -2221,15 +2227,19 @@ const Parser = struct {
 
         try init_list.append(elem_init);
 
-        while (p.eatToken(.Comma)) |_| {
-            const next = try p.parseExpr();
-            if (next == 0) break;
+        var trailing_comma = true;
+        var next = try p.parseExpr();
+        while (next != 0) : (next = try p.parseExpr()) {
             try init_list.append(next);
+            if (p.eatToken(.Comma) == null) {
+                trailing_comma = false;
+                break;
+            }
         }
         _ = try p.expectToken(.RBrace);
         const span = try p.listToSpan(init_list.items);
         return p.addNode(.{
-            .tag = .ArrayInit,
+            .tag = if (trailing_comma) .ArrayInitComma else .ArrayInit,
             .main_token = lbrace,
             .data = .{
                 .lhs = lhs,
@@ -2805,7 +2815,7 @@ const Parser = struct {
                     const comma_two = p.eatToken(.Comma);
                     if (p.eatToken(.RBrace)) |_| {
                         return p.addNode(.{
-                            .tag = if (comma_one != null) .ArrayInitDotTwoComma else .ArrayInitDotTwo,
+                            .tag = if (comma_two != null) .ArrayInitDotTwoComma else .ArrayInitDotTwo,
                             .main_token = lbrace,
                             .data = .{
                                 .lhs = elem_init_one,
@@ -2855,7 +2865,7 @@ const Parser = struct {
                     }
                     const span = try p.listToSpan(init_list.items);
                     return p.addNode(.{
-                        .tag = .ArrayInitDot,
+                        .tag = if (p.token_tags[p.tok_i - 2] == .Comma) .ArrayInitDotComma else .ArrayInitDot,
                         .main_token = lbrace,
                         .data = .{
                             .lhs = span.start,

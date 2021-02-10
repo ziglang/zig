@@ -568,109 +568,135 @@ test "zig fmt: struct literal 3 element comma" {
 
 test "zig fmt: anon list literal 1 element" {
     try testCanonical(
-        \\const x = .{a};
+        \\test {
+        \\    const x = .{a};
+        \\}
         \\
     );
 }
 
 test "zig fmt: anon list literal 1 element comma" {
     try testCanonical(
-        \\const x = .{
-        \\    a,
-        \\};
+        \\test {
+        \\    const x = .{
+        \\        a,
+        \\    };
+        \\}
         \\
     );
 }
 
 test "zig fmt: anon list literal 2 element" {
     try testCanonical(
-        \\const x = .{ a, b };
+        \\test {
+        \\    const x = .{ a, b };
+        \\}
         \\
     );
 }
 
 test "zig fmt: anon list literal 2 element comma" {
     try testCanonical(
-        \\const x = .{
-        \\    a,
-        \\    b,
-        \\};
+        \\test {
+        \\    const x = .{
+        \\        a,
+        \\        b,
+        \\    };
+        \\}
         \\
     );
 }
 
 test "zig fmt: anon list literal 3 element" {
     try testCanonical(
-        \\const x = .{ a, b, c };
+        \\test {
+        \\    const x = .{ a, b, c };
+        \\}
         \\
     );
 }
 
 test "zig fmt: anon list literal 3 element comma" {
     try testCanonical(
-        \\const x = .{
-        \\    a,
-        \\    b,
-        \\    c,
-        \\};
+        \\test {
+        \\    const x = .{
+        \\        a,
+        \\        b,
+        \\        c,
+        \\    };
+        \\}
         \\
     );
 }
 
 test "zig fmt: array literal 1 element" {
     try testCanonical(
-        \\const x = [_]u32{a};
+        \\test {
+        \\    const x = [_]u32{a};
+        \\}
         \\
     );
 }
 
 test "zig fmt: array literal 1 element comma" {
     try testCanonical(
-        \\const x = [1]u32{
-        \\    a,
-        \\};
+        \\test {
+        \\    const x = [1]u32{
+        \\        a,
+        \\    };
+        \\}
         \\
     );
 }
 
 test "zig fmt: array literal 2 element" {
     try testCanonical(
-        \\const x = [_]u32{ a, b };
+        \\test {
+        \\    const x = [_]u32{ a, b };
+        \\}
         \\
     );
 }
 
 test "zig fmt: array literal 2 element comma" {
     try testCanonical(
-        \\const x = [2]u32{
-        \\    a,
-        \\    b,
-        \\};
+        \\test {
+        \\    const x = [2]u32{
+        \\        a,
+        \\        b,
+        \\    };
+        \\}
         \\
     );
 }
 
 test "zig fmt: array literal 3 element" {
     try testCanonical(
-        \\const x = [_]u32{ a, b, c };
+        \\test {
+        \\    const x = [_]u32{ a, b, c };
+        \\}
         \\
     );
 }
 
 test "zig fmt: array literal 3 element comma" {
     try testCanonical(
-        \\const x = [3]u32{
-        \\    a,
-        \\    b,
-        \\    c,
-        \\};
+        \\test {
+        \\    const x = [3]u32{
+        \\        a,
+        \\        b,
+        \\        c,
+        \\    };
+        \\}
         \\
     );
 }
 
 test "zig fmt: sentinel array literal 1 element" {
     try testCanonical(
-        \\const x = [_:9000]u32{a};
+        \\test {
+        \\    const x = [_:9000]u32{a};
+        \\}
         \\
     );
 }
