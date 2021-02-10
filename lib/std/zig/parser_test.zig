@@ -464,6 +464,15 @@ test "zig fmt: anon literal in array" {
 //    );
 //}
 
+test "zig fmt: anon struct literal 0 element" {
+    try testCanonical(
+        \\test {
+        \\    const x = .{};
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: anon struct literal 1 element" {
     try testCanonical(
         \\test {
@@ -522,6 +531,15 @@ test "zig fmt: anon struct literal 3 element comma" {
         \\        .c = d,
         \\        .e = f,
         \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: struct literal 0 element" {
+    try testCanonical(
+        \\test {
+        \\    const x = X{};
         \\}
         \\
     );
@@ -648,6 +666,15 @@ test "zig fmt: anon list literal 3 element comma" {
         \\        b,
         \\        c,
         \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: array literal 0 element" {
+    try testCanonical(
+        \\test {
+        \\    const x = [_]u32{};
         \\}
         \\
     );

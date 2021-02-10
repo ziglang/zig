@@ -796,8 +796,11 @@ pub const Tree = struct {
             .StructInitOne,
             => {
                 end_offset += 1; // rbrace
-                n = datas[n].rhs;
-                assert(n != 0);
+                if (datas[n].rhs == 0) {
+                    return main_tokens[n] + end_offset;
+                } else {
+                    n = datas[n].rhs;
+                }
             },
             .SliceOpen,
             .CallOneComma,
