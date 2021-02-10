@@ -407,7 +407,9 @@ pub const Tree = struct {
             => {
                 const main_token = main_tokens[n];
                 return switch (token_tags[main_token]) {
-                    .Asterisk => switch (token_tags[main_token - 1]) {
+                    .Asterisk,
+                    .AsteriskAsterisk,
+                    => switch (token_tags[main_token - 1]) {
                         .LBracket => main_token - 1,
                         else => main_token,
                     },
@@ -1625,7 +1627,9 @@ pub const Tree = struct {
         // literals in some places here
         const Kind = full.PtrType.Kind;
         const kind: Kind = switch (token_tags[info.main_token]) {
-            .Asterisk => switch (token_tags[info.main_token + 1]) {
+            .Asterisk,
+            .AsteriskAsterisk,
+            => switch (token_tags[info.main_token + 1]) {
                 .RBracket => .many,
                 .Colon => .sentinel,
                 .Identifier => if (token_tags[info.main_token - 1] == .LBracket) Kind.c else .one,
@@ -2393,18 +2397,26 @@ pub const Node = struct {
         /// `[*]align(lhs) rhs`. lhs can be omitted.
         /// `*align(lhs) rhs`. lhs can be omitted.
         /// `[]rhs`.
-        /// main_token is the asterisk if a pointer or the lbrace if a slice
+        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token might be a ** token, which is shared with a parent/child
+        /// pointer type and may require special handling.
         PtrTypeAligned,
         /// `[*:lhs]rhs`. lhs can be omitted.
         /// `*rhs`.
         /// `[:lhs]rhs`.
-        /// main_token is the asterisk if a pointer or the lbrace if a slice
+        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token might be a ** token, which is shared with a parent/child
+        /// pointer type and may require special handling.
         PtrTypeSentinel,
         /// lhs is index into PtrType. rhs is the element type expression.
-        /// main_token is the asterisk if a pointer or the lbrace if a slice
+        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token might be a ** token, which is shared with a parent/child
+        /// pointer type and may require special handling.
         PtrType,
         /// lhs is index into PtrTypeBitRange. rhs is the element type expression.
-        /// main_token is the asterisk if a pointer or the lbrace if a slice
+        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token might be a ** token, which is shared with a parent/child
+        /// pointer type and may require special handling.
         PtrTypeBitRange,
         /// `lhs[rhs..]`
         /// main_token is the lbracket.

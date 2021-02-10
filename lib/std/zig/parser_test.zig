@@ -2318,27 +2318,27 @@ test "zig fmt: alignment" {
     );
 }
 
-//test "zig fmt: C main" {
-//    try testCanonical(
-//        \\fn main(argc: c_int, argv: **u8) c_int {
-//        \\    const a = b;
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: return" {
-//    try testCanonical(
-//        \\fn foo(argc: c_int, argv: **u8) c_int {
-//        \\    return 0;
-//        \\}
-//        \\
-//        \\fn bar() void {
-//        \\    return;
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: C main" {
+    try testCanonical(
+        \\fn main(argc: c_int, argv: **u8) c_int {
+        \\    const a = b;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: return" {
+    try testCanonical(
+        \\fn foo(argc: c_int, argv: **u8) c_int {
+        \\    return 0;
+        \\}
+        \\
+        \\fn bar() void {
+        \\    return;
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: function attributes" {
     try testCanonical(
@@ -2356,27 +2356,40 @@ test "zig fmt: function attributes" {
     );
 }
 
-//test "zig fmt: pointer attributes" {
-//    try testCanonical(
-//        \\extern fn f1(s: *align(*u8) u8) c_int;
-//        \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
-//        \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
-//        \\extern fn f4(s: *align(1) const volatile u8) c_int;
-//        \\extern fn f5(s: [*:0]align(1) const volatile u8) c_int;
-//        \\
-//    );
-//}
-//
-//test "zig fmt: slice attributes" {
-//    try testCanonical(
-//        \\extern fn f1(s: *align(*u8) u8) c_int;
-//        \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
-//        \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
-//        \\extern fn f4(s: *align(1) const volatile u8) c_int;
-//        \\extern fn f5(s: [*:0]align(1) const volatile u8) c_int;
-//        \\
-//    );
-//}
+test "zig fmt: nested pointers with ** tokens" {
+    try testCanonical(
+        \\const x: *u32 = undefined;
+        \\const x: **u32 = undefined;
+        \\const x: ***u32 = undefined;
+        \\const x: ****u32 = undefined;
+        \\const x: *****u32 = undefined;
+        \\const x: ******u32 = undefined;
+        \\const x: *******u32 = undefined;
+        \\
+    );
+}
+
+test "zig fmt: pointer attributes" {
+    try testCanonical(
+        \\extern fn f1(s: *align(*u8) u8) c_int;
+        \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
+        \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
+        \\extern fn f4(s: *align(1) const volatile u8) c_int;
+        \\extern fn f5(s: [*:0]align(1) const volatile u8) c_int;
+        \\
+    );
+}
+
+test "zig fmt: slice attributes" {
+    try testCanonical(
+        \\extern fn f1(s: []align(*u8) u8) c_int;
+        \\extern fn f2(s: []align(1) []const []volatile u8) c_int;
+        \\extern fn f3(s: []align(1) const [:0]align(1) volatile []const volatile u8) c_int;
+        \\extern fn f4(s: []align(1) const volatile u8) c_int;
+        \\extern fn f5(s: [:0]align(1) const volatile u8) c_int;
+        \\
+    );
+}
 
 test "zig fmt: test declaration" {
     try testCanonical(

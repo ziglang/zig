@@ -699,6 +699,16 @@ fn renderPtrType(
 ) Error!void {
     switch (ptr_type.kind) {
         .one => {
+            // Since ** tokens exist and the same token is shared by two
+            // nested pointer types, we check to see if we are the parent
+            // in such a relationship. If so, skip rendering anything for
+            // this pointer type and rely on the child to render our asterisk
+            // as well when it renders the ** token.
+            if (tree.tokens.items(.tag)[ptr_type.ast.main_token] == .AsteriskAsterisk and
+                ptr_type.ast.main_token == tree.nodes.items(.main_token)[ptr_type.ast.child_type])
+            {
+                return renderExpression(ais, tree, ptr_type.ast.child_type, space);
+            }
             try renderToken(ais, tree, ptr_type.ast.main_token, .None); // asterisk
         },
         .many => {
