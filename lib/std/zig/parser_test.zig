@@ -291,6 +291,13 @@ test "zig fmt: break from block" {
     );
 }
 
+test "zig fmt: grouped expressions (parentheses)" {
+    try testCanonical(
+        \\const r = (x + y) * (a + b);
+        \\
+    );
+}
+
 //test "zig fmt: c pointer type" {
 //    try testCanonical(
 //        \\pub extern fn repro() [*c]const u8;

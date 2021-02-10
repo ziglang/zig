@@ -517,17 +517,11 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             }
         },
 
-        .GroupedExpression => unreachable, // TODO
-        //.GroupedExpression => {
-        //    const grouped_expr = @fieldParentPtr(ast.Node.GroupedExpression, "base", base);
-
-        //    try renderToken(ais, tree, grouped_expr.lparen, Space.None);
-        //    {
-        //        ais.pushIndentOneShot();
-        //        try renderExpression(ais, tree, grouped_expr.expr, Space.None);
-        //    }
-        //    return renderToken(ais, tree, grouped_expr.rparen, space);
-        //},
+        .GroupedExpression => {
+            try renderToken(ais, tree, main_tokens[node], .None);
+            try renderExpression(ais, tree, datas[node].lhs, .None);
+            return renderToken(ais, tree, datas[node].rhs, space);
+        },
 
         .ContainerDecl,
         .ContainerDeclComma,
