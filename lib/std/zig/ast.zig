@@ -538,6 +538,7 @@ pub const Tree = struct {
             .ArrayType,
             .SwitchCaseOne,
             .SwitchCase,
+            .SwitchRange,
             => n = datas[n].rhs,
 
             .FieldAccess,
@@ -580,8 +581,21 @@ pub const Tree = struct {
                 }
                 n = tree.extra_data[params.end - 1]; // last parameter
             },
-            .CallComma, .AsyncCallComma => {
-                end_offset += 2; // for the comma+rparen
+            .TaggedUnionEnumTag => {
+                const members = tree.extraData(datas[n].rhs, Node.SubRange);
+                if (members.end - members.start == 0) {
+                    end_offset += 4; // for the rparen + rparen + lbrace + rbrace
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 1; // for the rbrace
+                    n = tree.extra_data[members.end - 1]; // last parameter
+                }
+            },
+            .CallComma,
+            .AsyncCallComma,
+            .TaggedUnionEnumTagComma,
+            => {
+                end_offset += 2; // for the comma + rparen/rbrace
                 const params = tree.extraData(datas[n].rhs, Node.SubRange);
                 assert(params.end > params.start);
                 n = tree.extra_data[params.end - 1]; // last parameter
@@ -942,10 +956,6 @@ pub const Tree = struct {
                 const extra = tree.extraData(datas[n].rhs, Node.ArrayTypeSentinel);
                 n = extra.elem_type;
             },
-
-            .TaggedUnionEnumTag => unreachable, // TODO
-            .TaggedUnionEnumTagComma => unreachable, // TODO
-            .SwitchRange => unreachable, // TODO
         };
     }
 
