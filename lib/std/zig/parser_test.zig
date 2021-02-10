@@ -298,12 +298,12 @@ test "zig fmt: grouped expressions (parentheses)" {
     );
 }
 
-//test "zig fmt: c pointer type" {
-//    try testCanonical(
-//        \\pub extern fn repro() [*c]const u8;
-//        \\
-//    );
-//}
+test "zig fmt: c pointer type" {
+    try testCanonical(
+        \\pub extern fn repro() [*c]const u8;
+        \\
+    );
+}
 
 test "zig fmt: builtin call with trailing comma" {
     try testCanonical(
@@ -2339,7 +2339,23 @@ test "zig fmt: alignment" {
 //        \\
 //    );
 //}
-//
+
+test "zig fmt: function attributes" {
+    try testCanonical(
+        \\export fn foo() void {}
+        \\pub export fn foo() void {}
+        \\extern fn foo() void;
+        \\pub extern fn foo() void;
+        \\extern "c" fn foo() void;
+        \\pub extern "c" fn foo() void;
+        \\inline fn foo() void {}
+        \\pub inline fn foo() void {}
+        \\noinline fn foo() void {}
+        \\pub noinline fn foo() void {}
+        \\
+    );
+}
+
 //test "zig fmt: pointer attributes" {
 //    try testCanonical(
 //        \\extern fn f1(s: *align(*u8) u8) c_int;

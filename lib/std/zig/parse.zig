@@ -516,7 +516,14 @@ const Parser = struct {
                 .Semicolon => {
                     const semicolon_token = p.nextToken();
                     try p.parseAppendedDocComment(semicolon_token);
-                    return fn_proto;
+                    return p.addNode(.{
+                        .tag = .FnDecl,
+                        .main_token = p.nodes.items(.main_token)[fn_proto],
+                        .data = .{
+                            .lhs = fn_proto,
+                            .rhs = 0,
+                        },
+                    });
                 },
                 .LBrace => {
                     const body_block = try p.parseBlock();
