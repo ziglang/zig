@@ -841,6 +841,25 @@ test "zig fmt: tagged union with enum values" {
     );
 }
 
+test "zig fmt: tagged union enum tag last token" {
+    try testCanonical(
+        \\test {
+        \\    const U = union(enum(u32)) {};
+        \\}
+        \\
+        \\test {
+        \\    const U = union(enum(u32)) { foo };
+        \\}
+        \\
+        \\test {
+        \\    const U = union(enum(u32)) {
+        \\        foo,
+        \\    };
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: allowzero pointer" {
     try testCanonical(
         \\const T = [*]allowzero const u8;
