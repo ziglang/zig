@@ -17,6 +17,7 @@ pub const Node = extern union {
         empty_block,
         return_void,
         zero_literal,
+        one_literal,
         void_type,
         noreturn_type,
         /// pub usingnamespace @import("std").c.builtins;
@@ -44,7 +45,6 @@ pub const Node = extern union {
         break_val,
         @"return",
         field_access,
-        field_access_arrow,
         array_access,
         call,
         std_mem_zeroes,
@@ -153,8 +153,10 @@ pub const Node = extern union {
         bit_not,
         not,
         address_of,
-        // operand.?.*
+        /// operand.?.*
         unwrap_deref,
+        /// .*
+        deref,
 
         block,
         @"break",
@@ -202,11 +204,11 @@ pub const Node = extern union {
                 .usingnamespace_builtins,
                 .return_void,
                 .zero_literal,
+                .one_literal,
                 .void_type,
                 .noreturn_type,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
-                .array_access,
                 .std_mem_zeroes,
                 .@"return",
                 .discard,
@@ -218,6 +220,7 @@ pub const Node = extern union {
                 .optional_type,
                 .address_of,
                 .unwrap_deref,
+                .deref,
                 .ptr_to_int,
                 .enum_to_int,
                 .empty_array,
@@ -296,8 +299,6 @@ pub const Node = extern union {
                 .string,
                 .char,
                 .identifier,
-                .field_access,
-                .field_access_arrow,
                 .warning,
                 .failed_decl,
                 .sizeof,
@@ -323,9 +324,10 @@ pub const Node = extern union {
                 .array_type => Payload.Array,
                 .arg_redecl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
-                .typedef, .pub_typedef, .pub_var_simple => Payload.SimpleVarDecl,
+                .typedef, .pub_typedef, .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
                 .enum_redecl => Payload.EnumRedecl,
                 .array_filler => Payload.ArrayFiller,
+                .field_access => Payload.FieldAccess,
             };
         }
 
@@ -586,6 +588,14 @@ pub const Payload = struct {
             type: Node,
             filler: Node,
             count: usize,
+        },
+    };
+
+    pub const FieldAccess = struct {
+        base: Node,
+        data: struct {
+            container: Node,
+            name: []const u8,
         },
     };
 };
