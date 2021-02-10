@@ -390,7 +390,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .PtrType => return renderPtrType(ais, tree, tree.ptrType(node), space),
         .PtrTypeBitRange => return renderPtrType(ais, tree, tree.ptrTypeBitRange(node), space),
 
-        .ArrayInitOne => {
+        .ArrayInitOne, .ArrayInitOneComma => {
             var elements: [1]ast.Node.Index = undefined;
             return renderArrayInit(ais, tree, tree.arrayInitOne(&elements, node), space);
         },
@@ -398,8 +398,12 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             var elements: [2]ast.Node.Index = undefined;
             return renderArrayInit(ais, tree, tree.arrayInitDotTwo(&elements, node), space);
         },
-        .ArrayInitDot => return renderArrayInit(ais, tree, tree.arrayInitDot(node), space),
-        .ArrayInit => return renderArrayInit(ais, tree, tree.arrayInit(node), space),
+        .ArrayInitDot,
+        .ArrayInitDotComma,
+        => return renderArrayInit(ais, tree, tree.arrayInitDot(node), space),
+        .ArrayInit,
+        .ArrayInitComma,
+        => return renderArrayInit(ais, tree, tree.arrayInit(node), space),
 
         .StructInitOne => {
             var fields: [1]ast.Node.Index = undefined;
