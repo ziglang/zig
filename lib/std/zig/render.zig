@@ -131,20 +131,19 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
         .FnProto,
         => {
             try renderExpression(ais, tree, decl, .None);
-            try renderToken(ais, tree, tree.lastToken(decl) + 1, space); // semicolon
+            return renderToken(ais, tree, tree.lastToken(decl) + 1, space); // semicolon
         },
 
-        .UsingNamespace => unreachable, // TODO
-        //    .Use => {
-        //        const use_decl = @fieldParentPtr(ast.Node.Use, "base", decl);
-
-        //        if (use_decl.visib_token) |visib_token| {
-        //            try renderToken(ais, tree, visib_token, .Space); // pub
-        //        }
-        //        try renderToken(ais, tree, use_decl.use_token, .Space); // usingnamespace
-        //        try renderExpression(ais, tree, use_decl.expr, .None);
-        //        try renderToken(ais, tree, use_decl.semicolon_token, space); // ;
-        //    },
+        .UsingNamespace => {
+            const main_token = main_tokens[decl];
+            const expr = datas[decl].lhs;
+            if (main_token > 0 and token_tags[main_token - 1] == .Keyword_pub) {
+                try renderToken(ais, tree, main_token - 1, .Space); // pub
+            }
+            try renderToken(ais, tree, main_token, .Space); // usingnamespace
+            try renderExpression(ais, tree, expr, .None);
+            return renderToken(ais, tree, tree.lastToken(expr) + 1, space); // ;
+        },
 
         .GlobalVarDecl => return renderVarDecl(ais, tree, tree.globalVarDecl(decl)),
         .LocalVarDecl => return renderVarDecl(ais, tree, tree.localVarDecl(decl)),

@@ -3082,15 +3082,15 @@ test "zig fmt: for" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: use" {
-//    try testCanonical(
-//        \\usingnamespace @import("std");
-//        \\pub usingnamespace @import("std");
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: usingnamespace" {
+    try testCanonical(
+        \\usingnamespace @import("std");
+        \\pub usingnamespace @import("std");
+        \\
+    );
+}
+
 //test "zig fmt: string identifier" {
 //    try testCanonical(
 //        \\const @"a b" = @"c d".@"e f";
