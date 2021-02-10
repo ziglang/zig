@@ -259,6 +259,7 @@ pub const Tree = struct {
             .ArrayInitDotTwo,
             .ArrayInitDotTwoComma,
             .StructInitDot,
+            .StructInitDotComma,
             .StructInitDotTwo,
             .StructInitDotTwoComma,
             .EnumLiteral,
@@ -316,7 +317,9 @@ pub const Tree = struct {
             .ArrayInit,
             .ArrayInitComma,
             .StructInitOne,
+            .StructInitOneComma,
             .StructInit,
+            .StructInitComma,
             .CallOne,
             .CallOneComma,
             .Call,
@@ -607,13 +610,16 @@ pub const Tree = struct {
                 const extra = tree.extraData(datas[n].rhs, Node.Asm);
                 return extra.rparen + end_offset;
             },
-            .ArrayInit => {
+            .ArrayInit,
+            .StructInit,
+            => {
                 const elements = tree.extraData(datas[n].rhs, Node.SubRange);
                 assert(elements.end - elements.start > 0);
                 end_offset += 1; // for the rbrace
                 n = tree.extra_data[elements.end - 1]; // last element
             },
             .ArrayInitComma,
+            .StructInitComma,
             .ContainerDeclArgComma,
             .SwitchComma,
             => {
@@ -623,6 +629,7 @@ pub const Tree = struct {
                 n = tree.extra_data[members.end - 1]; // last parameter
             },
             .ArrayInitDot,
+            .StructInitDot,
             .Block,
             .ContainerDecl,
             .TaggedUnion,
@@ -633,6 +640,7 @@ pub const Tree = struct {
                 n = tree.extra_data[datas[n].rhs - 1]; // last statement
             },
             .ArrayInitDotComma,
+            .StructInitDotComma,
             .BlockSemicolon,
             .ContainerDeclComma,
             .TaggedUnionComma,
@@ -784,7 +792,9 @@ pub const Tree = struct {
                 }
             },
 
-            .ArrayInitOne => {
+            .ArrayInitOne,
+            .StructInitOne,
+            => {
                 end_offset += 1; // rbrace
                 n = datas[n].rhs;
                 assert(n != 0);
@@ -793,6 +803,7 @@ pub const Tree = struct {
             .CallOneComma,
             .AsyncCallOneComma,
             .ArrayInitOneComma,
+            .StructInitOneComma,
             => {
                 end_offset += 2; // ellipsis2 + rbracket, or comma + rparen
                 n = datas[n].rhs;
@@ -928,14 +939,6 @@ pub const Tree = struct {
                 const extra = tree.extraData(datas[n].rhs, Node.ArrayTypeSentinel);
                 n = extra.elem_type;
             },
-
-            // These are not supported by lastToken() because implementation would
-            // require recursion due to the optional comma followed by rbrace.
-            // TODO follow the pattern set by StructInitDotTwoComma which will allow
-            // lastToken to work for all of these.
-            .StructInit => unreachable, // TODO
-            .StructInitOne => unreachable, // TODO
-            .StructInitDot => unreachable, // TODO
 
             .TaggedUnionEnumTag => unreachable, // TODO
             .TaggedUnionEnumTagComma => unreachable, // TODO
@@ -1118,7 +1121,8 @@ pub const Tree = struct {
     }
 
     pub fn structInitOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.StructInit {
-        assert(tree.nodes.items(.tag)[node] == .StructInitOne);
+        assert(tree.nodes.items(.tag)[node] == .StructInitOne or
+            tree.nodes.items(.tag)[node] == .StructInitOneComma);
         const data = tree.nodes.items(.data)[node];
         buffer[0] = data.rhs;
         const fields = if (data.rhs == 0) buffer[0..0] else buffer[0..1];
@@ -1148,7 +1152,8 @@ pub const Tree = struct {
     }
 
     pub fn structInitDot(tree: Tree, node: Node.Index) full.StructInit {
-        assert(tree.nodes.items(.tag)[node] == .StructInitDot);
+        assert(tree.nodes.items(.tag)[node] == .StructInitDot or
+            tree.nodes.items(.tag)[node] == .StructInitDotComma);
         const data = tree.nodes.items(.data)[node];
         return tree.fullStructInit(.{
             .lbrace = tree.nodes.items(.main_token)[node],
@@ -1158,7 +1163,8 @@ pub const Tree = struct {
     }
 
     pub fn structInit(tree: Tree, node: Node.Index) full.StructInit {
-        assert(tree.nodes.items(.tag)[node] == .StructInit);
+        assert(tree.nodes.items(.tag)[node] == .StructInit or
+            tree.nodes.items(.tag)[node] == .StructInitComma);
         const data = tree.nodes.items(.data)[node];
         const fields_range = tree.extraData(data.rhs, Node.SubRange);
         return tree.fullStructInit(.{
@@ -2281,6 +2287,8 @@ pub const Node = struct {
         assert(@sizeOf(Tag) == 1);
     }
 
+    /// Note: The FooComma/FooSemicolon variants exist to ease the implementation of
+    /// Tree.lastToken()
     pub const Tag = enum {
         /// sub_list[lhs...rhs]
         Root,
@@ -2477,21 +2485,29 @@ pub const Node = struct {
         /// `lhs{.a = rhs}`. rhs can be omitted making it empty.
         /// main_token is the lbrace.
         StructInitOne,
+        /// `lhs{.a = rhs,}`. rhs can *not* be omitted.
+        /// main_token is the lbrace.
+        StructInitOneComma,
         /// `.{.a = lhs, .b = rhs}`. lhs and rhs can be omitted.
         /// main_token is the lbrace.
         /// No trailing comma before the rbrace.
         StructInitDotTwo,
         /// Same as `StructInitDotTwo` except there is known to be a trailing comma
-        /// before the final rbrace. This tag exists to facilitate lastToken() implemented
-        /// without recursion.
+        /// before the final rbrace.
         StructInitDotTwoComma,
         /// `.{.a = b, .c = d}`. `sub_list[lhs..rhs]`.
         /// main_token is the lbrace.
         StructInitDot,
+        /// Same as `StructInitDot` except there is known to be a trailing comma
+        /// before the final rbrace.
+        StructInitDotComma,
         /// `lhs{.a = b, .c = d}`. `sub_range_list[rhs]`.
         /// lhs can be omitted which means `.{.a = b, .c = d}`.
         /// main_token is the lbrace.
         StructInit,
+        /// Same as `StructInit` except there is known to be a trailing comma
+        /// before the final rbrace.
+        StructInitComma,
         /// `lhs(rhs)`. rhs can be omitted.
         CallOne,
         /// `lhs(rhs,)`. rhs can be omitted.
