@@ -2830,86 +2830,81 @@ test "zig fmt: switch" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: for" {
-//    try testCanonical(
-//        \\test "for" {
-//        \\    for (a) |v| {
-//        \\        continue;
-//        \\    }
-//        \\
-//        \\    for (a) |v| continue;
-//        \\
-//        \\    for (a) |v| continue else return;
-//        \\
-//        \\    for (a) |v| {
-//        \\        continue;
-//        \\    } else return;
-//        \\
-//        \\    for (a) |v| continue else {
-//        \\        return;
-//        \\    }
-//        \\
-//        \\    for (a) |v|
-//        \\        continue
-//        \\    else
-//        \\        return;
-//        \\
-//        \\    for (a) |v|
-//        \\        continue;
-//        \\
-//        \\    for (a) |*v|
-//        \\        continue;
-//        \\
-//        \\    for (a) |v, i| {
-//        \\        continue;
-//        \\    }
-//        \\
-//        \\    for (a) |v, i|
-//        \\        continue;
-//        \\
-//        \\    for (a) |b| switch (b) {
-//        \\        c => {},
-//        \\        d => {},
-//        \\    };
-//        \\
-//        \\    for (a) |b|
-//        \\        switch (b) {
-//        \\            c => {},
-//        \\            d => {},
-//        \\        };
-//        \\
-//        \\    const res = for (a) |v, i| {
-//        \\        break v;
-//        \\    } else {
-//        \\        unreachable;
-//        \\    };
-//        \\
-//        \\    var num: usize = 0;
-//        \\    inline for (a) |v, i| {
-//        \\        num += v;
-//        \\        num += i;
-//        \\    }
-//        \\}
-//        \\
-//    );
-//
-//    try testTransform(
-//        \\test "fix for" {
-//        \\    for (a) |x|
-//        \\        f(x) else continue;
-//        \\}
-//        \\
-//    ,
-//        \\test "fix for" {
-//        \\    for (a) |x|
-//        \\        f(x)
-//        \\    else continue;
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: for" {
+    try testCanonical(
+        \\test "for" {
+        \\    for (a) |v| {
+        \\        continue;
+        \\    }
+        \\
+        \\    for (a) |v| continue;
+        \\
+        \\    for (a) |v| continue else return;
+        \\
+        \\    for (a) |v| {
+        \\        continue;
+        \\    } else return;
+        \\
+        \\    for (a) |v| continue else {
+        \\        return;
+        \\    }
+        \\
+        \\    for (a) |v|
+        \\        continue
+        \\    else
+        \\        return;
+        \\
+        \\    for (a) |v|
+        \\        continue;
+        \\
+        \\    for (a) |*v|
+        \\        continue;
+        \\
+        \\    for (a) |v, i| {
+        \\        continue;
+        \\    }
+        \\
+        \\    for (a) |v, i|
+        \\        continue;
+        \\
+        \\    for (a) |b| switch (b) {
+        \\        c => {},
+        \\        d => {},
+        \\    };
+        \\
+        \\    const res = for (a) |v, i| {
+        \\        break v;
+        \\    } else {
+        \\        unreachable;
+        \\    };
+        \\
+        \\    var num: usize = 0;
+        \\    inline for (a) |v, i| {
+        \\        num += v;
+        \\        num += i;
+        \\    }
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\test "fix for" {
+        \\    for (a) |x|
+        \\        f(x) else continue;
+        \\}
+        \\
+    ,
+        \\test "fix for" {
+        \\    for (a) |x|
+        \\        f(x)
+        \\    else
+        \\        continue;
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: if" {
 //    try testCanonical(
 //        \\test "if" {

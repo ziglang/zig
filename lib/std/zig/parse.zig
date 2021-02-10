@@ -835,12 +835,11 @@ const Parser = struct {
             });
         }
 
-        const token = p.nextToken();
-        switch (p.token_tags[token]) {
+        switch (p.token_tags[p.tok_i]) {
             .Keyword_nosuspend => {
                 return p.addNode(.{
                     .tag = .Nosuspend,
-                    .main_token = token,
+                    .main_token = p.nextToken(),
                     .data = .{
                         .lhs = try p.expectBlockExprStatement(),
                         .rhs = undefined,
@@ -848,6 +847,7 @@ const Parser = struct {
                 });
             },
             .Keyword_suspend => {
+                const token = p.nextToken();
                 const block_expr: Node.Index = if (p.eatToken(.Semicolon) != null)
                     0
                 else
@@ -863,7 +863,7 @@ const Parser = struct {
             },
             .Keyword_defer => return p.addNode(.{
                 .tag = .Defer,
-                .main_token = token,
+                .main_token = p.nextToken(),
                 .data = .{
                     .lhs = undefined,
                     .rhs = try p.expectBlockExprStatement(),
@@ -871,23 +871,19 @@ const Parser = struct {
             }),
             .Keyword_errdefer => return p.addNode(.{
                 .tag = .ErrDefer,
-                .main_token = token,
+                .main_token = p.nextToken(),
                 .data = .{
                     .lhs = try p.parsePayload(),
                     .rhs = try p.expectBlockExprStatement(),
                 },
             }),
-            else => p.tok_i -= 1,
+            .Keyword_switch => return p.expectSwitchExpr(),
+            .Keyword_if => return p.expectIfStatement(),
+            else => {},
         }
-
-        const if_statement = try p.parseIfStatement();
-        if (if_statement != 0) return if_statement;
 
         const labeled_statement = try p.parseLabeledStatement();
         if (labeled_statement != 0) return labeled_statement;
-
-        const switch_expr = try p.parseSwitchExpr();
-        if (switch_expr != 0) return switch_expr;
 
         const assign_expr = try p.parseAssignExpr();
         if (assign_expr != 0) {
@@ -925,8 +921,8 @@ const Parser = struct {
     /// IfStatement
     ///     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
     ///      / IfPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
-    fn parseIfStatement(p: *Parser) !Node.Index {
-        const if_token = p.eatToken(.Keyword_if) orelse return null_node;
+    fn expectIfStatement(p: *Parser) !Node.Index {
+        const if_token = p.assertToken(.Keyword_if);
         _ = try p.expectToken(.LParen);
         const condition = try p.expectExpr();
         _ = try p.expectToken(.RParen);
@@ -2441,7 +2437,7 @@ const Parser = struct {
             .Builtin => return p.parseBuiltinCall(),
             .Keyword_fn => return p.parseFnProto(),
             .Keyword_if => return p.parseIf(parseTypeExpr),
-            .Keyword_switch => return p.parseSwitchExpr(),
+            .Keyword_switch => return p.expectSwitchExpr(),
 
             .Keyword_extern,
             .Keyword_packed,
@@ -2880,8 +2876,8 @@ const Parser = struct {
     }
 
     /// SwitchExpr <- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
-    fn parseSwitchExpr(p: *Parser) !Node.Index {
-        const switch_token = p.eatToken(.Keyword_switch) orelse return null_node;
+    fn expectSwitchExpr(p: *Parser) !Node.Index {
+        const switch_token = p.assertToken(.Keyword_switch);
         _ = try p.expectToken(.LParen);
         const expr_node = try p.expectExpr();
         _ = try p.expectToken(.RParen);
@@ -3191,8 +3187,7 @@ const Parser = struct {
         const first_item = try p.parseSwitchItem();
         if (first_item == 0) return null_node;
 
-        if (p.token_tags[p.tok_i] == .RBrace) {
-            const arrow_token = try p.expectToken(.EqualAngleBracketRight);
+        if (p.eatToken(.EqualAngleBracketRight)) |arrow_token| {
             _ = try p.parsePtrPayload();
             return p.addNode(.{
                 .tag = .SwitchCaseOne,

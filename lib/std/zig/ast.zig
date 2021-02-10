@@ -512,6 +512,7 @@ pub const Tree = struct {
             .ErrorUnion,
             .IfSimple,
             .WhileSimple,
+            .ForSimple,
             .FnDecl,
             .PtrTypeAligned,
             .PtrTypeSentinel,
@@ -531,6 +532,7 @@ pub const Tree = struct {
             .AsmInput,
             .FnProtoSimple,
             .FnProtoMulti,
+            .ErrorValue,
             => return datas[n].rhs + end_offset,
 
             .AnyType,
@@ -854,7 +856,7 @@ pub const Tree = struct {
                 assert(extra.else_expr != 0);
                 n = extra.else_expr;
             },
-            .If => {
+            .If, .For => {
                 const extra = tree.extraData(datas[n].rhs, Node.If);
                 assert(extra.else_expr != 0);
                 n = extra.else_expr;
@@ -876,9 +878,6 @@ pub const Tree = struct {
             .SwitchRange => unreachable, // TODO
             .ArrayType => unreachable, // TODO
             .ArrayTypeSentinel => unreachable, // TODO
-            .ForSimple => unreachable, // TODO
-            .For => unreachable, // TODO
-            .ErrorValue => unreachable, // TODO
         };
     }
 
@@ -1452,6 +1451,29 @@ pub const Tree = struct {
             .while_token = tree.nodes.items(.main_token)[node],
             .cond_expr = data.lhs,
             .cont_expr = extra.cont_expr,
+            .then_expr = extra.then_expr,
+            .else_expr = extra.else_expr,
+        });
+    }
+
+    pub fn forSimple(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = 0,
+            .then_expr = data.rhs,
+            .else_expr = 0,
+        });
+    }
+
+    pub fn forFull(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.If);
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = 0,
             .then_expr = extra.then_expr,
             .else_expr = extra.else_expr,
         });
@@ -2356,6 +2378,7 @@ pub const Node = struct {
         /// main_token is the `=>`
         SwitchCaseOne,
         /// `a, b, c => rhs`. `SubRange[lhs]`.
+        /// main_token is the `=>`
         SwitchCase,
         /// `lhs...rhs`.
         SwitchRange,
