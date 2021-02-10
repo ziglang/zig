@@ -2106,38 +2106,3 @@ fn nodeCausesSliceOpSpace(tag: ast.Node.Tag) bool {
         else => false,
     };
 }
-
-fn copyFixingWhitespace(ais: *Ais, slice: []const u8) @TypeOf(ais.*).Error!void {
-    const writer = ais.writer();
-    for (slice) |byte| switch (byte) {
-        '\t' => try writer.writeAll("    "),
-        '\r' => {},
-        else => try writer.writeByte(byte),
-    };
-}
-
-// Returns the number of nodes in `expr` that are on the same line as `rtoken`,
-// or null if they all are on the same line.
-fn rowSize(tree: ast.Tree, exprs: []ast.Node.Index, rtoken: ast.TokenIndex) ?usize {
-    const first_token = exprs[0].firstToken();
-    const first_loc = tree.tokenLocation(tree.token_locs[first_token].start, rtoken);
-    if (first_loc.line == 0) {
-        const maybe_comma = tree.prevToken(rtoken);
-        if (tree.token_tags[maybe_comma] == .Comma)
-            return 1;
-        return null; // no newlines
-    }
-
-    var count: usize = 1;
-    for (exprs) |expr, i| {
-        if (i + 1 < exprs.len) {
-            const expr_last_token = expr.lastToken() + 1;
-            const loc = tree.tokenLocation(tree.token_locs[expr_last_token].start, exprs[i + 1].firstToken());
-            if (loc.line != 0) return count;
-            count += 1;
-        } else {
-            return count;
-        }
-    }
-    unreachable;
-}
