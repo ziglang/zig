@@ -1409,7 +1409,7 @@ pub const Tree = struct {
         return tree.fullContainerDecl(.{
             .main_token = main_token,
             .enum_token = main_token + 2, // union lparen enum
-            .members = tree.extra_data[data.lhs..data.rhs],
+            .members = tree.extra_data[members_range.start..members_range.end],
             .arg = data.lhs,
         });
     }

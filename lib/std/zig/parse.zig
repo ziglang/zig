@@ -3609,10 +3609,7 @@ const Parser = struct {
                                 .main_token = main_token,
                                 .data = .{
                                     .lhs = enum_tag_expr,
-                                    .rhs = try p.addExtra(Node.SubRange{
-                                        .start = members_span.start,
-                                        .end = members_span.end,
-                                    }),
+                                    .rhs = try p.addExtra(members_span),
                                 },
                             });
                         } else {

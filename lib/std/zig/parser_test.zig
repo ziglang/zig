@@ -734,23 +734,23 @@ test "zig fmt: while else err prong with no block" {
     );
 }
 
-//test "zig fmt: tagged union with enum values" {
-//    try testCanonical(
-//        \\const MultipleChoice2 = union(enum(u32)) {
-//        \\    Unspecified1: i32,
-//        \\    A: f32 = 20,
-//        \\    Unspecified2: void,
-//        \\    B: bool = 40,
-//        \\    Unspecified3: i32,
-//        \\    C: i8 = 60,
-//        \\    Unspecified4: void,
-//        \\    D: void = 1000,
-//        \\    Unspecified5: i32,
-//        \\};
-//        \\
-//    );
-//}
-//
+test "zig fmt: tagged union with enum values" {
+    try testCanonical(
+        \\const MultipleChoice2 = union(enum(u32)) {
+        \\    Unspecified1: i32,
+        \\    A: f32 = 20,
+        \\    Unspecified2: void,
+        \\    B: bool = 40,
+        \\    Unspecified3: i32,
+        \\    C: i8 = 60,
+        \\    Unspecified4: void,
+        \\    D: void = 1000,
+        \\    Unspecified5: i32,
+        \\};
+        \\
+    );
+}
+
 //test "zig fmt: allowzero pointer" {
 //    try testCanonical(
 //        \\const T = [*]allowzero const u8;
