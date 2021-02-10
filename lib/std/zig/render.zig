@@ -198,7 +198,11 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .AnyFrameLiteral,
         => return renderToken(ais, tree, main_tokens[node], space),
 
-        .ErrorValue => unreachable, // TODO
+        .ErrorValue => {
+            try renderToken(ais, tree, main_tokens[node], .None);
+            try renderToken(ais, tree, main_tokens[node] + 1, .None);
+            return renderToken(ais, tree, main_tokens[node] + 2, space);
+        },
 
         .AnyType => return renderToken(ais, tree, main_tokens[node], space),
 

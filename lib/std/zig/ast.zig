@@ -899,12 +899,12 @@ pub const Tree = struct {
             // require recursion due to the optional comma followed by rbrace.
             // TODO follow the pattern set by StructInitDotTwoComma which will allow
             // lastToken to work for all of these.
-            .ArrayInit => unreachable,
-            .ArrayInitOne => unreachable,
-            .ArrayInitDot => unreachable,
-            .StructInit => unreachable,
-            .StructInitOne => unreachable,
-            .StructInitDot => unreachable,
+            .ArrayInit => unreachable, // TODO
+            .ArrayInitOne => unreachable, // TODO
+            .ArrayInitDot => unreachable, // TODO
+            .StructInit => unreachable, // TODO
+            .StructInitOne => unreachable, // TODO
+            .StructInitDot => unreachable, // TODO
 
             .TaggedUnionEnumTag => unreachable, // TODO
             .TaggedUnionEnumTagComma => unreachable, // TODO
@@ -2065,7 +2065,7 @@ pub const Error = union(enum) {
     pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found '{s}'");
     pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{s}'");
     pub const ExpectedFn = SingleTokenError("Expected function, found '{s}'");
-    pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found '{s}'");
+    pub const ExpectedReturnType = SingleTokenError("Expected return type expression, found '{s}'");
     pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Tag.Keyword_struct.symbol() ++ "', '" ++ Token.Tag.Keyword_union.symbol() ++ "', '" ++ Token.Tag.Keyword_enum.symbol() ++ "', or '" ++ Token.Tag.Keyword_opaque.symbol() ++ "', found '{s}'");
     pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{s}'");
     pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found '{s}'");
