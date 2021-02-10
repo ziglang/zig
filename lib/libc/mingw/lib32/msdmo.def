@@ -1,0 +1,17 @@
+LIBRARY msdmo.dll
+EXPORTS
+DMOEnum@28
+DMOGetName@8
+DMOGetTypes@28
+DMOGuidToStrA@8
+DMOGuidToStrW@8
+DMORegister@32
+DMOStrToGuidA@8
+DMOStrToGuidW@8
+DMOUnregister@8
+MoCopyMediaType@8
+MoCreateMediaType@8
+MoDeleteMediaType@4
+MoDuplicateMediaType@8
+MoFreeMediaType@4
+MoInitMediaType@8

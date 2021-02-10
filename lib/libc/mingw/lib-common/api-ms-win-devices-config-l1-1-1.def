@@ -1,0 +1,17 @@
+LIBRARY api-ms-win-devices-config-l1-1-1
+
+EXPORTS
+
+CM_Get_Device_ID_List_SizeW
+CM_Get_Device_ID_ListW
+CM_Get_Device_IDW
+CM_Get_Device_Interface_List_SizeW
+CM_Get_Device_Interface_ListW
+CM_Get_Device_Interface_PropertyW
+CM_Get_DevNode_PropertyW
+CM_Get_DevNode_Status
+CM_Get_Parent
+CM_Locate_DevNodeW
+CM_MapCrToWin32Err
+CM_Register_Notification
+CM_Unregister_Notification
