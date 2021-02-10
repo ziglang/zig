@@ -2124,18 +2124,18 @@ test "zig fmt: error set declaration" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: resume from suspend block" {
-//    try testCanonical(
-//        \\fn foo() void {
-//        \\    suspend {
-//        \\        resume @frame();
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: resume from suspend block" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    suspend {
+        \\        resume @frame();
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: comments before error set decl" {
 //    try testCanonical(
 //        \\const UnexpectedError = error{

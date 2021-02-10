@@ -459,7 +459,6 @@ pub const Tree = struct {
             .Try,
             .Await,
             .OptionalType,
-            .Suspend,
             .Resume,
             .Nosuspend,
             .Comptime,
@@ -625,7 +624,6 @@ pub const Tree = struct {
             },
 
             .ArrayInitDotTwo,
-            .BuiltinCallTwo,
             .BlockTwo,
             .StructInitDotTwo,
             .ContainerDeclTwo,
@@ -637,6 +635,18 @@ pub const Tree = struct {
                 } else if (datas[n].lhs != 0) {
                     n = datas[n].lhs;
                 } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .BuiltinCallTwo => {
+                if (datas[n].rhs != 0) {
+                    end_offset += 1; // for the rparen/rbrace
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    end_offset += 1; // for the rparen/rbrace
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 2; // for the lparen and rparen
                     return main_tokens[n] + end_offset;
                 }
             },
@@ -860,6 +870,13 @@ pub const Tree = struct {
                 const extra = tree.extraData(datas[n].rhs, Node.If);
                 assert(extra.else_expr != 0);
                 n = extra.else_expr;
+            },
+            .Suspend => {
+                if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
             },
 
             // These are not supported by lastToken() because implementation would

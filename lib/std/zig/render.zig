@@ -238,17 +238,16 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderExpression(ais, tree, block, space);
         },
 
-        .Suspend => unreachable, // TODO
-        //.Suspend => {
-        //    const suspend_node = @fieldParentPtr(ast.Node.Suspend, "base", base);
-
-        //    if (suspend_node.body) |body| {
-        //        try renderToken(ais, tree, suspend_node.suspend_token, Space.Space);
-        //        return renderExpression(ais, tree, body, space);
-        //    } else {
-        //        return renderToken(ais, tree, suspend_node.suspend_token, space);
-        //    }
-        //},
+        .Suspend => {
+            const suspend_token = main_tokens[node];
+            const body = datas[node].lhs;
+            if (body != 0) {
+                try renderToken(ais, tree, suspend_token, .Space);
+                return renderExpression(ais, tree, body, space);
+            } else {
+                return renderToken(ais, tree, suspend_token, space);
+            }
+        },
 
         .Catch => {
             const main_token = main_tokens[node];
