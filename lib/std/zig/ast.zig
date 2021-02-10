@@ -760,6 +760,13 @@ pub const Tree = struct {
                 n = extra.sentinel;
             },
 
+            .Continue => {
+                if (datas[n].lhs != 0) {
+                    return datas[n].lhs + end_offset;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
             .Break => {
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
@@ -837,6 +844,21 @@ pub const Tree = struct {
                 n = max_node;
                 end_offset += max_offset;
             },
+            .WhileCont => {
+                const extra = tree.extraData(datas[n].rhs, Node.WhileCont);
+                assert(extra.then_expr != 0);
+                n = extra.then_expr;
+            },
+            .While => {
+                const extra = tree.extraData(datas[n].rhs, Node.While);
+                assert(extra.else_expr != 0);
+                n = extra.else_expr;
+            },
+            .If => {
+                const extra = tree.extraData(datas[n].rhs, Node.If);
+                assert(extra.else_expr != 0);
+                n = extra.else_expr;
+            },
 
             // These are not supported by lastToken() because implementation would
             // require recursion due to the optional comma followed by rbrace.
@@ -851,13 +873,9 @@ pub const Tree = struct {
 
             .TaggedUnionEnumTag => unreachable, // TODO
             .TaggedUnionEnumTagComma => unreachable, // TODO
-            .If => unreachable, // TODO
-            .Continue => unreachable, // TODO
             .SwitchRange => unreachable, // TODO
             .ArrayType => unreachable, // TODO
             .ArrayTypeSentinel => unreachable, // TODO
-            .WhileCont => unreachable, // TODO
-            .While => unreachable, // TODO
             .ForSimple => unreachable, // TODO
             .For => unreachable, // TODO
             .ErrorValue => unreachable, // TODO
@@ -1404,6 +1422,41 @@ pub const Tree = struct {
         });
     }
 
+    pub fn whileSimple(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = 0,
+            .then_expr = data.rhs,
+            .else_expr = 0,
+        });
+    }
+
+    pub fn whileCont(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.WhileCont);
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = extra.cont_expr,
+            .then_expr = extra.then_expr,
+            .else_expr = 0,
+        });
+    }
+
+    pub fn whileFull(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.While);
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = extra.cont_expr,
+            .then_expr = extra.then_expr,
+            .else_expr = extra.else_expr,
+        });
+    }
+
     fn fullVarDecl(tree: Tree, info: full.VarDecl.Ast) full.VarDecl {
         const token_tags = tree.tokens.items(.tag);
         var result: full.VarDecl = .{
@@ -1623,6 +1676,41 @@ pub const Tree = struct {
 
         return result;
     }
+
+    fn fullWhile(tree: Tree, info: full.While.Ast) full.While {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.While = .{
+            .ast = info,
+            .inline_token = null,
+            .label_token = null,
+            .payload_token = null,
+            .else_token = undefined,
+            .error_token = null,
+        };
+        var tok_i = info.while_token - 1;
+        if (token_tags[tok_i] == .Keyword_inline) {
+            result.inline_token = tok_i;
+            tok_i -= 1;
+        }
+        if (token_tags[tok_i] == .Colon and
+            token_tags[tok_i - 1] == .Identifier)
+        {
+            result.label_token = tok_i - 1;
+        }
+        const last_cond_token = tree.lastToken(info.cond_expr);
+        if (token_tags[last_cond_token + 2] == .Pipe) {
+            result.payload_token = last_cond_token + 3;
+        }
+        if (info.else_expr != 0) {
+            // then_expr else |x|
+            //           ^    ^
+            result.else_token = tree.lastToken(info.then_expr) + 1;
+            if (token_tags[result.else_token + 1] == .Pipe) {
+                result.error_token = result.else_token + 2;
+            }
+        }
+        return result;
+    }
 };
 
 /// Fully assembled AST node information.
@@ -1645,18 +1733,36 @@ pub const full = struct {
     };
 
     pub const If = struct {
-        // Points to the first token after the `|`. Will either be an identifier or
-        // a `*` (with an identifier immediately after it).
+        /// Points to the first token after the `|`. Will either be an identifier or
+        /// a `*` (with an identifier immediately after it).
         payload_token: ?TokenIndex,
-        // Points to the identifier after the `|`.
+        /// Points to the identifier after the `|`.
         error_token: ?TokenIndex,
-        // Populated only if else_expr != 0.
+        /// Populated only if else_expr != 0.
         else_token: TokenIndex,
         ast: Ast,
 
         pub const Ast = struct {
             if_token: TokenIndex,
             cond_expr: Node.Index,
+            then_expr: Node.Index,
+            else_expr: Node.Index,
+        };
+    };
+
+    pub const While = struct {
+        ast: Ast,
+        inline_token: ?TokenIndex,
+        label_token: ?TokenIndex,
+        payload_token: ?TokenIndex,
+        error_token: ?TokenIndex,
+        /// Populated only if else_expr != 0.
+        else_token: TokenIndex,
+
+        pub const Ast = struct {
+            while_token: TokenIndex,
+            cond_expr: Node.Index,
+            cont_expr: Node.Index,
             then_expr: Node.Index,
             else_expr: Node.Index,
         };
@@ -2270,9 +2376,9 @@ pub const Node = struct {
         /// `if (lhs) rhs`.
         /// `if (lhs) |a| rhs`.
         IfSimple,
-        /// `if (lhs) a else b`. `if_list[rhs]`.
-        /// `if (lhs) |x| a else b`. `if_list[rhs]`.
-        /// `if (lhs) |x| a else |y| b`. `if_list[rhs]`.
+        /// `if (lhs) a else b`. `If[rhs]`.
+        /// `if (lhs) |x| a else b`. `If[rhs]`.
+        /// `if (lhs) |x| a else |y| b`. `If[rhs]`.
         If,
         /// `suspend lhs`. lhs can be omitted. rhs is unused.
         Suspend,
@@ -2497,13 +2603,13 @@ pub const Node = struct {
     };
 
     pub const While = struct {
-        continue_expr: Index,
+        cont_expr: Index,
         then_expr: Index,
         else_expr: Index,
     };
 
     pub const WhileCont = struct {
-        continue_expr: Index,
+        cont_expr: Index,
         then_expr: Index,
     };
 

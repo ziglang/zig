@@ -714,19 +714,19 @@ test "zig fmt: async function" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: while else err prong with no block" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    const result = while (returnError()) |value| {
-//        \\        break value;
-//        \\    } else |err| @as(i32, 2);
-//        \\    expect(result == 2);
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: while else err prong with no block" {
+    try testCanonical(
+        \\test "" {
+        \\    const result = while (returnError()) |value| {
+        \\        break value;
+        \\    } else |err| @as(i32, 2);
+        \\    expect(result == 2);
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: tagged union with enum values" {
 //    try testCanonical(
 //        \\const MultipleChoice2 = union(enum(u32)) {

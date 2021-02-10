@@ -1085,7 +1085,7 @@ const Parser = struct {
         const condition = try p.expectExpr();
         _ = try p.expectToken(.RParen);
         const then_payload = try p.parsePtrPayload();
-        const continue_expr = try p.parseWhileContinueExpr();
+        const cont_expr = try p.parseWhileContinueExpr();
 
         // TODO propose to change the syntax so that semicolons are always required
         // inside while statements, even if there is an `else`.
@@ -1098,7 +1098,7 @@ const Parser = struct {
                 return p.fail(.{ .ExpectedBlockOrAssignment = .{ .token = p.tok_i } });
             }
             if (p.eatToken(.Semicolon)) |_| {
-                if (continue_expr == 0) {
+                if (cont_expr == 0) {
                     return p.addNode(.{
                         .tag = .WhileSimple,
                         .main_token = while_token,
@@ -1114,7 +1114,7 @@ const Parser = struct {
                         .data = .{
                             .lhs = condition,
                             .rhs = try p.addExtra(Node.WhileCont{
-                                .continue_expr = continue_expr,
+                                .cont_expr = cont_expr,
                                 .then_expr = assign_expr,
                             }),
                         },
@@ -1128,7 +1128,7 @@ const Parser = struct {
             if (else_required) {
                 return p.fail(.{ .ExpectedSemiOrElse = .{ .token = p.tok_i } });
             }
-            if (continue_expr == 0) {
+            if (cont_expr == 0) {
                 return p.addNode(.{
                     .tag = .WhileSimple,
                     .main_token = while_token,
@@ -1144,7 +1144,7 @@ const Parser = struct {
                     .data = .{
                         .lhs = condition,
                         .rhs = try p.addExtra(Node.WhileCont{
-                            .continue_expr = continue_expr,
+                            .cont_expr = cont_expr,
                             .then_expr = then_expr,
                         }),
                     },
@@ -1159,7 +1159,7 @@ const Parser = struct {
             .data = .{
                 .lhs = condition,
                 .rhs = try p.addExtra(Node.While{
-                    .continue_expr = continue_expr,
+                    .cont_expr = cont_expr,
                     .then_expr = then_expr,
                     .else_expr = else_expr,
                 }),
@@ -2073,11 +2073,11 @@ const Parser = struct {
         const condition = try p.expectExpr();
         _ = try p.expectToken(.RParen);
         const then_payload = try p.parsePtrPayload();
-        const continue_expr = try p.parseWhileContinueExpr();
+        const cont_expr = try p.parseWhileContinueExpr();
 
         const then_expr = try p.expectExpr();
         const else_token = p.eatToken(.Keyword_else) orelse {
-            if (continue_expr == 0) {
+            if (cont_expr == 0) {
                 return p.addNode(.{
                     .tag = .WhileSimple,
                     .main_token = while_token,
@@ -2093,7 +2093,7 @@ const Parser = struct {
                     .data = .{
                         .lhs = condition,
                         .rhs = try p.addExtra(Node.WhileCont{
-                            .continue_expr = continue_expr,
+                            .cont_expr = cont_expr,
                             .then_expr = then_expr,
                         }),
                     },
@@ -2108,7 +2108,7 @@ const Parser = struct {
             .data = .{
                 .lhs = condition,
                 .rhs = try p.addExtra(Node.While{
-                    .continue_expr = continue_expr,
+                    .cont_expr = cont_expr,
                     .then_expr = then_expr,
                     .else_expr = else_expr,
                 }),
@@ -2836,11 +2836,11 @@ const Parser = struct {
         const condition = try p.expectExpr();
         _ = try p.expectToken(.RParen);
         const then_payload = try p.parsePtrPayload();
-        const continue_expr = try p.parseWhileContinueExpr();
+        const cont_expr = try p.parseWhileContinueExpr();
 
         const then_expr = try p.expectTypeExpr();
         const else_token = p.eatToken(.Keyword_else) orelse {
-            if (continue_expr == 0) {
+            if (cont_expr == 0) {
                 return p.addNode(.{
                     .tag = .WhileSimple,
                     .main_token = while_token,
@@ -2856,7 +2856,7 @@ const Parser = struct {
                     .data = .{
                         .lhs = condition,
                         .rhs = try p.addExtra(Node.WhileCont{
-                            .continue_expr = continue_expr,
+                            .cont_expr = cont_expr,
                             .then_expr = then_expr,
                         }),
                     },
@@ -2871,7 +2871,7 @@ const Parser = struct {
             .data = .{
                 .lhs = condition,
                 .rhs = try p.addExtra(Node.While{
-                    .continue_expr = continue_expr,
+                    .cont_expr = cont_expr,
                     .then_expr = then_expr,
                     .else_expr = else_expr,
                 }),

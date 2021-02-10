@@ -567,13 +567,13 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             if (lbrace + 1 == rbrace) {
                 // There is nothing between the braces so render condensed: `error{}`
                 try renderToken(ais, tree, lbrace, .None);
-                try renderToken(ais, tree, rbrace, space);
+                return renderToken(ais, tree, rbrace, space);
             } else if (lbrace + 2 == rbrace and token_tags[lbrace + 1] == .Identifier) {
                 // There is exactly one member and no trailing comma or
                 // comments, so render without surrounding spaces: `error{Foo}`
                 try renderToken(ais, tree, lbrace, .None);
                 try renderToken(ais, tree, lbrace + 1, .None); // identifier
-                try renderToken(ais, tree, rbrace, space);
+                return renderToken(ais, tree, rbrace, space);
             } else if (token_tags[rbrace - 1] == .Comma) {
                 // There is a trailing comma so render each member on a new line.
                 try renderToken(ais, tree, lbrace, .Newline);
@@ -589,7 +589,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                     }
                 }
                 ais.popIndent();
-                try renderToken(ais, tree, rbrace, space);
+                return renderToken(ais, tree, rbrace, space);
             } else {
                 // There is no trailing comma so render everything on one line.
                 try renderToken(ais, tree, lbrace, .Space);
@@ -602,7 +602,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                         else => unreachable,
                     }
                 }
-                try renderToken(ais, tree, rbrace, space);
+                return renderToken(ais, tree, rbrace, space);
             }
         },
 
@@ -663,7 +663,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
 
             if (cases.len == 0) {
                 try renderToken(ais, tree, rparen + 1, .None); // lbrace
-                try renderToken(ais, tree, rparen + 2, space); // rbrace
+                return renderToken(ais, tree, rparen + 2, space); // rbrace
             } else {
                 try renderToken(ais, tree, rparen + 1, .Newline); // lbrace
                 ais.pushIndent();
@@ -673,83 +673,16 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                     try renderExpression(ais, tree, case, .Comma);
                 }
                 ais.popIndent();
-                try renderToken(ais, tree, tree.lastToken(node), space); // rbrace
+                return renderToken(ais, tree, tree.lastToken(node), space); // rbrace
             }
         },
 
-        .SwitchCaseOne => try renderSwitchCase(ais, tree, tree.switchCaseOne(node), space),
-        .SwitchCase => try renderSwitchCase(ais, tree, tree.switchCase(node), space),
+        .SwitchCaseOne => return renderSwitchCase(ais, tree, tree.switchCaseOne(node), space),
+        .SwitchCase => return renderSwitchCase(ais, tree, tree.switchCase(node), space),
 
-        .WhileSimple => unreachable, // TODO
-        .WhileCont => unreachable, // TODO
-        .While => unreachable, // TODO
-        //.While => {
-        //    const while_node = @fieldParentPtr(ast.Node.While, "base", base);
-
-        //    if (while_node.label) |label| {
-        //        try renderToken(ais, tree, label, Space.None); // label
-        //        try renderToken(ais, tree, tree.nextToken(label), Space.Space); // :
-        //    }
-
-        //    if (while_node.inline_token) |inline_token| {
-        //        try renderToken(ais, tree, inline_token, Space.Space); // inline
-        //    }
-
-        //    try renderToken(ais, tree, while_node.while_token, Space.Space); // while
-        //    try renderToken(ais, tree, tree.nextToken(while_node.while_token), Space.None); // (
-        //    try renderExpression(ais, tree, while_node.condition, Space.None);
-
-        //    const cond_rparen = tree.nextToken(while_node.condition.lastToken());
-
-        //    const body_is_block = nodeIsBlock(while_node.body);
-
-        //    var block_start_space: Space = undefined;
-        //    var after_body_space: Space = undefined;
-
-        //    if (body_is_block) {
-        //        block_start_space = Space.BlockStart;
-        //        after_body_space = if (while_node.@"else" == null) space else Space.Space;
-        //    } else if (tree.tokensOnSameLine(cond_rparen, while_node.body.lastToken())) {
-        //        block_start_space = Space.Space;
-        //        after_body_space = if (while_node.@"else" == null) space else Space.Space;
-        //    } else {
-        //        block_start_space = Space.Newline;
-        //        after_body_space = if (while_node.@"else" == null) space else Space.Newline;
-        //    }
-
-        //    {
-        //        const rparen_space = if (while_node.payload != null or while_node.continue_expr != null) Space.Space else block_start_space;
-        //        try renderToken(ais, tree, cond_rparen, rparen_space); // )
-        //    }
-
-        //    if (while_node.payload) |payload| {
-        //        const payload_space = if (while_node.continue_expr != null) Space.Space else block_start_space;
-        //        try renderExpression(ais, tree, payload, payload_space);
-        //    }
-
-        //    if (while_node.continue_expr) |continue_expr| {
-        //        const rparen = tree.nextToken(continue_expr.lastToken());
-        //        const lparen = tree.prevToken(continue_expr.firstToken());
-        //        const colon = tree.prevToken(lparen);
-
-        //        try renderToken(ais, tree, colon, Space.Space); // :
-        //        try renderToken(ais, tree, lparen, Space.None); // (
-
-        //        try renderExpression(ais, tree, continue_expr, Space.None);
-
-        //        try renderToken(ais, tree, rparen, block_start_space); // )
-        //    }
-
-        //    {
-        //        if (!body_is_block) ais.pushIndent();
-        //        defer if (!body_is_block) ais.popIndent();
-        //        try renderExpression(ais, tree, while_node.body, after_body_space);
-        //    }
-
-        //    if (while_node.@"else") |@"else"| {
-        //        return renderExpression(ais, tree, &@"else".base, space);
-        //    }
-        //},
+        .WhileSimple => return renderWhile(ais, tree, tree.whileSimple(node), space),
+        .WhileCont => return renderWhile(ais, tree, tree.whileCont(node), space),
+        .While => return renderWhile(ais, tree, tree.whileFull(node), space),
 
         .ForSimple => unreachable, // TODO
         .For => unreachable, // TODO
@@ -1092,105 +1025,142 @@ fn renderVarDecl(ais: *Ais, tree: ast.Tree, var_decl: ast.full.VarDecl) Error!vo
 }
 
 fn renderIf(ais: *Ais, tree: ast.Tree, if_node: ast.full.If, space: Space) Error!void {
+    return renderWhile(ais, tree, .{
+        .ast = .{
+            .while_token = if_node.ast.if_token,
+            .cond_expr = if_node.ast.cond_expr,
+            .cont_expr = 0,
+            .then_expr = if_node.ast.then_expr,
+            .else_expr = if_node.ast.else_expr,
+        },
+        .inline_token = null,
+        .label_token = null,
+        .payload_token = if_node.payload_token,
+        .else_token = if_node.else_token,
+        .error_token = if_node.error_token,
+    }, space);
+}
+
+/// Note that this function is additionally used to render if expressions, with
+/// respective values set to null.
+fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Space) Error!void {
     const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
 
-    try renderToken(ais, tree, if_node.ast.if_token, .Space); // if
-
-    const lparen = if_node.ast.if_token + 1;
-
-    try renderToken(ais, tree, lparen, .None); // (
-    try renderExpression(ais, tree, if_node.ast.cond_expr, .None); // condition
-
-    switch (node_tags[if_node.ast.then_expr]) {
-        .If, .IfSimple => {
-            try renderExtraNewline(ais, tree, if_node.ast.then_expr);
-        },
-        .Block, .For, .ForSimple, .While, .WhileSimple, .Switch => {
-            if (if_node.payload_token) |payload_token| {
-                try renderToken(ais, tree, payload_token - 2, .Space); // )
-                try renderToken(ais, tree, payload_token - 1, .None); // |
-                if (token_tags[payload_token] == .Asterisk) {
-                    try renderToken(ais, tree, payload_token, .None); // *
-                    try renderToken(ais, tree, payload_token + 1, .None); // identifier
-                    try renderToken(ais, tree, payload_token + 2, .BlockStart); // |
-                } else {
-                    try renderToken(ais, tree, payload_token, .None); // identifier
-                    try renderToken(ais, tree, payload_token + 1, .BlockStart); // |
-                }
-            } else {
-                const rparen = tree.lastToken(if_node.ast.cond_expr) + 1;
-                try renderToken(ais, tree, rparen, .BlockStart); // )
-            }
-            if (if_node.ast.else_expr != 0) {
-                try renderExpression(ais, tree, if_node.ast.then_expr, Space.Space);
-                try renderToken(ais, tree, if_node.else_token, .Space); // else
-                if (if_node.error_token) |error_token| {
-                    try renderToken(ais, tree, error_token - 1, .None); // |
-                    try renderToken(ais, tree, error_token, .None); // identifier
-                    try renderToken(ais, tree, error_token + 1, .Space); // |
-                }
-                return renderExpression(ais, tree, if_node.ast.else_expr, space);
-            } else {
-                return renderExpression(ais, tree, if_node.ast.then_expr, space);
-            }
-        },
-        else => {},
+    if (while_node.label_token) |label| {
+        try renderToken(ais, tree, label, .None); // label
+        try renderToken(ais, tree, label + 1, .Space); // :
     }
 
-    const rparen = tree.lastToken(if_node.ast.cond_expr) + 1;
-    const last_then_token = tree.lastToken(if_node.ast.then_expr);
+    if (while_node.inline_token) |inline_token| {
+        try renderToken(ais, tree, inline_token, .Space); // inline
+    }
+
+    try renderToken(ais, tree, while_node.ast.while_token, .Space); // if
+    try renderToken(ais, tree, while_node.ast.while_token + 1, .None); // (
+    try renderExpression(ais, tree, while_node.ast.cond_expr, .None); // condition
+
+    if (nodeIsBlock(node_tags[while_node.ast.then_expr])) {
+        const payload_space: Space = if (while_node.ast.cont_expr != 0) .Space else .BlockStart;
+        if (while_node.payload_token) |payload_token| {
+            try renderToken(ais, tree, payload_token - 2, .Space); // )
+            try renderToken(ais, tree, payload_token - 1, .None); // |
+            if (token_tags[payload_token] == .Asterisk) {
+                try renderToken(ais, tree, payload_token, .None); // *
+                try renderToken(ais, tree, payload_token + 1, .None); // identifier
+                try renderToken(ais, tree, payload_token + 2, payload_space); // |
+            } else {
+                try renderToken(ais, tree, payload_token, .None); // identifier
+                try renderToken(ais, tree, payload_token + 1, payload_space); // |
+            }
+        } else {
+            const rparen = tree.lastToken(while_node.ast.cond_expr) + 1;
+            try renderToken(ais, tree, rparen, payload_space); // )
+        }
+        if (while_node.ast.cont_expr != 0) {
+            const rparen = tree.lastToken(while_node.ast.cont_expr) + 1;
+            const lparen = tree.firstToken(while_node.ast.cont_expr) - 1;
+            try renderToken(ais, tree, lparen - 1, .Space); // :
+            try renderToken(ais, tree, lparen, .None); // lparen
+            try renderExpression(ais, tree, while_node.ast.cont_expr, .None);
+            try renderToken(ais, tree, rparen, .BlockStart); // rparen
+        }
+        if (while_node.ast.else_expr != 0) {
+            try renderExpression(ais, tree, while_node.ast.then_expr, Space.Space);
+            try renderToken(ais, tree, while_node.else_token, .Space); // else
+            if (while_node.error_token) |error_token| {
+                try renderToken(ais, tree, error_token - 1, .None); // |
+                try renderToken(ais, tree, error_token, .None); // identifier
+                try renderToken(ais, tree, error_token + 1, .Space); // |
+            }
+            return renderExpression(ais, tree, while_node.ast.else_expr, space);
+        } else {
+            return renderExpression(ais, tree, while_node.ast.then_expr, space);
+        }
+    }
+
+    const rparen = tree.lastToken(while_node.ast.cond_expr) + 1;
+    const last_then_token = tree.lastToken(while_node.ast.then_expr);
     const src_has_newline = !tree.tokensOnSameLine(rparen, last_then_token);
 
     if (src_has_newline) {
-        if (if_node.payload_token) |payload_token| {
+        const payload_space: Space = if (while_node.ast.cont_expr != 0) .Space else .Newline;
+        if (while_node.payload_token) |payload_token| {
             try renderToken(ais, tree, payload_token - 2, .Space); // )
             try renderToken(ais, tree, payload_token - 1, .None); // |
             try renderToken(ais, tree, payload_token, .None); // identifier
-            try renderToken(ais, tree, payload_token + 1, .Newline); // |
+            try renderToken(ais, tree, payload_token + 1, payload_space); // |
         } else {
             ais.pushIndent();
-            try renderToken(ais, tree, rparen, .Newline); // )
+            try renderToken(ais, tree, rparen, payload_space); // )
             ais.popIndent();
         }
-        if (if_node.ast.else_expr != 0) {
+        if (while_node.ast.cont_expr != 0) {
+            const cont_rparen = tree.lastToken(while_node.ast.cont_expr) + 1;
+            const cont_lparen = tree.firstToken(while_node.ast.cont_expr) - 1;
+            try renderToken(ais, tree, cont_lparen - 1, .Space); // :
+            try renderToken(ais, tree, cont_lparen, .None); // lparen
+            try renderExpression(ais, tree, while_node.ast.cont_expr, .None);
+            try renderToken(ais, tree, cont_rparen, .Newline); // rparen
+        }
+        if (while_node.ast.else_expr != 0) {
             ais.pushIndent();
-            try renderExpression(ais, tree, if_node.ast.then_expr, Space.Newline);
+            try renderExpression(ais, tree, while_node.ast.then_expr, Space.Newline);
             ais.popIndent();
-            const else_is_block = nodeIsBlock(node_tags[if_node.ast.else_expr]);
+            const else_is_block = nodeIsBlock(node_tags[while_node.ast.else_expr]);
             if (else_is_block) {
-                try renderToken(ais, tree, if_node.else_token, .Space); // else
-                if (if_node.error_token) |error_token| {
+                try renderToken(ais, tree, while_node.else_token, .Space); // else
+                if (while_node.error_token) |error_token| {
                     try renderToken(ais, tree, error_token - 1, .None); // |
                     try renderToken(ais, tree, error_token, .None); // identifier
                     try renderToken(ais, tree, error_token + 1, .Space); // |
                 }
-                return renderExpression(ais, tree, if_node.ast.else_expr, space);
+                return renderExpression(ais, tree, while_node.ast.else_expr, space);
             } else {
-                if (if_node.error_token) |error_token| {
-                    try renderToken(ais, tree, if_node.else_token, .Space); // else
+                if (while_node.error_token) |error_token| {
+                    try renderToken(ais, tree, while_node.else_token, .Space); // else
                     try renderToken(ais, tree, error_token - 1, .None); // |
                     try renderToken(ais, tree, error_token, .None); // identifier
                     try renderToken(ais, tree, error_token + 1, .Space); // |
                 } else {
-                    try renderToken(ais, tree, if_node.else_token, .Newline); // else
+                    try renderToken(ais, tree, while_node.else_token, .Newline); // else
                 }
                 ais.pushIndent();
-                try renderExpression(ais, tree, if_node.ast.else_expr, space);
+                try renderExpression(ais, tree, while_node.ast.else_expr, space);
                 ais.popIndent();
                 return;
             }
         } else {
             ais.pushIndent();
-            try renderExpression(ais, tree, if_node.ast.then_expr, space);
+            try renderExpression(ais, tree, while_node.ast.then_expr, space);
             ais.popIndent();
             return;
         }
     }
 
-    // Single line if statement.
+    // Render everything on a single line.
 
-    if (if_node.payload_token) |payload_token| {
+    if (while_node.payload_token) |payload_token| {
         assert(payload_token - 2 == rparen);
         try renderToken(ais, tree, payload_token - 2, .Space); // )
         try renderToken(ais, tree, payload_token - 1, .None); // |
@@ -1206,19 +1176,28 @@ fn renderIf(ais: *Ais, tree: ast.Tree, if_node: ast.full.If, space: Space) Error
         try renderToken(ais, tree, rparen, .Space); // )
     }
 
-    if (if_node.ast.else_expr != 0) {
-        try renderExpression(ais, tree, if_node.ast.then_expr, .Space);
-        try renderToken(ais, tree, if_node.else_token, .Space); // else
+    if (while_node.ast.cont_expr != 0) {
+        const cont_rparen = tree.lastToken(while_node.ast.cont_expr) + 1;
+        const cont_lparen = tree.firstToken(while_node.ast.cont_expr) - 1;
+        try renderToken(ais, tree, cont_lparen - 1, .Space); // :
+        try renderToken(ais, tree, cont_lparen, .None); // lparen
+        try renderExpression(ais, tree, while_node.ast.cont_expr, .None);
+        try renderToken(ais, tree, cont_rparen, .Space); // rparen
+    }
 
-        if (if_node.error_token) |error_token| {
+    if (while_node.ast.else_expr != 0) {
+        try renderExpression(ais, tree, while_node.ast.then_expr, .Space);
+        try renderToken(ais, tree, while_node.else_token, .Space); // else
+
+        if (while_node.error_token) |error_token| {
             try renderToken(ais, tree, error_token - 1, .None); // |
             try renderToken(ais, tree, error_token, .None); // identifier
             try renderToken(ais, tree, error_token + 1, .Space); // |
         }
 
-        return renderExpression(ais, tree, if_node.ast.else_expr, space);
+        return renderExpression(ais, tree, while_node.ast.else_expr, space);
     } else {
-        return renderExpression(ais, tree, if_node.ast.then_expr, space);
+        return renderExpression(ais, tree, while_node.ast.then_expr, space);
     }
 }
 
@@ -2079,12 +2058,16 @@ fn renderDocComments(ais: *Ais, tree: ast.Tree, end_token: ast.TokenIndex) Error
 fn nodeIsBlock(tag: ast.Node.Tag) bool {
     return switch (tag) {
         .Block,
+        .BlockSemicolon,
+        .BlockTwo,
+        .BlockTwoSemicolon,
         .If,
         .IfSimple,
         .For,
         .ForSimple,
         .While,
         .WhileSimple,
+        .WhileCont,
         .Switch,
         => true,
         else => false,
