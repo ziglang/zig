@@ -529,6 +529,7 @@ pub const Tree = struct {
             .PtrTypeSentinel,
             .PtrType,
             .PtrTypeBitRange,
+            .ArrayType,
             .SwitchCaseOne,
             .SwitchCase,
             => n = datas[n].rhs,
@@ -902,6 +903,10 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
+            .ArrayTypeSentinel => {
+                const extra = tree.extraData(datas[n].rhs, Node.ArrayTypeSentinel);
+                n = extra.elem_type;
+            },
 
             // These are not supported by lastToken() because implementation would
             // require recursion due to the optional comma followed by rbrace.
@@ -917,8 +922,6 @@ pub const Tree = struct {
             .TaggedUnionEnumTag => unreachable, // TODO
             .TaggedUnionEnumTagComma => unreachable, // TODO
             .SwitchRange => unreachable, // TODO
-            .ArrayType => unreachable, // TODO
-            .ArrayTypeSentinel => unreachable, // TODO
         };
     }
 
