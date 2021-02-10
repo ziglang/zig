@@ -43,7 +43,7 @@ const Scope = struct {
     const Switch = struct {
         base: Scope,
         pending_block: Block,
-        cases: []Node,
+        cases: std.ArrayList(Node),
         case_index: usize,
         switch_label: ?[]const u8,
         default_label: ?[]const u8,
@@ -1087,7 +1087,7 @@ fn transStmt(
             return maybeSuppressResult(c, scope, result_used, expr);
         },
         else => {
-            return revertAndWarn(
+            return fail(
                 rp,
                 error.UnsupportedTranslation,
                 stmt.getBeginLoc(),
@@ -1348,7 +1348,7 @@ fn transDeclStmtOne(
                 return error.UnsupportedTranslation;
             return node;
         },
-        else => |kind| return revertAndWarn(
+        else => |kind| return fail(
             rp,
             error.UnsupportedTranslation,
             decl.getLocation(),
@@ -1440,7 +1440,7 @@ fn transImplicitCastExpr(
         .BuiltinFnToFnPtr => {
             return transExpr(rp, scope, sub_expr, result_used, .r_value);
         },
-        else => |kind| return revertAndWarn(
+        else => |kind| return fail(
             rp,
             error.UnsupportedTranslation,
             @ptrCast(*const clang.Stmt, expr).getBeginLoc(),
@@ -1460,7 +1460,7 @@ fn transBoolExpr(
     if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
         var is_zero: bool = undefined;
         if (!(@ptrCast(*const clang.IntegerLiteral, expr).isZero(&is_zero, c.clang_context))) {
-            return revertAndWarn(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid integer literal", .{});
+            return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid integer literal", .{});
         }
         return Node{ .tag = ([2]ast.Node.Tag{ .true_literal, .false_literal })[@boolToInt(is_zero)] };
     }
@@ -1605,7 +1605,7 @@ fn transIntegerLiteral(
     var eval_result: clang.ExprEvalResult = undefined;
     if (!expr.EvaluateAsInt(&eval_result, c.clang_context)) {
         const loc = expr.getBeginLoc();
-        return revertAndWarn(c, error.UnsupportedTranslation, loc, "invalid integer literal", .{});
+        return fail(c, error.UnsupportedTranslation, loc, "invalid integer literal", .{});
     }
 
     if (suppress_as == .no_as) {
@@ -2144,7 +2144,6 @@ fn transDoWhileLoop(
         block.data.stmts.len += 1; // This is safe since we reserve one extra space in Scope.Block.complete.
         block.data.stmts[block.data.stmts.len - 1] = if_not_break;
         break :blk node;
-        
     } else blk: {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do
@@ -2209,27 +2208,11 @@ fn transForLoop(
     }
 }
 
-fn getSwitchCaseCount(stmt: *const clang.SwitchStmt) usize {
-    const body = stmt.getBody();
-    assert(body.getStmtClass() == .CompoundStmtClass);
-    const comp = @ptrCast(*const clang.CompoundStmt, body);
-    // TODO https://github.com/ziglang/zig/issues/1738
-    // return comp.body_end() - comp.body_begin();
-    const start_addr = @ptrToInt(comp.body_begin());
-    const end_addr = @ptrToInt(comp.body_end());
-    return (end_addr - start_addr) / @sizeOf(*clang.Stmt);
-}
-
 fn transSwitch(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.SwitchStmt,
-) TransError!*ast.Node {
-    const switch_tok = try appendToken(rp.c, .Keyword_switch, "switch");
-    _ = try appendToken(rp.c, .LParen, "(");
-
-    const cases_len = getSwitchCaseCount(stmt);
-
+) TransError!Node {
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
@@ -2237,16 +2220,13 @@ fn transSwitch(
         },
     };
     defer cond_scope.deinit();
-    const switch_expr = try transExpr(rp, &cond_scope.base, stmt.getCond(), .used, .r_value);
-    _ = try appendToken(rp.c, .RParen, ")");
-    _ = try appendToken(rp.c, .LBrace, "{");
-    // reserve +1 case in case there is no default case
-    const switch_node = try ast.Node.Switch.alloc(rp.c.arena, cases_len + 1);
+    const switch_expr = try transExpr(c, &cond_scope.base, stmt.getCond(), .used, .r_value);
+    const switch_node = try c.arena.create(ast.Payload.Switch);
     switch_node.* = .{
-        .switch_token = switch_tok,
-        .expr = switch_expr,
-        .cases_len = cases_len + 1,
-        .rbrace = try appendToken(rp.c, .RBrace, "}"),
+        .data = .{
+            .cond = switch_expr,
+            .cases = undefined, // set later
+        },
     };
 
     var switch_scope = Scope.Switch{
@@ -2254,29 +2234,32 @@ fn transSwitch(
             .id = .Switch,
             .parent = scope,
         },
-        .cases = switch_node.cases(),
-        .case_index = 0,
+        .cases = std.ArrayList(Node).init(c.gpa),
         .pending_block = undefined,
         .default_label = null,
         .switch_label = null,
     };
+    defer {
+        switch_node.data.cases = try c.arena.dupe(Node, switch_scope.cases.items);
+        switch_node.data.default = switch_scope.switch_label;
+        switch_scope.cases.deinit();
+    }
 
     // tmp block that all statements will go before being picked up by a case or default
-    var block_scope = try Scope.Block.init(rp.c, &switch_scope.base, false);
+    var block_scope = try Scope.Block.init(c, &switch_scope.base, false);
     defer block_scope.deinit();
 
     // Note that we do not defer a deinit here; the switch_scope.pending_block field
     // has its own memory management. This resource is freed inside `transCase` and
     // then the final pending_block is freed at the bottom of this function with
     // pending_block.deinit().
-    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, false);
-    try switch_scope.pending_block.statements.append(&switch_node.base);
+    switch_scope.pending_block = try Scope.Block.init(c, scope, false);
+    try switch_scope.pending_block.statements.append(Node.initPayload(&switch_node.base));
 
-    const last = try transStmt(rp, &block_scope.base, stmt.getBody(), .unused, .r_value);
-    _ = try appendToken(rp.c, .Semicolon, ";");
+    const last = try transStmt(c, &block_scope.base, stmt.getBody(), .unused, .r_value);
 
     // take all pending statements
-    const last_block_stmts = last.cast(ast.Node.Block).?.statements();
+    const last_block_stmts = last.castTag(.block).?.data.stmts;
     try switch_scope.pending_block.statements.ensureCapacity(
         switch_scope.pending_block.statements.items.len + last_block_stmts.len,
     );
@@ -2285,213 +2268,159 @@ fn transSwitch(
     }
 
     if (switch_scope.default_label == null) {
-        switch_scope.switch_label = try block_scope.makeMangledName(rp.c, "switch");
+        switch_scope.switch_label = try block_scope.makeMangledName(c, "switch");
     }
     if (switch_scope.switch_label) |l| {
-        switch_scope.pending_block.label = try appendIdentifier(rp.c, l);
-        _ = try appendToken(rp.c, .Colon, ":");
+        switch_scope.pending_block.label = l;
     }
     if (switch_scope.default_label == null) {
-        const else_prong = try transCreateNodeSwitchCase(rp.c, try transCreateNodeSwitchElse(rp.c));
-        else_prong.expr = blk: {
-            var br = try CtrlFlow.init(rp.c, .Break, switch_scope.switch_label.?);
-            break :blk &(try br.finish(null)).base;
-        };
-        _ = try appendToken(rp.c, .Comma, ",");
-
-        if (switch_scope.case_index >= switch_scope.cases.len)
-            return revertAndWarn(rp, error.UnsupportedTranslation, @ptrCast(*const clang.Stmt, stmt).getBeginLoc(), "TODO complex switch cases", .{});
-        switch_scope.cases[switch_scope.case_index] = &else_prong.base;
-        switch_scope.case_index += 1;
+        const else_prong = try Node.switch_else.create(
+            c.arena,
+            try Node.@"break".create(c.arena, switch_scope.switch_label.?),
+        );
+        switch_scope.cases.append(else_prong);
     }
-    // We overallocated in case there was no default, so now we correct
-    // the number of cases in the AST node.
-    switch_node.cases_len = switch_scope.case_index;
 
-    const result_node = try switch_scope.pending_block.complete(rp.c);
+    const result_node = try switch_scope.pending_block.complete(c);
     switch_scope.pending_block.deinit();
     return result_node;
 }
 
 fn transCase(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.CaseStmt,
-) TransError!*ast.Node {
-    const block_scope = scope.findBlockScope(rp.c) catch unreachable;
+) TransError!Node {
+    const block_scope = scope.findBlockScope(c) catch unreachable;
     const switch_scope = scope.getSwitch();
-    const label = try block_scope.makeMangledName(rp.c, "case");
-    _ = try appendToken(rp.c, .Semicolon, ";");
+    const label = try block_scope.makeMangledName(c, "case");
 
     const expr = if (stmt.getRHS()) |rhs| blk: {
-        const lhs_node = try transExpr(rp, scope, stmt.getLHS(), .used, .r_value);
-        const ellips = try appendToken(rp.c, .Ellipsis3, "...");
-        const rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+        const lhs_node = try transExpr(c, scope, stmt.getLHS(), .used, .r_value);
+        const rhs_node = try transExpr(c, scope, rhs, .used, .r_value);
 
-        const node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
-        node.* = .{
-            .base = .{ .tag = .Range },
-            .op_token = ellips,
-            .lhs = lhs_node,
-            .rhs = rhs_node,
-        };
-        break :blk &node.base;
+        break :blk Node.ellipsis3.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
     } else
-        try transExpr(rp, scope, stmt.getLHS(), .used, .r_value);
+        try transExpr(c, scope, stmt.getLHS(), .used, .r_value);
 
-    const switch_prong = try transCreateNodeSwitchCase(rp.c, expr);
-    switch_prong.expr = blk: {
-        var br = try CtrlFlow.init(rp.c, .Break, label);
-        break :blk &(try br.finish(null)).base;
-    };
-    _ = try appendToken(rp.c, .Comma, ",");
+    const switch_prong = try Node.switch_prong.create(
+        c.arena,
+        try Node.@"break".create(c.arena, label),
+    );
+    switch_scope.cases.append(switch_prong);
 
-    if (switch_scope.case_index >= switch_scope.cases.len)
-        return revertAndWarn(rp, error.UnsupportedTranslation, @ptrCast(*const clang.Stmt, stmt).getBeginLoc(), "TODO complex switch cases", .{});
-    switch_scope.cases[switch_scope.case_index] = &switch_prong.base;
-    switch_scope.case_index += 1;
-
-    switch_scope.pending_block.label = try appendIdentifier(rp.c, label);
-    _ = try appendToken(rp.c, .Colon, ":");
+    switch_scope.pending_block.label = label;
 
     // take all pending statements
     try switch_scope.pending_block.statements.appendSlice(block_scope.statements.items);
     block_scope.statements.shrinkAndFree(0);
 
-    const pending_node = try switch_scope.pending_block.complete(rp.c);
+    const pending_node = try switch_scope.pending_block.complete(c);
     switch_scope.pending_block.deinit();
-    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, false);
+    switch_scope.pending_block = try Scope.Block.init(c, scope, false);
 
     try switch_scope.pending_block.statements.append(pending_node);
 
-    return transStmt(rp, scope, stmt.getSubStmt(), .unused, .r_value);
+    return transStmt(c, scope, stmt.getSubStmt(), .unused, .r_value);
 }
 
 fn transDefault(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.DefaultStmt,
-) TransError!*ast.Node {
-    const block_scope = scope.findBlockScope(rp.c) catch unreachable;
+) TransError!Node {
+    const block_scope = scope.findBlockScope(c) catch unreachable;
     const switch_scope = scope.getSwitch();
-    switch_scope.default_label = try block_scope.makeMangledName(rp.c, "default");
-    _ = try appendToken(rp.c, .Semicolon, ";");
+    switch_scope.default_label = try block_scope.makeMangledName(c, "default");
 
-    const else_prong = try transCreateNodeSwitchCase(rp.c, try transCreateNodeSwitchElse(rp.c));
-    else_prong.expr = blk: {
-        var br = try CtrlFlow.init(rp.c, .Break, switch_scope.default_label.?);
-        break :blk &(try br.finish(null)).base;
-    };
-    _ = try appendToken(rp.c, .Comma, ",");
-
-    if (switch_scope.case_index >= switch_scope.cases.len)
-        return revertAndWarn(rp, error.UnsupportedTranslation, @ptrCast(*const clang.Stmt, stmt).getBeginLoc(), "TODO complex switch cases", .{});
-    switch_scope.cases[switch_scope.case_index] = &else_prong.base;
-    switch_scope.case_index += 1;
-
-    switch_scope.pending_block.label = try appendIdentifier(rp.c, switch_scope.default_label.?);
-    _ = try appendToken(rp.c, .Colon, ":");
+    const else_prong = try Node.switch_else.create(
+        c.arena,
+        try Node.@"break".create(c.arena, switch_scope.default_label.?),
+    );
+    switch_scope.cases.append(else_prong);
+    switch_scope.pending_block.label = try appendIdentifier(c, switch_scope.default_label.?);
 
     // take all pending statements
     try switch_scope.pending_block.statements.appendSlice(block_scope.statements.items);
     block_scope.statements.shrinkAndFree(0);
 
-    const pending_node = try switch_scope.pending_block.complete(rp.c);
+    const pending_node = try switch_scope.pending_block.complete(c);
     switch_scope.pending_block.deinit();
-    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, false);
+    switch_scope.pending_block = try Scope.Block.init(c, scope, false);
     try switch_scope.pending_block.statements.append(pending_node);
 
-    return transStmt(rp, scope, stmt.getSubStmt(), .unused, .r_value);
+    return transStmt(c, scope, stmt.getSubStmt(), .unused, .r_value);
 }
 
-fn transConstantExpr(rp: RestorePoint, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!*ast.Node {
+fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
     var result: clang.ExprEvalResult = undefined;
-    if (!expr.EvaluateAsConstantExpr(&result, .EvaluateForCodeGen, rp.c.clang_context))
-        return revertAndWarn(rp, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid constant expression", .{});
+    if (!expr.EvaluateAsConstantExpr(&result, .EvaluateForCodeGen, c.clang_context))
+        return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid constant expression", .{});
 
-    var val_node: ?*ast.Node = null;
     switch (result.Val.getKind()) {
         .Int => {
             // See comment in `transIntegerLiteral` for why this code is here.
             // @as(T, x)
             const expr_base = @ptrCast(*const clang.Expr, expr);
-            const as_node = try rp.c.createBuiltinCall("@as", 2);
-            const ty_node = try transQualType(rp, expr_base.getType(), expr_base.getBeginLoc());
-            as_node.params()[0] = ty_node;
-            _ = try appendToken(rp.c, .Comma, ",");
-
-            const int_lit_node = try transCreateNodeAPInt(rp.c, result.Val.getInt());
-            as_node.params()[1] = int_lit_node;
-
-            as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-
-            return maybeSuppressResult(rp, scope, used, &as_node.base);
+            const as_node = try Node.as.create(c.arena, .{
+                .lhs = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc()),
+                .rhs = try transCreateNodeAPInt(c, result.Val.getInt()),
+            });
+            return maybeSuppressResult(c, scope, used, as_node);
         },
         else => {
-            return revertAndWarn(rp, error.UnsupportedTranslation, expr.getBeginLoc(), "unsupported constant expression kind", .{});
+            return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "unsupported constant expression kind", .{});
         },
     }
 }
 
-fn transPredefinedExpr(rp: RestorePoint, scope: *Scope, expr: *const clang.PredefinedExpr, used: ResultUsed) TransError!*ast.Node {
-    return transStringLiteral(rp, scope, expr.getFunctionName(), used);
+fn transPredefinedExpr(c: *Context, scope: *Scope, expr: *const clang.PredefinedExpr, used: ResultUsed) TransError!Node {
+    return transStringLiteral(c, scope, expr.getFunctionName(), used);
 }
 
-fn transCreateCharLitNode(c: *Context, narrow: bool, val: u32) TransError!*ast.Node {
-    const node = try c.arena.create(ast.Node.OneToken);
-    node.* = .{
-        .base = .{ .tag = .CharLiteral },
-        .token = undefined,
-    };
-    if (narrow) {
-        const val_array = [_]u8{@intCast(u8, val)};
-        node.token = try appendTokenFmt(c, .CharLiteral, "'{}'", .{std.zig.fmtEscapes(&val_array)});
-    } else {
-        node.token = try appendTokenFmt(c, .CharLiteral, "'\\u{{{x}}}'", .{val});
-    }
-    return &node.base;
+fn transCreateCharLitNode(c: *Context, narrow: bool, val: u32) TransError!Node {
+    return Node.char_literal.create(c.arena, if (narrow)
+        try std.fmt.bufPrint(c.arena, "'{}'", .{std.zig.fmtEscapes(&.{@intCast(u8, val)})})
+    else
+        try std.fmt.bufPrint(c.arena, "'\\u{{{x}}}'", .{val}));
 }
 
 fn transCharLiteral(
-    rp: RestorePoint,
+    c: *Context,
     scope: *Scope,
     stmt: *const clang.CharacterLiteral,
     result_used: ResultUsed,
     suppress_as: SuppressCast,
-) TransError!*ast.Node {
+) TransError!Node {
     const kind = stmt.getKind();
     const val = stmt.getValue();
     const narrow = kind == .Ascii or kind == .UTF8;
     // C has a somewhat obscure feature called multi-character character constant
     // e.g. 'abcd'
     const int_lit_node = if (kind == .Ascii and val > 255)
-        try transCreateNodeInt(rp.c, val)
+        try transCreateNodeInt(c, val)
     else
-        try transCreateCharLitNode(rp.c, narrow, val);
+        try transCreateCharLitNode(c, narrow, val);
 
     if (suppress_as == .no_as) {
-        return maybeSuppressResult(rp, scope, result_used, int_lit_node);
+        return maybeSuppressResult(c, scope, result_used, int_lit_node);
     }
     // See comment in `transIntegerLiteral` for why this code is here.
     // @as(T, x)
     const expr_base = @ptrCast(*const clang.Expr, stmt);
-    const as_node = try rp.c.createBuiltinCall("@as", 2);
-    const ty_node = try transQualType(rp, expr_base.getType(), expr_base.getBeginLoc());
-    as_node.params()[0] = ty_node;
-    _ = try appendToken(rp.c, .Comma, ",");
-    as_node.params()[1] = int_lit_node;
-
-    as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-    return maybeSuppressResult(rp, scope, result_used, &as_node.base);
+    const as_node = Node.as.create(c.arena, .{
+        .lhs = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc()),
+        .rhs = int_lit_node,
+    });
+    return maybeSuppressResult(c, scope, result_used, as_node);
 }
 
-fn transStmtExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.StmtExpr, used: ResultUsed) TransError!*ast.Node {
+fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: ResultUsed) TransError!Node {
     const comp = stmt.getSubStmt();
     if (used == .unused) {
-        return transCompoundStmt(rp, scope, comp);
+        return transCompoundStmt(c, scope, comp);
     }
-    const lparen = try appendToken(rp.c, .LParen, "(");
-    var block_scope = try Scope.Block.init(rp.c, scope, true);
+    var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
 
     var it = comp.body_begin();
@@ -2500,22 +2429,13 @@ fn transStmtExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.StmtExpr, u
         const result = try transStmt(rp, &block_scope.base, it[0], .unused, .r_value);
         try block_scope.statements.append(result);
     }
-    const break_node = blk: {
-        var tmp = try CtrlFlow.init(rp.c, .Break, "blk");
-        const rhs = try transStmt(rp, &block_scope.base, it[0], .used, .r_value);
-        break :blk try tmp.finish(rhs);
-    };
-    _ = try appendToken(rp.c, .Semicolon, ";");
-    try block_scope.statements.append(&break_node.base);
-    const block_node = try block_scope.complete(rp.c);
-    const rparen = try appendToken(rp.c, .RParen, ")");
-    const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
-    grouped_expr.* = .{
-        .lparen = lparen,
-        .expr = block_node,
-        .rparen = rparen,
-    };
-    return maybeSuppressResult(rp, scope, used, &grouped_expr.base);
+    const break_node = try Node.break_val.create(c.arena, .{
+        .label = block_scope.label, 
+        .val = try transStmt(c, &block_scope.base, it[0], .used, .r_value),
+    });
+    try block_scope.statements.append(break_node);
+
+    return block_scope.complete(c);
 }
 
 fn transMemberExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.MemberExpr, result_used: ResultUsed) TransError!*ast.Node {
@@ -4581,7 +4501,7 @@ fn fail(
     comptime format: []const u8,
     args: anytype,
 ) (@TypeOf(err) || error{OutOfMemory}) {
-    try emitWarning(c, source_loc, format, args);
+    try warn(c, source_loc, format, args);
     return err;
 }
 

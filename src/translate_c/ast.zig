@@ -35,8 +35,13 @@ pub const Node = extern union {
         /// while (true) operand
         while_true,
         @"switch",
+        /// else => operand,
+        switch_else,
+        /// lhs => rhs,
+        switch_prong,
         @"continue",
         @"break",
+        break_val,
         @"return",
         field_access,
         field_access_arrow,
@@ -109,6 +114,7 @@ pub const Node = extern union {
         bit_or,
         bit_xor,
         array_cat,
+        ellipsis3,
 
         log2_int_type,
         /// @import("std").math.Log2Int(operand)
@@ -217,6 +223,7 @@ pub const Node = extern union {
                 .empty_array,
                 .while_true,
                 .if_not_break,
+                .switch_else,
                 => Payload.UnOp,
 
                 .add,
@@ -280,6 +287,8 @@ pub const Node = extern union {
                 .int_to_enum,
                 .int_to_ptr,
                 .array_cat,
+                .ellipsis3,
+                .switch_prong,
                 => Payload.BinOp,
 
                 .int,
@@ -300,6 +309,7 @@ pub const Node = extern union {
                 .@"while" => Payload.While,
                 .@"switch" => Payload.Switch,
                 .@"break" => Payload.Break,
+                .break_val => Payload.BreakVal,
                 .call => Payload.Call,
                 .var_decl => Payload.VarDecl,
                 .func => Payload.Func,
@@ -413,22 +423,20 @@ pub const Payload = struct {
         base: Node = .{ .tag = .@"switch" },
         data: struct {
             cond: Node,
-            cases: []Prong,
-            default: ?[]const u8,
-
-            pub const Prong = struct {
-                lhs: Node,
-                rhs: ?Node,
-                label: []const u8,
-            };
+            cases: []Node,
         },
     };
 
     pub const Break = struct {
         base: Node = .{ .tag = .@"break" },
+        data: ?[]const u8,
+    };
+
+    pub const BreakVal = struct {
+        base: Node = .{ .tag = .break_val },
         data: struct {
             label: ?[]const u8,
-            rhs: ?Node,
+            val: Node,
         },
     };
 
@@ -523,11 +531,6 @@ pub const Payload = struct {
             label: ?[]const u8,
             stmts: []Node
         },
-    };
-
-    pub const Break = struct {
-        base: Node = .{ .tag = .@"break" },
-        data: *Block
     };
 
     pub const Array = struct {
