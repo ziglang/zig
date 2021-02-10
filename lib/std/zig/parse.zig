@@ -2147,7 +2147,7 @@ const Parser = struct {
             const comma_one = p.eatToken(.Comma);
             if (p.eatToken(.RBrace)) |_| {
                 return p.addNode(.{
-                    .tag = .StructInitOne,
+                    .tag = if (comma_one != null) .StructInitOneComma else .StructInitOne,
                     .main_token = lbrace,
                     .data = .{
                         .lhs = lhs,
@@ -2192,7 +2192,7 @@ const Parser = struct {
             }
             const span = try p.listToSpan(init_list.items);
             return p.addNode(.{
-                .tag = .StructInit,
+                .tag = if (p.token_tags[p.tok_i - 2] == .Comma) .StructInitComma else .StructInit,
                 .main_token = lbrace,
                 .data = .{
                     .lhs = lhs,
@@ -2709,12 +2709,8 @@ const Parser = struct {
                     if (field_init_one != 0) {
                         const comma_one = p.eatToken(.Comma);
                         if (p.eatToken(.RBrace)) |_| {
-                            const tag: Node.Tag = if (comma_one != null)
-                                .StructInitDotTwoComma
-                            else
-                                .StructInitDotTwo;
                             return p.addNode(.{
-                                .tag = tag,
+                                .tag = if (comma_one != null) .StructInitDotTwoComma else .StructInitDotTwo,
                                 .main_token = lbrace,
                                 .data = .{
                                     .lhs = field_init_one,
@@ -2730,12 +2726,8 @@ const Parser = struct {
                         const field_init_two = try p.expectFieldInit();
                         const comma_two = p.eatToken(.Comma);
                         if (p.eatToken(.RBrace)) |_| {
-                            const tag: Node.Tag = if (comma_two != null)
-                                .StructInitDotTwoComma
-                            else
-                                .StructInitDotTwo;
                             return p.addNode(.{
-                                .tag = tag,
+                                .tag = if (comma_two != null) .StructInitDotTwoComma else .StructInitDotTwo,
                                 .main_token = lbrace,
                                 .data = .{
                                     .lhs = field_init_one,
@@ -2784,8 +2776,9 @@ const Parser = struct {
                             }
                         }
                         const span = try p.listToSpan(init_list.items);
+                        const trailing_comma = p.token_tags[p.tok_i - 2] == .Comma;
                         return p.addNode(.{
-                            .tag = .StructInitDot,
+                            .tag = if (trailing_comma) .StructInitDotComma else .StructInitDot,
                             .main_token = lbrace,
                             .data = .{
                                 .lhs = span.start,

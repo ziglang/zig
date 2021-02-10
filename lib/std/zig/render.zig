@@ -405,7 +405,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .ArrayInitComma,
         => return renderArrayInit(ais, tree, tree.arrayInit(node), space),
 
-        .StructInitOne => {
+        .StructInitOne, .StructInitOneComma => {
             var fields: [1]ast.Node.Index = undefined;
             return renderStructInit(ais, tree, tree.structInitOne(&fields, node), space);
         },
@@ -413,8 +413,12 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             var fields: [2]ast.Node.Index = undefined;
             return renderStructInit(ais, tree, tree.structInitDotTwo(&fields, node), space);
         },
-        .StructInitDot => return renderStructInit(ais, tree, tree.structInitDot(node), space),
-        .StructInit => return renderStructInit(ais, tree, tree.structInit(node), space),
+        .StructInitDot,
+        .StructInitDotComma,
+        => return renderStructInit(ais, tree, tree.structInitDot(node), space),
+        .StructInit,
+        .StructInitComma,
+        => return renderStructInit(ais, tree, tree.structInit(node), space),
 
         .CallOne, .CallOneComma, .AsyncCallOne, .AsyncCallOneComma => {
             var params: [1]ast.Node.Index = undefined;
