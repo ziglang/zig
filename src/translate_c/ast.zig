@@ -24,8 +24,8 @@ pub const Node = extern union {
         usingnamespace_builtins,
         // After this, the tag requires a payload.
 
-        int_literal,
-        float_literal,
+        // int or float, doesn't really matter
+        number_literal,
         string_literal,
         char_literal,
         identifier,
@@ -115,6 +115,7 @@ pub const Node = extern union {
         bit_xor,
         array_cat,
         ellipsis3,
+        assign,
 
         log2_int_type,
         /// @import("std").math.Log2Int(operand)
@@ -147,6 +148,8 @@ pub const Node = extern union {
         int_to_ptr,
         /// @ptrToInt(operand)
         ptr_to_int,
+        /// @alignCast(lhs, rhs)
+        align_cast,
 
         negate,
         negate_wrap,
@@ -190,6 +193,9 @@ pub const Node = extern union {
         /// [1]type{val} ** count
         array_filler,
 
+        /// _ = operand;
+        ignore,
+
         pub const last_no_payload_tag = Tag.usingnamespace_builtins;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
@@ -227,6 +233,7 @@ pub const Node = extern union {
                 .while_true,
                 .if_not_break,
                 .switch_else,
+                .ignore,
                 => Payload.UnOp,
 
                 .add,
@@ -292,12 +299,14 @@ pub const Node = extern union {
                 .array_cat,
                 .ellipsis3,
                 .switch_prong,
+                .field_access,
+                .assign,
+                .align_cast,
                 => Payload.BinOp,
 
-                .int,
-                .float,
-                .string,
-                .char,
+                .number_literal,
+                .string_literal,
+                .char_literal,
                 .identifier,
                 .warning,
                 .failed_decl,
@@ -327,7 +336,6 @@ pub const Node = extern union {
                 .typedef, .pub_typedef, .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
                 .enum_redecl => Payload.EnumRedecl,
                 .array_filler => Payload.ArrayFiller,
-                .field_access => Payload.FieldAccess,
             };
         }
 
@@ -588,14 +596,6 @@ pub const Payload = struct {
             type: Node,
             filler: Node,
             count: usize,
-        },
-    };
-
-    pub const FieldAccess = struct {
-        base: Node,
-        data: struct {
-            container: Node,
-            name: []const u8,
         },
     };
 };
