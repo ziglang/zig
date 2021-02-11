@@ -1438,30 +1438,25 @@ fn transBinaryOperator(
     switch (op) {
         .Assign => return try transCreateNodeAssign(rp, scope, result_used, stmt.getLHS(), stmt.getRHS()),
         .Comma => {
-            const block_scope = try scope.findBlockScope(rp.c);
-            const expr = block_scope.base.parent == scope;
-            const lparen = if (expr) try appendToken(rp.c, .LParen, "(") else undefined;
+            var block_scope = try Scope.Block.init(rp.c, scope, true);
+            const lparen = try appendToken(rp.c, .LParen, "(");
 
             const lhs = try transExpr(rp, &block_scope.base, stmt.getLHS(), .unused, .r_value);
             try block_scope.statements.append(lhs);
 
             const rhs = try transExpr(rp, &block_scope.base, stmt.getRHS(), .used, .r_value);
-            if (expr) {
-                _ = try appendToken(rp.c, .Semicolon, ";");
-                const break_node = try transCreateNodeBreak(rp.c, block_scope.label, rhs);
-                try block_scope.statements.append(&break_node.base);
-                const block_node = try block_scope.complete(rp.c);
-                const rparen = try appendToken(rp.c, .RParen, ")");
-                const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
-                grouped_expr.* = .{
-                    .lparen = lparen,
-                    .expr = block_node,
-                    .rparen = rparen,
-                };
-                return maybeSuppressResult(rp, scope, result_used, &grouped_expr.base);
-            } else {
-                return maybeSuppressResult(rp, scope, result_used, rhs);
-            }
+            _ = try appendToken(rp.c, .Semicolon, ";");
+            const break_node = try transCreateNodeBreak(rp.c, block_scope.label, rhs);
+            try block_scope.statements.append(&break_node.base);
+            const block_node = try block_scope.complete(rp.c);
+            const rparen = try appendToken(rp.c, .RParen, ")");
+            const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
+            grouped_expr.* = .{
+                .lparen = lparen,
+                .expr = block_node,
+                .rparen = rparen,
+            };
+            return maybeSuppressResult(rp, scope, result_used, &grouped_expr.base);
         },
         .Div => {
             if (cIsSignedInteger(qt)) {
