@@ -37,66 +37,56 @@ pub fn render(gpa: *mem.Allocator, tree: ast.Tree) Error![]u8 {
     return buffer.toOwnedSlice();
 }
 
-/// Assumes there are no tokens in between start and end.
-fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize, prefix: []const u8) Error!usize {
+/// Assumes that start is the first byte past the previous token and
+/// that end is the last byte before the next token.
+fn renderCommentsAndNewlines(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!bool {
     var index: usize = start;
-    var count: usize = 0;
-    while (true) {
-        const comment_start = index +
-            (mem.indexOf(u8, tree.source[index..end], "//") orelse return count);
+    while (mem.indexOf(u8, tree.source[index..end], "//")) |offset| {
+        const comment_start = index + offset;
         const newline = comment_start +
             mem.indexOfScalar(u8, tree.source[comment_start..end], '\n').?;
         const untrimmed_comment = tree.source[comment_start..newline];
         const trimmed_comment = mem.trimRight(u8, untrimmed_comment, " \r\t");
-        if (count == 0) {
-            count += 1;
-            try ais.writer().writeAll(prefix);
-        } else {
-            // If another newline occurs between prev comment and this one
-            // we honor it, but not any additional ones.
-            if (mem.indexOfScalar(u8, tree.source[index..comment_start], '\n') != null) {
-                try ais.insertNewline();
-            }
+
+        // Leave up to one empty line before the comment
+        if (index == start and mem.containsAtLeast(u8, tree.source[index..comment_start], 2, "\n")) {
+            try ais.insertNewline();
+            try ais.insertNewline();
+        } else if (mem.indexOfScalar(u8, tree.source[index..comment_start], '\n') != null) {
+            // Respect the newline directly before the comment. This allows an
+            // empty line between comments
+            try ais.insertNewline();
+        } else if (index == start and start != 0) {
+            // If the comment is on the same line as the token before it,
+            // prefix it with a single space
+            try ais.writer().writeByte(' ');
         }
+
         try ais.writer().print("{s}\n", .{trimmed_comment});
         index = newline + 1;
     }
+
+    // Leave up to one empty line if present in the source
+    if (index > start) index -= 1;
+    if (end != tree.source.len and mem.containsAtLeast(u8, tree.source[index..end], 2, "\n")) {
+        try ais.insertNewline();
+    }
+
+    return index != start;
 }
 
 fn renderRoot(ais: *Ais, tree: ast.Tree) Error!void {
     // Render all the line comments at the beginning of the file.
     const src_start: usize = if (mem.startsWith(u8, tree.source, "\xEF\xBB\xBF")) 3 else 0;
     const comment_end_loc: usize = tree.tokens.items(.start)[0];
-    _ = try renderComments(ais, tree, src_start, comment_end_loc, "");
+    _ = try renderCommentsAndNewlines(ais, tree, src_start, comment_end_loc);
 
     // Root is always index 0.
     const nodes_data = tree.nodes.items(.data);
     const root_decls = tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
 
-    return renderAllMembers(ais, tree, root_decls);
-}
-
-fn renderAllMembers(ais: *Ais, tree: ast.Tree, members: []const ast.Node.Index) Error!void {
-    if (members.len == 0) return;
-
-    const first_member = members[0];
-    try renderMember(ais, tree, first_member, .Newline);
-
-    for (members[1..]) |member| {
-        try renderExtraNewline(ais, tree, member);
-        try renderMember(ais, tree, member, .Newline);
-    }
-}
-
-fn renderExtraNewline(ais: *Ais, tree: ast.Tree, node: ast.Node.Index) Error!void {
-    return renderExtraNewlineToken(ais, tree, tree.firstToken(node));
-}
-
-fn renderExtraNewlineToken(ais: *Ais, tree: ast.Tree, first_token: ast.TokenIndex) Error!void {
-    if (first_token == 0) return;
-    const token_starts = tree.tokens.items(.start);
-    if (tree.tokenLocation(token_starts[first_token - 1], first_token).line >= 2) {
-        return ais.insertNewline();
+    for (root_decls) |decl| {
+        try renderMember(ais, tree, decl, .Newline);
     }
 }
 
@@ -499,9 +489,11 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         },
 
         .GroupedExpression => {
-            try renderToken(ais, tree, main_tokens[node], .None);
+            ais.pushIndentNextLine();
+            try renderToken(ais, tree, main_tokens[node], .None); // lparen
             try renderExpression(ais, tree, datas[node].lhs, .None);
-            return renderToken(ais, tree, datas[node].rhs, space);
+            ais.popIndent();
+            return renderToken(ais, tree, datas[node].rhs, space); // rparen
         },
 
         .ContainerDecl,
@@ -552,7 +544,6 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                 ais.pushIndent();
                 var i = lbrace + 1;
                 while (i < rbrace) : (i += 1) {
-                    try renderExtraNewlineToken(ais, tree, i);
                     switch (token_tags[i]) {
                         .DocComment => try renderToken(ais, tree, i, .Newline),
                         .Identifier => try renderToken(ais, tree, i, .Comma),
@@ -635,11 +626,9 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                 try renderToken(ais, tree, rparen + 1, .None); // lbrace
                 return renderToken(ais, tree, rparen + 2, space); // rbrace
             }
+            ais.pushIndentNextLine();
             try renderToken(ais, tree, rparen + 1, .Newline); // lbrace
-            ais.pushIndent();
-            try renderExpression(ais, tree, cases[0], .Comma);
-            for (cases[1..]) |case| {
-                try renderExtraNewline(ais, tree, case);
+            for (cases) |case| {
                 try renderExpression(ais, tree, case, .Comma);
             }
             ais.popIndent();
@@ -1469,9 +1458,7 @@ fn renderSwitchCase(
         try renderExpression(ais, tree, switch_case.ast.values[0], .Space);
     } else if (trailing_comma) {
         // Render each value on a new line
-        try renderExpression(ais, tree, switch_case.ast.values[0], .Comma);
-        for (switch_case.ast.values[1..]) |value_expr| {
-            try renderExtraNewline(ais, tree, value_expr);
+        for (switch_case.ast.values) |value_expr| {
             try renderExpression(ais, tree, value_expr, .Comma);
         }
     } else {
@@ -1519,12 +1506,14 @@ fn renderBlock(
     }
 
     if (statements.len == 0) {
+        ais.pushIndentNextLine();
         try renderToken(ais, tree, lbrace, .None);
+        ais.popIndent();
         return renderToken(ais, tree, lbrace + 1, space); // rbrace
     }
 
+    ais.pushIndentNextLine();
     try renderToken(ais, tree, lbrace, .Newline);
-    ais.pushIndent();
     for (statements) |stmt, i| {
         switch (node_tags[stmt]) {
             .GlobalVarDecl => try renderVarDecl(ais, tree, tree.globalVarDecl(stmt)),
@@ -1532,9 +1521,6 @@ fn renderBlock(
             .SimpleVarDecl => try renderVarDecl(ais, tree, tree.simpleVarDecl(stmt)),
             .AlignedVarDecl => try renderVarDecl(ais, tree, tree.alignedVarDecl(stmt)),
             else => try renderExpression(ais, tree, stmt, .Semicolon),
-        }
-        if (i + 1 < statements.len) {
-            try renderExtraNewline(ais, tree, statements[i + 1]);
         }
     }
     ais.popIndent();
@@ -1566,18 +1552,14 @@ fn renderStructInit(
         ais.pushIndent();
         try renderToken(ais, tree, struct_init.ast.lbrace, .Newline);
 
-        try renderToken(ais, tree, struct_init.ast.lbrace + 1, .None); // .
-        try renderToken(ais, tree, struct_init.ast.lbrace + 2, .Space); // name
-        try renderToken(ais, tree, struct_init.ast.lbrace + 3, .Space); // =
-        try renderExpression(ais, tree, struct_init.ast.fields[0], .Comma);
-
-        for (struct_init.ast.fields[1..]) |field_init| {
+        for (struct_init.ast.fields) |field_init| {
             const init_token = tree.firstToken(field_init);
             try renderToken(ais, tree, init_token - 3, .None); // .
             try renderToken(ais, tree, init_token - 2, .Space); // name
             try renderToken(ais, tree, init_token - 1, .Space); // =
-            try renderExpressionNewlined(ais, tree, field_init, .Comma);
+            try renderExpression(ais, tree, field_init, .Comma);
         }
+
         ais.popIndent();
         return renderToken(ais, tree, last_field_token + 2, space); // rbrace
     } else {
@@ -1620,9 +1602,8 @@ fn renderArrayInit(
         ais.pushIndent();
         try renderToken(ais, tree, array_init.ast.lbrace, .Newline);
 
-        try renderExpression(ais, tree, array_init.ast.elements[0], .Comma);
-        for (array_init.ast.elements[1..]) |elem| {
-            try renderExpressionNewlined(ais, tree, elem, .Comma);
+        for (array_init.ast.elements) |elem| {
+            try renderExpression(ais, tree, elem, .Comma);
         }
 
         ais.popIndent();
@@ -1693,7 +1674,7 @@ fn renderContainerDecl(
     const last_member_token = tree.lastToken(last_member);
     const rbrace = switch (token_tags[last_member_token + 1]) {
         .DocComment => last_member_token + 2,
-        .Comma => switch (token_tags[last_member_token + 2]) {
+        .Comma, .Semicolon => switch (token_tags[last_member_token + 2]) {
             .DocComment => last_member_token + 3,
             .RBrace => last_member_token + 2,
             else => unreachable,
@@ -1719,7 +1700,9 @@ fn renderContainerDecl(
     // One member per line.
     ais.pushIndent();
     try renderToken(ais, tree, lbrace, .Newline); // lbrace
-    try renderAllMembers(ais, tree, container_decl.ast.members);
+    for (container_decl.ast.members) |member| {
+        try renderMember(ais, tree, member, .Newline);
+    }
     ais.popIndent();
 
     return renderToken(ais, tree, rbrace, space); // rbrace
@@ -1781,7 +1764,6 @@ fn renderAsm(
 
                 const comma = tree.firstToken(next_asm_output) - 1;
                 try renderToken(ais, tree, comma, .Newline); // ,
-                try renderExtraNewlineToken(ais, tree, tree.firstToken(next_asm_output));
             } else if (asm_node.inputs.len == 0 and asm_node.first_clobber == null) {
                 try renderAsmOutput(ais, tree, asm_output, .Newline);
                 ais.popIndent();
@@ -1813,7 +1795,6 @@ fn renderAsm(
 
                 const first_token = tree.firstToken(next_asm_input);
                 try renderToken(ais, tree, first_token - 1, .Newline); // ,
-                try renderExtraNewlineToken(ais, tree, first_token);
             } else if (asm_node.first_clobber == null) {
                 try renderAsmInput(ais, tree, asm_input, .Newline);
                 ais.popIndent();
@@ -1894,8 +1875,6 @@ fn renderCall(
                 try renderToken(ais, tree, comma, Space.Newline); // ,
 
                 if (is_multiline_string) ais.pushIndent();
-
-                try renderExtraNewline(ais, tree, params[i + 1]);
             } else {
                 try renderExpression(ais, tree, param_node, Space.Comma);
             }
@@ -1927,22 +1906,6 @@ fn renderExpressionComma(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space:
     } else {
         return renderExpression(ais, tree, node, space);
     }
-}
-
-/// Render an expression, but first insert an extra newline if the previous token is 2 or
-/// more lines away.
-fn renderExpressionNewlined(
-    ais: *Ais,
-    tree: ast.Tree,
-    node: ast.Node.Index,
-    space: Space,
-) Error!void {
-    const token_starts = tree.tokens.items(.start);
-    const first_token = tree.firstToken(node);
-    if (tree.tokenLocation(token_starts[first_token - 1], first_token).line >= 2) {
-        try ais.insertNewline();
-    }
-    return renderExpression(ais, tree, node, space);
 }
 
 fn renderTokenComma(ais: *Ais, tree: ast.Tree, token: ast.TokenIndex, space: Space) Error!void {
@@ -1996,40 +1959,39 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
 
     switch (space) {
         .NoComment => {},
-        .None => {},
+        .None => _ = try renderCommentsAndNewlines(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]),
         .Comma => {
-            const count = try renderComments(ais, tree, token_start + lexeme.len, token_starts[token_index + 1], ", ");
-            if (count == 0 and token_tags[token_index + 1] == .Comma) {
-                return renderToken(ais, tree, token_index + 1, Space.Newline);
-            }
-            try ais.writer().writeAll(",");
-
-            if (token_tags[token_index + 2] != .MultilineStringLiteralLine) {
-                try ais.insertNewline();
+            const comment = try renderCommentsAndNewlines(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]);
+            if (token_tags[token_index + 1] == .Comma) {
+                return renderToken(ais, tree, token_index + 1, .Newline);
+            } else if (!comment) {
+                return ais.insertNewline();
             }
         },
         .CommaSpace => {
-            _ = try renderComments(ais, tree, token_start + lexeme.len, token_starts[token_index + 1], "");
+            const comment = try renderCommentsAndNewlines(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]);
             if (token_tags[token_index + 1] == .Comma) {
                 return renderToken(ais, tree, token_index + 1, .Space);
-            } else {
+            } else if (!comment) {
                 return ais.writer().writeByte(' ');
             }
         },
         .Semicolon => {
-            _ = try renderComments(ais, tree, token_start + lexeme.len, token_starts[token_index + 1], "");
+            const comment = try renderCommentsAndNewlines(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]);
             if (token_tags[token_index + 1] == .Semicolon) {
                 return renderToken(ais, tree, token_index + 1, .Newline);
-            } else {
+            } else if (!comment) {
                 return ais.insertNewline();
             }
         },
         .Space => {
-            _ = try renderComments(ais, tree, token_start + lexeme.len, token_starts[token_index + 1], "");
-            return ais.writer().writeByte(' ');
+            const comment = try renderCommentsAndNewlines(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]);
+            if (!comment) {
+                return ais.writer().writeByte(' ');
+            }
         },
         .Newline => {
-            if (token_tags[token_index + 1] != .MultilineStringLiteralLine) {
+            if (!try renderCommentsAndNewlines(ais, tree, token_start + lexeme.len, token_starts[token_index + 1])) {
                 try ais.insertNewline();
             }
         },

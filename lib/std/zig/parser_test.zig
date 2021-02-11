@@ -663,7 +663,9 @@ test "zig fmt: anon list literal 3 element comma" {
         \\test {
         \\    const x = .{
         \\        a,
+        \\        // foo
         \\        b,
+        \\
         \\        c,
         \\    };
         \\}
@@ -874,20 +876,20 @@ test "zig fmt: enum literal" {
     );
 }
 
-//test "zig fmt: enum literal inside array literal" {
-//    try testCanonical(
-//        \\test "enums in arrays" {
-//        \\    var colors = []Color{.Green};
-//        \\    colors = []Colors{ .Green, .Cyan };
-//        \\    colors = []Colors{
-//        \\        .Grey,
-//        \\        .Green,
-//        \\        .Cyan,
-//        \\    };
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: enum literal inside array literal" {
+    try testCanonical(
+        \\test "enums in arrays" {
+        \\    var colors = []Color{.Green};
+        \\    colors = []Colors{ .Green, .Cyan };
+        \\    colors = []Colors{
+        \\        .Grey,
+        \\        .Green,
+        \\        .Cyan,
+        \\    };
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: character literal larger than u8" {
     try testCanonical(
@@ -954,56 +956,56 @@ test "zig fmt: linksection" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: correctly space struct fields with doc comments" {
-//    try testTransform(
-//        \\pub const S = struct {
-//        \\    /// A
-//        \\    a: u8,
-//        \\    /// B
-//        \\    /// B (cont)
-//        \\    b: u8,
-//        \\
-//        \\
-//        \\    /// C
-//        \\    c: u8,
-//        \\};
-//        \\
-//    ,
-//        \\pub const S = struct {
-//        \\    /// A
-//        \\    a: u8,
-//        \\    /// B
-//        \\    /// B (cont)
-//        \\    b: u8,
-//        \\
-//        \\    /// C
-//        \\    c: u8,
-//        \\};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: doc comments on param decl" {
-//    try testCanonical(
-//        \\pub const Allocator = struct {
-//        \\    shrinkFn: fn (
-//        \\        self: *Allocator,
-//        \\        /// Guaranteed to be the same as what was returned from most recent call to
-//        \\        /// `allocFn`, `reallocFn`, or `shrinkFn`.
-//        \\        old_mem: []u8,
-//        \\        /// Guaranteed to be the same as what was returned from most recent call to
-//        \\        /// `allocFn`, `reallocFn`, or `shrinkFn`.
-//        \\        old_alignment: u29,
-//        \\        /// Guaranteed to be less than or equal to `old_mem.len`.
-//        \\        new_byte_count: usize,
-//        \\        /// Guaranteed to be less than or equal to `old_alignment`.
-//        \\        new_alignment: u29,
-//        \\    ) []u8,
-//        \\};
-//        \\
-//    );
-//}
+
+test "zig fmt: correctly space struct fields with doc comments" {
+    try testTransform(
+        \\pub const S = struct {
+        \\    /// A
+        \\    a: u8,
+        \\    /// B
+        \\    /// B (cont)
+        \\    b: u8,
+        \\
+        \\
+        \\    /// C
+        \\    c: u8,
+        \\};
+        \\
+    ,
+        \\pub const S = struct {
+        \\    /// A
+        \\    a: u8,
+        \\    /// B
+        \\    /// B (cont)
+        \\    b: u8,
+        \\
+        \\    /// C
+        \\    c: u8,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: doc comments on param decl" {
+    try testCanonical(
+        \\pub const Allocator = struct {
+        \\    shrinkFn: fn (
+        \\        self: *Allocator,
+        \\        /// Guaranteed to be the same as what was returned from most recent call to
+        \\        /// `allocFn`, `reallocFn`, or `shrinkFn`.
+        \\        old_mem: []u8,
+        \\        /// Guaranteed to be the same as what was returned from most recent call to
+        \\        /// `allocFn`, `reallocFn`, or `shrinkFn`.
+        \\        old_alignment: u29,
+        \\        /// Guaranteed to be less than or equal to `old_mem.len`.
+        \\        new_byte_count: usize,
+        \\        /// Guaranteed to be less than or equal to `old_alignment`.
+        \\        new_alignment: u29,
+        \\    ) []u8,
+        \\};
+        \\
+    );
+}
 
 test "zig fmt: aligned struct field" {
     try testCanonical(
@@ -1142,13 +1144,13 @@ test "zig fmt: aligned struct field" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: pointer of unknown length" {
-//    try testCanonical(
-//        \\fn foo(ptr: [*]u8) void {}
-//        \\
-//    );
-//}
+
+test "zig fmt: pointer of unknown length" {
+    try testCanonical(
+        \\fn foo(ptr: [*]u8) void {}
+        \\
+    );
+}
 
 test "zig fmt: spaces around slice operator" {
     try testCanonical(
@@ -1370,25 +1372,25 @@ test "zig fmt: async call in if condition" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: if-else with comment before else" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
-//        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-//        \\        return Complex(f32).new(y - y, y - y);
-//        \\    } // cexp(-inf +- i inf|nan) = 0 + i0
-//        \\    else if (hx & 0x80000000 != 0) {
-//        \\        return Complex(f32).new(0, 0);
-//        \\    } // cexp(+inf +- i inf|nan) = inf + i nan
-//        \\    else {
-//        \\        return Complex(f32).new(x, y - y);
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: if-else with comment before else" {
+    try testCanonical(
+        \\comptime {
+        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
+        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
+        \\        return Complex(f32).new(y - y, y - y);
+        \\    } // cexp(-inf +- i inf|nan) = 0 + i0
+        \\    else if (hx & 0x80000000 != 0) {
+        \\        return Complex(f32).new(0, 0);
+        \\    } // cexp(+inf +- i inf|nan) = inf + i nan
+        \\    else {
+        \\        return Complex(f32).new(x, y - y);
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: if nested" {
 //    try testCanonical(
 //        \\pub fn foo() void {
@@ -1467,17 +1469,17 @@ test "zig fmt: enum decl with no trailing comma" {
     );
 }
 
-//test "zig fmt: switch comment before prong" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    switch (a) {
-//        \\        // hi
-//        \\        0 => {},
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: switch comment before prong" {
+    try testCanonical(
+        \\comptime {
+        \\    switch (a) {
+        \\        // hi
+        \\        0 => {},
+        \\    }
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: struct literal no trailing comma" {
     try testTransform(
@@ -1709,17 +1711,17 @@ test "zig fmt: multi line arguments without last comma" {
     );
 }
 
-//test "zig fmt: empty block with only comment" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    {
-//        \\        // comment
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: empty block with only comment" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        // comment
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: no trailing comma on struct decl" {
 //    try testCanonical(
 //        \\const RoundParam = struct {
@@ -1781,15 +1783,15 @@ test "zig fmt: extra newlines at the end" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: nested struct literal with one item" {
-//    try testCanonical(
-//        \\const a = foo{
-//        \\    .item = bar{ .a = b },
-//        \\};
-//        \\
-//    );
-//}
+
+test "zig fmt: nested struct literal with one item" {
+    try testCanonical(
+        \\const a = foo{
+        \\    .item = bar{ .a = b },
+        \\};
+        \\
+    );
+}
 
 test "zig fmt: switch cases trailing comma" {
     try testTransform(
@@ -1848,26 +1850,26 @@ test "zig fmt: slice align" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: first thing in file is line comment" {
-//    try testCanonical(
-//        \\// Introspection and determination of system libraries needed by zig.
-//        \\
-//        \\// Introspection and determination of system libraries needed by zig.
-//        \\
-//        \\const std = @import("std");
-//        \\
-//    );
-//}
-//
-//test "zig fmt: line comment after doc comment" {
-//    try testCanonical(
-//        \\/// doc comment
-//        \\// line comment
-//        \\fn foo() void {}
-//        \\
-//    );
-//}
+
+test "zig fmt: first thing in file is line comment" {
+    try testCanonical(
+        \\// Introspection and determination of system libraries needed by zig.
+        \\
+        \\// Introspection and determination of system libraries needed by zig.
+        \\
+        \\const std = @import("std");
+        \\
+    );
+}
+
+test "zig fmt: line comment after doc comment" {
+    try testCanonical(
+        \\/// doc comment
+        \\// line comment
+        \\fn foo() void {}
+        \\
+    );
+}
 
 test "zig fmt: bit field alignment" {
     try testCanonical(
@@ -1928,27 +1930,27 @@ test "zig fmt: nested blocks" {
     );
 }
 
-//test "zig fmt: block with same line comment after end brace" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    {
-//        \\        b();
-//        \\    } // comment
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: statements with comment between" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    a = b;
-//        \\    // comment
-//        \\    a = b;
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: block with same line comment after end brace" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        b();
+        \\    } // comment
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: statements with comment between" {
+    try testCanonical(
+        \\comptime {
+        \\    a = b;
+        \\    // comment
+        \\    a = b;
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: statements with empty line between" {
     try testCanonical(
@@ -1969,60 +1971,60 @@ test "zig fmt: ptr deref operator and unwrap optional operator" {
     );
 }
 
-//test "zig fmt: comment after if before another if" {
-//    try testCanonical(
-//        \\test "aoeu" {
-//        \\    // comment
-//        \\    if (x) {
-//        \\        bar();
-//        \\    }
-//        \\}
-//        \\
-//        \\test "aoeu" {
-//        \\    if (x) {
-//        \\        foo();
-//        \\    }
-//        \\    // comment
-//        \\    if (x) {
-//        \\        bar();
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: line comment between if block and else keyword" {
-//    try testCanonical(
-//        \\test "aoeu" {
-//        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
-//        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-//        \\        return Complex(f32).new(y - y, y - y);
-//        \\    }
-//        \\    // cexp(-inf +- i inf|nan) = 0 + i0
-//        \\    else if (hx & 0x80000000 != 0) {
-//        \\        return Complex(f32).new(0, 0);
-//        \\    }
-//        \\    // cexp(+inf +- i inf|nan) = inf + i nan
-//        \\    // another comment
-//        \\    else {
-//        \\        return Complex(f32).new(x, y - y);
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same line comments in expression" {
-//    try testCanonical(
-//        \\test "aoeu" {
-//        \\    const x = ( // a
-//        \\        0 // b
-//        \\    ); // c
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: comment after if before another if" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
+        \\test "aoeu" {
+        \\    if (x) {
+        \\        foo();
+        \\    }
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: line comment between if block and else keyword" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
+        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
+        \\        return Complex(f32).new(y - y, y - y);
+        \\    }
+        \\    // cexp(-inf +- i inf|nan) = 0 + i0
+        \\    else if (hx & 0x80000000 != 0) {
+        \\        return Complex(f32).new(0, 0);
+        \\    }
+        \\    // cexp(+inf +- i inf|nan) = inf + i nan
+        \\    // another comment
+        \\    else {
+        \\        return Complex(f32).new(x, y - y);
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same line comments in expression" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    const x = ( // a
+        \\        0 // b
+        \\    ); // c
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: add comma on last switch prong" {
 //    try testTransform(
 //        \\test "aoeu" {
@@ -2051,70 +2053,70 @@ test "zig fmt: ptr deref operator and unwrap optional operator" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: same-line comment after a statement" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    a = b;
-//        \\    debug.assert(H.digest_size <= H.block_size); // HMAC makes this assumption
-//        \\    a = b;
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment after var decl in struct" {
-//    try testCanonical(
-//        \\pub const vfs_cap_data = extern struct {
-//        \\    const Data = struct {}; // when on disk.
-//        \\};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment after field decl" {
-//    try testCanonical(
-//        \\pub const dirent = extern struct {
-//        \\    d_name: u8,
-//        \\    d_name: u8, // comment 1
-//        \\    d_name: u8,
-//        \\    d_name: u8, // comment 2
-//        \\    d_name: u8,
-//        \\};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment after switch prong" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    switch (err) {
-//        \\        error.PathAlreadyExists => {}, // comment 2
-//        \\        else => return err, // comment 1
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment after non-block if expression" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    if (sr > n_uword_bits - 1) // d > r
-//        \\        return 0;
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment on comptime expression" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
-//        \\}
-//        \\
-//    );
-//}
+
+test "zig fmt: same-line comment after a statement" {
+    try testCanonical(
+        \\test "" {
+        \\    a = b;
+        \\    debug.assert(H.digest_size <= H.block_size); // HMAC makes this assumption
+        \\    a = b;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after var decl in struct" {
+    try testCanonical(
+        \\pub const vfs_cap_data = extern struct {
+        \\    const Data = struct {}; // when on disk.
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after field decl" {
+    try testCanonical(
+        \\pub const dirent = extern struct {
+        \\    d_name: u8,
+        \\    d_name: u8, // comment 1
+        \\    d_name: u8,
+        \\    d_name: u8, // comment 2
+        \\    d_name: u8,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after switch prong" {
+    try testCanonical(
+        \\test "" {
+        \\    switch (err) {
+        \\        error.PathAlreadyExists => {}, // comment 2
+        \\        else => return err, // comment 1
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after non-block if expression" {
+    try testCanonical(
+        \\comptime {
+        \\    if (sr > n_uword_bits - 1) // d > r
+        \\        return 0;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line comment on comptime expression" {
+    try testCanonical(
+        \\test "" {
+        \\    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: switch with empty body" {
     try testCanonical(
@@ -2125,53 +2127,52 @@ test "zig fmt: switch with empty body" {
     );
 }
 
-//test "zig fmt: line comments in struct initializer" {
-//    try testCanonical(
-//        \\fn foo() void {
-//        \\    return Self{
-//        \\        .a = b,
-//        \\
-//        \\        // Initialize these two fields to buffer_size so that
-//        \\        // in `readFn` we treat the state as being able to read
-//        \\        .start_index = buffer_size,
-//        \\        .end_index = buffer_size,
-//        \\
-//        \\        // middle
-//        \\
-//        \\        .a = b,
-//        \\
-//        \\        // end
-//        \\    };
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: first line comment in struct initializer" {
-//    try testCanonical(
-//        \\pub fn acquire(self: *Self) HeldLock {
-//        \\    return HeldLock{
-//        \\        // guaranteed allocation elision
-//        \\        .held = self.lock.acquire(),
-//        \\        .value = &self.private_data,
-//        \\    };
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: doc comments before struct field" {
-//    try testCanonical(
-//        \\pub const Allocator = struct {
-//        \\    /// Allocate byte_count bytes and return them in a slice, with the
-//        \\    /// slice's pointer aligned at least to alignment bytes.
-//        \\    allocFn: fn () void,
-//        \\};
-//        \\
-//    );
-//}
+test "zig fmt: line comments in struct initializer" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    return Self{
+        \\        .a = b,
+        \\
+        \\        // Initialize these two fields to buffer_size so that
+        \\        // in `readFn` we treat the state as being able to read
+        \\        .start_index = buffer_size,
+        \\        .end_index = buffer_size,
+        \\
+        \\        // middle
+        \\
+        \\        .a = b,
+        \\
+        \\        // end
+        \\    };
+        \\}
+        \\
+    );
+}
 
-// TODO: replace this with the next test case when possible
+test "zig fmt: first line comment in struct initializer" {
+    try testCanonical(
+        \\pub fn acquire(self: *Self) HeldLock {
+        \\    return HeldLock{
+        \\        // guaranteed allocation elision
+        \\        .held = self.lock.acquire(),
+        \\        .value = &self.private_data,
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: doc comments before struct field" {
+    try testCanonical(
+        \\pub const Allocator = struct {
+        \\    /// Allocate byte_count bytes and return them in a slice, with the
+        \\    /// slice's pointer aligned at least to alignment bytes.
+        \\    allocFn: fn () void,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: error set declaration" {
     try testCanonical(
         \\const E = error{
@@ -2180,57 +2181,29 @@ test "zig fmt: error set declaration" {
         \\
         \\    C,
         \\};
+        \\
         \\const Error = error{
         \\    /// no more memory
         \\    OutOfMemory,
         \\};
+        \\
         \\const Error = error{
         \\    /// no more memory
         \\    OutOfMemory,
         \\
         \\    /// another
         \\    Another,
-        \\    /// and one more
-        \\    Another,
+        \\
+        \\    // end
         \\};
+        \\
         \\const Error = error{OutOfMemory};
         \\const Error = error{};
+        \\
         \\const Error = error{ OutOfMemory, OutOfTime };
         \\
     );
 }
-
-//test "zig fmt: error set declaration" {
-//    try testCanonical(
-//        \\const E = error{
-//        \\    A,
-//        \\    B,
-//        \\
-//        \\    C,
-//        \\};
-//        \\
-//        \\const Error = error{
-//        \\    /// no more memory
-//        \\    OutOfMemory,
-//        \\};
-//        \\
-//        \\const Error = error{
-//        \\    /// no more memory
-//        \\    OutOfMemory,
-//        \\
-//        \\    /// another
-//        \\    Another,
-//        \\
-//        \\    // end
-//        \\};
-//        \\
-//        \\const Error = error{OutOfMemory};
-//        \\const Error = error{};
-//        \\
-//        \\const Error = error{ OutOfMemory, OutOfTime };
-//        \\
-//    );
-//}
 
 test "zig fmt: union(enum(u32)) with assigned enum values" {
     try testCanonical(
@@ -2255,110 +2228,110 @@ test "zig fmt: resume from suspend block" {
     );
 }
 
-//test "zig fmt: comments before error set decl" {
-//    try testCanonical(
-//        \\const UnexpectedError = error{
-//        \\    /// The Operating System returned an undocumented error code.
-//        \\    Unexpected,
-//        \\    // another
-//        \\    Another,
-//        \\
-//        \\    // in between
-//        \\
-//        \\    // at end
-//        \\};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: comments before switch prong" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    switch (err) {
-//        \\        error.PathAlreadyExists => continue,
-//        \\
-//        \\        // comment 1
-//        \\
-//        \\        // comment 2
-//        \\        else => return err,
-//        \\        // at end
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: comments before var decl in struct" {
-//    try testCanonical(
-//        \\pub const vfs_cap_data = extern struct {
-//        \\    // All of these are mandated as little endian
-//        \\    // when on disk.
-//        \\    const Data = struct {
-//        \\        permitted: u32,
-//        \\        inheritable: u32,
-//        \\    };
-//        \\
-//        \\    // in between
-//        \\
-//        \\    /// All of these are mandated as little endian
-//        \\    /// when on disk.
-//        \\    const Data = struct {
-//        \\        permitted: u32,
-//        \\        inheritable: u32,
-//        \\    };
-//        \\
-//        \\    // at end
-//        \\};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: array literal with 1 item on 1 line" {
-//    try testCanonical(
-//        \\var s = []const u64{0} ** 25;
-//        \\
-//    );
-//}
-//
-//test "zig fmt: comments before global variables" {
-//    try testCanonical(
-//        \\/// Foo copies keys and values before they go into the map, and
-//        \\/// frees them when they get removed.
-//        \\pub const Foo = struct {};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: comments in statements" {
-//    try testCanonical(
-//        \\test "std" {
-//        \\    // statement comment
-//        \\    _ = @import("foo/bar.zig");
-//        \\
-//        \\    // middle
-//        \\    // middle2
-//        \\
-//        \\    // end
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: comments before test decl" {
-//    try testCanonical(
-//        \\/// top level doc comment
-//        \\test "hi" {}
-//        \\
-//        \\// top level normal comment
-//        \\test "hi" {}
-//        \\
-//        \\// middle
-//        \\
-//        \\// end
-//        \\
-//    );
-//}
-//
+test "zig fmt: comments before error set decl" {
+    try testCanonical(
+        \\const UnexpectedError = error{
+        \\    /// The Operating System returned an undocumented error code.
+        \\    Unexpected,
+        \\    // another
+        \\    Another,
+        \\
+        \\    // in between
+        \\
+        \\    // at end
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: comments before switch prong" {
+    try testCanonical(
+        \\test "" {
+        \\    switch (err) {
+        \\        error.PathAlreadyExists => continue,
+        \\
+        \\        // comment 1
+        \\
+        \\        // comment 2
+        \\        else => return err,
+        \\        // at end
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: comments before var decl in struct" {
+    try testCanonical(
+        \\pub const vfs_cap_data = extern struct {
+        \\    // All of these are mandated as little endian
+        \\    // when on disk.
+        \\    const Data = struct {
+        \\        permitted: u32,
+        \\        inheritable: u32,
+        \\    };
+        \\
+        \\    // in between
+        \\
+        \\    /// All of these are mandated as little endian
+        \\    /// when on disk.
+        \\    const Data = struct {
+        \\        permitted: u32,
+        \\        inheritable: u32,
+        \\    };
+        \\
+        \\    // at end
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: array literal with 1 item on 1 line" {
+    try testCanonical(
+        \\var s = []const u64{0} ** 25;
+        \\
+    );
+}
+
+test "zig fmt: comments before global variables" {
+    try testCanonical(
+        \\/// Foo copies keys and values before they go into the map, and
+        \\/// frees them when they get removed.
+        \\pub const Foo = struct {};
+        \\
+    );
+}
+
+test "zig fmt: comments in statements" {
+    try testCanonical(
+        \\test "std" {
+        \\    // statement comment
+        \\    _ = @import("foo/bar.zig");
+        \\
+        \\    // middle
+        \\    // middle2
+        \\
+        \\    // end
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: comments before test decl" {
+    try testCanonical(
+        \\/// top level doc comment
+        \\test "hi" {}
+        \\
+        \\// top level normal comment
+        \\test "hi" {}
+        \\
+        \\// middle
+        \\
+        \\// end
+        \\
+    );
+}
+
 //test "zig fmt: preserve spacing" {
 //    try testCanonical(
 //        \\const std = @import("std");
@@ -2373,7 +2346,7 @@ test "zig fmt: resume from suspend block" {
 //        \\
 //    );
 //}
-//
+
 //test "zig fmt: return types" {
 //    try testCanonical(
 //        \\pub fn main() !void {}
@@ -2798,43 +2771,43 @@ test "zig fmt: union declaration" {
     );
 }
 
-//test "zig fmt: arrays" {
-//    try testCanonical(
-//        \\test "test array" {
-//        \\    const a: [2]u8 = [2]u8{
-//        \\        1,
-//        \\        2,
-//        \\    };
-//        \\    const a: [2]u8 = []u8{
-//        \\        1,
-//        \\        2,
-//        \\    };
-//        \\    const a: [0]u8 = []u8{};
-//        \\    const x: [4:0]u8 = undefined;
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: arrays" {
+    try testCanonical(
+        \\test "test array" {
+        \\    const a: [2]u8 = [2]u8{
+        \\        1,
+        \\        2,
+        \\    };
+        \\    const a: [2]u8 = []u8{
+        \\        1,
+        \\        2,
+        \\    };
+        \\    const a: [0]u8 = []u8{};
+        \\    const x: [4:0]u8 = undefined;
+        \\}
+        \\
+    );
+}
 
-//test "zig fmt: container initializers" {
-//    try testCanonical(
-//        \\const a0 = []u8{};
-//        \\const a1 = []u8{1};
-//        \\const a2 = []u8{
-//        \\    1,
-//        \\    2,
-//        \\    3,
-//        \\    4,
-//        \\};
-//        \\const s0 = S{};
-//        \\const s1 = S{ .a = 1 };
-//        \\const s2 = S{
-//        \\    .a = 1,
-//        \\    .b = 2,
-//        \\};
-//        \\
-//    );
-//}
+test "zig fmt: container initializers" {
+    try testCanonical(
+        \\const a0 = []u8{};
+        \\const a1 = []u8{1};
+        \\const a2 = []u8{
+        \\    1,
+        \\    2,
+        \\    3,
+        \\    4,
+        \\};
+        \\const s0 = S{};
+        \\const s1 = S{ .a = 1 };
+        \\const s2 = S{
+        \\    .a = 1,
+        \\    .b = 2,
+        \\};
+        \\
+    );
+}
 
 test "zig fmt: catch" {
     try testCanonical(
@@ -3563,62 +3536,62 @@ test "zig fmt: integer literals with underscore separators" {
     );
 }
 
-//test "zig fmt: hex literals with underscore separators" {
-//    try testTransform(
-//        \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
-//        \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
-//        \\    for (c [ 0_0 .. ]) |_, i| {
-//        \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
-//        \\    }
-//        \\    return c;
-//        \\}
-//        \\
-//        \\
-//    ,
-//        \\pub fn orMask(a: [1_000]u64, b: [1_000]u64) [1_000]u64 {
-//        \\    var c: [1_000]u64 = [1]u64{0xFFFF_FFFF_FFFF_FFFF} ** 1_000;
-//        \\    for (c[0_0..]) |_, i| {
-//        \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
-//        \\    }
-//        \\    return c;
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: hex literals with underscore separators" {
+    try testTransform(
+        \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
+        \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
+        \\    for (c [ 0_0 .. ]) |_, i| {
+        \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
+        \\    }
+        \\    return c;
+        \\}
+        \\
+        \\
+    ,
+        \\pub fn orMask(a: [1_000]u64, b: [1_000]u64) [1_000]u64 {
+        \\    var c: [1_000]u64 = [1]u64{0xFFFF_FFFF_FFFF_FFFF} ** 1_000;
+        \\    for (c[0_0..]) |_, i| {
+        \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
+        \\    }
+        \\    return c;
+        \\}
+        \\
+    );
+}
 
-//test "zig fmt: decimal float literals with underscore separators" {
-//    try testTransform(
-//        \\pub fn main() void {
-//        \\    const a:f64=(10.0e-0+(10.e+0))+10_00.00_00e-2+00_00.00_10e+4;
-//        \\    const b:f64=010.0--0_10.+0_1_0.0_0+1e2;
-//        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
-//        \\}
-//    ,
-//        \\pub fn main() void {
-//        \\    const a: f64 = (10.0e-0 + (10.e+0)) + 10_00.00_00e-2 + 00_00.00_10e+4;
-//        \\    const b: f64 = 010.0 - -0_10. + 0_1_0.0_0 + 1e2;
-//        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: decimal float literals with underscore separators" {
+    try testTransform(
+        \\pub fn main() void {
+        \\    const a:f64=(10.0e-0+(10.e+0))+10_00.00_00e-2+00_00.00_10e+4;
+        \\    const b:f64=010.0--0_10.+0_1_0.0_0+1e2;
+        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+    ,
+        \\pub fn main() void {
+        \\    const a: f64 = (10.0e-0 + (10.e+0)) + 10_00.00_00e-2 + 00_00.00_10e+4;
+        \\    const b: f64 = 010.0 - -0_10. + 0_1_0.0_0 + 1e2;
+        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+        \\
+    );
+}
 
-//test "zig fmt: hexadeciaml float literals with underscore separators" {
-//    try testTransform(
-//        \\pub fn main() void {
-//        \\    const a: f64 = (0x10.0p-0+(0x10.p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
-//        \\    const b: f64 = 0x0010.0--0x00_10.+0x10.00+0x1p4;
-//        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
-//        \\}
-//    ,
-//        \\pub fn main() void {
-//        \\    const a: f64 = (0x10.0p-0 + (0x10.p+0)) + 0x10_00.00_00p-8 + 0x00_00.00_10p+16;
-//        \\    const b: f64 = 0x0010.0 - -0x00_10. + 0x10.00 + 0x1p4;
-//        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: hexadeciaml float literals with underscore separators" {
+    try testTransform(
+        \\pub fn main() void {
+        \\    const a: f64 = (0x10.0p-0+(0x10.p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
+        \\    const b: f64 = 0x0010.0--0x00_10.+0x10.00+0x1p4;
+        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+    ,
+        \\pub fn main() void {
+        \\    const a: f64 = (0x10.0p-0 + (0x10.p+0)) + 0x10_00.00_00p-8 + 0x00_00.00_10p+16;
+        \\    const b: f64 = 0x0010.0 - -0x00_10. + 0x10.00 + 0x1p4;
+        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\}
+        \\
+    );
+}
 
 //test "zig fmt: C var args" {
 //    try testCanonical(
