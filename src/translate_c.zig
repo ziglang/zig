@@ -3512,86 +3512,48 @@ fn transCreateNodeNumber(c: *Context, int: anytype) !Node {
     return Node.int_literal.create(c.arena, str);
 }
 
-fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_alias: *ast.Node.FnProto) !*ast.Node {
+fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: Node, proto_alias: *ast.Payload.Func) !Node {
     const scope = &c.global_scope.base;
 
-    const pub_tok = try appendToken(c, .Keyword_pub, "pub");
-    const fn_tok = try appendToken(c, .Keyword_fn, "fn");
-    const name_tok = try appendIdentifier(c, name);
-    _ = try appendToken(c, .LParen, "(");
-
-    var fn_params = std.ArrayList(ast.Node.FnProto.ParamDecl).init(c.gpa);
+    var fn_params = std.ArrayList(Node).init(c.gpa);
     defer fn_params.deinit();
 
     for (proto_alias.params()) |param, i| {
-        if (i != 0) {
-            _ = try appendToken(c, .Comma, ",");
-        }
-        const param_name_tok = param.name_token orelse
-            try appendTokenFmt(c, .Identifier, "arg_{d}", .{c.getMangle()});
+        const param_name = param.name orelse
+            try std.fmt.allocPrint(c.arena, "arg_{d}", .{c.getMangle()});
 
-        _ = try appendToken(c, .Colon, ":");
-
-        (try fn_params.addOne()).* = .{
-            .doc_comments = null,
-            .comptime_token = null,
-            .noalias_token = param.noalias_token,
-            .name_token = param_name_tok,
-            .param_type = param.param_type,
-        };
+        try fn_params.append(.{
+            .name = param_name,
+            .type = param.type,
+            .is_noalias = param.is_noalias,
+        });
     }
 
-    _ = try appendToken(c, .RParen, ")");
+    const init = if (value.castTag(.var_decl)) |v|
+        v.data.init
+    else if (value.castTag(.var_simple) orelse value.castTag(.pub_var_simple)) |v|
+        v.data.init
+    else
+        unreachable;
 
-    _ = try appendToken(c, .Keyword_callconv, "callconv");
-    _ = try appendToken(c, .LParen, "(");
-    const callconv_expr = try transCreateNodeEnumLiteral(c, "Inline");
-    _ = try appendToken(c, .RParen, ")");
-
-    const block_lbrace = try appendToken(c, .LBrace, "{");
-
-    const return_kw = try appendToken(c, .Keyword_return, "return");
-    const unwrap_expr = try transCreateNodeUnwrapNull(c, ref.cast(ast.Node.VarDecl).?.getInitNode().?);
-
-    const call_expr = try c.createCall(unwrap_expr, fn_params.items.len);
-    const call_params = call_expr.params();
-
+    const unwrap_expr = try Node.unwrap.create(c.arena, init);
+    const call_params = try c.arena.alloc(Node, fn_params.items.len);
     for (fn_params.items) |param, i| {
-        if (i != 0) {
-            _ = try appendToken(c, .Comma, ",");
-        }
-        call_params[i] = try transCreateNodeIdentifier(c, tokenSlice(c, param.name_token.?));
+        call_params[i] = try Node.identifier.create(c.arena, param.name);
     }
-    call_expr.rtoken = try appendToken(c, .RParen, ")");
-
-    const return_expr = try ast.Node.ControlFlowExpression.create(c.arena, .{
-        .ltoken = return_kw,
-        .tag = .Return,
-    }, .{
-        .rhs = &call_expr.base,
+    const call_expr = try Node.call.create(c.arean, .{
+        .lhs = unwrap_expr,
+        .args = call_params,
     });
-    _ = try appendToken(c, .Semicolon, ";");
+    const return_expr = try Node.@"return".create(c.arean, call_expr);
+    const block = try Node.block_single.create(c.arean, return_expr);
 
-    const block = try ast.Node.Block.alloc(c.arena, 1);
-    block.* = .{
-        .lbrace = block_lbrace,
-        .statements_len = 1,
-        .rbrace = try appendToken(c, .RBrace, "}"),
-    };
-    block.statements()[0] = &return_expr.base;
-
-    const fn_proto = try ast.Node.FnProto.create(c.arena, .{
-        .params_len = fn_params.items.len,
-        .fn_token = fn_tok,
+    return Node.pub_inline_fn.create(c.arena, .{
+        .name = name,
+        .params = try c.arena.dupe(ast.Node.Param, fn_params.items),
         .return_type = proto_alias.return_type,
-    }, .{
-        .visib_token = pub_tok,
-        .name_token = name_tok,
-        .body_node = &block.base,
-        .callconv_expr = callconv_expr,
+        .body = block,
     });
-    mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
-    return &fn_proto.base;
 }
 
 fn transCreateNodeShiftOp(
@@ -4108,27 +4070,13 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &c.global_scope.base;
 
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
-    const mut_tok = try appendToken(c, .Keyword_const, "const");
-    const name_tok = try appendIdentifier(c, m.name);
-    const eq_token = try appendToken(c, .Equal, "=");
-
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
         return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
 
-    const semicolon_token = try appendToken(c, .Semicolon, ";");
-    const node = try ast.Node.VarDecl.create(c.arena, .{
-        .name_token = name_tok,
-        .mut_token = mut_tok,
-        .semicolon_token = semicolon_token,
-    }, .{
-        .visib_token = visib_tok,
-        .eq_token = eq_token,
-        .init_node = init_node,
-    });
-    _ = try c.global_scope.macro_table.put(m.name, &node.base);
+    const var_decl = try Node.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
+    _ = try c.global_scope.macro_table.put(m.name, var_decl);
 }
 
 fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
@@ -4136,16 +4084,11 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     defer block_scope.deinit();
     const scope = &block_scope.base;
 
-    const pub_tok = try appendToken(c, .Keyword_pub, "pub");
-    const fn_tok = try appendToken(c, .Keyword_fn, "fn");
-    const name_tok = try appendIdentifier(c, m.name);
-    _ = try appendToken(c, .LParen, "(");
-
     if (m.next().? != .LParen) {
         return m.fail(c, "unable to translate C expr: expected '('", .{});
     }
 
-    var fn_params = std.ArrayList(ast.Node.FnProto.ParamDecl).init(c.gpa);
+    var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 
     while (true) {
@@ -4153,120 +4096,78 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         _ = m.next();
 
         const mangled_name = try block_scope.makeMangledName(c, m.slice());
-        const param_name_tok = try appendIdentifier(c, mangled_name);
-        _ = try appendToken(c, .Colon, ":");
-
-        const any_type = try c.arena.create(ast.Node.OneToken);
-        any_type.* = .{
-            .base = .{ .tag = .AnyType },
-            .token = try appendToken(c, .Keyword_anytype, "anytype"),
-        };
-
-        (try fn_params.addOne()).* = .{
-            .doc_comments = null,
-            .comptime_token = null,
-            .noalias_token = null,
-            .name_token = param_name_tok,
-            .param_type = .{ .any_type = &any_type.base },
-        };
+        try fn_params.append(.{
+            .is_noalias = false,
+            .name = mangled_name,
+            .type = Node.@"anytype".init(),
+        });
 
         if (m.peek().? != .Comma) break;
         _ = m.next();
-        _ = try appendToken(c, .Comma, ",");
     }
 
     if (m.next().? != .RParen) {
         return m.fail(c, "unable to translate C expr: expected ')'", .{});
     }
 
-    _ = try appendToken(c, .RParen, ")");
-
-    _ = try appendToken(c, .Keyword_callconv, "callconv");
-    _ = try appendToken(c, .LParen, "(");
-    const callconv_expr = try transCreateNodeEnumLiteral(c, "Inline");
-    _ = try appendToken(c, .RParen, ")");
-
-    const type_of = try c.createBuiltinCall("@TypeOf", 1);
-
-    const return_kw = try appendToken(c, .Keyword_return, "return");
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
         return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
-    _ = try appendToken(c, .Semicolon, ";");
-    const type_of_arg = if (!expr.tag.isBlock()) expr else blk: {
-        const stmts = expr.blockStatements();
+
+    const typeof_arg = if (expr.castTag(.block)) |some| blk: {
+        const stmts = some.data.stmts;
         const blk_last = stmts[stmts.len - 1];
-        const br = blk_last.cast(ast.Node.ControlFlowExpression).?;
-        break :blk br.getRHS().?;
-    };
-    type_of.params()[0] = type_of_arg;
-    type_of.rparen_token = try appendToken(c, .RParen, ")");
-    const return_expr = try ast.Node.ControlFlowExpression.create(c.arena, .{
-        .ltoken = return_kw,
-        .tag = .Return,
-    }, .{
-        .rhs = expr,
-    });
-
+        const br = blk_last.castTag(.break_val).?;
+        break :blk br.data;
+    } else expr;
+    const typeof = try Node.typeof.create(c.arean, typeof_arg);
+    const return_expr = try Node.@"return".create(c.arena, expr);
     try block_scope.statements.append(&return_expr.base);
-    const block_node = try block_scope.complete(c);
-    const fn_proto = try ast.Node.FnProto.create(c.arena, .{
-        .fn_token = fn_tok,
-        .params_len = fn_params.items.len,
-        .return_type = .{ .Explicit = &type_of.base },
-    }, .{
-        .visib_token = pub_tok,
-        .name_token = name_tok,
-        .body_node = block_node,
-        .callconv_expr = callconv_expr,
+    
+    const fn_decl = try Node.pub_inline_fn.create(c.arena, .{
+        .name = m.name,
+        .params = try c.arena.dupe(ast.Payload.Param, fn_params.items),
+        .return_type = typeof,
+        .body = try block_scope.complete(c),
     });
-    mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
-
     _ = try c.global_scope.macro_table.put(m.name, &fn_proto.base);
 }
 
 const ParseError = Error || error{ParseError};
 
-fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     // TODO parseCAssignExpr here
     const node = try parseCCondExpr(c, m, scope);
     if (m.next().? != .Comma) {
         m.i -= 1;
         return node;
     }
-    _ = try appendToken(c, .Semicolon, ";");
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
 
     var last = node;
     while (true) {
         // suppress result
-        const lhs = try transCreateNodeIdentifier(c, "_");
-        const op_token = try appendToken(c, .Equal, "=");
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = .Assign },
-            .op_token = op_token,
-            .lhs = lhs,
-            .rhs = last,
-        };
-        try block_scope.statements.append(&op_node.base);
+        const ignore = try Node.ignore.create(c.arena, last);
+        try block_scope.statements.append(ignore);
 
         last = try parseCCondExpr(c, m, scope);
-        _ = try appendToken(c, .Semicolon, ";");
         if (m.next().? != .Comma) {
             m.i -= 1;
             break;
         }
     }
 
-    const break_node = try transCreateNodeBreak(c, block_scope.label, last);
-    try block_scope.statements.append(&break_node.base);
+    const break_node = try Node.break_val.create(c.arena, .{
+        .label = block_scope.label,
+        .val = last,
+    });
+    try block_scope.statements.append(break_node);
     return try block_scope.complete(c);
 }
 
-fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!*ast.Node {
+fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
     var lit_bytes = m.slice();
 
     switch (m.list[m.i].id) {
@@ -4286,11 +4187,10 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!*ast.Node {
             }
 
             if (suffix == .none) {
-                return transCreateNodeInt(c, lit_bytes);
+                return transCreateNodeNumber(c, lit_bytes);
             }
 
-            const cast_node = try c.createBuiltinCall("@as", 2);
-            cast_node.params()[0] = try transCreateNodeIdentifier(c, switch (suffix) {
+            const type_node = try Node.type.create(c.arena, switch (suffix) {
                 .u => "c_uint",
                 .l => "c_long",
                 .lu => "c_ulong",
@@ -4304,27 +4204,22 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!*ast.Node {
                 .llu => 3,
                 else => unreachable,
             }];
-            _ = try appendToken(c, .Comma, ",");
-            cast_node.params()[1] = try transCreateNodeInt(c, lit_bytes);
-            cast_node.rparen_token = try appendToken(c, .RParen, ")");
-            return &cast_node.base;
+            const rhs = try transCreateNodeNumber(c, lit_bytes);
+            return Node.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
         },
         .FloatLiteral => |suffix| {
             if (lit_bytes[0] == '.')
                 lit_bytes = try std.fmt.allocPrint(c.arena, "0{s}", .{lit_bytes});
             if (suffix == .none) {
-                return transCreateNodeFloat(c, lit_bytes);
+                return transCreateNodeNumber(c, lit_bytes);
             }
-            const cast_node = try c.createBuiltinCall("@as", 2);
-            cast_node.params()[0] = try transCreateNodeIdentifier(c, switch (suffix) {
+            const type_node = try Node.type.create(c.arena, switch (suffix) {
                 .f => "f32",
                 .l => "c_longdouble",
                 else => unreachable,
             });
-            _ = try appendToken(c, .Comma, ",");
-            cast_node.params()[1] = try transCreateNodeFloat(c, lit_bytes[0 .. lit_bytes.len - 1]);
-            cast_node.rparen_token = try appendToken(c, .RParen, ")");
-            return &cast_node.base;
+            const rhs = try transCreateNodeNumber(c, lit_bytes[0 .. lit_bytes.len - 1]);
+            return Node.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
         },
         else => unreachable,
     }
@@ -4490,79 +4385,62 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
     return bytes[0..i];
 }
 
-fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
         .CharLiteral => {
             if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
-                const token = try appendToken(c, .CharLiteral, try zigifyEscapeSequences(c, m));
-                const node = try c.arena.create(ast.Node.OneToken);
-                node.* = .{
-                    .base = .{ .tag = .CharLiteral },
-                    .token = token,
-                };
-                return &node.base;
+                return Node.char_literal.create(c.arena, try zigifyEscapeSequences(c, m));
             } else {
-                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{slice[1 .. slice.len - 1]});
-                const node = try c.arena.create(ast.Node.OneToken);
-                node.* = .{
-                    .base = .{ .tag = .IntegerLiteral },
-                    .token = token,
-                };
-                return &node.base;
+                const str = try std.fmt.allocPrint(c.arena, "0x{x}", .{slice[1 .. slice.len - 1]});
+                return Node.int_literal.create(c.arena, str);
             }
         },
         .StringLiteral => {
-            const token = try appendToken(c, .StringLiteral, try zigifyEscapeSequences(c, m));
-            const node = try c.arena.create(ast.Node.OneToken);
-            node.* = .{
-                .base = .{ .tag = .StringLiteral },
-                .token = token,
-            };
-            return &node.base;
+            return Node.string_literal.create(c.arena, try zigifyEscapeSequences(c, m));
         },
         .IntegerLiteral, .FloatLiteral => {
             return parseCNumLit(c, m);
         },
         // eventually this will be replaced by std.c.parse which will handle these correctly
-        .Keyword_void => return transCreateNodeIdentifierUnchecked(c, "c_void"),
-        .Keyword_bool => return transCreateNodeIdentifierUnchecked(c, "bool"),
-        .Keyword_double => return transCreateNodeIdentifierUnchecked(c, "f64"),
-        .Keyword_long => return transCreateNodeIdentifierUnchecked(c, "c_long"),
-        .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_int"),
-        .Keyword_float => return transCreateNodeIdentifierUnchecked(c, "f32"),
-        .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_short"),
-        .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "u8"),
+        .Keyword_void => return Node.type.create(c.arena, "c_void"),
+        .Keyword_bool => return Node.type.create(c.arena, "bool"),
+        .Keyword_double => return Node.type.create(c.arena, "f64"),
+        .Keyword_long => return Node.type.create(c.arena, "c_long"),
+        .Keyword_int => return Node.type.create(c.arena, "c_int"),
+        .Keyword_float => return Node.type.create(c.arena, "f32"),
+        .Keyword_short => return Node.type.create(c.arena, "c_short"),
+        .Keyword_char => return Node.type.create(c.arena, "u8"),
         .Keyword_unsigned => if (m.next()) |t| switch (t) {
-            .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "u8"),
-            .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_ushort"),
-            .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_uint"),
+            .Keyword_char => return Node.type.create(c.arena, "u8"),
+            .Keyword_short => return Node.type.create(c.arena, "c_ushort"),
+            .Keyword_int => return Node.type.create(c.arena, "c_uint"),
             .Keyword_long => if (m.peek() != null and m.peek().? == .Keyword_long) {
                 _ = m.next();
-                return transCreateNodeIdentifierUnchecked(c, "c_ulonglong");
-            } else return transCreateNodeIdentifierUnchecked(c, "c_ulong"),
+                return Node.type.create(c.arena, "c_ulonglong");
+            } else return Node.type.create(c.arena, "c_ulong"),
             else => {
                 m.i -= 1;
-                return transCreateNodeIdentifierUnchecked(c, "c_uint");
+                return Node.type.create(c.arena, "c_uint");
             },
         } else {
-            return transCreateNodeIdentifierUnchecked(c, "c_uint");
+            return Node.type.create(c.arena, "c_uint");
         },
         .Keyword_signed => if (m.next()) |t| switch (t) {
-            .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "i8"),
-            .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_short"),
-            .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_int"),
+            .Keyword_char => return Node.type.create(c.arena, "i8"),
+            .Keyword_short => return Node.type.create(c.arena, "c_short"),
+            .Keyword_int => return Node.type.create(c.arena, "c_int"),
             .Keyword_long => if (m.peek() != null and m.peek().? == .Keyword_long) {
                 _ = m.next();
-                return transCreateNodeIdentifierUnchecked(c, "c_longlong");
-            } else return transCreateNodeIdentifierUnchecked(c, "c_long"),
+                return Node.type.create(c.arena, "c_longlong");
+            } else return Node.type.create(c.arena, "c_long"),
             else => {
                 m.i -= 1;
-                return transCreateNodeIdentifierUnchecked(c, "c_int");
+                return Node.type.create(c.arena, "c_int");
             },
         } else {
-            return transCreateNodeIdentifierUnchecked(c, "c_int");
+            return Node.type.create(c.arena, "c_int");
         },
         .Keyword_enum, .Keyword_struct, .Keyword_union => {
             // struct Foo will be declared as struct_Foo by transRecordDecl
@@ -4572,17 +4450,12 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
                 return error.ParseError;
             }
 
-            const ident_token = try appendTokenFmt(c, .Identifier, "{s}_{s}", .{ slice, m.slice() });
-            const identifier = try c.arena.create(ast.Node.OneToken);
-            identifier.* = .{
-                .base = .{ .tag = .Identifier },
-                .token = ident_token,
-            };
-            return &identifier.base;
+            const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ slice, m.slice() });
+            return Node.identifier.create(c.arena, name);
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
-            return transCreateNodeIdentifier(c, checkForBuiltinTypedef(mangled_name) orelse mangled_name);
+            return Node.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
         },
         .LParen => {
             const inner_node = try parseCExpr(c, m, scope);
@@ -4612,10 +4485,6 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
                 },
                 else => return inner_node,
             }
-
-            // hack to get zig fmt to render a comma in builtin calls
-            _ = try appendToken(c, .Comma, ",");
-
             const node_to_cast = try parseCExpr(c, m, scope);
 
             if (saw_l_paren and m.next().? != .RParen) {
@@ -4623,28 +4492,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
                 return error.ParseError;
             }
 
-            const lparen = try appendToken(c, .LParen, "(");
-
-            //(@import("std").meta.cast(dest, x))
-            const import_fn_call = try c.createBuiltinCall("@import", 1);
-            const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
-            import_fn_call.params()[0] = std_node;
-            import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
-            const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "meta");
-            const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "cast");
-
-            const cast_fn_call = try c.createCall(outer_field_access, 2);
-            cast_fn_call.params()[0] = inner_node;
-            cast_fn_call.params()[1] = node_to_cast;
-            cast_fn_call.rtoken = try appendToken(c, .RParen, ")");
-
-            const group_node = try c.arena.create(ast.Node.GroupedExpression);
-            group_node.* = .{
-                .lparen = lparen,
-                .expr = &cast_fn_call.base,
-                .rparen = try appendToken(c, .RParen, ")"),
-            };
-            return &group_node.base;
+            return Node.std_meta_cast.create(c.arena, .{ .lhs = inner_node, .rhs = node_to_cast });
         },
         else => {
             try m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(tok)});
@@ -4653,447 +4501,255 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*
     }
 }
 
-fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCPrimaryExprInner(c, m, scope);
     // In C the preprocessor would handle concatting strings while expanding macros.
     // This should do approximately the same by concatting any strings and identifiers
     // after a primary expression.
     while (true) {
-        var op_token: ast.TokenIndex = undefined;
-        var op_id: ast.Node.Tag = undefined;
         switch (m.peek().?) {
             .StringLiteral, .Identifier => {},
             else => break,
         }
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = .ArrayCat },
-            .op_token = try appendToken(c, .PlusPlus, "++"),
-            .lhs = node,
-            .rhs = try parseCPrimaryExprInner(c, m, scope),
-        };
-        node = &op_node.base;
+        node = try Node.array_cat.create(c.arena, .{ .lhs = node, .rhs = try parseCPrimaryExprInner(c, m, scope) });
     }
     return node;
 }
 
-fn nodeIsInfixOp(tag: ast.Node.Tag) bool {
-    return switch (tag) {
-        .Add,
-        .AddWrap,
-        .ArrayCat,
-        .ArrayMult,
-        .Assign,
-        .AssignBitAnd,
-        .AssignBitOr,
-        .AssignBitShiftLeft,
-        .AssignBitShiftRight,
-        .AssignBitXor,
-        .AssignDiv,
-        .AssignSub,
-        .AssignSubWrap,
-        .AssignMod,
-        .AssignAdd,
-        .AssignAddWrap,
-        .AssignMul,
-        .AssignMulWrap,
-        .BangEqual,
-        .BitAnd,
-        .BitOr,
-        .BitShiftLeft,
-        .BitShiftRight,
-        .BitXor,
-        .BoolAnd,
-        .BoolOr,
-        .Div,
-        .EqualEqual,
-        .ErrorUnion,
-        .GreaterOrEqual,
-        .GreaterThan,
-        .LessOrEqual,
-        .LessThan,
-        .MergeErrorSets,
-        .Mod,
-        .Mul,
-        .MulWrap,
-        .Period,
-        .Range,
-        .Sub,
-        .SubWrap,
-        .UnwrapOptional,
-        .Catch,
-        => true,
-
-        else => false,
-    };
-}
-
-fn macroBoolToInt(c: *Context, node: *ast.Node) !*ast.Node {
+fn macroBoolToInt(c: *Context, node: Node) !Node {
     if (!isBoolRes(node)) {
-        if (!nodeIsInfixOp(node.tag)) return node;
-
-        const group_node = try c.arena.create(ast.Node.GroupedExpression);
-        group_node.* = .{
-            .lparen = try appendToken(c, .LParen, "("),
-            .expr = node,
-            .rparen = try appendToken(c, .RParen, ")"),
-        };
-        return &group_node.base;
+        return node;
     }
 
-    const builtin_node = try c.createBuiltinCall("@boolToInt", 1);
-    builtin_node.params()[0] = node;
-    builtin_node.rparen_token = try appendToken(c, .RParen, ")");
-    return &builtin_node.base;
+    return Node.bool_to_int.create(c.arena, node);
 }
 
-fn macroIntToBool(c: *Context, node: *ast.Node) !*ast.Node {
+fn macroIntToBool(c: *Context, node: Node) !Node {
     if (isBoolRes(node)) {
-        if (!nodeIsInfixOp(node.tag)) return node;
-
-        const group_node = try c.arena.create(ast.Node.GroupedExpression);
-        group_node.* = .{
-            .lparen = try appendToken(c, .LParen, "("),
-            .expr = node,
-            .rparen = try appendToken(c, .RParen, ")"),
-        };
-        return &group_node.base;
+        return node;
     }
 
-    const op_token = try appendToken(c, .BangEqual, "!=");
-    const zero = try transCreateNodeInt(c, 0);
-    const res = try c.arena.create(ast.Node.SimpleInfixOp);
-    res.* = .{
-        .base = .{ .tag = .BangEqual },
-        .op_token = op_token,
-        .lhs = node,
-        .rhs = zero,
-    };
-    const group_node = try c.arena.create(ast.Node.GroupedExpression);
-    group_node.* = .{
-        .lparen = try appendToken(c, .LParen, "("),
-        .expr = &res.base,
-        .rparen = try appendToken(c, .RParen, ")"),
-    };
-    return &group_node.base;
+    return Node.not_equal.create(c.arena, .{ .lhs = node, .rhs = Node.zero_literal.init() });
 }
 
-fn macroGroup(c: *Context, node: *ast.Node) !*ast.Node {
-    if (!nodeIsInfixOp(node.tag)) return node;
-
-    const group_node = try c.arena.create(ast.Node.GroupedExpression);
-    group_node.* = .{
-        .lparen = try appendToken(c, .LParen, "("),
-        .expr = node,
-        .rparen = try appendToken(c, .RParen, ")"),
-    };
-    return &group_node.base;
-}
-
-fn parseCCondExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCCondExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const node = try parseCOrExpr(c, m, scope);
     if (m.peek().? != .QuestionMark) {
         return node;
     }
     _ = m.next();
 
-    // must come immediately after expr
-    _ = try appendToken(c, .RParen, ")");
-    const if_node = try transCreateNodeIf(c);
-    if_node.condition = node;
-    if_node.body = try parseCOrExpr(c, m, scope);
+    const then_body = try parseCOrExpr(c, m, scope);
     if (m.next().? != .Colon) {
         try m.fail(c, "unable to translate C expr: expected ':'", .{});
         return error.ParseError;
     }
-    if_node.@"else" = try transCreateNodeElse(c);
-    if_node.@"else".?.body = try parseCCondExpr(c, m, scope);
-    return &if_node.base;
+    const else_body = try parseCCondExpr(c, m, scope);
+    return Node.@"if".create(c.arena, .{ .cond = node, .then = then_body, .@"else" = else_body });
 }
 
-fn parseCOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCAndExpr(c, m, scope);
     while (m.next().? == .PipePipe) {
-        const lhs_node = try macroIntToBool(c, node);
-        const op_token = try appendToken(c, .Keyword_or, "or");
-        const rhs_node = try parseCAndExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = .BoolOr },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroIntToBool(c, rhs_node),
-        };
-        node = &op_node.base;
+        const lhs = try macroIntToBool(c, node);
+        const rhs = try macroIntToBool(c, try parseCAndExpr(c, m, scope));
+        node = try Node.@"or".create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
 }
 
-fn parseCAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitOrExpr(c, m, scope);
     while (m.next().? == .AmpersandAmpersand) {
-        const lhs_node = try macroIntToBool(c, node);
-        const op_token = try appendToken(c, .Keyword_and, "and");
-        const rhs_node = try parseCBitOrExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = .BoolAnd },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroIntToBool(c, rhs_node),
-        };
-        node = &op_node.base;
+        const lhs = try macroIntToBool(c, node);
+        const rhs = try macroIntToBool(c, try parseCBitOrExpr(c, m, scope));
+        node = try Node.@"and".create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
 }
 
-fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitXorExpr(c, m, scope);
     while (m.next().? == .Pipe) {
-        const lhs_node = try macroBoolToInt(c, node);
-        const op_token = try appendToken(c, .Pipe, "|");
-        const rhs_node = try parseCBitXorExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = .BitOr },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroBoolToInt(c, rhs_node),
-        };
-        node = &op_node.base;
+        const lhs = try macroBoolToInt(c, node);
+        const rhs = try macroBoolToInt(c, try parseCBitXorExpr(c, m, scope));
+        node = try Node.bit_or.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
 }
 
-fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitAndExpr(c, m, scope);
     while (m.next().? == .Caret) {
-        const lhs_node = try macroBoolToInt(c, node);
-        const op_token = try appendToken(c, .Caret, "^");
-        const rhs_node = try parseCBitAndExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = .BitXor },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroBoolToInt(c, rhs_node),
-        };
-        node = &op_node.base;
+        const lhs = try macroBoolToInt(c, node);
+        const rhs = try macroBoolToInt(c, try parseCBitAndExpr(c, m, scope));
+        node = try Node.bit_xor.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
 }
 
-fn parseCBitAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCBitAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCEqExpr(c, m, scope);
     while (m.next().? == .Ampersand) {
-        const lhs_node = try macroBoolToInt(c, node);
-        const op_token = try appendToken(c, .Ampersand, "&");
-        const rhs_node = try parseCEqExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = .BitAnd },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroBoolToInt(c, rhs_node),
-        };
-        node = &op_node.base;
+        const lhs = try macroBoolToInt(c, node);
+        const rhs = try macroBoolToInt(c, try parseCEqExpr(c, m, scope));
+        node = try Node.bit_and.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
 }
 
-fn parseCEqExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCEqExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCRelExpr(c, m, scope);
     while (true) {
-        var op_token: ast.TokenIndex = undefined;
-        var op_id: ast.Node.Tag = undefined;
         switch (m.peek().?) {
             .BangEqual => {
-                op_token = try appendToken(c, .BangEqual, "!=");
-                op_id = .BangEqual;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCRelExpr(c, m, scope));
+                node = try Node.not_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .EqualEqual => {
-                op_token = try appendToken(c, .EqualEqual, "==");
-                op_id = .EqualEqual;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCRelExpr(c, m, scope));
+                node = try Node.equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
         }
-        _ = m.next();
-        const lhs_node = try macroBoolToInt(c, node);
-        const rhs_node = try parseCRelExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = op_id },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroBoolToInt(c, rhs_node),
-        };
-        node = &op_node.base;
     }
 }
 
-fn parseCRelExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCRelExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCShiftExpr(c, m, scope);
     while (true) {
-        var op_token: ast.TokenIndex = undefined;
-        var op_id: ast.Node.Tag = undefined;
         switch (m.peek().?) {
             .AngleBracketRight => {
-                op_token = try appendToken(c, .AngleBracketRight, ">");
-                op_id = .GreaterThan;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                node = try Node.greater_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketRightEqual => {
-                op_token = try appendToken(c, .AngleBracketRightEqual, ">=");
-                op_id = .GreaterOrEqual;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                node = try Node.greater_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketLeft => {
-                op_token = try appendToken(c, .AngleBracketLeft, "<");
-                op_id = .LessThan;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                node = try Node.less_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketLeftEqual => {
-                op_token = try appendToken(c, .AngleBracketLeftEqual, "<=");
-                op_id = .LessOrEqual;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                node = try Node.less_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
         }
-        _ = m.next();
-        const lhs_node = try macroBoolToInt(c, node);
-        const rhs_node = try parseCShiftExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = op_id },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroBoolToInt(c, rhs_node),
-        };
-        node = &op_node.base;
     }
 }
 
-fn parseCShiftExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCShiftExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCAddSubExpr(c, m, scope);
     while (true) {
-        var op_token: ast.TokenIndex = undefined;
-        var op_id: ast.Node.Tag = undefined;
         switch (m.peek().?) {
             .AngleBracketAngleBracketLeft => {
-                op_token = try appendToken(c, .AngleBracketAngleBracketLeft, "<<");
-                op_id = .BitShiftLeft;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCAddSubExpr(c, m, scope));
+                node = try Node.shl.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketAngleBracketRight => {
-                op_token = try appendToken(c, .AngleBracketAngleBracketRight, ">>");
-                op_id = .BitShiftRight;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCAddSubExpr(c, m, scope));
+                node = try Node.shr.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
         }
-        _ = m.next();
-        const lhs_node = try macroBoolToInt(c, node);
-        const rhs_node = try parseCAddSubExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = op_id },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroBoolToInt(c, rhs_node),
-        };
-        node = &op_node.base;
     }
 }
 
-fn parseCAddSubExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCAddSubExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCMulExpr(c, m, scope);
     while (true) {
-        var op_token: ast.TokenIndex = undefined;
-        var op_id: ast.Node.Tag = undefined;
         switch (m.peek().?) {
             .Plus => {
-                op_token = try appendToken(c, .Plus, "+");
-                op_id = .Add;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCMulExpr(c, m, scope));
+                node = try Node.add.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Minus => {
-                op_token = try appendToken(c, .Minus, "-");
-                op_id = .Sub;
+                _ = m.next();
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCMulExpr(c, m, scope));
+                node = try Node.sub.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
         }
-        _ = m.next();
-        const lhs_node = try macroBoolToInt(c, node);
-        const rhs_node = try parseCMulExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = op_id },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroBoolToInt(c, rhs_node),
-        };
-        node = &op_node.base;
     }
 }
 
-fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCUnaryExpr(c, m, scope);
     while (true) {
-        var op_token: ast.TokenIndex = undefined;
-        var op_id: ast.Node.Tag = undefined;
         switch (m.next().?) {
             .Asterisk => {
                 if (m.peek().? == .RParen) {
                     // type *)
 
-                    // hack to get zig fmt to render a comma in builtin calls
-                    _ = try appendToken(c, .Comma, ",");
-
                     // last token of `node`
                     const prev_id = m.list[m.i - 1].id;
 
                     if (prev_id == .Keyword_void) {
-                        const ptr = try transCreateNodePtrType(c, false, false, .Asterisk);
-                        ptr.rhs = node;
-                        const optional_node = try transCreateNodeSimplePrefixOp(c, .OptionalType, .QuestionMark, "?");
-                        optional_node.rhs = &ptr.base;
-                        return &optional_node.base;
+                        const ptr = try Node.single_pointer.create(c.arena, .{
+                            .is_const = false,
+                            .is_volatile = false,
+                            .elem_type = node,
+                        });
+                        return Node.optional_type.create(c.arena, ptr);
                     } else {
-                        const ptr = try transCreateNodePtrType(c, false, false, Token.Id.Identifier);
-                        ptr.rhs = node;
-                        return &ptr.base;
+                        return Node.c_pointer.create(c.arena, .{
+                            .is_const = false,
+                            .is_volatile = false,
+                            .elem_type = node,
+                        });
                     }
                 } else {
                     // expr * expr
-                    op_token = try appendToken(c, .Asterisk, "*");
-                    op_id = .BitShiftLeft;
+                    const lhs = try macroBoolToInt(c, node);
+                    const rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
+                    node = try Node.mul.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
                 }
             },
             .Slash => {
-                op_id = .Div;
-                op_token = try appendToken(c, .Slash, "/");
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
+                node = try Node.div.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Percent => {
-                op_id = .Mod;
-                op_token = try appendToken(c, .Percent, "%");
+                const lhs = try macroBoolToInt(c, node);
+                const rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
+                node = try Node.mod.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => {
                 m.i -= 1;
                 return node;
             },
         }
-        const lhs_node = try macroBoolToInt(c, node);
-        const rhs_node = try parseCUnaryExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = op_id },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try macroBoolToInt(c, rhs_node),
-        };
-        node = &op_node.base;
     }
 }
 
-fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCPrimaryExpr(c, m, scope);
     while (true) {
         switch (m.next().?) {
@@ -5103,38 +4759,31 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
                     return error.ParseError;
                 }
 
-                node = try transCreateNodeFieldAccess(c, node, m.slice());
-                continue;
+                const ident = try Node.identifier.create(c.arena, m.slice());
+                node = try Node.field_access.create(c.arena, .{ .lhs = node, .rhs = ident });
             },
             .Arrow => {
                 if (m.next().? != .Identifier) {
                     try m.fail(c, "unable to translate C expr: expected identifier", .{});
                     return error.ParseError;
                 }
-                const deref = try transCreateNodePtrDeref(c, node);
-                node = try transCreateNodeFieldAccess(c, deref, m.slice());
-                continue;
+
+                const deref = try Node.deref.create(c.arena, node);
+                const ident = try Node.identifier.create(c.arena, m.slice());
+                node = try Node.field_access.create(c.arena, .{ .lhs = deref, .rhs = ident });
             },
             .LBracket => {
-                const arr_node = try transCreateNodeArrayAccess(c, node);
-                arr_node.index_expr = try parseCExpr(c, m, scope);
-                arr_node.rtoken = try appendToken(c, .RBracket, "]");
-                node = &arr_node.base;
-                if (m.next().? != .RBracket) {
-                    try m.fail(c, "unable to translate C expr: expected ']'", .{});
-                    return error.ParseError;
-                }
-                continue;
+                const index = try macroBoolToInt(c, try parseCExpr(c, m, scope));
+                node = try Node.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
             },
             .LParen => {
-                _ = try appendToken(c, .LParen, "(");
-                var call_params = std.ArrayList(*ast.Node).init(c.gpa);
+                var call_params = std.ArrayList(Node).init(c.gpa);
                 defer call_params.deinit();
                 while (true) {
                     const arg = try parseCCondExpr(c, m, scope);
                     try call_params.append(arg);
                     switch (m.next().?) {
-                        .Comma => _ = try appendToken(c, .Comma, ","),
+                        .Comma => {},
                         .RParen => break,
                         else => {
                             try m.fail(c, "unable to translate C expr: expected ',' or ')'", .{});
@@ -5142,32 +4791,17 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
                         },
                     }
                 }
-                const call_node = try ast.Node.Call.alloc(c.arena, call_params.items.len);
-                call_node.* = .{
-                    .lhs = node,
-                    .params_len = call_params.items.len,
-                    .async_token = null,
-                    .rtoken = try appendToken(c, .RParen, ")"),
-                };
-                mem.copy(*ast.Node, call_node.params(), call_params.items);
-                node = &call_node.base;
-                continue;
+                node = try Node.call.create(c.arena, .{ .lhs = node, .rhs = try c.arena.dupe(Node, call_params.items) });
             },
             .LBrace => {
-                // must come immediately after `node`
-                _ = try appendToken(c, .Comma, ",");
-
-                const dot = try appendToken(c, .Period, ".");
-                _ = try appendToken(c, .LBrace, "{");
-
-                var init_vals = std.ArrayList(*ast.Node).init(c.gpa);
+                var init_vals = std.ArrayList(Node).init(c.gpa);
                 defer init_vals.deinit();
 
                 while (true) {
                     const val = try parseCCondExpr(c, m, scope);
                     try init_vals.append(val);
                     switch (m.next().?) {
-                        .Comma => _ = try appendToken(c, .Comma, ","),
+                        .Comma => {},
                         .RBrace => break,
                         else => {
                             try m.fail(c, "unable to translate C expr: expected ',' or '}}'", .{});
@@ -5175,29 +4809,8 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
                         },
                     }
                 }
-                const tuple_node = try ast.Node.StructInitializerDot.alloc(c.arena, init_vals.items.len);
-                tuple_node.* = .{
-                    .dot = dot,
-                    .list_len = init_vals.items.len,
-                    .rtoken = try appendToken(c, .RBrace, "}"),
-                };
-                mem.copy(*ast.Node, tuple_node.list(), init_vals.items);
-
-                //(@import("std").mem.zeroInit(T, .{x}))
-                const import_fn_call = try c.createBuiltinCall("@import", 1);
-                const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
-                import_fn_call.params()[0] = std_node;
-                import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
-                const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "mem");
-                const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "zeroInit");
-
-                const zero_init_call = try c.createCall(outer_field_access, 2);
-                zero_init_call.params()[0] = node;
-                zero_init_call.params()[1] = &tuple_node.base;
-                zero_init_call.rtoken = try appendToken(c, .RParen, ")");
-
-                node = &zero_init_call.base;
-                continue;
+                const tuple_node = try Node.tuple.create(c.arena, try c.arena.dupe(Node, init_vals.items));
+                node = try Node.std_mem_zeroinit.create(c.arena, .{ .lhs = node, .rhs = tuple_node });
             },
             .PlusPlus, .MinusMinus => {
                 try m.fail(c, "TODO postfix inc/dec expr", .{});
@@ -5211,35 +4824,31 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
     }
 }
 
-fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
         .Bang => {
-            const node = try transCreateNodeSimplePrefixOp(c, .BoolNot, .Bang, "!");
-            node.rhs = try macroIntToBool(c, try parseCUnaryExpr(c, m, scope));
-            return &node.base;
+            const operand = try macroIntToBool(c, try parseCUnaryExpr(c, m, scope));
+            return Node.not.create(c.arena, operand);
         },
         .Minus => {
-            const node = try transCreateNodeSimplePrefixOp(c, .Negation, .Minus, "-");
-            node.rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
-            return &node.base;
+            const operand = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
+            return Node.negate.create(c.arena, operand);
         },
         .Plus => return try parseCUnaryExpr(c, m, scope),
         .Tilde => {
-            const node = try transCreateNodeSimplePrefixOp(c, .BitNot, .Tilde, "~");
-            node.rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
-            return &node.base;
+            const operand = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
+            return Node.bit_not.create(c.arena, operand);
         },
         .Asterisk => {
-            const node = try macroGroup(c, try parseCUnaryExpr(c, m, scope));
-            return try transCreateNodePtrDeref(c, node);
+            const operand = try parseCUnaryExpr(c, m, scope);
+            return Node.deref.create(c.arena, operand);
         },
         .Ampersand => {
-            const node = try transCreateNodeSimplePrefixOp(c, .AddressOf, .Ampersand, "&");
-            node.rhs = try macroGroup(c, try parseCUnaryExpr(c, m, scope));
-            return &node.base;
+            const operand = try parseCUnaryExpr(c, m, scope);
+            return Node.address_of.create(c.arena, operand);
         },
         .Keyword_sizeof => {
-            const inner = if (m.peek().? == .LParen) blk: {
+            const operand = if (m.peek().? == .LParen) blk: {
                 _ = m.next();
                 // C grammar says this should be 'type-name' but we have to
                 // use parseCMulExpr to correctly handle pointer types.
@@ -5251,18 +4860,7 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Nod
                 break :blk inner;
             } else try parseCUnaryExpr(c, m, scope);
 
-            //(@import("std").meta.sizeof(dest, x))
-            const import_fn_call = try c.createBuiltinCall("@import", 1);
-            const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
-            import_fn_call.params()[0] = std_node;
-            import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
-            const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "meta");
-            const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "sizeof");
-
-            const sizeof_call = try c.createCall(outer_field_access, 1);
-            sizeof_call.params()[0] = inner;
-            sizeof_call.rtoken = try appendToken(c, .RParen, ")");
-            return &sizeof_call.base;
+            return Node.std_meta_sizeof.create(c.arena, operand);
         },
         .Keyword_alignof => {
             // TODO this won't work if using <stdalign.h>'s
@@ -5273,16 +4871,13 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Nod
             }
             // C grammar says this should be 'type-name' but we have to
             // use parseCMulExpr to correctly handle pointer types.
-            const inner = try parseCMulExpr(c, m, scope);
+            const operand = try parseCMulExpr(c, m, scope);
             if (m.next().? != .RParen) {
                 try m.fail(c, "unable to translate C expr: expected ')'", .{});
                 return error.ParseError;
             }
 
-            const builtin_call = try c.createBuiltinCall("@alignOf", 1);
-            builtin_call.params()[0] = inner;
-            builtin_call.rparen_token = try appendToken(c, .RParen, ")");
-            return &builtin_call.base;
+            return Node.alignof.create(c.arena, operand);
         },
         .PlusPlus, .MinusMinus => {
             try m.fail(c, "TODO unary inc/dec expr", .{});
@@ -5295,50 +4890,40 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Nod
     }
 }
 
-fn tokenSlice(c: *Context, token: ast.TokenIndex) []u8 {
-    const tok = c.token_locs.items[token];
-    const slice = c.source_buffer.items[tok.start..tok.end];
-    return if (mem.startsWith(u8, slice, "@\""))
-        slice[2 .. slice.len - 1]
-    else
-        slice;
-}
-
-fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
-    switch (node.tag) {
-        .ContainerDecl,
-        .AddressOf,
-        .Await,
-        .BitNot,
-        .BoolNot,
-        .OptionalType,
-        .Negation,
-        .NegationWrap,
-        .Resume,
-        .Try,
-        .ArrayType,
-        .ArrayTypeSentinel,
-        .PtrType,
-        .SliceType,
+fn getContainer(c: *Context, node: Node) ?Node {
+    switch (node.tag()) {
+        .@"union",
+        .@"struct",
+        .@"enum",
+        .address_of,
+        .bit_not,
+        .not,
+        .optional_type,
+        .negate,
+        .negate_wrap,
+        .array_type,
+        .c_pointer, 
+        .single_pointer,
         => return node,
 
-        .Identifier => {
-            const ident = node.castTag(.Identifier).?;
-            if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |value| {
-                if (value.cast(ast.Node.VarDecl)) |var_decl|
-                    return getContainer(c, var_decl.getInitNode().?);
+        .identifier => {
+            const ident = node.castTag(.identifier).?;
+            if (c.global_scope.sym_table.get(ident.data)) |value| {
+                if (value.castTag(.var_decl)) |var_decl|
+                    return getContainer(c, var_decl.data.init);
+                if (value.castTag(.var_simple) orelse value.castTag(.pub_var_simple)) |var_decl|
+                    return getContainer(c, var_decl.data.init);
             }
         },
 
-        .Period => {
-            const infix = node.castTag(.Period).?;
+        .field_access => {
+            const infix = node.castTag(.field_access).?;
 
-            if (getContainerTypeOf(c, infix.lhs)) |ty_node| {
-                if (ty_node.cast(ast.Node.ContainerDecl)) |container| {
-                    for (container.fieldsAndDecls()) |field_ref| {
-                        const field = field_ref.cast(ast.Node.ContainerField).?;
-                        const ident = infix.rhs.castTag(.Identifier).?;
-                        if (mem.eql(u8, tokenSlice(c, field.name_token), tokenSlice(c, ident.token))) {
+            if (getContainerTypeOf(c, infix.data.lhs)) |ty_node| {
+                if (ty_node.castTag(.@"struct") orelse ty_node.castTag(.@"union")) |container| {
+                    for (container.data.fields) |field| {
+                        const ident = infix.data.rhs.castTag(.identifier).?;
+                        if (mem.eql(u8, field.data.name, field.data)) {
                             return getContainer(c, field.type_expr.?);
                         }
                     }
@@ -5351,22 +4936,20 @@ fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
     return null;
 }
 
-fn getContainerTypeOf(c: *Context, ref: *ast.Node) ?*ast.Node {
-    if (ref.castTag(.Identifier)) |ident| {
-        if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |value| {
-            if (value.cast(ast.Node.VarDecl)) |var_decl| {
-                if (var_decl.getTypeNode()) |ty|
-                    return getContainer(c, ty);
+fn getContainerTypeOf(c: *Context, ref: Node) ?Node {
+    if (ref.castTag(.identifier)) |ident| {
+        if (c.global_scope.sym_table.get(ident.data)) |value| {
+            if (value.castTag(.var_decl)) |var_decl| {
+                return getContainer(c, var_decl.data.type);
             }
         }
-    } else if (ref.castTag(.Period)) |infix| {
-        if (getContainerTypeOf(c, infix.lhs)) |ty_node| {
-            if (ty_node.cast(ast.Node.ContainerDecl)) |container| {
-                for (container.fieldsAndDecls()) |field_ref| {
-                    const field = field_ref.cast(ast.Node.ContainerField).?;
-                    const ident = infix.rhs.castTag(.Identifier).?;
-                    if (mem.eql(u8, tokenSlice(c, field.name_token), tokenSlice(c, ident.token))) {
-                        return getContainer(c, field.type_expr.?);
+    } else if (ref.castTag(.field_access)) |infix| {
+        if (getContainerTypeOf(c, infix.data.lhs)) |ty_node| {
+            if (ty_node.castTag(.@"struct") orelse ty_node.castTag(.@"union")) |container| {
+                for (container.data.fields) |field| {
+                    const ident = infix.data.rhs.castTag(.identifier).?;
+                    if (mem.eql(u8, field.name, ident.data)) {
+                        return getContainer(c, field.type);
                     }
                 }
             } else
@@ -5376,11 +4959,16 @@ fn getContainerTypeOf(c: *Context, ref: *ast.Node) ?*ast.Node {
     return null;
 }
 
-fn getFnProto(c: *Context, ref: *ast.Node) ?*ast.Node.FnProto {
-    const init = if (ref.cast(ast.Node.VarDecl)) |v| v.getInitNode().? else return null;
+fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
+    const init = if (value.castTag(.var_decl)) |v|
+        v.data.init
+    else if (value.castTag(.var_simple) orelse value.castTag(.pub_var_simple)) |v|
+        v.data.init
+    else
+        return null;
     if (getContainerTypeOf(c, init)) |ty_node| {
-        if (ty_node.castTag(.OptionalType)) |prefix| {
-            if (prefix.rhs.cast(ast.Node.FnProto)) |fn_proto| {
+        if (ty_node.castTag(.optional_type)) |prefix| {
+            if (prefix.data.castTag(.func)) |fn_proto| {
                 return fn_proto;
             }
         }

@@ -47,7 +47,6 @@ pub const Node = extern union {
         field_access,
         array_access,
         call,
-        std_mem_zeroes,
         var_decl,
         func,
         warning,
@@ -57,6 +56,7 @@ pub const Node = extern union {
         @"struct",
         @"union",
         array_init,
+        tuple,
         container_init,
         std_meta_cast,
         discard,
@@ -162,6 +162,8 @@ pub const Node = extern union {
         deref,
 
         block,
+        /// { operand }
+        block_single,
         @"break",
 
         sizeof,
@@ -173,8 +175,12 @@ pub const Node = extern union {
         single_pointer,
         array_type,
 
-        /// @import("std").mem.zeroes(T)
+        /// @import("std").meta.sizeof(operand)
+        std_meta_sizeof,
+        /// @import("std").mem.zeroes(operand)
         std_mem_zeroes,
+        /// @import("std").mem.zeroInit(lhs, rhs)
+        std_mem_zeroinit,
         // pub const name = @compileError(msg);
         fail_decl,
         // var actual = mangled;
@@ -188,6 +194,9 @@ pub const Node = extern union {
         /// pub const enum_field_name = @enumToInt(enum_name.field_name);
         enum_redecl,
 
+        /// pub inline fn name(params) return_type body
+        pub_inline_fn,
+
         /// [0]type{}
         empty_array,
         /// [1]type{val} ** count
@@ -195,6 +204,7 @@ pub const Node = extern union {
 
         /// _ = operand;
         ignore,
+        @"anytype",
 
         pub const last_no_payload_tag = Tag.usingnamespace_builtins;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -213,6 +223,7 @@ pub const Node = extern union {
                 .one_literal,
                 .void_type,
                 .noreturn_type,
+                .@"anytype",
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .std_mem_zeroes,
@@ -234,6 +245,7 @@ pub const Node = extern union {
                 .if_not_break,
                 .switch_else,
                 .ignore,
+                .block_single,
                 => Payload.UnOp,
 
                 .add,
@@ -302,6 +314,8 @@ pub const Node = extern union {
                 .field_access,
                 .assign,
                 .align_cast,
+                .array_access,
+                .std_mem_zeroinit,
                 => Payload.BinOp,
 
                 .number_literal,
@@ -325,7 +339,7 @@ pub const Node = extern union {
                 .func => Payload.Func,
                 .@"enum" => Payload.Enum,
                 .@"struct", .@"union" => Payload.Record,
-                .array_init => Payload.ArrayInit,
+                .array_init, .tuple => Payload.ArrayInit,
                 .container_init => Payload.ContainerInit,
                 .std_meta_cast => Payload.Infix,
                 .block => Payload.Block,
@@ -336,6 +350,7 @@ pub const Node = extern union {
                 .typedef, .pub_typedef, .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
                 .enum_redecl => Payload.EnumRedecl,
                 .array_filler => Payload.ArrayFiller,
+                .pub_inline_fn => Payload.PubInlineFn,
             };
         }
 
@@ -488,12 +503,12 @@ pub const Payload = struct {
             body: ?Node,
             alignment: ?c_uint,
         },
+    };
 
-        pub const Param = struct {
-            is_noalias: bool,
-            name: ?[]const u8,
-            type: Node,
-        };
+    pub const Param = struct {
+        is_noalias: bool,
+        name: ?[]const u8,
+        type: Node,
     };
 
     pub const Enum = struct {
@@ -596,6 +611,16 @@ pub const Payload = struct {
             type: Node,
             filler: Node,
             count: usize,
+        },
+    };
+
+    pub const PubInlineFn = struct {
+        base: Node,
+        data: struct {
+            name: []const u8,
+            params: []Param,
+            return_type: Node,
+            body: Node,
         },
     };
 };
