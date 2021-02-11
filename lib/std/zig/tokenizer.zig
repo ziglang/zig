@@ -16,58 +16,58 @@ pub const Token = struct {
     };
 
     pub const keywords = std.ComptimeStringMap(Tag, .{
-        .{ "align", .Keyword_align },
-        .{ "allowzero", .Keyword_allowzero },
-        .{ "and", .Keyword_and },
-        .{ "anyframe", .Keyword_anyframe },
-        .{ "anytype", .Keyword_anytype },
-        .{ "asm", .Keyword_asm },
-        .{ "async", .Keyword_async },
-        .{ "await", .Keyword_await },
-        .{ "break", .Keyword_break },
-        .{ "callconv", .Keyword_callconv },
-        .{ "catch", .Keyword_catch },
-        .{ "comptime", .Keyword_comptime },
-        .{ "const", .Keyword_const },
-        .{ "continue", .Keyword_continue },
-        .{ "defer", .Keyword_defer },
-        .{ "else", .Keyword_else },
-        .{ "enum", .Keyword_enum },
-        .{ "errdefer", .Keyword_errdefer },
-        .{ "error", .Keyword_error },
-        .{ "export", .Keyword_export },
-        .{ "extern", .Keyword_extern },
-        .{ "false", .Keyword_false },
-        .{ "fn", .Keyword_fn },
-        .{ "for", .Keyword_for },
-        .{ "if", .Keyword_if },
-        .{ "inline", .Keyword_inline },
-        .{ "noalias", .Keyword_noalias },
-        .{ "noinline", .Keyword_noinline },
-        .{ "nosuspend", .Keyword_nosuspend },
-        .{ "null", .Keyword_null },
-        .{ "opaque", .Keyword_opaque },
-        .{ "or", .Keyword_or },
-        .{ "orelse", .Keyword_orelse },
-        .{ "packed", .Keyword_packed },
-        .{ "pub", .Keyword_pub },
-        .{ "resume", .Keyword_resume },
-        .{ "return", .Keyword_return },
-        .{ "linksection", .Keyword_linksection },
-        .{ "struct", .Keyword_struct },
-        .{ "suspend", .Keyword_suspend },
-        .{ "switch", .Keyword_switch },
-        .{ "test", .Keyword_test },
-        .{ "threadlocal", .Keyword_threadlocal },
-        .{ "true", .Keyword_true },
-        .{ "try", .Keyword_try },
-        .{ "undefined", .Keyword_undefined },
-        .{ "union", .Keyword_union },
-        .{ "unreachable", .Keyword_unreachable },
-        .{ "usingnamespace", .Keyword_usingnamespace },
-        .{ "var", .Keyword_var },
-        .{ "volatile", .Keyword_volatile },
-        .{ "while", .Keyword_while },
+        .{ "align", .keyword_align },
+        .{ "allowzero", .keyword_allowzero },
+        .{ "and", .keyword_and },
+        .{ "anyframe", .keyword_anyframe },
+        .{ "anytype", .keyword_anytype },
+        .{ "asm", .keyword_asm },
+        .{ "async", .keyword_async },
+        .{ "await", .keyword_await },
+        .{ "break", .keyword_break },
+        .{ "callconv", .keyword_callconv },
+        .{ "catch", .keyword_catch },
+        .{ "comptime", .keyword_comptime },
+        .{ "const", .keyword_const },
+        .{ "continue", .keyword_continue },
+        .{ "defer", .keyword_defer },
+        .{ "else", .keyword_else },
+        .{ "enum", .keyword_enum },
+        .{ "errdefer", .keyword_errdefer },
+        .{ "error", .keyword_error },
+        .{ "export", .keyword_export },
+        .{ "extern", .keyword_extern },
+        .{ "false", .keyword_false },
+        .{ "fn", .keyword_fn },
+        .{ "for", .keyword_for },
+        .{ "if", .keyword_if },
+        .{ "inline", .keyword_inline },
+        .{ "noalias", .keyword_noalias },
+        .{ "noinline", .keyword_noinline },
+        .{ "nosuspend", .keyword_nosuspend },
+        .{ "null", .keyword_null },
+        .{ "opaque", .keyword_opaque },
+        .{ "or", .keyword_or },
+        .{ "orelse", .keyword_orelse },
+        .{ "packed", .keyword_packed },
+        .{ "pub", .keyword_pub },
+        .{ "resume", .keyword_resume },
+        .{ "return", .keyword_return },
+        .{ "linksection", .keyword_linksection },
+        .{ "struct", .keyword_struct },
+        .{ "suspend", .keyword_suspend },
+        .{ "switch", .keyword_switch },
+        .{ "test", .keyword_test },
+        .{ "threadlocal", .keyword_threadlocal },
+        .{ "true", .keyword_true },
+        .{ "try", .keyword_try },
+        .{ "undefined", .keyword_undefined },
+        .{ "union", .keyword_union },
+        .{ "unreachable", .keyword_unreachable },
+        .{ "usingnamespace", .keyword_usingnamespace },
+        .{ "var", .keyword_var },
+        .{ "volatile", .keyword_volatile },
+        .{ "while", .keyword_while },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -75,249 +75,249 @@ pub const Token = struct {
     }
 
     pub const Tag = enum {
-        Invalid,
-        Invalid_ampersands,
-        Invalid_periodasterisks,
-        Identifier,
-        StringLiteral,
-        MultilineStringLiteralLine,
-        CharLiteral,
-        Eof,
-        Builtin,
-        Bang,
-        Pipe,
-        PipePipe,
-        PipeEqual,
-        Equal,
-        EqualEqual,
-        EqualAngleBracketRight,
-        BangEqual,
-        LParen,
-        RParen,
-        Semicolon,
-        Percent,
-        PercentEqual,
-        LBrace,
-        RBrace,
-        LBracket,
-        RBracket,
-        Period,
-        PeriodAsterisk,
-        Ellipsis2,
-        Ellipsis3,
-        Caret,
-        CaretEqual,
-        Plus,
-        PlusPlus,
-        PlusEqual,
-        PlusPercent,
-        PlusPercentEqual,
-        Minus,
-        MinusEqual,
-        MinusPercent,
-        MinusPercentEqual,
-        Asterisk,
-        AsteriskEqual,
-        AsteriskAsterisk,
-        AsteriskPercent,
-        AsteriskPercentEqual,
-        Arrow,
-        Colon,
-        Slash,
-        SlashEqual,
-        Comma,
-        Ampersand,
-        AmpersandEqual,
-        QuestionMark,
-        AngleBracketLeft,
-        AngleBracketLeftEqual,
-        AngleBracketAngleBracketLeft,
-        AngleBracketAngleBracketLeftEqual,
-        AngleBracketRight,
-        AngleBracketRightEqual,
-        AngleBracketAngleBracketRight,
-        AngleBracketAngleBracketRightEqual,
-        Tilde,
-        IntegerLiteral,
-        FloatLiteral,
-        DocComment,
-        ContainerDocComment,
-        Keyword_align,
-        Keyword_allowzero,
-        Keyword_and,
-        Keyword_anyframe,
-        Keyword_anytype,
-        Keyword_asm,
-        Keyword_async,
-        Keyword_await,
-        Keyword_break,
-        Keyword_callconv,
-        Keyword_catch,
-        Keyword_comptime,
-        Keyword_const,
-        Keyword_continue,
-        Keyword_defer,
-        Keyword_else,
-        Keyword_enum,
-        Keyword_errdefer,
-        Keyword_error,
-        Keyword_export,
-        Keyword_extern,
-        Keyword_false,
-        Keyword_fn,
-        Keyword_for,
-        Keyword_if,
-        Keyword_inline,
-        Keyword_noalias,
-        Keyword_noinline,
-        Keyword_nosuspend,
-        Keyword_null,
-        Keyword_opaque,
-        Keyword_or,
-        Keyword_orelse,
-        Keyword_packed,
-        Keyword_pub,
-        Keyword_resume,
-        Keyword_return,
-        Keyword_linksection,
-        Keyword_struct,
-        Keyword_suspend,
-        Keyword_switch,
-        Keyword_test,
-        Keyword_threadlocal,
-        Keyword_true,
-        Keyword_try,
-        Keyword_undefined,
-        Keyword_union,
-        Keyword_unreachable,
-        Keyword_usingnamespace,
-        Keyword_var,
-        Keyword_volatile,
-        Keyword_while,
+        invalid,
+        invalid_ampersands,
+        invalid_periodasterisks,
+        identifier,
+        string_literal,
+        multiline_string_literal_line,
+        char_literal,
+        eof,
+        builtin,
+        bang,
+        pipe,
+        pipe_pipe,
+        pipe_equal,
+        equal,
+        equal_equal,
+        equal_angle_bracket_right,
+        bang_equal,
+        l_paren,
+        r_paren,
+        semicolon,
+        percent,
+        percent_equal,
+        l_brace,
+        r_brace,
+        l_bracket,
+        r_bracket,
+        period,
+        period_asterisk,
+        ellipsis2,
+        ellipsis3,
+        caret,
+        caret_equal,
+        plus,
+        plus_plus,
+        plus_equal,
+        plus_percent,
+        plus_percent_equal,
+        minus,
+        minus_equal,
+        minus_percent,
+        minus_percent_equal,
+        asterisk,
+        asterisk_equal,
+        asterisk_asterisk,
+        asterisk_percent,
+        asterisk_percent_equal,
+        arrow,
+        colon,
+        slash,
+        slash_equal,
+        comma,
+        ampersand,
+        ampersand_equal,
+        question_mark,
+        angle_bracket_left,
+        angle_bracket_left_equal,
+        angle_bracket_angle_bracket_left,
+        angle_bracket_angle_bracket_left_equal,
+        angle_bracket_right,
+        angle_bracket_right_equal,
+        angle_bracket_angle_bracket_right,
+        angle_bracket_angle_bracket_right_equal,
+        tilde,
+        integer_literal,
+        float_literal,
+        doc_comment,
+        container_doc_comment,
+        keyword_align,
+        keyword_allowzero,
+        keyword_and,
+        keyword_anyframe,
+        keyword_anytype,
+        keyword_asm,
+        keyword_async,
+        keyword_await,
+        keyword_break,
+        keyword_callconv,
+        keyword_catch,
+        keyword_comptime,
+        keyword_const,
+        keyword_continue,
+        keyword_defer,
+        keyword_else,
+        keyword_enum,
+        keyword_errdefer,
+        keyword_error,
+        keyword_export,
+        keyword_extern,
+        keyword_false,
+        keyword_fn,
+        keyword_for,
+        keyword_if,
+        keyword_inline,
+        keyword_noalias,
+        keyword_noinline,
+        keyword_nosuspend,
+        keyword_null,
+        keyword_opaque,
+        keyword_or,
+        keyword_orelse,
+        keyword_packed,
+        keyword_pub,
+        keyword_resume,
+        keyword_return,
+        keyword_linksection,
+        keyword_struct,
+        keyword_suspend,
+        keyword_switch,
+        keyword_test,
+        keyword_threadlocal,
+        keyword_true,
+        keyword_try,
+        keyword_undefined,
+        keyword_union,
+        keyword_unreachable,
+        keyword_usingnamespace,
+        keyword_var,
+        keyword_volatile,
+        keyword_while,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
-                .Invalid,
-                .Identifier,
-                .StringLiteral,
-                .MultilineStringLiteralLine,
-                .CharLiteral,
-                .Eof,
-                .Builtin,
-                .IntegerLiteral,
-                .FloatLiteral,
-                .DocComment,
-                .ContainerDocComment,
+                .invalid,
+                .identifier,
+                .string_literal,
+                .multiline_string_literal_line,
+                .char_literal,
+                .eof,
+                .builtin,
+                .integer_literal,
+                .float_literal,
+                .doc_comment,
+                .container_doc_comment,
                 => null,
 
-                .Invalid_ampersands => "&&",
-                .Invalid_periodasterisks => ".**",
-                .Bang => "!",
-                .Pipe => "|",
-                .PipePipe => "||",
-                .PipeEqual => "|=",
-                .Equal => "=",
-                .EqualEqual => "==",
-                .EqualAngleBracketRight => "=>",
-                .BangEqual => "!=",
-                .LParen => "(",
-                .RParen => ")",
-                .Semicolon => ";",
-                .Percent => "%",
-                .PercentEqual => "%=",
-                .LBrace => "{",
-                .RBrace => "}",
-                .LBracket => "[",
-                .RBracket => "]",
-                .Period => ".",
-                .PeriodAsterisk => ".*",
-                .Ellipsis2 => "..",
-                .Ellipsis3 => "...",
-                .Caret => "^",
-                .CaretEqual => "^=",
-                .Plus => "+",
-                .PlusPlus => "++",
-                .PlusEqual => "+=",
-                .PlusPercent => "+%",
-                .PlusPercentEqual => "+%=",
-                .Minus => "-",
-                .MinusEqual => "-=",
-                .MinusPercent => "-%",
-                .MinusPercentEqual => "-%=",
-                .Asterisk => "*",
-                .AsteriskEqual => "*=",
-                .AsteriskAsterisk => "**",
-                .AsteriskPercent => "*%",
-                .AsteriskPercentEqual => "*%=",
-                .Arrow => "->",
-                .Colon => ":",
-                .Slash => "/",
-                .SlashEqual => "/=",
-                .Comma => ",",
-                .Ampersand => "&",
-                .AmpersandEqual => "&=",
-                .QuestionMark => "?",
-                .AngleBracketLeft => "<",
-                .AngleBracketLeftEqual => "<=",
-                .AngleBracketAngleBracketLeft => "<<",
-                .AngleBracketAngleBracketLeftEqual => "<<=",
-                .AngleBracketRight => ">",
-                .AngleBracketRightEqual => ">=",
-                .AngleBracketAngleBracketRight => ">>",
-                .AngleBracketAngleBracketRightEqual => ">>=",
-                .Tilde => "~",
-                .Keyword_align => "align",
-                .Keyword_allowzero => "allowzero",
-                .Keyword_and => "and",
-                .Keyword_anyframe => "anyframe",
-                .Keyword_anytype => "anytype",
-                .Keyword_asm => "asm",
-                .Keyword_async => "async",
-                .Keyword_await => "await",
-                .Keyword_break => "break",
-                .Keyword_callconv => "callconv",
-                .Keyword_catch => "catch",
-                .Keyword_comptime => "comptime",
-                .Keyword_const => "const",
-                .Keyword_continue => "continue",
-                .Keyword_defer => "defer",
-                .Keyword_else => "else",
-                .Keyword_enum => "enum",
-                .Keyword_errdefer => "errdefer",
-                .Keyword_error => "error",
-                .Keyword_export => "export",
-                .Keyword_extern => "extern",
-                .Keyword_false => "false",
-                .Keyword_fn => "fn",
-                .Keyword_for => "for",
-                .Keyword_if => "if",
-                .Keyword_inline => "inline",
-                .Keyword_noalias => "noalias",
-                .Keyword_noinline => "noinline",
-                .Keyword_nosuspend => "nosuspend",
-                .Keyword_null => "null",
-                .Keyword_opaque => "opaque",
-                .Keyword_or => "or",
-                .Keyword_orelse => "orelse",
-                .Keyword_packed => "packed",
-                .Keyword_pub => "pub",
-                .Keyword_resume => "resume",
-                .Keyword_return => "return",
-                .Keyword_linksection => "linksection",
-                .Keyword_struct => "struct",
-                .Keyword_suspend => "suspend",
-                .Keyword_switch => "switch",
-                .Keyword_test => "test",
-                .Keyword_threadlocal => "threadlocal",
-                .Keyword_true => "true",
-                .Keyword_try => "try",
-                .Keyword_undefined => "undefined",
-                .Keyword_union => "union",
-                .Keyword_unreachable => "unreachable",
-                .Keyword_usingnamespace => "usingnamespace",
-                .Keyword_var => "var",
-                .Keyword_volatile => "volatile",
-                .Keyword_while => "while",
+                .invalid_ampersands => "&&",
+                .invalid_periodasterisks => ".**",
+                .bang => "!",
+                .pipe => "|",
+                .pipe_pipe => "||",
+                .pipe_equal => "|=",
+                .equal => "=",
+                .equal_equal => "==",
+                .equal_angle_bracket_right => "=>",
+                .bang_equal => "!=",
+                .l_paren => "(",
+                .r_paren => ")",
+                .semicolon => ";",
+                .percent => "%",
+                .percent_equal => "%=",
+                .l_brace => "{",
+                .r_brace => "}",
+                .l_bracket => "[",
+                .r_bracket => "]",
+                .period => ".",
+                .period_asterisk => ".*",
+                .ellipsis2 => "..",
+                .ellipsis3 => "...",
+                .caret => "^",
+                .caret_equal => "^=",
+                .plus => "+",
+                .plus_plus => "++",
+                .plus_equal => "+=",
+                .plus_percent => "+%",
+                .plus_percent_equal => "+%=",
+                .minus => "-",
+                .minus_equal => "-=",
+                .minus_percent => "-%",
+                .minus_percent_equal => "-%=",
+                .asterisk => "*",
+                .asterisk_equal => "*=",
+                .asterisk_asterisk => "**",
+                .asterisk_percent => "*%",
+                .asterisk_percent_equal => "*%=",
+                .arrow => "->",
+                .colon => ":",
+                .slash => "/",
+                .slash_equal => "/=",
+                .comma => ",",
+                .ampersand => "&",
+                .ampersand_equal => "&=",
+                .question_mark => "?",
+                .angle_bracket_left => "<",
+                .angle_bracket_left_equal => "<=",
+                .angle_bracket_angle_bracket_left => "<<",
+                .angle_bracket_angle_bracket_left_equal => "<<=",
+                .angle_bracket_right => ">",
+                .angle_bracket_right_equal => ">=",
+                .angle_bracket_angle_bracket_right => ">>",
+                .angle_bracket_angle_bracket_right_equal => ">>=",
+                .tilde => "~",
+                .keyword_align => "align",
+                .keyword_allowzero => "allowzero",
+                .keyword_and => "and",
+                .keyword_anyframe => "anyframe",
+                .keyword_anytype => "anytype",
+                .keyword_asm => "asm",
+                .keyword_async => "async",
+                .keyword_await => "await",
+                .keyword_break => "break",
+                .keyword_callconv => "callconv",
+                .keyword_catch => "catch",
+                .keyword_comptime => "comptime",
+                .keyword_const => "const",
+                .keyword_continue => "continue",
+                .keyword_defer => "defer",
+                .keyword_else => "else",
+                .keyword_enum => "enum",
+                .keyword_errdefer => "errdefer",
+                .keyword_error => "error",
+                .keyword_export => "export",
+                .keyword_extern => "extern",
+                .keyword_false => "false",
+                .keyword_fn => "fn",
+                .keyword_for => "for",
+                .keyword_if => "if",
+                .keyword_inline => "inline",
+                .keyword_noalias => "noalias",
+                .keyword_noinline => "noinline",
+                .keyword_nosuspend => "nosuspend",
+                .keyword_null => "null",
+                .keyword_opaque => "opaque",
+                .keyword_or => "or",
+                .keyword_orelse => "orelse",
+                .keyword_packed => "packed",
+                .keyword_pub => "pub",
+                .keyword_resume => "resume",
+                .keyword_return => "return",
+                .keyword_linksection => "linksection",
+                .keyword_struct => "struct",
+                .keyword_suspend => "suspend",
+                .keyword_switch => "switch",
+                .keyword_test => "test",
+                .keyword_threadlocal => "threadlocal",
+                .keyword_true => "true",
+                .keyword_try => "try",
+                .keyword_undefined => "undefined",
+                .keyword_union => "union",
+                .keyword_unreachable => "unreachable",
+                .keyword_usingnamespace => "usingnamespace",
+                .keyword_var => "var",
+                .keyword_volatile => "volatile",
+                .keyword_while => "while",
             };
         }
 
@@ -421,7 +421,7 @@ pub const Tokenizer = struct {
         const start_index = self.index;
         var state: State = .start;
         var result = Token{
-            .tag = .Eof,
+            .tag = .eof,
             .loc = .{
                 .start = self.index,
                 .end = undefined,
@@ -438,14 +438,14 @@ pub const Tokenizer = struct {
                     },
                     '"' => {
                         state = .string_literal;
-                        result.tag = .StringLiteral;
+                        result.tag = .string_literal;
                     },
                     '\'' => {
                         state = .char_literal;
                     },
                     'a'...'z', 'A'...'Z', '_' => {
                         state = .identifier;
-                        result.tag = .Identifier;
+                        result.tag = .identifier;
                     },
                     '@' => {
                         state = .saw_at_sign;
@@ -460,42 +460,42 @@ pub const Tokenizer = struct {
                         state = .pipe;
                     },
                     '(' => {
-                        result.tag = .LParen;
+                        result.tag = .l_paren;
                         self.index += 1;
                         break;
                     },
                     ')' => {
-                        result.tag = .RParen;
+                        result.tag = .r_paren;
                         self.index += 1;
                         break;
                     },
                     '[' => {
-                        result.tag = .LBracket;
+                        result.tag = .l_bracket;
                         self.index += 1;
                         break;
                     },
                     ']' => {
-                        result.tag = .RBracket;
+                        result.tag = .r_bracket;
                         self.index += 1;
                         break;
                     },
                     ';' => {
-                        result.tag = .Semicolon;
+                        result.tag = .semicolon;
                         self.index += 1;
                         break;
                     },
                     ',' => {
-                        result.tag = .Comma;
+                        result.tag = .comma;
                         self.index += 1;
                         break;
                     },
                     '?' => {
-                        result.tag = .QuestionMark;
+                        result.tag = .question_mark;
                         self.index += 1;
                         break;
                     },
                     ':' => {
-                        result.tag = .Colon;
+                        result.tag = .colon;
                         self.index += 1;
                         break;
                     },
@@ -519,20 +519,20 @@ pub const Tokenizer = struct {
                     },
                     '\\' => {
                         state = .backslash;
-                        result.tag = .MultilineStringLiteralLine;
+                        result.tag = .multiline_string_literal_line;
                     },
                     '{' => {
-                        result.tag = .LBrace;
+                        result.tag = .l_brace;
                         self.index += 1;
                         break;
                     },
                     '}' => {
-                        result.tag = .RBrace;
+                        result.tag = .r_brace;
                         self.index += 1;
                         break;
                     },
                     '~' => {
-                        result.tag = .Tilde;
+                        result.tag = .tilde;
                         self.index += 1;
                         break;
                     },
@@ -550,14 +550,14 @@ pub const Tokenizer = struct {
                     },
                     '0' => {
                         state = .zero;
-                        result.tag = .IntegerLiteral;
+                        result.tag = .integer_literal;
                     },
                     '1'...'9' => {
                         state = .int_literal_dec;
-                        result.tag = .IntegerLiteral;
+                        result.tag = .integer_literal;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         self.index += 1;
                         break;
                     },
@@ -565,42 +565,42 @@ pub const Tokenizer = struct {
 
                 .saw_at_sign => switch (c) {
                     '"' => {
-                        result.tag = .Identifier;
+                        result.tag = .identifier;
                         state = .string_literal;
                     },
                     else => {
                         // reinterpret as a builtin
                         self.index -= 1;
                         state = .builtin;
-                        result.tag = .Builtin;
+                        result.tag = .builtin;
                     },
                 },
 
                 .ampersand => switch (c) {
                     '&' => {
-                        result.tag = .Invalid_ampersands;
+                        result.tag = .invalid_ampersands;
                         self.index += 1;
                         break;
                     },
                     '=' => {
-                        result.tag = .AmpersandEqual;
+                        result.tag = .ampersand_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Ampersand;
+                        result.tag = .ampersand;
                         break;
                     },
                 },
 
                 .asterisk => switch (c) {
                     '=' => {
-                        result.tag = .AsteriskEqual;
+                        result.tag = .asterisk_equal;
                         self.index += 1;
                         break;
                     },
                     '*' => {
-                        result.tag = .AsteriskAsterisk;
+                        result.tag = .asterisk_asterisk;
                         self.index += 1;
                         break;
                     },
@@ -608,43 +608,43 @@ pub const Tokenizer = struct {
                         state = .asterisk_percent;
                     },
                     else => {
-                        result.tag = .Asterisk;
+                        result.tag = .asterisk;
                         break;
                     },
                 },
 
                 .asterisk_percent => switch (c) {
                     '=' => {
-                        result.tag = .AsteriskPercentEqual;
+                        result.tag = .asterisk_percent_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .AsteriskPercent;
+                        result.tag = .asterisk_percent;
                         break;
                     },
                 },
 
                 .percent => switch (c) {
                     '=' => {
-                        result.tag = .PercentEqual;
+                        result.tag = .percent_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Percent;
+                        result.tag = .percent;
                         break;
                     },
                 },
 
                 .plus => switch (c) {
                     '=' => {
-                        result.tag = .PlusEqual;
+                        result.tag = .plus_equal;
                         self.index += 1;
                         break;
                     },
                     '+' => {
-                        result.tag = .PlusPlus;
+                        result.tag = .plus_plus;
                         self.index += 1;
                         break;
                     },
@@ -652,31 +652,31 @@ pub const Tokenizer = struct {
                         state = .plus_percent;
                     },
                     else => {
-                        result.tag = .Plus;
+                        result.tag = .plus;
                         break;
                     },
                 },
 
                 .plus_percent => switch (c) {
                     '=' => {
-                        result.tag = .PlusPercentEqual;
+                        result.tag = .plus_percent_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .PlusPercent;
+                        result.tag = .plus_percent;
                         break;
                     },
                 },
 
                 .caret => switch (c) {
                     '=' => {
-                        result.tag = .CaretEqual;
+                        result.tag = .caret_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Caret;
+                        result.tag = .caret;
                         break;
                     },
                 },
@@ -724,7 +724,7 @@ pub const Tokenizer = struct {
                         state = .char_literal_backslash;
                     },
                     '\'', 0x80...0xbf, 0xf8...0xff => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                     0xc0...0xdf => { // 110xxxxx
@@ -746,7 +746,7 @@ pub const Tokenizer = struct {
 
                 .char_literal_backslash => switch (c) {
                     '\n' => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                     'x' => {
@@ -769,7 +769,7 @@ pub const Tokenizer = struct {
                         }
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -780,7 +780,7 @@ pub const Tokenizer = struct {
                         seen_escape_digits = 0;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         state = .char_literal_unicode_invalid;
                     },
                 },
@@ -791,14 +791,14 @@ pub const Tokenizer = struct {
                     },
                     '}' => {
                         if (seen_escape_digits == 0) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                             state = .char_literal_unicode_invalid;
                         } else {
                             state = .char_literal_end;
                         }
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         state = .char_literal_unicode_invalid;
                     },
                 },
@@ -813,12 +813,12 @@ pub const Tokenizer = struct {
 
                 .char_literal_end => switch (c) {
                     '\'' => {
-                        result.tag = .CharLiteral;
+                        result.tag = .char_literal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -831,7 +831,7 @@ pub const Tokenizer = struct {
                         }
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -847,58 +847,58 @@ pub const Tokenizer = struct {
 
                 .bang => switch (c) {
                     '=' => {
-                        result.tag = .BangEqual;
+                        result.tag = .bang_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Bang;
+                        result.tag = .bang;
                         break;
                     },
                 },
 
                 .pipe => switch (c) {
                     '=' => {
-                        result.tag = .PipeEqual;
+                        result.tag = .pipe_equal;
                         self.index += 1;
                         break;
                     },
                     '|' => {
-                        result.tag = .PipePipe;
+                        result.tag = .pipe_pipe;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Pipe;
+                        result.tag = .pipe;
                         break;
                     },
                 },
 
                 .equal => switch (c) {
                     '=' => {
-                        result.tag = .EqualEqual;
+                        result.tag = .equal_equal;
                         self.index += 1;
                         break;
                     },
                     '>' => {
-                        result.tag = .EqualAngleBracketRight;
+                        result.tag = .equal_angle_bracket_right;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Equal;
+                        result.tag = .equal;
                         break;
                     },
                 },
 
                 .minus => switch (c) {
                     '>' => {
-                        result.tag = .Arrow;
+                        result.tag = .arrow;
                         self.index += 1;
                         break;
                     },
                     '=' => {
-                        result.tag = .MinusEqual;
+                        result.tag = .minus_equal;
                         self.index += 1;
                         break;
                     },
@@ -906,19 +906,19 @@ pub const Tokenizer = struct {
                         state = .minus_percent;
                     },
                     else => {
-                        result.tag = .Minus;
+                        result.tag = .minus;
                         break;
                     },
                 },
 
                 .minus_percent => switch (c) {
                     '=' => {
-                        result.tag = .MinusPercentEqual;
+                        result.tag = .minus_percent_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .MinusPercent;
+                        result.tag = .minus_percent;
                         break;
                     },
                 },
@@ -928,24 +928,24 @@ pub const Tokenizer = struct {
                         state = .angle_bracket_angle_bracket_left;
                     },
                     '=' => {
-                        result.tag = .AngleBracketLeftEqual;
+                        result.tag = .angle_bracket_left_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .AngleBracketLeft;
+                        result.tag = .angle_bracket_left;
                         break;
                     },
                 },
 
                 .angle_bracket_angle_bracket_left => switch (c) {
                     '=' => {
-                        result.tag = .AngleBracketAngleBracketLeftEqual;
+                        result.tag = .angle_bracket_angle_bracket_left_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .AngleBracketAngleBracketLeft;
+                        result.tag = .angle_bracket_angle_bracket_left;
                         break;
                     },
                 },
@@ -955,24 +955,24 @@ pub const Tokenizer = struct {
                         state = .angle_bracket_angle_bracket_right;
                     },
                     '=' => {
-                        result.tag = .AngleBracketRightEqual;
+                        result.tag = .angle_bracket_right_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .AngleBracketRight;
+                        result.tag = .angle_bracket_right;
                         break;
                     },
                 },
 
                 .angle_bracket_angle_bracket_right => switch (c) {
                     '=' => {
-                        result.tag = .AngleBracketAngleBracketRightEqual;
+                        result.tag = .angle_bracket_angle_bracket_right_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .AngleBracketAngleBracketRight;
+                        result.tag = .angle_bracket_angle_bracket_right;
                         break;
                     },
                 },
@@ -985,30 +985,30 @@ pub const Tokenizer = struct {
                         state = .period_asterisk;
                     },
                     else => {
-                        result.tag = .Period;
+                        result.tag = .period;
                         break;
                     },
                 },
 
                 .period_2 => switch (c) {
                     '.' => {
-                        result.tag = .Ellipsis3;
+                        result.tag = .ellipsis3;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Ellipsis2;
+                        result.tag = .ellipsis2;
                         break;
                     },
                 },
 
                 .period_asterisk => switch (c) {
                     '*' => {
-                        result.tag = .Invalid_periodasterisks;
+                        result.tag = .invalid_periodasterisks;
                         break;
                     },
                     else => {
-                        result.tag = .PeriodAsterisk;
+                        result.tag = .period_asterisk;
                         break;
                     },
                 },
@@ -1018,12 +1018,12 @@ pub const Tokenizer = struct {
                         state = .line_comment_start;
                     },
                     '=' => {
-                        result.tag = .SlashEqual;
+                        result.tag = .slash_equal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .Slash;
+                        result.tag = .slash;
                         break;
                     },
                 },
@@ -1032,7 +1032,7 @@ pub const Tokenizer = struct {
                         state = .doc_comment_start;
                     },
                     '!' => {
-                        result.tag = .ContainerDocComment;
+                        result.tag = .container_doc_comment;
                         state = .container_doc_comment;
                     },
                     '\n' => {
@@ -1050,16 +1050,16 @@ pub const Tokenizer = struct {
                         state = .line_comment;
                     },
                     '\n' => {
-                        result.tag = .DocComment;
+                        result.tag = .doc_comment;
                         break;
                     },
                     '\t', '\r' => {
                         state = .doc_comment;
-                        result.tag = .DocComment;
+                        result.tag = .doc_comment;
                     },
                     else => {
                         state = .doc_comment;
-                        result.tag = .DocComment;
+                        result.tag = .doc_comment;
                         self.checkLiteralCharacter();
                     },
                 },
@@ -1093,7 +1093,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
@@ -1103,7 +1103,7 @@ pub const Tokenizer = struct {
                         state = .int_literal_bin;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -1114,7 +1114,7 @@ pub const Tokenizer = struct {
                     '0'...'1' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
@@ -1124,7 +1124,7 @@ pub const Tokenizer = struct {
                         state = .int_literal_oct;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -1135,7 +1135,7 @@ pub const Tokenizer = struct {
                     '0'...'7' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
@@ -1145,7 +1145,7 @@ pub const Tokenizer = struct {
                         state = .int_literal_dec;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -1155,16 +1155,16 @@ pub const Tokenizer = struct {
                     },
                     '.' => {
                         state = .num_dot_dec;
-                        result.tag = .FloatLiteral;
+                        result.tag = .float_literal;
                     },
                     'e', 'E' => {
                         state = .float_exponent_unsigned;
-                        result.tag = .FloatLiteral;
+                        result.tag = .float_literal;
                     },
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
@@ -1174,7 +1174,7 @@ pub const Tokenizer = struct {
                         state = .int_literal_hex;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -1184,23 +1184,23 @@ pub const Tokenizer = struct {
                     },
                     '.' => {
                         state = .num_dot_hex;
-                        result.tag = .FloatLiteral;
+                        result.tag = .float_literal;
                     },
                     'p', 'P' => {
                         state = .float_exponent_unsigned;
-                        result.tag = .FloatLiteral;
+                        result.tag = .float_literal;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
                 },
                 .num_dot_dec => switch (c) {
                     '.' => {
-                        result.tag = .IntegerLiteral;
+                        result.tag = .integer_literal;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1213,14 +1213,14 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
                 },
                 .num_dot_hex => switch (c) {
                     '.' => {
-                        result.tag = .IntegerLiteral;
+                        result.tag = .integer_literal;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1229,12 +1229,12 @@ pub const Tokenizer = struct {
                         state = .float_exponent_unsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {
-                        result.tag = .FloatLiteral;
+                        result.tag = .float_literal;
                         state = .float_fraction_hex;
                     },
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
@@ -1244,7 +1244,7 @@ pub const Tokenizer = struct {
                         state = .float_fraction_dec;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -1258,7 +1258,7 @@ pub const Tokenizer = struct {
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
@@ -1268,7 +1268,7 @@ pub const Tokenizer = struct {
                         state = .float_fraction_hex;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -1282,7 +1282,7 @@ pub const Tokenizer = struct {
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
@@ -1302,7 +1302,7 @@ pub const Tokenizer = struct {
                         state = .float_exponent_num;
                     },
                     else => {
-                        result.tag = .Invalid;
+                        result.tag = .invalid;
                         break;
                     },
                 },
@@ -1313,7 +1313,7 @@ pub const Tokenizer = struct {
                     '0'...'9' => {},
                     else => {
                         if (isIdentifierChar(c)) {
-                            result.tag = .Invalid;
+                            result.tag = .invalid;
                         }
                         break;
                     },
@@ -1344,10 +1344,10 @@ pub const Tokenizer = struct {
                     }
                 },
                 .doc_comment, .doc_comment_start => {
-                    result.tag = .DocComment;
+                    result.tag = .doc_comment;
                 },
                 .container_doc_comment => {
-                    result.tag = .ContainerDocComment;
+                    result.tag = .container_doc_comment;
                 },
 
                 .int_literal_dec_no_underscore,
@@ -1370,76 +1370,76 @@ pub const Tokenizer = struct {
                 .char_literal_unicode,
                 .string_literal_backslash,
                 => {
-                    result.tag = .Invalid;
+                    result.tag = .invalid;
                 },
 
                 .equal => {
-                    result.tag = .Equal;
+                    result.tag = .equal;
                 },
                 .bang => {
-                    result.tag = .Bang;
+                    result.tag = .bang;
                 },
                 .minus => {
-                    result.tag = .Minus;
+                    result.tag = .minus;
                 },
                 .slash => {
-                    result.tag = .Slash;
+                    result.tag = .slash;
                 },
                 .zero => {
-                    result.tag = .IntegerLiteral;
+                    result.tag = .integer_literal;
                 },
                 .ampersand => {
-                    result.tag = .Ampersand;
+                    result.tag = .ampersand;
                 },
                 .period => {
-                    result.tag = .Period;
+                    result.tag = .period;
                 },
                 .period_2 => {
-                    result.tag = .Ellipsis2;
+                    result.tag = .ellipsis2;
                 },
                 .period_asterisk => {
-                    result.tag = .PeriodAsterisk;
+                    result.tag = .period_asterisk;
                 },
                 .pipe => {
-                    result.tag = .Pipe;
+                    result.tag = .pipe;
                 },
                 .angle_bracket_angle_bracket_right => {
-                    result.tag = .AngleBracketAngleBracketRight;
+                    result.tag = .angle_bracket_angle_bracket_right;
                 },
                 .angle_bracket_right => {
-                    result.tag = .AngleBracketRight;
+                    result.tag = .angle_bracket_right;
                 },
                 .angle_bracket_angle_bracket_left => {
-                    result.tag = .AngleBracketAngleBracketLeft;
+                    result.tag = .angle_bracket_angle_bracket_left;
                 },
                 .angle_bracket_left => {
-                    result.tag = .AngleBracketLeft;
+                    result.tag = .angle_bracket_left;
                 },
                 .plus_percent => {
-                    result.tag = .PlusPercent;
+                    result.tag = .plus_percent;
                 },
                 .plus => {
-                    result.tag = .Plus;
+                    result.tag = .plus;
                 },
                 .percent => {
-                    result.tag = .Percent;
+                    result.tag = .percent;
                 },
                 .caret => {
-                    result.tag = .Caret;
+                    result.tag = .caret;
                 },
                 .asterisk_percent => {
-                    result.tag = .AsteriskPercent;
+                    result.tag = .asterisk_percent;
                 },
                 .asterisk => {
-                    result.tag = .Asterisk;
+                    result.tag = .asterisk;
                 },
                 .minus_percent => {
-                    result.tag = .MinusPercent;
+                    result.tag = .minus_percent;
                 },
             }
         }
 
-        if (result.tag == .Eof) {
+        if (result.tag == .eof) {
             if (self.pending_invalid_token) |token| {
                 self.pending_invalid_token = null;
                 return token;
@@ -1455,7 +1455,7 @@ pub const Tokenizer = struct {
         const invalid_length = self.getInvalidCharacterLength();
         if (invalid_length == 0) return;
         self.pending_invalid_token = .{
-            .tag = .Invalid,
+            .tag = .invalid,
             .loc = .{
                 .start = self.index,
                 .end = self.index + invalid_length,
@@ -1502,7 +1502,7 @@ pub const Tokenizer = struct {
 };
 
 test "tokenizer" {
-    testTokenize("test", &[_]Token.Tag{.Keyword_test});
+    testTokenize("test", &.{.keyword_test});
 }
 
 test "line comment followed by top-level comptime" {
@@ -1510,10 +1510,10 @@ test "line comment followed by top-level comptime" {
         \\// line comment
         \\comptime {}
         \\
-    , &[_]Token.Tag{
-        .Keyword_comptime,
-        .LBrace,
-        .RBrace,
+    , &.{
+        .keyword_comptime,
+        .l_brace,
+        .r_brace,
     });
 }
 
@@ -1521,199 +1521,199 @@ test "tokenizer - unknown length pointer and then c pointer" {
     testTokenize(
         \\[*]u8
         \\[*c]u8
-    , &[_]Token.Tag{
-        .LBracket,
-        .Asterisk,
-        .RBracket,
-        .Identifier,
-        .LBracket,
-        .Asterisk,
-        .Identifier,
-        .RBracket,
-        .Identifier,
+    , &.{
+        .l_bracket,
+        .asterisk,
+        .r_bracket,
+        .identifier,
+        .l_bracket,
+        .asterisk,
+        .identifier,
+        .r_bracket,
+        .identifier,
     });
 }
 
 test "tokenizer - char literal with hex escape" {
     testTokenize(
         \\'\x1b'
-    , &[_]Token.Tag{.CharLiteral});
+    , &.{.char_literal});
     testTokenize(
         \\'\x1'
-    , &[_]Token.Tag{ .Invalid, .Invalid });
+    , &.{ .invalid, .invalid });
 }
 
 test "tokenizer - char literal with unicode escapes" {
     // Valid unicode escapes
     testTokenize(
         \\'\u{3}'
-    , &[_]Token.Tag{.CharLiteral});
+    , &.{.char_literal});
     testTokenize(
         \\'\u{01}'
-    , &[_]Token.Tag{.CharLiteral});
+    , &.{.char_literal});
     testTokenize(
         \\'\u{2a}'
-    , &[_]Token.Tag{.CharLiteral});
+    , &.{.char_literal});
     testTokenize(
         \\'\u{3f9}'
-    , &[_]Token.Tag{.CharLiteral});
+    , &.{.char_literal});
     testTokenize(
         \\'\u{6E09aBc1523}'
-    , &[_]Token.Tag{.CharLiteral});
+    , &.{.char_literal});
     testTokenize(
         \\"\u{440}"
-    , &[_]Token.Tag{.StringLiteral});
+    , &.{.string_literal});
 
     // Invalid unicode escapes
     testTokenize(
         \\'\u'
-    , &[_]Token.Tag{.Invalid});
+    , &.{.invalid});
     testTokenize(
         \\'\u{{'
-    , &[_]Token.Tag{ .Invalid, .Invalid });
+    , &.{ .invalid, .invalid });
     testTokenize(
         \\'\u{}'
-    , &[_]Token.Tag{ .Invalid, .Invalid });
+    , &.{ .invalid, .invalid });
     testTokenize(
         \\'\u{s}'
-    , &[_]Token.Tag{ .Invalid, .Invalid });
+    , &.{ .invalid, .invalid });
     testTokenize(
         \\'\u{2z}'
-    , &[_]Token.Tag{ .Invalid, .Invalid });
+    , &.{ .invalid, .invalid });
     testTokenize(
         \\'\u{4a'
-    , &[_]Token.Tag{.Invalid});
+    , &.{.invalid});
 
     // Test old-style unicode literals
     testTokenize(
         \\'\u0333'
-    , &[_]Token.Tag{ .Invalid, .Invalid });
+    , &.{ .invalid, .invalid });
     testTokenize(
         \\'\U0333'
-    , &[_]Token.Tag{ .Invalid, .IntegerLiteral, .Invalid });
+    , &.{ .invalid, .integer_literal, .invalid });
 }
 
 test "tokenizer - char literal with unicode code point" {
     testTokenize(
         \\'💩'
-    , &[_]Token.Tag{.CharLiteral});
+    , &.{.char_literal});
 }
 
 test "tokenizer - float literal e exponent" {
-    testTokenize("a = 4.94065645841246544177e-324;\n", &[_]Token.Tag{
-        .Identifier,
-        .Equal,
-        .FloatLiteral,
-        .Semicolon,
+    testTokenize("a = 4.94065645841246544177e-324;\n", &.{
+        .identifier,
+        .equal,
+        .float_literal,
+        .semicolon,
     });
 }
 
 test "tokenizer - float literal p exponent" {
-    testTokenize("a = 0x1.a827999fcef32p+1022;\n", &[_]Token.Tag{
-        .Identifier,
-        .Equal,
-        .FloatLiteral,
-        .Semicolon,
+    testTokenize("a = 0x1.a827999fcef32p+1022;\n", &.{
+        .identifier,
+        .equal,
+        .float_literal,
+        .semicolon,
     });
 }
 
 test "tokenizer - chars" {
-    testTokenize("'c'", &[_]Token.Tag{.CharLiteral});
+    testTokenize("'c'", &.{.char_literal});
 }
 
 test "tokenizer - invalid token characters" {
-    testTokenize("#", &[_]Token.Tag{.Invalid});
-    testTokenize("`", &[_]Token.Tag{.Invalid});
-    testTokenize("'c", &[_]Token.Tag{.Invalid});
-    testTokenize("'", &[_]Token.Tag{.Invalid});
-    testTokenize("''", &[_]Token.Tag{ .Invalid, .Invalid });
+    testTokenize("#", &.{.invalid});
+    testTokenize("`", &.{.invalid});
+    testTokenize("'c", &.{.invalid});
+    testTokenize("'", &.{.invalid});
+    testTokenize("''", &.{ .invalid, .invalid });
 }
 
 test "tokenizer - invalid literal/comment characters" {
-    testTokenize("\"\x00\"", &[_]Token.Tag{
-        .StringLiteral,
-        .Invalid,
+    testTokenize("\"\x00\"", &.{
+        .string_literal,
+        .invalid,
     });
-    testTokenize("//\x00", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\x00", &.{
+        .invalid,
     });
-    testTokenize("//\x1f", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\x1f", &.{
+        .invalid,
     });
-    testTokenize("//\x7f", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\x7f", &.{
+        .invalid,
     });
 }
 
 test "tokenizer - utf8" {
-    testTokenize("//\xc2\x80", &[_]Token.Tag{});
-    testTokenize("//\xf4\x8f\xbf\xbf", &[_]Token.Tag{});
+    testTokenize("//\xc2\x80", &.{});
+    testTokenize("//\xf4\x8f\xbf\xbf", &.{});
 }
 
 test "tokenizer - invalid utf8" {
-    testTokenize("//\x80", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\x80", &.{
+        .invalid,
     });
-    testTokenize("//\xbf", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xbf", &.{
+        .invalid,
     });
-    testTokenize("//\xf8", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xf8", &.{
+        .invalid,
     });
-    testTokenize("//\xff", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xff", &.{
+        .invalid,
     });
-    testTokenize("//\xc2\xc0", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xc2\xc0", &.{
+        .invalid,
     });
-    testTokenize("//\xe0", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xe0", &.{
+        .invalid,
     });
-    testTokenize("//\xf0", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xf0", &.{
+        .invalid,
     });
-    testTokenize("//\xf0\x90\x80\xc0", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xf0\x90\x80\xc0", &.{
+        .invalid,
     });
 }
 
 test "tokenizer - illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", &[_]Token.Tag{});
-    testTokenize("//\xc2\x85", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xc2\x84", &.{});
+    testTokenize("//\xc2\x85", &.{
+        .invalid,
     });
-    testTokenize("//\xc2\x86", &[_]Token.Tag{});
-    testTokenize("//\xe2\x80\xa7", &[_]Token.Tag{});
-    testTokenize("//\xe2\x80\xa8", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xc2\x86", &.{});
+    testTokenize("//\xe2\x80\xa7", &.{});
+    testTokenize("//\xe2\x80\xa8", &.{
+        .invalid,
     });
-    testTokenize("//\xe2\x80\xa9", &[_]Token.Tag{
-        .Invalid,
+    testTokenize("//\xe2\x80\xa9", &.{
+        .invalid,
     });
-    testTokenize("//\xe2\x80\xaa", &[_]Token.Tag{});
+    testTokenize("//\xe2\x80\xaa", &.{});
 }
 
 test "tokenizer - string identifier and builtin fns" {
     testTokenize(
         \\const @"if" = @import("std");
-    , &[_]Token.Tag{
-        .Keyword_const,
-        .Identifier,
-        .Equal,
-        .Builtin,
-        .LParen,
-        .StringLiteral,
-        .RParen,
-        .Semicolon,
+    , &.{
+        .keyword_const,
+        .identifier,
+        .equal,
+        .builtin,
+        .l_paren,
+        .string_literal,
+        .r_paren,
+        .semicolon,
     });
 }
 
 test "tokenizer - multiline string literal with literal tab" {
     testTokenize(
         \\\\foo	bar
-    , &[_]Token.Tag{
-        .MultilineStringLiteralLine,
+    , &.{
+        .multiline_string_literal_line,
     });
 }
 
@@ -1725,30 +1725,30 @@ test "tokenizer - comments with literal tab" {
         \\//	foo
         \\///	foo
         \\///	/foo
-    , &[_]Token.Tag{
-        .ContainerDocComment,
-        .DocComment,
-        .DocComment,
-        .DocComment,
+    , &.{
+        .container_doc_comment,
+        .doc_comment,
+        .doc_comment,
+        .doc_comment,
     });
 }
 
 test "tokenizer - pipe and then invalid" {
-    testTokenize("||=", &[_]Token.Tag{
-        .PipePipe,
-        .Equal,
+    testTokenize("||=", &.{
+        .pipe_pipe,
+        .equal,
     });
 }
 
 test "tokenizer - line comment and doc comment" {
-    testTokenize("//", &[_]Token.Tag{});
-    testTokenize("// a / b", &[_]Token.Tag{});
-    testTokenize("// /", &[_]Token.Tag{});
-    testTokenize("/// a", &[_]Token.Tag{.DocComment});
-    testTokenize("///", &[_]Token.Tag{.DocComment});
-    testTokenize("////", &[_]Token.Tag{});
-    testTokenize("//!", &[_]Token.Tag{.ContainerDocComment});
-    testTokenize("//!!", &[_]Token.Tag{.ContainerDocComment});
+    testTokenize("//", &.{});
+    testTokenize("// a / b", &.{});
+    testTokenize("// /", &.{});
+    testTokenize("/// a", &.{.doc_comment});
+    testTokenize("///", &.{.doc_comment});
+    testTokenize("////", &.{});
+    testTokenize("//!", &.{.container_doc_comment});
+    testTokenize("//!!", &.{.container_doc_comment});
 }
 
 test "tokenizer - line comment followed by identifier" {
@@ -1756,293 +1756,293 @@ test "tokenizer - line comment followed by identifier" {
         \\    Unexpected,
         \\    // another
         \\    Another,
-    , &[_]Token.Tag{
-        .Identifier,
-        .Comma,
-        .Identifier,
-        .Comma,
+    , &.{
+        .identifier,
+        .comma,
+        .identifier,
+        .comma,
     });
 }
 
 test "tokenizer - UTF-8 BOM is recognized and skipped" {
-    testTokenize("\xEF\xBB\xBFa;\n", &[_]Token.Tag{
-        .Identifier,
-        .Semicolon,
+    testTokenize("\xEF\xBB\xBFa;\n", &.{
+        .identifier,
+        .semicolon,
     });
 }
 
 test "correctly parse pointer assignment" {
-    testTokenize("b.*=3;\n", &[_]Token.Tag{
-        .Identifier,
-        .PeriodAsterisk,
-        .Equal,
-        .IntegerLiteral,
-        .Semicolon,
+    testTokenize("b.*=3;\n", &.{
+        .identifier,
+        .period_asterisk,
+        .equal,
+        .integer_literal,
+        .semicolon,
     });
 }
 
 test "correctly parse pointer dereference followed by asterisk" {
-    testTokenize("\"b\".* ** 10", &[_]Token.Tag{
-        .StringLiteral,
-        .PeriodAsterisk,
-        .AsteriskAsterisk,
-        .IntegerLiteral,
+    testTokenize("\"b\".* ** 10", &.{
+        .string_literal,
+        .period_asterisk,
+        .asterisk_asterisk,
+        .integer_literal,
     });
 
-    testTokenize("(\"b\".*)** 10", &[_]Token.Tag{
-        .LParen,
-        .StringLiteral,
-        .PeriodAsterisk,
-        .RParen,
-        .AsteriskAsterisk,
-        .IntegerLiteral,
+    testTokenize("(\"b\".*)** 10", &.{
+        .l_paren,
+        .string_literal,
+        .period_asterisk,
+        .r_paren,
+        .asterisk_asterisk,
+        .integer_literal,
     });
 
-    testTokenize("\"b\".*** 10", &[_]Token.Tag{
-        .StringLiteral,
-        .Invalid_periodasterisks,
-        .AsteriskAsterisk,
-        .IntegerLiteral,
+    testTokenize("\"b\".*** 10", &.{
+        .string_literal,
+        .invalid_periodasterisks,
+        .asterisk_asterisk,
+        .integer_literal,
     });
 }
 
 test "tokenizer - range literals" {
-    testTokenize("0...9", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
-    testTokenize("'0'...'9'", &[_]Token.Tag{ .CharLiteral, .Ellipsis3, .CharLiteral });
-    testTokenize("0x00...0x09", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
-    testTokenize("0b00...0b11", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
-    testTokenize("0o00...0o11", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0...9", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    testTokenize("'0'...'9'", &.{ .char_literal, .ellipsis3, .char_literal });
+    testTokenize("0x00...0x09", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    testTokenize("0b00...0b11", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    testTokenize("0o00...0o11", &.{ .integer_literal, .ellipsis3, .integer_literal });
 }
 
 test "tokenizer - number literals decimal" {
-    testTokenize("0", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("1", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("2", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("3", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("4", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("5", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("6", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("7", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("8", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("9", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("1..", &[_]Token.Tag{ .IntegerLiteral, .Ellipsis2 });
-    testTokenize("0a", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("9b", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1z", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1z_1", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("9z3", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0", &.{.integer_literal});
+    testTokenize("1", &.{.integer_literal});
+    testTokenize("2", &.{.integer_literal});
+    testTokenize("3", &.{.integer_literal});
+    testTokenize("4", &.{.integer_literal});
+    testTokenize("5", &.{.integer_literal});
+    testTokenize("6", &.{.integer_literal});
+    testTokenize("7", &.{.integer_literal});
+    testTokenize("8", &.{.integer_literal});
+    testTokenize("9", &.{.integer_literal});
+    testTokenize("1..", &.{ .integer_literal, .ellipsis2 });
+    testTokenize("0a", &.{ .invalid, .identifier });
+    testTokenize("9b", &.{ .invalid, .identifier });
+    testTokenize("1z", &.{ .invalid, .identifier });
+    testTokenize("1z_1", &.{ .invalid, .identifier });
+    testTokenize("9z3", &.{ .invalid, .identifier });
 
-    testTokenize("0_0", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0001", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("01234567890", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("012_345_6789_0", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0_1_2_3_4_5_6_7_8_9_0", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0_0", &.{.integer_literal});
+    testTokenize("0001", &.{.integer_literal});
+    testTokenize("01234567890", &.{.integer_literal});
+    testTokenize("012_345_6789_0", &.{.integer_literal});
+    testTokenize("0_1_2_3_4_5_6_7_8_9_0", &.{.integer_literal});
 
-    testTokenize("00_", &[_]Token.Tag{.Invalid});
-    testTokenize("0_0_", &[_]Token.Tag{.Invalid});
-    testTokenize("0__0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0_0f", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0_0_f", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0_0_f_00", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1_,", &[_]Token.Tag{ .Invalid, .Comma });
+    testTokenize("00_", &.{.invalid});
+    testTokenize("0_0_", &.{.invalid});
+    testTokenize("0__0", &.{ .invalid, .identifier });
+    testTokenize("0_0f", &.{ .invalid, .identifier });
+    testTokenize("0_0_f", &.{ .invalid, .identifier });
+    testTokenize("0_0_f_00", &.{ .invalid, .identifier });
+    testTokenize("1_,", &.{ .invalid, .comma });
 
-    testTokenize("1.", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0.0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1.0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("10.0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0e0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1e0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1e100", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1.e100", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1.0e100", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1.0e+100", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1.0e-100", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("1.+", &[_]Token.Tag{ .FloatLiteral, .Plus });
+    testTokenize("1.", &.{.float_literal});
+    testTokenize("0.0", &.{.float_literal});
+    testTokenize("1.0", &.{.float_literal});
+    testTokenize("10.0", &.{.float_literal});
+    testTokenize("0e0", &.{.float_literal});
+    testTokenize("1e0", &.{.float_literal});
+    testTokenize("1e100", &.{.float_literal});
+    testTokenize("1.e100", &.{.float_literal});
+    testTokenize("1.0e100", &.{.float_literal});
+    testTokenize("1.0e+100", &.{.float_literal});
+    testTokenize("1.0e-100", &.{.float_literal});
+    testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &.{.float_literal});
+    testTokenize("1.+", &.{ .float_literal, .plus });
 
-    testTokenize("1e", &[_]Token.Tag{.Invalid});
-    testTokenize("1.0e1f0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.0p100", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.0p-100", &[_]Token.Tag{ .Invalid, .Identifier, .Minus, .IntegerLiteral });
-    testTokenize("1.0p1f0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.0_,", &[_]Token.Tag{ .Invalid, .Comma });
-    testTokenize("1_.0", &[_]Token.Tag{ .Invalid, .Period, .IntegerLiteral });
-    testTokenize("1._", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.a", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.z", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1._0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1._+", &[_]Token.Tag{ .Invalid, .Identifier, .Plus });
-    testTokenize("1._e", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.0e", &[_]Token.Tag{.Invalid});
-    testTokenize("1.0e,", &[_]Token.Tag{ .Invalid, .Comma });
-    testTokenize("1.0e_", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.0e+_", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.0e-_", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("1.0e0_+", &[_]Token.Tag{ .Invalid, .Plus });
+    testTokenize("1e", &.{.invalid});
+    testTokenize("1.0e1f0", &.{ .invalid, .identifier });
+    testTokenize("1.0p100", &.{ .invalid, .identifier });
+    testTokenize("1.0p-100", &.{ .invalid, .identifier, .minus, .integer_literal });
+    testTokenize("1.0p1f0", &.{ .invalid, .identifier });
+    testTokenize("1.0_,", &.{ .invalid, .comma });
+    testTokenize("1_.0", &.{ .invalid, .period, .integer_literal });
+    testTokenize("1._", &.{ .invalid, .identifier });
+    testTokenize("1.a", &.{ .invalid, .identifier });
+    testTokenize("1.z", &.{ .invalid, .identifier });
+    testTokenize("1._0", &.{ .invalid, .identifier });
+    testTokenize("1._+", &.{ .invalid, .identifier, .plus });
+    testTokenize("1._e", &.{ .invalid, .identifier });
+    testTokenize("1.0e", &.{.invalid});
+    testTokenize("1.0e,", &.{ .invalid, .comma });
+    testTokenize("1.0e_", &.{ .invalid, .identifier });
+    testTokenize("1.0e+_", &.{ .invalid, .identifier });
+    testTokenize("1.0e-_", &.{ .invalid, .identifier });
+    testTokenize("1.0e0_+", &.{ .invalid, .plus });
 }
 
 test "tokenizer - number literals binary" {
-    testTokenize("0b0", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0b1", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0b2", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0b3", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0b4", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0b5", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0b6", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0b7", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0b8", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0b9", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0ba", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0bb", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0bc", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0bd", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0be", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0bf", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0bz", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0b0", &.{.integer_literal});
+    testTokenize("0b1", &.{.integer_literal});
+    testTokenize("0b2", &.{ .invalid, .integer_literal });
+    testTokenize("0b3", &.{ .invalid, .integer_literal });
+    testTokenize("0b4", &.{ .invalid, .integer_literal });
+    testTokenize("0b5", &.{ .invalid, .integer_literal });
+    testTokenize("0b6", &.{ .invalid, .integer_literal });
+    testTokenize("0b7", &.{ .invalid, .integer_literal });
+    testTokenize("0b8", &.{ .invalid, .integer_literal });
+    testTokenize("0b9", &.{ .invalid, .integer_literal });
+    testTokenize("0ba", &.{ .invalid, .identifier });
+    testTokenize("0bb", &.{ .invalid, .identifier });
+    testTokenize("0bc", &.{ .invalid, .identifier });
+    testTokenize("0bd", &.{ .invalid, .identifier });
+    testTokenize("0be", &.{ .invalid, .identifier });
+    testTokenize("0bf", &.{ .invalid, .identifier });
+    testTokenize("0bz", &.{ .invalid, .identifier });
 
-    testTokenize("0b0000_0000", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0b1111_1111", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0b10_10_10_10", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0b0_1_0_1_0_1_0_1", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0b1.", &[_]Token.Tag{ .IntegerLiteral, .Period });
-    testTokenize("0b1.0", &[_]Token.Tag{ .IntegerLiteral, .Period, .IntegerLiteral });
+    testTokenize("0b0000_0000", &.{.integer_literal});
+    testTokenize("0b1111_1111", &.{.integer_literal});
+    testTokenize("0b10_10_10_10", &.{.integer_literal});
+    testTokenize("0b0_1_0_1_0_1_0_1", &.{.integer_literal});
+    testTokenize("0b1.", &.{ .integer_literal, .period });
+    testTokenize("0b1.0", &.{ .integer_literal, .period, .integer_literal });
 
-    testTokenize("0B0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0b_", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0b_0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0b1_", &[_]Token.Tag{.Invalid});
-    testTokenize("0b0__1", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0b0_1_", &[_]Token.Tag{.Invalid});
-    testTokenize("0b1e", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0b1p", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0b1e0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0b1p0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0b1_,", &[_]Token.Tag{ .Invalid, .Comma });
+    testTokenize("0B0", &.{ .invalid, .identifier });
+    testTokenize("0b_", &.{ .invalid, .identifier });
+    testTokenize("0b_0", &.{ .invalid, .identifier });
+    testTokenize("0b1_", &.{.invalid});
+    testTokenize("0b0__1", &.{ .invalid, .identifier });
+    testTokenize("0b0_1_", &.{.invalid});
+    testTokenize("0b1e", &.{ .invalid, .identifier });
+    testTokenize("0b1p", &.{ .invalid, .identifier });
+    testTokenize("0b1e0", &.{ .invalid, .identifier });
+    testTokenize("0b1p0", &.{ .invalid, .identifier });
+    testTokenize("0b1_,", &.{ .invalid, .comma });
 }
 
 test "tokenizer - number literals octal" {
-    testTokenize("0o0", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o1", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o2", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o3", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o4", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o5", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o6", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o7", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o8", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0o9", &[_]Token.Tag{ .Invalid, .IntegerLiteral });
-    testTokenize("0oa", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0ob", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0oc", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0od", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0oe", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0of", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0oz", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0o0", &.{.integer_literal});
+    testTokenize("0o1", &.{.integer_literal});
+    testTokenize("0o2", &.{.integer_literal});
+    testTokenize("0o3", &.{.integer_literal});
+    testTokenize("0o4", &.{.integer_literal});
+    testTokenize("0o5", &.{.integer_literal});
+    testTokenize("0o6", &.{.integer_literal});
+    testTokenize("0o7", &.{.integer_literal});
+    testTokenize("0o8", &.{ .invalid, .integer_literal });
+    testTokenize("0o9", &.{ .invalid, .integer_literal });
+    testTokenize("0oa", &.{ .invalid, .identifier });
+    testTokenize("0ob", &.{ .invalid, .identifier });
+    testTokenize("0oc", &.{ .invalid, .identifier });
+    testTokenize("0od", &.{ .invalid, .identifier });
+    testTokenize("0oe", &.{ .invalid, .identifier });
+    testTokenize("0of", &.{ .invalid, .identifier });
+    testTokenize("0oz", &.{ .invalid, .identifier });
 
-    testTokenize("0o01234567", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o0123_4567", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o01_23_45_67", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o0_1_2_3_4_5_6_7", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0o7.", &[_]Token.Tag{ .IntegerLiteral, .Period });
-    testTokenize("0o7.0", &[_]Token.Tag{ .IntegerLiteral, .Period, .IntegerLiteral });
+    testTokenize("0o01234567", &.{.integer_literal});
+    testTokenize("0o0123_4567", &.{.integer_literal});
+    testTokenize("0o01_23_45_67", &.{.integer_literal});
+    testTokenize("0o0_1_2_3_4_5_6_7", &.{.integer_literal});
+    testTokenize("0o7.", &.{ .integer_literal, .period });
+    testTokenize("0o7.0", &.{ .integer_literal, .period, .integer_literal });
 
-    testTokenize("0O0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0o_", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0o_0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0o1_", &[_]Token.Tag{.Invalid});
-    testTokenize("0o0__1", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0o0_1_", &[_]Token.Tag{.Invalid});
-    testTokenize("0o1e", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0o1p", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0o1e0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0o1p0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0o_,", &[_]Token.Tag{ .Invalid, .Identifier, .Comma });
+    testTokenize("0O0", &.{ .invalid, .identifier });
+    testTokenize("0o_", &.{ .invalid, .identifier });
+    testTokenize("0o_0", &.{ .invalid, .identifier });
+    testTokenize("0o1_", &.{.invalid});
+    testTokenize("0o0__1", &.{ .invalid, .identifier });
+    testTokenize("0o0_1_", &.{.invalid});
+    testTokenize("0o1e", &.{ .invalid, .identifier });
+    testTokenize("0o1p", &.{ .invalid, .identifier });
+    testTokenize("0o1e0", &.{ .invalid, .identifier });
+    testTokenize("0o1p0", &.{ .invalid, .identifier });
+    testTokenize("0o_,", &.{ .invalid, .identifier, .comma });
 }
 
 test "tokenizer - number literals hexadeciaml" {
-    testTokenize("0x0", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x1", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x2", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x3", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x4", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x5", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x6", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x7", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x8", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x9", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xa", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xb", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xc", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xd", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xe", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xf", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xA", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xB", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xC", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xD", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xE", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0xF", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x0z", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0xz", &[_]Token.Tag{ .Invalid, .Identifier });
+    testTokenize("0x0", &.{.integer_literal});
+    testTokenize("0x1", &.{.integer_literal});
+    testTokenize("0x2", &.{.integer_literal});
+    testTokenize("0x3", &.{.integer_literal});
+    testTokenize("0x4", &.{.integer_literal});
+    testTokenize("0x5", &.{.integer_literal});
+    testTokenize("0x6", &.{.integer_literal});
+    testTokenize("0x7", &.{.integer_literal});
+    testTokenize("0x8", &.{.integer_literal});
+    testTokenize("0x9", &.{.integer_literal});
+    testTokenize("0xa", &.{.integer_literal});
+    testTokenize("0xb", &.{.integer_literal});
+    testTokenize("0xc", &.{.integer_literal});
+    testTokenize("0xd", &.{.integer_literal});
+    testTokenize("0xe", &.{.integer_literal});
+    testTokenize("0xf", &.{.integer_literal});
+    testTokenize("0xA", &.{.integer_literal});
+    testTokenize("0xB", &.{.integer_literal});
+    testTokenize("0xC", &.{.integer_literal});
+    testTokenize("0xD", &.{.integer_literal});
+    testTokenize("0xE", &.{.integer_literal});
+    testTokenize("0xF", &.{.integer_literal});
+    testTokenize("0x0z", &.{ .invalid, .identifier });
+    testTokenize("0xz", &.{ .invalid, .identifier });
 
-    testTokenize("0x0123456789ABCDEF", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x0123_4567_89AB_CDEF", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x01_23_45_67_89AB_CDE_F", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &[_]Token.Tag{.IntegerLiteral});
+    testTokenize("0x0123456789ABCDEF", &.{.integer_literal});
+    testTokenize("0x0123_4567_89AB_CDEF", &.{.integer_literal});
+    testTokenize("0x01_23_45_67_89AB_CDE_F", &.{.integer_literal});
+    testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &.{.integer_literal});
 
-    testTokenize("0X0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x_", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x_1", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x1_", &[_]Token.Tag{.Invalid});
-    testTokenize("0x0__1", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0_1_", &[_]Token.Tag{.Invalid});
-    testTokenize("0x_,", &[_]Token.Tag{ .Invalid, .Identifier, .Comma });
+    testTokenize("0X0", &.{ .invalid, .identifier });
+    testTokenize("0x_", &.{ .invalid, .identifier });
+    testTokenize("0x_1", &.{ .invalid, .identifier });
+    testTokenize("0x1_", &.{.invalid});
+    testTokenize("0x0__1", &.{ .invalid, .identifier });
+    testTokenize("0x0_1_", &.{.invalid});
+    testTokenize("0x_,", &.{ .invalid, .identifier, .comma });
 
-    testTokenize("0x1.", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0x1.0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xF.", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xF.0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xF.F", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xF.Fp0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xF.FP0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0x1p0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xfp0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0x1.+0xF.", &[_]Token.Tag{ .FloatLiteral, .Plus, .FloatLiteral });
+    testTokenize("0x1.", &.{.float_literal});
+    testTokenize("0x1.0", &.{.float_literal});
+    testTokenize("0xF.", &.{.float_literal});
+    testTokenize("0xF.0", &.{.float_literal});
+    testTokenize("0xF.F", &.{.float_literal});
+    testTokenize("0xF.Fp0", &.{.float_literal});
+    testTokenize("0xF.FP0", &.{.float_literal});
+    testTokenize("0x1p0", &.{.float_literal});
+    testTokenize("0xfp0", &.{.float_literal});
+    testTokenize("0x1.+0xF.", &.{ .float_literal, .plus, .float_literal });
 
-    testTokenize("0x0123456.789ABCDEF", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0x0_123_456.789_ABC_DEF", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0x0p0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0x0.0p0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xff.ffp10", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xff.ffP10", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xff.p10", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xffp10", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xff_ff.ff_ffp1_0_0_0", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &[_]Token.Tag{.FloatLiteral});
-    testTokenize("0xf_f_f_f.f_f_f_fp-1_00_0", &[_]Token.Tag{.FloatLiteral});
+    testTokenize("0x0123456.789ABCDEF", &.{.float_literal});
+    testTokenize("0x0_123_456.789_ABC_DEF", &.{.float_literal});
+    testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &.{.float_literal});
+    testTokenize("0x0p0", &.{.float_literal});
+    testTokenize("0x0.0p0", &.{.float_literal});
+    testTokenize("0xff.ffp10", &.{.float_literal});
+    testTokenize("0xff.ffP10", &.{.float_literal});
+    testTokenize("0xff.p10", &.{.float_literal});
+    testTokenize("0xffp10", &.{.float_literal});
+    testTokenize("0xff_ff.ff_ffp1_0_0_0", &.{.float_literal});
+    testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &.{.float_literal});
+    testTokenize("0xf_f_f_f.f_f_f_fp-1_00_0", &.{.float_literal});
 
-    testTokenize("0x1e", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x1e0", &[_]Token.Tag{.IntegerLiteral});
-    testTokenize("0x1p", &[_]Token.Tag{.Invalid});
-    testTokenize("0xfp0z1", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0xff.ffpff", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0.p", &[_]Token.Tag{.Invalid});
-    testTokenize("0x0.z", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0._", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0_.0", &[_]Token.Tag{ .Invalid, .Period, .IntegerLiteral });
-    testTokenize("0x0_.0.0", &[_]Token.Tag{ .Invalid, .Period, .FloatLiteral });
-    testTokenize("0x0._0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0.0_", &[_]Token.Tag{.Invalid});
-    testTokenize("0x0_p0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0_.p0", &[_]Token.Tag{ .Invalid, .Period, .Identifier });
-    testTokenize("0x0._p0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0.0_p0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0._0p0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0.0p_0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0.0p+_0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0.0p-_0", &[_]Token.Tag{ .Invalid, .Identifier });
-    testTokenize("0x0.0p0_", &[_]Token.Tag{ .Invalid, .Eof });
+    testTokenize("0x1e", &.{.integer_literal});
+    testTokenize("0x1e0", &.{.integer_literal});
+    testTokenize("0x1p", &.{.invalid});
+    testTokenize("0xfp0z1", &.{ .invalid, .identifier });
+    testTokenize("0xff.ffpff", &.{ .invalid, .identifier });
+    testTokenize("0x0.p", &.{.invalid});
+    testTokenize("0x0.z", &.{ .invalid, .identifier });
+    testTokenize("0x0._", &.{ .invalid, .identifier });
+    testTokenize("0x0_.0", &.{ .invalid, .period, .integer_literal });
+    testTokenize("0x0_.0.0", &.{ .invalid, .period, .float_literal });
+    testTokenize("0x0._0", &.{ .invalid, .identifier });
+    testTokenize("0x0.0_", &.{.invalid});
+    testTokenize("0x0_p0", &.{ .invalid, .identifier });
+    testTokenize("0x0_.p0", &.{ .invalid, .period, .identifier });
+    testTokenize("0x0._p0", &.{ .invalid, .identifier });
+    testTokenize("0x0.0_p0", &.{ .invalid, .identifier });
+    testTokenize("0x0._0p0", &.{ .invalid, .identifier });
+    testTokenize("0x0.0p_0", &.{ .invalid, .identifier });
+    testTokenize("0x0.0p+_0", &.{ .invalid, .identifier });
+    testTokenize("0x0.0p-_0", &.{ .invalid, .identifier });
+    testTokenize("0x0.0p0_", &.{ .invalid, .eof });
 }
 
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) void {
@@ -2054,5 +2054,5 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) void {
         }
     }
     const last_token = tokenizer.next();
-    std.testing.expect(last_token.tag == .Eof);
+    std.testing.expect(last_token.tag == .eof);
 }

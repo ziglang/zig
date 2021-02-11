@@ -343,7 +343,7 @@ pub const Tree = struct {
             .ContainerField,
             => {
                 const name_token = main_tokens[n];
-                if (name_token > 0 and token_tags[name_token - 1] == .Keyword_comptime) {
+                if (name_token > 0 and token_tags[name_token - 1] == .keyword_comptime) {
                     end_offset += 1;
                 }
                 return name_token - end_offset;
@@ -358,12 +358,12 @@ pub const Tree = struct {
                 while (i > 0) {
                     i -= 1;
                     switch (token_tags[i]) {
-                        .Keyword_extern,
-                        .Keyword_export,
-                        .Keyword_comptime,
-                        .Keyword_pub,
-                        .Keyword_threadlocal,
-                        .StringLiteral,
+                        .keyword_extern,
+                        .keyword_export,
+                        .keyword_comptime,
+                        .keyword_pub,
+                        .keyword_threadlocal,
+                        .string_literal,
                         => continue,
 
                         else => return i + 1 - end_offset,
@@ -379,7 +379,7 @@ pub const Tree = struct {
             => {
                 // Look for a label.
                 const lbrace = main_tokens[n];
-                if (token_tags[lbrace - 1] == .Colon) {
+                if (token_tags[lbrace - 1] == .colon) {
                     end_offset += 2;
                 }
                 return lbrace - end_offset;
@@ -400,7 +400,7 @@ pub const Tree = struct {
             => {
                 const main_token = main_tokens[n];
                 switch (token_tags[main_token - 1]) {
-                    .Keyword_packed, .Keyword_extern => end_offset += 1,
+                    .keyword_packed, .keyword_extern => end_offset += 1,
                     else => {},
                 }
                 return main_token - end_offset;
@@ -413,13 +413,13 @@ pub const Tree = struct {
             => {
                 const main_token = main_tokens[n];
                 return switch (token_tags[main_token]) {
-                    .Asterisk,
-                    .AsteriskAsterisk,
+                    .asterisk,
+                    .asterisk_asterisk,
                     => switch (token_tags[main_token - 1]) {
-                        .LBracket => main_token - 1,
+                        .l_bracket => main_token - 1,
                         else => main_token,
                     },
-                    .LBracket => main_token,
+                    .l_bracket => main_token,
                     else => unreachable,
                 } - end_offset;
             },
@@ -438,7 +438,7 @@ pub const Tree = struct {
             },
 
             .AsmOutput, .AsmInput => {
-                assert(token_tags[main_tokens[n] - 1] == .LBracket);
+                assert(token_tags[main_tokens[n] - 1] == .l_bracket);
                 return main_tokens[n] - 1 - end_offset;
             },
 
@@ -450,7 +450,7 @@ pub const Tree = struct {
             => {
                 const main_token = main_tokens[n];
                 return switch (token_tags[main_token - 1]) {
-                    .Keyword_inline => main_token - 1,
+                    .keyword_inline => main_token - 1,
                     else => main_token,
                 } - end_offset;
             },
@@ -1598,11 +1598,11 @@ pub const Tree = struct {
         while (i > 0) {
             i -= 1;
             switch (token_tags[i]) {
-                .Keyword_extern, .Keyword_export => result.extern_export_token = i,
-                .Keyword_comptime => result.comptime_token = i,
-                .Keyword_pub => result.visib_token = i,
-                .Keyword_threadlocal => result.threadlocal_token = i,
-                .StringLiteral => result.lib_name = i,
+                .keyword_extern, .keyword_export => result.extern_export_token = i,
+                .keyword_comptime => result.comptime_token = i,
+                .keyword_pub => result.visib_token = i,
+                .keyword_threadlocal => result.threadlocal_token = i,
+                .string_literal => result.lib_name = i,
                 else => break,
             }
         }
@@ -1620,14 +1620,14 @@ pub const Tree = struct {
         // if (cond_expr) |x|
         //              ^ ^
         const payload_pipe = tree.lastToken(info.cond_expr) + 2;
-        if (token_tags[payload_pipe] == .Pipe) {
+        if (token_tags[payload_pipe] == .pipe) {
             result.payload_token = payload_pipe + 1;
         }
         if (info.else_expr != 0) {
             // then_expr else |x|
             //           ^    ^
             result.else_token = tree.lastToken(info.then_expr) + 1;
-            if (token_tags[result.else_token + 1] == .Pipe) {
+            if (token_tags[result.else_token + 1] == .pipe) {
                 result.error_token = result.else_token + 2;
             }
         }
@@ -1642,7 +1642,7 @@ pub const Tree = struct {
         };
         // comptime name: type = init,
         // ^
-        if (info.name_token > 0 and token_tags[info.name_token - 1] == .Keyword_comptime) {
+        if (info.name_token > 0 and token_tags[info.name_token - 1] == .keyword_comptime) {
             result.comptime_token = info.name_token - 1;
         }
         return result;
@@ -1670,17 +1670,17 @@ pub const Tree = struct {
         // literals in some places here
         const Kind = full.PtrType.Kind;
         const kind: Kind = switch (token_tags[info.main_token]) {
-            .Asterisk,
-            .AsteriskAsterisk,
+            .asterisk,
+            .asterisk_asterisk,
             => switch (token_tags[info.main_token + 1]) {
-                .RBracket => .many,
-                .Colon => .sentinel,
-                .Identifier => if (token_tags[info.main_token - 1] == .LBracket) Kind.c else .one,
+                .r_bracket => .many,
+                .colon => .sentinel,
+                .identifier => if (token_tags[info.main_token - 1] == .l_bracket) Kind.c else .one,
                 else => .one,
             },
-            .LBracket => switch (token_tags[info.main_token + 1]) {
-                .RBracket => Kind.slice,
-                .Colon => .slice_sentinel,
+            .l_bracket => switch (token_tags[info.main_token + 1]) {
+                .r_bracket => Kind.slice,
+                .colon => .slice_sentinel,
                 else => unreachable,
             },
             else => unreachable,
@@ -1706,10 +1706,10 @@ pub const Tree = struct {
         const end = tree.firstToken(info.child_type);
         while (i < end) : (i += 1) {
             switch (token_tags[i]) {
-                .Keyword_allowzero => result.allowzero_token = i,
-                .Keyword_const => result.const_token = i,
-                .Keyword_volatile => result.volatile_token = i,
-                .Keyword_align => {
+                .keyword_allowzero => result.allowzero_token = i,
+                .keyword_const => result.const_token = i,
+                .keyword_volatile => result.volatile_token = i,
+                .keyword_align => {
                     assert(info.align_node != 0);
                     if (info.bit_range_end != 0) {
                         assert(info.bit_range_start != 0);
@@ -1731,7 +1731,7 @@ pub const Tree = struct {
             .layout_token = null,
         };
         switch (token_tags[info.main_token - 1]) {
-            .Keyword_extern, .Keyword_packed => result.layout_token = info.main_token - 1,
+            .keyword_extern, .keyword_packed => result.layout_token = info.main_token - 1,
             else => {},
         }
         return result;
@@ -1743,7 +1743,7 @@ pub const Tree = struct {
             .ast = info,
             .payload_token = null,
         };
-        if (token_tags[info.arrow_token + 1] == .Pipe) {
+        if (token_tags[info.arrow_token + 1] == .pipe) {
             result.payload_token = info.arrow_token + 2;
         }
         return result;
@@ -1759,7 +1759,7 @@ pub const Tree = struct {
             .outputs = &.{},
             .first_clobber = null,
         };
-        if (token_tags[info.asm_token + 1] == .Keyword_volatile) {
+        if (token_tags[info.asm_token + 1] == .keyword_volatile) {
             result.volatile_token = info.asm_token + 1;
         }
         const outputs_end: usize = for (info.items) |item, i| {
@@ -1775,10 +1775,10 @@ pub const Tree = struct {
         if (info.items.len == 0) {
             // asm ("foo" ::: "a", "b");
             const template_token = tree.lastToken(info.template);
-            if (token_tags[template_token + 1] == .Colon and
-                token_tags[template_token + 2] == .Colon and
-                token_tags[template_token + 3] == .Colon and
-                token_tags[template_token + 4] == .StringLiteral)
+            if (token_tags[template_token + 1] == .colon and
+                token_tags[template_token + 2] == .colon and
+                token_tags[template_token + 3] == .colon and
+                token_tags[template_token + 4] == .string_literal)
             {
                 result.first_clobber = template_token + 4;
             }
@@ -1786,8 +1786,8 @@ pub const Tree = struct {
             // asm ("foo" :: [_] "" (y) : "a", "b");
             const last_input = result.inputs[result.inputs.len - 1];
             const rparen = tree.lastToken(last_input);
-            if (token_tags[rparen + 1] == .Colon and
-                token_tags[rparen + 2] == .StringLiteral)
+            if (token_tags[rparen + 1] == .colon and
+                token_tags[rparen + 2] == .string_literal)
             {
                 result.first_clobber = rparen + 2;
             }
@@ -1795,9 +1795,9 @@ pub const Tree = struct {
             // asm ("foo" : [_] "" (x) :: "a", "b");
             const last_output = result.outputs[result.outputs.len - 1];
             const rparen = tree.lastToken(last_output);
-            if (token_tags[rparen + 1] == .Colon and
-                token_tags[rparen + 2] == .Colon and
-                token_tags[rparen + 3] == .StringLiteral)
+            if (token_tags[rparen + 1] == .colon and
+                token_tags[rparen + 2] == .colon and
+                token_tags[rparen + 3] == .string_literal)
             {
                 result.first_clobber = rparen + 3;
             }
@@ -1817,24 +1817,24 @@ pub const Tree = struct {
             .error_token = null,
         };
         var tok_i = info.while_token - 1;
-        if (token_tags[tok_i] == .Keyword_inline) {
+        if (token_tags[tok_i] == .keyword_inline) {
             result.inline_token = tok_i;
             tok_i -= 1;
         }
-        if (token_tags[tok_i] == .Colon and
-            token_tags[tok_i - 1] == .Identifier)
+        if (token_tags[tok_i] == .colon and
+            token_tags[tok_i - 1] == .identifier)
         {
             result.label_token = tok_i - 1;
         }
         const last_cond_token = tree.lastToken(info.cond_expr);
-        if (token_tags[last_cond_token + 2] == .Pipe) {
+        if (token_tags[last_cond_token + 2] == .pipe) {
             result.payload_token = last_cond_token + 3;
         }
         if (info.else_expr != 0) {
             // then_expr else |x|
             //           ^    ^
             result.else_token = tree.lastToken(info.then_expr) + 1;
-            if (token_tags[result.else_token + 1] == .Pipe) {
+            if (token_tags[result.else_token + 1] == .pipe) {
                 result.error_token = result.else_token + 2;
             }
         }
@@ -1848,7 +1848,7 @@ pub const Tree = struct {
             .async_token = null,
         };
         const maybe_async_token = tree.firstToken(info.fn_expr) - 1;
-        if (token_tags[maybe_async_token] == .Keyword_async) {
+        if (token_tags[maybe_async_token] == .keyword_async) {
             result.async_token = maybe_async_token;
         }
         return result;
@@ -2119,7 +2119,7 @@ pub const Error = union(enum) {
     pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{s}'");
     pub const ExpectedFn = SingleTokenError("Expected function, found '{s}'");
     pub const ExpectedReturnType = SingleTokenError("Expected return type expression, found '{s}'");
-    pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Tag.Keyword_struct.symbol() ++ "', '" ++ Token.Tag.Keyword_union.symbol() ++ "', '" ++ Token.Tag.Keyword_enum.symbol() ++ "', or '" ++ Token.Tag.Keyword_opaque.symbol() ++ "', found '{s}'");
+    pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Tag.keyword_struct.symbol() ++ "', '" ++ Token.Tag.keyword_union.symbol() ++ "', '" ++ Token.Tag.keyword_enum.symbol() ++ "', or '" ++ Token.Tag.keyword_opaque.symbol() ++ "', found '{s}'");
     pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{s}'");
     pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found '{s}'");
     pub const ExpectedSemiOrElse = SingleTokenError("Expected ';' or 'else', found '{s}'");
@@ -2128,7 +2128,7 @@ pub const Error = union(enum) {
     pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found '{s}'");
     pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found '{s}'");
     pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found '{s}'");
-    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or '" ++ Token.Tag.Identifier.symbol() ++ "', found '{s}'");
+    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or '" ++ Token.Tag.identifier.symbol() ++ "', found '{s}'");
     pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found '{s}'");
     pub const ExpectedTypeExpr = SingleTokenError("Expected type expression, found '{s}'");
     pub const ExpectedPrimaryTypeExpr = SingleTokenError("Expected primary type expression, found '{s}'");
@@ -2184,7 +2184,7 @@ pub const Error = union(enum) {
         pub fn render(self: *const ExpectedToken, tokens: []const Token.Tag, stream: anytype) !void {
             const found_token = tokens[self.token];
             switch (found_token) {
-                .Invalid => {
+                .invalid => {
                     return stream.print("expected '{s}', found invalid bytes", .{self.expected_id.symbol()});
                 },
                 else => {
