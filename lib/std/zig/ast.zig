@@ -676,20 +676,11 @@ pub const Tree = struct {
             },
             .ArrayInitDotTwo,
             .BlockTwo,
+            .BuiltinCallTwo,
             .StructInitDotTwo,
             .ContainerDeclTwo,
             .TaggedUnionTwo,
             => {
-                end_offset += 1; // for the rparen/rbrace
-                if (datas[n].rhs != 0) {
-                    n = datas[n].rhs;
-                } else if (datas[n].lhs != 0) {
-                    n = datas[n].lhs;
-                } else {
-                    return main_tokens[n] + end_offset;
-                }
-            },
-            .BuiltinCallTwo => {
                 if (datas[n].rhs != 0) {
                     end_offset += 1; // for the rparen/rbrace
                     n = datas[n].rhs;
@@ -697,7 +688,17 @@ pub const Tree = struct {
                     end_offset += 1; // for the rparen/rbrace
                     n = datas[n].lhs;
                 } else {
-                    end_offset += 2; // for the lparen and rparen
+                    switch (tags[n]) {
+                        .ArrayInitDotTwo,
+                        .BlockTwo,
+                        .StructInitDotTwo,
+                        => end_offset += 1, // rbrace
+                        .BuiltinCallTwo,
+                        .ContainerDeclTwo,
+                        => end_offset += 2, // lparen/lbrace + rparen/rbrace
+                        .TaggedUnionTwo => end_offset += 5, // (enum) {}
+                        else => unreachable,
+                    }
                     return main_tokens[n] + end_offset;
                 }
             },
@@ -2708,7 +2709,7 @@ pub const Node = struct {
         /// `{}`. `sub_list[lhs..rhs]`.
         /// main_token points at the lbrace.
         Block,
-        /// Same as BlockTwo but there is known to be a semicolon before the rbrace.
+        /// Same as Block but there is known to be a semicolon before the rbrace.
         BlockSemicolon,
         /// `asm(lhs)`. rhs is the token index of the rparen.
         AsmSimple,
