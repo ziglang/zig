@@ -1723,11 +1723,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn foo() c_int {
-        \\    _ = @as(c_int, 2);
-        \\    _ = @as(c_int, 4);
-        \\    _ = @as(c_int, 2);
-        \\    _ = @as(c_int, 4);
-        \\    return @as(c_int, 6);
+        \\    _ = (blk: {
+        \\        _ = @as(c_int, 2);
+        \\        break :blk @as(c_int, 4);
+        \\    });
+        \\    return (blk: {
+        \\        _ = (blk_1: {
+        \\            _ = @as(c_int, 2);
+        \\            break :blk_1 @as(c_int, 4);
+        \\        });
+        \\        break :blk @as(c_int, 6);
+        \\    });
         \\}
     });
 
@@ -1774,8 +1780,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    while (true) {
         \\        var a_1: c_int = 4;
         \\        a_1 = 9;
-        \\        _ = @as(c_int, 6);
-        \\        return a_1;
+        \\        return (blk: {
+        \\            _ = @as(c_int, 6);
+        \\            break :blk a_1;
+        \\        });
         \\    }
         \\    while (true) {
         \\        var a_1: c_int = 2;
@@ -1805,9 +1813,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        var b: c_int = 4;
         \\        while ((i + @as(c_int, 2)) != 0) : (i = 2) {
         \\            var a: c_int = 2;
-        \\            a = 6;
-        \\            _ = @as(c_int, 5);
-        \\            _ = @as(c_int, 7);
+        \\            _ = (blk: {
+        \\                _ = (blk_1: {
+        \\                    a = 6;
+        \\                    break :blk_1 @as(c_int, 5);
+        \\                });
+        \\                break :blk @as(c_int, 7);
+        \\            });
         \\        }
         \\    }
         \\    var i: u8 = @bitCast(u8, @truncate(i8, @as(c_int, 2)));

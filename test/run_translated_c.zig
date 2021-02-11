@@ -909,4 +909,17 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 1 != 1;
         \\}
     , "");
+
+    cases.add("Comma operator should create new scope; issue #7989",
+        \\#include <stdlib.h>
+        \\#include <stdio.h>
+        \\int main(void) {
+        \\    if (1 || (abort(), 1)) {}
+        \\    if (0 && (1, printf("do not print\n"))) {}
+        \\    int x = 0;
+        \\    x = (x = 3, 4, x + 1);
+        \\    if (x != 4) abort();
+        \\    return 0;
+        \\}
+    , "");
 }
