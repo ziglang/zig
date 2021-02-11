@@ -96,7 +96,7 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
     const datas = tree.nodes.items(.data);
     try renderDocComments(ais, tree, tree.firstToken(decl));
     switch (tree.nodes.items(.tag)[decl]) {
-        .FnDecl => {
+        .fn_decl => {
             // Some examples:
             // pub extern "foo" fn ...
             // export fn ...
@@ -132,16 +132,16 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
                 return renderToken(ais, tree, tree.lastToken(fn_proto) + 1, space); // semicolon
             }
         },
-        .FnProtoSimple,
-        .FnProtoMulti,
-        .FnProtoOne,
-        .FnProto,
+        .fn_proto_simple,
+        .fn_proto_multi,
+        .fn_proto_one,
+        .fn_proto,
         => {
             try renderExpression(ais, tree, decl, .None);
             return renderToken(ais, tree, tree.lastToken(decl) + 1, space); // semicolon
         },
 
-        .UsingNamespace => {
+        .@"usingnamespace" => {
             const main_token = main_tokens[decl];
             const expr = datas[decl].lhs;
             if (main_token > 0 and token_tags[main_token - 1] == .keyword_pub) {
@@ -152,12 +152,12 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
             return renderToken(ais, tree, tree.lastToken(expr) + 1, space); // ;
         },
 
-        .GlobalVarDecl => return renderVarDecl(ais, tree, tree.globalVarDecl(decl)),
-        .LocalVarDecl => return renderVarDecl(ais, tree, tree.localVarDecl(decl)),
-        .SimpleVarDecl => return renderVarDecl(ais, tree, tree.simpleVarDecl(decl)),
-        .AlignedVarDecl => return renderVarDecl(ais, tree, tree.alignedVarDecl(decl)),
+        .global_var_decl => return renderVarDecl(ais, tree, tree.globalVarDecl(decl)),
+        .local_var_decl => return renderVarDecl(ais, tree, tree.localVarDecl(decl)),
+        .simple_var_decl => return renderVarDecl(ais, tree, tree.simpleVarDecl(decl)),
+        .aligned_var_decl => return renderVarDecl(ais, tree, tree.alignedVarDecl(decl)),
 
-        .TestDecl => {
+        .test_decl => {
             const test_token = main_tokens[decl];
             try renderToken(ais, tree, test_token, .Space);
             if (token_tags[test_token + 1] == .string_literal) {
@@ -166,12 +166,12 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
             try renderExpression(ais, tree, datas[decl].rhs, space);
         },
 
-        .ContainerFieldInit => return renderContainerField(ais, tree, tree.containerFieldInit(decl), space),
-        .ContainerFieldAlign => return renderContainerField(ais, tree, tree.containerFieldAlign(decl), space),
-        .ContainerField => return renderContainerField(ais, tree, tree.containerField(decl), space),
-        .Comptime => return renderExpression(ais, tree, decl, space),
+        .container_field_init => return renderContainerField(ais, tree, tree.containerFieldInit(decl), space),
+        .container_field_align => return renderContainerField(ais, tree, tree.containerFieldAlign(decl), space),
+        .container_field => return renderContainerField(ais, tree, tree.containerField(decl), space),
+        .@"comptime" => return renderExpression(ais, tree, decl, space),
 
-        .Root => unreachable,
+        .root => unreachable,
         else => unreachable,
     }
 }
@@ -182,29 +182,29 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
     const node_tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
     switch (node_tags[node]) {
-        .Identifier,
-        .IntegerLiteral,
-        .FloatLiteral,
-        .StringLiteral,
-        .CharLiteral,
-        .TrueLiteral,
-        .FalseLiteral,
-        .NullLiteral,
-        .UnreachableLiteral,
-        .UndefinedLiteral,
-        .AnyFrameLiteral,
+        .identifier,
+        .integer_literal,
+        .float_literal,
+        .string_literal,
+        .char_literal,
+        .true_literal,
+        .false_literal,
+        .null_literal,
+        .unreachable_literal,
+        .undefined_literal,
+        .anyframe_literal,
         => return renderToken(ais, tree, main_tokens[node], space),
 
-        .ErrorValue => {
+        .error_value => {
             try renderToken(ais, tree, main_tokens[node], .None);
             try renderToken(ais, tree, main_tokens[node] + 1, .None);
             return renderToken(ais, tree, main_tokens[node] + 2, space);
         },
 
-        .AnyType => return renderToken(ais, tree, main_tokens[node], space),
+        .@"anytype" => return renderToken(ais, tree, main_tokens[node], space),
 
-        .BlockTwo,
-        .BlockTwoSemicolon,
+        .block_two,
+        .block_two_semicolon,
         => {
             const statements = [2]ast.Node.Index{ datas[node].lhs, datas[node].rhs };
             if (datas[node].lhs == 0) {
@@ -215,14 +215,14 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                 return renderBlock(ais, tree, node, statements[0..2], space);
             }
         },
-        .Block,
-        .BlockSemicolon,
+        .block,
+        .block_semicolon,
         => {
             const statements = tree.extra_data[datas[node].lhs..datas[node].rhs];
             return renderBlock(ais, tree, node, statements, space);
         },
 
-        .ErrDefer => {
+        .@"errdefer" => {
             const defer_token = main_tokens[node];
             const payload_token = datas[node].lhs;
             const expr = datas[node].rhs;
@@ -236,20 +236,20 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderExpression(ais, tree, expr, space);
         },
 
-        .Defer => {
+        .@"defer" => {
             const defer_token = main_tokens[node];
             const expr = datas[node].rhs;
             try renderToken(ais, tree, defer_token, .Space);
             return renderExpression(ais, tree, expr, space);
         },
-        .Comptime, .Nosuspend => {
+        .@"comptime", .@"nosuspend" => {
             const comptime_token = main_tokens[node];
             const block = datas[node].lhs;
             try renderToken(ais, tree, comptime_token, .Space);
             return renderExpression(ais, tree, block, space);
         },
 
-        .Suspend => {
+        .@"suspend" => {
             const suspend_token = main_tokens[node];
             const body = datas[node].lhs;
             if (body != 0) {
@@ -260,7 +260,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             }
         },
 
-        .Catch => {
+        .@"catch" => {
             const main_token = main_tokens[node];
             const fallback_first = tree.firstToken(datas[node].rhs);
 
@@ -283,15 +283,15 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             try renderExpression(ais, tree, datas[node].rhs, space); // fallback
         },
 
-        .FieldAccess => {
+        .field_access => {
             const field_access = datas[node];
             try renderExpression(ais, tree, field_access.lhs, .None);
             try renderToken(ais, tree, main_tokens[node], .None);
             return renderToken(ais, tree, field_access.rhs, space);
         },
 
-        .ErrorUnion,
-        .SwitchRange,
+        .error_union,
+        .switch_range,
         => {
             const infix = datas[node];
             try renderExpression(ais, tree, infix.lhs, .None);
@@ -299,45 +299,45 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderExpression(ais, tree, infix.rhs, space);
         },
 
-        .Add,
-        .AddWrap,
-        .ArrayCat,
-        .ArrayMult,
-        .Assign,
-        .AssignBitAnd,
-        .AssignBitOr,
-        .AssignBitShiftLeft,
-        .AssignBitShiftRight,
-        .AssignBitXor,
-        .AssignDiv,
-        .AssignSub,
-        .AssignSubWrap,
-        .AssignMod,
-        .AssignAdd,
-        .AssignAddWrap,
-        .AssignMul,
-        .AssignMulWrap,
-        .BangEqual,
-        .BitAnd,
-        .BitOr,
-        .BitShiftLeft,
-        .BitShiftRight,
-        .BitXor,
-        .BoolAnd,
-        .BoolOr,
-        .Div,
-        .EqualEqual,
-        .GreaterOrEqual,
-        .GreaterThan,
-        .LessOrEqual,
-        .LessThan,
-        .MergeErrorSets,
-        .Mod,
-        .Mul,
-        .MulWrap,
-        .Sub,
-        .SubWrap,
-        .OrElse,
+        .add,
+        .add_wrap,
+        .array_cat,
+        .array_mult,
+        .assign,
+        .assign_bit_and,
+        .assign_bit_or,
+        .assign_bit_shift_left,
+        .assign_bit_shift_right,
+        .assign_bit_xor,
+        .assign_div,
+        .assign_sub,
+        .assign_sub_wrap,
+        .assign_mod,
+        .assign_add,
+        .assign_add_wrap,
+        .assign_mul,
+        .assign_mul_wrap,
+        .bang_equal,
+        .bit_and,
+        .bit_or,
+        .bit_shift_left,
+        .bit_shift_right,
+        .bit_xor,
+        .bool_and,
+        .bool_or,
+        .div,
+        .equal_equal,
+        .greater_or_equal,
+        .greater_than,
+        .less_or_equal,
+        .less_than,
+        .merge_error_sets,
+        .mod,
+        .mul,
+        .mul_wrap,
+        .sub,
+        .sub_wrap,
+        .@"orelse",
         => {
             const infix = datas[node];
             try renderExpression(ais, tree, infix.lhs, .Space);
@@ -353,75 +353,75 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderExpression(ais, tree, infix.rhs, space);
         },
 
-        .BitNot,
-        .BoolNot,
-        .Negation,
-        .NegationWrap,
-        .OptionalType,
-        .AddressOf,
+        .bit_not,
+        .bool_not,
+        .negation,
+        .negation_wrap,
+        .optional_type,
+        .address_of,
         => {
             try renderToken(ais, tree, main_tokens[node], .None);
             return renderExpression(ais, tree, datas[node].lhs, space);
         },
 
-        .Try,
-        .Resume,
-        .Await,
+        .@"try",
+        .@"resume",
+        .@"await",
         => {
             try renderToken(ais, tree, main_tokens[node], .Space);
             return renderExpression(ais, tree, datas[node].lhs, space);
         },
 
-        .ArrayType => return renderArrayType(ais, tree, tree.arrayType(node), space),
-        .ArrayTypeSentinel => return renderArrayType(ais, tree, tree.arrayTypeSentinel(node), space),
+        .array_type => return renderArrayType(ais, tree, tree.arrayType(node), space),
+        .array_type_sentinel => return renderArrayType(ais, tree, tree.arrayTypeSentinel(node), space),
 
-        .PtrTypeAligned => return renderPtrType(ais, tree, tree.ptrTypeAligned(node), space),
-        .PtrTypeSentinel => return renderPtrType(ais, tree, tree.ptrTypeSentinel(node), space),
-        .PtrType => return renderPtrType(ais, tree, tree.ptrType(node), space),
-        .PtrTypeBitRange => return renderPtrType(ais, tree, tree.ptrTypeBitRange(node), space),
+        .ptr_type_aligned => return renderPtrType(ais, tree, tree.ptrTypeAligned(node), space),
+        .ptr_type_sentinel => return renderPtrType(ais, tree, tree.ptrTypeSentinel(node), space),
+        .ptr_type => return renderPtrType(ais, tree, tree.ptrType(node), space),
+        .ptr_type_bit_range => return renderPtrType(ais, tree, tree.ptrTypeBitRange(node), space),
 
-        .ArrayInitOne, .ArrayInitOneComma => {
+        .array_init_one, .array_init_one_comma => {
             var elements: [1]ast.Node.Index = undefined;
             return renderArrayInit(ais, tree, tree.arrayInitOne(&elements, node), space);
         },
-        .ArrayInitDotTwo, .ArrayInitDotTwoComma => {
+        .array_init_dot_two, .array_init_dot_two_comma => {
             var elements: [2]ast.Node.Index = undefined;
             return renderArrayInit(ais, tree, tree.arrayInitDotTwo(&elements, node), space);
         },
-        .ArrayInitDot,
-        .ArrayInitDotComma,
+        .array_init_dot,
+        .array_init_dot_comma,
         => return renderArrayInit(ais, tree, tree.arrayInitDot(node), space),
-        .ArrayInit,
-        .ArrayInitComma,
+        .array_init,
+        .array_init_comma,
         => return renderArrayInit(ais, tree, tree.arrayInit(node), space),
 
-        .StructInitOne, .StructInitOneComma => {
+        .struct_init_one, .struct_init_one_comma => {
             var fields: [1]ast.Node.Index = undefined;
             return renderStructInit(ais, tree, tree.structInitOne(&fields, node), space);
         },
-        .StructInitDotTwo, .StructInitDotTwoComma => {
+        .struct_init_dot_two, .struct_init_dot_two_comma => {
             var fields: [2]ast.Node.Index = undefined;
             return renderStructInit(ais, tree, tree.structInitDotTwo(&fields, node), space);
         },
-        .StructInitDot,
-        .StructInitDotComma,
+        .struct_init_dot,
+        .struct_init_dot_comma,
         => return renderStructInit(ais, tree, tree.structInitDot(node), space),
-        .StructInit,
-        .StructInitComma,
+        .struct_init,
+        .struct_init_comma,
         => return renderStructInit(ais, tree, tree.structInit(node), space),
 
-        .CallOne, .CallOneComma, .AsyncCallOne, .AsyncCallOneComma => {
+        .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => {
             var params: [1]ast.Node.Index = undefined;
             return renderCall(ais, tree, tree.callOne(&params, node), space);
         },
 
-        .Call,
-        .CallComma,
-        .AsyncCall,
-        .AsyncCallComma,
+        .call,
+        .call_comma,
+        .async_call,
+        .async_call_comma,
         => return renderCall(ais, tree, tree.callFull(node), space),
 
-        .ArrayAccess => {
+        .array_access => {
             const suffix = datas[node];
             const lbracket = tree.firstToken(suffix.rhs) - 1;
             const rbracket = tree.lastToken(suffix.rhs) + 1;
@@ -431,22 +431,22 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderToken(ais, tree, rbracket, space); // ]
         },
 
-        .SliceOpen => try renderSlice(ais, tree, tree.sliceOpen(node), space),
-        .Slice => try renderSlice(ais, tree, tree.slice(node), space),
-        .SliceSentinel => try renderSlice(ais, tree, tree.sliceSentinel(node), space),
+        .slice_open => try renderSlice(ais, tree, tree.sliceOpen(node), space),
+        .slice => try renderSlice(ais, tree, tree.slice(node), space),
+        .slice_sentinel => try renderSlice(ais, tree, tree.sliceSentinel(node), space),
 
-        .Deref => {
+        .deref => {
             try renderExpression(ais, tree, datas[node].lhs, .None);
             return renderToken(ais, tree, main_tokens[node], space);
         },
 
-        .UnwrapOptional => {
+        .unwrap_optional => {
             try renderExpression(ais, tree, datas[node].lhs, .None);
             try renderToken(ais, tree, main_tokens[node], .None);
             return renderToken(ais, tree, datas[node].rhs, space);
         },
 
-        .Break => {
+        .@"break" => {
             const main_token = main_tokens[node];
             const label_token = datas[node].lhs;
             const target = datas[node].rhs;
@@ -467,7 +467,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             }
         },
 
-        .Continue => {
+        .@"continue" => {
             const main_token = main_tokens[node];
             const label = datas[node].lhs;
             if (label != 0) {
@@ -479,7 +479,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             }
         },
 
-        .Return => {
+        .@"return" => {
             if (datas[node].lhs != 0) {
                 try renderToken(ais, tree, main_tokens[node], .Space);
                 try renderExpression(ais, tree, datas[node].lhs, space);
@@ -488,7 +488,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             }
         },
 
-        .GroupedExpression => {
+        .grouped_expression => {
             ais.pushIndentNextLine();
             try renderToken(ais, tree, main_tokens[node], .None); // lparen
             try renderExpression(ais, tree, datas[node].lhs, .None);
@@ -496,32 +496,32 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderToken(ais, tree, datas[node].rhs, space); // rparen
         },
 
-        .ContainerDecl,
-        .ContainerDeclComma,
+        .container_decl,
+        .container_decl_comma,
         => return renderContainerDecl(ais, tree, tree.containerDecl(node), space),
 
-        .ContainerDeclTwo, .ContainerDeclTwoComma => {
+        .container_decl_two, .container_decl_two_comma => {
             var buffer: [2]ast.Node.Index = undefined;
             return renderContainerDecl(ais, tree, tree.containerDeclTwo(&buffer, node), space);
         },
-        .ContainerDeclArg,
-        .ContainerDeclArgComma,
+        .container_decl_arg,
+        .container_decl_arg_comma,
         => return renderContainerDecl(ais, tree, tree.containerDeclArg(node), space),
 
-        .TaggedUnion,
-        .TaggedUnionComma,
+        .tagged_union,
+        .tagged_union_comma,
         => return renderContainerDecl(ais, tree, tree.taggedUnion(node), space),
 
-        .TaggedUnionTwo, .TaggedUnionTwoComma => {
+        .tagged_union_two, .tagged_union_two_comma => {
             var buffer: [2]ast.Node.Index = undefined;
             return renderContainerDecl(ais, tree, tree.taggedUnionTwo(&buffer, node), space);
         },
-        .TaggedUnionEnumTag,
-        .TaggedUnionEnumTagComma,
+        .tagged_union_enum_tag,
+        .tagged_union_enum_tag_comma,
         => return renderContainerDecl(ais, tree, tree.taggedUnionEnumTag(node), space),
 
         // TODO: handle comments properly
-        .ErrorSetDecl => {
+        .error_set_decl => {
             const error_token = main_tokens[node];
             const lbrace = error_token + 1;
             const rbrace = datas[node].rhs;
@@ -569,7 +569,7 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             }
         },
 
-        .BuiltinCallTwo, .BuiltinCallTwoComma => {
+        .builtin_call_two, .builtin_call_two_comma => {
             if (datas[node].lhs == 0) {
                 const params = [_]ast.Node.Index{};
                 return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
@@ -581,23 +581,23 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                 return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
             }
         },
-        .BuiltinCall, .BuiltinCallComma => {
+        .builtin_call, .builtin_call_comma => {
             const params = tree.extra_data[datas[node].lhs..datas[node].rhs];
             return renderBuiltinCall(ais, tree, main_tokens[node], params, space);
         },
 
-        .FnProtoSimple => {
+        .fn_proto_simple => {
             var params: [1]ast.Node.Index = undefined;
             return renderFnProto(ais, tree, tree.fnProtoSimple(&params, node), space);
         },
-        .FnProtoMulti => return renderFnProto(ais, tree, tree.fnProtoMulti(node), space),
-        .FnProtoOne => {
+        .fn_proto_multi => return renderFnProto(ais, tree, tree.fnProtoMulti(node), space),
+        .fn_proto_one => {
             var params: [1]ast.Node.Index = undefined;
             return renderFnProto(ais, tree, tree.fnProtoOne(&params, node), space);
         },
-        .FnProto => return renderFnProto(ais, tree, tree.fnProto(node), space),
+        .fn_proto => return renderFnProto(ais, tree, tree.fnProto(node), space),
 
-        .AnyFrameType => {
+        .anyframe_type => {
             const main_token = main_tokens[node];
             if (datas[node].rhs != 0) {
                 try renderToken(ais, tree, main_token, .None); // anyframe
@@ -608,8 +608,8 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             }
         },
 
-        .Switch,
-        .SwitchComma,
+        .@"switch",
+        .switch_comma,
         => {
             const switch_token = main_tokens[node];
             const condition = datas[node].lhs;
@@ -635,39 +635,39 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderToken(ais, tree, tree.lastToken(node), space); // rbrace
         },
 
-        .SwitchCaseOne => return renderSwitchCase(ais, tree, tree.switchCaseOne(node), space),
-        .SwitchCase => return renderSwitchCase(ais, tree, tree.switchCase(node), space),
+        .switch_case_one => return renderSwitchCase(ais, tree, tree.switchCaseOne(node), space),
+        .switch_case => return renderSwitchCase(ais, tree, tree.switchCase(node), space),
 
-        .WhileSimple => return renderWhile(ais, tree, tree.whileSimple(node), space),
-        .WhileCont => return renderWhile(ais, tree, tree.whileCont(node), space),
-        .While => return renderWhile(ais, tree, tree.whileFull(node), space),
-        .ForSimple => return renderWhile(ais, tree, tree.forSimple(node), space),
-        .For => return renderWhile(ais, tree, tree.forFull(node), space),
+        .while_simple => return renderWhile(ais, tree, tree.whileSimple(node), space),
+        .while_cont => return renderWhile(ais, tree, tree.whileCont(node), space),
+        .@"while" => return renderWhile(ais, tree, tree.whileFull(node), space),
+        .for_simple => return renderWhile(ais, tree, tree.forSimple(node), space),
+        .@"for" => return renderWhile(ais, tree, tree.forFull(node), space),
 
-        .IfSimple => return renderIf(ais, tree, tree.ifSimple(node), space),
-        .If => return renderIf(ais, tree, tree.ifFull(node), space),
+        .if_simple => return renderIf(ais, tree, tree.ifSimple(node), space),
+        .@"if" => return renderIf(ais, tree, tree.ifFull(node), space),
 
-        .AsmSimple => return renderAsm(ais, tree, tree.asmSimple(node), space),
-        .Asm => return renderAsm(ais, tree, tree.asmFull(node), space),
+        .asm_simple => return renderAsm(ais, tree, tree.asmSimple(node), space),
+        .@"asm" => return renderAsm(ais, tree, tree.asmFull(node), space),
 
-        .EnumLiteral => {
+        .enum_literal => {
             try renderToken(ais, tree, main_tokens[node] - 1, .None); // .
             return renderToken(ais, tree, main_tokens[node], space); // name
         },
 
-        .FnDecl => unreachable,
-        .ContainerField => unreachable,
-        .ContainerFieldInit => unreachable,
-        .ContainerFieldAlign => unreachable,
-        .Root => unreachable,
-        .GlobalVarDecl => unreachable,
-        .LocalVarDecl => unreachable,
-        .SimpleVarDecl => unreachable,
-        .AlignedVarDecl => unreachable,
-        .UsingNamespace => unreachable,
-        .TestDecl => unreachable,
-        .AsmOutput => unreachable,
-        .AsmInput => unreachable,
+        .fn_decl => unreachable,
+        .container_field => unreachable,
+        .container_field_init => unreachable,
+        .container_field_align => unreachable,
+        .root => unreachable,
+        .global_var_decl => unreachable,
+        .local_var_decl => unreachable,
+        .simple_var_decl => unreachable,
+        .aligned_var_decl => unreachable,
+        .@"usingnamespace" => unreachable,
+        .test_decl => unreachable,
+        .asm_output => unreachable,
+        .asm_input => unreachable,
     }
 }
 
@@ -814,7 +814,7 @@ fn renderAsmOutput(
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const datas = tree.nodes.items(.data);
-    assert(node_tags[asm_output] == .AsmOutput);
+    assert(node_tags[asm_output] == .asm_output);
     const symbolic_name = main_tokens[asm_output];
 
     try renderToken(ais, tree, symbolic_name - 1, .None); // lbracket
@@ -842,7 +842,7 @@ fn renderAsmInput(
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const datas = tree.nodes.items(.data);
-    assert(node_tags[asm_input] == .AsmInput);
+    assert(node_tags[asm_input] == .asm_input);
     const symbolic_name = main_tokens[asm_input];
 
     try renderToken(ais, tree, symbolic_name - 1, .None); // lbracket
@@ -1516,10 +1516,10 @@ fn renderBlock(
     try renderToken(ais, tree, lbrace, .Newline);
     for (statements) |stmt, i| {
         switch (node_tags[stmt]) {
-            .GlobalVarDecl => try renderVarDecl(ais, tree, tree.globalVarDecl(stmt)),
-            .LocalVarDecl => try renderVarDecl(ais, tree, tree.localVarDecl(stmt)),
-            .SimpleVarDecl => try renderVarDecl(ais, tree, tree.simpleVarDecl(stmt)),
-            .AlignedVarDecl => try renderVarDecl(ais, tree, tree.alignedVarDecl(stmt)),
+            .global_var_decl => try renderVarDecl(ais, tree, tree.globalVarDecl(stmt)),
+            .local_var_decl => try renderVarDecl(ais, tree, tree.localVarDecl(stmt)),
+            .simple_var_decl => try renderVarDecl(ais, tree, tree.simpleVarDecl(stmt)),
+            .aligned_var_decl => try renderVarDecl(ais, tree, tree.alignedVarDecl(stmt)),
             else => try renderExpression(ais, tree, stmt, .Semicolon),
         }
     }
@@ -1867,7 +1867,7 @@ fn renderCall(
                 try renderExpression(ais, tree, param_node, Space.None);
 
                 // Unindent the comma for multiline string literals
-                const is_multiline_string = node_tags[param_node] == .StringLiteral and
+                const is_multiline_string = node_tags[param_node] == .string_literal and
                     token_tags[main_tokens[param_node]] == .multiline_string_literal_line;
                 if (is_multiline_string) ais.popIndent();
 
@@ -2031,19 +2031,19 @@ fn renderDocComments(ais: *Ais, tree: ast.Tree, end_token: ast.TokenIndex) Error
 
 fn nodeIsBlock(tag: ast.Node.Tag) bool {
     return switch (tag) {
-        .Block,
-        .BlockSemicolon,
-        .BlockTwo,
-        .BlockTwoSemicolon,
-        .If,
-        .IfSimple,
-        .For,
-        .ForSimple,
-        .While,
-        .WhileSimple,
-        .WhileCont,
-        .Switch,
-        .SwitchComma,
+        .block,
+        .block_semicolon,
+        .block_two,
+        .block_two_semicolon,
+        .@"if",
+        .if_simple,
+        .@"for",
+        .for_simple,
+        .@"while",
+        .while_simple,
+        .while_cont,
+        .@"switch",
+        .switch_comma,
         => true,
         else => false,
     };
@@ -2051,47 +2051,47 @@ fn nodeIsBlock(tag: ast.Node.Tag) bool {
 
 fn nodeCausesSliceOpSpace(tag: ast.Node.Tag) bool {
     return switch (tag) {
-        .Catch,
-        .Add,
-        .AddWrap,
-        .ArrayCat,
-        .ArrayMult,
-        .Assign,
-        .AssignBitAnd,
-        .AssignBitOr,
-        .AssignBitShiftLeft,
-        .AssignBitShiftRight,
-        .AssignBitXor,
-        .AssignDiv,
-        .AssignSub,
-        .AssignSubWrap,
-        .AssignMod,
-        .AssignAdd,
-        .AssignAddWrap,
-        .AssignMul,
-        .AssignMulWrap,
-        .BangEqual,
-        .BitAnd,
-        .BitOr,
-        .BitShiftLeft,
-        .BitShiftRight,
-        .BitXor,
-        .BoolAnd,
-        .BoolOr,
-        .Div,
-        .EqualEqual,
-        .ErrorUnion,
-        .GreaterOrEqual,
-        .GreaterThan,
-        .LessOrEqual,
-        .LessThan,
-        .MergeErrorSets,
-        .Mod,
-        .Mul,
-        .MulWrap,
-        .Sub,
-        .SubWrap,
-        .OrElse,
+        .@"catch",
+        .add,
+        .add_wrap,
+        .array_cat,
+        .array_mult,
+        .assign,
+        .assign_bit_and,
+        .assign_bit_or,
+        .assign_bit_shift_left,
+        .assign_bit_shift_right,
+        .assign_bit_xor,
+        .assign_div,
+        .assign_sub,
+        .assign_sub_wrap,
+        .assign_mod,
+        .assign_add,
+        .assign_add_wrap,
+        .assign_mul,
+        .assign_mul_wrap,
+        .bang_equal,
+        .bit_and,
+        .bit_or,
+        .bit_shift_left,
+        .bit_shift_right,
+        .bit_xor,
+        .bool_and,
+        .bool_or,
+        .div,
+        .equal_equal,
+        .error_union,
+        .greater_or_equal,
+        .greater_than,
+        .less_or_equal,
+        .less_than,
+        .merge_error_sets,
+        .mod,
+        .mul,
+        .mul_wrap,
+        .sub,
+        .sub_wrap,
+        .@"orelse",
         => true,
 
         else => false,

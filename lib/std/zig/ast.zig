@@ -199,148 +199,148 @@ pub const Tree = struct {
         var end_offset: TokenIndex = 0;
         var n = node;
         while (true) switch (tags[n]) {
-            .Root => return 0,
+            .root => return 0,
 
-            .UsingNamespace,
-            .TestDecl,
-            .ErrDefer,
-            .Defer,
-            .BoolNot,
-            .Negation,
-            .BitNot,
-            .NegationWrap,
-            .AddressOf,
-            .Try,
-            .Await,
-            .OptionalType,
-            .Switch,
-            .SwitchComma,
-            .IfSimple,
-            .If,
-            .Suspend,
-            .Resume,
-            .Continue,
-            .Break,
-            .Return,
-            .AnyFrameType,
-            .Identifier,
-            .AnyFrameLiteral,
-            .CharLiteral,
-            .IntegerLiteral,
-            .FloatLiteral,
-            .FalseLiteral,
-            .TrueLiteral,
-            .NullLiteral,
-            .UndefinedLiteral,
-            .UnreachableLiteral,
-            .StringLiteral,
-            .GroupedExpression,
-            .BuiltinCallTwo,
-            .BuiltinCallTwoComma,
-            .BuiltinCall,
-            .BuiltinCallComma,
-            .ErrorSetDecl,
-            .AnyType,
-            .Comptime,
-            .Nosuspend,
-            .AsmSimple,
-            .Asm,
-            .FnProtoSimple,
-            .FnProtoMulti,
-            .FnProtoOne,
-            .FnProto,
-            .ArrayType,
-            .ArrayTypeSentinel,
-            .ErrorValue,
+            .@"usingnamespace",
+            .test_decl,
+            .@"errdefer",
+            .@"defer",
+            .bool_not,
+            .negation,
+            .bit_not,
+            .negation_wrap,
+            .address_of,
+            .@"try",
+            .@"await",
+            .optional_type,
+            .@"switch",
+            .switch_comma,
+            .if_simple,
+            .@"if",
+            .@"suspend",
+            .@"resume",
+            .@"continue",
+            .@"break",
+            .@"return",
+            .anyframe_type,
+            .identifier,
+            .anyframe_literal,
+            .char_literal,
+            .integer_literal,
+            .float_literal,
+            .false_literal,
+            .true_literal,
+            .null_literal,
+            .undefined_literal,
+            .unreachable_literal,
+            .string_literal,
+            .grouped_expression,
+            .builtin_call_two,
+            .builtin_call_two_comma,
+            .builtin_call,
+            .builtin_call_comma,
+            .error_set_decl,
+            .@"anytype",
+            .@"comptime",
+            .@"nosuspend",
+            .asm_simple,
+            .@"asm",
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
+            .array_type,
+            .array_type_sentinel,
+            .error_value,
             => return main_tokens[n] - end_offset,
 
-            .ArrayInitDot,
-            .ArrayInitDotComma,
-            .ArrayInitDotTwo,
-            .ArrayInitDotTwoComma,
-            .StructInitDot,
-            .StructInitDotComma,
-            .StructInitDotTwo,
-            .StructInitDotTwoComma,
-            .EnumLiteral,
+            .array_init_dot,
+            .array_init_dot_comma,
+            .array_init_dot_two,
+            .array_init_dot_two_comma,
+            .struct_init_dot,
+            .struct_init_dot_comma,
+            .struct_init_dot_two,
+            .struct_init_dot_two_comma,
+            .enum_literal,
             => return main_tokens[n] - 1 - end_offset,
 
-            .Catch,
-            .FieldAccess,
-            .UnwrapOptional,
-            .EqualEqual,
-            .BangEqual,
-            .LessThan,
-            .GreaterThan,
-            .LessOrEqual,
-            .GreaterOrEqual,
-            .AssignMul,
-            .AssignDiv,
-            .AssignMod,
-            .AssignAdd,
-            .AssignSub,
-            .AssignBitShiftLeft,
-            .AssignBitShiftRight,
-            .AssignBitAnd,
-            .AssignBitXor,
-            .AssignBitOr,
-            .AssignMulWrap,
-            .AssignAddWrap,
-            .AssignSubWrap,
-            .Assign,
-            .MergeErrorSets,
-            .Mul,
-            .Div,
-            .Mod,
-            .ArrayMult,
-            .MulWrap,
-            .Add,
-            .Sub,
-            .ArrayCat,
-            .AddWrap,
-            .SubWrap,
-            .BitShiftLeft,
-            .BitShiftRight,
-            .BitAnd,
-            .BitXor,
-            .BitOr,
-            .OrElse,
-            .BoolAnd,
-            .BoolOr,
-            .SliceOpen,
-            .Slice,
-            .SliceSentinel,
-            .Deref,
-            .ArrayAccess,
-            .ArrayInitOne,
-            .ArrayInitOneComma,
-            .ArrayInit,
-            .ArrayInitComma,
-            .StructInitOne,
-            .StructInitOneComma,
-            .StructInit,
-            .StructInitComma,
-            .CallOne,
-            .CallOneComma,
-            .Call,
-            .CallComma,
-            .SwitchRange,
-            .FnDecl,
-            .ErrorUnion,
+            .@"catch",
+            .field_access,
+            .unwrap_optional,
+            .equal_equal,
+            .bang_equal,
+            .less_than,
+            .greater_than,
+            .less_or_equal,
+            .greater_or_equal,
+            .assign_mul,
+            .assign_div,
+            .assign_mod,
+            .assign_add,
+            .assign_sub,
+            .assign_bit_shift_left,
+            .assign_bit_shift_right,
+            .assign_bit_and,
+            .assign_bit_xor,
+            .assign_bit_or,
+            .assign_mul_wrap,
+            .assign_add_wrap,
+            .assign_sub_wrap,
+            .assign,
+            .merge_error_sets,
+            .mul,
+            .div,
+            .mod,
+            .array_mult,
+            .mul_wrap,
+            .add,
+            .sub,
+            .array_cat,
+            .add_wrap,
+            .sub_wrap,
+            .bit_shift_left,
+            .bit_shift_right,
+            .bit_and,
+            .bit_xor,
+            .bit_or,
+            .@"orelse",
+            .bool_and,
+            .bool_or,
+            .slice_open,
+            .slice,
+            .slice_sentinel,
+            .deref,
+            .array_access,
+            .array_init_one,
+            .array_init_one_comma,
+            .array_init,
+            .array_init_comma,
+            .struct_init_one,
+            .struct_init_one_comma,
+            .struct_init,
+            .struct_init_comma,
+            .call_one,
+            .call_one_comma,
+            .call,
+            .call_comma,
+            .switch_range,
+            .fn_decl,
+            .error_union,
             => n = datas[n].lhs,
 
-            .AsyncCallOne,
-            .AsyncCallOneComma,
-            .AsyncCall,
-            .AsyncCallComma,
+            .async_call_one,
+            .async_call_one_comma,
+            .async_call,
+            .async_call_comma,
             => {
                 end_offset += 1; // async token
                 n = datas[n].lhs;
             },
 
-            .ContainerFieldInit,
-            .ContainerFieldAlign,
-            .ContainerField,
+            .container_field_init,
+            .container_field_align,
+            .container_field,
             => {
                 const name_token = main_tokens[n];
                 if (name_token > 0 and token_tags[name_token - 1] == .keyword_comptime) {
@@ -349,10 +349,10 @@ pub const Tree = struct {
                 return name_token - end_offset;
             },
 
-            .GlobalVarDecl,
-            .LocalVarDecl,
-            .SimpleVarDecl,
-            .AlignedVarDecl,
+            .global_var_decl,
+            .local_var_decl,
+            .simple_var_decl,
+            .aligned_var_decl,
             => {
                 var i = main_tokens[n]; // mut token
                 while (i > 0) {
@@ -372,10 +372,10 @@ pub const Tree = struct {
                 return i - end_offset;
             },
 
-            .Block,
-            .BlockSemicolon,
-            .BlockTwo,
-            .BlockTwoSemicolon,
+            .block,
+            .block_semicolon,
+            .block_two,
+            .block_two_semicolon,
             => {
                 // Look for a label.
                 const lbrace = main_tokens[n];
@@ -385,18 +385,18 @@ pub const Tree = struct {
                 return lbrace - end_offset;
             },
 
-            .ContainerDecl,
-            .ContainerDeclComma,
-            .ContainerDeclTwo,
-            .ContainerDeclTwoComma,
-            .ContainerDeclArg,
-            .ContainerDeclArgComma,
-            .TaggedUnion,
-            .TaggedUnionComma,
-            .TaggedUnionTwo,
-            .TaggedUnionTwoComma,
-            .TaggedUnionEnumTag,
-            .TaggedUnionEnumTagComma,
+            .container_decl,
+            .container_decl_comma,
+            .container_decl_two,
+            .container_decl_two_comma,
+            .container_decl_arg,
+            .container_decl_arg_comma,
+            .tagged_union,
+            .tagged_union_comma,
+            .tagged_union_two,
+            .tagged_union_two_comma,
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_comma,
             => {
                 const main_token = main_tokens[n];
                 switch (token_tags[main_token - 1]) {
@@ -406,10 +406,10 @@ pub const Tree = struct {
                 return main_token - end_offset;
             },
 
-            .PtrTypeAligned,
-            .PtrTypeSentinel,
-            .PtrType,
-            .PtrTypeBitRange,
+            .ptr_type_aligned,
+            .ptr_type_sentinel,
+            .ptr_type,
+            .ptr_type_bit_range,
             => {
                 const main_token = main_tokens[n];
                 return switch (token_tags[main_token]) {
@@ -424,29 +424,29 @@ pub const Tree = struct {
                 } - end_offset;
             },
 
-            .SwitchCaseOne => {
+            .switch_case_one => {
                 if (datas[n].lhs == 0) {
                     return main_tokens[n] - 1 - end_offset; // else token
                 } else {
                     n = datas[n].lhs;
                 }
             },
-            .SwitchCase => {
+            .switch_case => {
                 const extra = tree.extraData(datas[n].lhs, Node.SubRange);
                 assert(extra.end - extra.start > 0);
                 n = extra.start;
             },
 
-            .AsmOutput, .AsmInput => {
+            .asm_output, .asm_input => {
                 assert(token_tags[main_tokens[n] - 1] == .l_bracket);
                 return main_tokens[n] - 1 - end_offset;
             },
 
-            .WhileSimple,
-            .WhileCont,
-            .While,
-            .ForSimple,
-            .For,
+            .while_simple,
+            .while_cont,
+            .@"while",
+            .for_simple,
+            .@"for",
             => {
                 const main_token = main_tokens[n];
                 return switch (token_tags[main_token - 1]) {
@@ -465,115 +465,115 @@ pub const Tree = struct {
         var n = node;
         var end_offset: TokenIndex = 0;
         while (true) switch (tags[n]) {
-            .Root => return @intCast(TokenIndex, tree.tokens.len - 1),
+            .root => return @intCast(TokenIndex, tree.tokens.len - 1),
 
-            .UsingNamespace,
-            .BoolNot,
-            .Negation,
-            .BitNot,
-            .NegationWrap,
-            .AddressOf,
-            .Try,
-            .Await,
-            .OptionalType,
-            .Resume,
-            .Nosuspend,
-            .Comptime,
+            .@"usingnamespace",
+            .bool_not,
+            .negation,
+            .bit_not,
+            .negation_wrap,
+            .address_of,
+            .@"try",
+            .@"await",
+            .optional_type,
+            .@"resume",
+            .@"nosuspend",
+            .@"comptime",
             => n = datas[n].lhs,
 
-            .TestDecl,
-            .ErrDefer,
-            .Defer,
-            .Catch,
-            .EqualEqual,
-            .BangEqual,
-            .LessThan,
-            .GreaterThan,
-            .LessOrEqual,
-            .GreaterOrEqual,
-            .AssignMul,
-            .AssignDiv,
-            .AssignMod,
-            .AssignAdd,
-            .AssignSub,
-            .AssignBitShiftLeft,
-            .AssignBitShiftRight,
-            .AssignBitAnd,
-            .AssignBitXor,
-            .AssignBitOr,
-            .AssignMulWrap,
-            .AssignAddWrap,
-            .AssignSubWrap,
-            .Assign,
-            .MergeErrorSets,
-            .Mul,
-            .Div,
-            .Mod,
-            .ArrayMult,
-            .MulWrap,
-            .Add,
-            .Sub,
-            .ArrayCat,
-            .AddWrap,
-            .SubWrap,
-            .BitShiftLeft,
-            .BitShiftRight,
-            .BitAnd,
-            .BitXor,
-            .BitOr,
-            .OrElse,
-            .BoolAnd,
-            .BoolOr,
-            .AnyFrameType,
-            .ErrorUnion,
-            .IfSimple,
-            .WhileSimple,
-            .ForSimple,
-            .FnProtoSimple,
-            .FnProtoMulti,
-            .PtrTypeAligned,
-            .PtrTypeSentinel,
-            .PtrType,
-            .PtrTypeBitRange,
-            .ArrayType,
-            .SwitchCaseOne,
-            .SwitchCase,
-            .SwitchRange,
+            .test_decl,
+            .@"errdefer",
+            .@"defer",
+            .@"catch",
+            .equal_equal,
+            .bang_equal,
+            .less_than,
+            .greater_than,
+            .less_or_equal,
+            .greater_or_equal,
+            .assign_mul,
+            .assign_div,
+            .assign_mod,
+            .assign_add,
+            .assign_sub,
+            .assign_bit_shift_left,
+            .assign_bit_shift_right,
+            .assign_bit_and,
+            .assign_bit_xor,
+            .assign_bit_or,
+            .assign_mul_wrap,
+            .assign_add_wrap,
+            .assign_sub_wrap,
+            .assign,
+            .merge_error_sets,
+            .mul,
+            .div,
+            .mod,
+            .array_mult,
+            .mul_wrap,
+            .add,
+            .sub,
+            .array_cat,
+            .add_wrap,
+            .sub_wrap,
+            .bit_shift_left,
+            .bit_shift_right,
+            .bit_and,
+            .bit_xor,
+            .bit_or,
+            .@"orelse",
+            .bool_and,
+            .bool_or,
+            .anyframe_type,
+            .error_union,
+            .if_simple,
+            .while_simple,
+            .for_simple,
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .ptr_type_aligned,
+            .ptr_type_sentinel,
+            .ptr_type,
+            .ptr_type_bit_range,
+            .array_type,
+            .switch_case_one,
+            .switch_case,
+            .switch_range,
             => n = datas[n].rhs,
 
-            .FieldAccess,
-            .UnwrapOptional,
-            .GroupedExpression,
-            .StringLiteral,
-            .ErrorSetDecl,
-            .AsmSimple,
-            .AsmOutput,
-            .AsmInput,
-            .ErrorValue,
+            .field_access,
+            .unwrap_optional,
+            .grouped_expression,
+            .string_literal,
+            .error_set_decl,
+            .asm_simple,
+            .asm_output,
+            .asm_input,
+            .error_value,
             => return datas[n].rhs + end_offset,
 
-            .AnyType,
-            .AnyFrameLiteral,
-            .CharLiteral,
-            .IntegerLiteral,
-            .FloatLiteral,
-            .FalseLiteral,
-            .TrueLiteral,
-            .NullLiteral,
-            .UndefinedLiteral,
-            .UnreachableLiteral,
-            .Identifier,
-            .Deref,
-            .EnumLiteral,
+            .@"anytype",
+            .anyframe_literal,
+            .char_literal,
+            .integer_literal,
+            .float_literal,
+            .false_literal,
+            .true_literal,
+            .null_literal,
+            .undefined_literal,
+            .unreachable_literal,
+            .identifier,
+            .deref,
+            .enum_literal,
             => return main_tokens[n] + end_offset,
 
-            .Return => if (datas[n].lhs != 0) {
+            .@"return" => if (datas[n].lhs != 0) {
                 n = datas[n].lhs;
             } else {
                 return main_tokens[n] + end_offset;
             },
 
-            .Call, .AsyncCall => {
+            .call, .async_call => {
                 end_offset += 1; // for the rparen
                 const params = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (params.end - params.start == 0) {
@@ -581,7 +581,7 @@ pub const Tree = struct {
                 }
                 n = tree.extra_data[params.end - 1]; // last parameter
             },
-            .TaggedUnionEnumTag => {
+            .tagged_union_enum_tag => {
                 const members = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (members.end - members.start == 0) {
                     end_offset += 4; // for the rparen + rparen + lbrace + rbrace
@@ -591,16 +591,16 @@ pub const Tree = struct {
                     n = tree.extra_data[members.end - 1]; // last parameter
                 }
             },
-            .CallComma,
-            .AsyncCallComma,
-            .TaggedUnionEnumTagComma,
+            .call_comma,
+            .async_call_comma,
+            .tagged_union_enum_tag_comma,
             => {
                 end_offset += 2; // for the comma + rparen/rbrace
                 const params = tree.extraData(datas[n].rhs, Node.SubRange);
                 assert(params.end > params.start);
                 n = tree.extra_data[params.end - 1]; // last parameter
             },
-            .Switch => {
+            .@"switch" => {
                 const cases = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (cases.end - cases.start == 0) {
                     end_offset += 3; // rparen, lbrace, rbrace
@@ -610,7 +610,7 @@ pub const Tree = struct {
                     n = tree.extra_data[cases.end - 1]; // last case
                 }
             },
-            .ContainerDeclArg => {
+            .container_decl_arg => {
                 const members = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (members.end - members.start == 0) {
                     end_offset += 1; // for the rparen
@@ -620,53 +620,53 @@ pub const Tree = struct {
                     n = tree.extra_data[members.end - 1]; // last parameter
                 }
             },
-            .Asm => {
+            .@"asm" => {
                 const extra = tree.extraData(datas[n].rhs, Node.Asm);
                 return extra.rparen + end_offset;
             },
-            .ArrayInit,
-            .StructInit,
+            .array_init,
+            .struct_init,
             => {
                 const elements = tree.extraData(datas[n].rhs, Node.SubRange);
                 assert(elements.end - elements.start > 0);
                 end_offset += 1; // for the rbrace
                 n = tree.extra_data[elements.end - 1]; // last element
             },
-            .ArrayInitComma,
-            .StructInitComma,
-            .ContainerDeclArgComma,
-            .SwitchComma,
+            .array_init_comma,
+            .struct_init_comma,
+            .container_decl_arg_comma,
+            .switch_comma,
             => {
                 const members = tree.extraData(datas[n].rhs, Node.SubRange);
                 assert(members.end - members.start > 0);
                 end_offset += 2; // for the comma + rbrace
                 n = tree.extra_data[members.end - 1]; // last parameter
             },
-            .ArrayInitDot,
-            .StructInitDot,
-            .Block,
-            .ContainerDecl,
-            .TaggedUnion,
-            .BuiltinCall,
+            .array_init_dot,
+            .struct_init_dot,
+            .block,
+            .container_decl,
+            .tagged_union,
+            .builtin_call,
             => {
                 assert(datas[n].rhs - datas[n].lhs > 0);
                 end_offset += 1; // for the rbrace
                 n = tree.extra_data[datas[n].rhs - 1]; // last statement
             },
-            .ArrayInitDotComma,
-            .StructInitDotComma,
-            .BlockSemicolon,
-            .ContainerDeclComma,
-            .TaggedUnionComma,
-            .BuiltinCallComma,
+            .array_init_dot_comma,
+            .struct_init_dot_comma,
+            .block_semicolon,
+            .container_decl_comma,
+            .tagged_union_comma,
+            .builtin_call_comma,
             => {
                 assert(datas[n].rhs - datas[n].lhs > 0);
                 end_offset += 2; // for the comma/semicolon + rbrace/rparen
                 n = tree.extra_data[datas[n].rhs - 1]; // last member
             },
-            .CallOne,
-            .AsyncCallOne,
-            .ArrayAccess,
+            .call_one,
+            .async_call_one,
+            .array_access,
             => {
                 end_offset += 1; // for the rparen/rbracket
                 if (datas[n].rhs == 0) {
@@ -674,12 +674,12 @@ pub const Tree = struct {
                 }
                 n = datas[n].rhs;
             },
-            .ArrayInitDotTwo,
-            .BlockTwo,
-            .BuiltinCallTwo,
-            .StructInitDotTwo,
-            .ContainerDeclTwo,
-            .TaggedUnionTwo,
+            .array_init_dot_two,
+            .block_two,
+            .builtin_call_two,
+            .struct_init_dot_two,
+            .container_decl_two,
+            .tagged_union_two,
             => {
                 if (datas[n].rhs != 0) {
                     end_offset += 1; // for the rparen/rbrace
@@ -689,25 +689,25 @@ pub const Tree = struct {
                     n = datas[n].lhs;
                 } else {
                     switch (tags[n]) {
-                        .ArrayInitDotTwo,
-                        .BlockTwo,
-                        .StructInitDotTwo,
+                        .array_init_dot_two,
+                        .block_two,
+                        .struct_init_dot_two,
                         => end_offset += 1, // rbrace
-                        .BuiltinCallTwo,
-                        .ContainerDeclTwo,
+                        .builtin_call_two,
+                        .container_decl_two,
                         => end_offset += 2, // lparen/lbrace + rparen/rbrace
-                        .TaggedUnionTwo => end_offset += 5, // (enum) {}
+                        .tagged_union_two => end_offset += 5, // (enum) {}
                         else => unreachable,
                     }
                     return main_tokens[n] + end_offset;
                 }
             },
-            .ArrayInitDotTwoComma,
-            .BuiltinCallTwoComma,
-            .BlockTwoSemicolon,
-            .StructInitDotTwoComma,
-            .ContainerDeclTwoComma,
-            .TaggedUnionTwoComma,
+            .array_init_dot_two_comma,
+            .builtin_call_two_comma,
+            .block_two_semicolon,
+            .struct_init_dot_two_comma,
+            .container_decl_two_comma,
+            .tagged_union_two_comma,
             => {
                 end_offset += 2; // for the comma/semicolon + rbrace/rparen
                 if (datas[n].rhs != 0) {
@@ -718,7 +718,7 @@ pub const Tree = struct {
                     unreachable;
                 }
             },
-            .SimpleVarDecl => {
+            .simple_var_decl => {
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else if (datas[n].lhs != 0) {
@@ -728,7 +728,7 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
-            .AlignedVarDecl => {
+            .aligned_var_decl => {
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else if (datas[n].lhs != 0) {
@@ -739,7 +739,7 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
-            .GlobalVarDecl => {
+            .global_var_decl => {
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else {
@@ -758,7 +758,7 @@ pub const Tree = struct {
                     }
                 }
             },
-            .LocalVarDecl => {
+            .local_var_decl => {
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else {
@@ -774,7 +774,7 @@ pub const Tree = struct {
                     }
                 }
             },
-            .ContainerFieldInit => {
+            .container_field_init => {
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else if (datas[n].lhs != 0) {
@@ -783,7 +783,7 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
-            .ContainerFieldAlign => {
+            .container_field_align => {
                 if (datas[n].rhs != 0) {
                     end_offset += 1; // for the rparen
                     n = datas[n].rhs;
@@ -793,7 +793,7 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
-            .ContainerField => {
+            .container_field => {
                 const extra = tree.extraData(datas[n].rhs, Node.ContainerField);
                 if (extra.value_expr != 0) {
                     n = extra.value_expr;
@@ -807,8 +807,8 @@ pub const Tree = struct {
                 }
             },
 
-            .ArrayInitOne,
-            .StructInitOne,
+            .array_init_one,
+            .struct_init_one,
             => {
                 end_offset += 1; // rbrace
                 if (datas[n].rhs == 0) {
@@ -817,37 +817,37 @@ pub const Tree = struct {
                     n = datas[n].rhs;
                 }
             },
-            .SliceOpen,
-            .CallOneComma,
-            .AsyncCallOneComma,
-            .ArrayInitOneComma,
-            .StructInitOneComma,
+            .slice_open,
+            .call_one_comma,
+            .async_call_one_comma,
+            .array_init_one_comma,
+            .struct_init_one_comma,
             => {
                 end_offset += 2; // ellipsis2 + rbracket, or comma + rparen
                 n = datas[n].rhs;
                 assert(n != 0);
             },
-            .Slice => {
+            .slice => {
                 const extra = tree.extraData(datas[n].rhs, Node.Slice);
                 assert(extra.end != 0); // should have used SliceOpen
                 end_offset += 1; // rbracket
                 n = extra.end;
             },
-            .SliceSentinel => {
+            .slice_sentinel => {
                 const extra = tree.extraData(datas[n].rhs, Node.SliceSentinel);
                 assert(extra.sentinel != 0); // should have used Slice
                 end_offset += 1; // rbracket
                 n = extra.sentinel;
             },
 
-            .Continue => {
+            .@"continue" => {
                 if (datas[n].lhs != 0) {
                     return datas[n].lhs + end_offset;
                 } else {
                     return main_tokens[n] + end_offset;
                 }
             },
-            .Break => {
+            .@"break" => {
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else if (datas[n].lhs != 0) {
@@ -856,14 +856,14 @@ pub const Tree = struct {
                     return main_tokens[n] + end_offset;
                 }
             },
-            .FnDecl => {
+            .fn_decl => {
                 if (datas[n].rhs != 0) {
                     n = datas[n].rhs;
                 } else {
                     n = datas[n].lhs;
                 }
             },
-            .FnProtoOne => {
+            .fn_proto_one => {
                 const extra = tree.extraData(datas[n].lhs, Node.FnProtoOne);
                 // linksection, callconv, align can appear in any order, so we
                 // find the last one here.
@@ -897,7 +897,7 @@ pub const Tree = struct {
                 n = max_node;
                 end_offset += max_offset;
             },
-            .FnProto => {
+            .fn_proto => {
                 const extra = tree.extraData(datas[n].lhs, Node.FnProto);
                 // linksection, callconv, align can appear in any order, so we
                 // find the last one here.
@@ -931,29 +931,29 @@ pub const Tree = struct {
                 n = max_node;
                 end_offset += max_offset;
             },
-            .WhileCont => {
+            .while_cont => {
                 const extra = tree.extraData(datas[n].rhs, Node.WhileCont);
                 assert(extra.then_expr != 0);
                 n = extra.then_expr;
             },
-            .While => {
+            .@"while" => {
                 const extra = tree.extraData(datas[n].rhs, Node.While);
                 assert(extra.else_expr != 0);
                 n = extra.else_expr;
             },
-            .If, .For => {
+            .@"if", .@"for" => {
                 const extra = tree.extraData(datas[n].rhs, Node.If);
                 assert(extra.else_expr != 0);
                 n = extra.else_expr;
             },
-            .Suspend => {
+            .@"suspend" => {
                 if (datas[n].lhs != 0) {
                     n = datas[n].lhs;
                 } else {
                     return main_tokens[n] + end_offset;
                 }
             },
-            .ArrayTypeSentinel => {
+            .array_type_sentinel => {
                 const extra = tree.extraData(datas[n].rhs, Node.ArrayTypeSentinel);
                 n = extra.elem_type;
             },
@@ -967,7 +967,7 @@ pub const Tree = struct {
     }
 
     pub fn globalVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
-        assert(tree.nodes.items(.tag)[node] == .GlobalVarDecl);
+        assert(tree.nodes.items(.tag)[node] == .global_var_decl);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.lhs, Node.GlobalVarDecl);
         return tree.fullVarDecl(.{
@@ -980,7 +980,7 @@ pub const Tree = struct {
     }
 
     pub fn localVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
-        assert(tree.nodes.items(.tag)[node] == .LocalVarDecl);
+        assert(tree.nodes.items(.tag)[node] == .local_var_decl);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.lhs, Node.LocalVarDecl);
         return tree.fullVarDecl(.{
@@ -993,7 +993,7 @@ pub const Tree = struct {
     }
 
     pub fn simpleVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
-        assert(tree.nodes.items(.tag)[node] == .SimpleVarDecl);
+        assert(tree.nodes.items(.tag)[node] == .simple_var_decl);
         const data = tree.nodes.items(.data)[node];
         return tree.fullVarDecl(.{
             .type_node = data.lhs,
@@ -1005,7 +1005,7 @@ pub const Tree = struct {
     }
 
     pub fn alignedVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
-        assert(tree.nodes.items(.tag)[node] == .AlignedVarDecl);
+        assert(tree.nodes.items(.tag)[node] == .aligned_var_decl);
         const data = tree.nodes.items(.data)[node];
         return tree.fullVarDecl(.{
             .type_node = 0,
@@ -1017,7 +1017,7 @@ pub const Tree = struct {
     }
 
     pub fn ifSimple(tree: Tree, node: Node.Index) full.If {
-        assert(tree.nodes.items(.tag)[node] == .IfSimple);
+        assert(tree.nodes.items(.tag)[node] == .if_simple);
         const data = tree.nodes.items(.data)[node];
         return tree.fullIf(.{
             .cond_expr = data.lhs,
@@ -1028,7 +1028,7 @@ pub const Tree = struct {
     }
 
     pub fn ifFull(tree: Tree, node: Node.Index) full.If {
-        assert(tree.nodes.items(.tag)[node] == .If);
+        assert(tree.nodes.items(.tag)[node] == .@"if");
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.rhs, Node.If);
         return tree.fullIf(.{
@@ -1040,7 +1040,7 @@ pub const Tree = struct {
     }
 
     pub fn containerField(tree: Tree, node: Node.Index) full.ContainerField {
-        assert(tree.nodes.items(.tag)[node] == .ContainerField);
+        assert(tree.nodes.items(.tag)[node] == .container_field);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.rhs, Node.ContainerField);
         return tree.fullContainerField(.{
@@ -1052,7 +1052,7 @@ pub const Tree = struct {
     }
 
     pub fn containerFieldInit(tree: Tree, node: Node.Index) full.ContainerField {
-        assert(tree.nodes.items(.tag)[node] == .ContainerFieldInit);
+        assert(tree.nodes.items(.tag)[node] == .container_field_init);
         const data = tree.nodes.items(.data)[node];
         return tree.fullContainerField(.{
             .name_token = tree.nodes.items(.main_token)[node],
@@ -1063,7 +1063,7 @@ pub const Tree = struct {
     }
 
     pub fn containerFieldAlign(tree: Tree, node: Node.Index) full.ContainerField {
-        assert(tree.nodes.items(.tag)[node] == .ContainerFieldAlign);
+        assert(tree.nodes.items(.tag)[node] == .container_field_align);
         const data = tree.nodes.items(.data)[node];
         return tree.fullContainerField(.{
             .name_token = tree.nodes.items(.main_token)[node],
@@ -1074,7 +1074,7 @@ pub const Tree = struct {
     }
 
     pub fn fnProtoSimple(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.FnProto {
-        assert(tree.nodes.items(.tag)[node] == .FnProtoSimple);
+        assert(tree.nodes.items(.tag)[node] == .fn_proto_simple);
         const data = tree.nodes.items(.data)[node];
         buffer[0] = data.lhs;
         const params = if (data.lhs == 0) buffer[0..0] else buffer[0..1];
@@ -1089,7 +1089,7 @@ pub const Tree = struct {
     }
 
     pub fn fnProtoMulti(tree: Tree, node: Node.Index) full.FnProto {
-        assert(tree.nodes.items(.tag)[node] == .FnProtoMulti);
+        assert(tree.nodes.items(.tag)[node] == .fn_proto_multi);
         const data = tree.nodes.items(.data)[node];
         const params_range = tree.extraData(data.lhs, Node.SubRange);
         const params = tree.extra_data[params_range.start..params_range.end];
@@ -1104,7 +1104,7 @@ pub const Tree = struct {
     }
 
     pub fn fnProtoOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.FnProto {
-        assert(tree.nodes.items(.tag)[node] == .FnProtoOne);
+        assert(tree.nodes.items(.tag)[node] == .fn_proto_one);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.lhs, Node.FnProtoOne);
         buffer[0] = extra.param;
@@ -1120,7 +1120,7 @@ pub const Tree = struct {
     }
 
     pub fn fnProto(tree: Tree, node: Node.Index) full.FnProto {
-        assert(tree.nodes.items(.tag)[node] == .FnProto);
+        assert(tree.nodes.items(.tag)[node] == .fn_proto);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.lhs, Node.FnProto);
         const params = tree.extra_data[extra.params_start..extra.params_end];
@@ -1135,8 +1135,8 @@ pub const Tree = struct {
     }
 
     pub fn structInitOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.StructInit {
-        assert(tree.nodes.items(.tag)[node] == .StructInitOne or
-            tree.nodes.items(.tag)[node] == .StructInitOneComma);
+        assert(tree.nodes.items(.tag)[node] == .struct_init_one or
+            tree.nodes.items(.tag)[node] == .struct_init_one_comma);
         const data = tree.nodes.items(.data)[node];
         buffer[0] = data.rhs;
         const fields = if (data.rhs == 0) buffer[0..0] else buffer[0..1];
@@ -1148,8 +1148,8 @@ pub const Tree = struct {
     }
 
     pub fn structInitDotTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.StructInit {
-        assert(tree.nodes.items(.tag)[node] == .StructInitDotTwo or
-            tree.nodes.items(.tag)[node] == .StructInitDotTwoComma);
+        assert(tree.nodes.items(.tag)[node] == .struct_init_dot_two or
+            tree.nodes.items(.tag)[node] == .struct_init_dot_two_comma);
         const data = tree.nodes.items(.data)[node];
         buffer.* = .{ data.lhs, data.rhs };
         const fields = if (data.rhs != 0)
@@ -1166,8 +1166,8 @@ pub const Tree = struct {
     }
 
     pub fn structInitDot(tree: Tree, node: Node.Index) full.StructInit {
-        assert(tree.nodes.items(.tag)[node] == .StructInitDot or
-            tree.nodes.items(.tag)[node] == .StructInitDotComma);
+        assert(tree.nodes.items(.tag)[node] == .struct_init_dot or
+            tree.nodes.items(.tag)[node] == .struct_init_dot_comma);
         const data = tree.nodes.items(.data)[node];
         return tree.fullStructInit(.{
             .lbrace = tree.nodes.items(.main_token)[node],
@@ -1177,8 +1177,8 @@ pub const Tree = struct {
     }
 
     pub fn structInit(tree: Tree, node: Node.Index) full.StructInit {
-        assert(tree.nodes.items(.tag)[node] == .StructInit or
-            tree.nodes.items(.tag)[node] == .StructInitComma);
+        assert(tree.nodes.items(.tag)[node] == .struct_init or
+            tree.nodes.items(.tag)[node] == .struct_init_comma);
         const data = tree.nodes.items(.data)[node];
         const fields_range = tree.extraData(data.rhs, Node.SubRange);
         return tree.fullStructInit(.{
@@ -1189,8 +1189,8 @@ pub const Tree = struct {
     }
 
     pub fn arrayInitOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.ArrayInit {
-        assert(tree.nodes.items(.tag)[node] == .ArrayInitOne or
-            tree.nodes.items(.tag)[node] == .ArrayInitOneComma);
+        assert(tree.nodes.items(.tag)[node] == .array_init_one or
+            tree.nodes.items(.tag)[node] == .array_init_one_comma);
         const data = tree.nodes.items(.data)[node];
         buffer[0] = data.rhs;
         const elements = if (data.rhs == 0) buffer[0..0] else buffer[0..1];
@@ -1204,8 +1204,8 @@ pub const Tree = struct {
     }
 
     pub fn arrayInitDotTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.ArrayInit {
-        assert(tree.nodes.items(.tag)[node] == .ArrayInitDotTwo or
-            tree.nodes.items(.tag)[node] == .ArrayInitDotTwoComma);
+        assert(tree.nodes.items(.tag)[node] == .array_init_dot_two or
+            tree.nodes.items(.tag)[node] == .array_init_dot_two_comma);
         const data = tree.nodes.items(.data)[node];
         buffer.* = .{ data.lhs, data.rhs };
         const elements = if (data.rhs != 0)
@@ -1224,8 +1224,8 @@ pub const Tree = struct {
     }
 
     pub fn arrayInitDot(tree: Tree, node: Node.Index) full.ArrayInit {
-        assert(tree.nodes.items(.tag)[node] == .ArrayInitDot or
-            tree.nodes.items(.tag)[node] == .ArrayInitDotComma);
+        assert(tree.nodes.items(.tag)[node] == .array_init_dot or
+            tree.nodes.items(.tag)[node] == .array_init_dot_comma);
         const data = tree.nodes.items(.data)[node];
         return .{
             .ast = .{
@@ -1237,8 +1237,8 @@ pub const Tree = struct {
     }
 
     pub fn arrayInit(tree: Tree, node: Node.Index) full.ArrayInit {
-        assert(tree.nodes.items(.tag)[node] == .ArrayInit or
-            tree.nodes.items(.tag)[node] == .ArrayInitComma);
+        assert(tree.nodes.items(.tag)[node] == .array_init or
+            tree.nodes.items(.tag)[node] == .array_init_comma);
         const data = tree.nodes.items(.data)[node];
         const elem_range = tree.extraData(data.rhs, Node.SubRange);
         return .{
@@ -1251,7 +1251,7 @@ pub const Tree = struct {
     }
 
     pub fn arrayType(tree: Tree, node: Node.Index) full.ArrayType {
-        assert(tree.nodes.items(.tag)[node] == .ArrayType);
+        assert(tree.nodes.items(.tag)[node] == .array_type);
         const data = tree.nodes.items(.data)[node];
         return .{
             .ast = .{
@@ -1264,7 +1264,7 @@ pub const Tree = struct {
     }
 
     pub fn arrayTypeSentinel(tree: Tree, node: Node.Index) full.ArrayType {
-        assert(tree.nodes.items(.tag)[node] == .ArrayTypeSentinel);
+        assert(tree.nodes.items(.tag)[node] == .array_type_sentinel);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.rhs, Node.ArrayTypeSentinel);
         return .{
@@ -1278,7 +1278,7 @@ pub const Tree = struct {
     }
 
     pub fn ptrTypeAligned(tree: Tree, node: Node.Index) full.PtrType {
-        assert(tree.nodes.items(.tag)[node] == .PtrTypeAligned);
+        assert(tree.nodes.items(.tag)[node] == .ptr_type_aligned);
         const data = tree.nodes.items(.data)[node];
         return tree.fullPtrType(.{
             .main_token = tree.nodes.items(.main_token)[node],
@@ -1291,7 +1291,7 @@ pub const Tree = struct {
     }
 
     pub fn ptrTypeSentinel(tree: Tree, node: Node.Index) full.PtrType {
-        assert(tree.nodes.items(.tag)[node] == .PtrTypeSentinel);
+        assert(tree.nodes.items(.tag)[node] == .ptr_type_sentinel);
         const data = tree.nodes.items(.data)[node];
         return tree.fullPtrType(.{
             .main_token = tree.nodes.items(.main_token)[node],
@@ -1304,7 +1304,7 @@ pub const Tree = struct {
     }
 
     pub fn ptrType(tree: Tree, node: Node.Index) full.PtrType {
-        assert(tree.nodes.items(.tag)[node] == .PtrType);
+        assert(tree.nodes.items(.tag)[node] == .ptr_type);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.lhs, Node.PtrType);
         return tree.fullPtrType(.{
@@ -1318,7 +1318,7 @@ pub const Tree = struct {
     }
 
     pub fn ptrTypeBitRange(tree: Tree, node: Node.Index) full.PtrType {
-        assert(tree.nodes.items(.tag)[node] == .PtrTypeBitRange);
+        assert(tree.nodes.items(.tag)[node] == .ptr_type_bit_range);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.lhs, Node.PtrTypeBitRange);
         return tree.fullPtrType(.{
@@ -1332,7 +1332,7 @@ pub const Tree = struct {
     }
 
     pub fn sliceOpen(tree: Tree, node: Node.Index) full.Slice {
-        assert(tree.nodes.items(.tag)[node] == .SliceOpen);
+        assert(tree.nodes.items(.tag)[node] == .slice_open);
         const data = tree.nodes.items(.data)[node];
         return .{
             .ast = .{
@@ -1346,7 +1346,7 @@ pub const Tree = struct {
     }
 
     pub fn slice(tree: Tree, node: Node.Index) full.Slice {
-        assert(tree.nodes.items(.tag)[node] == .Slice);
+        assert(tree.nodes.items(.tag)[node] == .slice);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.rhs, Node.Slice);
         return .{
@@ -1361,7 +1361,7 @@ pub const Tree = struct {
     }
 
     pub fn sliceSentinel(tree: Tree, node: Node.Index) full.Slice {
-        assert(tree.nodes.items(.tag)[node] == .SliceSentinel);
+        assert(tree.nodes.items(.tag)[node] == .slice_sentinel);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.rhs, Node.SliceSentinel);
         return .{
@@ -1376,8 +1376,8 @@ pub const Tree = struct {
     }
 
     pub fn containerDeclTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .ContainerDeclTwo or
-            tree.nodes.items(.tag)[node] == .ContainerDeclTwoComma);
+        assert(tree.nodes.items(.tag)[node] == .container_decl_two or
+            tree.nodes.items(.tag)[node] == .container_decl_two_comma);
         const data = tree.nodes.items(.data)[node];
         buffer.* = .{ data.lhs, data.rhs };
         const members = if (data.rhs != 0)
@@ -1395,8 +1395,8 @@ pub const Tree = struct {
     }
 
     pub fn containerDecl(tree: Tree, node: Node.Index) full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .ContainerDecl or
-            tree.nodes.items(.tag)[node] == .ContainerDeclComma);
+        assert(tree.nodes.items(.tag)[node] == .container_decl or
+            tree.nodes.items(.tag)[node] == .container_decl_comma);
         const data = tree.nodes.items(.data)[node];
         return tree.fullContainerDecl(.{
             .main_token = tree.nodes.items(.main_token)[node],
@@ -1407,8 +1407,8 @@ pub const Tree = struct {
     }
 
     pub fn containerDeclArg(tree: Tree, node: Node.Index) full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .ContainerDeclArg or
-            tree.nodes.items(.tag)[node] == .ContainerDeclArgComma);
+        assert(tree.nodes.items(.tag)[node] == .container_decl_arg or
+            tree.nodes.items(.tag)[node] == .container_decl_arg_comma);
         const data = tree.nodes.items(.data)[node];
         const members_range = tree.extraData(data.rhs, Node.SubRange);
         return tree.fullContainerDecl(.{
@@ -1420,8 +1420,8 @@ pub const Tree = struct {
     }
 
     pub fn taggedUnionTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .TaggedUnionTwo or
-            tree.nodes.items(.tag)[node] == .TaggedUnionTwoComma);
+        assert(tree.nodes.items(.tag)[node] == .tagged_union_two or
+            tree.nodes.items(.tag)[node] == .tagged_union_two_comma);
         const data = tree.nodes.items(.data)[node];
         buffer.* = .{ data.lhs, data.rhs };
         const members = if (data.rhs != 0)
@@ -1440,8 +1440,8 @@ pub const Tree = struct {
     }
 
     pub fn taggedUnion(tree: Tree, node: Node.Index) full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .TaggedUnion or
-            tree.nodes.items(.tag)[node] == .TaggedUnionComma);
+        assert(tree.nodes.items(.tag)[node] == .tagged_union or
+            tree.nodes.items(.tag)[node] == .tagged_union_comma);
         const data = tree.nodes.items(.data)[node];
         const main_token = tree.nodes.items(.main_token)[node];
         return tree.fullContainerDecl(.{
@@ -1453,8 +1453,8 @@ pub const Tree = struct {
     }
 
     pub fn taggedUnionEnumTag(tree: Tree, node: Node.Index) full.ContainerDecl {
-        assert(tree.nodes.items(.tag)[node] == .TaggedUnionEnumTag or
-            tree.nodes.items(.tag)[node] == .TaggedUnionEnumTagComma);
+        assert(tree.nodes.items(.tag)[node] == .tagged_union_enum_tag or
+            tree.nodes.items(.tag)[node] == .tagged_union_enum_tag_comma);
         const data = tree.nodes.items(.data)[node];
         const members_range = tree.extraData(data.rhs, Node.SubRange);
         const main_token = tree.nodes.items(.main_token)[node];
@@ -1765,7 +1765,7 @@ pub const Tree = struct {
         }
         const outputs_end: usize = for (info.items) |item, i| {
             switch (node_tags[item]) {
-                .AsmOutput => continue,
+                .asm_output => continue,
                 else => break i,
             }
         } else info.items.len;
@@ -2162,7 +2162,7 @@ pub const Error = union(enum) {
 
         pub fn render(self: ExpectedCall, tree: Tree, stream: anytype) !void {
             const node_tag = tree.nodes.items(.tag)[self.node];
-            return stream.print("expected " ++ @tagName(Node.Tag.Call) ++ ", found {s}", .{
+            return stream.print("expected " ++ @tagName(Node.Tag.call) ++ ", found {s}", .{
                 @tagName(node_tag),
             });
         }
@@ -2173,8 +2173,8 @@ pub const Error = union(enum) {
 
         pub fn render(self: ExpectedCallOrFnProto, tree: Tree, stream: anytype) !void {
             const node_tag = tree.nodes.items(.tag)[self.node];
-            return stream.print("expected " ++ @tagName(Node.Tag.Call) ++ " or " ++
-                @tagName(Node.Tag.FnProto) ++ ", found {s}", .{@tagName(node_tag)});
+            return stream.print("expected " ++ @tagName(Node.Tag.call) ++ " or " ++
+                @tagName(Node.Tag.fn_proto) ++ ", found {s}", .{@tagName(node_tag)});
         }
     };
 
@@ -2305,433 +2305,433 @@ pub const Node = struct {
     /// Tree.lastToken()
     pub const Tag = enum {
         /// sub_list[lhs...rhs]
-        Root,
+        root,
         /// `usingnamespace lhs;`. rhs unused. main_token is `usingnamespace`.
-        UsingNamespace,
+        @"usingnamespace",
         /// lhs is test name token (must be string literal), if any.
         /// rhs is the body node.
-        TestDecl,
+        test_decl,
         /// lhs is the index into extra_data.
         /// rhs is the initialization expression, if any.
         /// main_token is `var` or `const`.
-        GlobalVarDecl,
+        global_var_decl,
         /// `var a: x align(y) = rhs`
         /// lhs is the index into extra_data.
         /// main_token is `var` or `const`.
-        LocalVarDecl,
+        local_var_decl,
         /// `var a: lhs = rhs`. lhs and rhs may be unused.
         /// Can be local or global.
         /// main_token is `var` or `const`.
-        SimpleVarDecl,
+        simple_var_decl,
         /// `var a align(lhs) = rhs`. lhs and rhs may be unused.
         /// Can be local or global.
         /// main_token is `var` or `const`.
-        AlignedVarDecl,
+        aligned_var_decl,
         /// lhs is the identifier token payload if any,
         /// rhs is the deferred expression.
-        ErrDefer,
+        @"errdefer",
         /// lhs is unused.
         /// rhs is the deferred expression.
-        Defer,
+        @"defer",
         /// lhs catch rhs
         /// lhs catch |err| rhs
         /// main_token is the catch
         /// payload is determined by looking at the prev tokens before rhs.
-        Catch,
+        @"catch",
         /// `lhs.a`. main_token is the dot. rhs is the identifier token index.
-        FieldAccess,
+        field_access,
         /// `lhs.?`. main_token is the dot. rhs is the `?` token index.
-        UnwrapOptional,
+        unwrap_optional,
         /// `lhs == rhs`. main_token is op.
-        EqualEqual,
+        equal_equal,
         /// `lhs != rhs`. main_token is op.
-        BangEqual,
+        bang_equal,
         /// `lhs < rhs`. main_token is op.
-        LessThan,
+        less_than,
         /// `lhs > rhs`. main_token is op.
-        GreaterThan,
+        greater_than,
         /// `lhs <= rhs`. main_token is op.
-        LessOrEqual,
+        less_or_equal,
         /// `lhs >= rhs`. main_token is op.
-        GreaterOrEqual,
+        greater_or_equal,
         /// `lhs *= rhs`. main_token is op.
-        AssignMul,
+        assign_mul,
         /// `lhs /= rhs`. main_token is op.
-        AssignDiv,
+        assign_div,
         /// `lhs *= rhs`. main_token is op.
-        AssignMod,
+        assign_mod,
         /// `lhs += rhs`. main_token is op.
-        AssignAdd,
+        assign_add,
         /// `lhs -= rhs`. main_token is op.
-        AssignSub,
+        assign_sub,
         /// `lhs <<= rhs`. main_token is op.
-        AssignBitShiftLeft,
+        assign_bit_shift_left,
         /// `lhs >>= rhs`. main_token is op.
-        AssignBitShiftRight,
+        assign_bit_shift_right,
         /// `lhs &= rhs`. main_token is op.
-        AssignBitAnd,
+        assign_bit_and,
         /// `lhs ^= rhs`. main_token is op.
-        AssignBitXor,
+        assign_bit_xor,
         /// `lhs |= rhs`. main_token is op.
-        AssignBitOr,
+        assign_bit_or,
         /// `lhs *%= rhs`. main_token is op.
-        AssignMulWrap,
+        assign_mul_wrap,
         /// `lhs +%= rhs`. main_token is op.
-        AssignAddWrap,
+        assign_add_wrap,
         /// `lhs -%= rhs`. main_token is op.
-        AssignSubWrap,
+        assign_sub_wrap,
         /// `lhs = rhs`. main_token is op.
-        Assign,
+        assign,
         /// `lhs || rhs`. main_token is the `||`.
-        MergeErrorSets,
+        merge_error_sets,
         /// `lhs * rhs`. main_token is the `*`.
-        Mul,
+        mul,
         /// `lhs / rhs`. main_token is the `/`.
-        Div,
+        div,
         /// `lhs % rhs`. main_token is the `%`.
-        Mod,
+        mod,
         /// `lhs ** rhs`. main_token is the `**`.
-        ArrayMult,
+        array_mult,
         /// `lhs *% rhs`. main_token is the `*%`.
-        MulWrap,
+        mul_wrap,
         /// `lhs + rhs`. main_token is the `+`.
-        Add,
+        add,
         /// `lhs - rhs`. main_token is the `-`.
-        Sub,
+        sub,
         /// `lhs ++ rhs`. main_token is the `++`.
-        ArrayCat,
+        array_cat,
         /// `lhs +% rhs`. main_token is the `+%`.
-        AddWrap,
+        add_wrap,
         /// `lhs -% rhs`. main_token is the `-%`.
-        SubWrap,
+        sub_wrap,
         /// `lhs << rhs`. main_token is the `<<`.
-        BitShiftLeft,
+        bit_shift_left,
         /// `lhs >> rhs`. main_token is the `>>`.
-        BitShiftRight,
+        bit_shift_right,
         /// `lhs & rhs`. main_token is the `&`.
-        BitAnd,
+        bit_and,
         /// `lhs ^ rhs`. main_token is the `^`.
-        BitXor,
+        bit_xor,
         /// `lhs | rhs`. main_token is the `|`.
-        BitOr,
+        bit_or,
         /// `lhs orelse rhs`. main_token is the `orelse`.
-        OrElse,
+        @"orelse",
         /// `lhs and rhs`. main_token is the `and`.
-        BoolAnd,
+        bool_and,
         /// `lhs or rhs`. main_token is the `or`.
-        BoolOr,
+        bool_or,
         /// `op lhs`. rhs unused. main_token is op.
-        BoolNot,
+        bool_not,
         /// `op lhs`. rhs unused. main_token is op.
-        Negation,
+        negation,
         /// `op lhs`. rhs unused. main_token is op.
-        BitNot,
+        bit_not,
         /// `op lhs`. rhs unused. main_token is op.
-        NegationWrap,
+        negation_wrap,
         /// `op lhs`. rhs unused. main_token is op.
-        AddressOf,
+        address_of,
         /// `op lhs`. rhs unused. main_token is op.
-        Try,
+        @"try",
         /// `op lhs`. rhs unused. main_token is op.
-        Await,
+        @"await",
         /// `?lhs`. rhs unused. main_token is the `?`.
-        OptionalType,
+        optional_type,
         /// `[lhs]rhs`. lhs can be omitted to make it a slice.
-        ArrayType,
-        /// `[lhs:a]b`. `ArrayTypeSentinel[rhs]`.
-        ArrayTypeSentinel,
+        array_type,
+        /// `[lhs:a]b`. `array_type_sentinel[rhs]`.
+        array_type_sentinel,
         /// `[*]align(lhs) rhs`. lhs can be omitted.
         /// `*align(lhs) rhs`. lhs can be omitted.
         /// `[]rhs`.
         /// main_token is the asterisk if a pointer or the lbracket if a slice
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
-        PtrTypeAligned,
+        ptr_type_aligned,
         /// `[*:lhs]rhs`. lhs can be omitted.
         /// `*rhs`.
         /// `[:lhs]rhs`.
         /// main_token is the asterisk if a pointer or the lbracket if a slice
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
-        PtrTypeSentinel,
-        /// lhs is index into PtrType. rhs is the element type expression.
+        ptr_type_sentinel,
+        /// lhs is index into ptr_type. rhs is the element type expression.
         /// main_token is the asterisk if a pointer or the lbracket if a slice
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
-        PtrType,
-        /// lhs is index into PtrTypeBitRange. rhs is the element type expression.
+        ptr_type,
+        /// lhs is index into ptr_type_bit_range. rhs is the element type expression.
         /// main_token is the asterisk if a pointer or the lbracket if a slice
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
-        PtrTypeBitRange,
+        ptr_type_bit_range,
         /// `lhs[rhs..]`
         /// main_token is the lbracket.
-        SliceOpen,
+        slice_open,
         /// `lhs[b..c]`. rhs is index into Slice
         /// main_token is the lbracket.
-        Slice,
+        slice,
         /// `lhs[b..c :d]`. rhs is index into SliceSentinel
         /// main_token is the lbracket.
-        SliceSentinel,
+        slice_sentinel,
         /// `lhs.*`. rhs is unused.
-        Deref,
+        deref,
         /// `lhs[rhs]`.
-        ArrayAccess,
+        array_access,
         /// `lhs{rhs}`. rhs can be omitted.
-        ArrayInitOne,
+        array_init_one,
         /// `lhs{rhs,}`. rhs can *not* be omitted
-        ArrayInitOneComma,
+        array_init_one_comma,
         /// `.{lhs, rhs}`. lhs and rhs can be omitted.
-        ArrayInitDotTwo,
-        /// Same as `ArrayInitDotTwo` except there is known to be a trailing comma
+        array_init_dot_two,
+        /// Same as `array_init_dot_two` except there is known to be a trailing comma
         /// before the final rbrace.
-        ArrayInitDotTwoComma,
+        array_init_dot_two_comma,
         /// `.{a, b}`. `sub_list[lhs..rhs]`.
-        ArrayInitDot,
-        /// Same as `ArrayInitDot` except there is known to be a trailing comma
+        array_init_dot,
+        /// Same as `array_init_dot` except there is known to be a trailing comma
         /// before the final rbrace.
-        ArrayInitDotComma,
+        array_init_dot_comma,
         /// `lhs{a, b}`. `sub_range_list[rhs]`. lhs can be omitted which means `.{a, b}`.
-        ArrayInit,
-        /// Same as `ArrayInit` except there is known to be a trailing comma
+        array_init,
+        /// Same as `array_init` except there is known to be a trailing comma
         /// before the final rbrace.
-        ArrayInitComma,
+        array_init_comma,
         /// `lhs{.a = rhs}`. rhs can be omitted making it empty.
         /// main_token is the lbrace.
-        StructInitOne,
+        struct_init_one,
         /// `lhs{.a = rhs,}`. rhs can *not* be omitted.
         /// main_token is the lbrace.
-        StructInitOneComma,
+        struct_init_one_comma,
         /// `.{.a = lhs, .b = rhs}`. lhs and rhs can be omitted.
         /// main_token is the lbrace.
         /// No trailing comma before the rbrace.
-        StructInitDotTwo,
-        /// Same as `StructInitDotTwo` except there is known to be a trailing comma
+        struct_init_dot_two,
+        /// Same as `struct_init_dot_two` except there is known to be a trailing comma
         /// before the final rbrace.
-        StructInitDotTwoComma,
+        struct_init_dot_two_comma,
         /// `.{.a = b, .c = d}`. `sub_list[lhs..rhs]`.
         /// main_token is the lbrace.
-        StructInitDot,
-        /// Same as `StructInitDot` except there is known to be a trailing comma
+        struct_init_dot,
+        /// Same as `struct_init_dot` except there is known to be a trailing comma
         /// before the final rbrace.
-        StructInitDotComma,
+        struct_init_dot_comma,
         /// `lhs{.a = b, .c = d}`. `sub_range_list[rhs]`.
         /// lhs can be omitted which means `.{.a = b, .c = d}`.
         /// main_token is the lbrace.
-        StructInit,
-        /// Same as `StructInit` except there is known to be a trailing comma
+        struct_init,
+        /// Same as `struct_init` except there is known to be a trailing comma
         /// before the final rbrace.
-        StructInitComma,
+        struct_init_comma,
         /// `lhs(rhs)`. rhs can be omitted.
-        CallOne,
+        call_one,
         /// `lhs(rhs,)`. rhs can be omitted.
-        CallOneComma,
+        call_one_comma,
         /// `async lhs(rhs)`. rhs can be omitted.
-        AsyncCallOne,
+        async_call_one,
         /// `async lhs(rhs,)`.
-        AsyncCallOneComma,
+        async_call_one_comma,
         /// `lhs(a, b, c)`. `SubRange[rhs]`.
         /// main_token is the `(`.
-        Call,
+        call,
         /// `lhs(a, b, c,)`. `SubRange[rhs]`.
         /// main_token is the `(`.
-        CallComma,
+        call_comma,
         /// `async lhs(a, b, c)`. `SubRange[rhs]`.
         /// main_token is the `(`.
-        AsyncCall,
+        async_call,
         /// `async lhs(a, b, c,)`. `SubRange[rhs]`.
         /// main_token is the `(`.
-        AsyncCallComma,
+        async_call_comma,
         /// `switch(lhs) {}`. `SubRange[rhs]`.
-        Switch,
-        /// Same as Switch except there is known to be a trailing comma
+        @"switch",
+        /// Same as switch except there is known to be a trailing comma
         /// before the final rbrace
-        SwitchComma,
+        switch_comma,
         /// `lhs => rhs`. If lhs is omitted it means `else`.
         /// main_token is the `=>`
-        SwitchCaseOne,
+        switch_case_one,
         /// `a, b, c => rhs`. `SubRange[lhs]`.
         /// main_token is the `=>`
-        SwitchCase,
+        switch_case,
         /// `lhs...rhs`.
-        SwitchRange,
+        switch_range,
         /// `while (lhs) rhs`.
         /// `while (lhs) |x| rhs`.
-        WhileSimple,
+        while_simple,
         /// `while (lhs) : (a) b`. `WhileCont[rhs]`.
         /// `while (lhs) : (a) b`. `WhileCont[rhs]`.
-        WhileCont,
+        while_cont,
         /// `while (lhs) : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else |y| c`. `While[rhs]`.
-        While,
+        @"while",
         /// `for (lhs) rhs`.
-        ForSimple,
+        for_simple,
         /// `for (lhs) a else b`. `if_list[rhs]`.
-        For,
+        @"for",
         /// `if (lhs) rhs`.
         /// `if (lhs) |a| rhs`.
-        IfSimple,
+        if_simple,
         /// `if (lhs) a else b`. `If[rhs]`.
         /// `if (lhs) |x| a else b`. `If[rhs]`.
         /// `if (lhs) |x| a else |y| b`. `If[rhs]`.
-        If,
+        @"if",
         /// `suspend lhs`. lhs can be omitted. rhs is unused.
-        Suspend,
+        @"suspend",
         /// `resume lhs`. rhs is unused.
-        Resume,
+        @"resume",
         /// `continue`. lhs is token index of label if any. rhs is unused.
-        Continue,
+        @"continue",
         /// `break :lhs rhs`
         /// both lhs and rhs may be omitted.
-        Break,
+        @"break",
         /// `return lhs`. lhs can be omitted. rhs is unused.
-        Return,
+        @"return",
         /// `fn(a: lhs) rhs`. lhs can be omitted.
         /// anytype and ... parameters are omitted from the AST tree.
-        FnProtoSimple,
+        fn_proto_simple,
         /// `fn(a: b, c: d) rhs`. `sub_range_list[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
-        FnProtoMulti,
+        fn_proto_multi,
         /// `fn(a: b) rhs linksection(e) callconv(f)`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
-        FnProtoOne,
+        fn_proto_one,
         /// `fn(a: b, c: d) rhs linksection(e) callconv(f)`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
-        FnProto,
-        /// lhs is the FnProto.
+        fn_proto,
+        /// lhs is the fn_proto.
         /// rhs is the function body block if non-zero.
-        /// if rhs is zero, the funtion decl has no body (e.g. an extern function)
-        FnDecl,
+        /// if rhs is zero, the function decl has no body (e.g. an extern function)
+        fn_decl,
         /// `anyframe->rhs`. main_token is `anyframe`. `lhs` is arrow token index.
-        AnyFrameType,
+        anyframe_type,
         /// Both lhs and rhs unused.
-        AnyFrameLiteral,
+        anyframe_literal,
         /// Both lhs and rhs unused.
-        CharLiteral,
+        char_literal,
         /// Both lhs and rhs unused.
-        IntegerLiteral,
+        integer_literal,
         /// Both lhs and rhs unused.
-        FloatLiteral,
+        float_literal,
         /// Both lhs and rhs unused.
-        FalseLiteral,
+        false_literal,
         /// Both lhs and rhs unused.
-        TrueLiteral,
+        true_literal,
         /// Both lhs and rhs unused.
-        NullLiteral,
+        null_literal,
         /// Both lhs and rhs unused.
-        UndefinedLiteral,
+        undefined_literal,
         /// Both lhs and rhs unused.
-        UnreachableLiteral,
+        unreachable_literal,
         /// Both lhs and rhs unused.
         /// Most identifiers will not have explicit AST nodes, however for expressions
         /// which could be one of many different kinds of AST nodes, there will be an
-        /// Identifier AST node for it.
-        Identifier,
+        /// identifier AST node for it.
+        identifier,
         /// lhs is the dot token index, rhs unused, main_token is the identifier.
-        EnumLiteral,
+        enum_literal,
         /// main_token is the first token index (redundant with lhs)
         /// lhs is the first token index; rhs is the last token index.
-        /// Could be a series of MultilineStringLiteralLine tokens, or a single
-        /// StringLiteral token.
-        StringLiteral,
+        /// Could be a series of multiline_string_literal_line tokens, or a single
+        /// string_literal token.
+        string_literal,
         /// `(lhs)`. main_token is the `(`; rhs is the token index of the `)`.
-        GroupedExpression,
+        grouped_expression,
         /// `@a(lhs, rhs)`. lhs and rhs may be omitted.
-        BuiltinCallTwo,
-        /// Same as BuiltinCallTwo but there is known to be a trailing comma before the rparen.
-        BuiltinCallTwoComma,
+        builtin_call_two,
+        /// Same as builtin_call_two but there is known to be a trailing comma before the rparen.
+        builtin_call_two_comma,
         /// `@a(b, c)`. `sub_list[lhs..rhs]`.
-        BuiltinCall,
-        /// Same as BuiltinCall but there is known to be a trailing comma before the rparen.
-        BuiltinCallComma,
+        builtin_call,
+        /// Same as builtin_call but there is known to be a trailing comma before the rparen.
+        builtin_call_comma,
         /// `error{a, b}`.
         /// rhs is the rbrace, lhs is unused.
-        ErrorSetDecl,
+        error_set_decl,
         /// `struct {}`, `union {}`, `opaque {}`, `enum {}`. `extra_data[lhs..rhs]`.
         /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
-        ContainerDecl,
+        container_decl,
         /// Same as ContainerDecl but there is known to be a trailing comma before the rbrace.
-        ContainerDeclComma,
+        container_decl_comma,
         /// `struct {lhs, rhs}`, `union {lhs, rhs}`, `opaque {lhs, rhs}`, `enum {lhs, rhs}`.
         /// lhs or rhs can be omitted.
         /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
-        ContainerDeclTwo,
+        container_decl_two,
         /// Same as ContainerDeclTwo except there is known to be a trailing comma
         /// before the rbrace.
-        ContainerDeclTwoComma,
+        container_decl_two_comma,
         /// `union(lhs)` / `enum(lhs)`. `SubRange[rhs]`.
-        ContainerDeclArg,
-        /// Same as ContainerDeclArg but there is known to be a trailing comma before the rbrace.
-        ContainerDeclArgComma,
+        container_decl_arg,
+        /// Same as container_decl_arg but there is known to be a trailing comma before the rbrace.
+        container_decl_arg_comma,
         /// `union(enum) {}`. `sub_list[lhs..rhs]`.
         /// Note that tagged unions with explicitly provided enums are represented
-        /// by `ContainerDeclArg`.
-        TaggedUnion,
-        /// Same as TaggedUnion but there is known to be a trailing comma before the rbrace.
-        TaggedUnionComma,
+        /// by `container_decl_arg`.
+        tagged_union,
+        /// Same as tagged_union but there is known to be a trailing comma before the rbrace.
+        tagged_union_comma,
         /// `union(enum) {lhs, rhs}`. lhs or rhs may be omitted.
         /// Note that tagged unions with explicitly provided enums are represented
-        /// by `ContainerDeclArg`.
-        TaggedUnionTwo,
-        /// Same as TaggedUnionTwo but there is known to be a trailing comma before the rbrace.
-        TaggedUnionTwoComma,
+        /// by `container_decl_arg`.
+        tagged_union_two,
+        /// Same as tagged_union_two but there is known to be a trailing comma before the rbrace.
+        tagged_union_two_comma,
         /// `union(enum(lhs)) {}`. `SubRange[rhs]`.
-        TaggedUnionEnumTag,
-        /// Same as TaggedUnionEnumTag but there is known to be a trailing comma
+        tagged_union_enum_tag,
+        /// Same as tagged_union_enum_tag but there is known to be a trailing comma
         /// before the rbrace.
-        TaggedUnionEnumTagComma,
+        tagged_union_enum_tag_comma,
         /// `a: lhs = rhs,`. lhs and rhs can be omitted.
         /// main_token is the field name identifier.
         /// lastToken() does not include the possible trailing comma.
-        ContainerFieldInit,
+        container_field_init,
         /// `a: lhs align(rhs),`. rhs can be omitted.
         /// main_token is the field name identifier.
         /// lastToken() does not include the possible trailing comma.
-        ContainerFieldAlign,
+        container_field_align,
         /// `a: lhs align(c) = d,`. `container_field_list[rhs]`.
         /// main_token is the field name identifier.
         /// lastToken() does not include the possible trailing comma.
-        ContainerField,
+        container_field,
         /// `anytype`. both lhs and rhs unused.
         /// Used by `ContainerField`.
-        AnyType,
+        @"anytype",
         /// `comptime lhs`. rhs unused.
-        Comptime,
+        @"comptime",
         /// `nosuspend lhs`. rhs unused.
-        Nosuspend,
+        @"nosuspend",
         /// `{lhs rhs}`. rhs or lhs can be omitted.
         /// main_token points at the lbrace.
-        BlockTwo,
-        /// Same as BlockTwo but there is known to be a semicolon before the rbrace.
-        BlockTwoSemicolon,
+        block_two,
+        /// Same as block_two but there is known to be a semicolon before the rbrace.
+        block_two_semicolon,
         /// `{}`. `sub_list[lhs..rhs]`.
         /// main_token points at the lbrace.
-        Block,
-        /// Same as Block but there is known to be a semicolon before the rbrace.
-        BlockSemicolon,
+        block,
+        /// Same as block but there is known to be a semicolon before the rbrace.
+        block_semicolon,
         /// `asm(lhs)`. rhs is the token index of the rparen.
-        AsmSimple,
+        asm_simple,
         /// `asm(lhs, a)`. `Asm[rhs]`.
-        Asm,
+        @"asm",
         /// `[a] "b" (c)`. lhs is 0, rhs is token index of the rparen.
         /// `[a] "b" (-> lhs)`. rhs is token index of the rparen.
         /// main_token is `a`.
-        AsmOutput,
+        asm_output,
         /// `[a] "b" (lhs)`. rhs is token index of the rparen.
         /// main_token is `a`.
-        AsmInput,
+        asm_input,
         /// `error.a`. lhs is token index of `.`. rhs is token index of `a`.
-        ErrorValue,
+        error_value,
         /// `lhs!rhs`. main_token is the `!`.
-        ErrorUnion,
+        error_union,
 
         pub fn isContainerField(tag: Tag) bool {
             return switch (tag) {
-                .ContainerFieldInit,
-                .ContainerFieldAlign,
-                .ContainerField,
+                .container_field_init,
+                .container_field_align,
+                .container_field,
                 => true,
 
                 else => false,
