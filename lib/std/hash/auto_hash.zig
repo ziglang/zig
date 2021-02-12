@@ -239,7 +239,7 @@ fn testHashDeepRecursive(key: anytype) u64 {
 
 test "typeContainsSlice" {
     comptime {
-        testing.expect(!typeContainsSlice(@TagType(std.builtin.TypeInfo)));
+        testing.expect(!typeContainsSlice(meta.Tag(std.builtin.TypeInfo)));
 
         testing.expect(typeContainsSlice([]const u8));
         testing.expect(!typeContainsSlice(u8));

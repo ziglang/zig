@@ -694,15 +694,13 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
     if (first == nullptr)
         first = eat_token_if(pc, TokenIdKeywordExtern);
     if (first == nullptr)
-        first = eat_token_if(pc, TokenIdKeywordInline);
-    if (first == nullptr)
         first = eat_token_if(pc, TokenIdKeywordNoInline);
     if (first != nullptr) {
         Token *lib_name = nullptr;
         if (first->id == TokenIdKeywordExtern)
             lib_name = eat_token_if(pc, TokenIdStringLiteral);
 
-        if (first->id != TokenIdKeywordInline && first->id != TokenIdKeywordNoInline) {
+        if (first->id != TokenIdKeywordNoInline) {
             Token *thread_local_kw = eat_token_if(pc, TokenIdKeywordThreadLocal);
             AstNode *var_decl = ast_parse_var_decl(pc);
             if (var_decl != nullptr) {
@@ -739,17 +737,8 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
             if (!fn_proto->data.fn_proto.is_extern)
                 fn_proto->data.fn_proto.is_extern = first->id == TokenIdKeywordExtern;
             fn_proto->data.fn_proto.is_export = first->id == TokenIdKeywordExport;
-            switch (first->id) {
-                case TokenIdKeywordInline:
-                    fn_proto->data.fn_proto.fn_inline = FnInlineAlways;
-                    break;
-                case TokenIdKeywordNoInline:
-                    fn_proto->data.fn_proto.fn_inline = FnInlineNever;
-                    break;
-                default:
-                    fn_proto->data.fn_proto.fn_inline = FnInlineAuto;
-                    break;
-            }
+            if (first->id == TokenIdKeywordNoInline)
+                fn_proto->data.fn_proto.is_noinline = true;
             fn_proto->data.fn_proto.lib_name = token_buf(lib_name);
 
             AstNode *res = fn_proto;

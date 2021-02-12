@@ -9,7 +9,11 @@
 TYPEDEF int wchar_t;
 #endif
 
+#if defined(__FLT_EVAL_METHOD__) && __FLT_EVAL_METHOD__ == 1
 TYPEDEF double float_t;
+#else
+TYPEDEF float float_t;
+#endif
 TYPEDEF double double_t;
 
 TYPEDEF struct { long long __ll; long double __ld; } max_align_t;

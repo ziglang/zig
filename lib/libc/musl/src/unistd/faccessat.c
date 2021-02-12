@@ -25,11 +25,16 @@ static int checker(void *p)
 
 int faccessat(int fd, const char *filename, int amode, int flag)
 {
-	if (!flag || (flag==AT_EACCESS && getuid()==geteuid() && getgid()==getegid()))
-		return syscall(SYS_faccessat, fd, filename, amode, flag);
+	if (flag) {
+		int ret = __syscall(SYS_faccessat2, fd, filename, amode, flag);
+		if (ret != -ENOSYS) return __syscall_ret(ret);
+	}
 
-	if (flag != AT_EACCESS)
+	if (flag & ~AT_EACCESS)
 		return __syscall_ret(-EINVAL);
+
+	if (!flag || (getuid()==geteuid() && getgid()==getegid()))
+		return syscall(SYS_faccessat, fd, filename, amode);
 
 	char stack[1024];
 	sigset_t set;

@@ -2909,15 +2909,15 @@ test "enum variant switch" {
     expect(mem.eql(u8, what_is_it, "this is a number"));
 }
 
-// @TagType can be used to access the integer tag type of an enum.
+// @typeInfo can be used to access the integer tag type of an enum.
 const Small = enum {
     one,
     two,
     three,
     four,
 };
-test "@TagType" {
-    expect(@TagType(Small) == u2);
+test "std.meta.Tag" {
+    expect(@typeInfo(Small).Enum.tag_type == u2);
 }
 
 // @typeInfo tells us the field count and the fields names:
@@ -3092,8 +3092,7 @@ test "simple union" {
       {#header_open|Tagged union#}
       <p>Unions can be declared with an enum tag type.
       This turns the union into a <em>tagged</em> union, which makes it eligible
-      to use with {#link|switch#} expressions. One can use {#link|@TagType#} to
-      obtain the enum type from the union type.
+      to use with {#link|switch#} expressions.
       Tagged unions coerce to their tag type: {#link|Type Coercion: unions and enums#}.
       </p>
       {#code_begin|test#}
@@ -3119,8 +3118,8 @@ test "switch on tagged union" {
     }
 }
 
-test "@TagType" {
-    expect(@TagType(ComplexType) == ComplexTypeTag);
+test "get tag type" {
+    expect(std.meta.Tag(ComplexType) == ComplexTypeTag);
 }
 
 test "coerce to enum" {
@@ -4241,9 +4240,9 @@ fn _start() callconv(.Naked) noreturn {
     abort();
 }
 
-// The inline specifier forces a function to be inlined at all call sites.
+// The inline calling convention forces a function to be inlined at all call sites.
 // If the function cannot be inlined, it is a compile-time error.
-inline fn shiftLeftOne(a: u32) u32 {
+fn shiftLeftOne(a: u32) callconv(.Inline) u32 {
     return a << 1;
 }
 
@@ -7534,25 +7533,36 @@ export fn @"A function name that is a complete sentence."() void {}
 
       {#header_open|@field#}
       <pre>{#syntax#}@field(lhs: anytype, comptime field_name: []const u8) (field){#endsyntax#}</pre>
-      <p>Performs field access by a compile-time string.
+      <p>Performs field access by a compile-time string. Works on both fields and declarations.
       </p>
        {#code_begin|test#}
 const std = @import("std");
 
 const Point = struct {
     x: u32,
-    y: u32
+    y: u32,
+
+    pub var z: u32 = 1;
 };
 
 test "field access by string" {
     const expect = std.testing.expect;
-    var p = Point {.x = 0, .y = 0};
+    var p = Point{ .x = 0, .y = 0 };
 
     @field(p, "x") = 4;
     @field(p, "y") = @field(p, "x") + 1;
 
     expect(@field(p, "x") == 4);
     expect(@field(p, "y") == 5);
+}
+
+test "decl access by string" {
+    const expect = std.testing.expect;
+
+    expect(@field(Point, "z") == 1);
+
+    @field(Point, "z") = 2;
+    expect(@field(Point, "z") == 2);
 }
       {#code_end#}
 
@@ -7740,7 +7750,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intToEnum#}
-      <pre>{#syntax#}@intToEnum(comptime DestType: type, int_value: @TagType(DestType)) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToEnum(comptime DestType: type, int_value: std.meta.Tag(DestType)) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer into an {#link|enum#} value.
       </p>
@@ -8432,16 +8442,6 @@ fn doTheTest() void {
       <pre>{#syntax#}@tagName(value: anytype) []const u8{#endsyntax#}</pre>
       <p>
       Converts an enum value or union value to a slice of bytes representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Undefined Behavior#}.
-      </p>
-      {#header_close#}
-
-      {#header_open|@TagType#}
-      <pre>{#syntax#}@TagType(T: type) type{#endsyntax#}</pre>
-      <p>
-      For an enum, returns the integer type that is used to store the enumeration value.
-      </p>
-      <p>
-      For a union, returns the enum type that is used to store the tag value.
       </p>
       {#header_close#}
 

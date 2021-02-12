@@ -15,7 +15,7 @@
  * No copyright is claimed, and the software is hereby placed in the public
  * domain.  In case this attempt to disclaim copyright and place the software
  * in the public domain is deemed null and void, then the software is
- * Copyright (c) 1998-2012 Solar Designer and it is hereby released to the
+ * Copyright (c) 1998-2014 Solar Designer and it is hereby released to the
  * general public under the following terms:
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,12 +31,12 @@
  * you place this code and any modifications you make under a license
  * of your choice.
  *
- * This implementation is mostly compatible with OpenBSD's bcrypt.c (prefix
- * "$2a$") by Niels Provos <provos at citi.umich.edu>, and uses some of his
- * ideas.  The password hashing algorithm was designed by David Mazieres
- * <dm at lcs.mit.edu>.  For more information on the level of compatibility,
- * please refer to the comments in BF_set_key() below and to the included
- * crypt(3) man page.
+ * This implementation is fully compatible with OpenBSD's bcrypt.c for prefix
+ * "$2b$", originally by Niels Provos <provos at citi.umich.edu>, and it uses
+ * some of his ideas.  The password hashing algorithm was designed by David
+ * Mazieres <dm at lcs.mit.edu>.  For information on the level of
+ * compatibility for bcrypt hash prefixes other than "$2b$", please refer to
+ * the comments in BF_set_key() below and to the included crypt(3) man page.
  *
  * There's a paper on the algorithm that explains its design decisions:
  *
@@ -533,6 +533,7 @@ static void BF_set_key(const char *key, BF_key expanded, BF_key initial,
  * Valid combinations of settings are:
  *
  * Prefix "$2a$": bug = 0, safety = 0x10000
+ * Prefix "$2b$": bug = 0, safety = 0
  * Prefix "$2x$": bug = 1, safety = 0
  * Prefix "$2y$": bug = 0, safety = 0
  */
@@ -596,12 +597,14 @@ static void BF_set_key(const char *key, BF_key expanded, BF_key initial,
 	initial[0] ^= sign;
 }
 
+static const unsigned char flags_by_subtype[26] = {
+	2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 4, 0
+};
+
 static char *BF_crypt(const char *key, const char *setting,
 	char *output, BF_word min)
 {
-	static const unsigned char flags_by_subtype[26] =
-		{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 4, 0};
 	struct {
 		BF_ctx ctx;
 		BF_key expanded_key;
@@ -746,9 +749,11 @@ char *__crypt_blowfish(const char *key, const char *setting, char *output)
 {
 	const char *test_key = "8b \xd0\xc1\xd2\xcf\xcc\xd8";
 	const char *test_setting = "$2a$00$abcdefghijklmnopqrstuu";
-	static const char test_hash[2][34] =
-		{"VUrPmXD6q/nVSSp7pNDhCR9071IfIRe\0\x55", /* $2x$ */
-		"i1D709vfamulimlGcq0qq3UvuUasvEa\0\x55"}; /* $2a$, $2y$ */
+	static const char test_hashes[2][34] = {
+		"i1D709vfamulimlGcq0qq3UvuUasvEa\0\x55", /* 'a', 'b', 'y' */
+		"VUrPmXD6q/nVSSp7pNDhCR9071IfIRe\0\x55", /* 'x' */
+	};
+	const char *test_hash = test_hashes[0];
 	char *retval;
 	const char *p;
 	int ok;
@@ -768,8 +773,11 @@ char *__crypt_blowfish(const char *key, const char *setting, char *output)
  * detected by the self-test.
  */
 	memcpy(buf.s, test_setting, sizeof(buf.s));
-	if (retval)
+	if (retval) {
+		unsigned int flags = flags_by_subtype[setting[2] - 'a'];
+		test_hash = test_hashes[flags & 1];
 		buf.s[2] = setting[2];
+	}
 	memset(buf.o, 0x55, sizeof(buf.o));
 	buf.o[sizeof(buf.o) - 1] = 0;
 	p = BF_crypt(test_key, buf.s, buf.o, 1);
@@ -777,7 +785,7 @@ char *__crypt_blowfish(const char *key, const char *setting, char *output)
 	ok = (p == buf.o &&
 	    !memcmp(p, buf.s, 7 + 22) &&
 	    !memcmp(p + (7 + 22),
-	    test_hash[buf.s[2] & 1],
+	    test_hash,
 	    31 + 1 + 1 + 1));
 
 	{

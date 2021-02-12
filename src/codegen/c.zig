@@ -1,12 +1,12 @@
 const std = @import("std");
 const mem = std.mem;
 const log = std.log.scoped(.c);
-const Writer = std.ArrayList(u8).Writer;
 
 const link = @import("../link.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const Inst = @import("../ir.zig").Inst;
+const ir = @import("../ir.zig");
+const Inst = ir.Inst;
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
@@ -41,6 +41,8 @@ pub const Object = struct {
     value_map: CValueMap,
     next_arg_index: usize = 0,
     next_local_index: usize = 0,
+    next_block_index: usize = 0,
+    indent_writer: std.io.AutoIndentingStream(std.ArrayList(u8).Writer),
 
     fn resolveInst(o: *Object, inst: *Inst) !CValue {
         if (inst.value()) |_| {
@@ -57,31 +59,28 @@ pub const Object = struct {
 
     fn allocLocal(o: *Object, ty: Type, mutability: Mutability) !CValue {
         const local_value = o.allocLocalValue();
-        try o.renderTypeAndName(o.code.writer(), ty, local_value, mutability);
+        try o.renderTypeAndName(o.writer(), ty, local_value, mutability);
         return local_value;
     }
 
-    fn indent(o: *Object) !void {
-        const indent_size = 4;
-        const indent_level = 1;
-        const indent_amt = indent_size * indent_level;
-        try o.code.writer().writeByteNTimes(' ', indent_amt);
+    fn writer(o: *Object) std.io.AutoIndentingStream(std.ArrayList(u8).Writer).Writer {
+        return o.indent_writer.writer();
     }
 
-    fn writeCValue(o: *Object, writer: Writer, c_value: CValue) !void {
+    fn writeCValue(o: *Object, w: anytype, c_value: CValue) !void {
         switch (c_value) {
             .none => unreachable,
-            .local => |i| return writer.print("t{d}", .{i}),
-            .local_ref => |i| return writer.print("&t{d}", .{i}),
-            .constant => |inst| return o.dg.renderValue(writer, inst.ty, inst.value().?),
-            .arg => |i| return writer.print("a{d}", .{i}),
-            .decl => |decl| return writer.writeAll(mem.span(decl.name)),
+            .local => |i| return w.print("t{d}", .{i}),
+            .local_ref => |i| return w.print("&t{d}", .{i}),
+            .constant => |inst| return o.dg.renderValue(w, inst.ty, inst.value().?),
+            .arg => |i| return w.print("a{d}", .{i}),
+            .decl => |decl| return w.writeAll(mem.span(decl.name)),
         }
     }
 
     fn renderTypeAndName(
         o: *Object,
-        writer: Writer,
+        w: anytype,
         ty: Type,
         name: CValue,
         mutability: Mutability,
@@ -97,15 +96,15 @@ pub const Object = struct {
             render_ty = render_ty.elemType();
         }
 
-        try o.dg.renderType(writer, render_ty);
+        try o.dg.renderType(w, render_ty);
 
         const const_prefix = switch (mutability) {
             .Const => "const ",
             .Mut => "",
         };
-        try writer.print(" {s}", .{const_prefix});
-        try o.writeCValue(writer, name);
-        try writer.writeAll(suffix.items);
+        try w.print(" {s}", .{const_prefix});
+        try o.writeCValue(w, name);
+        try w.writeAll(suffix.items);
     }
 };
 
@@ -126,10 +125,13 @@ pub const DeclGen = struct {
 
     fn renderValue(
         dg: *DeclGen,
-        writer: Writer,
+        writer: anytype,
         t: Type,
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
+        if (val.isUndef()) {
+            return dg.fail(dg.decl.src(), "TODO: C backend: properly handle undefined in all cases (with debug safety?)", .{});
+        }
         switch (t.zigTypeTag()) {
             .Int => {
                 if (t.isSignedInt())
@@ -197,13 +199,14 @@ pub const DeclGen = struct {
                     },
                 }
             },
+            .Bool => return writer.print("{}", .{val.toBool()}),
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement value {s}", .{
                 @tagName(e),
             }),
         }
     }
 
-    fn renderFunctionSignature(dg: *DeclGen, w: Writer, is_global: bool) !void {
+    fn renderFunctionSignature(dg: *DeclGen, w: anytype, is_global: bool) !void {
         if (!is_global) {
             try w.writeAll("static ");
         }
@@ -227,7 +230,7 @@ pub const DeclGen = struct {
         try w.writeByte(')');
     }
 
-    fn renderType(dg: *DeclGen, w: Writer, t: Type) error{ OutOfMemory, AnalysisFail }!void {
+    fn renderType(dg: *DeclGen, w: anytype, t: Type) error{ OutOfMemory, AnalysisFail }!void {
         switch (t.zigTypeTag()) {
             .NoReturn => {
                 try w.writeAll("zig_noreturn void");
@@ -257,8 +260,8 @@ pub const DeclGen = struct {
                     .int_signed, .int_unsigned => {
                         const info = t.intInfo(dg.module.getTarget());
                         const sign_prefix = switch (info.signedness) {
-                            .signed => "i",
-                            .unsigned => "",
+                            .signed => "",
+                            .unsigned => "u",
                         };
                         inline for (.{ 8, 16, 32, 64, 128 }) |nbits| {
                             if (info.bits <= nbits) {
@@ -290,6 +293,7 @@ pub const DeclGen = struct {
                 try dg.renderType(w, t.elemType());
                 try w.writeAll(" *");
             },
+            .Null, .Undefined => unreachable, // must be const or comptime
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement type {s}", .{
                 @tagName(e),
             }),
@@ -324,58 +328,20 @@ pub fn genDecl(o: *Object) !void {
         try fwd_decl_writer.writeAll(";\n");
 
         const func: *Module.Fn = func_payload.data;
-        const instructions = func.body.instructions;
-        const writer = o.code.writer();
-        try writer.writeAll("\n");
-        try o.dg.renderFunctionSignature(writer, is_global);
-        if (instructions.len == 0) {
-            try writer.writeAll(" {}\n");
-            return;
-        }
+        try o.indent_writer.insertNewline();
+        try o.dg.renderFunctionSignature(o.writer(), is_global);
 
-        try writer.writeAll(" {");
+        try o.writer().writeByte(' ');
+        try genBody(o, func.body);
 
-        try writer.writeAll("\n");
-        for (instructions) |inst| {
-            const result_value = switch (inst.tag) {
-                .add => try genBinOp(o, inst.castTag(.add).?, " + "),
-                .alloc => try genAlloc(o, inst.castTag(.alloc).?),
-                .arg => genArg(o),
-                .assembly => try genAsm(o, inst.castTag(.assembly).?),
-                .block => try genBlock(o, inst.castTag(.block).?),
-                .bitcast => try genBitcast(o, inst.castTag(.bitcast).?),
-                .breakpoint => try genBreakpoint(o, inst.castTag(.breakpoint).?),
-                .call => try genCall(o, inst.castTag(.call).?),
-                .cmp_eq => try genBinOp(o, inst.castTag(.cmp_eq).?, " == "),
-                .cmp_gt => try genBinOp(o, inst.castTag(.cmp_gt).?, " > "),
-                .cmp_gte => try genBinOp(o, inst.castTag(.cmp_gte).?, " >= "),
-                .cmp_lt => try genBinOp(o, inst.castTag(.cmp_lt).?, " < "),
-                .cmp_lte => try genBinOp(o, inst.castTag(.cmp_lte).?, " <= "),
-                .cmp_neq => try genBinOp(o, inst.castTag(.cmp_neq).?, " != "),
-                .dbg_stmt => try genDbgStmt(o, inst.castTag(.dbg_stmt).?),
-                .intcast => try genIntCast(o, inst.castTag(.intcast).?),
-                .load => try genLoad(o, inst.castTag(.load).?),
-                .ret => try genRet(o, inst.castTag(.ret).?),
-                .retvoid => try genRetVoid(o),
-                .store => try genStore(o, inst.castTag(.store).?),
-                .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
-                .unreach => try genUnreach(o, inst.castTag(.unreach).?),
-                else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
-            };
-            switch (result_value) {
-                .none => {},
-                else => try o.value_map.putNoClobber(inst, result_value),
-            }
-        }
-
-        try writer.writeAll("}\n");
+        try o.indent_writer.insertNewline();
     } else if (tv.val.tag() == .extern_fn) {
-        const writer = o.code.writer();
+        const writer = o.writer();
         try writer.writeAll("ZIG_EXTERN_C ");
         try o.dg.renderFunctionSignature(writer, true);
         try writer.writeAll(";\n");
     } else {
-        const writer = o.code.writer();
+        const writer = o.writer();
         try writer.writeAll("static ");
 
         // TODO ask the Decl if it is const
@@ -410,11 +376,69 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     }
 }
 
+pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!void {
+    const writer = o.writer();
+    if (body.instructions.len == 0) {
+        try writer.writeAll("{}");
+        return;
+    }
+
+    try writer.writeAll("{\n");
+    o.indent_writer.pushIndent();
+
+    for (body.instructions) |inst| {
+        const result_value = switch (inst.tag) {
+            .constant => unreachable, // excluded from function bodies
+            .add => try genBinOp(o, inst.castTag(.add).?, " + "),
+            .alloc => try genAlloc(o, inst.castTag(.alloc).?),
+            .arg => genArg(o),
+            .assembly => try genAsm(o, inst.castTag(.assembly).?),
+            .block => try genBlock(o, inst.castTag(.block).?),
+            .bitcast => try genBitcast(o, inst.castTag(.bitcast).?),
+            .breakpoint => try genBreakpoint(o, inst.castTag(.breakpoint).?),
+            .call => try genCall(o, inst.castTag(.call).?),
+            .cmp_eq => try genBinOp(o, inst.castTag(.cmp_eq).?, " == "),
+            .cmp_gt => try genBinOp(o, inst.castTag(.cmp_gt).?, " > "),
+            .cmp_gte => try genBinOp(o, inst.castTag(.cmp_gte).?, " >= "),
+            .cmp_lt => try genBinOp(o, inst.castTag(.cmp_lt).?, " < "),
+            .cmp_lte => try genBinOp(o, inst.castTag(.cmp_lte).?, " <= "),
+            .cmp_neq => try genBinOp(o, inst.castTag(.cmp_neq).?, " != "),
+            .dbg_stmt => try genDbgStmt(o, inst.castTag(.dbg_stmt).?),
+            .intcast => try genIntCast(o, inst.castTag(.intcast).?),
+            .load => try genLoad(o, inst.castTag(.load).?),
+            .ret => try genRet(o, inst.castTag(.ret).?),
+            .retvoid => try genRetVoid(o),
+            .store => try genStore(o, inst.castTag(.store).?),
+            .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
+            .unreach => try genUnreach(o, inst.castTag(.unreach).?),
+            .loop => try genLoop(o, inst.castTag(.loop).?),
+            .condbr => try genCondBr(o, inst.castTag(.condbr).?),
+            .br => try genBr(o, inst.castTag(.br).?),
+            .br_void => try genBrVoid(o, inst.castTag(.br_void).?.block),
+            .switchbr => try genSwitchBr(o, inst.castTag(.switchbr).?),
+            // bool_and and bool_or are non-short-circuit operations
+            .bool_and => try genBinOp(o, inst.castTag(.bool_and).?, " & "),
+            .bool_or => try genBinOp(o, inst.castTag(.bool_or).?, " | "),
+            .bit_and => try genBinOp(o, inst.castTag(.bit_and).?, " & "),
+            .bit_or => try genBinOp(o, inst.castTag(.bit_or).?, " | "),
+            .xor => try genBinOp(o, inst.castTag(.xor).?, " ^ "),
+            .not => try genUnOp(o, inst.castTag(.not).?, "!"),
+            else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
+        };
+        switch (result_value) {
+            .none => {},
+            else => try o.value_map.putNoClobber(inst, result_value),
+        }
+    }
+
+    o.indent_writer.popIndent();
+    try writer.writeAll("}");
+}
+
 fn genAlloc(o: *Object, alloc: *Inst.NoOp) !CValue {
-    const writer = o.code.writer();
+    const writer = o.writer();
 
     // First line: the variable used as data storage.
-    try o.indent();
     const elem_type = alloc.base.ty.elemType();
     const mutability: Mutability = if (alloc.base.ty.isConstPtr()) .Const else .Mut;
     const local = try o.allocLocal(elem_type, mutability);
@@ -430,15 +454,13 @@ fn genArg(o: *Object) CValue {
 }
 
 fn genRetVoid(o: *Object) !CValue {
-    try o.indent();
-    try o.code.writer().print("return;\n", .{});
+    try o.writer().print("return;\n", .{});
     return CValue.none;
 }
 
 fn genLoad(o: *Object, inst: *Inst.UnOp) !CValue {
     const operand = try o.resolveInst(inst.operand);
-    const writer = o.code.writer();
-    try o.indent();
+    const writer = o.writer();
     const local = try o.allocLocal(inst.base.ty, .Const);
     switch (operand) {
         .local_ref => |i| {
@@ -458,8 +480,7 @@ fn genLoad(o: *Object, inst: *Inst.UnOp) !CValue {
 
 fn genRet(o: *Object, inst: *Inst.UnOp) !CValue {
     const operand = try o.resolveInst(inst.operand);
-    try o.indent();
-    const writer = o.code.writer();
+    const writer = o.writer();
     try writer.writeAll("return ");
     try o.writeCValue(writer, operand);
     try writer.writeAll(";\n");
@@ -472,8 +493,7 @@ fn genIntCast(o: *Object, inst: *Inst.UnOp) !CValue {
 
     const from = try o.resolveInst(inst.operand);
 
-    try o.indent();
-    const writer = o.code.writer();
+    const writer = o.writer();
     const local = try o.allocLocal(inst.base.ty, .Const);
     try writer.writeAll(" = (");
     try o.dg.renderType(writer, inst.base.ty);
@@ -488,8 +508,7 @@ fn genStore(o: *Object, inst: *Inst.BinOp) !CValue {
     const dest_ptr = try o.resolveInst(inst.lhs);
     const src_val = try o.resolveInst(inst.rhs);
 
-    try o.indent();
-    const writer = o.code.writer();
+    const writer = o.writer();
     switch (dest_ptr) {
         .local_ref => |i| {
             const dest: CValue = .{ .local = i };
@@ -516,14 +535,29 @@ fn genBinOp(o: *Object, inst: *Inst.BinOp, operator: []const u8) !CValue {
     const lhs = try o.resolveInst(inst.lhs);
     const rhs = try o.resolveInst(inst.rhs);
 
-    try o.indent();
-    const writer = o.code.writer();
+    const writer = o.writer();
     const local = try o.allocLocal(inst.base.ty, .Const);
 
     try writer.writeAll(" = ");
     try o.writeCValue(writer, lhs);
     try writer.writeAll(operator);
     try o.writeCValue(writer, rhs);
+    try writer.writeAll(";\n");
+
+    return local;
+}
+
+fn genUnOp(o: *Object, inst: *Inst.UnOp, operator: []const u8) !CValue {
+    if (inst.base.isUnused())
+        return CValue.none;
+
+    const operand = try o.resolveInst(inst.operand);
+
+    const writer = o.writer();
+    const local = try o.allocLocal(inst.base.ty, .Const);
+
+    try writer.print(" = {s}", .{operator});
+    try o.writeCValue(writer, operand);
     try writer.writeAll(";\n");
 
     return local;
@@ -543,8 +577,7 @@ fn genCall(o: *Object, inst: *Inst.Call) !CValue {
         const unused_result = inst.base.isUnused();
         var result_local: CValue = .none;
 
-        try o.indent();
-        const writer = o.code.writer();
+        const writer = o.writer();
         if (unused_result) {
             if (ret_ty.hasCodeGenBits()) {
                 try writer.print("(void)", .{});
@@ -581,14 +614,53 @@ fn genDbgStmt(o: *Object, inst: *Inst.NoOp) !CValue {
 }
 
 fn genBlock(o: *Object, inst: *Inst.Block) !CValue {
-    return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement blocks", .{});
+    const block_id: usize = o.next_block_index;
+    o.next_block_index += 1;
+    const writer = o.writer();
+
+    // store the block id in relocs.capacity as it is not  used for anything else in the C backend.
+    inst.codegen.relocs.capacity = block_id;
+    const result = if (inst.base.ty.tag() != .void and !inst.base.isUnused()) blk: {
+        // allocate a location for the result
+        const local = try o.allocLocal(inst.base.ty, .Mut);
+        try writer.writeAll(";\n");
+        break :blk local;
+    } else
+        CValue{ .none = {} };
+
+    inst.codegen.mcv = @bitCast(@import("../codegen.zig").AnyMCValue, result);
+    try genBody(o, inst.body);
+    try o.indent_writer.insertNewline();
+    // label must be followed by an expression, add an empty one.
+    try writer.print("zig_block_{d}:;\n", .{block_id});
+    return result;
+}
+
+fn genBr(o: *Object, inst: *Inst.Br) !CValue {
+    const result = @bitCast(CValue, inst.block.codegen.mcv);
+    const writer = o.writer();
+
+    // If result is .none then the value of the block is unused.
+    if (inst.operand.ty.tag() != .void and result != .none) {
+        const operand = try o.resolveInst(inst.operand);
+        try o.writeCValue(writer, result);
+        try writer.writeAll(" = ");
+        try o.writeCValue(writer, operand);
+        try writer.writeAll(";\n");
+    }
+
+    return genBrVoid(o, inst.block);
+}
+
+fn genBrVoid(o: *Object, block: *Inst.Block) !CValue {
+    try o.writer().print("goto zig_block_{d};\n", .{block.codegen.relocs.capacity});
+    return CValue.none;
 }
 
 fn genBitcast(o: *Object, inst: *Inst.UnOp) !CValue {
     const operand = try o.resolveInst(inst.operand);
 
-    const writer = o.code.writer();
-    try o.indent();
+    const writer = o.writer();
     if (inst.base.ty.zigTypeTag() == .Pointer and inst.operand.ty.zigTypeTag() == .Pointer) {
         const local = try o.allocLocal(inst.base.ty, .Const);
         try writer.writeAll(" = (");
@@ -602,7 +674,6 @@ fn genBitcast(o: *Object, inst: *Inst.UnOp) !CValue {
 
     const local = try o.allocLocal(inst.base.ty, .Mut);
     try writer.writeAll(";\n");
-    try o.indent();
 
     try writer.writeAll("memcpy(&");
     try o.writeCValue(writer, local);
@@ -616,14 +687,61 @@ fn genBitcast(o: *Object, inst: *Inst.UnOp) !CValue {
 }
 
 fn genBreakpoint(o: *Object, inst: *Inst.NoOp) !CValue {
-    try o.indent();
-    try o.code.writer().writeAll("zig_breakpoint();\n");
+    try o.writer().writeAll("zig_breakpoint();\n");
     return CValue.none;
 }
 
 fn genUnreach(o: *Object, inst: *Inst.NoOp) !CValue {
-    try o.indent();
-    try o.code.writer().writeAll("zig_unreachable();\n");
+    try o.writer().writeAll("zig_unreachable();\n");
+    return CValue.none;
+}
+
+fn genLoop(o: *Object, inst: *Inst.Loop) !CValue {
+    try o.writer().writeAll("while (true) ");
+    try genBody(o, inst.body);
+    try o.indent_writer.insertNewline();
+    return CValue.none;
+}
+
+fn genCondBr(o: *Object, inst: *Inst.CondBr) !CValue {
+    const cond = try o.resolveInst(inst.condition);
+    const writer = o.writer();
+
+    try writer.writeAll("if (");
+    try o.writeCValue(writer, cond);
+    try writer.writeAll(") ");
+    try genBody(o, inst.then_body);
+    try writer.writeAll(" else ");
+    try genBody(o, inst.else_body);
+    try o.indent_writer.insertNewline();
+
+    return CValue.none;
+}
+
+fn genSwitchBr(o: *Object, inst: *Inst.SwitchBr) !CValue {
+    const target = try o.resolveInst(inst.target);
+    const writer = o.writer();
+
+    try writer.writeAll("switch (");
+    try o.writeCValue(writer, target);
+    try writer.writeAll(") {\n");
+    o.indent_writer.pushIndent();
+
+    for (inst.cases) |case| {
+        try writer.writeAll("case ");
+        try o.dg.renderValue(writer, inst.target.ty, case.item);
+        try writer.writeAll(": ");
+        // the case body must be noreturn so we don't need to insert a break
+        try genBody(o, case.body);
+        try o.indent_writer.insertNewline();
+    }
+
+    try writer.writeAll("default: ");
+    try genBody(o, inst.else_body);
+    try o.indent_writer.insertNewline();
+
+    o.indent_writer.popIndent();
+    try writer.writeAll("}\n");
     return CValue.none;
 }
 
@@ -631,13 +749,12 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
     if (as.base.isUnused() and !as.is_volatile)
         return CValue.none;
 
-    const writer = o.code.writer();
+    const writer = o.writer();
     for (as.inputs) |i, index| {
         if (i[0] == '{' and i[i.len - 1] == '}') {
             const reg = i[1 .. i.len - 1];
             const arg = as.args[index];
             const arg_c_value = try o.resolveInst(arg);
-            try o.indent();
             try writer.writeAll("register ");
             try o.dg.renderType(writer, arg.ty);
 
@@ -648,7 +765,6 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
             return o.dg.fail(o.dg.decl.src(), "TODO non-explicit inline asm regs", .{});
         }
     }
-    try o.indent();
     const volatile_string: []const u8 = if (as.is_volatile) "volatile " else "";
     try writer.print("__asm {s}(\"{s}\"", .{ volatile_string, as.asm_source });
     if (as.output) |_| {

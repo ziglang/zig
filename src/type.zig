@@ -110,7 +110,7 @@ pub const Type = extern union {
 
     pub fn tag(self: Type) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(Tag, @intCast(@TagType(Tag), self.tag_if_small_enough));
+            return @intToEnum(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -552,7 +552,9 @@ pub const Type = extern union {
                         if (i != 0) try out_stream.writeAll(", ");
                         try param_type.format("", .{}, out_stream);
                     }
-                    try out_stream.writeAll(") ");
+                    try out_stream.writeAll(") callconv(.");
+                    try out_stream.writeAll(@tagName(payload.cc));
+                    try out_stream.writeAll(")");
                     ty = payload.return_type;
                     continue;
                 },
@@ -3597,6 +3599,9 @@ pub const CType = enum {
             .amdpal,
             .hermit,
             .hurd,
+            .opencl,
+            .glsl450,
+            .vulkan,
             => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }

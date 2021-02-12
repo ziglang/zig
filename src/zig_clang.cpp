@@ -2773,6 +2773,11 @@ struct ZigClangSourceLocation ZigClangUnaryOperator_getBeginLoc(const struct Zig
     return bitcast(casted->getBeginLoc());
 }
 
+struct ZigClangQualType ZigClangValueDecl_getType(const struct ZigClangValueDecl *self) {
+    auto casted = reinterpret_cast<const clang::ValueDecl *>(self);
+    return bitcast(casted->getType());
+}
+
 const struct ZigClangExpr *ZigClangWhileStmt_getCond(const struct ZigClangWhileStmt *self) {
     auto casted = reinterpret_cast<const clang::WhileStmt *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getCond());

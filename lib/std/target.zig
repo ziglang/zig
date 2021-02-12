@@ -57,6 +57,9 @@ pub const Target = struct {
             wasi,
             emscripten,
             uefi,
+            opencl,
+            glsl450,
+            vulkan,
             other,
 
             pub fn isDarwin(tag: Tag) bool {
@@ -248,6 +251,9 @@ pub const Target = struct {
                     .wasi,
                     .emscripten,
                     .uefi,
+                    .opencl, // TODO: OpenCL versions
+                    .glsl450, // TODO: GLSL versions
+                    .vulkan,
                     .other,
                     => return .{ .none = {} },
 
@@ -403,6 +409,9 @@ pub const Target = struct {
                 .wasi,
                 .emscripten,
                 .uefi,
+                .opencl,
+                .glsl450,
+                .vulkan,
                 .other,
                 => false,
             };
@@ -421,6 +430,7 @@ pub const Target = struct {
     pub const powerpc = @import("target/powerpc.zig");
     pub const riscv = @import("target/riscv.zig");
     pub const sparc = @import("target/sparc.zig");
+    pub const spirv = @import("target/spirv.zig");
     pub const systemz = @import("target/systemz.zig");
     pub const wasm = @import("target/wasm.zig");
     pub const x86 = @import("target/x86.zig");
@@ -493,6 +503,10 @@ pub const Target = struct {
                 .wasi,
                 .emscripten,
                 => return .musl,
+                .opencl, // TODO: SPIR-V ABIs with Linkage capability
+                .glsl450,
+                .vulkan,
+                => return .none,
             }
         }
 
@@ -528,6 +542,7 @@ pub const Target = struct {
         macho,
         wasm,
         c,
+        spirv,
         hex,
         raw,
     };
@@ -744,6 +759,8 @@ pub const Target = struct {
             // Stage1 currently assumes that architectures above this comment
             // map one-to-one with the ZigLLVM_ArchType enum.
             spu_2,
+            spirv32,
+            spirv64,
 
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
@@ -857,6 +874,8 @@ pub const Target = struct {
                     .s390x => ._S390,
                     .ve => ._NONE,
                     .spu_2 => ._SPU_2,
+                    .spirv32 => ._NONE,
+                    .spirv64 => ._NONE,
                 };
             }
 
@@ -914,6 +933,8 @@ pub const Target = struct {
                     .s390x => .Unknown,
                     .ve => .Unknown,
                     .spu_2 => .Unknown,
+                    .spirv32 => .Unknown,
+                    .spirv64 => .Unknown,
                 };
             }
 
@@ -957,6 +978,9 @@ pub const Target = struct {
                     .shave,
                     .ve,
                     .spu_2,
+                    // GPU bitness is opaque. For now, assume little endian.
+                    .spirv32,
+                    .spirv64,
                     => .Little,
 
                     .arc,
@@ -1012,6 +1036,7 @@ pub const Target = struct {
                     .wasm32,
                     .renderscript32,
                     .aarch64_32,
+                    .spirv32,
                     => return 32,
 
                     .aarch64,
@@ -1035,6 +1060,7 @@ pub const Target = struct {
                     .sparcv9,
                     .s390x,
                     .ve,
+                    .spirv64,
                     => return 64,
                 }
             }
@@ -1057,6 +1083,7 @@ pub const Target = struct {
                     .i386, .x86_64 => "x86",
                     .nvptx, .nvptx64 => "nvptx",
                     .wasm32, .wasm64 => "wasm",
+                    .spirv32, .spirv64 => "spir-v",
                     else => @tagName(arch),
                 };
             }
@@ -1347,6 +1374,9 @@ pub const Target = struct {
             .uefi,
             .windows,
             .emscripten,
+            .opencl,
+            .glsl450,
+            .vulkan,
             .other,
             => return false,
             else => return true,
@@ -1482,6 +1512,8 @@ pub const Target = struct {
                 .nvptx64,
                 .spu_2,
                 .avr,
+                .spirv32,
+                .spirv64,
                 => return result,
 
                 // TODO go over each item in this list and either move it to the above list, or
@@ -1524,6 +1556,9 @@ pub const Target = struct {
             .windows,
             .emscripten,
             .wasi,
+            .opencl,
+            .glsl450,
+            .vulkan,
             .other,
             => return result,
 

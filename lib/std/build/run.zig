@@ -76,7 +76,7 @@ pub const RunStep = struct {
         self.argv.append(Arg{
             .WriteFile = .{
                 .step = write_file,
-                .file_name = file_name,
+                .file_name = self.builder.dupePath(file_name),
             },
         }) catch unreachable;
         self.step.dependOn(&write_file.step);
@@ -119,7 +119,7 @@ pub const RunStep = struct {
             const new_path = self.builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
             env_map.set(key, new_path) catch unreachable;
         } else {
-            env_map.set(key, search_path) catch unreachable;
+            env_map.set(key, self.builder.dupePath(search_path)) catch unreachable;
         }
     }
 
@@ -134,15 +134,18 @@ pub const RunStep = struct {
 
     pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8) void {
         const env_map = self.getEnvMap();
-        env_map.set(key, value) catch unreachable;
+        env_map.set(
+            self.builder.dupe(key),
+            self.builder.dupe(value),
+        ) catch unreachable;
     }
 
     pub fn expectStdErrEqual(self: *RunStep, bytes: []const u8) void {
-        self.stderr_action = .{ .expect_exact = bytes };
+        self.stderr_action = .{ .expect_exact = self.builder.dupe(bytes) };
     }
 
     pub fn expectStdOutEqual(self: *RunStep, bytes: []const u8) void {
-        self.stdout_action = .{ .expect_exact = bytes };
+        self.stdout_action = .{ .expect_exact = self.builder.dupe(bytes) };
     }
 
     fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {

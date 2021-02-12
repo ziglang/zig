@@ -13,11 +13,19 @@ typedef int wchar_t;
 
 #endif
 
+#if defined(__FLT_EVAL_METHOD__) && __FLT_EVAL_METHOD__ == 1
 #if defined(__NEED_float_t) && !defined(__DEFINED_float_t)
 typedef double float_t;
 #define __DEFINED_float_t
 #endif
 
+#else
+#if defined(__NEED_float_t) && !defined(__DEFINED_float_t)
+typedef float float_t;
+#define __DEFINED_float_t
+#endif
+
+#endif
 #if defined(__NEED_double_t) && !defined(__DEFINED_double_t)
 typedef double double_t;
 #define __DEFINED_double_t
@@ -341,6 +349,12 @@ typedef struct __sigset_t { unsigned long __bits[128/sizeof(long)]; } sigset_t;
 #if defined(__NEED_struct_iovec) && !defined(__DEFINED_struct_iovec)
 struct iovec { void *iov_base; size_t iov_len; };
 #define __DEFINED_struct_iovec
+#endif
+
+
+#if defined(__NEED_struct_winsize) && !defined(__DEFINED_struct_winsize)
+struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; };
+#define __DEFINED_struct_winsize
 #endif
 
 

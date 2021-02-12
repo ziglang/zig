@@ -600,15 +600,18 @@ test "std.meta.FieldEnum" {
     expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
 }
 
-pub fn TagType(comptime T: type) type {
+// Deprecated: use Tag
+pub const TagType = Tag;
+
+pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Enum => |info| info.tag_type,
-        .Union => |info| if (info.tag_type) |Tag| Tag else null,
+        .Union => |info| info.tag_type orelse @compileError(@typeName(T) ++ " has no tag type"),
         else => @compileError("expected enum or union type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
-test "std.meta.TagType" {
+test "std.meta.Tag" {
     const E = enum(u8) {
         C = 33,
         D,
@@ -618,14 +621,14 @@ test "std.meta.TagType" {
         D: u16,
     };
 
-    testing.expect(TagType(E) == u8);
-    testing.expect(TagType(U) == E);
+    testing.expect(Tag(E) == u8);
+    testing.expect(Tag(U) == E);
 }
 
 ///Returns the active tag of a tagged union
-pub fn activeTag(u: anytype) @TagType(@TypeOf(u)) {
+pub fn activeTag(u: anytype) Tag(@TypeOf(u)) {
     const T = @TypeOf(u);
-    return @as(@TagType(T), u);
+    return @as(Tag(T), u);
 }
 
 test "std.meta.activeTag" {
@@ -646,13 +649,15 @@ test "std.meta.activeTag" {
     testing.expect(activeTag(u) == UE.Float);
 }
 
+const TagPayloadType = TagPayload;
+
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
-pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
+pub fn TagPayload(comptime U: type, tag: Tag(U)) type {
     testing.expect(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
-    const tag_info = @typeInfo(@TagType(U)).Enum;
+    const tag_info = @typeInfo(Tag(U)).Enum;
 
     inline for (info.fields) |field_info| {
         if (comptime mem.eql(u8, field_info.name, @tagName(tag)))
@@ -662,14 +667,14 @@ pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
     unreachable;
 }
 
-test "std.meta.TagPayloadType" {
+test "std.meta.TagPayload" {
     const Event = union(enum) {
         Moved: struct {
             from: i32,
             to: i32,
         },
     };
-    const MovedEvent = TagPayloadType(Event, Event.Moved);
+    const MovedEvent = TagPayload(Event, Event.Moved);
     var e: Event = undefined;
     testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
@@ -694,13 +699,13 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
             }
         },
         .Union => |info| {
-            if (info.tag_type) |Tag| {
+            if (info.tag_type) |UnionTag| {
                 const tag_a = activeTag(a);
                 const tag_b = activeTag(b);
                 if (tag_a != tag_b) return false;
 
                 inline for (info.fields) |field_info| {
-                    if (@field(Tag, field_info.name) == tag_a) {
+                    if (@field(UnionTag, field_info.name) == tag_a) {
                         return eql(@field(a, field_info.name), @field(b, field_info.name));
                     }
                 }
@@ -822,9 +827,9 @@ test "intToEnum with error return" {
 
 pub const IntToEnumError = error{InvalidEnumTag};
 
-pub fn intToEnum(comptime Tag: type, tag_int: anytype) IntToEnumError!Tag {
-    inline for (@typeInfo(Tag).Enum.fields) |f| {
-        const this_tag_value = @field(Tag, f.name);
+pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTag {
+    inline for (@typeInfo(EnumTag).Enum.fields) |f| {
+        const this_tag_value = @field(EnumTag, f.name);
         if (tag_int == @enumToInt(this_tag_value)) {
             return this_tag_value;
         }
@@ -979,9 +984,59 @@ test "std.meta.cast" {
 /// Given a value returns its size as C's sizeof operator would.
 /// This is for translate-c and is not intended for general use.
 pub fn sizeof(target: anytype) usize {
-    switch (@typeInfo(@TypeOf(target))) {
-        .Type => return @sizeOf(target),
-        .Float, .Int, .Struct, .Union, .Enum => return @sizeOf(@TypeOf(target)),
+    const T: type = if (@TypeOf(target) == type) target else @TypeOf(target);
+    switch (@typeInfo(T)) {
+        .Float, .Int, .Struct, .Union, .Enum, .Array, .Bool, .Vector => return @sizeOf(T),
+        .Fn => {
+            // sizeof(main) returns 1, sizeof(&main) returns pointer size.
+            // We cannot distinguish those types in Zig, so use pointer size.
+            return @sizeOf(T);
+        },
+        .Null => return @sizeOf(*c_void),
+        .Void => {
+            // Note: sizeof(void) is 1 on clang/gcc and 0 on MSVC.
+            return 1;
+        },
+        .Opaque => {
+            if (T == c_void) {
+                // Note: sizeof(void) is 1 on clang/gcc and 0 on MSVC.
+                return 1;
+            } else {
+                @compileError("Cannot use C sizeof on opaque type "++@typeName(T));
+            }
+        },
+        .Optional => |opt| {
+            if (@typeInfo(opt.child) == .Pointer) {
+                return sizeof(opt.child);
+            } else {
+                @compileError("Cannot use C sizeof on non-pointer optional "++@typeName(T));
+            }
+        },
+        .Pointer => |ptr| {
+            if (ptr.size == .Slice) {
+                @compileError("Cannot use C sizeof on slice type "++@typeName(T));
+            }
+            // for strings, sizeof("a") returns 2.
+            // normal pointer decay scenarios from C are handled
+            // in the .Array case above, but strings remain literals
+            // and are therefore always pointers, so they need to be
+            // specially handled here.
+            if (ptr.size == .One and ptr.is_const and @typeInfo(ptr.child) == .Array) {
+                const array_info = @typeInfo(ptr.child).Array;
+                if ((array_info.child == u8 or array_info.child == u16) and
+                     array_info.sentinel != null and
+                     array_info.sentinel.? == 0) {
+                    // length of the string plus one for the null terminator.
+                    return (array_info.len + 1) * @sizeOf(array_info.child);
+                }
+            }
+            // When zero sized pointers are removed, this case will no
+            // longer be reachable and can be deleted.
+            if (@sizeOf(T) == 0) {
+                return @sizeOf(*c_void);
+            }
+            return @sizeOf(T);
+        },
         .ComptimeFloat => return @sizeOf(f64), // TODO c_double #3999
         .ComptimeInt => {
             // TODO to get the correct result we have to translate
@@ -991,7 +1046,7 @@ pub fn sizeof(target: anytype) usize {
             // TODO test if target fits in int, long or long long
             return @sizeOf(c_int);
         },
-        else => @compileError("TODO implement std.meta.sizeof for type " ++ @typeName(@TypeOf(target))),
+        else => @compileError("std.meta.sizeof does not support type " ++ @typeName(T)),
     }
 }
 
@@ -999,12 +1054,45 @@ test "sizeof" {
     const E = extern enum(c_int) { One, _ };
     const S = extern struct { a: u32 };
 
+    const ptr_size = @sizeOf(*c_void);
+
     testing.expect(sizeof(u32) == 4);
     testing.expect(sizeof(@as(u32, 2)) == 4);
     testing.expect(sizeof(2) == @sizeOf(c_int));
+
+    testing.expect(sizeof(2.0) == @sizeOf(f64));
+
     testing.expect(sizeof(E) == @sizeOf(c_int));
     testing.expect(sizeof(E.One) == @sizeOf(c_int));
+
     testing.expect(sizeof(S) == 4);
+
+    testing.expect(sizeof([_]u32{4, 5, 6}) == 12);
+    testing.expect(sizeof([3]u32) == 12);
+    testing.expect(sizeof([3:0]u32) == 16);
+    testing.expect(sizeof(&[_]u32{4, 5, 6}) == ptr_size);
+
+    testing.expect(sizeof(*u32) == ptr_size);
+    testing.expect(sizeof([*]u32) == ptr_size);
+    testing.expect(sizeof([*c]u32) == ptr_size);
+    testing.expect(sizeof(?*u32) == ptr_size);
+    testing.expect(sizeof(?[*]u32) == ptr_size);
+    testing.expect(sizeof(*c_void) == ptr_size);
+    testing.expect(sizeof(*void) == ptr_size);
+    testing.expect(sizeof(null) == ptr_size);
+
+    testing.expect(sizeof("foobar") == 7);
+    testing.expect(sizeof(&[_:0]u16{'f','o','o','b','a','r'}) == 14);
+    testing.expect(sizeof(*const [4:0]u8) == 5);
+    testing.expect(sizeof(*[4:0]u8) == ptr_size);
+    testing.expect(sizeof([*]const [4:0]u8) == ptr_size);
+    testing.expect(sizeof(*const *const [4:0]u8) == ptr_size);
+    testing.expect(sizeof(*const [4]u8) == ptr_size);
+
+    testing.expect(sizeof(sizeof) == @sizeOf(@TypeOf(sizeof)));
+
+    testing.expect(sizeof(void) == 1);
+    testing.expect(sizeof(c_void) == 1);
 }
 
 /// For a given function type, returns a tuple type which fields will

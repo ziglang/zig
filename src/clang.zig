@@ -848,7 +848,10 @@ pub const UnaryOperator = opaque {
     extern fn ZigClangUnaryOperator_getBeginLoc(*const UnaryOperator) SourceLocation;
 };
 
-pub const ValueDecl = opaque {};
+pub const ValueDecl = opaque {
+    pub const getType = ZigClangValueDecl_getType;
+    extern fn ZigClangValueDecl_getType(*const ValueDecl) QualType;
+};
 
 pub const VarDecl = opaque {
     pub const getLocation = ZigClangVarDecl_getLocation;

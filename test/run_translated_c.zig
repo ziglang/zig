@@ -794,4 +794,132 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Wide, UTF-16, and UTF-32 string literals",
+        \\#include <stdlib.h>
+        \\#include <stdint.h>
+        \\#include <wchar.h>
+        \\int main(void) {
+        \\    const wchar_t *wide_str = L"wide";
+        \\    const wchar_t wide_hello[] = L"hello";
+        \\    if (wcslen(wide_str) != 4) abort();
+        \\    if (wcslen(L"literal") != 7) abort();
+        \\    if (wcscmp(wide_hello, L"hello") != 0) abort();
+        \\
+        \\    const uint16_t *u16_str = u"wide";
+        \\    const uint16_t u16_hello[] = u"hello";
+        \\    if (u16_str[3] != u'e' || u16_str[4] != 0) abort();
+        \\    if (u16_hello[4] != u'o' || u16_hello[5] != 0) abort();
+        \\
+        \\    const uint32_t *u32_str = U"wide";
+        \\    const uint32_t u32_hello[] = U"hello";
+        \\    if (u32_str[3] != U'e' || u32_str[4] != 0) abort();
+        \\    if (u32_hello[4] != U'o' || u32_hello[5] != 0) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Address of function is no-op",
+        \\#include <stdlib.h>
+        \\#include <stdbool.h>
+        \\typedef int (*myfunc)(int);
+        \\int a(int arg) { return arg + 1;}
+        \\int b(int arg) { return arg + 2;}
+        \\int caller(myfunc fn, int arg) {
+        \\    return fn(arg);
+        \\}
+        \\int main() {
+        \\    myfunc arr[3] = {&a, &b, a};
+        \\    myfunc foo = a;
+        \\    myfunc bar = &(a);
+        \\    if (foo != bar) abort();
+        \\    if (arr[0] == arr[1]) abort();
+        \\    if (arr[0] != arr[2]) abort();
+        \\    if (caller(b, 40) != 42) abort();
+        \\    if (caller(&b, 40) != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Obscure ways of calling functions; issue #4124",
+        \\#include <stdlib.h>
+        \\static int add(int a, int b) {
+        \\    return a + b;
+        \\}
+        \\typedef int (*adder)(int, int);
+        \\typedef void (*funcptr)(void);
+        \\int main() {
+        \\    if ((add)(1, 2) != 3) abort();
+        \\    if ((&add)(1, 2) != 3) abort();
+        \\    if (add(3, 1) != 4) abort();
+        \\    if ((*add)(2, 3) != 5) abort();
+        \\    if ((**add)(7, -1) != 6) abort();
+        \\    if ((***add)(-2, 9) != 7) abort();
+        \\
+        \\    int (*ptr)(int a, int b);
+        \\    ptr = add;
+        \\
+        \\    if (ptr(1, 2) != 3) abort();
+        \\    if ((*ptr)(3, 1) != 4) abort();
+        \\    if ((**ptr)(2, 3) != 5) abort();
+        \\    if ((***ptr)(7, -1) != 6) abort();
+        \\    if ((****ptr)(-2, 9) != 7) abort();
+        \\
+        \\    funcptr addr1 = (funcptr)(add);
+        \\    funcptr addr2 = (funcptr)(&add);
+        \\
+        \\    if (addr1 != addr2) abort();
+        \\    if (((int(*)(int, int))addr1)(1, 2) != 3) abort();
+        \\    if (((adder)addr2)(1, 2) != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Return boolean expression as int; issue #6215",
+        \\#include <stdlib.h>
+        \\#include <stdbool.h>
+        \\bool  actual_bool(void)    { return 4 - 1 < 4;}
+        \\char  char_bool_ret(void)  { return 0 || 1; }
+        \\short short_bool_ret(void) { return 0 < 1; }
+        \\int   int_bool_ret(void)   { return 1 && 1; }
+        \\long  long_bool_ret(void)  { return !(0 > 1); }
+        \\static int GLOBAL = 1;
+        \\int nested_scopes(int a, int b) {
+        \\    if (a == 1) {
+        \\        int target = 1;
+        \\        return b == target;
+        \\    } else {
+        \\        int target = 2;
+        \\        if (b == target) {
+        \\            return GLOBAL == 1;
+        \\        }
+        \\        return target == 2;
+        \\    }
+        \\}
+        \\int main(void) {
+        \\    if (!actual_bool()) abort();
+        \\    if (!char_bool_ret()) abort();
+        \\    if (!short_bool_ret()) abort();
+        \\    if (!int_bool_ret()) abort();
+        \\    if (!long_bool_ret()) abort();
+        \\    if (!nested_scopes(1, 1)) abort();
+        \\    if (nested_scopes(1, 2)) abort();
+        \\    if (!nested_scopes(0, 2)) abort();
+        \\    if (!nested_scopes(0, 3)) abort();
+        \\    return 1 != 1;
+        \\}
+    , "");
+
+    cases.add("Comma operator should create new scope; issue #7989",
+        \\#include <stdlib.h>
+        \\#include <stdio.h>
+        \\int main(void) {
+        \\    if (1 || (abort(), 1)) {}
+        \\    if (0 && (1, printf("do not print\n"))) {}
+        \\    int x = 0;
+        \\    x = (x = 3, 4, x + 1);
+        \\    if (x != 4) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

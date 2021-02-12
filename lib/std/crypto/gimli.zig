@@ -48,7 +48,7 @@ pub const State = struct {
         return mem.asBytes(&self.data);
     }
 
-    inline fn endianSwap(self: *Self) void {
+    fn endianSwap(self: *Self) callconv(.Inline) void {
         for (self.data) |*w| {
             w.* = mem.littleToNative(u32, w.*);
         }
@@ -116,7 +116,7 @@ pub const State = struct {
 
     const Lane = Vector(4, u32);
 
-    inline fn shift(x: Lane, comptime n: comptime_int) Lane {
+    fn shift(x: Lane, comptime n: comptime_int) callconv(.Inline) Lane {
         return x << @splat(4, @as(u5, n));
     }
 

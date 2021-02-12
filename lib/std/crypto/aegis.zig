@@ -35,7 +35,7 @@ const State128L = struct {
         return state;
     }
 
-    inline fn update(state: *State128L, d1: AesBlock, d2: AesBlock) void {
+    fn update(state: *State128L, d1: AesBlock, d2: AesBlock) callconv(.Inline) void {
         const blocks = &state.blocks;
         const tmp = blocks[7];
         comptime var i: usize = 7;
@@ -207,7 +207,7 @@ const State256 = struct {
         return state;
     }
 
-    inline fn update(state: *State256, d: AesBlock) void {
+    fn update(state: *State256, d: AesBlock) callconv(.Inline) void {
         const blocks = &state.blocks;
         const tmp = blocks[5].encrypt(blocks[0]);
         comptime var i: usize = 5;

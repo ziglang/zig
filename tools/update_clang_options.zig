@@ -312,6 +312,10 @@ const known_options = [_]KnownOpt{
         .name = "framework",
         .ident = "framework",
     },
+    .{
+        .name = "s",
+        .ident = "strip",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

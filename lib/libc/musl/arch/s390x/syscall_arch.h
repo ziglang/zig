@@ -72,5 +72,3 @@ static inline long __syscall6(long n, long a, long b, long c, long d, long e, lo
 	register long r7 __asm__("r7") = f;
 	__asm_syscall("+r"(r2), "r"(r1), "r"(r3), "r"(r4), "r"(r5), "r"(r6), "r"(r7));
 }
-
-#define SYSCALL_USE_SOCKETCALL

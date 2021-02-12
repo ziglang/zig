@@ -78,6 +78,10 @@ const Scope = struct {
         mangle_count: u32 = 0,
         lbrace: ast.TokenIndex,
 
+        /// When the block corresponds to a function, keep track of the return type
+        /// so that the return expression can be cast, if necessary
+        return_type: ?clang.QualType = null,
+
         fn init(c: *Context, parent: *Scope, labeled: bool) !Block {
             var blk = Block{
                 .base = .{
@@ -204,6 +208,21 @@ const Scope = struct {
                 .Root => unreachable,
                 .Block => return @fieldParentPtr(Block, "base", scope),
                 .Condition => return @fieldParentPtr(Condition, "base", scope).getBlockScope(c),
+                else => scope = scope.parent.?,
+            }
+        }
+    }
+
+    fn findBlockReturnType(inner: *Scope, c: *Context) ?clang.QualType {
+        var scope = inner;
+        while (true) {
+            switch (scope.id) {
+                .Root => return null,
+                .Block => {
+                    const block = @fieldParentPtr(Block, "base", scope);
+                    if (block.return_type) |qt| return qt;
+                    scope = scope.parent.?;
+                },
                 else => scope = scope.parent.?,
             }
         }
@@ -588,6 +607,8 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             else => break fn_type,
         }
     } else unreachable;
+    const fn_ty = @ptrCast(*const clang.FunctionType, fn_type);
+    const return_qt = fn_ty.getReturnType();
 
     const proto_node = switch (fn_type.getTypeClass()) {
         .FunctionProto => blk: {
@@ -625,7 +646,9 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     // actual function definition with body
     const body_stmt = fn_decl.getBody();
     var block_scope = try Scope.Block.init(rp.c, &c.global_scope.base, false);
+    block_scope.return_type = return_qt;
     defer block_scope.deinit();
+
     var scope = &block_scope.base;
 
     var param_id: c_uint = 0;
@@ -675,10 +698,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     };
     // add return statement if the function didn't have one
     blk: {
-        const fn_ty = @ptrCast(*const clang.FunctionType, fn_type);
-
         if (fn_ty.getNoReturnAttr()) break :blk;
-        const return_qt = fn_ty.getReturnType();
         if (isCVoid(return_qt)) break :blk;
 
         if (block_scope.statements.items.len > 0) {
@@ -788,7 +808,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         eq_tok = try appendToken(c, .Equal, "=");
         if (decl_init) |expr| {
             const node_or_error = if (expr.getStmtClass() == .StringLiteralClass)
-                transStringLiteralAsArray(rp, &c.global_scope.base, @ptrCast(*const clang.StringLiteral, expr), type_node)
+                transStringLiteralAsArray(rp, &c.global_scope.base, @ptrCast(*const clang.StringLiteral, expr), zigArraySize(rp.c, type_node) catch 0)
             else
                 transExprCoercing(rp, scope, expr, .used, .r_value);
             init_node = node_or_error catch |err| switch (err) {
@@ -1426,30 +1446,25 @@ fn transBinaryOperator(
     switch (op) {
         .Assign => return try transCreateNodeAssign(rp, scope, result_used, stmt.getLHS(), stmt.getRHS()),
         .Comma => {
-            const block_scope = try scope.findBlockScope(rp.c);
-            const expr = block_scope.base.parent == scope;
-            const lparen = if (expr) try appendToken(rp.c, .LParen, "(") else undefined;
+            var block_scope = try Scope.Block.init(rp.c, scope, true);
+            const lparen = try appendToken(rp.c, .LParen, "(");
 
             const lhs = try transExpr(rp, &block_scope.base, stmt.getLHS(), .unused, .r_value);
             try block_scope.statements.append(lhs);
 
             const rhs = try transExpr(rp, &block_scope.base, stmt.getRHS(), .used, .r_value);
-            if (expr) {
-                _ = try appendToken(rp.c, .Semicolon, ";");
-                const break_node = try transCreateNodeBreak(rp.c, block_scope.label, rhs);
-                try block_scope.statements.append(&break_node.base);
-                const block_node = try block_scope.complete(rp.c);
-                const rparen = try appendToken(rp.c, .RParen, ")");
-                const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
-                grouped_expr.* = .{
-                    .lparen = lparen,
-                    .expr = block_node,
-                    .rparen = rparen,
-                };
-                return maybeSuppressResult(rp, scope, result_used, &grouped_expr.base);
-            } else {
-                return maybeSuppressResult(rp, scope, result_used, rhs);
-            }
+            _ = try appendToken(rp.c, .Semicolon, ";");
+            const break_node = try transCreateNodeBreak(rp.c, block_scope.label, rhs);
+            try block_scope.statements.append(&break_node.base);
+            const block_node = try block_scope.complete(rp.c);
+            const rparen = try appendToken(rp.c, .RParen, ")");
+            const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
+            grouped_expr.* = .{
+                .lparen = lparen,
+                .expr = block_node,
+                .rparen = rparen,
+            };
+            return maybeSuppressResult(rp, scope, result_used, &grouped_expr.base);
         },
         .Div => {
             if (cIsSignedInteger(qt)) {
@@ -1670,7 +1685,7 @@ fn transDeclStmtOne(
             const eq_token = try appendToken(c, .Equal, "=");
             var init_node = if (decl_init) |expr|
                 if (expr.getStmtClass() == .StringLiteralClass)
-                    try transStringLiteralAsArray(rp, scope, @ptrCast(*const clang.StringLiteral, expr), type_node)
+                    try transStringLiteralAsArray(rp, scope, @ptrCast(*const clang.StringLiteral, expr), try zigArraySize(rp.c, type_node))
                 else
                     try transExprCoercing(rp, scope, expr, .used, .r_value)
             else
@@ -2026,16 +2041,32 @@ fn transIntegerLiteral(
     return maybeSuppressResult(rp, scope, result_used, &as_node.base);
 }
 
+/// In C if a function has return type `int` and the return value is a boolean
+/// expression, there is no implicit cast. So the translated Zig will need to
+/// call @boolToInt
+fn zigShouldCastBooleanReturnToInt(node: ?*ast.Node, qt: ?clang.QualType) bool {
+    if (node == null or qt == null) return false;
+    return isBoolRes(node.?) and cIsNativeInt(qt.?);
+}
+
 fn transReturnStmt(
     rp: RestorePoint,
     scope: *Scope,
     expr: *const clang.ReturnStmt,
 ) TransError!*ast.Node {
     const return_kw = try appendToken(rp.c, .Keyword_return, "return");
-    const rhs: ?*ast.Node = if (expr.getRetValue()) |val_expr|
+    var rhs: ?*ast.Node = if (expr.getRetValue()) |val_expr|
         try transExprCoercing(rp, scope, val_expr, .used, .r_value)
     else
         null;
+    const return_qt = scope.findBlockReturnType(rp.c);
+    if (zigShouldCastBooleanReturnToInt(rhs, return_qt)) {
+        const bool_to_int_node = try rp.c.createBuiltinCall("@boolToInt", 1);
+        bool_to_int_node.params()[0] = rhs.?;
+        bool_to_int_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+        rhs = &bool_to_int_node.base;
+    }
     const return_expr = try ast.Node.ControlFlowExpression.create(rp.c.arena, .{
         .ltoken = return_kw,
         .tag = .Return,
@@ -2067,14 +2098,39 @@ fn transStringLiteral(
             };
             return maybeSuppressResult(rp, scope, result_used, &node.base);
         },
-        .UTF16, .UTF32, .Wide => return revertAndWarn(
-            rp,
-            error.UnsupportedTranslation,
-            @ptrCast(*const clang.Stmt, stmt).getBeginLoc(),
-            "TODO: support string literal kind {s}",
-            .{kind},
-        ),
+        .UTF16, .UTF32, .Wide => {
+            const node = try transWideStringLiteral(rp, scope, stmt);
+            return maybeSuppressResult(rp, scope, result_used, node);
+        },
     }
+}
+
+/// Translates a wide string literal as a global "anonymous" array of the relevant-sized
+/// integer type + null terminator, and returns an identifier node for it
+fn transWideStringLiteral(rp: RestorePoint, scope: *Scope, stmt: *const clang.StringLiteral) TransError!*ast.Node {
+    const str_type = @tagName(stmt.getKind());
+    const mangle = rp.c.getMangle();
+    const name = try std.fmt.allocPrint(rp.c.arena, "zig.{s}_string_{d}", .{ str_type, mangle });
+
+    const const_tok = try appendToken(rp.c, .Keyword_const, "const");
+    const name_tok = try appendIdentifier(rp.c, name);
+    const eq_tok = try appendToken(rp.c, .Equal, "=");
+    var semi_tok: ast.TokenIndex = undefined;
+
+    const lit_array = try transStringLiteralAsArray(rp, scope, stmt, stmt.getLength() + 1);
+
+    semi_tok = try appendToken(rp.c, .Semicolon, ";");
+    const var_decl_node = try ast.Node.VarDecl.create(rp.c.arena, .{
+        .name_token = name_tok,
+        .mut_token = const_tok,
+        .semicolon_token = semi_tok,
+    }, .{
+        .visib_token = null,
+        .eq_token = eq_tok,
+        .init_node = lit_array,
+    });
+    try addTopLevelDecl(rp.c, name, &var_decl_node.base);
+    return transCreateNodeIdentifier(rp.c, name);
 }
 
 /// Parse the size of an array back out from an ast Node.
@@ -2089,17 +2145,18 @@ fn zigArraySize(c: *Context, node: *ast.Node) TransError!usize {
 }
 
 /// Translate a string literal to an array of integers. Used when an
-/// array is initialized from a string literal. `target_node` is the
-/// array being initialized. If the string literal is larger than the
-/// array, truncate the string. If the array is larger than the string
-/// literal, pad the array with 0's
+/// array is initialized from a string literal. `array_size` is the
+/// size of the array being initialized. If the string literal is larger
+/// than the array, truncate the string. If the array is larger than the
+/// string literal, pad the array with 0's
 fn transStringLiteralAsArray(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const clang.StringLiteral,
-    target_node: *ast.Node,
+    array_size: usize,
 ) TransError!*ast.Node {
-    const array_size = try zigArraySize(rp.c, target_node);
+    if (array_size == 0) return error.UnsupportedType;
+
     const str_length = stmt.getLength();
 
     const expr_base = @ptrCast(*const clang.Expr, stmt);
@@ -3190,6 +3247,38 @@ fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const clang.ArraySub
     return maybeSuppressResult(rp, scope, result_used, &node.base);
 }
 
+/// Check if an expression is ultimately a reference to a function declaration
+/// (which means it should not be unwrapped with `.?` in translated code)
+fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
+    switch (expr.getStmtClass()) {
+        .ParenExprClass => {
+            const op_expr = @ptrCast(*const clang.ParenExpr, expr).getSubExpr();
+            return cIsFunctionDeclRef(op_expr);
+        },
+        .DeclRefExprClass => {
+            const decl_ref = @ptrCast(*const clang.DeclRefExpr, expr);
+            const value_decl = decl_ref.getDecl();
+            const qt = value_decl.getType();
+            return qualTypeChildIsFnProto(qt);
+        },
+        .ImplicitCastExprClass => {
+            const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, expr);
+            const cast_kind = implicit_cast.getCastKind();
+            if (cast_kind == .BuiltinFnToFnPtr) return true;
+            if (cast_kind == .FunctionToPointerDecay) {
+                return cIsFunctionDeclRef(implicit_cast.getSubExpr());
+            }
+            return false;
+        },
+        .UnaryOperatorClass => {
+            const un_op = @ptrCast(*const clang.UnaryOperator, expr);
+            const opcode = un_op.getOpcode();
+            return (opcode == .AddrOf or opcode == .Deref) and cIsFunctionDeclRef(un_op.getSubExpr());
+        },
+        else => return false,
+    }
+}
+
 fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.CallExpr, result_used: ResultUsed) TransError!*ast.Node {
     const callee = stmt.getCallee();
     var raw_fn_expr = try transExpr(rp, scope, callee, .used, .r_value);
@@ -3197,24 +3286,9 @@ fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const clang.CallExpr, r
     var is_ptr = false;
     const fn_ty = qualTypeGetFnProto(callee.getType(), &is_ptr);
 
-    const fn_expr = if (is_ptr and fn_ty != null) blk: {
-        if (callee.getStmtClass() == .ImplicitCastExprClass) {
-            const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, callee);
-            const cast_kind = implicit_cast.getCastKind();
-            if (cast_kind == .BuiltinFnToFnPtr) break :blk raw_fn_expr;
-            if (cast_kind == .FunctionToPointerDecay) {
-                const subexpr = implicit_cast.getSubExpr();
-                if (subexpr.getStmtClass() == .DeclRefExprClass) {
-                    const decl_ref = @ptrCast(*const clang.DeclRefExpr, subexpr);
-                    const named_decl = decl_ref.getFoundDecl();
-                    if (@ptrCast(*const clang.Decl, named_decl).getKind() == .Function) {
-                        break :blk raw_fn_expr;
-                    }
-                }
-            }
-        }
-        break :blk try transCreateNodeUnwrapNull(rp.c, raw_fn_expr);
-    } else
+    const fn_expr = if (is_ptr and fn_ty != null and !cIsFunctionDeclRef(callee))
+        try transCreateNodeUnwrapNull(rp.c, raw_fn_expr)
+    else
         raw_fn_expr;
 
     const num_args = stmt.getNumArgs();
@@ -3270,7 +3344,7 @@ const ClangFunctionType = union(enum) {
     NoProto: *const clang.FunctionType,
 
     fn getReturnType(self: @This()) clang.QualType {
-        switch (@as(@TagType(@This()), self)) {
+        switch (@as(std.meta.Tag(@This()), self)) {
             .Proto => return self.Proto.getReturnType(),
             .NoProto => return self.NoProto.getReturnType(),
         }
@@ -3361,6 +3435,9 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const clang.UnaryO
         else
             return transCreatePreCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
         .AddrOf => {
+            if (cIsFunctionDeclRef(op_expr)) {
+                return transExpr(rp, scope, op_expr, used, .r_value);
+            }
             const op_node = try transCreateNodeSimplePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
             op_node.rhs = try transExpr(rp, scope, op_expr, used, .r_value);
             return &op_node.base;
@@ -4647,7 +4724,6 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
     const scope = &c.global_scope.base;
 
     const pub_tok = try appendToken(c, .Keyword_pub, "pub");
-    const inline_tok = try appendToken(c, .Keyword_inline, "inline");
     const fn_tok = try appendToken(c, .Keyword_fn, "fn");
     const name_tok = try appendIdentifier(c, name);
     _ = try appendToken(c, .LParen, "(");
@@ -4673,6 +4749,11 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
         };
     }
 
+    _ = try appendToken(c, .RParen, ")");
+
+    _ = try appendToken(c, .Keyword_callconv, "callconv");
+    _ = try appendToken(c, .LParen, "(");
+    const callconv_expr = try transCreateNodeEnumLiteral(c, "Inline");
     _ = try appendToken(c, .RParen, ")");
 
     const block_lbrace = try appendToken(c, .LBrace, "{");
@@ -4714,8 +4795,8 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
     }, .{
         .visib_token = pub_tok,
         .name_token = name_tok,
-        .extern_export_inline_token = inline_tok,
         .body_node = &block.base,
+        .callconv_expr = callconv_expr,
     });
     mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
     return &fn_proto.base;
@@ -5665,7 +5746,6 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &block_scope.base;
 
     const pub_tok = try appendToken(c, .Keyword_pub, "pub");
-    const inline_tok = try appendToken(c, .Keyword_inline, "inline");
     const fn_tok = try appendToken(c, .Keyword_fn, "fn");
     const name_tok = try appendIdentifier(c, m.name);
     _ = try appendToken(c, .LParen, "(");
@@ -5710,6 +5790,11 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     _ = try appendToken(c, .RParen, ")");
 
+    _ = try appendToken(c, .Keyword_callconv, "callconv");
+    _ = try appendToken(c, .LParen, "(");
+    const callconv_expr = try transCreateNodeEnumLiteral(c, "Inline");
+    _ = try appendToken(c, .RParen, ")");
+
     const type_of = try c.createBuiltinCall("@TypeOf", 1);
 
     const return_kw = try appendToken(c, .Keyword_return, "return");
@@ -5741,9 +5826,9 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .return_type = .{ .Explicit = &type_of.base },
     }, .{
         .visib_token = pub_tok,
-        .extern_export_inline_token = inline_tok,
         .name_token = name_tok,
         .body_node = block_node,
+        .callconv_expr = callconv_expr,
     });
     mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
 

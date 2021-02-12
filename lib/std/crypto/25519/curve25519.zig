@@ -15,12 +15,12 @@ pub const Curve25519 = struct {
     x: Fe,
 
     /// Decode a Curve25519 point from its compressed (X) coordinates.
-    pub inline fn fromBytes(s: [32]u8) Curve25519 {
+    pub fn fromBytes(s: [32]u8) callconv(.Inline) Curve25519 {
         return .{ .x = Fe.fromBytes(s) };
     }
 
     /// Encode a Curve25519 point.
-    pub inline fn toBytes(p: Curve25519) [32]u8 {
+    pub fn toBytes(p: Curve25519) callconv(.Inline) [32]u8 {
         return p.x.toBytes();
     }
 

@@ -312,6 +312,7 @@ const usage_build_generic =
     \\    pe                      Portable Executable (Windows)
     \\    coff                    Common Object File Format (Windows)
     \\    macho                   macOS relocatables
+    \\    spirv                   Standard, Portable Intermediate Representation V (SPIR-V)
     \\    hex    (planned)        Intel IHEX
     \\    raw    (planned)        Dump machine code directly
     \\  -dirafter [dir]           Add directory to AFTER include search path
@@ -1185,6 +1186,7 @@ fn buildOutputType(
                     .framework_dir => try framework_dirs.append(it.only_arg),
                     .framework => try frameworks.append(it.only_arg),
                     .nostdlibinc => want_native_include_dirs = false,
+                    .strip => strip = true,
                 }
             }
             // Parse linker args.
@@ -1535,8 +1537,9 @@ fn buildOutputType(
         }
 
         const has_sysroot = if (comptime std.Target.current.isDarwin()) outer: {
-            const at_least_big_sur = target_info.target.os.getVersionRange().semver.min.major >= 11;
-            if (at_least_big_sur) {
+            const min = target_info.target.os.getVersionRange().semver.min;
+            const at_least_catalina = min.major >= 11 or (min.major >= 10 and min.minor >= 15);
+            if (at_least_catalina) {
                 const sdk_path = try std.zig.system.getSDKPath(arena);
                 try clang_argv.ensureCapacity(clang_argv.items.len + 2);
                 clang_argv.appendAssumeCapacity("-isysroot");
@@ -1588,6 +1591,8 @@ fn buildOutputType(
             break :blk .hex;
         } else if (mem.eql(u8, ofmt, "raw")) {
             break :blk .raw;
+        } else if (mem.eql(u8, ofmt, "spirv")) {
+            break :blk .spirv;
         } else {
             fatal("unsupported object format: {s}", .{ofmt});
         }
@@ -3047,6 +3052,7 @@ pub const ClangArgIterator = struct {
         nostdlibinc,
         red_zone,
         no_red_zone,
+        strip,
     };
 
     const Args = struct {

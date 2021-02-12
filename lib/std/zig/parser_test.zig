@@ -3,6 +3,18 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+
+// TODO Remove this after zig 0.8.0 is released.
+test "zig fmt: rewrite inline functions as callconv(.Inline)" {
+    try testTransform(
+        \\inline fn foo() void {}
+        \\
+    ,
+        \\fn foo() callconv(.Inline) void {}
+        \\
+    );
+}
+
 test "zig fmt: simple top level comptime block" {
     try testCanonical(
         \\// line comment
@@ -2593,28 +2605,28 @@ test "zig fmt: call expression" {
 //        \\
 //    );
 //}
-
+//
 //test "zig fmt: functions" {
 //    try testCanonical(
 //        \\extern fn puts(s: *const u8) c_int;
 //        \\extern "c" fn puts(s: *const u8) c_int;
 //        \\export fn puts(s: *const u8) c_int;
-//        \\inline fn puts(s: *const u8) c_int;
+//        \\fn puts(s: *const u8) callconv(.Inline) c_int;
 //        \\noinline fn puts(s: *const u8) c_int;
 //        \\pub extern fn puts(s: *const u8) c_int;
 //        \\pub extern "c" fn puts(s: *const u8) c_int;
 //        \\pub export fn puts(s: *const u8) c_int;
-//        \\pub inline fn puts(s: *const u8) c_int;
+//        \\pub fn puts(s: *const u8) callconv(.Inline) c_int;
 //        \\pub noinline fn puts(s: *const u8) c_int;
 //        \\pub extern fn puts(s: *const u8) align(2 + 2) c_int;
 //        \\pub extern "c" fn puts(s: *const u8) align(2 + 2) c_int;
 //        \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
-//        \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
+//        \\pub fn puts(s: *const u8) align(2 + 2) callconv(.Inline) c_int;
 //        \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
 //        \\
 //    );
 //}
-
+//
 //test "zig fmt: multiline string" {
 //    try testCanonical(
 //        \\test "" {
@@ -4278,7 +4290,7 @@ fn testCanonical(source: []const u8) !void {
     return testTransform(source, source);
 }
 
-const Error = @TagType(std.zig.ast.Error);
+const Error = std.meta.Tag(std.zig.ast.Error);
 
 fn testError(source: []const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);

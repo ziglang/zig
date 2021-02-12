@@ -1,5 +1,6 @@
 const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
+const Tag = @import("std").meta.Tag;
 
 test "extern enum" {
     const S = struct {
@@ -827,12 +828,12 @@ test "set enum tag type" {
     {
         var x = Small.One;
         x = Small.Two;
-        comptime expect(@TagType(Small) == u2);
+        comptime expect(Tag(Small) == u2);
     }
     {
         var x = Small2.One;
         x = Small2.Two;
-        comptime expect(@TagType(Small2) == u2);
+        comptime expect(Tag(Small2) == u2);
     }
 }
 
@@ -905,11 +906,11 @@ fn getC(data: *const BitFieldOfEnums) C {
 }
 
 test "casting enum to its tag type" {
-    testCastEnumToTagType(Small2.Two);
-    comptime testCastEnumToTagType(Small2.Two);
+    testCastEnumTag(Small2.Two);
+    comptime testCastEnumTag(Small2.Two);
 }
 
-fn testCastEnumToTagType(value: Small2) void {
+fn testCastEnumTag(value: Small2) void {
     expect(@enumToInt(value) == 1);
 }
 
@@ -1163,14 +1164,14 @@ test "enum with comptime_int tag type" {
         Two = 2,
         Three = 1,
     };
-    comptime expect(@TagType(Enum) == comptime_int);
+    comptime expect(Tag(Enum) == comptime_int);
 }
 
 test "enum with one member default to u0 tag type" {
     const E0 = enum {
         X,
     };
-    comptime expect(@TagType(E0) == u0);
+    comptime expect(Tag(E0) == u0);
 }
 
 test "tagName on enum literals" {

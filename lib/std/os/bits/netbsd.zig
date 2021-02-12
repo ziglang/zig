@@ -796,16 +796,16 @@ pub const _ksiginfo = extern struct {
 pub const _SIG_WORDS = 4;
 pub const _SIG_MAXSIG = 128;
 
-pub inline fn _SIG_IDX(sig: usize) usize {
+pub fn _SIG_IDX(sig: usize) callconv(.Inline) usize {
     return sig - 1;
 }
-pub inline fn _SIG_WORD(sig: usize) usize {
+pub fn _SIG_WORD(sig: usize) callconv(.Inline) usize {
     return_SIG_IDX(sig) >> 5;
 }
-pub inline fn _SIG_BIT(sig: usize) usize {
+pub fn _SIG_BIT(sig: usize) callconv(.Inline) usize {
     return 1 << (_SIG_IDX(sig) & 31);
 }
-pub inline fn _SIG_VALID(sig: usize) usize {
+pub fn _SIG_VALID(sig: usize) callconv(.Inline) usize {
     return sig <= _SIG_MAXSIG and sig > 0;
 }
 

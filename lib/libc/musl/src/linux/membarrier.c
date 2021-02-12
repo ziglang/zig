@@ -9,13 +9,8 @@ static void dummy_0(void)
 {
 }
 
-static void dummy_1(pthread_t t)
-{
-}
-
 weak_alias(dummy_0, __tl_lock);
 weak_alias(dummy_0, __tl_unlock);
-weak_alias(dummy_1, __tl_sync);
 
 static sem_t barrier_sem;
 

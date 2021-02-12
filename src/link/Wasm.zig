@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const leb = std.leb;
 const log = std.log.scoped(.link);
+const wasm = std.wasm;
 
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
@@ -15,25 +16,6 @@ const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
-
-/// Various magic numbers defined by the wasm spec
-const spec = struct {
-    const magic = [_]u8{ 0x00, 0x61, 0x73, 0x6D }; // \0asm
-    const version = [_]u8{ 0x01, 0x00, 0x00, 0x00 }; // version 1
-
-    const custom_id = 0;
-    const types_id = 1;
-    const imports_id = 2;
-    const funcs_id = 3;
-    const tables_id = 4;
-    const memories_id = 5;
-    const globals_id = 6;
-    const exports_id = 7;
-    const start_id = 8;
-    const elements_id = 9;
-    const code_id = 10;
-    const data_id = 11;
-};
 
 pub const base_tag = link.File.Tag.wasm;
 
@@ -65,19 +47,19 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     errdefer file.close();
 
-    const wasm = try createEmpty(allocator, options);
-    errdefer wasm.base.destroy();
+    const wasm_bin = try createEmpty(allocator, options);
+    errdefer wasm_bin.base.destroy();
 
-    wasm.base.file = file;
+    wasm_bin.base.file = file;
 
-    try file.writeAll(&(spec.magic ++ spec.version));
+    try file.writeAll(&(wasm.magic ++ wasm.version));
 
-    return wasm;
+    return wasm_bin;
 }
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
-    const wasm = try gpa.create(Wasm);
-    wasm.* = .{
+    const wasm_bin = try gpa.create(Wasm);
+    wasm_bin.* = .{
         .base = .{
             .tag = .wasm,
             .options = options,
@@ -85,7 +67,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
             .allocator = gpa,
         },
     };
-    return wasm;
+    return wasm_bin;
 }
 
 pub fn deinit(self: *Wasm) void {
@@ -121,13 +103,14 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     var context = codegen.Context{
         .gpa = self.base.allocator,
-        .values = codegen.ValueTable.init(self.base.allocator),
+        .values = .{},
         .code = managed_code,
         .func_type_data = managed_functype,
         .decl = decl,
         .err_msg = undefined,
+        .locals = .{},
     };
-    defer context.values.deinit();
+    defer context.deinit();
 
     // generate the 'code' section for the function declaration
     context.gen() catch |err| switch (err) {
@@ -138,6 +121,13 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         },
         else => |e| return err,
     };
+
+    // as locals are patched afterwards, the offsets of funcidx's are off,
+    // here we update them to correct them
+    for (decl.fn_link.wasm.?.idx_refs.items) |*func| {
+        // For each local, add 6 bytes (count + type)
+        func.offset += @intCast(u32, context.locals.items.len * 6);
+    }
 
     fn_data.functype = context.func_type_data.toUnmanaged();
     fn_data.code = context.code.toUnmanaged();
@@ -176,8 +166,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     const header_size = 5 + 1;
 
     // No need to rewrite the magic/version header
-    try file.setEndPos(@sizeOf(@TypeOf(spec.magic ++ spec.version)));
-    try file.seekTo(@sizeOf(@TypeOf(spec.magic ++ spec.version)));
+    try file.setEndPos(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
+    try file.seekTo(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
 
     // Type section
     {
@@ -188,7 +178,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            spec.types_id,
+            .type,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );
@@ -202,7 +192,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            spec.funcs_id,
+            .function,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );
@@ -235,7 +225,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            spec.exports_id,
+            .@"export",
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             count,
         );
@@ -255,7 +245,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 try writer.writeAll(fn_data.code.items[current..idx_ref.offset]);
                 current = idx_ref.offset;
                 // Use a fixed width here to make calculating the code size
-                // in codegen.wasm.genCode() simpler.
+                // in codegen.wasm.gen() simpler.
                 var buf: [5]u8 = undefined;
                 leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
                 try writer.writeAll(&buf);
@@ -266,7 +256,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writeVecSectionHeader(
             file,
             header_offset,
-            spec.code_id,
+            .code,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
         );
@@ -549,9 +539,9 @@ fn reserveVecSectionHeader(file: fs.File) !u64 {
     return (try file.getPos()) - header_size;
 }
 
-fn writeVecSectionHeader(file: fs.File, offset: u64, section: u8, size: u32, items: u32) !void {
+fn writeVecSectionHeader(file: fs.File, offset: u64, section: wasm.Section, size: u32, items: u32) !void {
     var buf: [1 + 5 + 5]u8 = undefined;
-    buf[0] = section;
+    buf[0] = @enumToInt(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
     try file.pwriteAll(&buf, offset);

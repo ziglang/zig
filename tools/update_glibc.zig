@@ -157,7 +157,7 @@ pub fn main() !void {
 
         for (lib_names) |lib_name, lib_name_index| {
             const lib_prefix = if (std.mem.eql(u8, lib_name, "ld")) "" else "lib";
-            const basename = try fmt.allocPrint(allocator, "{}{}.abilist", .{ lib_prefix, lib_name });
+            const basename = try fmt.allocPrint(allocator, "{s}{s}.abilist", .{ lib_prefix, lib_name });
             const abi_list_filename = blk: {
                 const is_c = std.mem.eql(u8, lib_name, "c");
                 const is_m = std.mem.eql(u8, lib_name, "m");
@@ -185,7 +185,7 @@ pub fn main() !void {
             };
             const max_bytes = 10 * 1024 * 1024;
             const contents = std.fs.cwd().readFileAlloc(allocator, abi_list_filename, max_bytes) catch |err| {
-                std.debug.warn("unable to open {}: {}\n", .{ abi_list_filename, err });
+                std.debug.warn("unable to open {s}: {}\n", .{ abi_list_filename, err });
                 std.process.exit(1);
             };
             var lines_it = std.mem.tokenize(contents, "\n");
@@ -243,7 +243,7 @@ pub fn main() !void {
         const vers_txt = buffered.writer();
         for (global_ver_list) |name, i| {
             _ = global_ver_set.put(name, i) catch unreachable;
-            try vers_txt.print("{}\n", .{name});
+            try vers_txt.print("{s}\n", .{name});
         }
         try buffered.flush();
     }
@@ -256,7 +256,7 @@ pub fn main() !void {
         for (global_fn_list) |name, i| {
             const entry = global_fn_set.getEntry(name).?;
             entry.value.index = i;
-            try fns_txt.print("{} {}\n", .{ name, entry.value.lib });
+            try fns_txt.print("{s} {s}\n", .{ name, entry.value.lib });
         }
         try buffered.flush();
     }
@@ -290,7 +290,7 @@ pub fn main() !void {
             const fn_vers_list = &target_functions.getEntry(@ptrToInt(abi_list)).?.value.fn_vers_list;
             for (abi_list.targets) |target, it_i| {
                 if (it_i != 0) try abilist_txt.writeByte(' ');
-                try abilist_txt.print("{}-linux-{}", .{ @tagName(target.arch), @tagName(target.abi) });
+                try abilist_txt.print("{s}-linux-{s}", .{ @tagName(target.arch), @tagName(target.abi) });
             }
             try abilist_txt.writeByte('\n');
             // next, each line implicitly corresponds to a function

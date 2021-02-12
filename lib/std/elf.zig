@@ -720,10 +720,10 @@ pub const Elf32_Rel = extern struct {
     r_offset: Elf32_Addr,
     r_info: Elf32_Word,
 
-    pub inline fn r_sym(self: @This()) u24 {
+    pub fn r_sym(self: @This()) callconv(.Inline) u24 {
         return @truncate(u24, self.r_info >> 8);
     }
-    pub inline fn r_type(self: @This()) u8 {
+    pub fn r_type(self: @This()) callconv(.Inline) u8 {
         return @truncate(u8, self.r_info & 0xff);
     }
 };
@@ -731,10 +731,10 @@ pub const Elf64_Rel = extern struct {
     r_offset: Elf64_Addr,
     r_info: Elf64_Xword,
 
-    pub inline fn r_sym(self: @This()) u32 {
+    pub fn r_sym(self: @This()) callconv(.Inline) u32 {
         return @truncate(u32, self.r_info >> 32);
     }
-    pub inline fn r_type(self: @This()) u32 {
+    pub fn r_type(self: @This()) callconv(.Inline) u32 {
         return @truncate(u32, self.r_info & 0xffffffff);
     }
 };
@@ -743,10 +743,10 @@ pub const Elf32_Rela = extern struct {
     r_info: Elf32_Word,
     r_addend: Elf32_Sword,
 
-    pub inline fn r_sym(self: @This()) u24 {
+    pub fn r_sym(self: @This()) callconv(.Inline) u24 {
         return @truncate(u24, self.r_info >> 8);
     }
-    pub inline fn r_type(self: @This()) u8 {
+    pub fn r_type(self: @This()) callconv(.Inline) u8 {
         return @truncate(u8, self.r_info & 0xff);
     }
 };
@@ -755,10 +755,10 @@ pub const Elf64_Rela = extern struct {
     r_info: Elf64_Xword,
     r_addend: Elf64_Sxword,
 
-    pub inline fn r_sym(self: @This()) u32 {
+    pub fn r_sym(self: @This()) callconv(.Inline) u32 {
         return @truncate(u32, self.r_info >> 32);
     }
-    pub inline fn r_type(self: @This()) u32 {
+    pub fn r_type(self: @This()) callconv(.Inline) u32 {
         return @truncate(u32, self.r_info & 0xffffffff);
     }
 };

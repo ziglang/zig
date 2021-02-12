@@ -516,8 +516,6 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetAlignStack *>(inst));
         case IrInstSrcIdArgType:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcArgType *>(inst));
-        case IrInstSrcIdTagType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTagType *>(inst));
         case IrInstSrcIdExport:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExport *>(inst));
         case IrInstSrcIdExtern:
@@ -1494,10 +1492,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcPanic *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcTagName *) {
     return IrInstSrcIdTagName;
-}
-
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcTagType *) {
-    return IrInstSrcIdTagType;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcFieldParentPtr *) {
@@ -4450,17 +4444,6 @@ static IrInstGen *ir_build_tag_name_gen(IrAnalyze *ira, IrInst *source_instr, Ir
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_tag_type(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
-        IrInstSrc *target)
-{
-    IrInstSrcTagType *instruction = ir_build_instruction<IrInstSrcTagType>(irb, scope, source_node);
-    instruction->target = target;
-
-    ir_ref_instruction(target, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
 static IrInstSrc *ir_build_field_parent_ptr_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
         IrInstSrc *type_value, IrInstSrc *field_name, IrInstSrc *field_ptr)
 {
@@ -7201,16 +7184,6 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 IrInstSrc *tag_name = ir_build_tag_name_src(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, tag_name, lval, result_loc);
-            }
-        case BuiltinFnIdTagType:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_inst_src)
-                    return arg0_value;
-
-                IrInstSrc *tag_type = ir_build_tag_type(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, tag_type, lval, result_loc);
             }
         case BuiltinFnIdFieldParentPtr:
             {
@@ -19027,7 +19000,7 @@ static IrInstGen *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstSrcDeclV
             } else if (init_val->type->id == ZigTypeIdFn &&
                 init_val->special != ConstValSpecialUndef &&
                 init_val->data.x_ptr.special == ConstPtrSpecialFunction &&
-                init_val->data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
+                init_val->data.x_ptr.data.fn.fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionInline)
             {
                 var_class_requires_const = true;
                 if (!var->src_is_const && !is_comptime_var) {
@@ -19207,6 +19180,11 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
                 case CallingConventionAsync: {
                     ErrorMsg *msg = ir_add_error(ira, &target->base,
                         buf_sprintf("exported function cannot be async"));
+                    add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
+                } break;
+                case CallingConventionInline: {
+                    ErrorMsg *msg = ir_add_error(ira, &target->base,
+                        buf_sprintf("exported function cannot be inline"));
                     add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
                 } break;
                 case CallingConventionC:
@@ -21147,7 +21125,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
     if (type_is_invalid(return_type))
         return ira->codegen->invalid_inst_gen;
 
-    if (fn_entry != nullptr && fn_entry->fn_inline == FnInlineAlways && modifier == CallModifierNeverInline) {
+    if (fn_entry != nullptr && fn_type_id->cc == CallingConventionInline && modifier == CallModifierNeverInline) {
         ir_add_error(ira, source_instr,
             buf_sprintf("no-inline call of inline function"));
         return ira->codegen->invalid_inst_gen;
@@ -22655,9 +22633,10 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                                 if (ptr_field->data.x_ptr.data.base_array.array_val->data.x_array.special !=
                                         ConstArraySpecialBuf)
                                 {
-                                    ir_assert(new_index <
-                                            ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len,
-                                        &elem_ptr_instruction->base.base);
+                                    if (new_index >= ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len) {
+                                        ir_add_error(ira, &elem_ptr_instruction->base.base, buf_sprintf("out of bounds slice"));
+                                        return ira->codegen->invalid_inst_gen;
+                                    }
                                 }
                                 out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
                                 out_val->data.x_ptr.data.base_array.array_val =
@@ -25245,10 +25224,6 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
     if ((err = type_resolve(ira->codegen, type_info_fn_decl_type, ResolveStatusSizeKnown)))
         return err;
 
-    ZigType *type_info_fn_decl_inline_type = ir_type_info_get_type(ira, "Inline", type_info_fn_decl_type);
-    if ((err = type_resolve(ira->codegen, type_info_fn_decl_inline_type, ResolveStatusSizeKnown)))
-        return err;
-
     resolve_container_usingnamespace_decls(ira->codegen, decls_scope);
 
     // The unresolved declarations are collected in a separate queue to avoid
@@ -25391,11 +25366,11 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                     fn_decl_fields[0]->special = ConstValSpecialStatic;
                     fn_decl_fields[0]->type = ira->codegen->builtin_types.entry_type;
                     fn_decl_fields[0]->data.x_type = fn_entry->type_entry;
-                    // inline_type: Data.FnDecl.Inline
-                    ensure_field_index(fn_decl_val->type, "inline_type", 1);
+                    // is_noinline: bool
+                    ensure_field_index(fn_decl_val->type, "is_noinline", 1);
                     fn_decl_fields[1]->special = ConstValSpecialStatic;
-                    fn_decl_fields[1]->type = type_info_fn_decl_inline_type;
-                    bigint_init_unsigned(&fn_decl_fields[1]->data.x_enum_tag, fn_entry->fn_inline);
+                    fn_decl_fields[1]->type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[1]->data.x_bool = fn_entry->is_noinline;
                     // is_var_args: bool
                     ensure_field_index(fn_decl_val->type, "is_var_args", 2);
                     bool is_varargs = fn_node->is_var_args;
@@ -30983,7 +30958,7 @@ static IrInstGen *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstS
         return ira->codegen->invalid_inst_gen;
     }
 
-    if (fn_entry->fn_inline == FnInlineAlways) {
+    if (fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionInline) {
         ir_add_error(ira, &instruction->base.base, buf_sprintf("@setAlignStack in inline function"));
         return ira->codegen->invalid_inst_gen;
     }
@@ -31048,30 +31023,6 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
         }
     }
     return ir_const_type(ira, &instruction->base.base, result_type);
-}
-
-static IrInstGen *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstSrcTagType *instruction) {
-    Error err;
-    IrInstGen *target_inst = instruction->target->child;
-    ZigType *enum_type = ir_resolve_type(ira, target_inst);
-    if (type_is_invalid(enum_type))
-        return ira->codegen->invalid_inst_gen;
-
-    if (enum_type->id == ZigTypeIdEnum) {
-        if ((err = type_resolve(ira->codegen, enum_type, ResolveStatusSizeKnown)))
-            return ira->codegen->invalid_inst_gen;
-
-        return ir_const_type(ira, &instruction->base.base, enum_type->data.enumeration.tag_int_type);
-    } else if (enum_type->id == ZigTypeIdUnion) {
-        ZigType *tag_type = ir_resolve_union_tag_type(ira, instruction->target->base.source_node, enum_type);
-        if (type_is_invalid(tag_type))
-            return ira->codegen->invalid_inst_gen;
-        return ir_const_type(ira, &instruction->base.base, tag_type);
-    } else {
-        ir_add_error(ira, &target_inst->base, buf_sprintf("expected enum or union, found '%s'",
-            buf_ptr(&enum_type->name)));
-        return ira->codegen->invalid_inst_gen;
-    }
 }
 
 static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op) {
@@ -32434,8 +32385,6 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_set_align_stack(ira, (IrInstSrcSetAlignStack *)instruction);
         case IrInstSrcIdArgType:
             return ir_analyze_instruction_arg_type(ira, (IrInstSrcArgType *)instruction);
-        case IrInstSrcIdTagType:
-            return ir_analyze_instruction_tag_type(ira, (IrInstSrcTagType *)instruction);
         case IrInstSrcIdExport:
             return ir_analyze_instruction_export(ira, (IrInstSrcExport *)instruction);
         case IrInstSrcIdExtern:
@@ -32878,7 +32827,6 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdImplicitCast:
         case IrInstSrcIdResolveResult:
         case IrInstSrcIdArgType:
-        case IrInstSrcIdTagType:
         case IrInstSrcIdErrorReturnTrace:
         case IrInstSrcIdErrorUnion:
         case IrInstSrcIdFloatOp:

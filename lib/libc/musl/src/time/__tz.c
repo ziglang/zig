@@ -6,6 +6,12 @@
 #include <sys/mman.h>
 #include "libc.h"
 #include "lock.h"
+#include "fork_impl.h"
+
+#define malloc __libc_malloc
+#define calloc undef
+#define realloc undef
+#define free undef
 
 long  __timezone = 0;
 int   __daylight = 0;
@@ -30,6 +36,7 @@ static char *old_tz = old_tz_buf;
 static size_t old_tz_size = sizeof old_tz_buf;
 
 static volatile int lock[1];
+volatile int *const __timezone_lockptr = lock;
 
 static int getint(const char **p)
 {
@@ -178,7 +185,7 @@ static void do_tzset()
 	zi = map;
 	if (map) {
 		int scale = 2;
-		if (sizeof(time_t) > 4 && map[4]=='2') {
+		if (map[4]!='1') {
 			size_t skip = zi_dotprod(zi+20, VEC(1,1,8,5,6,1), 6);
 			trans = zi+skip+44+44;
 			scale++;

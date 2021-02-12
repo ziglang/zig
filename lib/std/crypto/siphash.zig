@@ -7,10 +7,10 @@
 // SipHash is a moderately fast pseudorandom function, returning a 64-bit or 128-bit tag for an arbitrary long input.
 //
 // Typical use cases include:
-// - protection against against DoS attacks for hash tables and bloom filters
+// - protection against DoS attacks for hash tables and bloom filters
 // - authentication of short-lived messages in online protocols
 //
-// https://131002.net/siphash/
+// https://www.aumasson.jp/siphash/siphash.pdf
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;

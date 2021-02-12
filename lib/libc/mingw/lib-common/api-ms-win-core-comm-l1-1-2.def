@@ -1,0 +1,24 @@
+LIBRARY api-ms-win-core-comm-l1-1-2
+
+EXPORTS
+
+ClearCommBreak
+ClearCommError
+EscapeCommFunction
+GetCommConfig
+GetCommMask
+GetCommModemStatus
+GetCommPorts
+GetCommProperties
+GetCommState
+GetCommTimeouts
+OpenCommPort
+PurgeComm
+SetCommBreak
+SetCommConfig
+SetCommMask
+SetCommState
+SetCommTimeouts
+SetupComm
+TransmitCommChar
+WaitCommEvent

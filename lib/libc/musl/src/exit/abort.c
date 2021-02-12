@@ -6,8 +6,6 @@
 #include "lock.h"
 #include "ksigaction.h"
 
-hidden volatile int __abort_lock[1];
-
 _Noreturn void abort(void)
 {
 	raise(SIGABRT);

@@ -408,6 +408,10 @@
 #define __NR_fspick		4433
 #define __NR_pidfd_open		4434
 #define __NR_clone3		4435
+#define __NR_close_range	4436
+#define __NR_openat2		4437
+#define __NR_pidfd_getfd	4438
+#define __NR_faccessat2		4439
 
 #define SYS_syscall                 4000
 #define SYS_exit                    4001
@@ -819,3 +823,7 @@
 #define SYS_fspick		4433
 #define SYS_pidfd_open		4434
 #define SYS_clone3		4435
+#define SYS_close_range	4436
+#define SYS_openat2		4437
+#define SYS_pidfd_getfd	4438
+#define SYS_faccessat2		4439

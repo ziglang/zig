@@ -122,4 +122,96 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "35\n");
     }
+
+    {
+        var case = ctx.exe("wasm conditions", wasi);
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    if (i > @as(u32, 4)) {
+            \\        i += 10;
+            \\    }
+            \\    return i;
+            \\}
+        , "15\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    if (i < @as(u32, 4)) {
+            \\        i += 10;
+            \\    } else {
+            \\        i = 2;
+            \\    }
+            \\    return i;
+            \\}
+        , "2\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    if (i < @as(u32, 4)) {
+            \\        i += 10;
+            \\    } else if(i == @as(u32, 5)) {
+            \\        i = 20;
+            \\    }
+            \\    return i;
+            \\}
+        , "20\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 11;
+            \\    if (i < @as(u32, 4)) {
+            \\        i += 10;
+            \\    } else {
+            \\        if (i > @as(u32, 10)) {
+            \\            i += 20;
+            \\        } else {
+            \\            i = 20;
+            \\        }
+            \\    }
+            \\    return i;
+            \\}
+        , "31\n");
+    }
+
+    {
+        var case = ctx.exe("wasm while loops", wasi);
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 0;
+            \\    while(i < @as(u32, 5)){
+            \\        i += 1;
+            \\    }
+            \\
+            \\    return i;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 0;
+            \\    while(i < @as(u32, 10)){
+            \\        var x: u32 = 1;
+            \\        i += x;
+            \\    }
+            \\    return i;
+            \\}
+        , "10\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 0;
+            \\    while(i < @as(u32, 10)){
+            \\        var x: u32 = 1;
+            \\        i += x;
+            \\        if (i == @as(u32, 5)) break;
+            \\    }
+            \\    return i;
+            \\}
+        , "5\n");
+    }
 }

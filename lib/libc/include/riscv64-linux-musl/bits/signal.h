@@ -60,10 +60,10 @@ struct sigaltstack {
 	size_t ss_size;
 };
 
-typedef struct ucontext_t
+typedef struct __ucontext
 {
 	unsigned long uc_flags;
-	struct ucontext_t *uc_link;
+	struct __ucontext *uc_link;
 	stack_t uc_stack;
 	sigset_t uc_sigmask;
 	mcontext_t uc_mcontext;

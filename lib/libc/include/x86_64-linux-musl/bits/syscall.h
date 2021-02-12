@@ -345,6 +345,10 @@
 #define __NR_fspick		433
 #define __NR_pidfd_open		434
 #define __NR_clone3		435
+#define __NR_close_range	436
+#define __NR_openat2		437
+#define __NR_pidfd_getfd	438
+#define __NR_faccessat2		439
 
 #define SYS_read				0
 #define SYS_write				1
@@ -693,3 +697,7 @@
 #define SYS_fspick		433
 #define SYS_pidfd_open		434
 #define SYS_clone3		435
+#define SYS_close_range	436
+#define SYS_openat2		437
+#define SYS_pidfd_getfd	438
+#define SYS_faccessat2		439
