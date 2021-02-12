@@ -6581,13 +6581,11 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "async and await" {
-    // Here we have an exception where we do not match an async
-    // with an await. The test block is not async and so cannot
-    // have a suspend point in it.
-    // This is well-defined behavior, and everything is OK here.
-    // Note however that there would be no way to collect the
-    // return value of amain, if it were something other than void.
-    _ = async amain();
+    // The test block is not async and so cannot have a suspend
+    // point in it. By using the nosuspend keyword, we promise that
+    // the code in amain will finish executing without suspending
+    // back to the test block.
+    nosuspend amain();
 }
 
 fn amain() void {
