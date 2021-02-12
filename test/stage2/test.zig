@@ -1393,4 +1393,26 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("passing u0 to function", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    doNothing(0);
+            \\    exit();
+            \\}
+            \\fn doNothing(arg: u0) void {}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
