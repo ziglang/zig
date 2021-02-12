@@ -1,5 +1,6 @@
 const std = @import("std");
 const Type = @import("../type.zig").Type;
+const Allocator = std.mem.Allocator;
 
 pub const Node = extern union {
     /// If the tag value is less than Tag.no_payload_count, then no pointer
@@ -20,6 +21,8 @@ pub const Node = extern union {
         one_literal,
         void_type,
         noreturn_type,
+        @"anytype",
+        @"continue",
         /// pub usingnamespace @import("std").c.builtins;
         usingnamespace_builtins,
         // After this, the tag requires a payload.
@@ -40,7 +43,6 @@ pub const Node = extern union {
         switch_else,
         /// lhs => rhs,
         switch_prong,
-        @"continue",
         @"break",
         break_val,
         @"return",
@@ -60,7 +62,6 @@ pub const Node = extern union {
         container_init,
         std_meta_cast,
         discard,
-        block,
 
         // a + b
         add,
@@ -111,8 +112,11 @@ pub const Node = extern union {
         equal,
         not_equal,
         bit_and,
+        bit_and_assign,
         bit_or,
+        bit_or_assign,
         bit_xor,
+        bit_xor_assign,
         array_cat,
         ellipsis3,
         assign,
@@ -126,7 +130,7 @@ pub const Node = extern union {
         rem,
         /// @divTrunc(lhs, rhs)
         div_trunc,
-        /// @boolToInt(lhs, rhs)
+        /// @boolToInt(operand)
         bool_to_int,
         /// @as(lhs, rhs)
         as,
@@ -150,24 +154,26 @@ pub const Node = extern union {
         ptr_to_int,
         /// @alignCast(lhs, rhs)
         align_cast,
+        /// @ptrCast(lhs, rhs)
+        ptr_cast,
 
         negate,
         negate_wrap,
         bit_not,
         not,
         address_of,
-        /// operand.?.*
-        unwrap_deref,
+        /// .?
+        unwrap,
         /// .*
         deref,
 
         block,
         /// { operand }
         block_single,
-        @"break",
 
         sizeof,
         alignof,
+        typeof,
         type,
 
         optional_type,
@@ -185,6 +191,8 @@ pub const Node = extern union {
         fail_decl,
         // var actual = mangled;
         arg_redecl,
+        /// pub const alias = actual;
+        alias,
         /// const name = init;
         typedef,
         var_simple,
@@ -204,18 +212,17 @@ pub const Node = extern union {
 
         /// _ = operand;
         ignore,
-        @"anytype",
 
         pub const last_no_payload_tag = Tag.usingnamespace_builtins;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
-        pub fn Type(tag: Tag) ?type {
-            return switch (tag) {
+        pub fn Type(comptime t: Tag) type {
+            return switch (t) {
                 .null_literal,
                 .undefined_literal,
                 .opaque_literal,
                 .true_literal,
-                .false_litral,
+                .false_literal,
                 .empty_block,
                 .usingnamespace_builtins,
                 .return_void,
@@ -224,6 +231,7 @@ pub const Node = extern union {
                 .void_type,
                 .noreturn_type,
                 .@"anytype",
+                .@"continue",
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .std_mem_zeroes,
@@ -236,7 +244,7 @@ pub const Node = extern union {
                 .not,
                 .optional_type,
                 .address_of,
-                .unwrap_deref,
+                .unwrap,
                 .deref,
                 .ptr_to_int,
                 .enum_to_int,
@@ -246,6 +254,11 @@ pub const Node = extern union {
                 .switch_else,
                 .ignore,
                 .block_single,
+                .std_meta_sizeof,
+                .bool_to_int,
+                .sizeof,
+                .alignof,
+                .typeof,
                 => Payload.UnOp,
 
                 .add,
@@ -294,12 +307,14 @@ pub const Node = extern union {
                 .equal,
                 .not_equal,
                 .bit_and,
+                .bit_and_assign,
                 .bit_or,
+                .bit_or_assign,
                 .bit_xor,
+                .bit_xor_assign,
                 .div_trunc,
                 .rem,
                 .int_cast,
-                .bool_to_int,
                 .as,
                 .truncate,
                 .bit_cast,
@@ -316,6 +331,7 @@ pub const Node = extern union {
                 .align_cast,
                 .array_access,
                 .std_mem_zeroinit,
+                .ptr_cast,
                 => Payload.BinOp,
 
                 .number_literal,
@@ -324,8 +340,6 @@ pub const Node = extern union {
                 .identifier,
                 .warning,
                 .failed_decl,
-                .sizeof,
-                .alignof,
                 .type,
                 .fail_decl,
                 => Payload.Value,
@@ -345,7 +359,7 @@ pub const Node = extern union {
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type => Payload.Array,
-                .arg_redecl => Payload.ArgRedecl,
+                .arg_redecl, .alias => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
                 .typedef, .pub_typedef, .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
                 .enum_redecl => Payload.EnumRedecl,
@@ -375,7 +389,7 @@ pub const Node = extern union {
 
     pub fn tag(self: Node) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(Tag, @intCast(@TagType(Tag), self.tag_if_small_enough));
+            return @intToEnum(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -392,16 +406,16 @@ pub const Node = extern union {
     }
 
     pub fn initPayload(payload: *Payload) Node {
-        assert(@enumToInt(payload.tag) >= Tag.no_payload_count);
+        std.debug.assert(@enumToInt(payload.tag) >= Tag.no_payload_count);
         return .{ .ptr_otherwise = payload };
     }
 };
 
 pub const Payload = struct {
-    tag: Tag,
+    tag: Node.Tag,
 
     pub const Infix = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             lhs: Node,
             rhs: Node,
@@ -409,17 +423,17 @@ pub const Payload = struct {
     };
 
     pub const Value = struct {
-        base: Node,
+        base: Payload,
         data: []const u8,
     };
 
     pub const UnOp = struct {
-        base: Node,
+        base: Payload,
         data: Node,
     };
 
     pub const BinOp = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             lhs: Node,
             rhs: Node,
@@ -427,7 +441,7 @@ pub const Payload = struct {
     };
 
     pub const If = struct {
-        base: Node = .{ .tag = .@"if" },
+        base: Payload,
         data: struct {
             cond: Node,
             then: Node,
@@ -436,7 +450,7 @@ pub const Payload = struct {
     };
 
     pub const While = struct {
-        base: Node = .{ .tag = .@"while" },
+        base: Payload,
         data: struct {
             cond: Node,
             body: Node,
@@ -445,7 +459,7 @@ pub const Payload = struct {
     };
 
     pub const Switch = struct {
-        base: Node = .{ .tag = .@"switch" },
+        base: Payload,
         data: struct {
             cond: Node,
             cases: []Node,
@@ -453,12 +467,12 @@ pub const Payload = struct {
     };
 
     pub const Break = struct {
-        base: Node = .{ .tag = .@"break" },
+        base: Payload,
         data: ?[]const u8,
     };
 
     pub const BreakVal = struct {
-        base: Node = .{ .tag = .break_val },
+        base: Payload,
         data: struct {
             label: ?[]const u8,
             val: Node,
@@ -466,7 +480,7 @@ pub const Payload = struct {
     };
 
     pub const Call = struct {
-        base: Node = .{.call},
+        base: Payload,
         data: struct {
             lhs: Node,
             args: []Node,
@@ -474,7 +488,7 @@ pub const Payload = struct {
     };
 
     pub const VarDecl = struct {
-        base: Node = .{ .tag = .var_decl },
+        base: Payload,
         data: struct {
             is_pub: bool,
             is_const: bool,
@@ -489,13 +503,13 @@ pub const Payload = struct {
     };
 
     pub const Func = struct {
-        base: Node = .{.func},
+        base: Payload,
         data: struct {
             is_pub: bool,
             is_extern: bool,
             is_export: bool,
             is_var_args: bool,
-            name: []const u8,
+            name: ?[]const u8,
             linksection_string: ?[]const u8,
             explicit_callconv: ?std.builtin.CallingConvention,
             params: []Param,
@@ -512,7 +526,7 @@ pub const Payload = struct {
     };
 
     pub const Enum = struct {
-        base: Node = .{ .tag = .@"enum" },
+        base: Payload,
         data: []Field,
 
         pub const Field = struct {
@@ -522,9 +536,9 @@ pub const Payload = struct {
     };
 
     pub const Record = struct {
-        base: Node,
+        base: Payload,
         data: struct {
-            @"packed": bool,
+            is_packed: bool,
             fields: []Field,
         },
 
@@ -536,12 +550,12 @@ pub const Payload = struct {
     };
 
     pub const ArrayInit = struct {
-        base: Node = .{ .tag = .array_init },
+        base: Payload,
         data: []Node,
     };
 
     pub const ContainerInit = struct {
-        base: Node = .{ .tag = .container_init },
+        base: Payload,
         data: []Initializer,
 
         pub const Initializer = struct {
@@ -551,7 +565,7 @@ pub const Payload = struct {
     };
 
     pub const Block = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             label: ?[]const u8,
             stmts: []Node
@@ -559,15 +573,15 @@ pub const Payload = struct {
     };
 
     pub const Array = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             elem_type: Node,
-            len: Node,
+            len: usize,
         },
     };
 
     pub const Pointer = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             elem_type: Node,
             is_const: bool,
@@ -576,7 +590,7 @@ pub const Payload = struct {
     };
 
     pub const ArgRedecl = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             actual: []const u8,
             mangled: []const u8,
@@ -584,12 +598,12 @@ pub const Payload = struct {
     };
 
     pub const Log2IntType = struct {
-        base: Node,
+        base: Payload,
         data: std.math.Log2Int(u64),
     };
 
     pub const SimpleVarDecl = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             name: []const u8,
             init: Node,
@@ -597,7 +611,7 @@ pub const Payload = struct {
     };
 
     pub const EnumRedecl = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             enum_val_name: []const u8,
             field_name: []const u8,
@@ -606,7 +620,7 @@ pub const Payload = struct {
     };
 
     pub const ArrayFiller = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             type: Node,
             filler: Node,
@@ -615,7 +629,7 @@ pub const Payload = struct {
     };
 
     pub const PubInlineFn = struct {
-        base: Node,
+        base: Payload,
         data: struct {
             name: []const u8,
             params: []Param,
@@ -626,6 +640,6 @@ pub const Payload = struct {
 };
 
 /// Converts the nodes into a Zig ast.
-pub fn render(allocator: *Allocator, nodes: []const Node) !*ast.Tree {
+pub fn render(allocator: *Allocator, nodes: []const Node) !std.zig.ast.Tree {
     @panic("TODO");
 }

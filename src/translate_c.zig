@@ -10,12 +10,13 @@ const mem = std.mem;
 const math = std.math;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
+const Tag = Node.Tag;
 
 const CallingConvention = std.builtin.CallingConvention;
 
 pub const ClangErrMsg = clang.Stage2ErrorMsg;
 
-pub const Error = error{OutOfMemory};
+pub const Error = std.mem.Allocator.Error;
 const TypeError = Error || error{UnsupportedType};
 const TransError = TypeError || error{UnsupportedTranslation};
 
@@ -30,11 +31,11 @@ const Scope = struct {
     parent: ?*Scope,
 
     const Id = enum {
-        Switch,
-        Block,
-        Root,
-        Condition,
-        Loop,
+        @"switch",
+        block,
+        root,
+        condition,
+        loop,
     };
 
     /// Represents an in-progress Node.Switch. This struct is stack-allocated.
@@ -44,7 +45,6 @@ const Scope = struct {
         base: Scope,
         pending_block: Block,
         cases: std.ArrayList(Node),
-        case_index: usize,
         switch_label: ?[]const u8,
         default_label: ?[]const u8,
     };
@@ -84,7 +84,7 @@ const Scope = struct {
         fn init(c: *Context, parent: *Scope, labeled: bool) !Block {
             var blk = Block{
                 .base = .{
-                    .id = .Block,
+                    .id = .block,
                     .parent = parent,
                 },
                 .statements = std.ArrayList(Node).init(c.gpa),
@@ -105,12 +105,12 @@ const Scope = struct {
         fn complete(self: *Block, c: *Context) !Node {
             // We reserve 1 extra statement if the parent is a Loop. This is in case of
             // do while, we want to put `if (cond) break;` at the end.
-            const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .Loop);
-            const stmts = try c.arena.alloc(Node, alloc_len);
+            const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .loop);
+            var stmts = try c.arena.alloc(Node, alloc_len);
             stmts.len -= 1;
             mem.copy(Node, stmts, self.statements.items);
-            return Node.block.create(c.arena, .{
-                .lable = self.label,
+            return Tag.block.create(c.arena, .{
+                .label = self.label,
                 .stmts = stmts,
             });
         }
@@ -161,7 +161,7 @@ const Scope = struct {
         fn init(c: *Context) Root {
             return .{
                 .base = .{
-                    .id = .Root,
+                    .id = .root,
                     .parent = null,
                 },
                 .sym_table = SymbolTable.init(c.gpa),
@@ -195,9 +195,9 @@ const Scope = struct {
         var scope = inner;
         while (true) {
             switch (scope.id) {
-                .Root => unreachable,
-                .Block => return @fieldParentPtr(Block, "base", scope),
-                .Condition => return @fieldParentPtr(Condition, "base", scope).getBlockScope(c),
+                .root => unreachable,
+                .block => return @fieldParentPtr(Block, "base", scope),
+                .condition => return @fieldParentPtr(Condition, "base", scope).getBlockScope(c),
                 else => scope = scope.parent.?,
             }
         }
@@ -207,8 +207,8 @@ const Scope = struct {
         var scope = inner;
         while (true) {
             switch (scope.id) {
-                .Root => unreachable,
-                .Block => {
+                .root => unreachable,
+                .block => {
                     const block = @fieldParentPtr(Block, "base", scope);
                     if (block.return_type) |qt| return qt;
                     scope = scope.parent.?;
@@ -220,17 +220,17 @@ const Scope = struct {
 
     fn getAlias(scope: *Scope, name: []const u8) []const u8 {
         return switch (scope.id) {
-            .Root => return name,
-            .Block => @fieldParentPtr(Block, "base", scope).getAlias(name),
-            .Switch, .Loop, .Condition => scope.parent.?.getAlias(name),
+            .root => return name,
+            .block => @fieldParentPtr(Block, "base", scope).getAlias(name),
+            .@"switch", .loop, .condition => scope.parent.?.getAlias(name),
         };
     }
 
     fn contains(scope: *Scope, name: []const u8) bool {
         return switch (scope.id) {
-            .Root => @fieldParentPtr(Root, "base", scope).contains(name),
-            .Block => @fieldParentPtr(Block, "base", scope).contains(name),
-            .Switch, .Loop, .Condition => scope.parent.?.contains(name),
+            .root => @fieldParentPtr(Root, "base", scope).contains(name),
+            .block => @fieldParentPtr(Block, "base", scope).contains(name),
+            .@"switch", .loop, .condition => scope.parent.?.contains(name),
         };
     }
 
@@ -238,9 +238,9 @@ const Scope = struct {
         var scope = inner;
         while (true) {
             switch (scope.id) {
-                .Root => unreachable,
-                .Switch => return scope,
-                .Loop => return scope,
+                .root => unreachable,
+                .@"switch" => return scope,
+                .loop => return scope,
                 else => scope = scope.parent.?,
             }
         }
@@ -250,24 +250,24 @@ const Scope = struct {
         var scope = inner;
         while (true) {
             switch (scope.id) {
-                .Root => unreachable,
-                .Switch => return @fieldParentPtr(Switch, "base", scope),
+                .root => unreachable,
+                .@"switch" => return @fieldParentPtr(Switch, "base", scope),
                 else => scope = scope.parent.?,
             }
         }
     }
 
     /// Appends a node to the first block scope if inside a function, or to the root tree if not.
-    fn appendNode(scope: *Scope, node: Node) !void {
+    fn appendNode(inner: *Scope, node: Node) !void {
         var scope = inner;
         while (true) {
             switch (scope.id) {
-                .Root => {
-                    const root = @fieldParentPtr(Root, "base", scope).contains(name);
+                .root => {
+                    const root = @fieldParentPtr(Root, "base", scope);
                     return root.nodes.append(node);
                 },
-                .Block => {
-                    const block = @fieldParentPtr(Block, "base", scope).contains(name);
+                .block => {
+                    const block = @fieldParentPtr(Block, "base", scope);
                     return block.statements.append(node);
                 },
                 else => scope = scope.parent.?,
@@ -321,7 +321,7 @@ pub fn translate(
     args_end: [*]?[*]const u8,
     errors: *[]ClangErrMsg,
     resources_path: [*:0]const u8,
-) !ast.Tree {
+) !std.zig.ast.Tree {
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
@@ -339,14 +339,6 @@ pub fn translate(
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
 
-    if (true) {
-        var x = false;
-        if (x) {
-            return error.OutOfMemory;
-        }
-        @panic("TODO update translate-c");
-    }
-
     var context = Context{
         .gpa = gpa,
         .arena = &arena.allocator,
@@ -361,15 +353,15 @@ pub fn translate(
         context.alias_list.deinit();
         context.global_names.deinit(gpa);
         context.opaque_demotes.deinit(gpa);
-        context.global_scope.deini();
+        context.global_scope.deinit();
     }
 
-    try context.global_scope.nodes.append(try Node.usingnamespace_builtins.init());
+    try context.global_scope.nodes.append(Tag.usingnamespace_builtins.init());
 
     try prepopulateGlobalNameTable(ast_unit, &context);
 
     if (!ast_unit.visitLocalTopLevelDecls(&context, declVisitorC)) {
-        return context.err;
+        return error.OutOfMemory;
     }
 
     try transPreprocessorEntities(&context, ast_unit);
@@ -377,16 +369,17 @@ pub fn translate(
     try addMacros(&context);
     for (context.alias_list.items) |alias| {
         if (!context.global_scope.sym_table.contains(alias.alias)) {
-            try createAlias(&context, alias);
+            const node = try Tag.alias.create(context.arena, .{ .actual = alias.alias, .mangled = alias.name });
+            try addTopLevelDecl(&context, alias.alias, node);
         }
     }
 
-    return ast.render(context.global_scope.nodes.items);
+    return ast.render(gpa, context.global_scope.nodes.items);
 }
 
 fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
     if (!ast_unit.visitLocalTopLevelDecls(c, declVisitorNamesOnlyC)) {
-        return c.err;
+        return error.OutOfMemory;
     }
 
     // TODO if we see #undef, delete it from the table
@@ -409,19 +402,13 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
 
 fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const clang.Decl) callconv(.C) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
-    declVisitorNamesOnly(c, decl) catch |err| {
-        c.err = err;
-        return false;
-    };
+    declVisitorNamesOnly(c, decl) catch return false;
     return true;
 }
 
 fn declVisitorC(context: ?*c_void, decl: *const clang.Decl) callconv(.C) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
-    declVisitor(c, decl) catch |err| {
-        c.err = err;
-        return false;
-    };
+    declVisitor(c, decl) catch return false;
     return true;
 }
 
@@ -454,7 +441,7 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
         },
         else => {
             const decl_name = try c.str(decl.getDeclKindName());
-            try warn(c, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
+            try warn(c, &c.global_scope.base, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
         },
     }
 }
@@ -513,7 +500,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
                 decl_ctx.has_body = false;
                 decl_ctx.storage_class = .Extern;
                 decl_ctx.is_export = false;
-                try warn(c, fn_decl_loc, "TODO unable to translate variadic function, demoted to declaration", .{});
+                try warn(c, &c.global_scope.base, fn_decl_loc, "TODO unable to translate variadic function, demoted to declaration", .{});
             }
             break :blk transFnProto(c, fn_decl, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
@@ -535,7 +522,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     };
 
     if (!decl_ctx.has_body) {
-        return addTopLevelDecl(c, fn_name, &proto_node.base);
+        return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
     }
 
     // actual function definition with body
@@ -547,10 +534,8 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     var scope = &block_scope.base;
 
     var param_id: c_uint = 0;
-    for (proto_node.params()) |*param, i| {
-        const param_name = if (param.name_token) |name_tok|
-            tokenSlice(c, name_tok)
-        else
+    for (proto_node.data.params) |*param, i| {
+        const param_name = param.name orelse
             return failDecl(c, fn_decl_loc, fn_name, "function {s} parameter has no name", .{fn_name});
 
         const c_param = fn_decl.getParamDecl(param_id);
@@ -565,7 +550,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             const arg_name = try block_scope.makeMangledName(c, bare_arg_name);
             param.name = arg_name;
 
-            const redecl_node = try Node.arg_redecl.create(c.arena, .{ .actual = mangled_param_name, .mangled = arg_name });
+            const redecl_node = try Tag.arg_redecl.create(c.arena, .{ .actual = mangled_param_name, .mangled = arg_name });
             try block_scope.statements.append(redecl_node);
         }
 
@@ -607,12 +592,12 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             error.UnsupportedType,
             => return failDecl(c, fn_decl_loc, fn_name, "unable to create a return value for function", .{}),
         };
-        const ret = try Node.@"return".create(c.arena, rhs);
+        const ret = try Tag.@"return".create(c.arena, rhs);
         try block_scope.statements.append(ret);
     }
 
-    proto_node.body = try block_scope.complete(c);
-    return addTopLevelDecl(c, fn_name, &proto_node.base);
+    proto_node.data.body = try block_scope.complete(c);
+    return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
 }
 
 fn transQualTypeMaybeInitialized(c: *Context, qt: clang.QualType, decl_init: ?*const clang.Expr, loc: clang.SourceLocation) TransError!Node {
@@ -668,7 +653,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
             const node_or_error = if (expr.getStmtClass() == .StringLiteralClass)
                 transStringLiteralAsArray(c, scope, @ptrCast(*const clang.StringLiteral, expr), zigArraySize(c, type_node) catch 0)
             else
-                transExprCoercing(c, scope, expr, .used, .r_value);
+                transExprCoercing(c, scope, expr, .used);
             init_node = node_or_error catch |err| switch (err) {
                 error.UnsupportedTranslation,
                 error.UnsupportedType,
@@ -677,18 +662,18 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
                 },
                 error.OutOfMemory => |e| return e,
             };
-            if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
-                init_node = try Node.bool_to_int.create(c.arena, init_node);
+            if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node.?)) {
+                init_node = try Tag.bool_to_int.create(c.arena, init_node.?);
             }
         } else {
-            init_node = Node.undefined_literal.init();
+            init_node = Tag.undefined_literal.init();
         }
     } else if (storage_class != .Extern) {
         // The C language specification states that variables with static or threadlocal
         // storage without an initializer are initialized to a zero value.
 
         // @import("std").mem.zeroes(T)
-        init_node = try Node.std_mem_zeroes.create(c.arena, type_node);
+        init_node = try Tag.std_mem_zeroes.create(c.arena, type_node);
     }
 
     const linksection_string = blk: {
@@ -708,7 +693,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         break :blk null;
     };
 
-    const node = try Node.var_decl.create(c.arena, .{
+    const node = try Tag.var_decl.create(c.arena, .{
         .is_pub = is_pub,
         .is_const = is_const,
         .is_extern = is_extern,
@@ -719,12 +704,12 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         .type = type_node,
         .init = init_node,
     });
-    return addTopLevelDecl(c, checked_name, &node.base);
+    return addTopLevelDecl(c, checked_name, node);
 }
 
 fn transTypeDefAsBuiltin(c: *Context, typedef_decl: *const clang.TypedefNameDecl, builtin_name: []const u8) !Node {
     _ = try c.decl_table.put(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), builtin_name);
-    return Node.identifier.create(c.arena, builtin_name);
+    return Tag.identifier.create(c.arena, builtin_name);
 }
 
 const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
@@ -744,7 +729,7 @@ const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
 
 fn transTypeDef(c: *Context, typedef_decl: *const clang.TypedefNameDecl, top_level_visit: bool) Error!?Node {
     if (c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl()))) |name|
-        return transCreateNodeIdentifier(c, name); // Avoid processing this decl twice
+        return try Tag.identifier.create(c.arena, name); // Avoid processing this decl twice
 
     const typedef_name = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
 
@@ -753,17 +738,17 @@ fn transTypeDef(c: *Context, typedef_decl: *const clang.TypedefNameDecl, top_lev
     const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ typedef_name, c.getMangle() }) else typedef_name;
     if (builtin_typedef_map.get(checked_name)) |builtin| {
         _ = try c.decl_table.put(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), builtin);
-        return Node.identifier.create(c.arena, builtin);
+        return try Tag.identifier.create(c.arena, builtin);
     }
 
     if (!top_level_visit) {
-        return transCreateNodeIdentifier(c, checked_name);
+        return try Tag.identifier.create(c.arena, checked_name);
     }
 
     _ = try c.decl_table.put(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), checked_name);
     const node = (try transCreateNodeTypedef(c, typedef_decl, true, checked_name)) orelse return null;
     try addTopLevelDecl(c, checked_name, node);
-    return transCreateNodeIdentifier(c, checked_name);
+    return try Tag.identifier.create(c.arena, checked_name);
 }
 
 fn transCreateNodeTypedef(
@@ -782,9 +767,9 @@ fn transCreateNodeTypedef(
         error.OutOfMemory => |e| return e,
     };
 
-    const payload = try c.arena.create(ast.Payload.Typedef);
+    const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]ast.Node.Tag{ .typedef, .pub_typedef })[@boolToInt(toplevel)] },
+        .base = .{ .tag = ([2]Tag{ .typedef, .pub_typedef })[@boolToInt(toplevel)] },
         .data = .{
             .name = checked_name,
             .init = init_node,
@@ -795,7 +780,7 @@ fn transCreateNodeTypedef(
 
 fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Node {
     if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |name|
-        return try transCreateNodeIdentifier(c, name); // Avoid processing this decl twice
+        return try Tag.identifier.create(c.arena, name); // Avoid processing this decl twice
     const record_loc = record_decl.getLocation();
 
     var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
@@ -815,7 +800,7 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
     } else if (record_decl.isStruct()) {
         container_kind_name = "struct";
     } else {
-        try warn(c, record_loc, "record {s} is not a struct or union", .{bare_name});
+        try warn(c, &c.global_scope.base, record_loc, "record {s} is not a struct or union", .{bare_name});
         return null;
     }
 
@@ -826,7 +811,7 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
     const init_node = blk: {
         const record_def = record_decl.getDefinition() orelse {
             _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-            break :blk Node.opaque_literal.init();
+            break :blk Tag.opaque_literal.init();
         };
 
         const is_packed = record_decl.getPackedAttribute();
@@ -843,14 +828,14 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
 
             if (field_decl.isBitField()) {
                 _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                try warn(c, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
-                break :blk Node.opaque_literal.init();
+                try warn(c, &c.global_scope.base, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
+                break :blk Tag.opaque_literal.init();
             }
 
             if (qualTypeCanon(field_qt).isIncompleteOrZeroLengthArrayType(c.clang_context)) {
                 _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                try warn(c, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
-                break :blk Node.opaque_literal.init();
+                try warn(c, &c.global_scope.base, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
+                break :blk Tag.opaque_literal.init();
             }
 
             var is_anon = false;
@@ -864,8 +849,8 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
             const field_type = transQualType(c, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
                     _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                    try warn(c, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, raw_name });
-                    break :blk Node.opaque_literal.init();
+                    try warn(c, &c.global_scope.base, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
+                    break :blk Tag.opaque_literal.init();
                 },
                 else => |e| return e,
             };
@@ -890,20 +875,20 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
             });
         }
 
-        const payload = try c.arena.create(ast.Payload.Record);
-        container_node.* = .{
-            .base = .{ .tag = ([2]ast.Node.Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
+        const record_payload = try c.arena.create(ast.Payload.Record);
+        record_payload.* = .{
+            .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
             .data = .{
                 .is_packed = is_packed,
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
             },
         };
-        break :blk Node.initPayload(&container_node.base);
+        break :blk Node.initPayload(&record_payload.base);
     };
 
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]ast.Node.Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
         .data = .{
             .name = name,
             .init = init_node,
@@ -913,12 +898,12 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
     try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
     if (!is_unnamed)
         try c.alias_list.append(.{ .alias = bare_name, .name = name });
-    return Node.identifier.create(c.arena, name);
+    return try Tag.identifier.create(c.arena, name);
 }
 
 fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
     if (c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |name|
-        return try transCreateNodeIdentifier(c, name); // Avoid processing this decl twice
+        return try Tag.identifier.create(c.arena, name); // Avoid processing this decl twice
     const enum_loc = enum_decl.getLocation();
 
     var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
@@ -965,7 +950,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
                 else => |e| return e,
             }
         else
-            try Node.type.create(c.arena, "c_int");
+            try Tag.type.create(c.arena, "c_int");
 
         it = enum_def.enumerator_begin();
         end_it = enum_def.enumerator_end();
@@ -983,29 +968,29 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
             else
                 null;
 
-            try fields_and_decls.append(.{
+            try fields.append(.{
                 .name = field_name,
                 .value = int_node,
             });
 
             // In C each enum value is in the global namespace. So we put them there too.
             // At this point we can rely on the enum emitting successfully.
-            try addTopLevelDecl(c, field_name, try Node.enum_redecl.create(c.arena, .{
+            try addTopLevelDecl(c, field_name, try Tag.enum_redecl.create(c.arena, .{
                 .enum_val_name = enum_val_name,
                 .field_name = field_name,
                 .enum_name = name,
             }));
         }
 
-        break :blk try Node.@"enum".create(c.arena, try c.arena.dupe(ast.Payload.Enum.Field, fields.items));
+        break :blk try Tag.@"enum".create(c.arena, try c.arena.dupe(ast.Payload.Enum.Field, fields.items));
     } else blk: {
         _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), {});
-        break :blk Node.opaque_literal.init();
+        break :blk Tag.opaque_literal.init();
     };
 
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]ast.Node.Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
         .data = .{
             .name = name,
             .init = init_node,
@@ -1015,7 +1000,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
     try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
     if (!is_unnamed)
         try c.alias_list.append(.{ .alias = bare_name, .name = name });
-    return transCreateNodeIdentifier(c, name);
+    return try Tag.identifier.create(c.arena, name);
 }
 
 const ResultUsed = enum {
@@ -1023,31 +1008,25 @@ const ResultUsed = enum {
     unused,
 };
 
-const LRValue = enum {
-    l_value,
-    r_value,
-};
-
 fn transStmt(
     c: *Context,
     scope: *Scope,
     stmt: *const clang.Stmt,
     result_used: ResultUsed,
-    lrvalue: LRValue,
 ) TransError!Node {
     const sc = stmt.getStmtClass();
     switch (sc) {
         .BinaryOperatorClass => return transBinaryOperator(c, scope, @ptrCast(*const clang.BinaryOperator, stmt), result_used),
         .CompoundStmtClass => return transCompoundStmt(c, scope, @ptrCast(*const clang.CompoundStmt, stmt)),
-        .CStyleCastExprClass => return transCStyleCastExprClass(c, scope, @ptrCast(*const clang.CStyleCastExpr, stmt), result_used, lrvalue),
+        .CStyleCastExprClass => return transCStyleCastExprClass(c, scope, @ptrCast(*const clang.CStyleCastExpr, stmt), result_used),
         .DeclStmtClass => return transDeclStmt(c, scope, @ptrCast(*const clang.DeclStmt, stmt)),
-        .DeclRefExprClass => return transDeclRefExpr(c, scope, @ptrCast(*const clang.DeclRefExpr, stmt), lrvalue),
+        .DeclRefExprClass => return transDeclRefExpr(c, scope, @ptrCast(*const clang.DeclRefExpr, stmt)),
         .ImplicitCastExprClass => return transImplicitCastExpr(c, scope, @ptrCast(*const clang.ImplicitCastExpr, stmt), result_used),
         .IntegerLiteralClass => return transIntegerLiteral(c, scope, @ptrCast(*const clang.IntegerLiteral, stmt), result_used, .with_as),
         .ReturnStmtClass => return transReturnStmt(c, scope, @ptrCast(*const clang.ReturnStmt, stmt)),
         .StringLiteralClass => return transStringLiteral(c, scope, @ptrCast(*const clang.StringLiteral, stmt), result_used),
         .ParenExprClass => {
-            const expr = try transExpr(c, scope, @ptrCast(*const clang.ParenExpr, stmt).getSubExpr(), .used, lrvalue);
+            const expr = try transExpr(c, scope, @ptrCast(*const clang.ParenExpr, stmt).getSubExpr(), .used);
             return maybeSuppressResult(c, scope, result_used, expr);
         },
         .InitListExprClass => return transInitListExpr(c, scope, @ptrCast(*const clang.InitListExpr, stmt), result_used),
@@ -1056,9 +1035,9 @@ fn transStmt(
         .WhileStmtClass => return transWhileLoop(c, scope, @ptrCast(*const clang.WhileStmt, stmt)),
         .DoStmtClass => return transDoWhileLoop(c, scope, @ptrCast(*const clang.DoStmt, stmt)),
         .NullStmtClass => {
-            return Node.empty_block.init();
+            return Tag.empty_block.init();
         },
-        .ContinueStmtClass => return try transCreateNodeContinue(c),
+        .ContinueStmtClass => return Tag.@"continue".init(),
         .BreakStmtClass => return transBreak(c, scope),
         .ForStmtClass => return transForLoop(c, scope, @ptrCast(*const clang.ForStmt, stmt)),
         .FloatingLiteralClass => return transFloatingLiteral(c, scope, @ptrCast(*const clang.FloatingLiteral, stmt), result_used),
@@ -1083,12 +1062,12 @@ fn transStmt(
         .CompoundAssignOperatorClass => return transCompoundAssignOperator(c, scope, @ptrCast(*const clang.CompoundAssignOperator, stmt), result_used),
         .OpaqueValueExprClass => {
             const source_expr = @ptrCast(*const clang.OpaqueValueExpr, stmt).getSourceExpr().?;
-            const expr = try transExpr(c, scope, source_expr, .used, lrvalue);
+            const expr = try transExpr(c, scope, source_expr, .used);
             return maybeSuppressResult(c, scope, result_used, expr);
         },
         else => {
             return fail(
-                rp,
+                c,
                 error.UnsupportedTranslation,
                 stmt.getBeginLoc(),
                 "TODO implement translation of stmt class {s}",
@@ -1109,37 +1088,36 @@ fn transBinaryOperator(
     switch (op) {
         .Assign => return try transCreateNodeAssign(c, scope, result_used, stmt.getLHS(), stmt.getRHS()),
         .Comma => {
-            var block_scope = try Scope.Block.init(rp.c, scope, true);
+            var block_scope = try Scope.Block.init(c, scope, true);
             defer block_scope.deinit();
 
-
-            const lhs = try transExpr(c, &block_scope.base, stmt.getLHS(), .unused, .r_value);
+            const lhs = try transExpr(c, &block_scope.base, stmt.getLHS(), .unused);
             try block_scope.statements.append(lhs);
 
-            const rhs = try transExpr(rp, &block_scope.base, stmt.getRHS(), .used, .r_value);
-            const break_node = try Node.break_val.create(c.arena, .{
+            const rhs = try transExpr(c, &block_scope.base, stmt.getRHS(), .used);
+            const break_node = try Tag.break_val.create(c.arena, .{
                 .label = block_scope.label,
                 .val = rhs,
             });
             try block_scope.statements.append(break_node);
-            const block_node = try block_scope.complete(rp.c);
-            return maybeSuppressResult(rp, scope, result_used, block_node);
+            const block_node = try block_scope.complete(c);
+            return maybeSuppressResult(c, scope, result_used, block_node);
         },
         .Div => {
             if (cIsSignedInteger(qt)) {
                 // signed integer division uses @divTrunc
-                const lhs = try transExpr(c, scope, stmt.getLHS(), .used, .l_value);
-                const rhs = try transExpr(c, scope, stmt.getRHS(), .used, .r_value);
-                const div_trunc = try Node.div_trunc.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                const lhs = try transExpr(c, scope, stmt.getLHS(), .used);
+                const rhs = try transExpr(c, scope, stmt.getRHS(), .used);
+                const div_trunc = try Tag.div_trunc.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
                 return maybeSuppressResult(c, scope, result_used, div_trunc);
             }
         },
         .Rem => {
             if (cIsSignedInteger(qt)) {
                 // signed integer division uses @rem
-                const lhs = try transExpr(c, scope, stmt.getLHS(), .used, .l_value);
-                const rhs = try transExpr(c, scope, stmt.getRHS(), .used, .r_value);
-                const rem = try Node.rem.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                const lhs = try transExpr(c, scope, stmt.getLHS(), .used);
+                const rhs = try transExpr(c, scope, stmt.getRHS(), .used);
+                const rem = try Tag.rem.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
                 return maybeSuppressResult(c, scope, result_used, rem);
             }
         },
@@ -1150,14 +1128,14 @@ fn transBinaryOperator(
             return transCreateNodeShiftOp(c, scope, stmt, .shr, result_used);
         },
         .LAnd => {
-            return transCreateNodeBoolInfixOp(c, scope, stmt, .bool_and, result_used);
+            return transCreateNodeBoolInfixOp(c, scope, stmt, .@"and", result_used);
         },
         .LOr => {
-            return transCreateNodeBoolInfixOp(c, scope, stmt, .bool_or, result_used);
+            return transCreateNodeBoolInfixOp(c, scope, stmt, .@"or", result_used);
         },
         else => {},
     }
-    var op_id: Node.Tag = undefined;
+    var op_id: Tag = undefined;
     switch (op) {
         .Add => {
             if (cIsUnsignedInteger(qt)) {
@@ -1218,20 +1196,20 @@ fn transBinaryOperator(
         else => unreachable,
     }
 
-    const lhs_uncasted = try transExpr(c, scope, stmt.getLHS(), .used, .l_value);
-    const rhs_uncasted = try transExpr(c, scope, stmt.getRHS(), .used, .r_value);
+    const lhs_uncasted = try transExpr(c, scope, stmt.getLHS(), .used);
+    const rhs_uncasted = try transExpr(c, scope, stmt.getRHS(), .used);
 
     const lhs = if (isBoolRes(lhs_uncasted))
-        try Node.bool_to_int.create(c.arena, lhs_uncasted)
+        try Tag.bool_to_int.create(c.arena, lhs_uncasted)
     else
         lhs_uncasted;
 
     const rhs = if (isBoolRes(rhs_uncasted))
-        try Node.bool_to_int.create(c.arena, rhs_uncasted)
+        try Tag.bool_to_int.create(c.arena, rhs_uncasted)
     else
         rhs_uncasted;
 
-    return transCreateNodeInfixOp(c, scope, op_id, lhs, rhs, used);
+    return transCreateNodeInfixOp(c, scope, op_id, lhs, rhs, result_used);
 }
 
 fn transCompoundStmtInline(
@@ -1243,7 +1221,7 @@ fn transCompoundStmtInline(
     var it = stmt.body_begin();
     const end_it = stmt.body_end();
     while (it != end_it) : (it += 1) {
-        const result = try transStmt(c, parent_scope, it[0], .unused, .r_value);
+        const result = try transStmt(c, parent_scope, it[0], .unused);
         try block.statements.append(result);
     }
 }
@@ -1260,7 +1238,6 @@ fn transCStyleCastExprClass(
     scope: *Scope,
     stmt: *const clang.CStyleCastExpr,
     result_used: ResultUsed,
-    lrvalue: LRValue,
 ) TransError!Node {
     const sub_expr = stmt.getSubExpr();
     const cast_node = (try transCCast(
@@ -1269,7 +1246,7 @@ fn transCStyleCastExprClass(
         stmt.getBeginLoc(),
         stmt.getType(),
         sub_expr.getType(),
-        try transExpr(c, scope, sub_expr, .used, lrvalue),
+        try transExpr(c, scope, sub_expr, .used),
     ));
     return maybeSuppressResult(c, scope, result_used, cast_node);
 }
@@ -1294,7 +1271,7 @@ fn transDeclStmtOne(
                     // This is actually a global variable, put it in the global scope and reference it.
                     // `_ = mangled_name;`
                     try visitVarDecl(c, var_decl, mangled_name);
-                    return try maybeSuppressResult(c, scope, .unused, try Node.identifier.create(c.arena, mangled_name));
+                    return try maybeSuppressResult(c, scope, .unused, try Tag.identifier.create(c.arena, mangled_name));
                 },
                 else => {},
             }
@@ -1308,13 +1285,13 @@ fn transDeclStmtOne(
                 if (expr.getStmtClass() == .StringLiteralClass)
                     try transStringLiteralAsArray(c, scope, @ptrCast(*const clang.StringLiteral, expr), try zigArraySize(c, type_node))
                 else
-                    try transExprCoercing(c, scope, expr, .used, .r_value)
+                    try transExprCoercing(c, scope, expr, .used)
             else
-                try transCreateNodeUndefinedLiteral(c);
+                Tag.undefined_literal.init();
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
-                init_node = try Node.bool_to_int.create(c.arena, init_node);
+                init_node = try Tag.bool_to_int.create(c.arena, init_node);
             }
-            return Node.var_decl.create(c.arena, .{
+            return Tag.var_decl.create(c.arena, .{
                 .is_pub = false,
                 .is_const = is_const,
                 .is_extern = false,
@@ -1339,7 +1316,7 @@ fn transDeclStmtOne(
             return node;
         },
         else => |kind| return fail(
-            rp,
+            c,
             error.UnsupportedTranslation,
             decl.getLocation(),
             "TODO implement translation of DeclStmt kind {s}",
@@ -1370,12 +1347,11 @@ fn transDeclRefExpr(
     c: *Context,
     scope: *Scope,
     expr: *const clang.DeclRefExpr,
-    lrvalue: LRValue,
 ) TransError!Node {
     const value_decl = expr.getDecl();
     const name = try c.str(@ptrCast(*const clang.NamedDecl, value_decl).getName_bytes_begin());
     const mangled_name = scope.getAlias(name);
-    return Node.identifier.create(c.arena, mangled_name);
+    return Tag.identifier.create(c.arena, mangled_name);
 }
 
 fn transImplicitCastExpr(
@@ -1389,49 +1365,49 @@ fn transImplicitCastExpr(
     const src_type = getExprQualType(c, sub_expr);
     switch (expr.getCastKind()) {
         .BitCast, .FloatingCast, .FloatingToIntegral, .IntegralToFloating, .IntegralCast, .PointerToIntegral, .IntegralToPointer => {
-            const sub_expr_node = try transExpr(c, scope, sub_expr, .used, .r_value);
+            const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
             const casted = try transCCast(c, scope, expr.getBeginLoc(), dest_type, src_type, sub_expr_node);
             return maybeSuppressResult(c, scope, result_used, casted);
         },
         .LValueToRValue, .NoOp, .FunctionToPointerDecay => {
-            const sub_expr_node = try transExpr(c, scope, sub_expr, .used, .r_value);
+            const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
             return maybeSuppressResult(c, scope, result_used, sub_expr_node);
         },
         .ArrayToPointerDecay => {
             if (exprIsNarrowStringLiteral(sub_expr)) {
-                const sub_expr_node = try transExpr(c, scope, sub_expr, .used, .r_value);
+                const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
                 return maybeSuppressResult(c, scope, result_used, sub_expr_node);
             }
 
-            const addr = try Node.address_of.create(c.arena, try transExpr(c, scope, sub_expr, .used, .r_value));
+            const addr = try Tag.address_of.create(c.arena, try transExpr(c, scope, sub_expr, .used));
             return maybeSuppressResult(c, scope, result_used, addr);
         },
         .NullToPointer => {
-            return Node.null_literal.init();
+            return Tag.null_literal.init();
         },
         .PointerToBoolean => {
             // @ptrToInt(val) != 0
-            const ptr_to_int = try Node.ptr_to_int.create(c.arena, try transExpr(c, scope, sub_expr, .used, .r_value));
+            const ptr_to_int = try Tag.ptr_to_int.create(c.arena, try transExpr(c, scope, sub_expr, .used));
 
-            const ne = try Node.not_equal.create(c.arena, .{ .lhs = ptr_to_int, .rhs = Node.zero_literal.init() });
+            const ne = try Tag.not_equal.create(c.arena, .{ .lhs = ptr_to_int, .rhs = Tag.zero_literal.init() });
             return maybeSuppressResult(c, scope, result_used, ne);
         },
         .IntegralToBoolean => {
-            const sub_expr_node = try transExpr(c, scope, sub_expr, .used, .r_value);
+            const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
 
             // The expression is already a boolean one, return it as-is
             if (isBoolRes(sub_expr_node))
                 return maybeSuppressResult(c, scope, result_used, sub_expr_node);
 
             // val != 0
-            const ne = try Node.not_equal.create(c.arena, .{ .lhs = sub_expr_node, .rhs = Node.zero_literal.init() });
+            const ne = try Tag.not_equal.create(c.arena, .{ .lhs = sub_expr_node, .rhs = Tag.zero_literal.init() });
             return maybeSuppressResult(c, scope, result_used, ne);
         },
         .BuiltinFnToFnPtr => {
-            return transExpr(rp, scope, sub_expr, result_used, .r_value);
+            return transExpr(c, scope, sub_expr, result_used);
         },
         else => |kind| return fail(
-            rp,
+            c,
             error.UnsupportedTranslation,
             @ptrCast(*const clang.Stmt, expr).getBeginLoc(),
             "TODO implement translation of CastKind {s}",
@@ -1445,17 +1421,16 @@ fn transBoolExpr(
     scope: *Scope,
     expr: *const clang.Expr,
     used: ResultUsed,
-    lrvalue: LRValue,
 ) TransError!Node {
     if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
         var is_zero: bool = undefined;
         if (!(@ptrCast(*const clang.IntegerLiteral, expr).isZero(&is_zero, c.clang_context))) {
             return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid integer literal", .{});
         }
-        return Node{ .tag = ([2]ast.Node.Tag{ .true_literal, .false_literal })[@boolToInt(is_zero)] };
+        return Node{ .tag_if_small_enough = @enumToInt(([2]Tag{ .true_literal, .false_literal })[@boolToInt(is_zero)]) };
     }
 
-    var res = try transExpr(c, scope, expr, used, lrvalue);
+    var res = try transExpr(c, scope, expr, used);
     if (isBoolRes(res)) {
         return maybeSuppressResult(c, scope, used, res);
     }
@@ -1494,7 +1469,7 @@ fn isBoolRes(res: Node) bool {
         .@"or",
         .@"and",
         .equal,
-        .note_equal,
+        .not_equal,
         .less_than,
         .less_than_equal,
         .greater_than,
@@ -1547,18 +1522,18 @@ fn finishBoolExpr(
                 .Float16,
                 => {
                     // node != 0
-                    return Node.not_equal.create(c.arena, .{ .lhs = node, .rhs = Node.zero_literal.init() });
+                    return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
                 },
                 .NullPtr => {
                     // node == null
-                    return Node.equal.create(c.arena, .{ .lhs = node, .rhs = Node.null_literal.init() });
+                    return Tag.equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
                 },
                 else => {},
             }
         },
         .Pointer => {
             // node == null
-            return Node.equal.create(c.arena, .{ .lhs = node, .rhs = Node.null_literal.init() });
+            return Tag.equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
         },
         .Typedef => {
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
@@ -1568,8 +1543,7 @@ fn finishBoolExpr(
         },
         .Enum => {
             // node != 0
-            return Node.not_equal.create(c.arena, .{ .lhs = node, .rhs = Node.zero_literal.init() });
-            const op_token = try appendToken(c, .BangEqual, "!=");
+            return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
         },
         .Elaborated => {
             const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
@@ -1614,9 +1588,10 @@ fn transIntegerLiteral(
     // But the first step is to be correct, and the next step is to make the output more elegant.
 
     // @as(T, x)
+    const expr_base = @ptrCast(*const clang.Expr, expr);
     const ty_node = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc());
     const rhs = try transCreateNodeAPInt(c, eval_result.Val.getInt());
-    const as = try Node.as.create(c.arena, .{ .lhs = ty_node, .rhs = rhs });
+    const as = try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = rhs });
     return maybeSuppressResult(c, scope, result_used, as);
 }
 
@@ -1624,16 +1599,16 @@ fn transReturnStmt(
     c: *Context,
     scope: *Scope,
     expr: *const clang.ReturnStmt,
-) TransError!*ast.Node {
+) TransError!Node {
     const val_expr = expr.getRetValue() orelse
-        return Node.return_void.init();
+        return Tag.return_void.init();
 
-    var rhs = try transExprCoercing(c, scope, val_expr, .used, .r_value);
+    var rhs = try transExprCoercing(c, scope, val_expr, .used);
     const return_qt = scope.findBlockReturnType(c);
     if (isBoolRes(rhs) and !qualTypeIsBoolean(return_qt)) {
-        rhs = try Node.bool_to_int.create(c.arena, rhs);
+        rhs = try Tag.bool_to_int.create(c.arena, rhs);
     }
-    return Node.@"return".create(c.arena, rhs);
+    return Tag.@"return".create(c.arena, rhs);
 }
 
 fn transStringLiteral(
@@ -1647,10 +1622,9 @@ fn transStringLiteral(
         .Ascii, .UTF8 => {
             var len: usize = undefined;
             const bytes_ptr = stmt.getString_bytes_begin_size(&len);
-            const str = bytes_ptr[0..len];
 
-            const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(str)});
-            const node = try Node.string_literal.create(c.arena, str);
+            const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+            const node = try Tag.string_literal.create(c.arena, str);
             return maybeSuppressResult(c, scope, result_used, node);
         },
         .UTF16, .UTF32, .Wide => {
@@ -1658,9 +1632,9 @@ fn transStringLiteral(
             const name = try std.fmt.allocPrint(c.arena, "zig.{s}_string_{d}", .{ str_type, c.getMangle() });
             const lit_array = try transStringLiteralAsArray(c, scope, stmt, stmt.getLength() + 1);
 
-            const decl = try Node.var_simple.create(c.arena, .{ .name = name, .init = lit_array });
-            try scope.appendNode(name, decl);
-            const node = try Node.identifier.create(c.arena, name);
+            const decl = try Tag.var_simple.create(c.arena, .{ .name = name, .init = lit_array });
+            try scope.appendNode(decl);
+            const node = try Tag.identifier.create(c.arena, name);
             return maybeSuppressResult(c, scope, result_used, node);
         },
     }
@@ -1669,9 +1643,7 @@ fn transStringLiteral(
 /// Parse the size of an array back out from an ast Node.
 fn zigArraySize(c: *Context, node: Node) TransError!usize {
     if (node.castTag(.array_type)) |array| {
-        if (array.data.len.castTag(.int_literal)) |int_lit| {
-            return std.fmt.parseUnsigned(usize, int_lit.data, 10) catch error.UnsupportedTranslation;
-        }
+        return array.data.len;
     }
     return error.UnsupportedTranslation;
 }
@@ -1709,7 +1681,7 @@ fn transStringLiteralAsArray(
         init_list[i] = try transCreateNodeNumber(c, 0);
     }
 
-    return Node.array_init.create(c.arena, init_list);
+    return Tag.array_init.create(c.arena, init_list);
 }
 
 fn cIsEnum(qt: clang.QualType) bool {
@@ -1747,89 +1719,77 @@ fn transCCast(
         // 3. Bit-cast to correct signed-ness
         const src_type_is_signed = cIsSignedInteger(src_type) or cIsEnum(src_type);
         const src_int_type = if (cIsInteger(src_type)) src_type else cIntTypeForEnum(src_type);
-        var src_int_expr = if (cIsInteger(src_type)) expr else Node.enum_to_int.create(c.arena, expr);
+        var src_int_expr = if (cIsInteger(src_type)) expr else try Tag.enum_to_int.create(c.arena, expr);
 
         if (isBoolRes(src_int_expr)) {
-            src_int_expr = try Node.bool_to_int.create(c.arena, src_int_expr);
+            src_int_expr = try Tag.bool_to_int.create(c.arena, src_int_expr);
         }
 
         switch (cIntTypeCmp(dst_type, src_int_type)) {
             .lt => {
                 // @truncate(SameSignSmallerInt, src_int_expr)
                 const ty_node = try transQualTypeIntWidthOf(c, dst_type, src_type_is_signed);
-                src_int_expr = try Node.truncate.create(c.arena, .{ .lhs = ty_node, .rhs = src_int_expr });
+                src_int_expr = try Tag.truncate.create(c.arena, .{ .lhs = ty_node, .rhs = src_int_expr });
             },
             .gt => {
                 // @as(SameSignBiggerInt, src_int_expr)
                 const ty_node = try transQualTypeIntWidthOf(c, dst_type, src_type_is_signed);
-                src_int_expr = try Node.as.create(c.arena, .{ .lhs = ty_node, .rhs = src_int_expr });
+                src_int_expr = try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = src_int_expr });
             },
             .eq => {
                 // src_int_expr = src_int_expr
             },
         }
         // @bitCast(dest_type, intermediate_value)
-        return Node.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
+        return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
     }
     if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
         // @intCast(dest_type, @ptrToInt(val))
-        const ptr_to_int = try Node.ptr_to_int.create(c.arena, expr);
-        return Node.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = ptr_to_int });
+        const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
+        return Tag.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = ptr_to_int });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
         // @intToPtr(dest_type, val)
-        return Node.int_to_ptr.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsFloating(src_type) and cIsFloating(dst_type)) {
         // @floatCast(dest_type, val)
-        return Node.float_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        return Tag.float_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
         // @floatToInt(dest_type, val)
-        return Node.float_to_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        return Tag.float_to_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
         // @intToFloat(dest_type, val)
-        return Node.int_to_float.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        return Tag.int_to_float.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (qualTypeIsBoolean(src_type) and !qualTypeIsBoolean(dst_type)) {
         // @boolToInt returns either a comptime_int or a u1
         // TODO: if dst_type is 1 bit & signed (bitfield) we need @bitCast
         // instead of @as
-        const bool_to_int = Node.bool_to_int.create(c.arena, expr);
-        return Node.as.create(c.arena, .{ .lhs = dst_node, .rhs = bool_to_int });
+        const bool_to_int = try Tag.bool_to_int.create(c.arena, expr);
+        return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = bool_to_int });
     }
     if (cIsEnum(dst_type)) {
         // @intToEnum(dest_type, val)
-        return Node.int_to_enum.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        return Tag.int_to_enum.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsEnum(src_type) and !cIsEnum(dst_type)) {
         // @enumToInt(val)
-        return Node.enum_to_int.create(c.arena, expr);
+        return Tag.enum_to_int.create(c.arena, expr);
     }
     // @as(dest_type, val)
-    return Node.as.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+    return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
 }
 
-fn transExpr(
-    c: *Context,
-    scope: *Scope,
-    expr: *const clang.Expr,
-    used: ResultUsed,
-    lrvalue: LRValue,
-) TransError!Node {
-    return transStmt(c, scope, @ptrCast(*const clang.Stmt, expr), used, lrvalue);
+fn transExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
+    return transStmt(c, scope, @ptrCast(*const clang.Stmt, expr), used);
 }
 
 /// Same as `transExpr` but with the knowledge that the operand will be type coerced, and therefore
 /// an `@as` would be redundant. This is used to prevent redundant `@as` in integer literals.
-fn transExprCoercing(
-    c: *Context,
-    scope: *Scope,
-    expr: *const clang.Expr,
-    used: ResultUsed,
-    lrvalue: LRValue,
-) TransError!Node {
+fn transExprCoercing(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
     switch (@ptrCast(*const clang.Stmt, expr).getStmtClass()) {
         .IntegerLiteralClass => {
             return transIntegerLiteral(c, scope, @ptrCast(*const clang.IntegerLiteral, expr), .used, .no_as);
@@ -1840,12 +1800,12 @@ fn transExprCoercing(
         .UnaryOperatorClass => {
             const un_expr = @ptrCast(*const clang.UnaryOperator, expr);
             if (un_expr.getOpcode() == .Extension) {
-                return transExprCoercing(c, scope, un_expr.getSubExpr(), used, lrvalue);
+                return transExprCoercing(c, scope, un_expr.getSubExpr(), used);
             }
         },
         else => {},
     }
-    return transExpr(c, scope, expr, .used, .r_value);
+    return transExpr(c, scope, expr, .used);
 }
 
 fn transInitListExprRecord(
@@ -1896,11 +1856,11 @@ fn transInitListExprRecord(
 
         try field_inits.append(.{
             .name = raw_name,
-            .value = try transExpr(c, scope, elem_expr, .used, .r_value),
+            .value = try transExpr(c, scope, elem_expr, .used),
         });
     }
 
-    return Node.container_init.create(c.arena, try c.arena.dupe(ast.Payload.ContainerInit.Initializer, field_inits.items));
+    return Tag.container_init.create(c.arena, try c.arena.dupe(ast.Payload.ContainerInit.Initializer, field_inits.items));
 }
 
 fn transInitListExprArray(
@@ -1920,18 +1880,18 @@ fn transInitListExprArray(
     const leftover_count = all_count - init_count;
 
     if (all_count == 0) {
-        return Node.empty_array.create(c.arena, try transQualType(c, child_qt, source_loc));
+        return Tag.empty_array.create(c.arena, try transQualType(c, child_qt, loc));
     }
 
-    const ty_node = try transType(ty);
+    const ty_node = try transType(c, ty, loc);
     const init_node = if (init_count != 0) blk: {
         const init_list = try c.arena.alloc(Node, init_count);
 
         for (init_list) |*init, i| {
-            const elem_expr = expr.getInit(i);
-            init.* = try transExpr(c, scope, elem_expr, .used, .r_value);
+            const elem_expr = expr.getInit(@intCast(c_uint, i));
+            init.* = try transExpr(c, scope, elem_expr, .used);
         }
-        const init_node = try Node.array_init.create(c.arena, init_list);
+        const init_node = try Tag.array_init.create(c.arena, init_list);
         if (leftover_count == 0) {
             return init_node;
         }
@@ -1939,14 +1899,14 @@ fn transInitListExprArray(
     } else null;
 
     const filler_val_expr = expr.getArrayFiller();
-    const filler_node = try Node.array_filler.create(c.arena, .{
+    const filler_node = try Tag.array_filler.create(c.arena, .{
         .type = ty_node,
-        .filler = try transExpr(c, scope, filler_val_expr, .used, .r_value),
+        .filler = try transExpr(c, scope, filler_val_expr, .used),
         .count = leftover_count,
     });
 
     if (init_node) |some| {
-        return Node.array_cat.create(c.arena, some, filler_node);
+        return Tag.array_cat.create(c.arena, .{ .lhs = some, .rhs = filler_node });
     } else {
         return filler_node;
     }
@@ -1964,7 +1924,7 @@ fn transInitListExpr(
 
     if (qual_type.isRecordType()) {
         return maybeSuppressResult(c, scope, used, try transInitListExprRecord(
-            rp,
+            c,
             scope,
             source_loc,
             expr,
@@ -1972,7 +1932,7 @@ fn transInitListExpr(
         ));
     } else if (qual_type.isArrayType()) {
         return maybeSuppressResult(c, scope, used, try transInitListExprArray(
-            rp,
+            c,
             scope,
             source_loc,
             expr,
@@ -1994,7 +1954,7 @@ fn transZeroInitExpr(
         .Builtin => {
             const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
             switch (builtin_ty.getKind()) {
-                .Bool => return Node.false_literal.init(),
+                .Bool => return Tag.false_literal.init(),
                 .Char_U,
                 .UChar,
                 .Char_S,
@@ -2015,11 +1975,11 @@ fn transZeroInitExpr(
                 .Float128,
                 .Float16,
                 .LongDouble,
-                => return Node.zero_literal.init(),
+                => return Tag.zero_literal.init(),
                 else => return fail(c, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
             }
         },
-        .Pointer => return Node.null_literal.init(),
+        .Pointer => return Tag.null_literal.init(),
         .Typedef => {
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
             const typedef_decl = typedef_ty.getDecl();
@@ -2058,19 +2018,19 @@ fn transIfStmt(
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
-            .id = .Condition,
+            .id = .condition,
         },
     };
     defer cond_scope.deinit();
     const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
-    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used, .r_value);
+    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
-    const then_body = try transStmt(c, scope, stmt.getThen(), .unused, .r_value);
+    const then_body = try transStmt(c, scope, stmt.getThen(), .unused);
     const else_body = if (stmt.getElse()) |expr|
-        try transStmt(c, scope, expr, .unused, .r_value)
+        try transStmt(c, scope, expr, .unused)
     else
         null;
-    return Node.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
+    return Tag.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
 }
 
 fn transWhileLoop(
@@ -2081,19 +2041,19 @@ fn transWhileLoop(
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
-            .id = .Condition,
+            .id = .condition,
         },
     };
     defer cond_scope.deinit();
     const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
-    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used, .r_value);
+    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
     var loop_scope = Scope{
         .parent = scope,
-        .id = .Loop,
+        .id = .loop,
     };
-    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused, .r_value);
-    return Node.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = null });
+    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    return Tag.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = null });
 }
 
 fn transDoWhileLoop(
@@ -2103,20 +2063,19 @@ fn transDoWhileLoop(
 ) TransError!Node {
     var loop_scope = Scope{
         .parent = scope,
-        .id = .Loop,
+        .id = .loop,
     };
 
     // if (!cond) break;
-    const if_node = try transCreateNodeIf(c);
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
-            .id = .Condition,
+            .id = .condition,
         },
     };
     defer cond_scope.deinit();
-    const cond = try transBoolExpr(c, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used, .r_value);
-    const if_not_break = try Node.if_not_break.create(c.arena, cond);
+    const cond = try transBoolExpr(c, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used);
+    const if_not_break = try Tag.if_not_break.create(c.arena, cond);
 
     const body_node = if (stmt.getBody().getStmtClass() == .CompoundStmtClass) blk: {
         // there's already a block in C, so we'll append our condition to it.
@@ -2129,8 +2088,8 @@ fn transDoWhileLoop(
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        const node = try transStmt(c, &loop_scope, stmt.getBody(), .unused, .r_value);
-        const block = node.castTag(.block);
+        const node = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+        const block = node.castTag(.block).?;
         block.data.stmts.len += 1; // This is safe since we reserve one extra space in Scope.Block.complete.
         block.data.stmts[block.data.stmts.len - 1] = if_not_break;
         break :blk node;
@@ -2143,12 +2102,12 @@ fn transDoWhileLoop(
         // zig:   a;
         // zig:   if (!cond) break;
         // zig: }
-        const statements = try c.arena.create(Node, 2);
-        statements[0] = try transStmt(c, &loop_scope, stmt.getBody(), .unused, .r_value);
+        const statements = try c.arena.alloc(Node, 2);
+        statements[0] = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
         statements[1] = if_not_break;
-        break :blk try Node.block.create(c.arena, .{ .label = null, .stmts = statements });
+        break :blk try Tag.block.create(c.arena, .{ .label = null, .stmts = statements });
     };
-    return Node.while_true.create(c.arena, body_node);
+    return Tag.while_true.create(c.arena, body_node);
 }
 
 fn transForLoop(
@@ -2158,7 +2117,7 @@ fn transForLoop(
 ) TransError!Node {
     var loop_scope = Scope{
         .parent = scope,
-        .id = .Loop,
+        .id = .loop,
     };
 
     var block_scope: ?Scope.Block = null;
@@ -2167,29 +2126,29 @@ fn transForLoop(
     if (stmt.getInit()) |init| {
         block_scope = try Scope.Block.init(c, scope, false);
         loop_scope.parent = &block_scope.?.base;
-        const init_node = try transStmt(c, &block_scope.?.base, init, .unused, .r_value);
+        const init_node = try transStmt(c, &block_scope.?.base, init, .unused);
         try block_scope.?.statements.append(init_node);
     }
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = &loop_scope,
-            .id = .Condition,
+            .id = .condition,
         },
     };
     defer cond_scope.deinit();
 
     const cond = if (stmt.getCond()) |cond|
-        try transBoolExpr(c, &cond_scope.base, cond, .used, .r_value)
+        try transBoolExpr(c, &cond_scope.base, cond, .used)
     else
-        Node.true_literal.init();
+        Tag.true_literal.init();
 
     const cont_expr = if (stmt.getInc()) |incr|
-        try transExpr(c, &cond_scope.base, incr, .unused, .r_value)
+        try transExpr(c, &cond_scope.base, incr, .unused)
     else
         null;
 
-    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused, .r_value);
-    const while_node = try Node.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = cont_expr });
+    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    const while_node = try Tag.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = cont_expr });
     if (block_scope) |*bs| {
         try bs.statements.append(while_node);
         return try bs.complete(c);
@@ -2206,13 +2165,14 @@ fn transSwitch(
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
-            .id = .Condition,
+            .id = .condition,
         },
     };
     defer cond_scope.deinit();
-    const switch_expr = try transExpr(c, &cond_scope.base, stmt.getCond(), .used, .r_value);
+    const switch_expr = try transExpr(c, &cond_scope.base, stmt.getCond(), .used);
     const switch_node = try c.arena.create(ast.Payload.Switch);
     switch_node.* = .{
+        .base = .{ .tag = .@"switch" },
         .data = .{
             .cond = switch_expr,
             .cases = undefined, // set later
@@ -2221,7 +2181,7 @@ fn transSwitch(
 
     var switch_scope = Scope.Switch{
         .base = .{
-            .id = .Switch,
+            .id = .@"switch",
             .parent = scope,
         },
         .cases = std.ArrayList(Node).init(c.gpa),
@@ -2229,11 +2189,7 @@ fn transSwitch(
         .default_label = null,
         .switch_label = null,
     };
-    defer {
-        switch_node.data.cases = try c.arena.dupe(Node, switch_scope.cases.items);
-        switch_node.data.default = switch_scope.switch_label;
-        switch_scope.cases.deinit();
-    }
+    defer switch_scope.cases.deinit();
 
     // tmp block that all statements will go before being picked up by a case or default
     var block_scope = try Scope.Block.init(c, &switch_scope.base, false);
@@ -2246,7 +2202,7 @@ fn transSwitch(
     switch_scope.pending_block = try Scope.Block.init(c, scope, false);
     try switch_scope.pending_block.statements.append(Node.initPayload(&switch_node.base));
 
-    const last = try transStmt(c, &block_scope.base, stmt.getBody(), .unused, .r_value);
+    const last = try transStmt(c, &block_scope.base, stmt.getBody(), .unused);
 
     // take all pending statements
     const last_block_stmts = last.castTag(.block).?.data.stmts;
@@ -2264,13 +2220,14 @@ fn transSwitch(
         switch_scope.pending_block.label = l;
     }
     if (switch_scope.default_label == null) {
-        const else_prong = try Node.switch_else.create(
+        const else_prong = try Tag.switch_else.create(
             c.arena,
-            try Node.@"break".create(c.arena, switch_scope.switch_label.?),
+            try Tag.@"break".create(c.arena, switch_scope.switch_label.?),
         );
-        switch_scope.cases.append(else_prong);
+        try switch_scope.cases.append(else_prong);
     }
 
+    switch_node.data.cases = try c.arena.dupe(Node, switch_scope.cases.items);
     const result_node = try switch_scope.pending_block.complete(c);
     switch_scope.pending_block.deinit();
     return result_node;
@@ -2286,18 +2243,18 @@ fn transCase(
     const label = try block_scope.makeMangledName(c, "case");
 
     const expr = if (stmt.getRHS()) |rhs| blk: {
-        const lhs_node = try transExpr(c, scope, stmt.getLHS(), .used, .r_value);
-        const rhs_node = try transExpr(c, scope, rhs, .used, .r_value);
+        const lhs_node = try transExpr(c, scope, stmt.getLHS(), .used);
+        const rhs_node = try transExpr(c, scope, rhs, .used);
 
-        break :blk Node.ellipsis3.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
+        break :blk try Tag.ellipsis3.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
     } else
-        try transExpr(c, scope, stmt.getLHS(), .used, .r_value);
+        try transExpr(c, scope, stmt.getLHS(), .used);
 
-    const switch_prong = try Node.switch_prong.create(
-        c.arena,
-        try Node.@"break".create(c.arena, label),
-    );
-    switch_scope.cases.append(switch_prong);
+    const switch_prong = try Tag.switch_prong.create(c.arena, .{
+        .lhs = expr,
+        .rhs = try Tag.@"break".create(c.arena, label),
+    });
+    try switch_scope.cases.append(switch_prong);
 
     switch_scope.pending_block.label = label;
 
@@ -2311,7 +2268,7 @@ fn transCase(
 
     try switch_scope.pending_block.statements.append(pending_node);
 
-    return transStmt(c, scope, stmt.getSubStmt(), .unused, .r_value);
+    return transStmt(c, scope, stmt.getSubStmt(), .unused);
 }
 
 fn transDefault(
@@ -2323,12 +2280,12 @@ fn transDefault(
     const switch_scope = scope.getSwitch();
     switch_scope.default_label = try block_scope.makeMangledName(c, "default");
 
-    const else_prong = try Node.switch_else.create(
+    const else_prong = try Tag.switch_else.create(
         c.arena,
-        try Node.@"break".create(c.arena, switch_scope.default_label.?),
+        try Tag.@"break".create(c.arena, switch_scope.default_label.?),
     );
-    switch_scope.cases.append(else_prong);
-    switch_scope.pending_block.label = try appendIdentifier(c, switch_scope.default_label.?);
+    try switch_scope.cases.append(else_prong);
+    switch_scope.pending_block.label = switch_scope.default_label.?;
 
     // take all pending statements
     try switch_scope.pending_block.statements.appendSlice(block_scope.statements.items);
@@ -2339,7 +2296,7 @@ fn transDefault(
     switch_scope.pending_block = try Scope.Block.init(c, scope, false);
     try switch_scope.pending_block.statements.append(pending_node);
 
-    return transStmt(c, scope, stmt.getSubStmt(), .unused, .r_value);
+    return transStmt(c, scope, stmt.getSubStmt(), .unused);
 }
 
 fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
@@ -2352,7 +2309,7 @@ fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: 
             // See comment in `transIntegerLiteral` for why this code is here.
             // @as(T, x)
             const expr_base = @ptrCast(*const clang.Expr, expr);
-            const as_node = try Node.as.create(c.arena, .{
+            const as_node = try Tag.as.create(c.arena, .{
                 .lhs = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc()),
                 .rhs = try transCreateNodeAPInt(c, result.Val.getInt()),
             });
@@ -2369,10 +2326,10 @@ fn transPredefinedExpr(c: *Context, scope: *Scope, expr: *const clang.Predefined
 }
 
 fn transCreateCharLitNode(c: *Context, narrow: bool, val: u32) TransError!Node {
-    return Node.char_literal.create(c.arena, if (narrow)
-        try std.fmt.bufPrint(c.arena, "'{}'", .{std.zig.fmtEscapes(&.{@intCast(u8, val)})})
+    return Tag.char_literal.create(c.arena, if (narrow)
+        try std.fmt.allocPrint(c.arena, "'{s}'", .{std.zig.fmtEscapes(&.{@intCast(u8, val)})})
     else
-        try std.fmt.bufPrint(c.arena, "'\\u{{{x}}}'", .{val}));
+        try std.fmt.allocPrint(c.arena, "'\\u{{{x}}}'", .{val}));
 }
 
 fn transCharLiteral(
@@ -2398,7 +2355,7 @@ fn transCharLiteral(
     // See comment in `transIntegerLiteral` for why this code is here.
     // @as(T, x)
     const expr_base = @ptrCast(*const clang.Expr, stmt);
-    const as_node = Node.as.create(c.arena, .{
+    const as_node = try Tag.as.create(c.arena, .{
         .lhs = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc()),
         .rhs = int_lit_node,
     });
@@ -2416,12 +2373,12 @@ fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: 
     var it = comp.body_begin();
     const end_it = comp.body_end();
     while (it != end_it - 1) : (it += 1) {
-        const result = try transStmt(rp, &block_scope.base, it[0], .unused, .r_value);
+        const result = try transStmt(c, &block_scope.base, it[0], .unused);
         try block_scope.statements.append(result);
     }
-    const break_node = try Node.break_val.create(c.arena, .{
-        .label = block_scope.label, 
-        .val = try transStmt(c, &block_scope.base, it[0], .used, .r_value),
+    const break_node = try Tag.break_val.create(c.arena, .{
+        .label = block_scope.label,
+        .val = try transStmt(c, &block_scope.base, it[0], .used),
     });
     try block_scope.statements.append(break_node);
     const res = try block_scope.complete(c);
@@ -2429,10 +2386,10 @@ fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: 
 }
 
 fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, result_used: ResultUsed) TransError!Node {
-    var container_node = try transExpr(c, scope, stmt.getBase(), .used, .r_value);
+    var container_node = try transExpr(c, scope, stmt.getBase(), .used);
 
     if (stmt.isArrow()) {
-        container_node = try Node.deref.create(c.arena, container_node);
+        container_node = try Tag.deref.create(c.arena, container_node);
     }
 
     const member_decl = stmt.getMemberDecl();
@@ -2450,9 +2407,9 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
         const decl = @ptrCast(*const clang.NamedDecl, member_decl);
         break :blk try c.str(decl.getName_bytes_begin());
     };
-    const ident = try Node.identifier.create(c.arena, name);
+    const ident = try Tag.identifier.create(c.arena, name);
 
-    const node = try Node.field_access.create(c.arena, .{ .lhs = container_node, .rhs = ident});
+    const node = try Tag.field_access.create(c.arena, .{ .lhs = container_node, .rhs = ident });
     return maybeSuppressResult(c, scope, result_used, node);
 }
 
@@ -2469,7 +2426,7 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
         }
     }
 
-    const container_node = try transExpr(c, scope, base_stmt, .used, .r_value);
+    const container_node = try transExpr(c, scope, base_stmt, .used);
 
     // cast if the index is long long or signed
     const subscr_expr = stmt.getIdx();
@@ -2477,14 +2434,17 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
     const is_longlong = cIsLongLongInteger(qt);
     const is_signed = cIsSignedInteger(qt);
 
-    
-    const node = try Node.array_access.create(c.arena, .{ .lhs = container_node, .rhs = if (is_longlong or is_signed) blk: {
-        const cast_node = try c.createBuiltinCall("@intCast", 2);
+    const rhs = if (is_longlong or is_signed) blk: {
         // check if long long first so that signed long long doesn't just become unsigned long long
-        var typeid_node = if (is_longlong) try transCreateNodeIdentifier(c, "usize") else try transQualTypeIntWidthOf(c, qt, false);
-        break :blk try Node.int_cast.create(c.arena, .{ .lhs = typeid_node, .rhs = try transExpr(c, scope, subscr_expr, .used, .r_value)});
+        var typeid_node = if (is_longlong) try Tag.identifier.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, qt, false);
+        break :blk try Tag.int_cast.create(c.arena, .{ .lhs = typeid_node, .rhs = try transExpr(c, scope, subscr_expr, .used) });
     } else
-        try transExpr(c, scope, subscr_expr, .used, .r_value)});
+        try transExpr(c, scope, subscr_expr, .used);
+
+    const node = try Tag.array_access.create(c.arena, .{
+        .lhs = container_node,
+        .rhs = rhs,
+    });
     return maybeSuppressResult(c, scope, result_used, node);
 }
 
@@ -2522,23 +2482,23 @@ fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
 
 fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result_used: ResultUsed) TransError!Node {
     const callee = stmt.getCallee();
-    var raw_fn_expr = try transExpr(c, scope, callee, .used, .r_value);
+    var raw_fn_expr = try transExpr(c, scope, callee, .used);
 
     var is_ptr = false;
     const fn_ty = qualTypeGetFnProto(callee.getType(), &is_ptr);
 
     const fn_expr = if (is_ptr and fn_ty != null and !cIsFunctionDeclRef(callee))
-        try transCreateNodeUnwrapNull(rp.c, raw_fn_expr)
+        try Tag.unwrap.create(c.arena, raw_fn_expr)
     else
         raw_fn_expr;
 
     const num_args = stmt.getNumArgs();
-    const call_params = try c.arena.alloc(Node, num_args);
+    const args = try c.arena.alloc(Node, num_args);
 
-    const args = stmt.getArgs();
+    const c_args = stmt.getArgs();
     var i: usize = 0;
     while (i < num_args) : (i += 1) {
-        var call_param = try transExpr(c, scope, args[i], .used, .r_value);
+        var arg = try transExpr(c, scope, c_args[i], .used);
 
         // In C the result type of a boolean expression is int. If this result is passed as
         // an argument to a function whose parameter is also int, there is no cast. Therefore
@@ -2549,17 +2509,17 @@ fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result
                     const param_count = fn_proto.getNumParams();
                     if (i < param_count) {
                         const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
-                        if (isBoolRes(call_param) and cIsNativeInt(param_qt)) {
-                            call_param = try Node.bool_to_int.create(c.arena, call_param);
+                        if (isBoolRes(arg) and cIsNativeInt(param_qt)) {
+                            arg = try Tag.bool_to_int.create(c.arena, arg);
                         }
                     }
                 },
                 else => {},
             }
         }
-        call_params[i] = call_param;
+        args[i] = arg;
     }
-    const node = try Node.call.create(c.arena, .{ .lhs = fn_expr, .args = call_params });
+    const node = try Tag.call.create(c.arena, .{ .lhs = fn_expr, .args = args });
     if (fn_ty) |ty| {
         const canon = ty.getReturnType().getCanonicalType();
         const ret_ty = canon.getTypePtr();
@@ -2609,17 +2569,17 @@ fn transUnaryExprOrTypeTraitExpr(
     result_used: ResultUsed,
 ) TransError!Node {
     const loc = stmt.getBeginLoc();
-    const type_node = try transQualType(rp, stmt.getTypeOfArgument(), loc);
+    const type_node = try transQualType(c, stmt.getTypeOfArgument(), loc);
 
     const kind = stmt.getKind();
     switch (kind) {
-        .SizeOf => return Node.sizeof.create(c.arena, type_node),
-        .AlignOf => return Node.alignof.create(c.arena, type_node),
+        .SizeOf => return Tag.sizeof.create(c.arena, type_node),
+        .AlignOf => return Tag.alignof.create(c.arena, type_node),
         .PreferredAlignOf,
         .VecStep,
         .OpenMPRequiredSimdAlign,
-        => return revertAndWarn(
-            rp,
+        => return fail(
+            c,
             error.UnsupportedTranslation,
             loc,
             "Unsupported type trait kind {}",
@@ -2642,53 +2602,54 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
     const op_expr = stmt.getSubExpr();
     switch (stmt.getOpcode()) {
         .PostInc => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreatePostCrement(c, scope, stmt, .assign_add_wrap, used)
+            return transCreatePostCrement(c, scope, stmt, .add_wrap_assign, used)
         else
-            return transCreatePostCrement(c, scope, stmt, .assign_add, used),
+            return transCreatePostCrement(c, scope, stmt, .add_assign, used),
         .PostDec => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreatePostCrement(c, scope, stmt, .assign_sub_wrap, used)
+            return transCreatePostCrement(c, scope, stmt, .sub_wrap_assign, used)
         else
-            return transCreatePostCrement(c, scope, stmt, .assign_sub, used),
+            return transCreatePostCrement(c, scope, stmt, .sub_assign, used),
         .PreInc => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreatePreCrement(c, scope, stmt, .assign_add_wrap, used)
+            return transCreatePreCrement(c, scope, stmt, .add_wrap_assign, used)
         else
-            return transCreatePreCrement(c, scope, stmt, .assign_add, used),
+            return transCreatePreCrement(c, scope, stmt, .add_assign, used),
         .PreDec => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreatePreCrement(c, scope, stmt, .assign_sub_wrap, used)
+            return transCreatePreCrement(c, scope, stmt, .sub_wrap_assign, used)
         else
-            return transCreatePreCrement(c, scope, stmt, .assign_sub, used),
+            return transCreatePreCrement(c, scope, stmt, .sub_assign, used),
         .AddrOf => {
             if (cIsFunctionDeclRef(op_expr)) {
-                return transExpr(rp, scope, op_expr, used, .r_value);
+                return transExpr(c, scope, op_expr, used);
             }
-            return Node.address_of.create(c.arena, try transExpr(c, scope, op_expr, used, .r_value));
+            return Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
         },
         .Deref => {
-            const node = try transExpr(c, scope, op_expr, used, .r_value);
+            const node = try transExpr(c, scope, op_expr, used);
             var is_ptr = false;
             const fn_ty = qualTypeGetFnProto(op_expr.getType(), &is_ptr);
             if (fn_ty != null and is_ptr)
                 return node;
-            return Node.unwrap_deref.create(c.arena, node);
+            const unwrapped = try Tag.unwrap.create(c.arena, node);
+            return Tag.deref.create(c.arena, unwrapped);
         },
-        .Plus => return transExpr(c, scope, op_expr, used, .r_value),
+        .Plus => return transExpr(c, scope, op_expr, used),
         .Minus => {
             if (!qualTypeHasWrappingOverflow(op_expr.getType())) {
-                return Node.negate.create(c.arena, try transExpr(c, scope, op_expr, .used, .r_value));
+                return Tag.negate.create(c.arena, try transExpr(c, scope, op_expr, .used));
             } else if (cIsUnsignedInteger(op_expr.getType())) {
                 // use -% x for unsigned integers
-                return Node.negate_wrap.create(c.arena, try transExpr(c, scope, op_expr, .used, .r_value));
+                return Tag.negate_wrap.create(c.arena, try transExpr(c, scope, op_expr, .used));
             } else
                 return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "C negation with non float non integer", .{});
         },
         .Not => {
-            return Node.bit_not.create(c.arena, try transExpr(c, scope, op_expr, .used, .r_value));
+            return Tag.bit_not.create(c.arena, try transExpr(c, scope, op_expr, .used));
         },
         .LNot => {
-            return Node.not.create(c.arena, try transExpr(c, scope, op_expr, .used, .r_value));
+            return Tag.not.create(c.arena, try transExpr(c, scope, op_expr, .used));
         },
         .Extension => {
-            return transExpr(c, scope, stmt.getSubExpr(), used, .l_value);
+            return transExpr(c, scope, stmt.getSubExpr(), used);
         },
         else => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "unsupported C translation {}", .{stmt.getOpcode()}),
     }
@@ -2698,7 +2659,7 @@ fn transCreatePreCrement(
     c: *Context,
     scope: *Scope,
     stmt: *const clang.UnaryOperator,
-    op: Node.Tag,
+    op: Tag,
     used: ResultUsed,
 ) TransError!Node {
     const op_expr = stmt.getSubExpr();
@@ -2707,8 +2668,8 @@ fn transCreatePreCrement(
         // common case
         // c: ++expr
         // zig: expr += 1
-        const lhs = try transExpr(c, scope, op_expr, .used, .r_value);
-        const rhs = Node.one_literal.init();
+        const lhs = try transExpr(c, scope, op_expr, .used);
+        const rhs = Tag.one_literal.init();
         return transCreateNodeInfixOp(c, scope, op, lhs, rhs, .used);
     }
     // worst case
@@ -2722,17 +2683,17 @@ fn transCreatePreCrement(
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(c, "ref");
 
-    const expr = try transExpr(c, scope, op_expr, .used, .r_value);
-    const addr_of = try Node.address_of.create(c.arena, expr);
-    const ref_decl = try Node.var_simple.create(c.arena, .{ .name = ref, .init = addr_of});
+    const expr = try transExpr(c, scope, op_expr, .used);
+    const addr_of = try Tag.address_of.create(c.arena, expr);
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
 
-    const lhs_node = try Node.identifier.create(c.arena, ref);
-    const ref_node = try Node.deref.create(c.arena, lhs_node);
-    const node = try transCreateNodeInfixOp(c, scope, op, ref_node, Node.one_literal.init(), .used);
+    const lhs_node = try Tag.identifier.create(c.arena, ref);
+    const ref_node = try Tag.deref.create(c.arena, lhs_node);
+    const node = try transCreateNodeInfixOp(c, scope, op, ref_node, Tag.one_literal.init(), .used);
     try block_scope.statements.append(node);
 
-    const break_node = try Node.break_val.create(c.arena, .{
+    const break_node = try Tag.break_val.create(c.arena, .{
         .label = block_scope.label,
         .val = ref_node,
     });
@@ -2744,7 +2705,7 @@ fn transCreatePostCrement(
     c: *Context,
     scope: *Scope,
     stmt: *const clang.UnaryOperator,
-    op: Node.Tag,
+    op: Tag,
     used: ResultUsed,
 ) TransError!Node {
     const op_expr = stmt.getSubExpr();
@@ -2753,8 +2714,8 @@ fn transCreatePostCrement(
         // common case
         // c: expr++
         // zig: expr += 1
-        const lhs = try transExpr(c, scope, op_expr, .used, .r_value);
-        const rhs = Node.one_literal.init();
+        const lhs = try transExpr(c, scope, op_expr, .used);
+        const rhs = Tag.one_literal.init();
         return transCreateNodeInfixOp(c, scope, op, lhs, rhs, .used);
     }
     // worst case
@@ -2769,24 +2730,24 @@ fn transCreatePostCrement(
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(c, "ref");
 
-    const expr = try transExpr(c, scope, op_expr, .used, .r_value);
-    const addr_of = try Node.address_of.create(c.arena, expr);
-    const ref_decl = try Node.var_simple.create(c.arena, .{ .name = ref, .init = addr_of});
+    const expr = try transExpr(c, scope, op_expr, .used);
+    const addr_of = try Tag.address_of.create(c.arena, expr);
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
 
-    const lhs_node = try Node.identifier.create(c.arena, ref);
-    const ref_node = try Node.deref.create(c.arena, lhs_node);
+    const lhs_node = try Tag.identifier.create(c.arena, ref);
+    const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
     const tmp = try block_scope.makeMangledName(c, "tmp");
-    const tmp_decl = try Node.var_simple.create(c.arena, .{ .name = tmp, .init = ref_node});
+    const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = ref_node });
     try block_scope.statements.append(tmp_decl);
 
-    const node = try transCreateNodeInfixOp(c, scope, op, ref_node, Node.one_literal.init(), .used);
+    const node = try transCreateNodeInfixOp(c, scope, op, ref_node, Tag.one_literal.init(), .used);
     try block_scope.statements.append(node);
 
-    const break_node = try Node.break_val.create(c.arena, .{
+    const break_node = try Tag.break_val.create(c.arena, .{
         .label = block_scope.label,
-        .val = try Node.identifier.create(c.arena, tmp),
+        .val = try Tag.identifier.create(c.arena, tmp),
     });
     try block_scope.statements.append(break_node);
     return block_scope.complete(c);
@@ -2795,26 +2756,26 @@ fn transCreatePostCrement(
 fn transCompoundAssignOperator(c: *Context, scope: *Scope, stmt: *const clang.CompoundAssignOperator, used: ResultUsed) TransError!Node {
     switch (stmt.getOpcode()) {
         .MulAssign => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreateCompoundAssign(c, scope, stmt, .assign_mul_wrap, used)
+            return transCreateCompoundAssign(c, scope, stmt, .mul_wrap_assign, used)
         else
-            return transCreateCompoundAssign(c, scope, stmt, .assign_mul, used),
+            return transCreateCompoundAssign(c, scope, stmt, .mul_assign, used),
         .AddAssign => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreateCompoundAssign(c, scope, stmt, .assign_add_wrap, used)
+            return transCreateCompoundAssign(c, scope, stmt, .add_wrap_assign, used)
         else
-            return transCreateCompoundAssign(c, scope, stmt, .assign_add,  used),
+            return transCreateCompoundAssign(c, scope, stmt, .add_assign, used),
         .SubAssign => if (qualTypeHasWrappingOverflow(stmt.getType()))
-            return transCreateCompoundAssign(c, scope, stmt, .assign_sub_wrap, used)
+            return transCreateCompoundAssign(c, scope, stmt, .sub_wrap_assign, used)
         else
-            return transCreateCompoundAssign(c, scope, stmt, .assign_sub, used),
-        .DivAssign => return transCreateCompoundAssign(c, scope, stmt, .assign_div, used),
-        .RemAssign => return transCreateCompoundAssign(c, scope, stmt, .assign_mod, used),
-        .ShlAssign => return transCreateCompoundAssign(c, scope, stmt, .assign_shl, used),
-        .ShrAssign => return transCreateCompoundAssign(c, scope, stmt, .assign_shr, used),
-        .AndAssign => return transCreateCompoundAssign(c, scope, stmt, .assign_bit_and, used),
-        .XorAssign => return transCreateCompoundAssign(c, scope, stmt, .assign_bit_xor, used),
-        .OrAssign => return transCreateCompoundAssign(c, scope, stmt, .assign_bit_or, used),
+            return transCreateCompoundAssign(c, scope, stmt, .sub_assign, used),
+        .DivAssign => return transCreateCompoundAssign(c, scope, stmt, .div_assign, used),
+        .RemAssign => return transCreateCompoundAssign(c, scope, stmt, .mod_assign, used),
+        .ShlAssign => return transCreateCompoundAssign(c, scope, stmt, .shl_assign, used),
+        .ShrAssign => return transCreateCompoundAssign(c, scope, stmt, .shr_assign, used),
+        .AndAssign => return transCreateCompoundAssign(c, scope, stmt, .bit_and_assign, used),
+        .XorAssign => return transCreateCompoundAssign(c, scope, stmt, .bit_xor_assign, used),
+        .OrAssign => return transCreateCompoundAssign(c, scope, stmt, .bit_or_assign, used),
         else => return fail(
-            rp,
+            c,
             error.UnsupportedTranslation,
             stmt.getBeginLoc(),
             "unsupported C translation {}",
@@ -2827,12 +2788,12 @@ fn transCreateCompoundAssign(
     c: *Context,
     scope: *Scope,
     stmt: *const clang.CompoundAssignOperator,
-    op: Node.Tag,
+    op: Tag,
     used: ResultUsed,
 ) TransError!Node {
-    const is_shift = op == .assign_shl or op == .assign_shr;
-    const is_div = op == .assign_div;
-    const is_mod = op == .assign_mod;
+    const is_shift = op == .shl_assign or op == .shr_assign;
+    const is_div = op == .div_assign;
+    const is_mod = op == .mod_assign;
     const lhs = stmt.getLHS();
     const rhs = stmt.getRHS();
     const loc = stmt.getBeginLoc();
@@ -2849,21 +2810,21 @@ fn transCreateCompoundAssign(
         // c: lhs += rhs
         // zig: lhs += rhs
         if ((is_mod or is_div) and is_signed) {
-            const lhs_node = try transExpr(c, scope, lhs, .used, .l_value);
-            const rhs_node = try transExpr(c, scope, rhs, .used, .r_value);
+            const lhs_node = try transExpr(c, scope, lhs, .used);
+            const rhs_node = try transExpr(c, scope, rhs, .used);
             const builtin = if (is_mod)
-                try Node.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
+                try Tag.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
             else
-                try Node.divTrunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
+                try Tag.div_trunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
 
             return transCreateNodeInfixOp(c, scope, .assign, lhs_node, builtin, .used);
         }
 
-        const lhs_node = try transExpr(c, scope, lhs, .used, .l_value);
+        const lhs_node = try transExpr(c, scope, lhs, .used);
         var rhs_node = if (is_shift or requires_int_cast)
-            try transExprCoercing(c, scope, rhs, .used, .r_value)
+            try transExprCoercing(c, scope, rhs, .used)
         else
-            try transExpr(c, scope, rhs, .used, .r_value);
+            try transExpr(c, scope, rhs, .used);
 
         if (is_shift or requires_int_cast) {
             // @intCast(rhs)
@@ -2871,11 +2832,11 @@ fn transCreateCompoundAssign(
                 try qualTypeToLog2IntRef(c, getExprQualType(c, rhs), loc)
             else
                 try transQualType(c, getExprQualType(c, lhs), loc);
-            
-            rhs_node = try Node.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+
+            rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
         }
 
-        return transCreateNodeInfixOp(c, scope, assign_op, lhs_node, rhs_node, .used);
+        return transCreateNodeInfixOp(c, scope, op, lhs_node, rhs_node, .used);
     }
     // worst case
     // c:   lhs += rhs
@@ -2888,25 +2849,25 @@ fn transCreateCompoundAssign(
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(c, "ref");
 
-    const expr = try transExpr(c, scope, op_expr, .used, .r_value);
-    const addr_of = try Node.address_of.create(c.arena, expr);
-    const ref_decl = try Node.var_simple.create(c.arena, .{ .name = ref, .init = addr_of});
+    const expr = try transExpr(c, scope, lhs, .used);
+    const addr_of = try Tag.address_of.create(c.arena, expr);
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
 
-    const lhs_node = try Node.identifier.create(c.arena, ref);
-    const ref_node = try Node.deref.create(c.arena, lhs_node);
+    const lhs_node = try Tag.identifier.create(c.arena, ref);
+    const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
     if ((is_mod or is_div) and is_signed) {
-        const rhs_node = try transExpr(c, scope, rhs, .used, .r_value);
+        const rhs_node = try transExpr(c, scope, rhs, .used);
         const builtin = if (is_mod)
-            try Node.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
+            try Tag.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
         else
-            try Node.divTrunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
+            try Tag.div_trunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
 
         const assign = try transCreateNodeInfixOp(c, scope, .assign, lhs_node, builtin, .used);
         try block_scope.statements.append(assign);
     } else {
-        var rhs_node = try transExpr(c, scope, rhs, .used, .r_value);
+        var rhs_node = try transExpr(c, scope, rhs, .used);
 
         if (is_shift or requires_int_cast) {
             // @intCast(rhs)
@@ -2914,15 +2875,15 @@ fn transCreateCompoundAssign(
                 try qualTypeToLog2IntRef(c, getExprQualType(c, rhs), loc)
             else
                 try transQualType(c, getExprQualType(c, lhs), loc);
-            
-            rhs_node = try Node.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+
+            rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
         }
 
         const assign = try transCreateNodeInfixOp(c, scope, op, ref_node, rhs_node, .used);
         try block_scope.statements.append(assign);
     }
 
-    const break_node = try Node.break_val.create(c.arena, .{
+    const break_node = try Tag.break_val.create(c.arena, .{
         .label = block_scope.label,
         .val = ref_node,
     });
@@ -2941,7 +2902,7 @@ fn transCPtrCast(
     const child_type = ty.getPointeeType();
     const src_ty = src_type.getTypePtr();
     const src_child_type = src_ty.getPointeeType();
-    const dst_type = try transType(c, ty, loc);
+    const dst_type_node = try transType(c, ty, loc);
 
     if ((src_child_type.isConstQualified() and
         !child_type.isConstQualified()) or
@@ -2949,8 +2910,8 @@ fn transCPtrCast(
         !child_type.isVolatileQualified()))
     {
         // Casting away const or volatile requires us to use @intToPtr
-        const ptr_to_int = try Node.ptr_to_int.create(c.arena, expr);
-        const int_to_ptr = try Node.int_to_ptr.create(c.arena, .{ .lhs = dst_type, .rhs = ptr_to_int });
+        const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
+        const int_to_ptr = try Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_type_node, .rhs = ptr_to_int });
         return int_to_ptr;
     } else {
         // Implicit downcasting from higher to lower alignment values is forbidden,
@@ -2963,17 +2924,17 @@ fn transCPtrCast(
             expr
         else blk: {
             const child_type_node = try transQualType(c, child_type, loc);
-            const alignof = try Node.alignof.create(c.arena, child_type_node);
-            const align_cast = try Node.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
+            const alignof = try Tag.alignof.create(c.arena, child_type_node);
+            const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
             break :blk align_cast;
         };
-        return Node.ptr_cast.create(c.arena, .{ .lhs = dst_type, .rhs = rhs });
+        return Tag.ptr_cast.create(c.arena, .{ .lhs = dst_type_node, .rhs = rhs });
     }
 }
 
 fn transBreak(c: *Context, scope: *Scope) TransError!Node {
     const break_scope = scope.getBreakableScope();
-    const label_text: ?[]const u8 = if (break_scope.id == .Switch) blk: {
+    const label_text: ?[]const u8 = if (break_scope.id == .@"switch") blk: {
         const swtch = @fieldParentPtr(Scope.Switch, "base", break_scope);
         const block_scope = try scope.findBlockScope(c);
         swtch.switch_label = try block_scope.makeMangledName(c, "switch");
@@ -2981,20 +2942,20 @@ fn transBreak(c: *Context, scope: *Scope) TransError!Node {
     } else
         null;
 
-    return Node.@"break".create(c.arena, label_text);
+    return Tag.@"break".create(c.arena, label_text);
 }
 
 fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
     // TODO use something more accurate
     const dbl = stmt.getValueAsApproximateDouble();
     const node = try transCreateNodeNumber(c, dbl);
-    return maybeSuppressResult(c, scope, used, &node.base);
+    return maybeSuppressResult(c, scope, used, node);
 }
 
 fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.BinaryConditionalOperator, used: ResultUsed) TransError!Node {
     // GNU extension of the ternary operator where the middle expression is
     // omitted, the conditition itself is returned if it evaluates to true
-    const qt = @ptrCast(*const clang.Stmt, stmt).getType();
+    const qt = @ptrCast(*const clang.Expr, stmt).getType();
     const res_is_bool = qualTypeIsBoolean(qt);
     const casted_stmt = @ptrCast(*const clang.AbstractConditionalOperator, stmt);
     const cond_expr = casted_stmt.getCond();
@@ -3010,26 +2971,33 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     defer block_scope.deinit();
 
     const mangled_name = try block_scope.makeMangledName(c, "cond_temp");
-    const init_node = try transExpr(c, &block_scope.base, cond_expr, .used, .r_value);
-    const ref_decl = try Node.var_simple.create(c.arena, .{ .name = mangled_name, .init = init_node});
+    const init_node = try transExpr(c, &block_scope.base, cond_expr, .used);
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = mangled_name, .init = init_node });
     try block_scope.statements.append(ref_decl);
 
+    var cond_scope = Scope.Condition{
+        .base = .{
+            .parent = &block_scope.base,
+            .id = .condition,
+        },
+    };
+    defer cond_scope.deinit();
     const cond_node = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
-    var then_body = try Node.identifier.create(c.arena, mangled_name);
+    var then_body = try Tag.identifier.create(c.arena, mangled_name);
     if (!res_is_bool and isBoolRes(init_node)) {
-        then_body = try Node.bool_to_int.create(c.arena, then_body);
+        then_body = try Tag.bool_to_int.create(c.arena, then_body);
     }
 
-    var else_body = try transExpr(c, &block_scope.base, false_expr, .used, .r_value);
+    var else_body = try transExpr(c, &block_scope.base, false_expr, .used);
     if (!res_is_bool and isBoolRes(else_body)) {
-        else_body = try Node.bool_to_int.create(c.arena, else_body);
+        else_body = try Tag.bool_to_int.create(c.arena, else_body);
     }
-    const if_node = try Node.@"if".create(c.arena, .{
-        .cond = cond,
+    const if_node = try Tag.@"if".create(c.arena, .{
+        .cond = cond_node,
         .then = then_body,
         .@"else" = else_body,
     });
-    const break_node = try Node.break_val.create(c.arena, .{
+    const break_node = try Tag.break_val.create(c.arena, .{
         .label = block_scope.label,
         .val = if_node,
     });
@@ -3042,31 +3010,31 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
     var cond_scope = Scope.Condition{
         .base = .{
             .parent = scope,
-            .id = .Condition,
+            .id = .condition,
         },
     };
     defer cond_scope.deinit();
 
-    const qt = @ptrCast(*const clang.Stmt, stmt).getType();
+    const qt = @ptrCast(*const clang.Expr, stmt).getType();
     const res_is_bool = qualTypeIsBoolean(qt);
     const casted_stmt = @ptrCast(*const clang.AbstractConditionalOperator, stmt);
     const cond_expr = casted_stmt.getCond();
     const true_expr = casted_stmt.getTrueExpr();
     const false_expr = casted_stmt.getFalseExpr();
 
-    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used, .r_value);
+    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
-    var then_body = try transExpr(c, scope, true_expr, .used, .r_value);
+    var then_body = try transExpr(c, scope, true_expr, .used);
     if (!res_is_bool and isBoolRes(then_body)) {
-        then_body = try Node.bool_to_int.create(c.arena, then_body);
+        then_body = try Tag.bool_to_int.create(c.arena, then_body);
     }
 
-    var else_body = try transExpr(c, scope, false_expr, .used, .r_value);
+    var else_body = try transExpr(c, scope, false_expr, .used);
     if (!res_is_bool and isBoolRes(else_body)) {
-        else_body = try Node.bool_to_int.create(c.arena, else_body);
+        else_body = try Tag.bool_to_int.create(c.arena, else_body);
     }
 
-    const if_node = try Node.@"if".create(c.arena, .{
+    const if_node = try Tag.@"if".create(c.arena, .{
         .cond = cond,
         .then = then_body,
         .@"else" = else_body,
@@ -3081,7 +3049,7 @@ fn maybeSuppressResult(
     result: Node,
 ) TransError!Node {
     if (used == .used) return result;
-    return Node.ignore.create(c.arena, result);
+    return Tag.ignore.create(c.arena, result);
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
@@ -3100,19 +3068,19 @@ fn transQualTypeInitialized(
     const ty = qt.getTypePtr();
     if (ty.getTypeClass() == .IncompleteArray) {
         const incomplete_array_ty = @ptrCast(*const clang.IncompleteArrayType, ty);
-        const elem_ty = incomplete_array_ty.getElementType().getTypePtr();
+        const elem_ty = try transType(c, incomplete_array_ty.getElementType().getTypePtr(), source_loc);
 
         switch (decl_init.getStmtClass()) {
             .StringLiteralClass => {
                 const string_lit = @ptrCast(*const clang.StringLiteral, decl_init);
                 const string_lit_size = string_lit.getLength() + 1; // +1 for null terminator
                 const array_size = @intCast(usize, string_lit_size);
-                return Node.array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
+                return Tag.array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
             },
             .InitListExprClass => {
                 const init_expr = @ptrCast(*const clang.InitListExpr, decl_init);
                 const size = init_expr.getNumInits();
-                return Node.array_type.create(c.arena, .{ .len = size, .elem_type = elem_ty });
+                return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_ty });
             },
             else => {},
         }
@@ -3135,7 +3103,7 @@ fn transQualTypeIntWidthOf(c: *Context, ty: clang.QualType, is_signed: bool) Typ
 fn transTypeIntWidthOf(c: *Context, ty: *const clang.Type, is_signed: bool) TypeError!Node {
     assert(ty.getTypeClass() == .Builtin);
     const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
-    return Node.type.create(c.arena, switch (builtin_ty.getKind()) {
+    return Tag.type.create(c.arena, switch (builtin_ty.getKind()) {
         .Char_U, .Char_S, .UChar, .SChar, .Char8 => if (is_signed) "i8" else "u8",
         .UShort, .Short => if (is_signed) "c_short" else "c_ushort",
         .UInt, .Int => if (is_signed) "c_int" else "c_uint",
@@ -3214,11 +3182,11 @@ fn qualTypeToLog2IntRef(c: *Context, qt: clang.QualType, source_loc: clang.Sourc
     if (int_bit_width != 0) {
         // we can perform the log2 now.
         const cast_bit_width = math.log2_int(u64, int_bit_width);
-        return Node.log2_int_type.create(c.arena, cast_bit_width);
+        return Tag.log2_int_type.create(c.arena, cast_bit_width);
     }
 
     const zig_type = try transQualType(c, qt, source_loc);
-    return Node.std_math_Log2Int.create(c.arena, zig_type);
+    return Tag.std_math_Log2Int.create(c.arena, zig_type);
 }
 
 fn qualTypeChildIsFnProto(qt: clang.QualType) bool {
@@ -3392,10 +3360,10 @@ fn transCreateNodeAssign(
     // c:   lhs = rhs
     // zig: lhs = rhs
     if (result_used == .unused) {
-        const lhs_node = try transExpr(c, scope, lhs, .used, .l_value);
-        var rhs_node = try transExprCoercing(c, scope, rhs, .used, .r_value);
+        const lhs_node = try transExpr(c, scope, lhs, .used);
+        var rhs_node = try transExprCoercing(c, scope, rhs, .used);
         if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
-            rhs_node = try Node.bool_to_int.create(c.arena, rhs_node);
+            rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
         }
         return transCreateNodeInfixOp(c, scope, .assign, lhs_node, rhs_node, .used);
     }
@@ -3411,17 +3379,16 @@ fn transCreateNodeAssign(
     defer block_scope.deinit();
 
     const tmp = try block_scope.makeMangledName(c, "tmp");
-    const rhs = try transExpr(c, scope, op_expr, .used, .r_value);
-    const tmp_decl = try Node.var_simple.create(c.arena, .{ .name = tmp, .init = rhs});
+    const rhs_node = try transExpr(c, scope, rhs, .used);
+    const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
     try block_scope.statements.append(tmp_decl);
 
-
-    const lhs = try transExpr(c, &block_scope.base, lhs, .used, .l_value);
-    const tmp_ident = try Node.identifier.create(c.arena, tmp);
-    const assign = try transCreateNodeInfixOp(c, &block_scope.base, .assign, lhs, tmp_iden, .used);
+    const lhs_node = try transExpr(c, &block_scope.base, lhs, .used);
+    const tmp_ident = try Tag.identifier.create(c.arena, tmp);
+    const assign = try transCreateNodeInfixOp(c, &block_scope.base, .assign, lhs_node, tmp_ident, .used);
     try block_scope.statements.append(assign);
 
-    const break_node = try Node.break_val.create(c.arena, .{
+    const break_node = try Tag.break_val.create(c.arena, .{
         .label = block_scope.label,
         .val = tmp_ident,
     });
@@ -3432,7 +3399,7 @@ fn transCreateNodeAssign(
 fn transCreateNodeInfixOp(
     c: *Context,
     scope: *Scope,
-    op: ast.Node.Tag,
+    op: Tag,
     lhs: Node,
     rhs: Node,
     used: ResultUsed,
@@ -3452,13 +3419,13 @@ fn transCreateNodeBoolInfixOp(
     c: *Context,
     scope: *Scope,
     stmt: *const clang.BinaryOperator,
-    op: ast.Node.Tag,
+    op: Tag,
     used: ResultUsed,
 ) !Node {
-    std.debug.assert(op == .bool_and or op == .bool_or);
+    std.debug.assert(op == .@"and" or op == .@"or");
 
-    const lhs = try transBoolExpr(rp, scope, stmt.getLHS(), .used, .l_value);
-    const rhs = try transBoolExpr(rp, scope, stmt.getRHS(), .used, .r_value);
+    const lhs = try transBoolExpr(c, scope, stmt.getLHS(), .used);
+    const rhs = try transBoolExpr(c, scope, stmt.getRHS(), .used);
 
     return transCreateNodeInfixOp(c, scope, op, lhs, rhs, used);
 }
@@ -3503,22 +3470,22 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
     const str = big.toStringAlloc(c.arena, 10, false) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
-    return Node.int_literal.create(c.arena, str);
+    return Tag.number_literal.create(c.arena, str);
 }
 
 fn transCreateNodeNumber(c: *Context, int: anytype) !Node {
     const fmt_s = if (comptime std.meta.trait.isNumber(@TypeOf(int))) "{d}" else "{s}";
     const str = try std.fmt.allocPrint(c.arena, fmt_s, .{int});
-    return Node.int_literal.create(c.arena, str);
+    return Tag.number_literal.create(c.arena, str);
 }
 
 fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: Node, proto_alias: *ast.Payload.Func) !Node {
     const scope = &c.global_scope.base;
 
-    var fn_params = std.ArrayList(Node).init(c.gpa);
+    var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 
-    for (proto_alias.params()) |param, i| {
+    for (proto_alias.data.params) |param, i| {
         const param_name = param.name orelse
             try std.fmt.allocPrint(c.arena, "arg_{d}", .{c.getMangle()});
 
@@ -3529,29 +3496,29 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: Node, proto_alias:
         });
     }
 
-    const init = if (value.castTag(.var_decl)) |v|
-        v.data.init
-    else if (value.castTag(.var_simple) orelse value.castTag(.pub_var_simple)) |v|
+    const init = if (ref.castTag(.var_decl)) |v|
+        v.data.init.?
+    else if (ref.castTag(.var_simple) orelse ref.castTag(.pub_var_simple)) |v|
         v.data.init
     else
         unreachable;
 
-    const unwrap_expr = try Node.unwrap.create(c.arena, init);
-    const call_params = try c.arena.alloc(Node, fn_params.items.len);
+    const unwrap_expr = try Tag.unwrap.create(c.arena, init);
+    const args = try c.arena.alloc(Node, fn_params.items.len);
     for (fn_params.items) |param, i| {
-        call_params[i] = try Node.identifier.create(c.arena, param.name);
+        args[i] = try Tag.identifier.create(c.arena, param.name.?);
     }
-    const call_expr = try Node.call.create(c.arean, .{
+    const call_expr = try Tag.call.create(c.arena, .{
         .lhs = unwrap_expr,
-        .args = call_params,
+        .args = args,
     });
-    const return_expr = try Node.@"return".create(c.arean, call_expr);
-    const block = try Node.block_single.create(c.arean, return_expr);
+    const return_expr = try Tag.@"return".create(c.arena, call_expr);
+    const block = try Tag.block_single.create(c.arena, return_expr);
 
-    return Node.pub_inline_fn.create(c.arena, .{
+    return Tag.pub_inline_fn.create(c.arena, .{
         .name = name,
-        .params = try c.arena.dupe(ast.Node.Param, fn_params.items),
-        .return_type = proto_alias.return_type,
+        .params = try c.arena.dupe(ast.Payload.Param, fn_params.items),
+        .return_type = proto_alias.data.return_type,
         .body = block,
     });
 }
@@ -3560,7 +3527,7 @@ fn transCreateNodeShiftOp(
     c: *Context,
     scope: *Scope,
     stmt: *const clang.BinaryOperator,
-    op: Node.Tag,
+    op: Tag,
     used: ResultUsed,
 ) !Node {
     std.debug.assert(op == .shl or op == .shr);
@@ -3570,11 +3537,11 @@ fn transCreateNodeShiftOp(
     const rhs_location = rhs_expr.getBeginLoc();
     // lhs >> @as(u5, rh)
 
-    const lhs = try transExpr(c, scope, lhs_expr, .used, .l_value);
+    const lhs = try transExpr(c, scope, lhs_expr, .used);
 
     const rhs_type = try qualTypeToLog2IntRef(c, stmt.getType(), rhs_location);
-    const rhs = try transExprCoercing(c, scope, rhs_expr, .used, .r_value);
-    const rhs_casted = try Node.int_cast.create(c.arena, .{ .lhs = rhs_type, .rhs = rhs_type });
+    const rhs = try transExprCoercing(c, scope, rhs_expr, .used);
+    const rhs_casted = try Tag.int_cast.create(c.arena, .{ .lhs = rhs_type, .rhs = rhs_type });
 
     return transCreateNodeInfixOp(c, scope, op, lhs, rhs_casted, used);
 }
@@ -3583,7 +3550,7 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
     switch (ty.getTypeClass()) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
-            return Node.type.create(c.arena, switch (builtin_ty.getKind()) {
+            return Tag.type.create(c.arena, switch (builtin_ty.getKind()) {
                 .Void => "c_void",
                 .Bool => "bool",
                 .Char_U, .UChar, .Char_S, .Char8 => "u8",
@@ -3608,11 +3575,13 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
         },
         .FunctionProto => {
             const fn_proto_ty = @ptrCast(*const clang.FunctionProtoType, ty);
-            return transFnProto(c, null, fn_proto_ty, source_loc, null, false);
+            const fn_proto = try transFnProto(c, null, fn_proto_ty, source_loc, null, false);
+            return Node.initPayload(&fn_proto.base);
         },
         .FunctionNoProto => {
             const fn_no_proto_ty = @ptrCast(*const clang.FunctionType, ty);
-            return transFnNoProto(c, fn_no_proto_ty, source_loc, null, false);
+            const fn_proto = try transFnNoProto(c, fn_no_proto_ty, source_loc, null, false);
+            return Node.initPayload(&fn_proto.base);
         },
         .Paren => {
             const paren_ty = @ptrCast(*const clang.ParenType, ty);
@@ -3621,16 +3590,16 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
         .Pointer => {
             const child_qt = ty.getPointeeType();
             if (qualTypeChildIsFnProto(child_qt)) {
-                return Node.optional_type.create(c.arena, try transQualType(c, child_qt, source_loc));
+                return Tag.optional_type.create(c.arena, try transQualType(c, child_qt, source_loc));
             }
             const is_const = child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, child_qt, source_loc);
-            if (typeIsOpaque(rp.c, child_qt.getTypePtr(), source_loc) or qualTypeWasDemotedToOpaque(rp.c, child_qt)) {
-                return Node.single_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+            if (typeIsOpaque(c, child_qt.getTypePtr(), source_loc) or qualTypeWasDemotedToOpaque(c, child_qt)) {
+                return Tag.single_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
             }
 
-            return Node.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+            return Tag.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
         },
         .ConstantArray => {
             const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
@@ -3639,7 +3608,7 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
             const size = size_ap_int.getLimitedValue(math.maxInt(usize));
             const elem_type = try transType(c, const_arr_ty.getElementType().getTypePtr(), source_loc);
 
-            return Node.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
+            return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
         },
         .IncompleteArray => {
             const incomplete_array_ty = @ptrCast(*const clang.IncompleteArrayType, ty);
@@ -3649,7 +3618,7 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, child_qt, source_loc);
 
-            return Node.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+            return Tag.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
         },
         .Typedef => {
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
@@ -3690,7 +3659,7 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
         },
         else => {
             const type_name = c.str(ty.getTypeClassName());
-            return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{}'", .{type_name});
+            return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{s}'", .{type_name});
         },
     }
 }
@@ -3770,7 +3739,7 @@ fn transCC(
         .AAPCS => return CallingConvention.AAPCS,
         .AAPCS_VFP => return CallingConvention.AAPCSVFP,
         else => return fail(
-            rp,
+            c,
             error.UnsupportedType,
             source_loc,
             "unsupported calling convention: {s}",
@@ -3786,7 +3755,7 @@ fn transFnProto(
     source_loc: clang.SourceLocation,
     fn_decl_context: ?FnDeclContext,
     is_pub: bool,
-) !Node.FnProto {
+) !*ast.Payload.Func {
     const fn_ty = @ptrCast(*const clang.FunctionType, fn_proto_ty);
     const cc = try transCC(c, fn_ty, source_loc);
     const is_var_args = fn_proto_ty.isVariadic();
@@ -3799,7 +3768,7 @@ fn transFnNoProto(
     source_loc: clang.SourceLocation,
     fn_decl_context: ?FnDeclContext,
     is_pub: bool,
-) !Node.FnProto {
+) !*ast.Payload.Func {
     const cc = try transCC(c, fn_ty, source_loc);
     const is_var_args = if (fn_decl_context) |ctx| (!ctx.is_export and ctx.storage_class != .Static) else true;
     return finishTransFnProto(c, null, null, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
@@ -3822,7 +3791,7 @@ fn finishTransFnProto(
     // TODO check for always_inline attribute
     // TODO check for align attribute
 
-    var fn_params = std.ArrayList(ast.Payload.Func.Param).init(c.gpa);
+    var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
     const param_count: usize = if (fn_proto_ty != null) fn_proto_ty.?.getNumParams() else 0;
     try fn_params.ensureCapacity(param_count);
@@ -3861,7 +3830,7 @@ fn finishTransFnProto(
         break :blk null;
     };
 
-    const alignment: c_uint = blk: {
+    const alignment = blk: {
         if (fn_decl) |decl| {
             const alignment = decl.getAlignedAttribute(c.clang_context);
             if (alignment != 0) {
@@ -3876,16 +3845,16 @@ fn finishTransFnProto(
 
     const return_type_node = blk: {
         if (fn_ty.getNoReturnAttr()) {
-            break :blk Node.noreturn_type.init();
+            break :blk Tag.noreturn_type.init();
         } else {
             const return_qt = fn_ty.getReturnType();
             if (isCVoid(return_qt)) {
                 // convert primitive c_void to actual void (only for return type)
-                break :blk Node.void_type.init();
+                break :blk Tag.void_type.init();
             } else {
                 break :blk transQualType(c, return_qt, source_loc) catch |err| switch (err) {
                     error.UnsupportedType => {
-                        try warn(c, source_loc, "unsupported function proto return type", .{});
+                        try warn(c, &c.global_scope.base, source_loc, "unsupported function proto return type", .{});
                         return err;
                     },
                     error.OutOfMemory => |e| return e,
@@ -3893,26 +3862,31 @@ fn finishTransFnProto(
             }
         }
     };
-
-    return Node.func.create(c.arena, .{
-        .is_pub = is_pub,
-        .is_extern = is_extern,
-        .is_export = is_export,
-        .is_var_args = is_var_args,
-        .name = name,
-        .linksection_string = linksection_string,
-        .explicit_callconv = explicit_callconv,
-        .params = try c.arena.dupe(ast.Payload.Func.Param, fn_params.items),
-        .return_type = return_node,
-        .body = null,
-        .alignment = alignment,
-    });
+    const name: ?[]const u8 = if (fn_decl_context) |ctx| ctx.fn_name else null;
+    const payload = try c.arena.create(ast.Payload.Func);
+    payload.* = .{
+        .base = .{ .tag = .func },
+        .data = .{
+            .is_pub = is_pub,
+            .is_extern = is_extern,
+            .is_export = is_export,
+            .is_var_args = is_var_args,
+            .name = name,
+            .linksection_string = linksection_string,
+            .explicit_callconv = explicit_callconv,
+            .params = try c.arena.dupe(ast.Payload.Param, fn_params.items),
+            .return_type = return_type_node,
+            .body = null,
+            .alignment = alignment,
+        },
+    };
+    return payload;
 }
 
 fn warn(c: *Context, scope: *Scope, loc: clang.SourceLocation, comptime format: []const u8, args: anytype) !void {
     const args_prefix = .{c.locStr(loc)};
-    const value = std.fmt.allocPrint(c.arena, "// {s}: warning: " ++ format, args_prefix ++ args);
-    try scope.appendNode(c.gpa, try Node.warning.create(c.arena, value));
+    const value = try std.fmt.allocPrint(c.arena, "// {s}: warning: " ++ format, args_prefix ++ args);
+    try scope.appendNode(try Tag.warning.create(c.arena, value));
 }
 
 fn fail(
@@ -3922,17 +3896,17 @@ fn fail(
     comptime format: []const u8,
     args: anytype,
 ) (@TypeOf(err) || error{OutOfMemory}) {
-    try warn(c, source_loc, format, args);
+    try warn(c, &c.global_scope.base, source_loc, format, args);
     return err;
 }
 
-pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, comptime format: []const u8, args: anytype) !void {
+pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, comptime format: []const u8, args: anytype) Error!void {
     // location
     // pub const name = @compileError(msg);
-    const location_comment = std.fmt.allocPrint(c.arena, "// {s}", .{c.locStr(loc)});
-    try c.global_scope.nodes.append(try Node.warning.create(c.arena, location_comment));
-    const fail_msg = std.fmt.allocPrint(c.arena, format, args);
-    try c.global_scope.nodes.append(try Node.fail_decl.create(c.arena, fail_msg));
+    const location_comment = try std.fmt.allocPrint(c.arena, "// {s}", .{c.locStr(loc)});
+    try c.global_scope.nodes.append(try Tag.warning.create(c.arena, location_comment));
+    const fail_msg = try std.fmt.allocPrint(c.arena, format, args);
+    try c.global_scope.nodes.append(try Tag.fail_decl.create(c.arena, fail_msg));
 }
 
 pub fn freeErrors(errors: []ClangErrMsg) void {
@@ -4075,7 +4049,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     if (last != .Eof and last != .Nl)
         return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
 
-    const var_decl = try Node.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
+    const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
     _ = try c.global_scope.macro_table.put(m.name, var_decl);
 }
 
@@ -4099,7 +4073,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         try fn_params.append(.{
             .is_noalias = false,
             .name = mangled_name,
-            .type = Node.@"anytype".init(),
+            .type = Tag.@"anytype".init(),
         });
 
         if (m.peek().? != .Comma) break;
@@ -4119,19 +4093,19 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         const stmts = some.data.stmts;
         const blk_last = stmts[stmts.len - 1];
         const br = blk_last.castTag(.break_val).?;
-        break :blk br.data;
+        break :blk br.data.val;
     } else expr;
-    const typeof = try Node.typeof.create(c.arean, typeof_arg);
-    const return_expr = try Node.@"return".create(c.arena, expr);
-    try block_scope.statements.append(&return_expr.base);
-    
-    const fn_decl = try Node.pub_inline_fn.create(c.arena, .{
+    const typeof = try Tag.typeof.create(c.arena, typeof_arg);
+    const return_expr = try Tag.@"return".create(c.arena, expr);
+    try block_scope.statements.append(return_expr);
+
+    const fn_decl = try Tag.pub_inline_fn.create(c.arena, .{
         .name = m.name,
         .params = try c.arena.dupe(ast.Payload.Param, fn_params.items),
         .return_type = typeof,
         .body = try block_scope.complete(c),
     });
-    _ = try c.global_scope.macro_table.put(m.name, &fn_proto.base);
+    _ = try c.global_scope.macro_table.put(m.name, fn_decl);
 }
 
 const ParseError = Error || error{ParseError};
@@ -4149,7 +4123,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var last = node;
     while (true) {
         // suppress result
-        const ignore = try Node.ignore.create(c.arena, last);
+        const ignore = try Tag.ignore.create(c.arena, last);
         try block_scope.statements.append(ignore);
 
         last = try parseCCondExpr(c, m, scope);
@@ -4159,7 +4133,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         }
     }
 
-    const break_node = try Node.break_val.create(c.arena, .{
+    const break_node = try Tag.break_val.create(c.arena, .{
         .label = block_scope.label,
         .val = last,
     });
@@ -4190,7 +4164,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
                 return transCreateNodeNumber(c, lit_bytes);
             }
 
-            const type_node = try Node.type.create(c.arena, switch (suffix) {
+            const type_node = try Tag.type.create(c.arena, switch (suffix) {
                 .u => "c_uint",
                 .l => "c_long",
                 .lu => "c_ulong",
@@ -4205,7 +4179,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
                 else => unreachable,
             }];
             const rhs = try transCreateNodeNumber(c, lit_bytes);
-            return Node.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
+            return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
         },
         .FloatLiteral => |suffix| {
             if (lit_bytes[0] == '.')
@@ -4213,13 +4187,13 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             if (suffix == .none) {
                 return transCreateNodeNumber(c, lit_bytes);
             }
-            const type_node = try Node.type.create(c.arena, switch (suffix) {
+            const type_node = try Tag.type.create(c.arena, switch (suffix) {
                 .f => "f32",
                 .l => "c_longdouble",
                 else => unreachable,
             });
             const rhs = try transCreateNodeNumber(c, lit_bytes[0 .. lit_bytes.len - 1]);
-            return Node.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
+            return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
         },
         else => unreachable,
     }
@@ -4391,56 +4365,56 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
     switch (tok) {
         .CharLiteral => {
             if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
-                return Node.char_literal.create(c.arena, try zigifyEscapeSequences(c, m));
+                return Tag.char_literal.create(c.arena, try zigifyEscapeSequences(c, m));
             } else {
                 const str = try std.fmt.allocPrint(c.arena, "0x{x}", .{slice[1 .. slice.len - 1]});
-                return Node.int_literal.create(c.arena, str);
+                return Tag.number_literal.create(c.arena, str);
             }
         },
         .StringLiteral => {
-            return Node.string_literal.create(c.arena, try zigifyEscapeSequences(c, m));
+            return Tag.string_literal.create(c.arena, try zigifyEscapeSequences(c, m));
         },
         .IntegerLiteral, .FloatLiteral => {
             return parseCNumLit(c, m);
         },
         // eventually this will be replaced by std.c.parse which will handle these correctly
-        .Keyword_void => return Node.type.create(c.arena, "c_void"),
-        .Keyword_bool => return Node.type.create(c.arena, "bool"),
-        .Keyword_double => return Node.type.create(c.arena, "f64"),
-        .Keyword_long => return Node.type.create(c.arena, "c_long"),
-        .Keyword_int => return Node.type.create(c.arena, "c_int"),
-        .Keyword_float => return Node.type.create(c.arena, "f32"),
-        .Keyword_short => return Node.type.create(c.arena, "c_short"),
-        .Keyword_char => return Node.type.create(c.arena, "u8"),
+        .Keyword_void => return Tag.type.create(c.arena, "c_void"),
+        .Keyword_bool => return Tag.type.create(c.arena, "bool"),
+        .Keyword_double => return Tag.type.create(c.arena, "f64"),
+        .Keyword_long => return Tag.type.create(c.arena, "c_long"),
+        .Keyword_int => return Tag.type.create(c.arena, "c_int"),
+        .Keyword_float => return Tag.type.create(c.arena, "f32"),
+        .Keyword_short => return Tag.type.create(c.arena, "c_short"),
+        .Keyword_char => return Tag.type.create(c.arena, "u8"),
         .Keyword_unsigned => if (m.next()) |t| switch (t) {
-            .Keyword_char => return Node.type.create(c.arena, "u8"),
-            .Keyword_short => return Node.type.create(c.arena, "c_ushort"),
-            .Keyword_int => return Node.type.create(c.arena, "c_uint"),
+            .Keyword_char => return Tag.type.create(c.arena, "u8"),
+            .Keyword_short => return Tag.type.create(c.arena, "c_ushort"),
+            .Keyword_int => return Tag.type.create(c.arena, "c_uint"),
             .Keyword_long => if (m.peek() != null and m.peek().? == .Keyword_long) {
                 _ = m.next();
-                return Node.type.create(c.arena, "c_ulonglong");
-            } else return Node.type.create(c.arena, "c_ulong"),
+                return Tag.type.create(c.arena, "c_ulonglong");
+            } else return Tag.type.create(c.arena, "c_ulong"),
             else => {
                 m.i -= 1;
-                return Node.type.create(c.arena, "c_uint");
+                return Tag.type.create(c.arena, "c_uint");
             },
         } else {
-            return Node.type.create(c.arena, "c_uint");
+            return Tag.type.create(c.arena, "c_uint");
         },
         .Keyword_signed => if (m.next()) |t| switch (t) {
-            .Keyword_char => return Node.type.create(c.arena, "i8"),
-            .Keyword_short => return Node.type.create(c.arena, "c_short"),
-            .Keyword_int => return Node.type.create(c.arena, "c_int"),
+            .Keyword_char => return Tag.type.create(c.arena, "i8"),
+            .Keyword_short => return Tag.type.create(c.arena, "c_short"),
+            .Keyword_int => return Tag.type.create(c.arena, "c_int"),
             .Keyword_long => if (m.peek() != null and m.peek().? == .Keyword_long) {
                 _ = m.next();
-                return Node.type.create(c.arena, "c_longlong");
-            } else return Node.type.create(c.arena, "c_long"),
+                return Tag.type.create(c.arena, "c_longlong");
+            } else return Tag.type.create(c.arena, "c_long"),
             else => {
                 m.i -= 1;
-                return Node.type.create(c.arena, "c_int");
+                return Tag.type.create(c.arena, "c_int");
             },
         } else {
-            return Node.type.create(c.arena, "c_int");
+            return Tag.type.create(c.arena, "c_int");
         },
         .Keyword_enum, .Keyword_struct, .Keyword_union => {
             // struct Foo will be declared as struct_Foo by transRecordDecl
@@ -4451,11 +4425,11 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
             }
 
             const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ slice, m.slice() });
-            return Node.identifier.create(c.arena, name);
+            return Tag.identifier.create(c.arena, name);
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
-            return Node.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
+            return Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
         },
         .LParen => {
             const inner_node = try parseCExpr(c, m, scope);
@@ -4492,7 +4466,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
                 return error.ParseError;
             }
 
-            return Node.std_meta_cast.create(c.arena, .{ .lhs = inner_node, .rhs = node_to_cast });
+            return Tag.std_meta_cast.create(c.arena, .{ .lhs = inner_node, .rhs = node_to_cast });
         },
         else => {
             try m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(tok)});
@@ -4511,7 +4485,7 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             .StringLiteral, .Identifier => {},
             else => break,
         }
-        node = try Node.array_cat.create(c.arena, .{ .lhs = node, .rhs = try parseCPrimaryExprInner(c, m, scope) });
+        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = try parseCPrimaryExprInner(c, m, scope) });
     }
     return node;
 }
@@ -4521,7 +4495,7 @@ fn macroBoolToInt(c: *Context, node: Node) !Node {
         return node;
     }
 
-    return Node.bool_to_int.create(c.arena, node);
+    return Tag.bool_to_int.create(c.arena, node);
 }
 
 fn macroIntToBool(c: *Context, node: Node) !Node {
@@ -4529,7 +4503,7 @@ fn macroIntToBool(c: *Context, node: Node) !Node {
         return node;
     }
 
-    return Node.not_equal.create(c.arena, .{ .lhs = node, .rhs = Node.zero_literal.init() });
+    return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
 }
 
 fn parseCCondExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
@@ -4545,7 +4519,7 @@ fn parseCCondExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         return error.ParseError;
     }
     const else_body = try parseCCondExpr(c, m, scope);
-    return Node.@"if".create(c.arena, .{ .cond = node, .then = then_body, .@"else" = else_body });
+    return Tag.@"if".create(c.arena, .{ .cond = node, .then = then_body, .@"else" = else_body });
 }
 
 fn parseCOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
@@ -4553,7 +4527,7 @@ fn parseCOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (m.next().? == .PipePipe) {
         const lhs = try macroIntToBool(c, node);
         const rhs = try macroIntToBool(c, try parseCAndExpr(c, m, scope));
-        node = try Node.@"or".create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+        node = try Tag.@"or".create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
@@ -4564,7 +4538,7 @@ fn parseCAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (m.next().? == .AmpersandAmpersand) {
         const lhs = try macroIntToBool(c, node);
         const rhs = try macroIntToBool(c, try parseCBitOrExpr(c, m, scope));
-        node = try Node.@"and".create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+        node = try Tag.@"and".create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
@@ -4575,7 +4549,7 @@ fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (m.next().? == .Pipe) {
         const lhs = try macroBoolToInt(c, node);
         const rhs = try macroBoolToInt(c, try parseCBitXorExpr(c, m, scope));
-        node = try Node.bit_or.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+        node = try Tag.bit_or.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
@@ -4586,7 +4560,7 @@ fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (m.next().? == .Caret) {
         const lhs = try macroBoolToInt(c, node);
         const rhs = try macroBoolToInt(c, try parseCBitAndExpr(c, m, scope));
-        node = try Node.bit_xor.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+        node = try Tag.bit_xor.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
@@ -4597,7 +4571,7 @@ fn parseCBitAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (m.next().? == .Ampersand) {
         const lhs = try macroBoolToInt(c, node);
         const rhs = try macroBoolToInt(c, try parseCEqExpr(c, m, scope));
-        node = try Node.bit_and.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+        node = try Tag.bit_and.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
     return node;
@@ -4611,13 +4585,13 @@ fn parseCEqExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCRelExpr(c, m, scope));
-                node = try Node.not_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.not_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .EqualEqual => {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCRelExpr(c, m, scope));
-                node = try Node.equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
         }
@@ -4632,25 +4606,25 @@ fn parseCRelExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
-                node = try Node.greater_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.greater_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketRightEqual => {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
-                node = try Node.greater_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.greater_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketLeft => {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
-                node = try Node.less_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.less_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketLeftEqual => {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
-                node = try Node.less_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.less_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
         }
@@ -4665,13 +4639,13 @@ fn parseCShiftExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCAddSubExpr(c, m, scope));
-                node = try Node.shl.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.shl.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketAngleBracketRight => {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCAddSubExpr(c, m, scope));
-                node = try Node.shr.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.shr.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
         }
@@ -4686,13 +4660,13 @@ fn parseCAddSubExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCMulExpr(c, m, scope));
-                node = try Node.add.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.add.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Minus => {
                 _ = m.next();
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCMulExpr(c, m, scope));
-                node = try Node.sub.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.sub.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
         }
@@ -4711,14 +4685,14 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                     const prev_id = m.list[m.i - 1].id;
 
                     if (prev_id == .Keyword_void) {
-                        const ptr = try Node.single_pointer.create(c.arena, .{
+                        const ptr = try Tag.single_pointer.create(c.arena, .{
                             .is_const = false,
                             .is_volatile = false,
                             .elem_type = node,
                         });
-                        return Node.optional_type.create(c.arena, ptr);
+                        return Tag.optional_type.create(c.arena, ptr);
                     } else {
-                        return Node.c_pointer.create(c.arena, .{
+                        return Tag.c_pointer.create(c.arena, .{
                             .is_const = false,
                             .is_volatile = false,
                             .elem_type = node,
@@ -4728,18 +4702,18 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                     // expr * expr
                     const lhs = try macroBoolToInt(c, node);
                     const rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
-                    node = try Node.mul.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                    node = try Tag.mul.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
                 }
             },
             .Slash => {
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
-                node = try Node.div.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.div.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Percent => {
                 const lhs = try macroBoolToInt(c, node);
                 const rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
-                node = try Node.mod.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                node = try Tag.mod.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => {
                 m.i -= 1;
@@ -4759,8 +4733,8 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                     return error.ParseError;
                 }
 
-                const ident = try Node.identifier.create(c.arena, m.slice());
-                node = try Node.field_access.create(c.arena, .{ .lhs = node, .rhs = ident });
+                const ident = try Tag.identifier.create(c.arena, m.slice());
+                node = try Tag.field_access.create(c.arena, .{ .lhs = node, .rhs = ident });
             },
             .Arrow => {
                 if (m.next().? != .Identifier) {
@@ -4768,20 +4742,20 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                     return error.ParseError;
                 }
 
-                const deref = try Node.deref.create(c.arena, node);
-                const ident = try Node.identifier.create(c.arena, m.slice());
-                node = try Node.field_access.create(c.arena, .{ .lhs = deref, .rhs = ident });
+                const deref = try Tag.deref.create(c.arena, node);
+                const ident = try Tag.identifier.create(c.arena, m.slice());
+                node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .rhs = ident });
             },
             .LBracket => {
                 const index = try macroBoolToInt(c, try parseCExpr(c, m, scope));
-                node = try Node.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
+                node = try Tag.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
             },
             .LParen => {
-                var call_params = std.ArrayList(Node).init(c.gpa);
-                defer call_params.deinit();
+                var args = std.ArrayList(Node).init(c.gpa);
+                defer args.deinit();
                 while (true) {
                     const arg = try parseCCondExpr(c, m, scope);
-                    try call_params.append(arg);
+                    try args.append(arg);
                     switch (m.next().?) {
                         .Comma => {},
                         .RParen => break,
@@ -4791,7 +4765,7 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                         },
                     }
                 }
-                node = try Node.call.create(c.arena, .{ .lhs = node, .rhs = try c.arena.dupe(Node, call_params.items) });
+                node = try Tag.call.create(c.arena, .{ .lhs = node, .args = try c.arena.dupe(Node, args.items) });
             },
             .LBrace => {
                 var init_vals = std.ArrayList(Node).init(c.gpa);
@@ -4809,8 +4783,8 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                         },
                     }
                 }
-                const tuple_node = try Node.tuple.create(c.arena, try c.arena.dupe(Node, init_vals.items));
-                node = try Node.std_mem_zeroinit.create(c.arena, .{ .lhs = node, .rhs = tuple_node });
+                const tuple_node = try Tag.tuple.create(c.arena, try c.arena.dupe(Node, init_vals.items));
+                node = try Tag.std_mem_zeroinit.create(c.arena, .{ .lhs = node, .rhs = tuple_node });
             },
             .PlusPlus, .MinusMinus => {
                 try m.fail(c, "TODO postfix inc/dec expr", .{});
@@ -4828,24 +4802,24 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
         .Bang => {
             const operand = try macroIntToBool(c, try parseCUnaryExpr(c, m, scope));
-            return Node.not.create(c.arena, operand);
+            return Tag.not.create(c.arena, operand);
         },
         .Minus => {
             const operand = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
-            return Node.negate.create(c.arena, operand);
+            return Tag.negate.create(c.arena, operand);
         },
         .Plus => return try parseCUnaryExpr(c, m, scope),
         .Tilde => {
             const operand = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
-            return Node.bit_not.create(c.arena, operand);
+            return Tag.bit_not.create(c.arena, operand);
         },
         .Asterisk => {
             const operand = try parseCUnaryExpr(c, m, scope);
-            return Node.deref.create(c.arena, operand);
+            return Tag.deref.create(c.arena, operand);
         },
         .Ampersand => {
             const operand = try parseCUnaryExpr(c, m, scope);
-            return Node.address_of.create(c.arena, operand);
+            return Tag.address_of.create(c.arena, operand);
         },
         .Keyword_sizeof => {
             const operand = if (m.peek().? == .LParen) blk: {
@@ -4860,7 +4834,7 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 break :blk inner;
             } else try parseCUnaryExpr(c, m, scope);
 
-            return Node.std_meta_sizeof.create(c.arena, operand);
+            return Tag.std_meta_sizeof.create(c.arena, operand);
         },
         .Keyword_alignof => {
             // TODO this won't work if using <stdalign.h>'s
@@ -4877,7 +4851,7 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 return error.ParseError;
             }
 
-            return Node.alignof.create(c.arena, operand);
+            return Tag.alignof.create(c.arena, operand);
         },
         .PlusPlus, .MinusMinus => {
             try m.fail(c, "TODO unary inc/dec expr", .{});
@@ -4902,7 +4876,7 @@ fn getContainer(c: *Context, node: Node) ?Node {
         .negate,
         .negate_wrap,
         .array_type,
-        .c_pointer, 
+        .c_pointer,
         .single_pointer,
         => return node,
 
@@ -4910,7 +4884,7 @@ fn getContainer(c: *Context, node: Node) ?Node {
             const ident = node.castTag(.identifier).?;
             if (c.global_scope.sym_table.get(ident.data)) |value| {
                 if (value.castTag(.var_decl)) |var_decl|
-                    return getContainer(c, var_decl.data.init);
+                    return getContainer(c, var_decl.data.init.?);
                 if (value.castTag(.var_simple) orelse value.castTag(.pub_var_simple)) |var_decl|
                     return getContainer(c, var_decl.data.init);
             }
@@ -4923,8 +4897,8 @@ fn getContainer(c: *Context, node: Node) ?Node {
                 if (ty_node.castTag(.@"struct") orelse ty_node.castTag(.@"union")) |container| {
                     for (container.data.fields) |field| {
                         const ident = infix.data.rhs.castTag(.identifier).?;
-                        if (mem.eql(u8, field.data.name, field.data)) {
-                            return getContainer(c, field.type_expr.?);
+                        if (mem.eql(u8, field.name, ident.data)) {
+                            return getContainer(c, field.type);
                         }
                     }
                 }
@@ -4960,9 +4934,9 @@ fn getContainerTypeOf(c: *Context, ref: Node) ?Node {
 }
 
 fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
-    const init = if (value.castTag(.var_decl)) |v|
-        v.data.init
-    else if (value.castTag(.var_simple) orelse value.castTag(.pub_var_simple)) |v|
+    const init = if (ref.castTag(.var_decl)) |v|
+        v.data.init orelse return null
+    else if (ref.castTag(.var_simple) orelse ref.castTag(.pub_var_simple)) |v|
         v.data.init
     else
         return null;
