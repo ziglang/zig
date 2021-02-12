@@ -3705,17 +3705,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             for (param_types) |ty, i| {
                                 switch (ty.zigTypeTag()) {
                                     .Bool, .Int => {
-                                        const param_size = @intCast(u32, ty.abiSize(self.target.*));
-                                        if (next_int_reg >= c_abi_int_param_regs.len) {
-                                            result.args[i] = .{ .stack_offset = next_stack_offset };
-                                            next_stack_offset += param_size;
+                                        if (!ty.hasCodeGenBits()) {
+                                            assert(cc != .C);
+                                            result.args[i] = .{ .none = {} };
                                         } else {
-                                            const aliased_reg = registerAlias(
-                                                c_abi_int_param_regs[next_int_reg],
-                                                param_size,
-                                            );
-                                            result.args[i] = .{ .register = aliased_reg };
-                                            next_int_reg += 1;
+                                            const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                                            if (next_int_reg >= c_abi_int_param_regs.len) {
+                                                result.args[i] = .{ .stack_offset = next_stack_offset };
+                                                next_stack_offset += param_size;
+                                            } else {
+                                                const aliased_reg = registerAlias(
+                                                    c_abi_int_param_regs[next_int_reg],
+                                                    param_size,
+                                                );
+                                                result.args[i] = .{ .register = aliased_reg };
+                                                next_int_reg += 1;
+                                            }
                                         }
                                     },
                                     else => return self.fail(src, "TODO implement function parameters of type {s}", .{@tagName(ty.zigTypeTag())}),
