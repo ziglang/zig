@@ -1393,4 +1393,33 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("passing a differently-sized integer to a function parameter", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    assertEquals5(5);
+            \\    var x: u31 = 5;
+            \\    assertEquals5(x);
+            \\    exit();
+            \\}
+            \\fn assertEquals5(i: u32) void {
+            \\    assert(i == 5);
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
