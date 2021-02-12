@@ -454,7 +454,7 @@ pub const Payload = struct {
         data: struct {
             cond: Node,
             body: Node,
-            cont_expr: ?Node
+            cont_expr: ?Node,
         },
     };
 
@@ -568,7 +568,7 @@ pub const Payload = struct {
         base: Payload,
         data: struct {
             label: ?[]const u8,
-            stmts: []Node
+            stmts: []Node,
         },
     };
 
@@ -640,6 +640,182 @@ pub const Payload = struct {
 };
 
 /// Converts the nodes into a Zig ast.
-pub fn render(allocator: *Allocator, nodes: []const Node) !std.zig.ast.Tree {
-    @panic("TODO");
+/// Caller must free the source slice.
+pub fn render(gpa: *Allocator, nodes: []const Node) !std.zig.ast.Tree {
+    var ctx = Context{
+        .gpa = gpa,
+        .buf = std.ArrayList(u8).init(gpa),
+    };
+    defer ctx.buf.deinit();
+    defer ctx.nodes.deinit(gpa);
+    defer ctx.extra_data.deinit(gpa);
+    defer ctx.tokens.deinit(gpa);
+
+    // Estimate that each top level node has 25 child nodes.
+    const estimated_node_count = nodes.len * 25;
+    try ctx.nodes.ensureCapacity(gpa, estimated_node_count);
+
+    ctx.nodes.appendAssumeCapacity(.{
+        .tag = .root,
+        .main_token = 0,
+        .data = .{
+            .lhs = undefined,
+            .rhs = undefined,
+        },
+    });
+    const root_members = try renderNodes(&ctx, nodes);
+    ctx.nodes.items(.data)[0] = .{
+        .lhs = root_members.start,
+        .rhs = root_members.end,
+    };
+
+    try ctx.tokens.append(gpa, .{
+        .tag = .eof,
+        .start = @intCast(u32, ctx.buf.items.len),
+    });
+
+    return std.zig.ast.Tree{
+        .source = ctx.buf.toOwnedSlice(),
+        .tokens = ctx.tokens.toOwnedSlice(),
+        .nodes = ctx.nodes.toOwnedSlice(),
+        .extra_data = ctx.extra_data.toOwnedSlice(gpa),
+        .errors = &.{},
+    };
+}
+
+const NodeIndex = std.zig.ast.Node.Index;
+const NodeSubRange = std.zig.ast.Node.SubRange;
+const TokenIndex = std.zig.ast.TokenIndex;
+const TokenTag = std.zig.Token.Tag;
+
+const Context = struct {
+    gpa: *Allocator,
+    buf: std.ArrayList(u8) = .{},
+    nodes: std.zig.ast.NodeList = .{},
+    extra_data: std.ArrayListUnmanaged(std.zig.ast.Node.Index) = .{},
+    tokens: std.zig.ast.TokenList = .{},
+
+    fn appendTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
+        const start_index = c.buf.items.len;
+        try c.buf.writer().print(format ++ " ", args);
+
+        try c.tokens.append(c.gpa, .{
+            .tag = tag,
+            .start = @intCast(u32, start_index),
+        });
+
+        return @intCast(u32, c.tokens.len - 1);
+    }
+
+    fn appendToken(c: *Context, tag: TokenTag, bytes: []const u8) Allocator.Error!TokenIndex {
+        std.debug.assert(tag != .identifier); // use appendIdentifier
+        return appendTokenFmt(c, tag, "{s}", .{bytes});
+    }
+
+    fn appendIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
+        return appendTokenFmt(c, .identifier, "{s}", .{std.zig.fmtId(bytes)});
+    }
+
+    fn listToSpan(c: *Context, list: []const NodeIndex) Allocator.Error!NodeSubRange {
+        try c.extra_data.appendSlice(c.gpa, list);
+        return NodeSubRange{
+            .start = @intCast(NodeIndex, c.extra_data.items.len - list.len),
+            .end = @intCast(NodeIndex, c.extra_data.items.len),
+        };
+    }
+
+    fn appendNode(c: *Context, elem: std.zig.ast.NodeList.Elem) Allocator.Error!NodeIndex {
+        const result = @intCast(NodeIndex, c.nodes.len);
+        try c.nodes.append(c.gpa, elem);
+        return result;
+    }
+};
+
+fn renderNodes(c: *Context, nodes: []const Node) !NodeSubRange {
+    var result = std.ArrayList(NodeIndex).init(c.gpa);
+    defer result.deinit();
+
+    for (nodes) |node| {
+        const res = try renderNode(c, node);
+        if (res == 0) continue;
+        try result.append(res);
+    }
+
+    return try c.listToSpan(result.items);
+}
+
+fn renderNode(c: *Context, node: Node) !NodeIndex {
+    switch (node.tag()) {
+        .warning => {
+            const payload = node.castTag(.warning).?;
+            try c.buf.appendSlice(payload.data);
+            try c.buf.append('\n');
+            return 0;
+        },
+        .usingnamespace_builtins => {
+            // pub usingnamespace @import("std").c.builtins;
+            _ = try c.appendToken(.keyword_pub, "pub");
+            const usingnamespace_token = try c.appendToken(.keyword_usingnamespace, "usingnamespace");
+            const import_node = try renderStdImport(c, "c", "builtins");
+            _ = try c.appendToken(.semicolon, ";");
+
+            return c.appendNode(.{
+                .tag = .@"usingnamespace",
+                .main_token = usingnamespace_token,
+                .data = .{
+                    .lhs = import_node,
+                    .rhs = undefined,
+                },
+            });
+        },
+        else => {
+            try c.buf.writer().print("// TODO renderNode {}\n", .{node.tag()});
+            return @as(u32, 0); // error: integer value 0 cannot be coerced to type 'std.mem.Allocator.Error!u32'
+        },
+    }
+}
+
+fn renderStdImport(c: *Context, first: []const u8, second: []const u8) !NodeIndex {
+    const import_tok = try c.appendToken(.builtin, "@import");
+    _ = try c.appendToken(.l_paren, "(");
+
+    const std_tok = try c.appendToken(.string_literal, "\"std\"");
+    const std_node = try c.appendNode(.{
+        .tag = .string_literal,
+        .main_token = std_tok,
+        .data = .{
+            .lhs = std_tok,
+            .rhs = std_tok,
+        },
+    });
+
+    _ = try c.appendToken(.r_paren, ")");
+
+    const import_node = try c.appendNode(.{
+        .tag = .builtin_call_two,
+        .main_token = import_tok,
+        .data = .{
+            .lhs = std_node,
+            .rhs = 0,
+        },
+    });
+
+    var access_chain = import_node;
+    access_chain = try c.appendNode(.{
+        .tag = .field_access,
+        .main_token = try c.appendToken(.period, "."),
+        .data = .{
+            .lhs = access_chain,
+            .rhs = try c.appendIdentifier(first),
+        },
+    });
+    access_chain = try c.appendNode(.{
+        .tag = .field_access,
+        .main_token = try c.appendToken(.period, "."),
+        .data = .{
+            .lhs = access_chain,
+            .rhs = try c.appendIdentifier(second),
+        },
+    });
+    return access_chain;
 }
