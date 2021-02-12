@@ -45,6 +45,28 @@ pub const Tree = struct {
         tree.* = undefined;
     }
 
+    pub const RenderError = error{
+        /// Ran out of memory allocating call stack frames to complete rendering, or
+        /// ran out of memory allocating space in the output buffer.
+        OutOfMemory,
+    };
+
+    /// `gpa` is used for allocating the resulting formatted source code, as well as
+    /// for allocating extra stack memory if needed, because this function utilizes recursion.
+    /// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
+    /// Caller owns the returned slice of bytes, allocated with `gpa`.
+    pub fn render(tree: Tree, gpa: *mem.Allocator) RenderError![]u8 {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+
+        try tree.renderToArrayList(&buffer);
+        return buffer.toOwnedSlice();
+    }
+
+    pub fn renderToArrayList(tree: Tree, buffer: *std.ArrayList(u8)) RenderError!void {
+        return @import("./render.zig").renderTree(buffer, tree);
+    }
+
     pub fn tokenLocation(self: Tree, start_offset: ByteOffset, token_index: TokenIndex) Location {
         var loc = Location{
             .line = 0,
@@ -72,6 +94,27 @@ pub const Tree = struct {
         return loc;
     }
 
+    pub fn tokenSlice(tree: Tree, token_index: TokenIndex) []const u8 {
+        const token_starts = tree.tokens.items(.start);
+        const token_tags = tree.tokens.items(.tag);
+        const token_tag = token_tags[token_index];
+
+        // Many tokens can be determined entirely by their tag.
+        if (token_tag.lexeme()) |lexeme| {
+            return lexeme;
+        }
+
+        // For some tokens, re-tokenization is needed to find the end.
+        var tokenizer: std.zig.Tokenizer = .{
+            .buffer = tree.source,
+            .index = token_starts[token_index],
+            .pending_invalid_token = null,
+        };
+        const token = tokenizer.next();
+        assert(token.tag == token_tag);
+        return tree.source[token.loc.start..token.loc.end];
+    }
+
     pub fn extraData(tree: Tree, index: usize, comptime T: type) T {
         const fields = std.meta.fields(T);
         var result: T = undefined;
@@ -80,6 +123,12 @@ pub const Tree = struct {
             @field(result, field.name) = tree.extra_data[index + i];
         }
         return result;
+    }
+
+    pub fn rootDecls(tree: Tree) []const Node.Index {
+        // Root is always index 0.
+        const nodes_data = tree.nodes.items(.data);
+        return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
     }
 
     pub fn renderError(tree: Tree, parse_error: Error, stream: anytype) !void {
@@ -966,6 +1015,15 @@ pub const Tree = struct {
         return mem.indexOfScalar(u8, source, '\n') == null;
     }
 
+    pub fn getNodeSource(tree: Tree, node: Node.Index) []const u8 {
+        const token_starts = tree.tokens.items(.start);
+        const first_token = tree.firstToken(node);
+        const last_token = tree.lastToken(node);
+        const start = token_starts[first_token];
+        const len = tree.tokenSlice(last_token).len;
+        return tree.source[start..][0..len];
+    }
+
     pub fn globalVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
         assert(tree.nodes.items(.tag)[node] == .global_var_decl);
         const data = tree.nodes.items(.data)[node];
@@ -1653,7 +1711,31 @@ pub const Tree = struct {
         const token_tags = tree.tokens.items(.tag);
         var result: full.FnProto = .{
             .ast = info,
+            .visib_token = null,
+            .extern_export_token = null,
+            .lib_name = null,
+            .name_token = null,
+            .lparen = undefined,
         };
+        var i = info.fn_token;
+        while (i > 0) {
+            i -= 1;
+            switch (token_tags[i]) {
+                .keyword_extern, .keyword_export => result.extern_export_token = i,
+                .keyword_pub => result.visib_token = i,
+                .string_literal => result.lib_name = i,
+                else => break,
+            }
+        }
+        const after_fn_token = info.fn_token + 1;
+        if (token_tags[after_fn_token] == .identifier) {
+            result.name_token = after_fn_token;
+            result.lparen = after_fn_token + 1;
+        } else {
+            result.lparen = after_fn_token;
+        }
+        assert(token_tags[result.lparen] == .l_paren);
+
         return result;
     }
 
@@ -1924,6 +2006,11 @@ pub const full = struct {
     };
 
     pub const FnProto = struct {
+        visib_token: ?TokenIndex,
+        extern_export_token: ?TokenIndex,
+        lib_name: ?TokenIndex,
+        name_token: ?TokenIndex,
+        lparen: TokenIndex,
         ast: Ast,
 
         pub const Ast = struct {
@@ -1934,6 +2021,114 @@ pub const full = struct {
             section_expr: Node.Index,
             callconv_expr: Node.Index,
         };
+
+        pub const Param = struct {
+            first_doc_comment: ?TokenIndex,
+            name_token: ?TokenIndex,
+            comptime_noalias: ?TokenIndex,
+            anytype_ellipsis3: ?TokenIndex,
+            type_expr: Node.Index,
+        };
+
+        /// Abstracts over the fact that anytype and ... are not included
+        /// in the params slice, since they are simple identifiers and
+        /// not sub-expressions.
+        pub const Iterator = struct {
+            tree: *const Tree,
+            fn_proto: *const FnProto,
+            param_i: usize,
+            tok_i: TokenIndex,
+            tok_flag: bool,
+
+            pub fn next(it: *Iterator) ?Param {
+                const token_tags = it.tree.tokens.items(.tag);
+                while (true) {
+                    var first_doc_comment: ?TokenIndex = null;
+                    var comptime_noalias: ?TokenIndex = null;
+                    var name_token: ?TokenIndex = null;
+                    if (!it.tok_flag) {
+                        if (it.param_i >= it.fn_proto.ast.params.len) {
+                            return null;
+                        }
+                        const param_type = it.fn_proto.ast.params[it.param_i];
+                        var tok_i = tree.firstToken(param_type) - 1;
+                        while (true) : (tok_i -= 1) switch (token_tags[tok_i]) {
+                            .colon => continue,
+                            .identifier => name_token = tok_i,
+                            .doc_comment => first_doc_comment = tok_i,
+                            .keyword_comptime, .keyword_noalias => comptime_noalias = tok_i,
+                            else => break,
+                        };
+                        it.param_i += 1;
+                        it.tok_i = tree.lastToken(param_type) + 1;
+                        it.tok_flag = true;
+                        return Param{
+                            .first_doc_comment = first_doc_comment,
+                            .comptime_noalias = comptime_noalias,
+                            .name_token = name_token,
+                            .anytype_ellipsis3 = null,
+                            .type_expr = param_type,
+                        };
+                    }
+                    // Look for anytype and ... params afterwards.
+                    if (token_tags[it.tok_i] == .comma) {
+                        it.tok_i += 1;
+                    } else {
+                        return null;
+                    }
+                    if (token_tags[it.tok_i] == .doc_comment) {
+                        first_doc_comment = it.tok_i;
+                        while (token_tags[it.tok_i] == .doc_comment) {
+                            it.tok_i += 1;
+                        }
+                    }
+                    switch (token_tags[it.tok_i]) {
+                        .ellipsis3 => {
+                            it.tok_flag = false; // Next iteration should return null.
+                            return Param{
+                                .first_doc_comment = first_doc_comment,
+                                .comptime_noalias = null,
+                                .name_token = null,
+                                .anytype_ellipsis3 = it.tok_i,
+                                .type_expr = 0,
+                            };
+                        },
+                        .keyword_noalias, .keyword_comptime => {
+                            comptime_noalias = it.tok_i;
+                            it.tok_i += 1;
+                        },
+                        else => {},
+                    }
+                    if (token_tags[it.tok_i] == .identifier and
+                        token_tags[it.tok_i + 1] == .colon)
+                    {
+                        name_token = it.tok_i;
+                        it.tok_i += 2;
+                    }
+                    if (token_tags[it.tok_i] == .keyword_anytype) {
+                        it.tok_i += 1;
+                        return Param{
+                            .first_doc_comment = first_doc_comment,
+                            .comptime_noalias = comptime_noalias,
+                            .name_token = name_token,
+                            .anytype_ellipsis3 = it.tok_i - 1,
+                            .type_expr = param_type,
+                        };
+                    }
+                    it.tok_flag = false;
+                }
+            }
+        };
+
+        pub fn iterate(fn_proto: FnProto, tree: Tree) Iterator {
+            return .{
+                .tree = &tree,
+                .fn_proto = &fn_proto,
+                .param_i = 0,
+                .tok_i = undefined,
+                .tok_flag = false,
+            };
+        }
     };
 
     pub const StructInit = struct {

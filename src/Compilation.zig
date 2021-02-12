@@ -921,7 +921,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                         // TODO this is duped so it can be freed in Container.deinit
                         .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
                         .source = .{ .unloaded = {} },
-                        .contents = .{ .not_available = {} },
+                        .tree = undefined,
                         .status = .never_loaded,
                         .pkg = root_pkg,
                         .root_container = .{
@@ -1882,7 +1882,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
         const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
         var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
-        const tree = translate_c.translate(
+        var tree = translate_c.translate(
             comp.gpa,
             new_argv.ptr,
             new_argv.ptr + new_argv.len,
@@ -1901,7 +1901,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
                 };
             },
         };
-        defer tree.deinit();
+        defer tree.deinit(comp.gpa);
 
         if (comp.verbose_cimport) {
             log.info("C import .d file: {s}", .{out_dep_path});
@@ -1919,9 +1919,10 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
         defer out_zig_file.close();
 
-        var bos = std.io.bufferedWriter(out_zig_file.writer());
-        _ = try std.zig.render(comp.gpa, bos.writer(), tree);
-        try bos.flush();
+        const formatted = try tree.render(comp.gpa);
+        defer comp.gpa.free(formatted);
+
+        try out_zig_file.writeAll(formatted);
 
         man.writeManifest() catch |err| {
             log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});

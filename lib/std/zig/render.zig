@@ -13,28 +13,24 @@ const Token = std.zig.Token;
 const indent_delta = 4;
 const asm_indent_delta = 2;
 
-pub const Error = error{
-    /// Ran out of memory allocating call stack frames to complete rendering, or
-    /// ran out of memory allocating space in the output buffer.
-    OutOfMemory,
-};
+pub const Error = ast.Tree.RenderError;
 
 const Writer = std.ArrayList(u8).Writer;
 const Ais = std.io.AutoIndentingStream(Writer);
 
-/// `gpa` is used for allocating the resulting formatted source code, as well as
-/// for allocating extra stack memory if needed, because this function utilizes recursion.
-/// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
-/// Caller owns the returned slice of bytes, allocated with `gpa`.
-pub fn render(gpa: *mem.Allocator, tree: ast.Tree) Error![]u8 {
+pub fn renderTree(buffer: *std.ArrayList(u8), tree: ast.Tree) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
-
-    var buffer = std.ArrayList(u8).init(gpa);
-    defer buffer.deinit();
-
     var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, buffer.writer());
-    try renderRoot(&auto_indenting_stream, tree);
-    return buffer.toOwnedSlice();
+    const ais = &auto_indenting_stream;
+
+    // Render all the line comments at the beginning of the file.
+    const src_start: usize = if (mem.startsWith(u8, tree.source, "\xEF\xBB\xBF")) 3 else 0;
+    const comment_end_loc: usize = tree.tokens.items(.start)[0];
+    _ = try renderCommentsAndNewlines(ais, tree, src_start, comment_end_loc);
+
+    for (tree.rootDecls()) |decl| {
+        try renderMember(ais, tree, decl, .newline);
+    }
 }
 
 /// Assumes that start is the first byte past the previous token and
@@ -73,21 +69,6 @@ fn renderCommentsAndNewlines(ais: *Ais, tree: ast.Tree, start: usize, end: usize
     }
 
     return index != start;
-}
-
-fn renderRoot(ais: *Ais, tree: ast.Tree) Error!void {
-    // Render all the line comments at the beginning of the file.
-    const src_start: usize = if (mem.startsWith(u8, tree.source, "\xEF\xBB\xBF")) 3 else 0;
-    const comment_end_loc: usize = tree.tokens.items(.start)[0];
-    _ = try renderCommentsAndNewlines(ais, tree, src_start, comment_end_loc);
-
-    // Root is always index 0.
-    const nodes_data = tree.nodes.items(.data);
-    const root_decls = tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
-
-    for (root_decls) |decl| {
-        try renderMember(ais, tree, decl, .newline);
-    }
 }
 
 fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) Error!void {
@@ -1944,17 +1925,7 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
     const token_starts = tree.tokens.items(.start);
 
     const token_start = token_starts[token_index];
-    const token_tag = token_tags[token_index];
-    const lexeme = token_tag.lexeme() orelse lexeme: {
-        var tokenizer: std.zig.Tokenizer = .{
-            .buffer = tree.source,
-            .index = token_start,
-            .pending_invalid_token = null,
-        };
-        const token = tokenizer.next();
-        assert(token.tag == token_tag);
-        break :lexeme tree.source[token.loc.start..token.loc.end];
-    };
+    const lexeme = tree.tokenSlice(token_index);
     try ais.writer().writeAll(lexeme);
 
     switch (space) {

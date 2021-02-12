@@ -357,6 +357,7 @@ pub const Inst = struct {
                 .ret_type,
                 .unreach_nocheck,
                 .@"unreachable",
+                .arg,
                 => NoOp,
 
                 .alloc,
@@ -449,7 +450,6 @@ pub const Inst = struct {
                 .block_comptime_flat,
                 => Block,
 
-                .arg => Arg,
                 .array_type_sentinel => ArrayTypeSentinel,
                 .@"break" => Break,
                 .breakvoid => BreakVoid,
@@ -681,16 +681,6 @@ pub const Inst = struct {
         positionals: struct {
             lhs: *Inst,
             rhs: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Arg = struct {
-        pub const base_tag = Tag.arg;
-        base: Inst,
-
-        positionals: struct {
-            name: []const u8,
         },
         kw_args: struct {},
     };
@@ -1608,6 +1598,7 @@ const DumpTzir = struct {
                 .unreach,
                 .breakpoint,
                 .dbg_stmt,
+                .arg,
                 => {},
 
                 .ref,
@@ -1651,8 +1642,6 @@ const DumpTzir = struct {
                     try dtz.findConst(bin_op.lhs);
                     try dtz.findConst(bin_op.rhs);
                 },
-
-                .arg => {},
 
                 .br => {
                     const br = inst.castTag(.br).?;

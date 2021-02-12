@@ -375,7 +375,7 @@ pub fn translate(
     args_end: [*]?[*]const u8,
     errors: *[]ClangErrMsg,
     resources_path: [*:0]const u8,
-) !*ast.Tree {
+) !ast.Tree {
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
@@ -395,6 +395,14 @@ pub fn translate(
     // from this function.
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
+
+    if (true) {
+        var x = false;
+        if (x) {
+            return error.OutOfMemory;
+        }
+        @panic("TODO update translate-c");
+    }
 
     var context = Context{
         .gpa = gpa,

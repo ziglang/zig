@@ -4223,7 +4223,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
         return error.ParseError;
     }
 
-    const formatted = try std.zig.render(allocator, tree);
+    const formatted = try tree.render(allocator);
     anything_changed.* = !mem.eql(u8, formatted, source);
     return formatted;
 }
