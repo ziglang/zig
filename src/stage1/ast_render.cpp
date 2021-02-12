@@ -123,13 +123,8 @@ static const char *export_string(bool is_export) {
 //    zig_unreachable();
 //}
 
-static const char *inline_string(FnInline fn_inline) {
-    switch (fn_inline) {
-        case FnInlineAlways: return "inline ";
-        case FnInlineNever:  return "noinline ";
-        case FnInlineAuto:   return "";
-    }
-    zig_unreachable();
+static const char *inline_string(bool is_inline) {
+    return is_inline ? "inline" : "";
 }
 
 static const char *const_or_var_string(bool is_const) {
@@ -446,7 +441,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
                 const char *export_str = export_string(node->data.fn_proto.is_export);
-                const char *inline_str = inline_string(node->data.fn_proto.fn_inline);
+                const char *inline_str = inline_string(node->data.fn_proto.is_noinline);
                 fprintf(ar->f, "%s%s%s%sfn ", pub_str, inline_str, export_str, extern_str);
                 if (node->data.fn_proto.name != nullptr) {
                     print_symbol(ar, node->data.fn_proto.name);

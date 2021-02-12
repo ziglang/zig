@@ -1357,6 +1357,7 @@ pub const Node = struct {
             extern_export_inline_token: TokenIndex,
             is_extern_prototype: void, // TODO: Remove once extern fn rewriting is
             is_async: void, // TODO: remove once async fn rewriting is
+            is_inline: void, // TODO: remove once inline fn rewriting is
         });
 
         pub const RequiredFields = struct {
@@ -1521,6 +1522,14 @@ pub const Node = struct {
 
         pub fn setIsAsync(self: *FnProto, value: void) void {
             self.setTrailer(.is_async, value);
+        }
+
+        pub fn getIsInline(self: *const FnProto) ?void {
+            return self.getTrailer(.is_inline);
+        }
+
+        pub fn setIsInline(self: *FnProto, value: void) void {
+            self.setTrailer(.is_inline, value);
         }
 
         fn getTrailer(self: *const FnProto, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {

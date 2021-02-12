@@ -863,9 +863,7 @@ pub const Inst = struct {
             fn_type: *Inst,
             body: Body,
         },
-        kw_args: struct {
-            is_inline: bool = false,
-        },
+        kw_args: struct {},
     };
 
     pub const FnType = struct {
@@ -875,10 +873,9 @@ pub const Inst = struct {
         positionals: struct {
             param_types: []*Inst,
             return_type: *Inst,
+            cc: *Inst,
         },
-        kw_args: struct {
-            cc: std.builtin.CallingConvention = .Unspecified,
-        },
+        kw_args: struct {},
     };
 
     pub const IntType = struct {

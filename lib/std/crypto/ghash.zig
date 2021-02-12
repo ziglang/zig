@@ -95,7 +95,7 @@ pub const Ghash = struct {
         }
     }
 
-    inline fn clmul_pclmul(x: u64, y: u64) u64 {
+    fn clmul_pclmul(x: u64, y: u64) callconv(.Inline) u64 {
         const Vector = std.meta.Vector;
         const product = asm (
             \\ vpclmulqdq $0x00, %[x], %[y], %[out]
@@ -106,7 +106,7 @@ pub const Ghash = struct {
         return product[0];
     }
 
-    inline fn clmul_pmull(x: u64, y: u64) u64 {
+    fn clmul_pmull(x: u64, y: u64) callconv(.Inline) u64 {
         const Vector = std.meta.Vector;
         const product = asm (
             \\ pmull %[out].1q, %[x].1d, %[y].1d

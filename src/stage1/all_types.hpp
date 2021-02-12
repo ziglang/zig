@@ -74,6 +74,7 @@ enum CallingConvention {
     CallingConventionC,
     CallingConventionNaked,
     CallingConventionAsync,
+    CallingConventionInline,
     CallingConventionInterrupt,
     CallingConventionSignal,
     CallingConventionStdcall,
@@ -703,12 +704,6 @@ enum NodeType {
     NodeTypeAnyTypeField,
 };
 
-enum FnInline {
-    FnInlineAuto,
-    FnInlineAlways,
-    FnInlineNever,
-};
-
 struct AstNodeFnProto {
     Buf *name;
     ZigList<AstNode *> params;
@@ -725,13 +720,12 @@ struct AstNodeFnProto {
     AstNode *callconv_expr;
     Buf doc_comments;
 
-    FnInline fn_inline;
-
     VisibMod visib_mod;
     bool auto_err_set;
     bool is_var_args;
     bool is_extern;
     bool is_export;
+    bool is_noinline;
 };
 
 struct AstNodeFnDef {
@@ -1719,7 +1713,6 @@ struct ZigFn {
 
     LLVMValueRef valgrind_client_request_array;
 
-    FnInline fn_inline;
     FnAnalState anal_state;
 
     uint32_t align_bytes;
@@ -1728,6 +1721,7 @@ struct ZigFn {
     bool calls_or_awaits_errorable_fn;
     bool is_cold;
     bool is_test;
+    bool is_noinline;
 };
 
 uint32_t fn_table_entry_hash(ZigFn*);

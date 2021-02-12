@@ -973,6 +973,7 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionAPCS: return "APCS";
         case CallingConventionAAPCS: return "AAPCS";
         case CallingConventionAAPCSVFP: return "AAPCSVFP";
+        case CallingConventionInline: return "Inline";
     }
     zig_unreachable();
 }
@@ -981,6 +982,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified:
         case CallingConventionAsync:
+        case CallingConventionInline:
             return true;
         case CallingConventionC:
         case CallingConventionNaked:
@@ -1007,7 +1009,8 @@ ZigType *get_stack_trace_type(CodeGen *g) {
 }
 
 bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
-    if (fn_type_id->cc == CallingConventionUnspecified) {
+    if (fn_type_id->cc == CallingConventionUnspecified
+        || fn_type_id->cc == CallingConventionInline) {
         return handle_is_ptr(g, fn_type_id->return_type);
     }
     if (fn_type_id->cc != CallingConventionC) {
@@ -1888,6 +1891,7 @@ Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_
         case CallingConventionC:
         case CallingConventionNaked:
         case CallingConventionAsync:
+        case CallingConventionInline:
             break;
         case CallingConventionInterrupt:
             if (g->zig_target->arch != ZigLLVM_x86
@@ -3587,7 +3591,7 @@ static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool i
     }
 }
 
-static ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
+static ZigFn *create_fn_raw(CodeGen *g, bool is_noinline) {
     ZigFn *fn_entry = heap::c_allocator.create<ZigFn>();
     fn_entry->ir_executable = heap::c_allocator.create<IrExecutableSrc>();
 
@@ -3597,7 +3601,7 @@ static ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
     fn_entry->analyzed_executable.backward_branch_quota = &fn_entry->prealloc_backward_branch_quota;
     fn_entry->analyzed_executable.fn_entry = fn_entry;
     fn_entry->ir_executable->fn_entry = fn_entry;
-    fn_entry->fn_inline = inline_value;
+    fn_entry->is_noinline = is_noinline;
 
     return fn_entry;
 }
@@ -3606,7 +3610,7 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    ZigFn *fn_entry = create_fn_raw(g, fn_proto->fn_inline);
+    ZigFn *fn_entry = create_fn_raw(g, fn_proto->is_noinline);
 
     fn_entry->proto_node = proto_node;
     fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :
@@ -3739,6 +3743,12 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                     fn_table_entry->type_entry = g->builtin_types.entry_invalid;
                     tld_fn->base.resolution = TldResolutionInvalid;
                     return;
+                case CallingConventionInline:
+                    add_node_error(g, fn_def_node,
+                        buf_sprintf("exported function cannot be inline"));
+                    fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                    tld_fn->base.resolution = TldResolutionInvalid;
+                    return;
                 case CallingConventionC:
                 case CallingConventionNaked:
                 case CallingConventionInterrupt:
@@ -3774,7 +3784,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             fn_table_entry->inferred_async_node = fn_table_entry->proto_node;
         }
     } else if (source_node->type == NodeTypeTestDecl) {
-        ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
+        ZigFn *fn_table_entry = create_fn_raw(g, false);
 
         get_fully_qualified_decl_name(g, &fn_table_entry->symbol_name, &tld_fn->base, true);
 

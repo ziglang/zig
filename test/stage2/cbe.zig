@@ -179,7 +179,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return y - 1;
             \\}
             \\
-            \\inline fn rec(n: usize) usize {
+            \\fn rec(n: usize) callconv(.Inline) usize {
             \\    if (n <= 1) return n;
             \\    return rec(n - 1);
             \\}

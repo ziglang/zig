@@ -159,6 +159,7 @@ static const char *get_mangled_name(CodeGen *g, const char *original_name) {
 static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified:
+        case CallingConventionInline:
             return ZigLLVM_Fast;
         case CallingConventionC:
             return ZigLLVM_C;
@@ -350,6 +351,7 @@ static bool cc_want_sret_attr(CallingConvention cc) {
             return true;
         case CallingConventionAsync:
         case CallingConventionUnspecified:
+        case CallingConventionInline:
             return false;
     }
     zig_unreachable();
@@ -452,20 +454,11 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         }
     }
 
-    switch (fn->fn_inline) {
-        case FnInlineAlways:
-            addLLVMFnAttr(llvm_fn, "alwaysinline");
-            g->inline_fns.append(fn);
-            break;
-        case FnInlineNever:
-            addLLVMFnAttr(llvm_fn, "noinline");
-            break;
-        case FnInlineAuto:
-            if (fn->alignstack_value != 0) {
-                addLLVMFnAttr(llvm_fn, "noinline");
-            }
-            break;
-    }
+    if (cc == CallingConventionInline)
+        addLLVMFnAttr(llvm_fn, "alwaysinline");
+
+    if (fn->is_noinline || (cc != CallingConventionInline && fn->alignstack_value != 0))
+        addLLVMFnAttr(llvm_fn, "noinline");
 
     if (cc == CallingConventionNaked) {
         addLLVMFnAttr(llvm_fn, "naked");
@@ -532,7 +525,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     addLLVMFnAttr(llvm_fn, "nounwind");
     add_uwtable_attr(g, llvm_fn);
     addLLVMFnAttr(llvm_fn, "nobuiltin");
-    if (codegen_have_frame_pointer(g) && fn->fn_inline != FnInlineAlways) {
+    if (codegen_have_frame_pointer(g) && cc != CallingConventionInline) {
         ZigLLVMAddFunctionAttr(llvm_fn, "frame-pointer", "all");
     }
     if (fn->section_name) {
@@ -9043,19 +9036,16 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     static_assert(CallingConventionC == 1, "");
     static_assert(CallingConventionNaked == 2, "");
     static_assert(CallingConventionAsync == 3, "");
-    static_assert(CallingConventionInterrupt == 4, "");
-    static_assert(CallingConventionSignal == 5, "");
-    static_assert(CallingConventionStdcall == 6, "");
-    static_assert(CallingConventionFastcall == 7, "");
-    static_assert(CallingConventionVectorcall == 8, "");
-    static_assert(CallingConventionThiscall == 9, "");
-    static_assert(CallingConventionAPCS == 10, "");
-    static_assert(CallingConventionAAPCS == 11, "");
-    static_assert(CallingConventionAAPCSVFP == 12, "");
-
-    static_assert(FnInlineAuto == 0, "");
-    static_assert(FnInlineAlways == 1, "");
-    static_assert(FnInlineNever == 2, "");
+    static_assert(CallingConventionInline == 4, "");
+    static_assert(CallingConventionInterrupt == 5, "");
+    static_assert(CallingConventionSignal == 6, "");
+    static_assert(CallingConventionStdcall == 7, "");
+    static_assert(CallingConventionFastcall == 8, "");
+    static_assert(CallingConventionVectorcall == 9, "");
+    static_assert(CallingConventionThiscall == 10, "");
+    static_assert(CallingConventionAPCS == 11, "");
+    static_assert(CallingConventionAAPCS == 12, "");
+    static_assert(CallingConventionAAPCSVFP == 13, "");
 
     static_assert(BuiltinPtrSizeOne == 0, "");
     static_assert(BuiltinPtrSizeMany == 1, "");

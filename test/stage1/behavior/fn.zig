@@ -113,7 +113,7 @@ test "assign inline fn to const variable" {
     a();
 }
 
-inline fn inlineFn() void {}
+fn inlineFn() callconv(.Inline) void {}
 
 test "pass by non-copying value" {
     expect(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);

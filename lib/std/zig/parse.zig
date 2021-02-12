@@ -493,9 +493,15 @@ const Parser = struct {
         extern_export_inline_token: ?TokenIndex = null,
         lib_name: ?*Node = null,
     }) !?*Node {
-        // TODO: Remove once extern/async fn rewriting is
-        var is_async: ?void = null;
+        // TODO: Remove once extern/async/inline fn rewriting is
         var is_extern_prototype: ?void = null;
+        var is_async: ?void = null;
+        var is_inline: ?void = null;
+        if (fields.extern_export_inline_token != null and
+            p.token_ids[fields.extern_export_inline_token.?] == .Keyword_inline)
+        {
+            is_inline = {};
+        }
         const cc_token: ?TokenIndex = blk: {
             if (p.eatToken(.Keyword_extern)) |token| {
                 is_extern_prototype = {};
@@ -573,6 +579,7 @@ const Parser = struct {
             .callconv_expr = callconv_expr,
             .is_extern_prototype = is_extern_prototype,
             .is_async = is_async,
+            .is_inline = is_inline,
         });
         std.mem.copy(Node.FnProto.ParamDecl, fn_proto_node.params(), params);
 
