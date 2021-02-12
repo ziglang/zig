@@ -709,6 +709,87 @@ fn formatFloatValue(
     return formatBuf(buf_stream.getWritten(), options, writer);
 }
 
+fn formatSliceHexImpl(comptime uppercase: bool) type {
+    const charset = "0123456789" ++ if (uppercase) "ABCDEF" else "abcdef";
+
+    return struct {
+        pub fn f(
+            bytes: []const u8,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            var buf: [2]u8 = undefined;
+
+            for (bytes) |c| {
+                buf[0] = charset[c >> 4];
+                buf[1] = charset[c & 15];
+                try writer.writeAll(&buf);
+            }
+        }
+    };
+}
+
+const formatSliceHexLower = formatSliceHexImpl(false).f;
+const formatSliceHexUpper = formatSliceHexImpl(true).f;
+
+/// Return a Formatter for a []const u8 where every byte is formatted as a pair
+/// of lowercase hexadecimal digits.
+pub fn fmtSliceHexLower(bytes: []const u8) std.fmt.Formatter(formatSliceHexLower) {
+    return .{ .data = bytes };
+}
+
+/// Return a Formatter for a []const u8 where every byte is formatted as a pair
+/// of uppercase hexadecimal digits.
+pub fn fmtSliceHexUpper(bytes: []const u8) std.fmt.Formatter(formatSliceHexUpper) {
+    return .{ .data = bytes };
+}
+
+fn formatSliceEscapeImpl(comptime uppercase: bool) type {
+    const charset = "0123456789" ++ if (uppercase) "ABCDEF" else "abcdef";
+
+    return struct {
+        pub fn f(
+            bytes: []const u8,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            var buf: [4]u8 = undefined;
+
+            buf[0] = '\\';
+            buf[1] = 'x';
+
+            for (bytes) |c| {
+                if (std.ascii.isPrint(c)) {
+                    try writer.writeByte(c);
+                } else {
+                    buf[2] = charset[c >> 4];
+                    buf[3] = charset[c & 15];
+                    try writer.writeAll(&buf);
+                }
+            }
+        }
+    };
+}
+
+const formatSliceEscapeLower = formatSliceEscapeImpl(false).f;
+const formatSliceEscapeUpper = formatSliceEscapeImpl(true).f;
+
+/// Return a Formatter for a []const u8 where every non-printable ASCII
+/// character is escaped as \xNN, where NN is the character in lowercase
+/// hexadecimal notation.
+pub fn fmtSliceEscapeLower(bytes: []const u8) std.fmt.Formatter(formatSliceEscapeLower) {
+    return .{ .data = bytes };
+}
+
+/// Return a Formatter for a []const u8 where every non-printable ASCII
+/// character is escaped as \xNN, where NN is the character in uppercase
+/// hexadecimal notation.
+pub fn fmtSliceEscapeUpper(bytes: []const u8) std.fmt.Formatter(formatSliceEscapeUpper) {
+    return .{ .data = bytes };
+}
+
 pub fn formatText(
     bytes: []const u8,
     comptime fmt: []const u8,
@@ -717,21 +798,18 @@ pub fn formatText(
 ) !void {
     if (comptime std.mem.eql(u8, fmt, "s")) {
         return formatBuf(bytes, options, writer);
-    } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
-        for (bytes) |c| {
-            try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, writer);
-        }
-        return;
-    } else if (comptime (std.mem.eql(u8, fmt, "e") or std.mem.eql(u8, fmt, "E"))) {
-        for (bytes) |c| {
-            if (std.ascii.isPrint(c)) {
-                try writer.writeByte(c);
-            } else {
-                try writer.writeAll("\\x");
-                try formatInt(c, 16, fmt[0] == 'E', FormatOptions{ .width = 2, .fill = '0' }, writer);
-            }
-        }
-        return;
+    } else if (comptime (std.mem.eql(u8, fmt, "x"))) {
+        @compileError("specifier 'x' has been deprecated, wrap your argument in std.fmt.fmtSliceHexLower instead");
+    } else if (comptime (std.mem.eql(u8, fmt, "X"))) {
+        @compileError("specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceHexUpper instead");
+    } else if (comptime (std.mem.eql(u8, fmt, "e"))) {
+        @compileError("specifier 'e' has been deprecated, wrap your argument in std.fmt.fmtSliceEscapeLower instead");
+    } else if (comptime (std.mem.eql(u8, fmt, "E"))) {
+        @compileError("specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceEscapeUpper instead");
+    } else if (comptime std.mem.eql(u8, fmt, "z")) {
+        @compileError("specifier 'z' has been deprecated, wrap your argument in std.zig.fmtId instead");
+    } else if (comptime std.mem.eql(u8, fmt, "Z")) {
+        @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else {
         @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
     }
@@ -1693,9 +1771,9 @@ test "slice" {
 }
 
 test "escape non-printable" {
-    try expectFmt("abc", "{e}", .{"abc"});
-    try expectFmt("ab\\xffc", "{e}", .{"ab\xffc"});
-    try expectFmt("ab\\xFFc", "{E}", .{"ab\xffc"});
+    try expectFmt("abc", "{s}", .{fmtSliceEscapeLower("abc")});
+    try expectFmt("ab\\xffc", "{s}", .{fmtSliceEscapeLower("ab\xffc")});
+    try expectFmt("ab\\xFFc", "{s}", .{fmtSliceEscapeUpper("ab\xffc")});
 }
 
 test "pointer" {
@@ -1968,13 +2046,13 @@ test "struct.zero-size" {
 
 test "bytes.hex" {
     const some_bytes = "\xCA\xFE\xBA\xBE";
-    try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
-    try expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
+    try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes)});
+    try expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes)});
     //Test Slices
-    try expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
-    try expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
+    try expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes[0..2])});
+    try expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes[2..])});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-    try expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
+    try expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(bytes_with_zeros)});
 }
 
 pub const trim = @compileError("deprecated; use std.mem.trim with std.ascii.spaces instead");
@@ -2002,9 +2080,9 @@ pub fn hexToBytes(out: []u8, input: []const u8) ![]u8 {
 
 test "hexToBytes" {
     var buf: [32]u8 = undefined;
-    try expectFmt("90" ** 32, "{X}", .{try hexToBytes(&buf, "90" ** 32)});
-    try expectFmt("ABCD", "{X}", .{try hexToBytes(&buf, "ABCD")});
-    try expectFmt("", "{X}", .{try hexToBytes(&buf, "")});
+    try expectFmt("90" ** 32, "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "90" ** 32))});
+    try expectFmt("ABCD", "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "ABCD"))});
+    try expectFmt("", "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, ""))});
     std.testing.expectError(error.InvalidCharacter, hexToBytes(&buf, "012Z"));
     std.testing.expectError(error.InvalidLength, hexToBytes(&buf, "AAA"));
     std.testing.expectError(error.NoSpaceLeft, hexToBytes(buf[0..1], "ABAB"));
