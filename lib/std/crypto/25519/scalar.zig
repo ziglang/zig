@@ -771,10 +771,10 @@ test "scalar25519" {
     var y = x.toBytes();
     try rejectNonCanonical(y);
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{y}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&y)}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
 
     const reduced = reduce(field_size);
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{reduced}), "0000000000000000000000000000000000000000000000000000000000000000");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&reduced)}), "0000000000000000000000000000000000000000000000000000000000000000");
 }
 
 test "non-canonical scalar25519" {
@@ -788,5 +788,5 @@ test "mulAdd overflow check" {
     const c: [32]u8 = [_]u8{0xff} ** 32;
     const x = mulAdd(a, b, c);
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{x}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&x)}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
 }
