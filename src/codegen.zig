@@ -1016,6 +1016,23 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return operand;
 
             switch (arch) {
+                .x86_64 => switch (operand) {
+                    .unreach,
+                    .dead,
+                    .compare_flags_unsigned,
+                    .compare_flags_signed,
+                    => unreachable,
+                    .none,
+                    .undef,
+                    .immediate,
+                    .embedded_in_code,
+                    .ptr_embedded_in_code,
+                    .register,
+                    .memory,
+                    .stack_offset,
+                    .ptr_stack_offset,
+                    => return operand,
+                },
                 else => return self.fail(inst.base.src, "TODO implement intCast for {}", .{self.target.cpu.arch}),
             }
         }
