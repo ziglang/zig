@@ -239,6 +239,68 @@ test "zig fmt: container declaration, transform trailing comma" {
     );
 }
 
+test "zig fmt: remove empty lines at start/end of container decl" {
+    try testTransform(
+        \\const X = struct {
+        \\
+        \\    foo: i32,
+        \\
+        \\    bar: i8,
+        \\
+        \\};
+        \\
+    ,
+        \\const X = struct {
+        \\    foo: i32,
+        \\
+        \\    bar: i8,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: remove empty lines at start/end of block" {
+    try testTransform(
+        \\test {
+        \\
+        \\    if (foo) {
+        \\        foo();
+        \\    }
+        \\
+        \\}
+        \\
+    ,
+        \\test {
+        \\    if (foo) {
+        \\        foo();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: allow empty line before commment at start of block" {
+    try testCanonical(
+        \\test {
+        \\
+        \\    // foo
+        \\    const x = 42;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: allow empty line before commment at start of block" {
+    try testCanonical(
+        \\test {
+        \\
+        \\    // foo
+        \\    const x = 42;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: trailing comma in fn parameter list" {
     try testCanonical(
         \\pub fn f(
