@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2021 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const Type = @import("../type.zig").Type;
 const Allocator = std.mem.Allocator;
@@ -840,18 +845,14 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .rhs = undefined,
             },
         }),
-        .@"continue" => {
-            const tok = try c.addToken(.keyword_continue, "continue");
-            _ = try c.addToken(.semicolon, ";");
-            return c.addNode(.{
-                .tag = .@"continue",
-                .main_token = tok,
-                .data = .{
-                    .lhs = 0,
-                    .rhs = undefined,
-                },
-            });
-        },
+        .@"continue" => return c.addNode(.{
+            .tag = .@"continue",
+            .main_token = try c.addToken(.keyword_continue, "continue"),
+            .data = .{
+                .lhs = 0,
+                .rhs = undefined,
+            },
+        }),
         .@"break" => {
             const payload = node.castTag(.@"break").?.data;
             const tok = try c.addToken(.keyword_break, "break");
@@ -859,7 +860,6 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 _ = try c.addToken(.colon, ":");
                 break :blk try c.addIdentifier(some);
             } else 0;
-            _ = try c.addToken(.semicolon, ";");
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addToken(.keyword_break, "break"),
@@ -876,14 +876,12 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 _ = try c.addToken(.colon, ":");
                 break :blk try c.addIdentifier(some);
             } else 0;
-            const val = try renderNode(c, payload.val);
-            _ = try c.addToken(.semicolon, ";");
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addToken(.keyword_break, "break"),
                 .data = .{
                     .lhs = break_label,
-                    .rhs = val,
+                    .rhs = try renderNode(c, payload.val),
                 },
             });
         },
@@ -1169,6 +1167,84 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .array_cat => return renderBinOp(c, node, .array_cat, .plus_plus, "++"),
         .ellipsis3 => return renderBinOp(c, node, .switch_range, .ellipsis3, "..."),
         .assign => return renderBinOp(c, node, .assign, .equal, "="),
+        .empty_block => {
+            const l_brace = try c.addToken(.l_brace, "{");
+            _ = try c.addToken(.r_brace, "}");
+            return c.addNode(.{
+                .tag = .block_two,
+                .main_token = l_brace,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = 0,
+                },
+            });
+        },
+        .block_single => {
+            const payload = node.castTag(.block_single).?.data;
+            const l_brace = try c.addToken(.l_brace, "{");
+
+            const stmt = try renderNode(c, payload);
+            _ = try c.addToken(.semicolon, ";");
+
+            _ = try c.addToken(.r_brace, "}");
+            return c.addNode(.{
+                .tag = .block_two,
+                .main_token = l_brace,
+                .data = .{
+                    .lhs = stmt,
+                    .rhs = 0,
+                },
+            });
+        },
+        .block => {
+            const payload = node.castTag(.block).?.data;
+            if (payload.label) |some| {
+                _ = try c.addIdentifier(some);
+                _ = try c.addToken(.colon, ":");
+            }
+            const l_brace = try c.addToken(.l_brace, "{");
+
+            var stmts = std.ArrayList(NodeIndex).init(c.gpa);
+            defer stmts.deinit();
+            for (payload.stmts) |stmt| {
+                const res = try renderNode(c, stmt);
+                switch (stmt.tag()) {
+                    .warning => continue,
+                    .var_decl, .var_simple => {},
+                    else => _ = try c.addToken(.semicolon, ";"),
+                }
+                try stmts.append(res);
+            }
+            const span = try c.listToSpan(stmts.items);
+            _ = try c.addToken(.r_brace, "}");
+
+            const semicolon = c.tokens.items(.tag)[c.tokens.len - 2] == .semicolon;
+            return c.addNode(.{
+                .tag = if (semicolon) .block_semicolon else .block,
+                .main_token = l_brace,
+                .data = .{
+                    .lhs = span.start,
+                    .rhs = span.end,
+                },
+            });
+        },
+        .func => return renderFunc(c, node),
+        .discard => {
+            const payload = node.castTag(.discard).?.data;
+            const lhs = try c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addToken(.identifier, "_"),
+                .data = .{ .lhs = undefined, .rhs = undefined },
+            });
+            return c.addNode(.{
+                .tag = .assign,
+                .main_token = try c.addToken(.equal, "="),
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = try renderNode(c, payload),
+                },
+            });
+        },
         else => return c.addNode(.{
             .tag = .identifier,
             .main_token = try c.addTokenFmt(.identifier, "@\"TODO {}\"", .{node.tag()}),
@@ -1554,4 +1630,157 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
             },
         });
     }
+}
+
+fn renderFunc(c: *Context, node: Node) !NodeIndex {
+    const payload = node.castTag(.func).?.data;
+    if (payload.is_pub) _ = try c.addToken(.keyword_pub, "pub");
+    if (payload.is_extern) _ = try c.addToken(.keyword_extern, "extern");
+    if (payload.is_export) _ = try c.addToken(.keyword_export, "export");
+    const fn_token = try c.addToken(.keyword_fn, "fn");
+    if (payload.name) |some| _ = try c.addIdentifier(some);
+
+    _ = try c.addToken(.l_paren, "(");
+    const first = if (payload.params.len != 0) blk: {
+        const param = payload.params[0];
+        if (param.is_noalias) _ = try c.addToken(.keyword_noalias, "noalias");
+        if (param.name) |some| {
+            _ = try c.addIdentifier(some);
+            _ = try c.addToken(.colon, ":");
+        }
+        break :blk try renderNode(c, param.type);
+    } else 0;
+
+    var span: NodeSubRange = undefined;
+    if (payload.params.len > 1) {
+        var params = std.ArrayList(NodeIndex).init(c.gpa);
+        defer params.deinit();
+
+        try params.append(first);
+        for (payload.params[1..]) |param| {
+            _ = try c.addToken(.comma, ",");
+            if (param.is_noalias) _ = try c.addToken(.keyword_noalias, "noalias");
+            if (param.name) |some| {
+                _ = try c.addIdentifier(some);
+                _ = try c.addToken(.colon, ":");
+            }
+            try params.append(try renderNode(c, param.type));
+        }
+        span = try c.listToSpan(params.items);
+    }
+    if (payload.is_var_args) {
+        if (payload.params.len != 0) _ = try c.addToken(.comma, ",");
+        _ = try c.addToken(.ellipsis3, "...");
+    }
+    _ = try c.addToken(.r_paren, ")");
+
+    const return_type_expr = try renderNode(c, payload.return_type);
+
+    const align_expr = if (payload.alignment) |some| blk: {
+        _ = try c.addToken(.keyword_align, "align");
+        _ = try c.addToken(.l_paren, "(");
+        const res = try c.addNode(.{
+            .tag = .integer_literal,
+            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{some}),
+            .data = .{ .lhs = undefined, .rhs = undefined },
+        });
+        _ = try c.addToken(.r_paren, ")");
+        break :blk res;
+    } else 0;
+
+    const section_expr = if (payload.linksection_string) |some| blk: {
+        _ = try c.addToken(.keyword_linksection, "linksection");
+        _ = try c.addToken(.l_paren, "(");
+        const res = try c.addNode(.{
+            .tag = .string_literal,
+            .main_token = try c.addTokenFmt(.string_literal, "\"{s}\"", .{std.zig.fmtEscapes(some)}),
+            .data = .{ .lhs = undefined, .rhs = undefined },
+        });
+        _ = try c.addToken(.r_paren, ")");
+        break :blk res;
+    } else 0;
+
+    const callconv_expr = if (payload.explicit_callconv) |some| blk: {
+        _ = try c.addToken(.keyword_linksection, "callconv");
+        _ = try c.addToken(.l_paren, "(");
+        _ = try c.addToken(.period, ".");
+        const res = try c.addNode(.{
+            .tag = .enum_literal,
+            .main_token = try c.addTokenFmt(.string_literal, "{}", .{some}),
+            .data = .{ .lhs = undefined, .rhs = undefined },
+        });
+        _ = try c.addToken(.r_paren, ")");
+        break :blk res;
+    } else 0;
+
+    const fn_proto = try blk: {
+        if (align_expr == 0 and section_expr == 0 and callconv_expr == 0) {
+            if (payload.params.len < 2)
+                break :blk c.addNode(.{
+                    .tag = .fn_proto_simple,
+                    .main_token = fn_token,
+                    .data = .{
+                        .lhs = first,
+                        .rhs = return_type_expr,
+                    },
+                })
+            else
+                break :blk c.addNode(.{
+                    .tag = .fn_proto_multi,
+                    .main_token = fn_token,
+                    .data = .{
+                        .lhs = try c.addExtra(std.zig.ast.Node.SubRange{
+                            .start = span.start,
+                            .end = span.end,
+                        }),
+                        .rhs = return_type_expr,
+                    },
+                });
+        }
+        if (payload.params.len < 2)
+            break :blk c.addNode(.{
+                .tag = .fn_proto_one,
+                .main_token = fn_token,
+                .data = .{
+                    .lhs = try c.addExtra(std.zig.ast.Node.FnProtoOne{
+                        .param = first,
+                        .align_expr = align_expr,
+                        .section_expr = section_expr,
+                        .callconv_expr = callconv_expr,
+                    }),
+                    .rhs = return_type_expr,
+                },
+            })
+        else
+            break :blk c.addNode(.{
+                .tag = .fn_proto,
+                .main_token = fn_token,
+                .data = .{
+                    .lhs = try c.addExtra(std.zig.ast.Node.FnProto{
+                        .params_start = span.start,
+                        .params_end = span.end,
+                        .align_expr = align_expr,
+                        .section_expr = section_expr,
+                        .callconv_expr = callconv_expr,
+                    }),
+                    .rhs = return_type_expr,
+                },
+            });
+    };
+
+    const body = if (payload.body) |some|
+        try renderNode(c, some)
+    else blk: {
+        _ = try c.addToken(.semicolon, ";");
+        break :blk 0;
+    };
+
+    return c.addNode(.{
+        .tag = .fn_decl,
+        .main_token = fn_token,
+        .data = .{
+            .lhs = fn_proto,
+            .rhs = body,
+        },
+    });
 }

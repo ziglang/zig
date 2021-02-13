@@ -107,7 +107,7 @@ const Scope = struct {
             // do while, we want to put `if (cond) break;` at the end.
             const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .loop);
             var stmts = try c.arena.alloc(Node, alloc_len);
-            stmts.len -= 1;
+            stmts.len = self.statements.items.len;
             mem.copy(Node, stmts, self.statements.items);
             return Tag.block.create(c.arena, .{
                 .label = self.label,
