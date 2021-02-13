@@ -111,7 +111,7 @@ pub fn Reader(
             delimiter: u8,
             max_size: usize,
         ) !void {
-            array_list.shrinkAndFree(0);
+            array_list.shrinkRetainingCapacity(0);
             while (true) {
                 var byte: u8 = try self.readByte();
 

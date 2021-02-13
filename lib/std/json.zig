@@ -2018,7 +2018,7 @@ pub const Parser = struct {
 
     pub fn reset(p: *Parser) void {
         p.state = .Simple;
-        p.stack.shrinkAndFree(0);
+        p.stack.shrinkRetainingCapacity(0);
     }
 
     pub fn parse(p: *Parser, input: []const u8) !ValueTree {

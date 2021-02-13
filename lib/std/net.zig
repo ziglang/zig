@@ -1205,13 +1205,13 @@ fn linuxLookupNameFromDnsSearch(
 
     var tok_it = mem.tokenize(search, " \t");
     while (tok_it.next()) |tok| {
-        canon.shrinkAndFree(canon_name.len + 1);
+        canon.shrinkRetainingCapacity(canon_name.len + 1);
         try canon.appendSlice(tok);
         try linuxLookupNameFromDns(addrs, canon, canon.items, family, rc, port);
         if (addrs.items.len != 0) return;
     }
 
-    canon.shrinkAndFree(canon_name.len);
+    canon.shrinkRetainingCapacity(canon_name.len);
     return linuxLookupNameFromDns(addrs, canon, name, family, rc, port);
 }
 

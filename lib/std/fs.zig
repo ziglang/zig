@@ -2186,7 +2186,7 @@ pub const Walker = struct {
             var top = &self.stack.items[self.stack.items.len - 1];
             const dirname_len = top.dirname_len;
             if (try top.dir_it.next()) |base| {
-                self.name_buffer.shrinkAndFree(dirname_len);
+                self.name_buffer.shrinkRetainingCapacity(dirname_len);
                 try self.name_buffer.append(path.sep);
                 try self.name_buffer.appendSlice(base.name);
                 if (base.kind == .Directory) {
