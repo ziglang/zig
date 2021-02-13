@@ -60,6 +60,7 @@ pub const Node = extern union {
         tuple,
         container_init,
         std_meta_cast,
+        /// _ = operand;
         discard,
 
         // a + b
@@ -67,43 +68,30 @@ pub const Node = extern union {
         // a = b
         add_assign,
         // c = (a = b)
-        add_assign_value,
         add_wrap,
         add_wrap_assign,
-        add_wrap_assign_value,
         sub,
         sub_assign,
-        sub_assign_value,
         sub_wrap,
         sub_wrap_assign,
-        sub_wrap_assign_value,
         mul,
         mul_assign,
-        mul_assign_value,
         mul_wrap,
         mul_wrap_assign,
-        mul_wrap_assign_value,
         div,
         div_assign,
-        div_assign_value,
         shl,
         shl_assign,
-        shl_assign_value,
         shr,
         shr_assign,
-        shr_assign_value,
         mod,
         mod_assign,
-        mod_assign_value,
         @"and",
         and_assign,
-        and_assign_value,
         @"or",
         or_assign,
-        or_assign_value,
         xor,
         xor_assign,
-        xor_assign_value,
         less_than,
         less_than_equal,
         greater_than,
@@ -207,9 +195,6 @@ pub const Node = extern union {
         /// [1]type{val} ** count
         array_filler,
 
-        /// _ = operand;
-        ignore,
-
         pub const last_no_payload_tag = Tag.usingnamespace_builtins;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
@@ -249,7 +234,6 @@ pub const Node = extern union {
                 .while_true,
                 .if_not_break,
                 .switch_else,
-                .ignore,
                 .block_single,
                 .std_meta_sizeof,
                 .bool_to_int,
@@ -260,43 +244,30 @@ pub const Node = extern union {
 
                 .add,
                 .add_assign,
-                .add_assign_value,
                 .add_wrap,
                 .add_wrap_assign,
-                .add_wrap_assign_value,
                 .sub,
                 .sub_assign,
-                .sub_assign_value,
                 .sub_wrap,
                 .sub_wrap_assign,
-                .sub_wrap_assign_value,
                 .mul,
                 .mul_assign,
-                .mul_assign_value,
                 .mul_wrap,
                 .mul_wrap_assign,
-                .mul_wrap_assign_value,
                 .div,
                 .div_assign,
-                .div_assign_value,
                 .shl,
                 .shl_assign,
-                .shl_assign_value,
                 .shr,
                 .shr_assign,
-                .shr_assign_value,
                 .mod,
                 .mod_assign,
-                .mod_assign_value,
                 .@"and",
                 .and_assign,
-                .and_assign_value,
                 .@"or",
                 .or_assign,
-                .or_assign_value,
                 .xor,
                 .xor_assign,
-                .xor_assign_value,
                 .less_than,
                 .less_than_equal,
                 .greater_than,
@@ -869,11 +840,30 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .rhs = undefined,
             },
         }),
+        .noreturn_type => return try c.addNode(.{
+            .tag = .identifier,
+            .main_token = try c.addToken(.identifier, "noreturn"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
         .type => {
             const payload = node.castTag(.type).?.data;
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addToken(.identifier, payload),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        },
+        .log2_int_type => {
+            const payload = node.castTag(.log2_int_type).?.data;
+            return c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addTokenFmt(.identifier, "u{d}", .{payload}),
                 .data = .{
                     .lhs = undefined,
                     .rhs = undefined,
@@ -1058,6 +1048,51 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.ptr_cast).?.data;
             return renderBuiltinCall(c, "@ptrCast", &.{ payload.lhs, payload.rhs });
         },
+        .sizeof => {
+            const payload = node.castTag(.sizeof).?.data;
+            return renderBuiltinCall(c, "@sizeOf", &.{payload});
+        },
+        .alignof => {
+            const payload = node.castTag(.alignof).?.data;
+            return renderBuiltinCall(c, "@alignOf", &.{payload});
+        },
+        .typeof => {
+            const payload = node.castTag(.typeof).?.data;
+            return renderBuiltinCall(c, "@TypeOf", &.{payload});
+        },
+        .negate => return renderPrefixOp(c, node, .negation, .minus, "-"),
+        .negate_wrap => return renderPrefixOp(c, node, .negation_wrap, .minus_percent, "-%"),
+        .bit_not => return renderPrefixOp(c, node, .bit_not, .tilde, "~"),
+        .not => return renderPrefixOp(c, node, .bool_not, .bang, "!"),
+        .optional_type => return renderPrefixOp(c, node, .optional_type, .question_mark, "?"),
+        .address_of => return renderPrefixOp(c, node, .address_of, .ampersand, "&"),
+        .deref => {
+            const payload = node.castTag(.deref).?.data;
+            const operand = try renderNodeGrouped(c, payload);
+            const deref_tok = try c.addToken(.period_asterisk, ".*");
+            return c.addNode(.{
+                .tag = .deref,
+                .main_token = deref_tok,
+                .data = .{
+                    .lhs = operand,
+                    .rhs = undefined,
+                },
+            });
+        },
+        .unwrap => {
+            const payload = node.castTag(.unwrap).?.data;
+            const operand = try renderNodeGrouped(c, payload);
+            const period = try c.addToken(.period, ".");
+            const question_mark = try c.addToken(.question_mark, "?");
+            return c.addNode(.{
+                .tag = .unwrap_optional,
+                .main_token = period,
+                .data = .{
+                    .lhs = operand,
+                    .rhs = question_mark,
+                },
+            });
+        },
         else => return c.addNode(.{
             .tag = .identifier,
             .main_token = try c.addTokenFmt(.identifier, "@\"TODO {}\"", .{node.tag()}),
@@ -1067,6 +1102,173 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             },
         }),
     }
+}
+
+fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
+    switch (node.tag()) {
+        .null_literal,
+        .undefined_literal,
+        .true_literal,
+        .false_literal,
+        .return_void,
+        .zero_literal,
+        .one_literal,
+        .void_type,
+        .noreturn_type,
+        .@"anytype",
+        .div_trunc,
+        .rem,
+        .int_cast,
+        .as,
+        .truncate,
+        .bit_cast,
+        .float_cast,
+        .float_to_int,
+        .int_to_float,
+        .int_to_enum,
+        .int_to_ptr,
+        .std_mem_zeroes,
+        .std_math_Log2Int,
+        .log2_int_type,
+        .ptr_to_int,
+        .enum_to_int,
+        .sizeof,
+        .alignof,
+        .typeof,
+        .std_meta_sizeof,
+        .std_meta_cast,
+        .std_mem_zeroinit,
+        .integer_literal,
+        .float_literal,
+        .string_literal,
+        .char_literal,
+        .identifier,
+        .field_access,
+        .ptr_cast,
+        .type,
+        .array_access,
+        .align_cast,
+        => {
+            // no grouping needed
+            return renderNode(c, node);
+        },
+
+        .negate,
+        .negate_wrap,
+        .bit_not,
+        .opaque_literal,
+        .not,
+        .optional_type,
+        .address_of,
+        .unwrap,
+        .deref,
+        .empty_array,
+        .block_single,
+        .bool_to_int,
+        .add,
+        .add_wrap,
+        .sub,
+        .sub_wrap,
+        .mul,
+        .mul_wrap,
+        .div,
+        .shl,
+        .shr,
+        .mod,
+        .@"and",
+        .@"or",
+        .xor,
+        .less_than,
+        .less_than_equal,
+        .greater_than,
+        .greater_than_equal,
+        .equal,
+        .not_equal,
+        .bit_and,
+        .bit_or,
+        .bit_xor,
+        .empty_block,
+        .array_cat,
+        .array_filler,
+        .@"if",
+        .call,
+        .@"enum",
+        .@"struct",
+        .@"union",
+        .array_init,
+        .tuple,
+        .container_init,
+        .block,
+        .c_pointer,
+        .single_pointer,
+        .array_type,
+        => return c.addNode(.{
+            .tag = .grouped_expression,
+            .main_token = try c.addToken(.l_paren, "("),
+            .data = .{
+                .lhs = try renderNode(c, node),
+                .rhs = try c.addToken(.r_paren, ")"),
+            },
+        }),
+        .ellipsis3,
+        .switch_prong,
+        .warning,
+        .var_decl,
+        .func,
+        .fail_decl,
+        .arg_redecl,
+        .alias,
+        .var_simple,
+        .pub_var_simple,
+        .enum_redecl,
+        .@"while",
+        .@"switch",
+        .@"break",
+        .break_val,
+        .pub_inline_fn,
+        .discard,
+        .@"continue",
+        .@"return",
+        .usingnamespace_builtins,
+        .while_true,
+        .if_not_break,
+        .switch_else,
+        .add_assign,
+        .add_wrap_assign,
+        .sub_assign,
+        .sub_wrap_assign,
+        .mul_assign,
+        .mul_wrap_assign,
+        .div_assign,
+        .shl_assign,
+        .shr_assign,
+        .mod_assign,
+        .and_assign,
+        .or_assign,
+        .xor_assign,
+        .bit_and_assign,
+        .bit_or_assign,
+        .bit_xor_assign,
+        .assign,
+        => {
+            // these should never appear in places where grouping might be needed.
+            unreachable;
+        },
+    }
+}
+
+fn renderPrefixOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
+    const payload = @fieldParentPtr(Payload.UnOp, "base", node.ptr_otherwise).data;
+    const tok = try c.addToken(tok_tag, bytes);
+    const operand = try renderNodeGrouped(c, payload);
+    return c.addNode(.{
+        .tag = tag,
+        .main_token = tok,
+        .data = .{
+            .lhs = operand,
+            .rhs = undefined,
+        },
+    });
 }
 
 fn renderStdImport(c: *Context, first: []const u8, second: []const u8) !NodeIndex {

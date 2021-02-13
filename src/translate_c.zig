@@ -3049,7 +3049,7 @@ fn maybeSuppressResult(
     result: Node,
 ) TransError!Node {
     if (used == .used) return result;
-    return Tag.ignore.create(c.arena, result);
+    return Tag.discard.create(c.arena, result);
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
@@ -4127,7 +4127,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var last = node;
     while (true) {
         // suppress result
-        const ignore = try Tag.ignore.create(c.arena, last);
+        const ignore = try Tag.discard.create(c.arena, last);
         try block_scope.statements.append(ignore);
 
         last = try parseCCondExpr(c, m, scope);
