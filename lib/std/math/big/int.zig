@@ -607,7 +607,7 @@ pub const Mutable = struct {
     /// it will have the same length as it had when the function was called.
     pub fn gcd(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.ArrayList(Limb)) !void {
         const prev_len = limbs_buffer.items.len;
-        defer limbs_buffer.shrinkAndFree(prev_len);
+        defer limbs_buffer.shrinkRetainingCapacity(prev_len);
         const x_copy = if (rma.limbs.ptr == x.limbs.ptr) blk: {
             const start = limbs_buffer.items.len;
             try limbs_buffer.appendSlice(x.limbs);
