@@ -52,7 +52,6 @@ pub const Node = extern union {
         var_decl,
         func,
         warning,
-        failed_decl,
         /// All enums are non-exhaustive
         @"enum",
         @"struct",
@@ -339,9 +338,7 @@ pub const Node = extern union {
                 .char_literal,
                 .identifier,
                 .warning,
-                .failed_decl,
                 .type,
-                .fail_decl,
                 => Payload.Value,
                 .@"if" => Payload.If,
                 .@"while" => Payload.While,
@@ -359,7 +356,7 @@ pub const Node = extern union {
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type => Payload.Array,
-                .arg_redecl, .alias => Payload.ArgRedecl,
+                .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
                 .typedef, .pub_typedef, .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
                 .enum_redecl => Payload.EnumRedecl,
@@ -695,7 +692,7 @@ const Context = struct {
     extra_data: std.ArrayListUnmanaged(std.zig.ast.Node.Index) = .{},
     tokens: std.zig.ast.TokenList = .{},
 
-    fn appendTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
+    fn addTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
         const start_index = c.buf.items.len;
         try c.buf.writer().print(format ++ " ", args);
 
@@ -707,13 +704,13 @@ const Context = struct {
         return @intCast(u32, c.tokens.len - 1);
     }
 
-    fn appendToken(c: *Context, tag: TokenTag, bytes: []const u8) Allocator.Error!TokenIndex {
-        std.debug.assert(tag != .identifier); // use appendIdentifier
-        return appendTokenFmt(c, tag, "{s}", .{bytes});
+    fn addToken(c: *Context, tag: TokenTag, bytes: []const u8) Allocator.Error!TokenIndex {
+        std.debug.assert(tag != .identifier); // use addIdentifier
+        return addTokenFmt(c, tag, "{s}", .{bytes});
     }
 
-    fn appendIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
-        return appendTokenFmt(c, .identifier, "{s}", .{std.zig.fmtId(bytes)});
+    fn addIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
+        return addTokenFmt(c, .identifier, "{s}", .{std.zig.fmtId(bytes)});
     }
 
     fn listToSpan(c: *Context, list: []const NodeIndex) Allocator.Error!NodeSubRange {
@@ -724,14 +721,14 @@ const Context = struct {
         };
     }
 
-    fn appendNode(c: *Context, elem: std.zig.ast.NodeList.Elem) Allocator.Error!NodeIndex {
+    fn addNode(c: *Context, elem: std.zig.ast.NodeList.Elem) Allocator.Error!NodeIndex {
         const result = @intCast(NodeIndex, c.nodes.len);
         try c.nodes.append(c.gpa, elem);
         return result;
     }
 };
 
-fn renderNodes(c: *Context, nodes: []const Node) !NodeSubRange {
+fn renderNodes(c: *Context, nodes: []const Node) Allocator.Error!NodeSubRange {
     var result = std.ArrayList(NodeIndex).init(c.gpa);
     defer result.deinit();
 
@@ -744,7 +741,7 @@ fn renderNodes(c: *Context, nodes: []const Node) !NodeSubRange {
     return try c.listToSpan(result.items);
 }
 
-fn renderNode(c: *Context, node: Node) !NodeIndex {
+fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
     switch (node.tag()) {
         .warning => {
             const payload = node.castTag(.warning).?;
@@ -754,18 +751,208 @@ fn renderNode(c: *Context, node: Node) !NodeIndex {
         },
         .usingnamespace_builtins => {
             // pub usingnamespace @import("std").c.builtins;
-            _ = try c.appendToken(.keyword_pub, "pub");
-            const usingnamespace_token = try c.appendToken(.keyword_usingnamespace, "usingnamespace");
+            _ = try c.addToken(.keyword_pub, "pub");
+            const usingnamespace_token = try c.addToken(.keyword_usingnamespace, "usingnamespace");
             const import_node = try renderStdImport(c, "c", "builtins");
-            _ = try c.appendToken(.semicolon, ";");
+            _ = try c.addToken(.semicolon, ";");
 
-            return c.appendNode(.{
+            return c.addNode(.{
                 .tag = .@"usingnamespace",
                 .main_token = usingnamespace_token,
                 .data = .{
                     .lhs = import_node,
                     .rhs = undefined,
                 },
+            });
+        },
+        .std_math_Log2Int => {
+            const payload = node.castTag(.std_math_Log2Int).?;
+            const import_node = try renderStdImport(c, "math", "Log2Int");
+            return renderCall(c, import_node, &.{payload.data});
+        },
+        .std_meta_cast => {
+            const payload = node.castTag(.std_meta_cast).?;
+            const import_node = try renderStdImport(c, "meta", "cast");
+            return renderCall(c, import_node, &.{ payload.data.lhs, payload.data.rhs });
+        },
+        .std_meta_sizeof => {
+            const payload = node.castTag(.std_meta_sizeof).?;
+            const import_node = try renderStdImport(c, "meta", "sizeof");
+            return renderCall(c, import_node, &.{payload.data});
+        },
+        .std_mem_zeroes => {
+            const payload = node.castTag(.std_mem_zeroes).?;
+            const import_node = try renderStdImport(c, "mem", "zeroes");
+            return renderCall(c, import_node, &.{payload.data});
+        },
+        .std_mem_zeroinit => {
+            const payload = node.castTag(.std_mem_zeroinit).?;
+            const import_node = try renderStdImport(c, "mem", "zeroInit");
+            return renderCall(c, import_node, &.{ payload.data.lhs, payload.data.rhs });
+        },
+        .call => {
+            const payload = node.castTag(.call).?;
+            const lhs = try renderNode(c, payload.data.lhs);
+            return renderCall(c, lhs, payload.data.args);
+        },
+        .null_literal => return c.addNode(.{
+            .tag = .null_literal,
+            .main_token = try c.addToken(.keyword_null, "null"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .undefined_literal => return c.addNode(.{
+            .tag = .undefined_literal,
+            .main_token = try c.addToken(.keyword_undefined, "undefined"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .true_literal => return c.addNode(.{
+            .tag = .true_literal,
+            .main_token = try c.addToken(.keyword_true, "true"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .false_literal => return c.addNode(.{
+            .tag = .false_literal,
+            .main_token = try c.addToken(.keyword_false, "false"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .zero_literal => return c.addNode(.{
+            .tag = .integer_literal,
+            .main_token = try c.addToken(.integer_literal, "0"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .one_literal => return c.addNode(.{
+            .tag = .integer_literal,
+            .main_token = try c.addToken(.integer_literal, "1"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .void_type => return c.addNode(.{
+            .tag = .identifier,
+            .main_token = try c.addToken(.identifier, "void"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .@"anytype" => return try c.addNode(.{
+            .tag = .@"anytype",
+            .main_token = try c.addToken(.keyword_anytype, "anytype"),
+            .data = .{
+                .lhs = undefined,
+                .rhs = undefined,
+            },
+        }),
+        .type => {
+            const payload = node.castTag(.type).?;
+            return c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addToken(.identifier, payload.data),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        },
+        .identifier => {
+            const payload = node.castTag(.identifier).?;
+            return c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addIdentifier(payload.data),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        },
+        .number_literal => {
+            const payload = node.castTag(.number_literal).?;
+            return c.addNode(.{
+                .tag = .identifier,
+                // might be integer or float, but it doesn't matter for rendering
+                .main_token = try c.addToken(.integer_literal, payload.data),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        },
+        .string_literal => {
+            const payload = node.castTag(.string_literal).?;
+            return c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addToken(.char_literal, payload.data),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        },
+        .char_literal => {
+            const payload = node.castTag(.char_literal).?;
+            return c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addToken(.string_literal, payload.data),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+        },
+        .fail_decl => {
+            const payload = node.castTag(.fail_decl).?;
+            // pub const name = @compileError(msg);
+            _ = try c.addToken(.keyword_pub, "pub");
+            const const_kw = try c.addToken(.keyword_const, "const");
+            _ = try c.addIdentifier(payload.data.actual);
+            _ = try c.addToken(.equal, "=");
+
+
+            const compile_error_tok = try c.addToken(.builtin, "@compileError");
+            _ = try c.addToken(.l_paren, "(");
+            const err_msg_tok = try c.addTokenFmt(.string_literal, "\"{s}\"", .{std.zig.fmtEscapes(payload.data.mangled)});
+            const err_msg = try c.addNode(.{
+                .tag = .string_literal,
+                .main_token = err_msg_tok,
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = undefined,
+                },
+            });
+            _ = try c.addToken(.r_paren, ")");
+            const compile_error = try c.addNode(.{
+                .tag = .builtin_call_two,
+                .main_token = compile_error_tok,
+                .data = .{
+                    .lhs = err_msg,
+                    .rhs = 0,
+                },
+            });
+            _ = try c.addToken(.semicolon, ";");
+
+            return c.addNode(.{
+                .tag = .simple_var_decl,
+                .main_token = const_kw,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = compile_error,
+                }
             });
         },
         else => {
@@ -776,22 +963,20 @@ fn renderNode(c: *Context, node: Node) !NodeIndex {
 }
 
 fn renderStdImport(c: *Context, first: []const u8, second: []const u8) !NodeIndex {
-    const import_tok = try c.appendToken(.builtin, "@import");
-    _ = try c.appendToken(.l_paren, "(");
-
-    const std_tok = try c.appendToken(.string_literal, "\"std\"");
-    const std_node = try c.appendNode(.{
+    const import_tok = try c.addToken(.builtin, "@import");
+    _ = try c.addToken(.l_paren, "(");
+    const std_tok = try c.addToken(.string_literal, "\"std\"");
+    const std_node = try c.addNode(.{
         .tag = .string_literal,
         .main_token = std_tok,
         .data = .{
-            .lhs = std_tok,
-            .rhs = std_tok,
+            .lhs = undefined,
+            .rhs = undefined,
         },
     });
+    _ = try c.addToken(.r_paren, ")");
 
-    _ = try c.appendToken(.r_paren, ")");
-
-    const import_node = try c.appendNode(.{
+    const import_node = try c.addNode(.{
         .tag = .builtin_call_two,
         .main_token = import_tok,
         .data = .{
@@ -801,21 +986,67 @@ fn renderStdImport(c: *Context, first: []const u8, second: []const u8) !NodeInde
     });
 
     var access_chain = import_node;
-    access_chain = try c.appendNode(.{
+    access_chain = try c.addNode(.{
         .tag = .field_access,
-        .main_token = try c.appendToken(.period, "."),
+        .main_token = try c.addToken(.period, "."),
         .data = .{
             .lhs = access_chain,
-            .rhs = try c.appendIdentifier(first),
+            .rhs = try c.addIdentifier(first),
         },
     });
-    access_chain = try c.appendNode(.{
+    access_chain = try c.addNode(.{
         .tag = .field_access,
-        .main_token = try c.appendToken(.period, "."),
+        .main_token = try c.addToken(.period, "."),
         .data = .{
             .lhs = access_chain,
-            .rhs = try c.appendIdentifier(second),
+            .rhs = try c.addIdentifier(second),
         },
     });
     return access_chain;
+}
+
+fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
+    const lparen = try c.addToken(.l_paren, "(");
+    const res = switch (args.len) {
+        0 => try c.addNode(.{
+            .tag = .call_one,
+            .main_token = lparen,
+            .data = .{
+                .lhs = lhs,
+                .rhs = 0,
+            },
+        }),
+        1 => blk: {
+            const arg = try renderNode(c, args[0]);
+            break :blk try c.addNode(.{
+                .tag = .call_one,
+                .main_token = lparen,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = arg,
+                },
+            });
+        },
+        else => blk: {
+            const start = @intCast(u32, c.extra_data.items.len);
+            const end = @intCast(u32, start + args.len);
+            try c.extra_data.ensureCapacity(c.gpa, end + 2); // + 2 for span start + end
+            for (args) |arg, i| {
+                if (i != 0) _ = try c.addToken(.comma, ",");
+                c.extra_data.appendAssumeCapacity(try renderNode(c, arg));
+            }
+            c.extra_data.appendAssumeCapacity(start);
+            c.extra_data.appendAssumeCapacity(end);
+            break :blk try c.addNode(.{
+                .tag = .call_comma,
+                .main_token = lparen,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = end + 2,
+                },
+            });
+        },
+    };
+    _ = try c.addToken(.r_paren, ")");
+    return res;
 }

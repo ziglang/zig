@@ -3054,6 +3054,7 @@ fn maybeSuppressResult(
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
     _ = try c.global_scope.sym_table.put(name, decl_node);
+    try c.global_scope.nodes.append(decl_node);
 }
 
 /// Translate a qual type for a variable with an initializer. The initializer
@@ -3903,10 +3904,10 @@ fn fail(
 pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, comptime format: []const u8, args: anytype) Error!void {
     // location
     // pub const name = @compileError(msg);
+    const fail_msg = try std.fmt.allocPrint(c.arena, format, args);
+    try c.global_scope.nodes.append(try Tag.fail_decl.create(c.arena, .{ .actual = name, .mangled = fail_msg }));
     const location_comment = try std.fmt.allocPrint(c.arena, "// {s}", .{c.locStr(loc)});
     try c.global_scope.nodes.append(try Tag.warning.create(c.arena, location_comment));
-    const fail_msg = try std.fmt.allocPrint(c.arena, format, args);
-    try c.global_scope.nodes.append(try Tag.fail_decl.create(c.arena, fail_msg));
 }
 
 pub fn freeErrors(errors: []ClangErrMsg) void {
