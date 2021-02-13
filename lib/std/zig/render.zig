@@ -146,7 +146,6 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .identifier,
         .integer_literal,
         .float_literal,
-        .string_literal,
         .char_literal,
         .true_literal,
         .false_literal,
@@ -155,6 +154,29 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .undefined_literal,
         .anyframe_literal,
         => return renderToken(ais, tree, main_tokens[node], space),
+
+        .string_literal => switch (token_tags[main_tokens[node]]) {
+            .string_literal => try renderToken(ais, tree, main_tokens[node], space),
+
+            .multiline_string_literal_line => {
+                var locked_indents = ais.lockOneShotIndent();
+                try ais.maybeInsertNewline();
+
+                var i = datas[node].lhs;
+                while (i <= datas[node].rhs) : (i += 1) try renderToken(ais, tree, i, .newline);
+
+                while (locked_indents > 0) : (locked_indents -= 1) ais.popIndent();
+
+                switch (space) {
+                    .none => {},
+                    .semicolon => if (token_tags[i] == .semicolon) try renderToken(ais, tree, i, .newline),
+                    .comma => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .newline),
+                    .comma_space => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .space),
+                    else => unreachable,
+                }
+            },
+            else => unreachable,
+        },
 
         .error_value => {
             try renderToken(ais, tree, main_tokens[node], .none);
@@ -1821,7 +1843,7 @@ fn renderCall(
     const last_param = params[params.len - 1];
     const after_last_param_tok = tree.lastToken(last_param) + 1;
     if (token_tags[after_last_param_tok] == .comma) {
-        ais.pushIndent();
+        ais.pushIndentNextLine();
         try renderToken(ais, tree, lparen, Space.newline); // (
         for (params) |param_node, i| {
             if (i + 1 < params.len) {
@@ -1846,6 +1868,7 @@ fn renderCall(
         return renderToken(ais, tree, after_last_param_tok + 1, space); // )
     }
 
+    ais.pushIndentNextLine();
     try renderToken(ais, tree, lparen, Space.none); // (
 
     for (params) |param_node, i| {
@@ -1856,6 +1879,8 @@ fn renderCall(
             try renderToken(ais, tree, comma, Space.space);
         }
     }
+
+    ais.popIndent();
     return renderToken(ais, tree, after_last_param_tok, space); // )
 }
 
@@ -1907,7 +1932,8 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
     const token_starts = tree.tokens.items(.start);
 
     const token_start = token_starts[token_index];
-    const lexeme = tree.tokenSlice(token_index);
+    const lexeme = tokenSliceForRender(tree, token_index);
+
     try ais.writer().writeAll(lexeme);
 
     if (space == .no_comment) return;
@@ -1991,7 +2017,7 @@ fn renderExtraNewlineToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenInde
     const prev_token_end = if (token_index == 0)
         0
     else
-        token_starts[token_index - 1] + tree.tokenSlice(token_index - 1).len;
+        token_starts[token_index - 1] + tokenSliceForRender(tree, token_index - 1).len;
 
     // If there is a comment present, it will handle the empty line
     if (mem.indexOf(u8, tree.source[prev_token_end..token_start], "//") != null) return;
@@ -2032,6 +2058,15 @@ fn renderDocComments(ais: *Ais, tree: ast.Tree, end_token: ast.TokenIndex) Error
             try ais.insertNewline();
         }
     }
+}
+
+fn tokenSliceForRender(tree: ast.Tree, token_index: ast.TokenIndex) []const u8 {
+    var ret = tree.tokenSlice(token_index);
+    if (tree.tokens.items(.tag)[token_index] == .multiline_string_literal_line) {
+        assert(ret[ret.len - 1] == '\n');
+        ret.len -= 1;
+    }
+    return ret;
 }
 
 fn nodeIsBlock(tag: ast.Node.Tag) bool {
