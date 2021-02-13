@@ -87,11 +87,7 @@ pub const Node = extern union {
         mod,
         mod_assign,
         @"and",
-        and_assign,
         @"or",
-        or_assign,
-        xor,
-        xor_assign,
         less_than,
         less_than_equal,
         greater_than,
@@ -263,11 +259,7 @@ pub const Node = extern union {
                 .mod,
                 .mod_assign,
                 .@"and",
-                .and_assign,
                 .@"or",
-                .or_assign,
-                .xor,
-                .xor_assign,
                 .less_than,
                 .less_than_equal,
                 .greater_than,
@@ -832,7 +824,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .rhs = undefined,
             },
         }),
-        .@"anytype" => return try c.addNode(.{
+        .@"anytype" => return c.addNode(.{
             .tag = .@"anytype",
             .main_token = try c.addToken(.keyword_anytype, "anytype"),
             .data = .{
@@ -840,7 +832,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .rhs = undefined,
             },
         }),
-        .noreturn_type => return try c.addNode(.{
+        .noreturn_type => return c.addNode(.{
             .tag = .identifier,
             .main_token = try c.addToken(.identifier, "noreturn"),
             .data = .{
@@ -848,6 +840,53 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .rhs = undefined,
             },
         }),
+        .@"continue" => {
+            const tok = try c.addToken(.keyword_continue, "continue");
+            _ = try c.addToken(.semicolon, ";");
+            return c.addNode(.{
+                .tag = .@"continue",
+                .main_token = tok,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = undefined,
+                },
+            });
+        },
+        .@"break" => {
+            const payload = node.castTag(.@"break").?.data;
+            const tok = try c.addToken(.keyword_break, "break");
+            const break_label = if (payload) |some| blk: {
+                _ = try c.addToken(.colon, ":");
+                break :blk try c.addIdentifier(some);
+            } else 0;
+            _ = try c.addToken(.semicolon, ";");
+            return c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addToken(.keyword_break, "break"),
+                .data = .{
+                    .lhs = break_label,
+                    .rhs = 0,
+                },
+            });
+        },
+        .break_val => {
+            const payload = node.castTag(.break_val).?.data;
+            const tok = try c.addToken(.keyword_break, "break");
+            const break_label = if (payload.label) |some| blk: {
+                _ = try c.addToken(.colon, ":");
+                break :blk try c.addIdentifier(some);
+            } else 0;
+            const val = try renderNode(c, payload.val);
+            _ = try c.addToken(.semicolon, ";");
+            return c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addToken(.keyword_break, "break"),
+                .data = .{
+                    .lhs = break_label,
+                    .rhs = val,
+                },
+            });
+        },
         .type => {
             const payload = node.castTag(.type).?.data;
             return c.addNode(.{
@@ -1093,6 +1132,43 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
+        .add => return renderBinOp(c, node, .add, .plus, "+"),
+        .add_assign => return renderBinOp(c, node, .assign_add, .plus_equal, "+="),
+        .add_wrap => return renderBinOp(c, node, .add_wrap, .plus_percent, "+%"),
+        .add_wrap_assign => return renderBinOp(c, node, .assign_add_wrap, .plus_percent_equal, "+%="),
+        .sub => return renderBinOp(c, node, .sub, .minus, "-"),
+        .sub_assign => return renderBinOp(c, node, .assign_sub, .minus_equal, "-="),
+        .sub_wrap => return renderBinOp(c, node, .sub_wrap, .minus_percent, "-%"),
+        .sub_wrap_assign => return renderBinOp(c, node, .assign_sub_wrap, .minus_percent_equal, "-%="),
+        .mul => return renderBinOp(c, node, .mul, .asterisk, "*"),
+        .mul_assign => return renderBinOp(c, node, .assign_mul, .asterisk_equal, "*="),
+        .mul_wrap => return renderBinOp(c, node, .mul_wrap, .asterisk_percent, "*="),
+        .mul_wrap_assign => return renderBinOp(c, node, .assign_mul_wrap, .asterisk_percent_equal, "*%="),
+        .div => return renderBinOp(c, node, .div, .slash, "/"),
+        .div_assign => return renderBinOp(c, node, .assign_div, .slash_equal, "/="),
+        .shl => return renderBinOp(c, node, .bit_shift_left, .angle_bracket_angle_bracket_left, "<<"),
+        .shl_assign => return renderBinOp(c, node, .assign_bit_shift_left, .angle_bracket_angle_bracket_left_equal, "<<="),
+        .shr => return renderBinOp(c, node, .bit_shift_right, .angle_bracket_angle_bracket_right, ">>"),
+        .shr_assign => return renderBinOp(c, node, .assign_bit_shift_right, .angle_bracket_angle_bracket_right_equal, ">>="),
+        .mod => return renderBinOp(c, node, .mod, .percent, "%"),
+        .mod_assign => return renderBinOp(c, node, .assign_mod, .percent_equal, "%="),
+        .@"and" => return renderBinOp(c, node, .bool_and, .keyword_and, "and"),
+        .@"or" => return renderBinOp(c, node, .bool_or, .keyword_or, "or"),
+        .less_than => return renderBinOp(c, node, .less_than, .angle_bracket_left, "<"),
+        .less_than_equal => return renderBinOp(c, node, .less_or_equal, .angle_bracket_left_equal, "<="),
+        .greater_than => return renderBinOp(c, node, .greater_than, .angle_bracket_right, ">="),
+        .greater_than_equal => return renderBinOp(c, node, .greater_or_equal, .angle_bracket_right_equal, ">="),
+        .equal => return renderBinOp(c, node, .equal_equal, .equal_equal, "=="),
+        .not_equal => return renderBinOp(c, node, .bang_equal, .bang_equal, "!="),
+        .bit_and => return renderBinOp(c, node, .bit_and, .ampersand, "&"),
+        .bit_and_assign => return renderBinOp(c, node, .assign_bit_and, .ampersand_equal, "&="),
+        .bit_or => return renderBinOp(c, node, .bit_or, .pipe, "|"),
+        .bit_or_assign => return renderBinOp(c, node, .assign_bit_or, .pipe_equal, "|="),
+        .bit_xor => return renderBinOp(c, node, .bit_xor, .caret, "^"),
+        .bit_xor_assign => return renderBinOp(c, node, .assign_bit_xor, .caret_equal, "^="),
+        .array_cat => return renderBinOp(c, node, .array_cat, .plus_plus, "++"),
+        .ellipsis3 => return renderBinOp(c, node, .switch_range, .ellipsis3, "..."),
+        .assign => return renderBinOp(c, node, .assign, .equal, "="),
         else => return c.addNode(.{
             .tag = .identifier,
             .main_token = try c.addTokenFmt(.identifier, "@\"TODO {}\"", .{node.tag()}),
@@ -1177,7 +1253,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .mod,
         .@"and",
         .@"or",
-        .xor,
         .less_than,
         .less_than_equal,
         .greater_than,
@@ -1243,9 +1318,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .shl_assign,
         .shr_assign,
         .mod_assign,
-        .and_assign,
-        .or_assign,
-        .xor_assign,
         .bit_and_assign,
         .bit_or_assign,
         .bit_xor_assign,
@@ -1267,6 +1339,19 @@ fn renderPrefixOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: T
         .data = .{
             .lhs = operand,
             .rhs = undefined,
+        },
+    });
+}
+
+fn renderBinOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
+    const payload = @fieldParentPtr(Payload.BinOp, "base", node.ptr_otherwise).data;
+    const lhs = try renderNodeGrouped(c, payload.lhs);
+    return c.addNode(.{
+        .tag = tag,
+        .main_token = try c.addToken(tok_tag, bytes),
+        .data = .{
+            .lhs = lhs,
+            .rhs = try renderNodeGrouped(c, payload.rhs),
         },
     });
 }
