@@ -317,6 +317,7 @@ pub const Inst = struct {
         pub const base_tag = Tag.arg;
 
         base: Inst,
+        /// This exists to be emitted into debug info.
         name: [*:0]const u8,
 
         pub fn operandCount(self: *const Arg) usize {

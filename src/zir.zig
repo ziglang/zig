@@ -53,6 +53,9 @@ pub const Inst = struct {
         indexable_ptr_len,
         /// Function parameter value. These must be first in a function's main block,
         /// in respective order with the parameters.
+        /// TODO make this instruction implicit; after we transition to having ZIR
+        /// instructions be same sized and referenced by index, the first N indexes
+        /// will implicitly be references to the parameters of the function.
         arg,
         /// Type coercion.
         as,
@@ -354,9 +357,8 @@ pub const Inst = struct {
                 .return_void,
                 .ret_ptr,
                 .ret_type,
-                .unreach_nocheck,
-                .@"unreachable",
-                .arg,
+                .unreachable_unsafe,
+                .unreachable_safe,
                 .void_value,
                 => NoOp,
 
@@ -451,6 +453,7 @@ pub const Inst = struct {
                 .block_comptime_flat,
                 => Block,
 
+                .arg => Arg,
                 .array_type_sentinel => ArrayTypeSentinel,
                 .@"break" => Break,
                 .break_void => BreakVoid,
@@ -680,6 +683,18 @@ pub const Inst = struct {
         positionals: struct {
             lhs: *Inst,
             rhs: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Arg = struct {
+        pub const base_tag = Tag.arg;
+        base: Inst,
+
+        positionals: struct {
+            /// This exists to be passed to the arg TZIR instruction, which
+            /// needs it for debug info.
+            name: []const u8,
         },
         kw_args: struct {},
     };

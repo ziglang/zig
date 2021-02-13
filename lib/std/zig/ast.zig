@@ -2834,10 +2834,12 @@ pub const Node = struct {
         /// `(lhs)`. main_token is the `(`; rhs is the token index of the `)`.
         grouped_expression,
         /// `@a(lhs, rhs)`. lhs and rhs may be omitted.
+        /// main_token is the builtin token.
         builtin_call_two,
         /// Same as builtin_call_two but there is known to be a trailing comma before the rparen.
         builtin_call_two_comma,
         /// `@a(b, c)`. `sub_list[lhs..rhs]`.
+        /// main_token is the builtin token.
         builtin_call,
         /// Same as builtin_call but there is known to be a trailing comma before the rparen.
         builtin_call_comma,
