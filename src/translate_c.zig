@@ -769,7 +769,7 @@ fn transCreateNodeTypedef(
 
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]Tag{ .typedef, .pub_typedef })[@boolToInt(toplevel)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(toplevel)] },
         .data = .{
             .name = checked_name,
             .init = init_node,
@@ -1678,7 +1678,7 @@ fn transStringLiteralAsArray(
         init_list[i] = try transCreateCharLitNode(c, narrow, code_unit);
     }
     while (i < array_size) : (i += 1) {
-        init_list[i] = try transCreateNodeNumber(c, 0);
+        init_list[i] = try transCreateNodeNumber(c, 0, .int);
     }
 
     return Tag.array_init.create(c.arena, init_list);
@@ -2345,7 +2345,7 @@ fn transCharLiteral(
     // C has a somewhat obscure feature called multi-character character constant
     // e.g. 'abcd'
     const int_lit_node = if (kind == .Ascii and val > 255)
-        try transCreateNodeNumber(c, val)
+        try transCreateNodeNumber(c, val, .int)
     else
         try transCreateCharLitNode(c, narrow, val);
 
@@ -2948,7 +2948,7 @@ fn transBreak(c: *Context, scope: *Scope) TransError!Node {
 fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
     // TODO use something more accurate
     const dbl = stmt.getValueAsApproximateDouble();
-    const node = try transCreateNodeNumber(c, dbl);
+    const node = try transCreateNodeNumber(c, dbl, .float);
     return maybeSuppressResult(c, scope, used, node);
 }
 
@@ -3471,13 +3471,16 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
     const str = big.toStringAlloc(c.arena, 10, false) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
-    return Tag.number_literal.create(c.arena, str);
+    return Tag.integer_literal.create(c.arena, str);
 }
 
-fn transCreateNodeNumber(c: *Context, int: anytype) !Node {
-    const fmt_s = if (comptime std.meta.trait.isNumber(@TypeOf(int))) "{d}" else "{s}";
-    const str = try std.fmt.allocPrint(c.arena, fmt_s, .{int});
-    return Tag.number_literal.create(c.arena, str);
+fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
+    const fmt_s = if (comptime std.meta.trait.isNumber(@TypeOf(num))) "{d}" else "{s}";
+    const str = try std.fmt.allocPrint(c.arena, fmt_s, .{num});
+    if (num_kind == .float)
+        return Tag.float_literal.create(c.arena, str)
+    else
+        return Tag.integer_literal.create(c.arena, str);
 }
 
 fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: Node, proto_alias: *ast.Payload.Func) !Node {
@@ -4162,7 +4165,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             }
 
             if (suffix == .none) {
-                return transCreateNodeNumber(c, lit_bytes);
+                return transCreateNodeNumber(c, lit_bytes, .int);
             }
 
             const type_node = try Tag.type.create(c.arena, switch (suffix) {
@@ -4179,21 +4182,21 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
                 .llu => 3,
                 else => unreachable,
             }];
-            const rhs = try transCreateNodeNumber(c, lit_bytes);
+            const rhs = try transCreateNodeNumber(c, lit_bytes, .int);
             return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
         },
         .FloatLiteral => |suffix| {
             if (lit_bytes[0] == '.')
                 lit_bytes = try std.fmt.allocPrint(c.arena, "0{s}", .{lit_bytes});
             if (suffix == .none) {
-                return transCreateNodeNumber(c, lit_bytes);
+                return transCreateNodeNumber(c, lit_bytes, .float);
             }
             const type_node = try Tag.type.create(c.arena, switch (suffix) {
                 .f => "f32",
                 .l => "c_longdouble",
                 else => unreachable,
             });
-            const rhs = try transCreateNodeNumber(c, lit_bytes[0 .. lit_bytes.len - 1]);
+            const rhs = try transCreateNodeNumber(c, lit_bytes[0 .. lit_bytes.len - 1], .float);
             return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
         },
         else => unreachable,
@@ -4369,7 +4372,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
                 return Tag.char_literal.create(c.arena, try zigifyEscapeSequences(c, m));
             } else {
                 const str = try std.fmt.allocPrint(c.arena, "0x{x}", .{slice[1 .. slice.len - 1]});
-                return Tag.number_literal.create(c.arena, str);
+                return Tag.integer_literal.create(c.arena, str);
             }
         },
         .StringLiteral => {
