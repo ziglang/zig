@@ -50,35 +50,35 @@ test "zig fmt: respect line breaks after var declarations" {
     );
 }
 
-//test "zig fmt: multiline string mixed with comments" {
-//    try testCanonical(
-//        \\const s1 =
-//        \\    //\\one
-//        \\    \\two)
-//        \\    \\three
-//        \\;
-//        \\const s2 =
-//        \\    \\one
-//        \\    \\two)
-//        \\    //\\three
-//        \\;
-//        \\const s3 =
-//        \\    \\one
-//        \\    //\\two)
-//        \\    \\three
-//        \\;
-//        \\const s4 =
-//        \\    \\one
-//        \\    //\\two
-//        \\    \\three
-//        \\    //\\four
-//        \\    \\five
-//        \\;
-//        \\const a =
-//        \\    1;
-//        \\
-//    );
-//}
+test "zig fmt: multiline string mixed with comments" {
+    try testCanonical(
+        \\const s1 =
+        \\    //\\one
+        \\    \\two)
+        \\    \\three
+        \\;
+        \\const s2 =
+        \\    \\one
+        \\    \\two)
+        \\    //\\three
+        \\;
+        \\const s3 =
+        \\    \\one
+        \\    //\\two)
+        \\    \\three
+        \\;
+        \\const s4 =
+        \\    \\one
+        \\    //\\two
+        \\    \\three
+        \\    //\\four
+        \\    \\five
+        \\;
+        \\const a =
+        \\    1;
+        \\
+    );
+}
 
 test "zig fmt: empty file" {
     try testCanonical(
@@ -974,25 +974,25 @@ test "zig fmt: character literal larger than u8" {
     );
 }
 
-//test "zig fmt: infix operator and then multiline string literal" {
-//    try testCanonical(
-//        \\const x = "" ++
-//        \\    \\ hi
-//        \\;
-//        \\
-//    );
-//}
-//
-//test "zig fmt: infix operator and then multiline string literal" {
-//    try testCanonical(
-//        \\const x = "" ++
-//        \\    \\ hi0
-//        \\    \\ hi1
-//        \\    \\ hi2
-//        \\;
-//        \\
-//    );
-//}
+test "zig fmt: infix operator and then multiline string literal" {
+    try testCanonical(
+        \\const x = "" ++
+        \\    \\ hi
+        \\;
+        \\
+    );
+}
+
+test "zig fmt: infix operator and then multiline string literal" {
+    try testCanonical(
+        \\const x = "" ++
+        \\    \\ hi0
+        \\    \\ hi1
+        \\    \\ hi2
+        \\;
+        \\
+    );
+}
 
 test "zig fmt: C pointers" {
     try testCanonical(
@@ -1725,35 +1725,35 @@ test "zig fmt: struct literal no trailing comma" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: multiline string with backslash at end of line" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    err(
-//        \\        \\\
-//        \\    );
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: multiline string parameter in fn call with trailing comma" {
-//    try testCanonical(
-//        \\fn foo() void {
-//        \\    try stdout.print(
-//        \\        \\ZIG_CMAKE_BINARY_DIR {}
-//        \\        \\ZIG_C_HEADER_FILES   {}
-//        \\        \\ZIG_DIA_GUIDS_LIB    {}
-//        \\        \\
-//        \\    ,
-//        \\        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
-//        \\        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
-//        \\        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
-//        \\    );
-//        \\}
-//        \\
-//    );
-//}
+
+test "zig fmt: multiline string with backslash at end of line" {
+    try testCanonical(
+        \\comptime {
+        \\    err(
+        \\        \\\
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: multiline string parameter in fn call with trailing comma" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    try stdout.print(
+        \\        \\ZIG_CMAKE_BINARY_DIR {}
+        \\        \\ZIG_C_HEADER_FILES   {}
+        \\        \\ZIG_DIA_GUIDS_LIB    {}
+        \\        \\
+        \\    ,
+        \\        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
+        \\        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
+        \\        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
+        \\    );
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: trailing comma on fn call" {
     try testCanonical(
