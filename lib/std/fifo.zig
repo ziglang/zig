@@ -153,7 +153,7 @@ pub fn LinearFifo(
             var start = self.head + offset;
             if (start >= self.buf.len) {
                 start -= self.buf.len;
-                return self.buf[start .. self.count - offset];
+                return self.buf[start .. start + (self.count - offset)];
             } else {
                 const end = math.min(self.head + self.count, self.buf.len);
                 return self.buf[start..end];
@@ -427,6 +427,8 @@ test "LinearFifo(u8, .Dynamic)" {
         fifo.writeAssumeCapacity("6<chars<11");
         testing.expectEqualSlices(u8, "HELLO6<char", fifo.readableSlice(0));
         testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(11));
+        testing.expectEqualSlices(u8, "11", fifo.readableSlice(13));
+        testing.expectEqualSlices(u8, "", fifo.readableSlice(15));
         fifo.discard(11);
         testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(0));
         fifo.discard(4);
