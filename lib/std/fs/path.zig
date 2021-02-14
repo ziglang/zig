@@ -119,73 +119,40 @@ fn testJoinMaybeZPosix(paths: []const []const u8, expected: []const u8, zero: bo
 }
 
 test "join" {
-    testJoinMaybeZWindows(&[_][]const u8{}, "", false);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", false);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", false);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c", false);
+    for (&[_]bool{ false, true }) |zero| {
+        testJoinMaybeZWindows(&[_][]const u8{}, "", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c", zero);
 
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b\\", "c" }, "c:\\a\\b\\c", false);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", false);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b\\", "c" }, "c:\\a\\b\\c", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", zero);
 
-    testJoinMaybeZWindows(
-        &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
-        "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
-        false,
-    );
+        testJoinMaybeZWindows(
+            &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
+            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
+            zero,
+        );
 
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c", false);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c", false);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c", zero);
 
-    testJoinMaybeZPosix(&[_][]const u8{}, "", false);
-    testJoinMaybeZPosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c", false);
-    testJoinMaybeZPosix(&[_][]const u8{ "/a/b/", "c" }, "/a/b/c", false);
+        testJoinMaybeZPosix(&[_][]const u8{}, "", zero);
+        testJoinMaybeZPosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c", zero);
+        testJoinMaybeZPosix(&[_][]const u8{ "/a/b/", "c" }, "/a/b/c", zero);
 
-    testJoinMaybeZPosix(&[_][]const u8{ "/", "a", "b/", "c" }, "/a/b/c", false);
-    testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", false);
+        testJoinMaybeZPosix(&[_][]const u8{ "/", "a", "b/", "c" }, "/a/b/c", zero);
+        testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", zero);
 
-    testJoinMaybeZPosix(
-        &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
-        "/home/andy/dev/zig/build/lib/zig/std/io.zig",
-        false,
-    );
+        testJoinMaybeZPosix(
+            &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
+            "/home/andy/dev/zig/build/lib/zig/std/io.zig",
+            zero,
+        );
 
-    testJoinMaybeZPosix(&[_][]const u8{ "a", "/c" }, "a/c", false);
-    testJoinMaybeZPosix(&[_][]const u8{ "a/", "/c" }, "a/c", false);
-}
-
-test "joinZ" {
-    testJoinMaybeZWindows(&[_][]const u8{}, "", true);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", true);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", true);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c", true);
-
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b\\", "c" }, "c:\\a\\b\\c", true);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", true);
-
-    testJoinMaybeZWindows(
-        &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
-        "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
-        true,
-    );
-
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c", true);
-    testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c", true);
-
-    testJoinMaybeZPosix(&[_][]const u8{}, "", true);
-    testJoinMaybeZPosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c", true);
-    testJoinMaybeZPosix(&[_][]const u8{ "/a/b/", "c" }, "/a/b/c", true);
-
-    testJoinMaybeZPosix(&[_][]const u8{ "/", "a", "b/", "c" }, "/a/b/c", true);
-    testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", true);
-
-    testJoinMaybeZPosix(
-        &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
-        "/home/andy/dev/zig/build/lib/zig/std/io.zig",
-        true,
-    );
-
-    testJoinMaybeZPosix(&[_][]const u8{ "a", "/c" }, "a/c", true);
-    testJoinMaybeZPosix(&[_][]const u8{ "a/", "/c" }, "a/c", true);
+        testJoinMaybeZPosix(&[_][]const u8{ "a", "/c" }, "a/c", zero);
+        testJoinMaybeZPosix(&[_][]const u8{ "a/", "/c" }, "a/c", zero);
+    }
 }
 
 pub const isAbsoluteC = @compileError("deprecated: renamed to isAbsoluteZ");
