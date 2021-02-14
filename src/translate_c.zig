@@ -4099,14 +4099,18 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         const br = blk_last.castTag(.break_val).?;
         break :blk br.data.val;
     } else expr;
-    const typeof = try Tag.typeof.create(c.arena, typeof_arg);
+    const return_type = if (typeof_arg.castTag(.std_meta_cast)) |some| 
+        some.data.lhs
+    else
+        try Tag.typeof.create(c.arena, typeof_arg);
+
     const return_expr = try Tag.@"return".create(c.arena, expr);
     try block_scope.statements.append(return_expr);
 
     const fn_decl = try Tag.pub_inline_fn.create(c.arena, .{
         .name = m.name,
         .params = try c.arena.dupe(ast.Payload.Param, fn_params.items),
-        .return_type = typeof,
+        .return_type = return_type,
         .body = try block_scope.complete(c),
     });
     _ = try c.global_scope.macro_table.put(m.name, fn_decl);

@@ -615,9 +615,15 @@ pub fn render(gpa: *Allocator, nodes: []const Node) !std.zig.ast.Tree {
     defer ctx.extra_data.deinit(gpa);
     defer ctx.tokens.deinit(gpa);
 
-    // Estimate that each top level node has 25 child nodes.
-    const estimated_node_count = nodes.len * 25;
+    // Estimate that each top level node has 10 child nodes.
+    const estimated_node_count = nodes.len * 10;
     try ctx.nodes.ensureCapacity(gpa, estimated_node_count);
+    // Estimate that each each node has 2 tokens.
+    const estimated_tokens_count = estimated_node_count * 2;
+    try ctx.tokens.ensureCapacity(gpa, estimated_tokens_count);
+    // Estimate that each each token is 3 bytes long.
+    const estimated_buf_len = estimated_tokens_count * 3;
+    try ctx.buf.ensureCapacity(estimated_buf_len);
 
     ctx.nodes.appendAssumeCapacity(.{
         .tag = .root,
@@ -776,78 +782,59 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .null_literal => return c.addNode(.{
             .tag = .null_literal,
             .main_token = try c.addToken(.keyword_null, "null"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .undefined_literal => return c.addNode(.{
             .tag = .undefined_literal,
             .main_token = try c.addToken(.keyword_undefined, "undefined"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .true_literal => return c.addNode(.{
             .tag = .true_literal,
             .main_token = try c.addToken(.keyword_true, "true"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .false_literal => return c.addNode(.{
             .tag = .false_literal,
             .main_token = try c.addToken(.keyword_false, "false"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .zero_literal => return c.addNode(.{
             .tag = .integer_literal,
             .main_token = try c.addToken(.integer_literal, "0"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .one_literal => return c.addNode(.{
             .tag = .integer_literal,
             .main_token = try c.addToken(.integer_literal, "1"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .void_type => return c.addNode(.{
             .tag = .identifier,
             .main_token = try c.addToken(.identifier, "void"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .@"anytype" => return c.addNode(.{
             .tag = .@"anytype",
             .main_token = try c.addToken(.keyword_anytype, "anytype"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .noreturn_type => return c.addNode(.{
             .tag = .identifier,
             .main_token = try c.addToken(.identifier, "noreturn"),
-            .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
-            },
+            .data = undefined,
         }),
         .@"continue" => return c.addNode(.{
             .tag = .@"continue",
             .main_token = try c.addToken(.keyword_continue, "continue"),
+            .data = .{
+                .lhs = 0,
+                .rhs = undefined,
+            },
+        }),
+        .return_void => return c.addNode(.{
+            .tag = .@"return",
+            .main_token = try c.addToken(.keyword_return, "return"),
             .data = .{
                 .lhs = 0,
                 .rhs = undefined,
@@ -885,15 +872,23 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
+        .@"return" => {
+            const payload = node.castTag(.@"return").?.data;
+            return c.addNode(.{
+                .tag = .@"return",
+                .main_token = try c.addToken(.keyword_return, "return"),
+                .data = .{
+                    .lhs = try renderNode(c, payload),
+                    .rhs = undefined,
+                },
+            });
+        },
         .type => {
             const payload = node.castTag(.type).?.data;
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addToken(.identifier, payload),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
         },
         .log2_int_type => {
@@ -901,10 +896,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addTokenFmt(.identifier, "u{d}", .{payload}),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
         },
         .identifier => {
@@ -912,10 +904,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addIdentifier(payload),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
         },
         .float_literal => {
@@ -923,10 +912,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .float_literal,
                 .main_token = try c.addToken(.float_literal, payload),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
         },
         .integer_literal => {
@@ -934,10 +920,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .integer_literal,
                 .main_token = try c.addToken(.integer_literal, payload),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
         },
         .string_literal => {
@@ -945,10 +928,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addToken(.string_literal, payload),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
         },
         .char_literal => {
@@ -956,10 +936,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addToken(.string_literal, payload),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
         },
         .fail_decl => {
@@ -976,10 +953,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const err_msg = try c.addNode(.{
                 .tag = .string_literal,
                 .main_token = err_msg_tok,
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
+                .data = undefined,
             });
             _ = try c.addToken(.r_paren, ")");
             const compile_error = try c.addNode(.{
@@ -1130,6 +1104,31 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
+        .c_pointer, .single_pointer => {
+            const payload = @fieldParentPtr(Payload.Pointer, "base", node.ptr_otherwise).data;
+
+            const asterisk = if (node.tag() == .single_pointer)
+                try c.addToken(.asterisk, "*")
+            else blk: {
+                _ = try c.addToken(.l_bracket, "[");
+                const res = try c.addToken(.asterisk, "*");
+                _ = try c.addIdentifier("c");
+                _ = try c.addToken(.r_bracket, "]");
+                break :blk res;
+            };
+            if (payload.is_const) _ = try c.addToken(.keyword_const, "const");
+            if (payload.is_volatile) _ = try c.addToken(.keyword_volatile, "volatile");
+            const elem_type = try renderNode(c, payload.elem_type);
+
+            return c.addNode(.{
+                .tag = .ptr_type_aligned,
+                .main_token = asterisk,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = elem_type,
+                },
+            });
+        },
         .add => return renderBinOp(c, node, .add, .plus, "+"),
         .add_assign => return renderBinOp(c, node, .assign_add, .plus_equal, "+="),
         .add_wrap => return renderBinOp(c, node, .add_wrap, .plus_percent, "+%"),
@@ -1229,6 +1228,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
         },
         .func => return renderFunc(c, node),
+        .pub_inline_fn => return renderMacroFunc(c, node),
         .discard => {
             const payload = node.castTag(.discard).?.data;
             const lhs = try c.addNode(.{
@@ -1300,6 +1300,9 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .type,
         .array_access,
         .align_cast,
+        .optional_type,
+        .c_pointer,
+        .single_pointer,
         => {
             // no grouping needed
             return renderNode(c, node);
@@ -1310,7 +1313,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .bit_not,
         .opaque_literal,
         .not,
-        .optional_type,
         .address_of,
         .unwrap,
         .deref,
@@ -1350,8 +1352,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .tuple,
         .container_init,
         .block,
-        .c_pointer,
-        .single_pointer,
         .array_type,
         => return c.addNode(.{
             .tag = .grouped_expression,
@@ -1439,10 +1439,7 @@ fn renderStdImport(c: *Context, first: []const u8, second: []const u8) !NodeInde
     const std_node = try c.addNode(.{
         .tag = .string_literal,
         .main_token = std_tok,
-        .data = .{
-            .lhs = undefined,
-            .rhs = undefined,
-        },
+        .data = undefined,
     });
     _ = try c.addToken(.r_paren, ")");
 
@@ -1498,21 +1495,23 @@ fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
             });
         },
         else => blk: {
-            const start = @intCast(u32, c.extra_data.items.len);
-            const end = @intCast(u32, start + args.len);
-            try c.extra_data.ensureCapacity(c.gpa, end + 2); // + 2 for span start + end
+            var rendered = try c.gpa.alloc(NodeIndex, args.len);
+            defer c.gpa.free(rendered);
+
             for (args) |arg, i| {
                 if (i != 0) _ = try c.addToken(.comma, ",");
-                c.extra_data.appendAssumeCapacity(try renderNode(c, arg));
+                rendered[i] = try renderNode(c, arg);
             }
-            c.extra_data.appendAssumeCapacity(start);
-            c.extra_data.appendAssumeCapacity(end);
+            const span = try c.listToSpan(rendered);
             break :blk try c.addNode(.{
-                .tag = .call_comma,
+                .tag = .call,
                 .main_token = lparen,
                 .data = .{
                     .lhs = lhs,
-                    .rhs = end + 2,
+                    .rhs = try c.addExtra(std.zig.ast.Node.SubRange{
+                        .start = span.start,
+                        .end = span.end,
+                    }),
                 },
             });
         },
@@ -1653,28 +1652,26 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
 
     var span: NodeSubRange = undefined;
     if (payload.params.len > 1) {
-        var params = std.ArrayList(NodeIndex).init(c.gpa);
-        defer params.deinit();
+        var params = try c.gpa.alloc(NodeIndex, payload.params.len);
+        defer c.gpa.free(params);
 
-        try params.append(first);
-        for (payload.params[1..]) |param| {
+        params[0] = first;
+        for (payload.params[1..]) |param, i| {
             _ = try c.addToken(.comma, ",");
             if (param.is_noalias) _ = try c.addToken(.keyword_noalias, "noalias");
             if (param.name) |some| {
                 _ = try c.addIdentifier(some);
                 _ = try c.addToken(.colon, ":");
             }
-            try params.append(try renderNode(c, param.type));
+            params[i + 1] = try renderNode(c, param.type);
         }
-        span = try c.listToSpan(params.items);
+        span = try c.listToSpan(params);
     }
     if (payload.is_var_args) {
         if (payload.params.len != 0) _ = try c.addToken(.comma, ",");
         _ = try c.addToken(.ellipsis3, "...");
     }
     _ = try c.addToken(.r_paren, ")");
-
-    const return_type_expr = try renderNode(c, payload.return_type);
 
     const align_expr = if (payload.alignment) |some| blk: {
         _ = try c.addToken(.keyword_align, "align");
@@ -1701,17 +1698,19 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
     } else 0;
 
     const callconv_expr = if (payload.explicit_callconv) |some| blk: {
-        _ = try c.addToken(.keyword_linksection, "callconv");
+        _ = try c.addToken(.keyword_callconv, "callconv");
         _ = try c.addToken(.l_paren, "(");
         _ = try c.addToken(.period, ".");
         const res = try c.addNode(.{
             .tag = .enum_literal,
-            .main_token = try c.addTokenFmt(.string_literal, "{}", .{some}),
+            .main_token = try c.addTokenFmt(.identifier, "{}", .{some}),
             .data = .{ .lhs = undefined, .rhs = undefined },
         });
         _ = try c.addToken(.r_paren, ")");
         break :blk res;
     } else 0;
+
+    const return_type_expr = try renderNode(c, payload.return_type);
 
     const fn_proto = try blk: {
         if (align_expr == 0 and section_expr == 0 and callconv_expr == 0) {
@@ -1781,6 +1780,97 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         .data = .{
             .lhs = fn_proto,
             .rhs = body,
+        },
+    });
+}
+
+fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
+    const payload = node.castTag(.pub_inline_fn).?.data;
+    _ = try c.addToken(.keyword_pub, "pub");
+    const fn_token = try c.addToken(.keyword_fn, "fn");
+    _ = try c.addIdentifier(payload.name);
+
+    _ = try c.addToken(.l_paren, "(");
+    const first = if (payload.params.len != 0) blk: {
+        const param = payload.params[0];
+        if (param.is_noalias) _ = try c.addToken(.keyword_noalias, "noalias");
+        if (param.name) |some| {
+            _ = try c.addIdentifier(some);
+            _ = try c.addToken(.colon, ":");
+        }
+        break :blk try renderNode(c, param.type);
+    } else 0;
+
+    var span: NodeSubRange = undefined;
+    if (payload.params.len > 1) {
+        var params = try c.gpa.alloc(NodeIndex, payload.params.len);
+        defer c.gpa.free(params);
+
+        params[0] = first;
+        for (payload.params[1..]) |param, i| {
+            _ = try c.addToken(.comma, ",");
+            if (param.is_noalias) _ = try c.addToken(.keyword_noalias, "noalias");
+            if (param.name) |some| {
+                _ = try c.addIdentifier(some);
+                _ = try c.addToken(.colon, ":");
+            }
+            params[i + 1] = try renderNode(c, param.type);
+        }
+        span = try c.listToSpan(params);
+    }
+    _ = try c.addToken(.r_paren, ")");
+
+    const callconv_expr = blk: {
+        _ = try c.addToken(.keyword_callconv, "callconv");
+        _ = try c.addToken(.l_paren, "(");
+        _ = try c.addToken(.period, ".");
+        const res = try c.addNode(.{
+            .tag = .enum_literal,
+            .main_token = try c.addToken(.identifier, "Inline"),
+            .data = .{ .lhs = undefined, .rhs = undefined },
+        });
+        _ = try c.addToken(.r_paren, ")");
+        break :blk res;
+    };
+    const return_type_expr = try renderNode(c, payload.return_type);
+
+    const fn_proto = try blk: {
+        if (payload.params.len < 2)
+            break :blk c.addNode(.{
+                .tag = .fn_proto_one,
+                .main_token = fn_token,
+                .data = .{
+                    .lhs = try c.addExtra(std.zig.ast.Node.FnProtoOne{
+                        .param = first,
+                        .align_expr = 0,
+                        .section_expr = 0,
+                        .callconv_expr = callconv_expr,
+                    }),
+                    .rhs = return_type_expr,
+                },
+            })
+        else
+            break :blk c.addNode(.{
+                .tag = .fn_proto,
+                .main_token = fn_token,
+                .data = .{
+                    .lhs = try c.addExtra(std.zig.ast.Node.FnProto{
+                        .params_start = span.start,
+                        .params_end = span.end,
+                        .align_expr = 0,
+                        .section_expr = 0,
+                        .callconv_expr = callconv_expr,
+                    }),
+                    .rhs = return_type_expr,
+                },
+            });
+    };
+    return c.addNode(.{
+        .tag = .fn_decl,
+        .main_token = fn_token,
+        .data = .{
+            .lhs = fn_proto,
+            .rhs = try renderNode(c, payload.body),
         },
     });
 }
