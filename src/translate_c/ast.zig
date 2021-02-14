@@ -291,7 +291,6 @@ pub const Node = extern union {
                 .array_cat,
                 .ellipsis3,
                 .switch_prong,
-                .field_access,
                 .assign,
                 .align_cast,
                 .array_access,
@@ -309,7 +308,7 @@ pub const Node = extern union {
                 => Payload.Value,
                 .@"if" => Payload.If,
                 .@"while" => Payload.While,
-                .@"switch" => Payload.Switch,
+                .@"switch", .array_init => Payload.Switch,
                 .@"break" => Payload.Break,
                 .break_val => Payload.BreakVal,
                 .call => Payload.Call,
@@ -317,7 +316,7 @@ pub const Node = extern union {
                 .func => Payload.Func,
                 .@"enum" => Payload.Enum,
                 .@"struct", .@"union" => Payload.Record,
-                .array_init, .tuple => Payload.ArrayInit,
+                .tuple => Payload.TupleInit,
                 .container_init => Payload.ContainerInit,
                 .std_meta_cast => Payload.Infix,
                 .block => Payload.Block,
@@ -329,6 +328,7 @@ pub const Node = extern union {
                 .enum_redecl => Payload.EnumRedecl,
                 .array_filler => Payload.ArrayFiller,
                 .pub_inline_fn => Payload.PubInlineFn,
+                .field_access => Payload.FieldAccess,
             };
         }
 
@@ -513,7 +513,7 @@ pub const Payload = struct {
         };
     };
 
-    pub const ArrayInit = struct {
+    pub const TupleInit = struct {
         base: Payload,
         data: []Node,
     };
@@ -599,6 +599,14 @@ pub const Payload = struct {
             params: []Param,
             return_type: Node,
             body: Node,
+        },
+    };
+
+    pub const FieldAccess = struct {
+        base: Payload,
+        data: struct {
+            lhs: Node,
+            field_name: []const u8,
         },
     };
 };
@@ -995,6 +1003,32 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
         },
         .var_decl => return renderVar(c, node),
+        .arg_redecl, .alias => {
+            const payload = @fieldParentPtr(Payload.ArgRedecl, "base", node.ptr_otherwise).data;
+            if (node.tag() == .alias) _ = try c.addToken(.keyword_pub, "pub");
+            const mut_tok = if (node.tag() == .alias)
+                try c.addToken(.keyword_const, "const")
+            else
+                try c.addToken(.keyword_var, "var");
+            _ = try c.addIdentifier(payload.actual);
+            _ = try c.addToken(.equal, "=");
+
+            const init = try c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addIdentifier(payload.mangled),
+                .data = undefined,
+            });
+            _ = try c.addToken(.semicolon, ";");
+
+            return c.addNode(.{
+                .tag = .simple_var_decl,
+                .main_token = mut_tok,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = init,
+                },
+            });
+        },
         .int_cast => {
             const payload = node.castTag(.int_cast).?.data;
             return renderBuiltinCall(c, "@intCast", &.{ payload.lhs, payload.rhs });
@@ -1339,7 +1373,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             _ = try c.addToken(.l_paren, "(");
             const cond = try c.addNode(.{
                 .tag = .bool_not,
-                .main_token = try c.addToken(.bang,  "!"),
+                .main_token = try c.addToken(.bang, "!"),
                 .data = .{
                     .lhs = try renderNodeGrouped(c, payload),
                     .rhs = undefined,
@@ -1430,7 +1464,77 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
-        else => return c.addNode(.{
+        .array_access => {
+            const payload = node.castTag(.array_access).?.data;
+            const lhs = try renderNode(c, payload.lhs);
+            const l_bracket = try c.addToken(.l_bracket, "[");
+            const index_expr = try renderNode(c, payload.rhs);
+            _ = try c.addToken(.r_bracket, "]");
+            return c.addNode(.{
+                .tag = .array_access,
+                .main_token = l_bracket,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = index_expr,
+                },
+            });
+        },
+        .array_type => {
+            const payload = node.castTag(.array_type).?.data;
+            return renderArrayType(c, payload.len, payload.elem_type);
+        },
+        .array_filler => {
+            const payload = node.castTag(.array_filler).?.data;
+
+            const type_expr = try renderArrayType(c, 1, payload.type);
+            const l_brace = try c.addToken(.l_brace, "{");
+            const val = try renderNode(c, payload.filler);
+            _ = try c.addToken(.r_brace, "}");
+
+            const init = try c.addNode(.{
+                .tag = .array_init_one,
+                .main_token = l_brace,
+                .data = .{
+                    .lhs = type_expr,
+                    .rhs = val,
+                },
+            });
+            return c.addNode(.{
+                .tag = .array_cat,
+                .main_token = try c.addToken(.asterisk_asterisk, "**"),
+                .data = .{
+                    .lhs = init,
+                    .rhs = try c.addNode(.{
+                        .tag = .integer_literal,
+                        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{payload.count}),
+                        .data = .{ .lhs = undefined, .rhs = undefined },
+                    }),
+                },
+            });
+        },
+        .empty_array => {
+            const payload = node.castTag(.empty_array).?.data;
+
+            const type_expr = try renderArrayType(c, 0, payload);
+            return renderArrayInit(c, 0, &.{});
+        },
+        .array_init => {
+            const payload = node.castTag(.array_init).?.data;
+            const type_expr = try renderNode(c, payload.cond);
+            return renderArrayInit(c, type_expr, payload.cases);
+        },
+        .field_access => {
+            const payload = node.castTag(.field_access).?.data;
+            const lhs = try renderNode(c, payload.lhs);
+            return renderFieldAccess(c, lhs, payload.field_name);
+        },
+        .tuple,
+        .@"enum",
+        .@"struct",
+        .@"union",
+        .container_init,
+        .enum_redecl,
+        => return c.addNode(.{
             .tag = .identifier,
             .main_token = try c.addTokenFmt(.identifier, "@\"TODO {}\"", .{node.tag()}),
             .data = .{
@@ -1441,10 +1545,88 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
     }
 }
 
+fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeIndex {
+    return c.addNode(.{
+        .tag = .field_access,
+        .main_token = try c.addToken(.period, "."),
+        .data = .{
+            .lhs = lhs,
+            .rhs = try c.addIdentifier(field_name),
+        },
+    });
+}
+
+fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex {
+    const l_brace = try c.addToken(.l_brace, "{");
+    const res = switch (inits.len) {
+        0 => try c.addNode(.{
+            .tag = .struct_init_one,
+            .main_token = l_brace,
+            .data = .{
+                .lhs = lhs,
+                .rhs = 0,
+            },
+        }),
+        1 => blk: {
+            const init = try renderNode(c, inits[0]);
+            break :blk try c.addNode(.{
+                .tag = .array_init_one,
+                .main_token = l_brace,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = init,
+                },
+            });
+        },
+        else => blk: {
+            var rendered = try c.gpa.alloc(NodeIndex, inits.len);
+            defer c.gpa.free(rendered);
+
+            for (inits) |init, i| {
+                if (i != 0) _ = try c.addToken(.comma, ",");
+                rendered[i] = try renderNode(c, init);
+            }
+            const span = try c.listToSpan(rendered);
+            break :blk try c.addNode(.{
+                .tag = .array_init,
+                .main_token = l_brace,
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = try c.addExtra(NodeSubRange{
+                        .start = span.start,
+                        .end = span.end,
+                    }),
+                },
+            });
+        },
+    };
+    _ = try c.addToken(.r_brace, "}");
+    return res;
+}
+
+fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
+    const l_bracket = try c.addToken(.l_bracket, "[");
+    const len_expr = try c.addNode(.{
+        .tag = .integer_literal,
+        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{len}),
+        .data = .{ .lhs = undefined, .rhs = undefined },
+    });
+    _ = try c.addToken(.r_bracket, "]");
+    const elem_type_expr = try renderNode(c, elem_type);
+    return c.addNode(.{
+        .tag = .array_type,
+        .main_token = l_bracket,
+        .data = .{
+            .lhs = len_expr,
+            .rhs = elem_type_expr,
+        },
+    });
+}
+
 fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
     switch (node.tag()) {
         .warning => unreachable,
-        .var_decl, .var_simple, .block, .empty_block, .@"switch" => {},
+        .var_decl, .var_simple, .arg_redecl, .alias, .enum_redecl, .block, .empty_block, .@"switch" => {},
         .while_true => {
             const payload = node.castTag(.while_true).?.data;
             return addSemicolonIfNeeded(c, payload);
@@ -1517,6 +1699,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .negate,
         .negate_wrap,
         .bit_not,
+        .func,
         => {
             // no grouping needed
             return renderNode(c, node);
@@ -1572,7 +1755,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .switch_prong,
         .warning,
         .var_decl,
-        .func,
         .fail_decl,
         .arg_redecl,
         .alias,
@@ -1658,22 +1840,8 @@ fn renderStdImport(c: *Context, first: []const u8, second: []const u8) !NodeInde
     });
 
     var access_chain = import_node;
-    access_chain = try c.addNode(.{
-        .tag = .field_access,
-        .main_token = try c.addToken(.period, "."),
-        .data = .{
-            .lhs = access_chain,
-            .rhs = try c.addIdentifier(first),
-        },
-    });
-    access_chain = try c.addNode(.{
-        .tag = .field_access,
-        .main_token = try c.addToken(.period, "."),
-        .data = .{
-            .lhs = access_chain,
-            .rhs = try c.addIdentifier(second),
-        },
-    });
+    access_chain = try renderFieldAccess(c, access_chain, first);
+    access_chain = try renderFieldAccess(c, access_chain, second);
     return access_chain;
 }
 
@@ -1974,10 +2142,10 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
 
     const body = if (payload.body) |some|
         try renderNode(c, some)
-    else blk: {
+    else if (payload.is_extern) blk: {
         _ = try c.addToken(.semicolon, ";");
         break :blk 0;
-    };
+    } else return fn_proto;
 
     return c.addNode(.{
         .tag = .fn_decl,

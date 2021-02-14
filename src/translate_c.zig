@@ -1689,7 +1689,10 @@ fn transStringLiteralAsArray(
         init_list[i] = try transCreateNodeNumber(c, 0, .int);
     }
 
-    return Tag.array_init.create(c.arena, init_list);
+    return Tag.array_init.create(c.arena, .{
+        .cond = arr_type,
+        .cases = init_list,
+    });
 }
 
 fn cIsEnum(qt: clang.QualType) bool {
@@ -1880,6 +1883,7 @@ fn transInitListExprArray(
 ) TransError!Node {
     const arr_type = ty.getAsArrayTypeUnsafe();
     const child_qt = arr_type.getElementType();
+    const child_type = try transQualType(c, child_qt, loc);
     const init_count = expr.getNumInits();
     assert(@ptrCast(*const clang.Type, arr_type).isConstantArrayType());
     const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, arr_type);
@@ -1888,18 +1892,20 @@ fn transInitListExprArray(
     const leftover_count = all_count - init_count;
 
     if (all_count == 0) {
-        return Tag.empty_array.create(c.arena, try transQualType(c, child_qt, loc));
+        return Tag.empty_array.create(c.arena, child_type);
     }
 
-    const ty_node = try transType(c, ty, loc);
     const init_node = if (init_count != 0) blk: {
         const init_list = try c.arena.alloc(Node, init_count);
 
         for (init_list) |*init, i| {
             const elem_expr = expr.getInit(@intCast(c_uint, i));
-            init.* = try transExpr(c, scope, elem_expr, .used);
+            init.* = try transExprCoercing(c, scope, elem_expr, .used);
         }
-        const init_node = try Tag.array_init.create(c.arena, init_list);
+        const init_node = try Tag.array_init.create(c.arena, .{
+            .cond = try Tag.array_type.create(c.arena, .{ .len = init_count, .elem_type = child_type }),
+            .cases = init_list,
+        });
         if (leftover_count == 0) {
             return init_node;
         }
@@ -1908,8 +1914,8 @@ fn transInitListExprArray(
 
     const filler_val_expr = expr.getArrayFiller();
     const filler_node = try Tag.array_filler.create(c.arena, .{
-        .type = ty_node,
-        .filler = try transExpr(c, scope, filler_val_expr, .used),
+        .type = child_type,
+        .filler = try transExprCoercing(c, scope, filler_val_expr, .used),
         .count = leftover_count,
     });
 
@@ -2422,9 +2428,7 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
         const decl = @ptrCast(*const clang.NamedDecl, member_decl);
         break :blk try c.str(decl.getName_bytes_begin());
     };
-    const ident = try Tag.identifier.create(c.arena, name);
-
-    const node = try Tag.field_access.create(c.arena, .{ .lhs = container_node, .rhs = ident });
+    const node = try Tag.field_access.create(c.arena, .{ .lhs = container_node, .field_name = name });
     return maybeSuppressResult(c, scope, result_used, node);
 }
 
@@ -2698,14 +2702,14 @@ fn transCreatePreCrement(
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(c, "ref");
 
-    const expr = try transExpr(c, scope, op_expr, .used);
+    const expr = try transExpr(c, &block_scope.base, op_expr, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
     const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
 
     const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
-    const node = try transCreateNodeInfixOp(c, scope, op, ref_node, Tag.one_literal.init(), .used);
+    const node = try transCreateNodeInfixOp(c, &block_scope.base, op, ref_node, Tag.one_literal.init(), .used);
     try block_scope.statements.append(node);
 
     const break_node = try Tag.break_val.create(c.arena, .{
@@ -2745,7 +2749,7 @@ fn transCreatePostCrement(
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(c, "ref");
 
-    const expr = try transExpr(c, scope, op_expr, .used);
+    const expr = try transExpr(c, &block_scope.base, op_expr, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
     const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
@@ -2757,7 +2761,7 @@ fn transCreatePostCrement(
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = ref_node });
     try block_scope.statements.append(tmp_decl);
 
-    const node = try transCreateNodeInfixOp(c, scope, op, ref_node, Tag.one_literal.init(), .used);
+    const node = try transCreateNodeInfixOp(c, &block_scope.base, op, ref_node, Tag.one_literal.init(), .used);
     try block_scope.statements.append(node);
 
     const break_node = try Tag.break_val.create(c.arena, .{
@@ -2864,7 +2868,7 @@ fn transCreateCompoundAssign(
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(c, "ref");
 
-    const expr = try transExpr(c, scope, lhs, .used);
+    const expr = try transExpr(c, &block_scope.base, lhs, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
     const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
@@ -2873,16 +2877,16 @@ fn transCreateCompoundAssign(
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
     if ((is_mod or is_div) and is_signed) {
-        const rhs_node = try transExpr(c, scope, rhs, .used);
+        const rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
         const builtin = if (is_mod)
             try Tag.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
         else
             try Tag.div_trunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
 
-        const assign = try transCreateNodeInfixOp(c, scope, .assign, lhs_node, builtin, .used);
+        const assign = try transCreateNodeInfixOp(c, &block_scope.base, .assign, lhs_node, builtin, .used);
         try block_scope.statements.append(assign);
     } else {
-        var rhs_node = try transExpr(c, scope, rhs, .used);
+        var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
 
         if (is_shift or requires_int_cast) {
             // @intCast(rhs)
@@ -2894,7 +2898,7 @@ fn transCreateCompoundAssign(
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
         }
 
-        const assign = try transCreateNodeInfixOp(c, scope, op, ref_node, rhs_node, .used);
+        const assign = try transCreateNodeInfixOp(c, &block_scope.base, op, ref_node, rhs_node, .used);
         try block_scope.statements.append(assign);
     }
 
@@ -3395,7 +3399,7 @@ fn transCreateNodeAssign(
     defer block_scope.deinit();
 
     const tmp = try block_scope.makeMangledName(c, "tmp");
-    const rhs_node = try transExpr(c, scope, rhs, .used);
+    const rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
     try block_scope.statements.append(tmp_decl);
 
@@ -4756,8 +4760,7 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                     return error.ParseError;
                 }
 
-                const ident = try Tag.identifier.create(c.arena, m.slice());
-                node = try Tag.field_access.create(c.arena, .{ .lhs = node, .rhs = ident });
+                node = try Tag.field_access.create(c.arena, .{ .lhs = node, .field_name = m.slice() });
             },
             .Arrow => {
                 if (m.next().? != .Identifier) {
@@ -4766,8 +4769,7 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 }
 
                 const deref = try Tag.deref.create(c.arena, node);
-                const ident = try Tag.identifier.create(c.arena, m.slice());
-                node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .rhs = ident });
+                node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .field_name = m.slice() });
             },
             .LBracket => {
                 const index = try macroBoolToInt(c, try parseCExpr(c, m, scope));
@@ -4914,13 +4916,12 @@ fn getContainer(c: *Context, node: Node) ?Node {
         },
 
         .field_access => {
-            const infix = node.castTag(.field_access).?;
+            const field_access = node.castTag(.field_access).?;
 
-            if (getContainerTypeOf(c, infix.data.lhs)) |ty_node| {
+            if (getContainerTypeOf(c, field_access.data.lhs)) |ty_node| {
                 if (ty_node.castTag(.@"struct") orelse ty_node.castTag(.@"union")) |container| {
                     for (container.data.fields) |field| {
-                        const ident = infix.data.rhs.castTag(.identifier).?;
-                        if (mem.eql(u8, field.name, ident.data)) {
+                        if (mem.eql(u8, field.name, field_access.data.field_name)) {
                             return getContainer(c, field.type);
                         }
                     }
@@ -4940,12 +4941,11 @@ fn getContainerTypeOf(c: *Context, ref: Node) ?Node {
                 return getContainer(c, var_decl.data.type);
             }
         }
-    } else if (ref.castTag(.field_access)) |infix| {
-        if (getContainerTypeOf(c, infix.data.lhs)) |ty_node| {
+    } else if (ref.castTag(.field_access)) |field_access| {
+        if (getContainerTypeOf(c, field_access.data.lhs)) |ty_node| {
             if (ty_node.castTag(.@"struct") orelse ty_node.castTag(.@"union")) |container| {
                 for (container.data.fields) |field| {
-                    const ident = infix.data.rhs.castTag(.identifier).?;
-                    if (mem.eql(u8, field.name, ident.data)) {
+                    if (mem.eql(u8, field.name, field_access.data.field_name)) {
                         return getContainer(c, field.type);
                     }
                 }
