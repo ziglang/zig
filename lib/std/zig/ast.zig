@@ -283,6 +283,7 @@ pub const Tree = struct {
             .undefined_literal,
             .unreachable_literal,
             .string_literal,
+            .multiline_string_literal,
             .grouped_expression,
             .builtin_call_two,
             .builtin_call_two_comma,
@@ -593,7 +594,7 @@ pub const Tree = struct {
             .field_access,
             .unwrap_optional,
             .grouped_expression,
-            .string_literal,
+            .multiline_string_literal,
             .error_set_decl,
             .asm_simple,
             .asm_output,
@@ -614,6 +615,7 @@ pub const Tree = struct {
             .identifier,
             .deref,
             .enum_literal,
+            .string_literal,
             => return main_tokens[n] + end_offset,
 
             .@"return" => if (datas[n].lhs != 0) {
@@ -2826,11 +2828,14 @@ pub const Node = struct {
         identifier,
         /// lhs is the dot token index, rhs unused, main_token is the identifier.
         enum_literal,
+        /// main_token is the string literal token
+        /// Both lhs and rhs unused.
+        string_literal,
         /// main_token is the first token index (redundant with lhs)
         /// lhs is the first token index; rhs is the last token index.
         /// Could be a series of multiline_string_literal_line tokens, or a single
         /// string_literal token.
-        string_literal,
+        multiline_string_literal,
         /// `(lhs)`. main_token is the `(`; rhs is the token index of the `)`.
         grouped_expression,
         /// `@a(lhs, rhs)`. lhs and rhs may be omitted.

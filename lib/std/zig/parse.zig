@@ -2595,8 +2595,8 @@ const Parser = struct {
                     .tag = .string_literal,
                     .main_token = main_token,
                     .data = .{
-                        .lhs = main_token,
-                        .rhs = main_token,
+                        .lhs = undefined,
+                        .rhs = undefined,
                     },
                 });
             },
@@ -2633,7 +2633,7 @@ const Parser = struct {
                     p.tok_i += 1;
                 }
                 return p.addNode(.{
-                    .tag = .string_literal,
+                    .tag = .multiline_string_literal,
                     .main_token = first_line,
                     .data = .{
                         .lhs = first_line,
@@ -3996,8 +3996,8 @@ const Parser = struct {
                     .tag = .string_literal,
                     .main_token = main_token,
                     .data = .{
-                        .lhs = main_token,
-                        .rhs = main_token,
+                        .lhs = undefined,
+                        .rhs = undefined,
                     },
                 });
             },
@@ -4007,7 +4007,7 @@ const Parser = struct {
                     p.tok_i += 1;
                 }
                 return p.addNode(.{
-                    .tag = .string_literal,
+                    .tag = .multiline_string_literal,
                     .main_token = first_line,
                     .data = .{
                         .lhs = first_line,

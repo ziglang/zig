@@ -153,29 +153,25 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         .unreachable_literal,
         .undefined_literal,
         .anyframe_literal,
+        .string_literal,
         => return renderToken(ais, tree, main_tokens[node], space),
 
-        .string_literal => switch (token_tags[main_tokens[node]]) {
-            .string_literal => try renderToken(ais, tree, main_tokens[node], space),
+        .multiline_string_literal => {
+            var locked_indents = ais.lockOneShotIndent();
+            try ais.maybeInsertNewline();
 
-            .multiline_string_literal_line => {
-                var locked_indents = ais.lockOneShotIndent();
-                try ais.maybeInsertNewline();
+            var i = datas[node].lhs;
+            while (i <= datas[node].rhs) : (i += 1) try renderToken(ais, tree, i, .newline);
 
-                var i = datas[node].lhs;
-                while (i <= datas[node].rhs) : (i += 1) try renderToken(ais, tree, i, .newline);
+            while (locked_indents > 0) : (locked_indents -= 1) ais.popIndent();
 
-                while (locked_indents > 0) : (locked_indents -= 1) ais.popIndent();
-
-                switch (space) {
-                    .none => {},
-                    .semicolon => if (token_tags[i] == .semicolon) try renderToken(ais, tree, i, .newline),
-                    .comma => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .newline),
-                    .comma_space => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .space),
-                    else => unreachable,
-                }
-            },
-            else => unreachable,
+            switch (space) {
+                .none => {},
+                .semicolon => if (token_tags[i] == .semicolon) try renderToken(ais, tree, i, .newline),
+                .comma => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .newline),
+                .comma_space => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .space),
+                else => unreachable,
+            }
         },
 
         .error_value => {
@@ -1850,8 +1846,7 @@ fn renderCall(
                 try renderExpression(ais, tree, param_node, Space.none);
 
                 // Unindent the comma for multiline string literals
-                const is_multiline_string = node_tags[param_node] == .string_literal and
-                    token_tags[main_tokens[param_node]] == .multiline_string_literal_line;
+                const is_multiline_string = node_tags[param_node] == .multiline_string_literal;
                 if (is_multiline_string) ais.popIndent();
 
                 const comma = tree.lastToken(param_node) + 1;
