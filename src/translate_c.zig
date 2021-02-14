@@ -36,6 +36,7 @@ const Scope = struct {
         root,
         condition,
         loop,
+        do_loop,
     };
 
     /// Represents an in-progress Node.Switch. This struct is stack-allocated.
@@ -103,15 +104,22 @@ const Scope = struct {
         }
 
         fn complete(self: *Block, c: *Context) !Node {
-            // We reserve 1 extra statement if the parent is a Loop. This is in case of
-            // do while, we want to put `if (cond) break;` at the end.
-            const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .loop);
-            var stmts = try c.arena.alloc(Node, alloc_len);
-            stmts.len = self.statements.items.len;
-            mem.copy(Node, stmts, self.statements.items);
+            if (self.base.parent.?.id == .do_loop) {
+                // We reserve 1 extra statement if the parent is a do_loop. This is in case of
+                // do while, we want to put `if (cond) break;` at the end.
+                const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .do_loop);
+                var stmts = try c.arena.alloc(Node, alloc_len);
+                stmts.len = self.statements.items.len;
+                mem.copy(Node, stmts, self.statements.items);
+                return Tag.block.create(c.arena, .{
+                    .label = self.label,
+                    .stmts = stmts,
+                });
+            }
+            if (self.statements.items.len == 0) return Tag.empty_block.init();
             return Tag.block.create(c.arena, .{
                 .label = self.label,
-                .stmts = stmts,
+                .stmts = try c.arena.dupe(Node, self.statements.items),
             });
         }
 
@@ -222,7 +230,7 @@ const Scope = struct {
         return switch (scope.id) {
             .root => return name,
             .block => @fieldParentPtr(Block, "base", scope).getAlias(name),
-            .@"switch", .loop, .condition => scope.parent.?.getAlias(name),
+            .@"switch", .loop, .do_loop, .condition => scope.parent.?.getAlias(name),
         };
     }
 
@@ -230,7 +238,7 @@ const Scope = struct {
         return switch (scope.id) {
             .root => @fieldParentPtr(Root, "base", scope).contains(name),
             .block => @fieldParentPtr(Block, "base", scope).contains(name),
-            .@"switch", .loop, .condition => scope.parent.?.contains(name),
+            .@"switch", .loop, .do_loop, .condition => scope.parent.?.contains(name),
         };
     }
 
@@ -240,7 +248,7 @@ const Scope = struct {
             switch (scope.id) {
                 .root => unreachable,
                 .@"switch" => return scope,
-                .loop => return scope,
+                .loop, .do_loop => return scope,
                 else => scope = scope.parent.?,
             }
         }
@@ -2063,7 +2071,7 @@ fn transDoWhileLoop(
 ) TransError!Node {
     var loop_scope = Scope{
         .parent = scope,
-        .id = .loop,
+        .id = .do_loop,
     };
 
     // if (!cond) break;
@@ -2075,7 +2083,14 @@ fn transDoWhileLoop(
     };
     defer cond_scope.deinit();
     const cond = try transBoolExpr(c, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used);
-    const if_not_break = try Tag.if_not_break.create(c.arena, cond);
+    const if_not_break = switch (cond.tag()) {
+        .false_literal => try Tag.@"break".create(c.arena, null),
+        .true_literal => {
+            const body_node = try transStmt(c, scope, stmt.getBody(), .unused);
+            return Tag.while_true.create(c.arena, body_node);
+        },
+        else => try Tag.if_not_break.create(c.arena, cond),
+    };
 
     const body_node = if (stmt.getBody().getStmtClass() == .CompoundStmtClass) blk: {
         // there's already a block in C, so we'll append our condition to it.
@@ -4099,7 +4114,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         const br = blk_last.castTag(.break_val).?;
         break :blk br.data.val;
     } else expr;
-    const return_type = if (typeof_arg.castTag(.std_meta_cast)) |some| 
+    const return_type = if (typeof_arg.castTag(.std_meta_cast)) |some|
         some.data.lhs
     else
         try Tag.typeof.create(c.arena, typeof_arg);

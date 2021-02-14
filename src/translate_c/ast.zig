@@ -848,8 +848,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 break :blk try c.addIdentifier(some);
             } else 0;
             return c.addNode(.{
-                .tag = .identifier,
-                .main_token = try c.addToken(.keyword_break, "break"),
+                .tag = .@"break",
+                .main_token = tok,
                 .data = .{
                     .lhs = break_label,
                     .rhs = 0,
@@ -864,8 +864,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 break :blk try c.addIdentifier(some);
             } else 0;
             return c.addNode(.{
-                .tag = .identifier,
-                .main_token = try c.addToken(.keyword_break, "break"),
+                .tag = .@"break",
+                .main_token = tok,
                 .data = .{
                     .lhs = break_label,
                     .rhs = try renderNode(c, payload.val),
@@ -1183,7 +1183,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const l_brace = try c.addToken(.l_brace, "{");
 
             const stmt = try renderNode(c, payload);
-            _ = try c.addToken(.semicolon, ";");
+            try addSemicolonIfNeeded(c, payload);
 
             _ = try c.addToken(.r_brace, "}");
             return c.addNode(.{
@@ -1207,11 +1207,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             defer stmts.deinit();
             for (payload.stmts) |stmt| {
                 const res = try renderNode(c, stmt);
-                switch (stmt.tag()) {
-                    .warning => continue,
-                    .var_decl, .var_simple => {},
-                    else => _ = try c.addToken(.semicolon, ";"),
-                }
+                if (res == 0) continue;
+                try addSemicolonIfNeeded(c, stmt);
                 try stmts.append(res);
             }
             const span = try c.listToSpan(stmts.items);
@@ -1245,6 +1242,194 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
+        .@"while" => {
+            const payload = node.castTag(.@"while").?.data;
+            const while_tok = try c.addToken(.keyword_while, "while");
+            _ = try c.addToken(.l_paren, "(");
+            const cond = try renderNode(c, payload.cond);
+            _ = try c.addToken(.r_paren, ")");
+
+            const cont_expr = if (payload.cont_expr) |some| blk: {
+                _ = try c.addToken(.colon, ":");
+                _ = try c.addToken(.l_paren, "(");
+                const res = try renderNode(c, some);
+                _ = try c.addToken(.r_paren, ")");
+                break :blk res;
+            } else 0;
+            const body = try renderNode(c, payload.body);
+
+            if (cont_expr == 0) {
+                return c.addNode(.{
+                    .tag = .while_simple,
+                    .main_token = while_tok,
+                    .data = .{
+                        .lhs = cond,
+                        .rhs = body,
+                    },
+                });
+            } else {
+                return c.addNode(.{
+                    .tag = .while_cont,
+                    .main_token = while_tok,
+                    .data = .{
+                        .lhs = cond,
+                        .rhs = try c.addExtra(std.zig.ast.Node.WhileCont{
+                            .cont_expr = cont_expr,
+                            .then_expr = body,
+                        }),
+                    },
+                });
+            }
+        },
+        .while_true => {
+            const payload = node.castTag(.while_true).?.data;
+            const while_tok = try c.addToken(.keyword_while, "while");
+            _ = try c.addToken(.l_paren, "(");
+            const cond = try c.addNode(.{
+                .tag = .true_literal,
+                .main_token = try c.addToken(.keyword_true, "true"),
+                .data = undefined,
+            });
+            _ = try c.addToken(.r_paren, ")");
+            const body = try renderNode(c, payload);
+
+            return c.addNode(.{
+                .tag = .while_simple,
+                .main_token = while_tok,
+                .data = .{
+                    .lhs = cond,
+                    .rhs = body,
+                },
+            });
+        },
+        .@"if" => {
+            const payload = node.castTag(.@"if").?.data;
+            const if_tok = try c.addToken(.keyword_if, "if");
+            _ = try c.addToken(.l_paren, "(");
+            const cond = try renderNode(c, payload.cond);
+            _ = try c.addToken(.r_paren, ")");
+
+            const then_expr = try renderNode(c, payload.then);
+            const else_node = payload.@"else" orelse return c.addNode(.{
+                .tag = .if_simple,
+                .main_token = if_tok,
+                .data = .{
+                    .lhs = cond,
+                    .rhs = then_expr,
+                },
+            });
+            _ = try c.addToken(.keyword_else, "else");
+            const else_expr = try renderNode(c, else_node);
+
+            return c.addNode(.{
+                .tag = .@"if",
+                .main_token = if_tok,
+                .data = .{
+                    .lhs = cond,
+                    .rhs = try c.addExtra(std.zig.ast.Node.If{
+                        .then_expr = then_expr,
+                        .else_expr = else_expr,
+                    }),
+                },
+            });
+        },
+        .if_not_break => {
+            const payload = node.castTag(.if_not_break).?.data;
+            const if_tok = try c.addToken(.keyword_if, "if");
+            _ = try c.addToken(.l_paren, "(");
+            const cond = try c.addNode(.{
+                .tag = .bool_not,
+                .main_token = try c.addToken(.bang,  "!"),
+                .data = .{
+                    .lhs = try renderNodeGrouped(c, payload),
+                    .rhs = undefined,
+                },
+            });
+            _ = try c.addToken(.r_paren, ")");
+            const then_expr = try c.addNode(.{
+                .tag = .@"break",
+                .main_token = try c.addToken(.keyword_break, "break"),
+                .data = .{
+                    .lhs = 0,
+                    .rhs = 0,
+                },
+            });
+
+            return c.addNode(.{
+                .tag = .if_simple,
+                .main_token = if_tok,
+                .data = .{
+                    .lhs = cond,
+                    .rhs = then_expr,
+                },
+            });
+        },
+        .@"switch" => {
+            const payload = node.castTag(.@"switch").?.data;
+            const switch_tok = try c.addToken(.keyword_switch, "switch");
+            _ = try c.addToken(.l_paren, "(");
+            const cond = try renderNode(c, payload.cond);
+            _ = try c.addToken(.r_paren, ")");
+
+            _ = try c.addToken(.l_brace, "{");
+            var cases = try c.gpa.alloc(NodeIndex, payload.cases.len);
+            defer c.gpa.free(cases);
+            for (payload.cases) |case, i| {
+                if (i != 0) _ = try c.addToken(.comma, ",");
+                cases[i] = try renderNode(c, case);
+            }
+            const span = try c.listToSpan(cases);
+            _ = try c.addToken(.r_brace, "}");
+            return c.addNode(.{
+                .tag = .@"switch",
+                .main_token = switch_tok,
+                .data = .{
+                    .lhs = cond,
+                    .rhs = try c.addExtra(NodeSubRange{
+                        .start = span.start,
+                        .end = span.end,
+                    }),
+                },
+            });
+        },
+        .switch_else => {
+            const payload = node.castTag(.switch_else).?.data;
+            _ = try c.addToken(.keyword_else, "else");
+            return c.addNode(.{
+                .tag = .switch_case_one,
+                .main_token = try c.addToken(.equal_angle_bracket_right, "=>"),
+                .data = .{
+                    .lhs = 0,
+                    .rhs = try renderNode(c, payload),
+                },
+            });
+        },
+        .switch_prong => {
+            const payload = node.castTag(.switch_prong).?.data;
+            const item = try renderNode(c, payload.lhs);
+            return c.addNode(.{
+                .tag = .switch_case_one,
+                .main_token = try c.addToken(.equal_angle_bracket_right, "=>"),
+                .data = .{
+                    .lhs = item,
+                    .rhs = try renderNode(c, payload.rhs),
+                },
+            });
+        },
+        .opaque_literal => {
+            const opaque_tok = try c.addToken(.keyword_opaque, "opaque");
+            _ = try c.addToken(.l_brace, "{");
+            _ = try c.addToken(.r_brace, "}");
+
+            return c.addNode(.{
+                .tag = .container_decl_two,
+                .main_token = opaque_tok,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = 0,
+                },
+            });
+        },
         else => return c.addNode(.{
             .tag = .identifier,
             .main_token = try c.addTokenFmt(.identifier, "@\"TODO {}\"", .{node.tag()}),
@@ -1253,6 +1438,28 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .rhs = undefined,
             },
         }),
+    }
+}
+
+fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
+    switch (node.tag()) {
+        .warning => unreachable,
+        .var_decl, .var_simple, .block, .empty_block, .@"switch" => {},
+        .while_true => {
+            const payload = node.castTag(.while_true).?.data;
+            return addSemicolonIfNeeded(c, payload);
+        },
+        .@"while" => {
+            const payload = node.castTag(.@"while").?.data;
+            return addSemicolonIfNeeded(c, payload.body);
+        },
+        .@"if" => {
+            const payload = node.castTag(.@"if").?.data;
+            if (payload.@"else") |some|
+                return addSemicolonIfNeeded(c, some);
+            return addSemicolonIfNeeded(c, payload.then);
+        },
+        else => _ = try c.addToken(.semicolon, ";"),
     }
 }
 
@@ -1303,19 +1510,19 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .optional_type,
         .c_pointer,
         .single_pointer,
+        .unwrap,
+        .deref,
+        .address_of,
+        .not,
+        .negate,
+        .negate_wrap,
+        .bit_not,
         => {
             // no grouping needed
             return renderNode(c, node);
         },
 
-        .negate,
-        .negate_wrap,
-        .bit_not,
         .opaque_literal,
-        .not,
-        .address_of,
-        .unwrap,
-        .deref,
         .empty_array,
         .block_single,
         .bool_to_int,
@@ -1407,13 +1614,11 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
 
 fn renderPrefixOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
     const payload = @fieldParentPtr(Payload.UnOp, "base", node.ptr_otherwise).data;
-    const tok = try c.addToken(tok_tag, bytes);
-    const operand = try renderNodeGrouped(c, payload);
     return c.addNode(.{
         .tag = tag,
-        .main_token = tok,
+        .main_token = try c.addToken(tok_tag, bytes),
         .data = .{
-            .lhs = operand,
+            .lhs = try renderNodeGrouped(c, payload),
             .rhs = undefined,
         },
     });
@@ -1508,7 +1713,7 @@ fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
                 .main_token = lparen,
                 .data = .{
                     .lhs = lhs,
-                    .rhs = try c.addExtra(std.zig.ast.Node.SubRange{
+                    .rhs = try c.addExtra(NodeSubRange{
                         .start = span.start,
                         .end = span.end,
                     }),
@@ -1728,7 +1933,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                     .tag = .fn_proto_multi,
                     .main_token = fn_token,
                     .data = .{
-                        .lhs = try c.addExtra(std.zig.ast.Node.SubRange{
+                        .lhs = try c.addExtra(NodeSubRange{
                             .start = span.start,
                             .end = span.end,
                         }),
