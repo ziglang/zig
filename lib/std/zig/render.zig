@@ -1250,7 +1250,7 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.full.FnProto, space: S
     const rparen = blk: {
         // These may appear in any order, so we have to check the token_starts array
         // to find out which is first.
-        var rparen: ast.TokenIndex = maybe_bang;
+        var rparen = if (token_tags[maybe_bang] == .bang) maybe_bang - 1 else maybe_bang;
         var smallest_start = token_starts[maybe_bang];
         if (fn_proto.ast.align_expr != 0) {
             const tok = tree.firstToken(fn_proto.ast.align_expr) - 3;

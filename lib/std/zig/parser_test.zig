@@ -442,23 +442,23 @@ test "zig fmt: array types last token" {
     );
 }
 
-//test "zig fmt: sentinel-terminated array type" {
-//    try testCanonical(
-//        \\pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
-//        \\    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: sentinel-terminated slice type" {
-//    try testCanonical(
-//        \\pub fn toSlice(self: Buffer) [:0]u8 {
-//        \\    return self.list.toSlice()[0..self.len()];
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: sentinel-terminated array type" {
+    try testCanonical(
+        \\pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
+        \\    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: sentinel-terminated slice type" {
+    try testCanonical(
+        \\pub fn toSlice(self: Buffer) [:0]u8 {
+        \\    return self.list.toSlice()[0..self.len()];
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: pointer-to-one with modifiers" {
     try testCanonical(
@@ -2669,28 +2669,28 @@ test "zig fmt: call expression" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: functions" {
-//    try testCanonical(
-//        \\extern fn puts(s: *const u8) c_int;
-//        \\extern "c" fn puts(s: *const u8) c_int;
-//        \\export fn puts(s: *const u8) c_int;
-//        \\fn puts(s: *const u8) callconv(.Inline) c_int;
-//        \\noinline fn puts(s: *const u8) c_int;
-//        \\pub extern fn puts(s: *const u8) c_int;
-//        \\pub extern "c" fn puts(s: *const u8) c_int;
-//        \\pub export fn puts(s: *const u8) c_int;
-//        \\pub fn puts(s: *const u8) callconv(.Inline) c_int;
-//        \\pub noinline fn puts(s: *const u8) c_int;
-//        \\pub extern fn puts(s: *const u8) align(2 + 2) c_int;
-//        \\pub extern "c" fn puts(s: *const u8) align(2 + 2) c_int;
-//        \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
-//        \\pub fn puts(s: *const u8) align(2 + 2) callconv(.Inline) c_int;
-//        \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: functions" {
+    try testCanonical(
+        \\extern fn puts(s: *const u8) c_int;
+        \\extern "c" fn puts(s: *const u8) c_int;
+        \\export fn puts(s: *const u8) c_int;
+        \\fn puts(s: *const u8) callconv(.Inline) c_int;
+        \\noinline fn puts(s: *const u8) c_int;
+        \\pub extern fn puts(s: *const u8) c_int;
+        \\pub extern "c" fn puts(s: *const u8) c_int;
+        \\pub export fn puts(s: *const u8) c_int;
+        \\pub fn puts(s: *const u8) callconv(.Inline) c_int;
+        \\pub noinline fn puts(s: *const u8) c_int;
+        \\pub extern fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub extern "c" fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub fn puts(s: *const u8) align(2 + 2) callconv(.Inline) c_int;
+        \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
+        \\
+    );
+}
+
 //test "zig fmt: multiline string" {
 //    try testCanonical(
 //        \\test "" {
