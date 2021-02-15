@@ -1308,7 +1308,7 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.full.FnProto, space: S
                 .r_paren => break,
                 .comma => {
                     try renderToken(ais, tree, last_param_token, .space); // ,
-                    last_param_token += 1;
+                    continue;
                 },
                 else => {}, // Parameter type without a name.
             }

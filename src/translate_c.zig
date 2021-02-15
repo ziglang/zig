@@ -990,7 +990,10 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
             }));
         }
 
-        break :blk try Tag.@"enum".create(c.arena, try c.arena.dupe(ast.Payload.Enum.Field, fields.items));
+        break :blk try Tag.@"enum".create(c.arena, .{
+            .int_type = init_arg_expr,
+            .fields = try c.arena.dupe(ast.Payload.Enum.Field, fields.items),
+        });
     } else blk: {
         _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), {});
         break :blk Tag.opaque_literal.init();
@@ -1540,8 +1543,8 @@ fn finishBoolExpr(
             }
         },
         .Pointer => {
-            // node == null
-            return Tag.equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
+            // node != null
+            return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
         },
         .Typedef => {
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
@@ -1675,7 +1678,8 @@ fn transStringLiteralAsArray(
     const ty = expr_base.getType().getTypePtr();
     const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
 
-    const arr_type = try transQualType(c, const_arr_ty.getElementType(), expr_base.getBeginLoc());
+    const elem_type = try transQualType(c, const_arr_ty.getElementType(), expr_base.getBeginLoc());
+    const arr_type = try Tag.array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_type });
     const init_list = try c.arena.alloc(Node, array_size);
 
     var i: c_uint = 0;
@@ -2668,7 +2672,7 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
             return Tag.bit_not.create(c.arena, try transExpr(c, scope, op_expr, .used));
         },
         .LNot => {
-            return Tag.not.create(c.arena, try transExpr(c, scope, op_expr, .used));
+            return Tag.not.create(c.arena, try transBoolExpr(c, scope, op_expr, .used));
         },
         .Extension => {
             return transExpr(c, scope, stmt.getSubExpr(), used);
@@ -2969,8 +2973,15 @@ fn transBreak(c: *Context, scope: *Scope) TransError!Node {
 
 fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
     // TODO use something more accurate
-    const dbl = stmt.getValueAsApproximateDouble();
-    const node = try transCreateNodeNumber(c, dbl, .float);
+    var dbl = stmt.getValueAsApproximateDouble();
+    const is_negative = dbl < 0;
+    if (is_negative) dbl = -dbl;
+    const str = try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
+    var node = if (dbl == std.math.floor(dbl))
+        try Tag.integer_literal.create(c.arena, str)
+    else
+        try Tag.float_literal.create(c.arena, str);
+    if (is_negative) node = try Tag.negate.create(c.arena, node);
     return maybeSuppressResult(c, scope, used, node);
 }
 
@@ -3004,8 +3015,11 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
         },
     };
     defer cond_scope.deinit();
-    const cond_node = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
-    var then_body = try Tag.identifier.create(c.arena, mangled_name);
+
+    const cond_ident = try Tag.identifier.create(c.arena, mangled_name);
+    const ty = getExprQualType(c, cond_expr).getTypePtr();
+    const cond_node = try finishBoolExpr(c, &cond_scope.base, cond_expr.getBeginLoc(), ty, cond_ident, .used);
+    var then_body = cond_ident;
     if (!res_is_bool and isBoolRes(init_node)) {
         then_body = try Tag.bool_to_int.create(c.arena, then_body);
     }
@@ -3489,11 +3503,13 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
         else => @compileError("unimplemented"),
     }
 
-    const big: math.big.int.Const = .{ .limbs = limbs, .positive = !is_negative };
+    const big: math.big.int.Const = .{ .limbs = limbs, .positive = true };
     const str = big.toStringAlloc(c.arena, 10, false) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
-    return Tag.integer_literal.create(c.arena, str);
+    const res = try Tag.integer_literal.create(c.arena, str);
+    if (is_negative) return Tag.negate.create(c.arena, res);
+    return res;
 }
 
 fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
@@ -3567,7 +3583,7 @@ fn transCreateNodeShiftOp(
 
     const rhs_type = try qualTypeToLog2IntRef(c, stmt.getType(), rhs_location);
     const rhs = try transExprCoercing(c, scope, rhs_expr, .used);
-    const rhs_casted = try Tag.int_cast.create(c.arena, .{ .lhs = rhs_type, .rhs = rhs_type });
+    const rhs_casted = try Tag.int_cast.create(c.arena, .{ .lhs = rhs_type, .rhs = rhs });
 
     return transCreateNodeInfixOp(c, scope, op, lhs, rhs_casted, used);
 }
@@ -3622,7 +3638,8 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, child_qt, source_loc);
             if (typeIsOpaque(c, child_qt.getTypePtr(), source_loc) or qualTypeWasDemotedToOpaque(c, child_qt)) {
-                return Tag.single_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+                const ptr = try Tag.single_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+                return Tag.optional_type.create(c.arena, ptr);
             }
 
             return Tag.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
