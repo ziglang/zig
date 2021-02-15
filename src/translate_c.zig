@@ -1871,7 +1871,10 @@ fn transInitListExprRecord(
         });
     }
 
-    return Tag.container_init.create(c.arena, try c.arena.dupe(ast.Payload.ContainerInit.Initializer, field_inits.items));
+    return Tag.container_init.create(c.arena, .{
+        .lhs = ty_node,
+        .inits = try c.arena.dupe(ast.Payload.ContainerInit.Initializer, field_inits.items),
+    });
 }
 
 fn transInitListExprArray(

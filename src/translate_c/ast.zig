@@ -520,7 +520,10 @@ pub const Payload = struct {
 
     pub const ContainerInit = struct {
         base: Payload,
-        data: []Initializer,
+        data: struct {
+            lhs: Node,
+            inits: []Initializer,
+        },
 
         pub const Initializer = struct {
             name: []const u8,
@@ -1528,20 +1531,250 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const lhs = try renderNode(c, payload.lhs);
             return renderFieldAccess(c, lhs, payload.field_name);
         },
-        .tuple,
-        .@"enum",
-        .@"struct",
-        .@"union",
-        .container_init,
-        .enum_redecl,
-        => return c.addNode(.{
-            .tag = .identifier,
-            .main_token = try c.addTokenFmt(.identifier, "@\"TODO {}\"", .{node.tag()}),
+        .@"struct", .@"union" => return renderRecord(c, node),
+        .@"enum" => {
+            const payload = node.castTag(.@"enum").?.data;
+            const enum_tok = try c.addToken(.keyword_enum, "enum");
+
+            _ = try c.addToken(.l_brace, "{");
+            const members = try c.gpa.alloc(NodeIndex, std.math.max(payload.len + 1, 1));
+            defer c.gpa.free(members);
+            members[0] = 0;
+            members[1] = 0;
+
+            for (payload) |field, i| {
+                const name_tok = try c.addIdentifier(field.name);
+                const value_expr = if (field.value) |some| blk: {
+                    _ = try c.addToken(.equal, "=");
+                    break :blk try renderNode(c, some);
+                } else 0;
+
+                members[i] = try c.addNode(.{
+                    .tag = .container_field_init,
+                    .main_token = name_tok,
+                    .data = .{
+                        .lhs = 0,
+                        .rhs = value_expr,
+                    },
+                });
+                _ = try c.addToken(.comma, ",");
+            }
+            // make non-exhaustive
+            members[payload.len] = try c.addNode(.{
+                .tag = .container_field_init,
+                .main_token = try c.addIdentifier("_"),
+                .data = .{
+                    .lhs = 0,
+                    .rhs = 0,
+                },
+            });
+            _ = try c.addToken(.comma, ",");
+            _ = try c.addToken(.r_brace, "}");
+
+            if (members.len <= 2) {
+                return c.addNode(.{
+                    .tag = .container_decl_two_comma,
+                    .main_token = enum_tok,
+                    .data = .{
+                        .lhs = members[0],
+                        .rhs = members[1],
+                    },
+                });
+            } else {
+                const span = try c.listToSpan(members);
+                return c.addNode(.{
+                    .tag = .container_decl_comma,
+                    .main_token = enum_tok,
+                    .data = .{
+                        .lhs = span.start,
+                        .rhs = span.end,
+                    },
+                });
+            }
+        },
+        .enum_redecl => {
+            const payload = node.castTag(.enum_redecl).?.data;
+            _ = try c.addToken(.keyword_pub, "pub");
+            const const_tok = try c.addToken(.keyword_const, "const");
+            _ = try c.addIdentifier(payload.enum_val_name);
+            _ = try c.addToken(.equal, "=");
+
+            const enum_to_int_tok = try c.addToken(.builtin, "@enumToInt");
+            _ = try c.addToken(.l_paren, "(");
+            const enum_name = try c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addIdentifier(payload.enum_name),
+                .data = undefined,
+            });
+            const field_access = try renderFieldAccess(c, enum_name, payload.field_name);
+            const init_node = try c.addNode(.{
+                .tag = .builtin_call_two,
+                .main_token = enum_to_int_tok,
+                .data = .{
+                    .lhs = field_access,
+                    .rhs = 0,
+                },
+            });
+            _ = try c.addToken(.r_paren, ")");
+            _ = try c.addToken(.semicolon, ";");
+
+            return c.addNode(.{
+                .tag = .simple_var_decl,
+                .main_token = const_tok,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = init_node,
+                },
+            });
+        },
+        .tuple => {
+            const payload = node.castTag(.tuple).?.data;
+            _ = try c.addToken(.period, ".");
+            const l_brace = try c.addToken(.l_brace, "{");
+            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.len, 1));
+            defer c.gpa.free(inits);
+            inits[0] = 0;
+            for (payload) |init, i| {
+                if (i != 0) _ = try c.addToken(.comma, ",");
+                inits[i] = try renderNode(c, init);
+            }
+            _ = try c.addToken(.r_brace, "}");
+            if (payload.len < 3) {
+                return c.addNode(.{
+                    .tag = .array_init_dot_two,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = inits[0],
+                        .rhs = inits[1],
+                    },
+                });
+            } else {
+                const span = try c.listToSpan(inits);
+                return c.addNode(.{
+                    .tag = .array_init_dot,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = span.start,
+                        .rhs = span.end,
+                    },
+                });
+            }
+        },
+        .container_init => {
+            const payload = node.castTag(.container_init).?.data;
+            const lhs = try renderNode(c, payload.lhs);
+
+            const l_brace = try c.addToken(.l_brace, "{");
+            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.inits.len, 1));
+            defer c.gpa.free(inits);
+            inits[0] = 0;
+            for (payload.inits) |init, i| {
+                if (i != 0) _ = try c.addToken(.comma, ",");
+                _ = try c.addToken(.period, ".");
+                _ = try c.addIdentifier(init.name);
+                _ = try c.addToken(.equal, "=");
+                inits[i] = try renderNode(c, init.value);
+            }
+            _ = try c.addToken(.r_brace, "}");
+
+            if (payload.inits.len < 2) {
+                return c.addNode(.{
+                    .tag = .struct_init_one,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = inits[0],
+                    },
+                });
+            } else {
+                const span = try c.listToSpan(inits);
+                return c.addNode(.{
+                    .tag = .struct_init,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try c.addExtra(NodeSubRange{
+                            .start = span.start,
+                            .end = span.end,
+                        }),
+                    },
+                });
+            }
+        },
+    }
+}
+
+fn renderRecord(c: *Context, node: Node) !NodeIndex {
+    const payload = @fieldParentPtr(Payload.Record, "base", node.ptr_otherwise).data;
+    if (payload.is_packed) _ = try c.addToken(.keyword_packed, "packed");
+    const kind_tok = if (node.tag() == .@"struct")
+        try c.addToken(.keyword_struct, "struct")
+    else
+        try c.addToken(.keyword_union, "union");
+
+    _ = try c.addToken(.l_brace, "{");
+    const members = try c.gpa.alloc(NodeIndex, std.math.max(payload.fields.len, 2));
+    defer c.gpa.free(members);
+    members[0] = 0;
+    members[1] = 0;
+
+    for (payload.fields) |field, i| {
+        const name_tok = try c.addIdentifier(field.name);
+        _ = try c.addToken(.colon, ":");
+        const type_expr = try renderNode(c, field.type);
+
+        const alignment = field.alignment orelse {
+            members[i] = try c.addNode(.{
+                .tag = .container_field_init,
+                .main_token = name_tok,
+                .data = .{
+                    .lhs = type_expr,
+                    .rhs = 0,
+                },
+            });
+            _ = try c.addToken(.comma, ",");
+            continue;
+        };
+        _ = try c.addToken(.keyword_align, "align");
+        _ = try c.addToken(.l_paren, "(");
+        const align_expr = try c.addNode(.{
+            .tag = .integer_literal,
+            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{alignment}),
+            .data = undefined,
+        });
+        _ = try c.addToken(.r_paren, ")");
+
+        members[i] = try c.addNode(.{
+            .tag = .container_field_align,
+            .main_token = name_tok,
             .data = .{
-                .lhs = undefined,
-                .rhs = undefined,
+                .lhs = type_expr,
+                .rhs = align_expr,
             },
-        }),
+        });
+        _ = try c.addToken(.comma, ",");
+    }
+    _ = try c.addToken(.r_brace, "}");
+
+    if (members.len <= 2) {
+        return c.addNode(.{
+            .tag = .container_decl_two_comma,
+            .main_token = kind_tok,
+            .data = .{
+                .lhs = members[0],
+                .rhs = members[1],
+            },
+        });
+    } else {
+        const span = try c.listToSpan(members);
+        return c.addNode(.{
+            .tag = .container_decl_comma,
+            .main_token = kind_tok,
+            .data = .{
+                .lhs = span.start,
+                .rhs = span.end,
+            },
+        });
     }
 }
 
@@ -1558,50 +1791,37 @@ fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeI
 
 fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex {
     const l_brace = try c.addToken(.l_brace, "{");
-    const res = switch (inits.len) {
-        0 => try c.addNode(.{
-            .tag = .struct_init_one,
+    var rendered = try c.gpa.alloc(NodeIndex, std.math.max(inits.len, 1));
+    defer c.gpa.free(rendered);
+    rendered[0] = 0;
+    for (inits) |init, i| {
+        if (i != 0) _ = try c.addToken(.comma, ",");
+        rendered[i] = try renderNode(c, init);
+    }
+    _ = try c.addToken(.r_brace, "}");
+    if (inits.len < 2) {
+        return c.addNode(.{
+            .tag = .array_init_one,
             .main_token = l_brace,
             .data = .{
                 .lhs = lhs,
-                .rhs = 0,
+                .rhs = rendered[0],
             },
-        }),
-        1 => blk: {
-            const init = try renderNode(c, inits[0]);
-            break :blk try c.addNode(.{
-                .tag = .array_init_one,
-                .main_token = l_brace,
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = init,
-                },
-            });
-        },
-        else => blk: {
-            var rendered = try c.gpa.alloc(NodeIndex, inits.len);
-            defer c.gpa.free(rendered);
-
-            for (inits) |init, i| {
-                if (i != 0) _ = try c.addToken(.comma, ",");
-                rendered[i] = try renderNode(c, init);
-            }
-            const span = try c.listToSpan(rendered);
-            break :blk try c.addNode(.{
-                .tag = .array_init,
-                .main_token = l_brace,
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = try c.addExtra(NodeSubRange{
-                        .start = span.start,
-                        .end = span.end,
-                    }),
-                },
-            });
-        },
-    };
-    _ = try c.addToken(.r_brace, "}");
-    return res;
+        });
+    } else {
+        const span = try c.listToSpan(rendered);
+        return c.addNode(.{
+            .tag = .array_init,
+            .main_token = l_brace,
+            .data = .{
+                .lhs = lhs,
+                .rhs = try c.addExtra(NodeSubRange{
+                    .start = span.start,
+                    .end = span.end,
+                }),
+            },
+        });
+    }
 }
 
 fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
