@@ -878,17 +878,17 @@ test "zig fmt: async function" {
     );
 }
 
-//test "zig fmt: whitespace fixes" {
-//    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
-//        \\test "" {
-//        \\    const hi = x;
-//        \\}
-//        \\// zig fmt: off
-//        \\test ""{
-//        \\    const a  = b;}
-//        \\
-//    );
-//}
+test "zig fmt: whitespace fixes" {
+    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
+        \\test "" {
+        \\    const hi = x;
+        \\}
+        \\// zig fmt: off
+        \\test ""{
+        \\    const a  = b;}
+        \\
+    );
+}
 
 test "zig fmt: while else err prong with no block" {
     try testCanonical(
@@ -1098,128 +1098,154 @@ test "zig fmt: aligned struct field" {
     );
 }
 
-//test "zig fmt: comment to disable/enable zig fmt first" {
-//    try testCanonical(
-//        \\// Test trailing comma syntax
-//        \\// zig fmt: off
-//        \\
-//        \\const struct_trailing_comma = struct { x: i32, y: i32, };
-//    );
-//}
-//
-//test "zig fmt: comment to disable/enable zig fmt" {
-//    try testTransform(
-//        \\const  a  =  b;
-//        \\// zig fmt: off
-//        \\const  c  =  d;
-//        \\// zig fmt: on
-//        \\const  e  =  f;
-//    ,
-//        \\const a = b;
-//        \\// zig fmt: off
-//        \\const  c  =  d;
-//        \\// zig fmt: on
-//        \\const e = f;
-//        \\
-//    );
-//}
-//
-//test "zig fmt: line comment following 'zig fmt: off'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\// Test
-//        \\const  e  =  f;
-//    );
-//}
-//
-//test "zig fmt: doc comment following 'zig fmt: off'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\/// test
-//        \\const  e  =  f;
-//    );
-//}
-//
-//test "zig fmt: line and doc comment following 'zig fmt: off'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\// test 1
-//        \\/// test 2
-//        \\const  e  =  f;
-//    );
-//}
-//
-//test "zig fmt: doc and line comment following 'zig fmt: off'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\/// test 1
-//        \\// test 2
-//        \\const  e  =  f;
-//    );
-//}
-//
-//test "zig fmt: alternating 'zig fmt: off' and 'zig fmt: on'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\// zig fmt: on
-//        \\// zig fmt: off
-//        \\const  e  =  f;
-//        \\// zig fmt: off
-//        \\// zig fmt: on
-//        \\// zig fmt: off
-//        \\const  a  =  b;
-//        \\// zig fmt: on
-//        \\const c = d;
-//        \\// zig fmt: on
-//        \\
-//    );
-//}
-//
-//test "zig fmt: line comment following 'zig fmt: on'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\const  e  =  f;
-//        \\// zig fmt: on
-//        \\// test
-//        \\const e = f;
-//        \\
-//    );
-//}
-//
-//test "zig fmt: doc comment following 'zig fmt: on'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\const  e  =  f;
-//        \\// zig fmt: on
-//        \\/// test
-//        \\const e = f;
-//        \\
-//    );
-//}
-//
-//test "zig fmt: line and doc comment following 'zig fmt: on'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\const  e  =  f;
-//        \\// zig fmt: on
-//        \\// test1
-//        \\/// test2
-//        \\const e = f;
-//        \\
-//    );
-//}
-//
-//test "zig fmt: doc and line comment following 'zig fmt: on'" {
-//    try testCanonical(
-//        \\// zig fmt: off
-//        \\const  e  =  f;
-//        \\// zig fmt: on
-//        \\/// test1
-//        \\// test2
-//        \\const e = f;
-//        \\
-//    );
-//}
+test "zig fmt: comment to disable/enable zig fmt first" {
+    try testCanonical(
+        \\// Test trailing comma syntax
+        \\// zig fmt: off
+        \\
+        \\const struct_trailing_comma = struct { x: i32, y: i32, };
+    );
+}
+
+test "zig fmt: comment to disable/enable zig fmt" {
+    try testTransform(
+        \\const  a  =  b;
+        \\// zig fmt: off
+        \\const  c  =  d;
+        \\// zig fmt: on
+        \\const  e  =  f;
+    ,
+        \\const a = b;
+        \\// zig fmt: off
+        \\const  c  =  d;
+        \\// zig fmt: on
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: line comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// Test
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: doc comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\/// test
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: line and doc comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// test 1
+        \\/// test 2
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: doc and line comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\/// test 1
+        \\// test 2
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: alternating 'zig fmt: off' and 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// zig fmt: on
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: off
+        \\// zig fmt: on
+        \\// zig fmt: off
+        \\const  a  =  b;
+        \\// zig fmt: on
+        \\const c = d;
+        \\// zig fmt: on
+        \\
+    );
+}
+
+test "zig fmt: line comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\// test
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: doc comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\/// test
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: line and doc comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\// test1
+        \\/// test2
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: doc and line comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\/// test1
+        \\// test2
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: 'zig fmt: (off|on)' works in the middle of code" {
+    try testTransform(
+        \\test "" {
+        \\    const x = 42;
+        \\
+        \\    if (foobar) |y| {
+        \\    // zig fmt: off
+        \\            }// zig fmt: on
+        \\
+        \\    const  z  = 420;
+        \\}
+        \\
+    ,
+        \\test "" {
+        \\    const x = 42;
+        \\
+        \\    if (foobar) |y| {
+        \\        // zig fmt: off
+        \\            }// zig fmt: on
+        \\
+        \\    const z = 420;
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: pointer of unknown length" {
     try testCanonical(

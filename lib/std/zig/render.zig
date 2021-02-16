@@ -30,6 +30,10 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: ast.Tree) Error!void {
     _ = try renderComments(ais, tree, 0, comment_end_loc);
 
     try renderMembers(ais, tree, tree.rootDecls());
+
+    if (ais.disabled_offset) |disabled_offset| {
+        try writeFixingWhitespace(ais.underlying_writer, tree.source[disabled_offset..]);
+    }
 }
 
 /// Render all members in the given slice, keeping empty lines where appropriate
@@ -1971,6 +1975,7 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
         const comment_start = index + offset;
         const newline = comment_start +
             mem.indexOfScalar(u8, tree.source[comment_start..end], '\n').?;
+
         const untrimmed_comment = tree.source[comment_start..newline];
         const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.spaces);
 
@@ -1993,6 +1998,17 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
 
         try ais.writer().print("{s}\n", .{trimmed_comment});
         index = newline + 1;
+
+        if (ais.disabled_offset) |disabled_offset| {
+            if (mem.eql(u8, trimmed_comment, "// zig fmt: on")) {
+                // write the source for which formatting was disabled directly
+                // to the underlying writer, fixing up invaild whitespace
+                try writeFixingWhitespace(ais.underlying_writer, tree.source[disabled_offset..index]);
+                ais.disabled_offset = null;
+            }
+        } else if (mem.eql(u8, trimmed_comment, "// zig fmt: off")) {
+            ais.disabled_offset = index;
+        }
     }
 
     if (index != start and mem.containsAtLeast(u8, tree.source[index - 1 .. end], 2, "\n")) {
@@ -2064,6 +2080,14 @@ fn tokenSliceForRender(tree: ast.Tree, token_index: ast.TokenIndex) []const u8 {
         ret.len -= 1;
     }
     return ret;
+}
+
+fn writeFixingWhitespace(writer: std.ArrayList(u8).Writer, slice: []const u8) Error!void {
+    for (slice) |byte| switch (byte) {
+        '\t' => try writer.writeAll(" " ** 4),
+        '\r' => {},
+        else => try writer.writeByte(byte),
+    };
 }
 
 fn nodeIsBlock(tag: ast.Node.Tag) bool {
@@ -2145,6 +2169,14 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
 
         underlying_writer: UnderlyingWriter,
 
+        /// Offset into the source at which formatting has been disabled with
+        /// a `zig fmt: off` comment.
+        ///
+        /// If non-null, the AutoIndentingStream will not write any bytes
+        /// to the underlying writer. It will however continue to track the
+        /// indentation level.
+        disabled_offset: ?usize = null,
+
         indent_count: usize = 0,
         indent_delta: usize,
         current_line_empty: bool = true,
@@ -2183,7 +2215,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             if (bytes.len == 0)
                 return @as(usize, 0);
 
-            try self.underlying_writer.writeAll(bytes);
+            if (self.disabled_offset == null) try self.underlying_writer.writeAll(bytes);
             if (bytes[bytes.len - 1] == '\n')
                 self.resetLine();
             return bytes.len;
@@ -2243,7 +2275,9 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         fn applyIndent(self: *Self) Error!void {
             const current_indent = self.currentIndent();
             if (self.current_line_empty and current_indent > 0) {
-                try self.underlying_writer.writeByteNTimes(' ', current_indent);
+                if (self.disabled_offset == null) {
+                    try self.underlying_writer.writeByteNTimes(' ', current_indent);
+                }
                 self.applied_indent = current_indent;
             }
 
