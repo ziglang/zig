@@ -1621,6 +1621,9 @@ pub const Stream = struct {
         }
     }
 
+    /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
+    /// file system thread instead of non-blocking. It needs to be reworked to properly
+    /// use non-blocking I/O.
     pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
         if (std.Target.current.os.tag == .windows) {
             return os.windows.WriteFile(self.handle, buffer, null, io.default_mode);
@@ -1630,6 +1633,40 @@ pub const Stream = struct {
             return std.event.Loop.instance.?.write(self.handle, buffer, false);
         } else {
             return os.write(self.handle, buffer);
+        }
+    }
+
+    /// See https://github.com/ziglang/zig/issues/7699
+    /// See equivalent function: `std.fs.File.writev`.
+    pub fn writev(self: Stream, iovecs: []const os.iovec_const) WriteError!usize {
+        if (std.io.is_async) {
+            // TODO improve to actually take advantage of writev syscall, if available.
+            if (iovecs.len == 0) return 0;
+            const first_buffer = iovecs[0].iov_base[0..iovecs[0].iov_len];
+            try self.write(first_buffer);
+            return first_buffer.len;
+        } else {
+            return os.writev(self.handle, iovecs);
+        }
+    }
+
+    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
+    /// order to handle partial writes from the underlying OS layer.
+    /// See https://github.com/ziglang/zig/issues/7699
+    /// See equivalent function: `std.fs.File.writevAll`.
+    pub fn writevAll(self: Stream, iovecs: []os.iovec_const) WriteError!void {
+        if (iovecs.len == 0) return;
+
+        var i: usize = 0;
+        while (true) {
+            var amt = try self.writev(iovecs[i..]);
+            while (amt >= iovecs[i].iov_len) {
+                amt -= iovecs[i].iov_len;
+                i += 1;
+                if (i >= iovecs.len) return;
+            }
+            iovecs[i].iov_base += amt;
+            iovecs[i].iov_len -= amt;
         }
     }
 };
