@@ -2451,19 +2451,28 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const std_special = "std" ++ fs.path.sep_str ++ "special";
         const special_dir_path = try zig_lib_directory.join(arena, &[_][]const u8{std_special});
 
-        var root_pkg: Package = .{
-            .root_src_directory = .{
-                .path = special_dir_path,
-                .handle = try zig_lib_directory.handle.openDir(std_special, .{}),
+        const Kind = enum { prebuild, build };
+        const kind_basenames = [_][]const u8 { "prebuild.zig", "build.zig" };
+        var root_pkgs: [2]Package = [_]Package {
+            undefined,
+            .{
+                .root_src_directory = .{
+                    .path = special_dir_path,
+                    .handle = try zig_lib_directory.handle.openDir(std_special, .{}),
+                },
+                .root_src_path = "build_runner.zig",
             },
-            .root_src_path = "build_runner.zig",
         };
-        defer root_pkg.root_src_directory.handle.close();
+
+        const build_root_pkg = &root_pkgs[@enumToInt(Kind.build)];
+        defer build_root_pkg.root_src_directory.handle.close();
 
         var cleanup_build_dir: ?fs.Dir = null;
         defer if (cleanup_build_dir) |*dir| dir.close();
 
         const cwd_path = try process.getCwdAlloc(arena);
+
+        var prebuild = false;
         const build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else "build.zig";
         const build_directory: Compilation.Directory = blk: {
             if (build_file) |bf| {
@@ -2478,32 +2487,48 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             // Search up parent directories until we find build.zig.
             var dirname: []const u8 = cwd_path;
             while (true) {
-                const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
-                if (fs.cwd().access(joined_path, .{})) |_| {
-                    const dir = try fs.cwd().openDir(dirname, .{});
-                    break :blk .{ .path = dirname, .handle = dir };
-                } else |err| switch (err) {
-                    error.FileNotFound => {
-                        dirname = fs.path.dirname(dirname) orelse {
-                            std.log.info("{s}", .{
-                                \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
-                                \\or see `zig --help` for more options.
-                            });
-                            fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
-                        };
-                        continue;
-                    },
-                    else => |e| return e,
+                for ([_]Kind { .build, .prebuild }) |kind| {
+                    const basename = kind_basenames[@enumToInt(kind)];
+                    const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, basename });
+                    defer arena.free(joined_path);
+                    if (fs.cwd().access(joined_path, .{})) |_| {
+                        if (kind == .prebuild) {
+                            prebuild = true;
+                        }
+                        const dir = try fs.cwd().openDir(dirname, .{});
+                        break :blk .{ .path = dirname, .handle = dir };
+                    } else |err| switch (err) {
+                        error.FileNotFound => {},
+                        else => |e| return e,
+                    }
                 }
+                dirname = fs.path.dirname(dirname) orelse {
+                    std.log.info("{s}", .{
+                        \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
+                        \\or see `zig --help` for more options.
+                    });
+                    fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
+                };
             }
         };
         child_argv.items[argv_index_build_file] = build_directory.path orelse cwd_path;
 
+        const prebuild_basename = "prebuild.zig";
+        prebuild = prebuild or if (build_directory.handle.access(prebuild_basename, .{})) |_| true else |err| switch (err) {
+            error.FileNotFound => false,
+            else => |e| return e,
+        };
+        if (prebuild) {
+            root_pkgs[0] = .{
+                .root_src_directory = build_directory,
+                .root_src_path = prebuild_basename,
+            };
+        }
         var build_pkg: Package = .{
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
         };
-        try root_pkg.table.put(arena, "@build", &build_pkg);
+        try build_root_pkg.table.put(arena, "@build", &build_pkg);
 
         var global_cache_directory: Compilation.Directory = l: {
             const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
@@ -2538,49 +2563,66 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const cross_target: std.zig.CrossTarget = .{};
         const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
-        const exe_basename = try std.zig.binNameAlloc(arena, .{
-            .root_name = "build",
-            .target = target_info.target,
-            .output_mode = .Exe,
-        });
-        const emit_bin: Compilation.EmitLoc = .{
-            .directory = null, // Use the local zig-cache.
-            .basename = exe_basename,
-        };
         var thread_pool: ThreadPool = undefined;
         try thread_pool.init(gpa);
         defer thread_pool.deinit();
-        const comp = Compilation.create(gpa, .{
-            .zig_lib_directory = zig_lib_directory,
-            .local_cache_directory = local_cache_directory,
-            .global_cache_directory = global_cache_directory,
-            .root_name = "build",
-            .target = target_info.target,
-            .is_native_os = cross_target.isNativeOs(),
-            .is_native_abi = cross_target.isNativeAbi(),
-            .dynamic_linker = target_info.dynamic_linker.get(),
-            .output_mode = .Exe,
-            .root_pkg = &root_pkg,
-            .emit_bin = emit_bin,
-            .emit_h = null,
-            .optimize_mode = .Debug,
-            .self_exe_path = self_exe_path,
-            .thread_pool = &thread_pool,
-        }) catch |err| {
-            fatal("unable to create compilation: {s}", .{@errorName(err)});
-        };
-        defer comp.destroy();
 
-        try updateModule(gpa, comp, .none);
-        try comp.makeBinFileExecutable();
+        for ([_]Kind { .prebuild, .build} ) |kind| {
+            if (kind == .prebuild and !prebuild) {
+                continue;
+            }
+            const exe_basename = try std.zig.binNameAlloc(arena, .{
+                .root_name = if (kind == .prebuild) "prebuild" else "build",
+                .target = target_info.target,
+                .output_mode = .Exe,
+            });
+            const emit_bin: Compilation.EmitLoc = .{
+                .directory = null, // Use the local zig-cache.
+                .basename = exe_basename,
+            };
+            const comp = Compilation.create(gpa, .{
+                .zig_lib_directory = zig_lib_directory,
+                .local_cache_directory = local_cache_directory,
+                .global_cache_directory = global_cache_directory,
+                .root_name = if (kind == .prebuild) "prebuild" else "build",
+                .target = target_info.target,
+                .is_native_os = cross_target.isNativeOs(),
+                .is_native_abi = cross_target.isNativeAbi(),
+                .dynamic_linker = target_info.dynamic_linker.get(),
+                .output_mode = .Exe,
+                .root_pkg = &root_pkgs[@enumToInt(kind)],
+                .emit_bin = emit_bin,
+                .emit_h = null,
+                .optimize_mode = .Debug,
+                .self_exe_path = self_exe_path,
+                .thread_pool = &thread_pool,
+            }) catch |err| {
+                fatal("unable to create compilation: {s}", .{@errorName(err)});
+            };
+            defer comp.destroy();
 
-        child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(
-            arena,
-            &[_][]const u8{exe_basename},
-        );
+            try updateModule(gpa, comp, .none);
+            try comp.makeBinFileExecutable();
+
+            child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(
+                arena,
+                &[_][]const u8{exe_basename},
+            );
+
+            // run prebuild now before compiling build.zig, it may modify build.zig
+            if (kind == .prebuild) {
+                try runBuildExe(gpa, arena, child_argv.items);
+            }
+        }
 
         break :argv child_argv.items;
     };
+
+    try runBuildExe(gpa, arena, child_argv);
+    return cleanExit();
+}
+
+fn runBuildExe(gpa: *Allocator, arena: *Allocator, child_argv: []const []const u8) !void {
     const child = try std.ChildProcess.init(child_argv, gpa);
     defer child.deinit();
 
@@ -2591,9 +2633,10 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     const term = try child.spawnAndWait();
     switch (term) {
         .Exited => |code| {
-            if (code == 0) return cleanExit();
-            const cmd = try argvCmd(arena, child_argv);
-            fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+            if (code != 0) {
+                const cmd = try argvCmd(arena, child_argv);
+                fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+            }
         },
         else => {
             const cmd = try argvCmd(arena, child_argv);
