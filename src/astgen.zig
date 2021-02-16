@@ -1,16 +1,18 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
-const assert = std.debug.assert;
 const zir = @import("zir.zig");
 const Module = @import("Module.zig");
 const ast = std.zig.ast;
 const trace = @import("tracy.zig").trace;
 const Scope = Module.Scope;
 const InnerError = Module.InnerError;
+const BuiltinFn = @import("BuiltinFn.zig");
 
 pub const ResultLoc = union(enum) {
     /// The expression is the right-hand side of assignment to `_`. Only the side-effects of the
@@ -172,16 +174,21 @@ fn lvalExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.I
         .ContainerDecl,
         .@"comptime",
         .@"nosuspend",
-        .builtin_call,
-        .builtin_call_comma,
         => return mod.failNode(scope, node, "invalid left-hand side to assignment", .{}),
 
-        // `@field` can be assigned to.
-        .builtin_call_two, .builtin_call_two_comma => {
+        .builtin_call,
+        .builtin_call_comma,
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        => {
             const builtin_token = main_tokens[node];
             const builtin_name = tree.tokenSlice(builtin_token);
-            if (!mem.eql(u8, builtin_name, "@field")) {
-                return mod.failNode(scope, node, "invalid left-hand side to assignment", .{});
+            // If the builtin is an invalid name, we don't cause an error here; instead
+            // let it pass, and the error will be "invalid builtin function" later.
+            if (BuiltinFn.list.get(builtin_name)) |info| {
+                if (!info.allows_lvalue) {
+                    return mod.failNode(scope, node, "invalid left-hand side to assignment", .{});
+                }
             }
         },
 
@@ -276,22 +283,111 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .multiline_string_literal => return multilineStringLiteral(mod, scope, rl, node),
 
         .integer_literal => return integerLiteral(mod, scope, rl, node),
-        .builtin_call => return builtinCall(mod, scope, rl, node),
-        .call => return callExpr(mod, scope, rl, node),
-        .@"unreachable" => return unreach(mod, scope, node),
-        .@"return" => return ret(mod, scope, node),
-        .@"if" => return ifExpr(mod, scope, rl, node),
-        .@"while" => return whileExpr(mod, scope, rl, node),
-        .period => return field(mod, scope, rl, node),
-        .deref => return rvalue(mod, scope, rl, try deref(mod, scope, node)),
-        .address_of => return rvalue(mod, scope, rl, try addressOf(mod, scope, node)),
-        .float_literal => return rvalue(mod, scope, rl, try floatLiteral(mod, scope, node)),
-        .undefined_literal => return rvalue(mod, scope, rl, try undefLiteral(mod, scope, node)),
-        .bool_literal => return rvalue(mod, scope, rl, try boolLiteral(mod, scope, node)),
-        .null_literal => return rvalue(mod, scope, rl, try nullLiteral(mod, scope, node)),
-        .optional_type => return rvalue(mod, scope, rl, try optionalType(mod, scope, node)),
-        .unwrap_optional => return unwrapOptional(mod, scope, rl, node),
 
+        .builtin_call => return builtinCall(mod, scope, rl, node),
+
+        .builtin_call_two, .builtin_call_two_comma => {
+            if (datas[node].lhs == 0) {
+                const params = [_]ast.Node.Index{};
+                return builtinCall(mod, scope, rl, node, &params);
+            } else if (datas[node].rhs == 0) {
+                const params = [_]ast.Node.Index{datas[node].lhs};
+                return builtinCall(mod, scope, rl, node, &params);
+            } else {
+                const params = [_]ast.Node.Index{ datas[node].lhs, datas[node].rhs };
+                return builtinCall(mod, scope, rl, node, &params);
+            }
+        },
+        .builtin_call, .builtin_call_comma => {
+            const params = tree.extra_data[datas[node].lhs..datas[node].rhs];
+            return builtinCall(mod, scope, rl, node, params);
+        },
+
+        .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => {
+            var params: [1]ast.Node.Index = undefined;
+            return callExpr(mod, scope, rl, tree.callOne(&params, node));
+        },
+        .call, .call_comma, .async_call, .async_call_comma => {
+            return callExpr(mod, scope, rl, tree.callFull(node));
+        },
+
+        .@"unreachable" => {
+            const main_token = main_tokens[node];
+            const src = token_starts[main_token];
+            return addZIRNoOp(mod, scope, src, .unreachable_safe);
+        },
+        .@"return" => return ret(mod, scope, node),
+        .period => return field(mod, scope, rl, node),
+        .float_literal => return floatLiteral(mod, scope, rl, node),
+
+        .if_simple => return ifExpr(mod, scope, rl, tree.ifSimple(node)),
+        .@"if" => return ifExpr(mode, scope, rl, tree.ifFull(node)),
+
+        .while_simple => return whileExpr(mod, scope, rl, tree.whileSimple(node)),
+        .while_cont => return whileExpr(mod, scope, tree.whileCont(node)),
+        .@"while" => return whileExpr(mod, scope, rl, tree.whileFull(node)),
+
+        .deref => {
+            const lhs = try expr(mod, scope, .none, node_datas[node].lhs);
+            const src = token_starts[main_tokens[node]];
+            const result = try addZIRUnOp(mod, scope, src, .deref, lhs);
+            return rvalue(mod, scope, rl, result);
+        },
+        .address_of => {
+            const result = try expr(mod, scope, .ref, node_datas[node].lhs);
+            return rvalue(mod, scope, rl, result);
+        },
+        .undefined_literal => {
+            const main_token = main_tokens[node];
+            const src = token_starts[main_token];
+            const result = try addZIRInstConst(mod, scope, src, .{
+                .ty = Type.initTag(.@"undefined"),
+                .val = Value.initTag(.undef),
+            });
+            return rvalue(mod, scope, rl, result);
+        },
+        .true_literal => {
+            const main_token = main_tokens[node];
+            const src = token_starts[main_token];
+            const result = try addZIRInstConst(mod, scope, src, .{
+                .ty = Type.initTag(.bool),
+                .val = Value.initTag(.bool_true),
+            });
+            return rvalue(mod, scope, rl, result);
+        },
+        .false_literal => {
+            const main_token = main_tokens[node];
+            const src = token_starts[main_token];
+            const result = try addZIRInstConst(mod, scope, src, .{
+                .ty = Type.initTag(.bool),
+                .val = Value.initTag(.bool_false),
+            });
+            return rvalue(mod, scope, rl, result);
+        },
+        .null_literal => {
+            const main_token = main_tokens[node];
+            const src = token_starts[main_token];
+            const result = try addZIRInstConst(mod, scope, src, .{
+                .ty = Type.initTag(.@"null"),
+                .val = Value.initTag(.null_value),
+            });
+            return rvalue(mod, scope, rl, result);
+        },
+        .optional_type => {
+            const src = token_starts[main_tokens[node]];
+            const operand = try typeExpr(mod, scope, node_datas[node].lhs);
+            const result = try addZIRUnOp(mod, scope, src, .optional_type, operand);
+            return rvalue(mod, scope, rl, result);
+        },
+        .unwrap_optional => {
+            const operand = try expr(mod, scope, rl, node.lhs);
+            const op: zir.Inst.Tag = switch (rl) {
+                .ref => .optional_payload_safe_ptr,
+                else => .optional_payload_safe,
+            };
+            const src = token_starts[main_tokens[node]];
+            return addZIRUnOp(mod, scope, src, op, operand);
+        },
         .block_two, .block_two_semicolon => {
             const statements = [2]ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
             if (node_datas[node].lhs == 0) {
@@ -307,7 +403,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return blockExpr(mod, scope, rl, node, statements);
         },
 
-        .labeled_block => return labeledBlockExpr(mod, scope, rl, node, .block),
         .@"break" => return rvalue(mod, scope, rl, try breakExpr(mod, scope, node)),
         .@"continue" => return rvalue(mod, scope, rl, try continueExpr(mod, scope, node)),
         .grouped_expression => return expr(mod, scope, rl, node.expr),
@@ -521,7 +616,12 @@ pub fn blockExpr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    try blockExprStmts(mod, scope, &block_node.base, statements);
+    const lbrace = main_tokens[node];
+    if (token_tags[lbrace - 1] == .colon) {
+        return labeledBlockExpr(mod, scope, rl, block_node, .block);
+    }
+
+    try blockExprStmts(mod, scope, block_node, statements);
     return rvalueVoid(mod, scope, rl, block_node, {});
 }
 
@@ -983,17 +1083,6 @@ fn negation(
     return addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
 }
 
-fn addressOf(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
-    return expr(mod, scope, .ref, node.rhs);
-}
-
-fn optionalType(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const src = token_starts[node.op_token];
-    const operand = try typeExpr(mod, scope, node.rhs);
-    return addZIRUnOp(mod, scope, src, .optional_type, operand);
-}
-
 fn sliceType(mod: *Module, scope: *Scope, node: *ast.Node.slice_type) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = token_starts[node.op_token];
@@ -1121,18 +1210,6 @@ fn enumLiteral(mod: *Module, scope: *Scope, node: *ast.Node.enum_literal) !*zir.
     const name = try mod.identifierTokenString(scope, node.name);
 
     return addZIRInst(mod, scope, src, zir.Inst.EnumLiteral, .{ .name = name }, .{});
-}
-
-fn unwrapOptional(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const src = token_starts[node.rtoken];
-
-    const operand = try expr(mod, scope, rl, node.lhs);
-    const op: zir.Inst.Tag = switch (rl) {
-        .ref => .optional_payload_safe_ptr,
-        else => .optional_payload_safe,
-    };
-    return addZIRUnOp(mod, scope, src, op, operand);
 }
 
 fn containerField(
@@ -1583,51 +1660,25 @@ fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: as
     return mem.eql(u8, ident_name_1, ident_name_2);
 }
 
-pub fn field(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
+pub fn field(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
     const tree = scope.tree();
-    const src = token_starts[node.op_token];
-    // TODO custom AST node for field access so that we don't have to go through a node cast here
-    const field_name = try mod.identifierTokenString(scope, node.rhs.castTag(.identifier).?.token);
+    const token_starts = tree.tokens.items(.start);
+    const main_tokens = tree.nodes.items(.main_token);
+    const dot_token = main_tokens[node];
+    const src = token_starts[dot_token];
+    const field_ident = dot_token + 1;
+    const field_name = try mod.identifierTokenString(scope, field_ident);
     if (rl == .ref) {
         return addZirInstTag(mod, scope, src, .field_ptr, .{
             .object = try expr(mod, scope, .ref, node.lhs),
             .field_name = field_name,
         });
+    } else {
+        return rvalue(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val, .{
+            .object = try expr(mod, scope, .none, node.lhs),
+            .field_name = field_name,
+        }));
     }
-    return rvalue(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val, .{
-        .object = try expr(mod, scope, .none, node.lhs),
-        .field_name = field_name,
-    }));
-}
-
-fn namedField(
-    mod: *Module,
-    scope: *Scope,
-    rl: ResultLoc,
-    call: *ast.Node.builtin_call,
-) InnerError!*zir.Inst {
-    try ensureBuiltinParamCount(mod, scope, call, 2);
-
-    const tree = scope.tree();
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
-
-    const string_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.const_slice_u8_type),
-    });
-    const string_rl: ResultLoc = .{ .ty = string_type };
-
-    if (rl == .ref) {
-        return addZirInstTag(mod, scope, src, .field_ptr_named, .{
-            .object = try expr(mod, scope, .ref, params[0]),
-            .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
-        });
-    }
-    return rvalue(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val_named, .{
-        .object = try expr(mod, scope, .none, params[0]),
-        .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
-    }));
 }
 
 fn arrayAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.array_access) InnerError!*zir.Inst {
@@ -1679,13 +1730,6 @@ fn sliceExpr(mod: *Module, scope: *Scope, node: *ast.Node.slice) InnerError!*zir
         .{ .array_ptr = array_ptr, .start = start },
         .{ .end = end, .sentinel = sentinel },
     );
-}
-
-fn deref(mod: *Module, scope: *Scope, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const src = token_starts[node.rtoken];
-    const lhs = try expr(mod, scope, .none, node.lhs);
-    return addZIRUnOp(mod, scope, src, .deref, lhs);
 }
 
 fn simpleBinOp(
@@ -1794,83 +1838,12 @@ fn boolBinOp(
     return rvalue(mod, scope, rl, &block.base);
 }
 
-const CondKind = union(enum) {
-    bool,
-    optional: ?*zir.Inst,
-    err_union: ?*zir.Inst,
-
-    fn cond(self: *CondKind, mod: *Module, block_scope: *Scope.GenZIR, src: usize, cond_node: *ast.Node) !*zir.Inst {
-        switch (self.*) {
-            .bool => {
-                const bool_type = try addZIRInstConst(mod, &block_scope.base, src, .{
-                    .ty = Type.initTag(.type),
-                    .val = Value.initTag(.bool_type),
-                });
-                return try expr(mod, &block_scope.base, .{ .ty = bool_type }, cond_node);
-            },
-            .optional => {
-                const cond_ptr = try expr(mod, &block_scope.base, .ref, cond_node);
-                self.* = .{ .optional = cond_ptr };
-                const result = try addZIRUnOp(mod, &block_scope.base, src, .deref, cond_ptr);
-                return try addZIRUnOp(mod, &block_scope.base, src, .is_non_null, result);
-            },
-            .err_union => {
-                const err_ptr = try expr(mod, &block_scope.base, .ref, cond_node);
-                self.* = .{ .err_union = err_ptr };
-                const result = try addZIRUnOp(mod, &block_scope.base, src, .deref, err_ptr);
-                return try addZIRUnOp(mod, &block_scope.base, src, .is_err, result);
-            },
-        }
-    }
-
-    fn thenSubScope(self: CondKind, mod: *Module, then_scope: *Scope.GenZIR, src: usize, payload_node: ?*ast.Node) !*Scope {
-        if (self == .bool) return &then_scope.base;
-
-        const payload = payload_node.?.castTag(.PointerPayload) orelse {
-            // condition is error union and payload is not explicitly ignored
-            _ = try addZIRUnOp(mod, &then_scope.base, src, .ensure_err_payload_void, self.err_union.?);
-            return &then_scope.base;
-        };
-        const is_ptr = payload.ptr_token != null;
-        const ident_node = payload.value_symbol.castTag(.identifier).?;
-
-        // This intentionally does not support @"_" syntax.
-        const ident_name = then_scope.base.tree().tokenSlice(ident_node.token);
-        if (mem.eql(u8, ident_name, "_")) {
-            if (is_ptr)
-                return mod.failTok(&then_scope.base, payload.ptr_token.?, "pointer modifier invalid on discard", .{});
-            return &then_scope.base;
-        }
-
-        return mod.failNode(&then_scope.base, payload.value_symbol, "TODO implement payload symbols", .{});
-    }
-
-    fn elseSubScope(self: CondKind, mod: *Module, else_scope: *Scope.GenZIR, src: usize, payload_node: ?*ast.Node) !*Scope {
-        if (self != .err_union) return &else_scope.base;
-
-        const payload_ptr = try addZIRUnOp(mod, &else_scope.base, src, .err_union_payload_unsafe_ptr, self.err_union.?);
-
-        const payload = payload_node.?.castTag(.Payload).?;
-        const ident_node = payload.error_symbol.castTag(.identifier).?;
-
-        // This intentionally does not support @"_" syntax.
-        const ident_name = else_scope.base.tree().tokenSlice(ident_node.token);
-        if (mem.eql(u8, ident_name, "_")) {
-            return &else_scope.base;
-        }
-
-        return mod.failNode(&else_scope.base, payload.error_symbol, "TODO implement payload symbols", .{});
-    }
-};
-
-fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.@"if") InnerError!*zir.Inst {
-    var cond_kind: CondKind = .bool;
-    if (if_node.payload) |_| cond_kind = .{ .optional = null };
-    if (if_node.@"else") |else_node| {
-        if (else_node.payload) |payload| {
-            cond_kind = .{ .err_union = null };
-        }
-    }
+fn ifExpr(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    if_full: ast.full.If,
+) InnerError!*zir.Inst {
     var block_scope: Scope.GenZIR = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
@@ -1884,8 +1857,22 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.@"if") 
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const if_src = token_starts[if_node.if_token];
-    const cond = try cond_kind.cond(mod, &block_scope, if_src, if_node.condition);
+    const if_src = token_starts[if_full.ast.if_token];
+
+    const cond = c: {
+        // TODO https://github.com/ziglang/zig/issues/7929
+        if (if_full.ast.error_token) |error_token| {
+            return mod.failTok(scope, error_token, "TODO implement if error union", .{});
+        } else if (if_full.payload_token) |payload_token| {
+            return mod.failTok(scope, payload_token, "TODO implement if optional", .{});
+        } else {
+            const bool_type = try addZIRInstConst(mod, &block_scope.base, if_src, .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.bool_type),
+            });
+            break :c try expr(mod, &block_scope.base, .{ .ty = bool_type }, if_full.ast.cond_expr);
+        }
+    };
 
     const condbr = try addZIRInstSpecial(mod, &block_scope.base, if_src, zir.Inst.CondBr, .{
         .condition = cond,
@@ -1897,7 +1884,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.@"if") 
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
-    const then_src = token_starts[if_node.body.lastToken()];
+    const then_src = token_starts[tree.lastToken(if_full.ast.then_expr)];
     var then_scope: Scope.GenZIR = .{
         .parent = scope,
         .decl = block_scope.decl,
@@ -1908,10 +1895,10 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.@"if") 
     defer then_scope.instructions.deinit(mod.gpa);
 
     // declare payload to the then_scope
-    const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, then_src, if_node.payload);
+    const then_sub_scope = &then_scope.base;
 
     block_scope.break_count += 1;
-    const then_result = try expr(mod, then_sub_scope, block_scope.break_result_loc, if_node.body);
+    const then_result = try expr(mod, then_sub_scope, block_scope.break_result_loc, if_full.ast.then_expr);
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
@@ -1925,20 +1912,19 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.@"if") 
     };
     defer else_scope.instructions.deinit(mod.gpa);
 
-    var else_src: usize = undefined;
-    var else_sub_scope: *Module.Scope = undefined;
-    const else_result: ?*zir.Inst = if (if_node.@"else") |else_node| blk: {
-        else_src = token_starts[else_node.body.lastToken()];
-        // declare payload to the then_scope
-        else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
-
+    const else_node = if_full.ast.else_expr;
+    const else_info: struct { src: usize, result: ?*zir.Inst } = if (else_node != 0) blk: {
         block_scope.break_count += 1;
-        break :blk try expr(mod, else_sub_scope, block_scope.break_result_loc, else_node.body);
-    } else blk: {
-        else_src = token_starts[if_node.lastToken()];
-        else_sub_scope = &else_scope.base;
-        break :blk null;
-    };
+        const sub_scope = &else_scope.base;
+        break :blk .{
+            .src = token_starts[tree.lastToken(else_node)],
+            .result = try expr(mod, sub_scope, block_scope.break_result_loc, else_node),
+        };
+    } else
+        .{
+            .src = token_starts[tree.lastToken(if_full.then_expr)],
+            .result = null,
+        };
 
     return finishThenElseBlock(
         mod,
@@ -1950,9 +1936,9 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.@"if") 
         &condbr.positionals.then_body,
         &condbr.positionals.else_body,
         then_src,
-        else_src,
+        else_info.src,
         then_result,
-        else_result,
+        else_info.result,
         block,
         block,
     );
@@ -1983,22 +1969,14 @@ fn whileExpr(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    while_node: *ast.Node.@"while",
+    while_full: ast.full.While,
 ) InnerError!*zir.Inst {
-    var cond_kind: CondKind = .bool;
-    if (while_node.payload) |_| cond_kind = .{ .optional = null };
-    if (while_node.@"else") |else_node| {
-        if (else_node.payload) |payload| {
-            cond_kind = .{ .err_union = null };
-        }
+    if (while_full.label_token) |label_token| {
+        try checkLabelRedefinition(mod, scope, label_token);
     }
-
-    if (while_node.label) |label| {
-        try checkLabelRedefinition(mod, scope, label);
+    if (while_full.inline_token) |inline_token| {
+        return mod.failTok(scope, inline_token, "TODO inline while", .{});
     }
-
-    if (while_node.inline_token) |tok|
-        return mod.failTok(scope, tok, "TODO inline while", .{});
 
     var loop_scope: Scope.GenZIR = .{
         .parent = scope,
@@ -2022,12 +2000,25 @@ fn whileExpr(
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const while_src = token_starts[while_node.while_token];
+    const while_src = token_starts[while_full.ast.while_token];
     const void_type = try addZIRInstConst(mod, scope, while_src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.void_type),
     });
-    const cond = try cond_kind.cond(mod, &continue_scope, while_src, while_node.condition);
+    const cond = c: {
+        // TODO https://github.com/ziglang/zig/issues/7929
+        if (while_full.ast.error_token) |error_token| {
+            return mod.failTok(scope, error_token, "TODO implement while error union", .{});
+        } else if (while_full.payload_token) |payload_token| {
+            return mod.failTok(scope, payload_token, "TODO implement while optional", .{});
+        } else {
+            const bool_type = try addZIRInstConst(mod, &block_scope.base, while_src, .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.bool_type),
+            });
+            break :c try expr(mod, &block_scope.base, .{ .ty = bool_type }, while_full.ast.cond_expr);
+        }
+    };
 
     const condbr = try addZIRInstSpecial(mod, &continue_scope.base, while_src, zir.Inst.CondBr, .{
         .condition = cond,
@@ -2041,8 +2032,8 @@ fn whileExpr(
     // are no jumps to it. This happens when the last statement of a while body is noreturn
     // and there are no `continue` statements.
     // The "repeat" at the end of a loop body is implied.
-    if (while_node.continue_expr) |cont_expr| {
-        _ = try expr(mod, &loop_scope.base, .{ .ty = void_type }, cont_expr);
+    if (while_full.ast.cont_expr != 0) {
+        _ = try expr(mod, &loop_scope.base, .{ .ty = void_type }, while_full.ast.cont_expr);
     }
     const loop = try scope.arena().create(zir.Inst.Loop);
     loop.* = .{
@@ -2062,14 +2053,14 @@ fn whileExpr(
     });
     loop_scope.break_block = while_block;
     loop_scope.continue_block = cond_block;
-    if (while_node.label) |some| {
+    if (while_full.label_token) |label_token| {
         loop_scope.label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
-            .token = some,
+            .token = label_token,
             .block_inst = while_block,
         });
     }
 
-    const then_src = token_starts[while_node.body.lastToken()];
+    const then_src = token_starts[tree.lastToken(while_full.ast.then_expr)];
     var then_scope: Scope.GenZIR = .{
         .parent = &continue_scope.base,
         .decl = continue_scope.decl,
@@ -2080,10 +2071,10 @@ fn whileExpr(
     defer then_scope.instructions.deinit(mod.gpa);
 
     // declare payload to the then_scope
-    const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, then_src, while_node.payload);
+    const then_sub_scope = &then_scope.base;
 
     loop_scope.break_count += 1;
-    const then_result = try expr(mod, then_sub_scope, loop_scope.break_result_loc, while_node.body);
+    const then_result = try expr(mod, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
 
     var else_scope: Scope.GenZIR = .{
         .parent = &continue_scope.base,
@@ -2094,18 +2085,20 @@ fn whileExpr(
     };
     defer else_scope.instructions.deinit(mod.gpa);
 
-    var else_src: usize = undefined;
-    const else_result: ?*zir.Inst = if (while_node.@"else") |else_node| blk: {
-        else_src = token_starts[else_node.body.lastToken()];
-        // declare payload to the then_scope
-        const else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
-
+    const else_node = if_full.ast.else_expr;
+    const else_info: struct { src: usize, result: ?*zir.Inst } = if (else_node != 0) blk: {
         loop_scope.break_count += 1;
-        break :blk try expr(mod, else_sub_scope, loop_scope.break_result_loc, else_node.body);
-    } else blk: {
-        else_src = token_starts[while_node.lastToken()];
-        break :blk null;
-    };
+        const sub_scope = &else_scope.base;
+        break :blk .{
+            .src = token_starts[tree.lastToken(else_node)],
+            .result = try expr(mod, sub_scope, loop_scope.break_result_loc, else_node),
+        };
+    } else
+        .{
+            .src = token_starts[tree.lastToken(then_node)],
+            .result = null,
+        };
+
     if (loop_scope.label) |some| {
         if (!some.used) {
             return mod.fail(scope, token_starts[some.token], "unused while label", .{});
@@ -2121,9 +2114,9 @@ fn whileExpr(
         &condbr.positionals.then_body,
         &condbr.positionals.else_body,
         then_src,
-        else_src,
+        else_info.src,
         then_result,
-        else_result,
+        else_info.result,
         while_block,
         cond_block,
     );
@@ -2630,12 +2623,13 @@ fn switchCaseExpr(
     }
 }
 
-fn ret(mod: *Module, scope: *Scope, cfe: *ast.Node.ControlFlowExpression) InnerError!*zir.Inst {
+fn ret(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[cfe.ltoken];
-    if (cfe.getRHS()) |rhs_node| {
+    const src = token_starts[main_tokens[node]];
+    const rhs_node = node_datas[node].lhs;
+    if (rhs_node != 0) {
         if (nodeMayNeedMemoryLocation(rhs_node, scope)) {
             const ret_ptr = try addZIRNoOp(mod, scope, src, .ret_ptr);
             const operand = try expr(mod, scope, .{ .ptr = ret_ptr }, rhs_node);
@@ -2885,64 +2879,29 @@ fn integerLiteral(
     }
 }
 
-fn floatLiteral(mod: *Module, scope: *Scope, float_lit: *ast.Node.OneToken) InnerError!*zir.Inst {
+fn floatLiteral(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    float_lit: ast.Node.Index,
+) InnerError!*zir.Inst {
     const arena = scope.arena();
     const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const bytes = tree.tokenSlice(float_lit.token);
+    const main_token = main_tokens[float_lit];
+    const bytes = tree.tokenSlice(main_token);
     if (bytes.len > 2 and bytes[1] == 'x') {
-        return mod.failTok(scope, float_lit.token, "TODO hex floats", .{});
+        return mod.failTok(scope, main_token, "TODO implement hex floats", .{});
     }
-
     const float_number = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
         error.InvalidCharacter => unreachable, // validated by tokenizer
     };
-    const src = token_starts[float_lit.token];
-    return addZIRInstConst(mod, scope, src, .{
+    const src = token_starts[main_token];
+    const result = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.comptime_float),
         .val = try Value.Tag.float_128.create(arena, float_number),
     });
-}
-
-fn undefLiteral(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*zir.Inst {
-    const arena = scope.arena();
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[node.token];
-    return addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.@"undefined"),
-        .val = Value.initTag(.undef),
-    });
-}
-
-fn boolLiteral(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*zir.Inst {
-    const arena = scope.arena();
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[node.token];
-    return addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.bool),
-        .val = switch (tree.token_ids[node.token]) {
-            .keyword_true => Value.initTag(.bool_true),
-            .keyword_false => Value.initTag(.bool_false),
-            else => unreachable,
-        },
-    });
-}
-
-fn nullLiteral(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*zir.Inst {
-    const arena = scope.arena();
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[node.token];
-    return addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.@"null"),
-        .val = Value.initTag(.null_value),
-    });
+    return rvalue(mod, scope, rl, result);
 }
 
 fn assembly(mod: *Module, scope: *Scope, rl: ResultLoc, full: ast.full.Asm) InnerError!*zir.Inst {
@@ -2987,76 +2946,36 @@ fn assembly(mod: *Module, scope: *Scope, rl: ResultLoc, full: ast.full.Asm) Inne
     return rvalue(mod, scope, rl, asm_inst);
 }
 
-fn ensureBuiltinParamCount(mod: *Module, scope: *Scope, call: *ast.Node.builtin_call, count: u32) !void {
-    if (call.params_len == count)
-        return;
-
-    const s = if (count == 1) "" else "s";
-    return mod.failTok(scope, call.builtin_token, "expected {d} parameter{s}, found {d}", .{ count, s, call.params_len });
-}
-
-fn simpleCast(
-    mod: *Module,
-    scope: *Scope,
-    rl: ResultLoc,
-    call: *ast.Node.builtin_call,
-    inst_tag: zir.Inst.Tag,
-) InnerError!*zir.Inst {
-    try ensureBuiltinParamCount(mod, scope, call, 2);
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
-    const dest_type = try typeExpr(mod, scope, params[0]);
-    const rhs = try expr(mod, scope, .none, params[1]);
-    const result = try addZIRBinOp(mod, scope, src, inst_tag, dest_type, rhs);
-    return rvalue(mod, scope, rl, result);
-}
-
-fn ptrToInt(mod: *Module, scope: *Scope, call: *ast.Node.builtin_call) InnerError!*zir.Inst {
-    try ensureBuiltinParamCount(mod, scope, call, 1);
-    const operand = try expr(mod, scope, .none, call.params()[0]);
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[call.builtin_token];
-    return addZIRUnOp(mod, scope, src, .ptrtoint, operand);
-}
-
 fn as(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    call: *ast.Node.builtin_call,
+    builtin_token: ast.TokenIndex,
+    src: usize,
+    lhs: ast.Node.Index,
+    rhs: ast.Node.Index,
 ) InnerError!*zir.Inst {
-    try ensureBuiltinParamCount(mod, scope, call, 2);
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
-    const dest_type = try typeExpr(mod, scope, params[0]);
+    const dest_type = try typeExpr(mod, scope, lhs);
     switch (rl) {
         .none, .discard, .ref, .ty => {
-            const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
+            const result = try expr(mod, scope, .{ .ty = dest_type }, rhs);
             return rvalue(mod, scope, rl, result);
         },
 
         .ptr => |result_ptr| {
-            return asRlPtr(mod, scope, rl, src, result_ptr, params[1], dest_type);
+            return asRlPtr(mod, scope, rl, src, result_ptr, rhs, dest_type);
         },
         .block_ptr => |block_scope| {
-            return asRlPtr(mod, scope, rl, src, block_scope.rl_ptr.?, params[1], dest_type);
+            return asRlPtr(mod, scope, rl, src, block_scope.rl_ptr.?, rhs, dest_type);
         },
 
         .bitcasted_ptr => |bitcasted_ptr| {
             // TODO here we should be able to resolve the inference; we now have a type for the result.
-            return mod.failTok(scope, call.builtin_token, "TODO implement @as with result location @bitCast", .{});
+            return mod.failTok(scope, builtin_token, "TODO implement @as with result location @bitCast", .{});
         },
         .inferred_ptr => |result_alloc| {
             // TODO here we should be able to resolve the inference; we now have a type for the result.
-            return mod.failTok(scope, call.builtin_token, "TODO implement @as with inferred-type result location pointer", .{});
+            return mod.failTok(scope, builtin_token, "TODO implement @as with inferred-type result location pointer", .{});
         },
     }
 }
@@ -3105,170 +3024,290 @@ fn asRlPtr(
     }
 }
 
-fn bitCast(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.builtin_call) InnerError!*zir.Inst {
-    try ensureBuiltinParamCount(mod, scope, call, 2);
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
-    const dest_type = try typeExpr(mod, scope, params[0]);
+fn bitCast(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    builtin_token: ast.TokenIndex,
+    src: usize,
+    lhs: ast.Node.Index,
+    rhs: ast.Node.Index,
+) InnerError!*zir.Inst {
+    const dest_type = try typeExpr(mod, scope, lhs);
     switch (rl) {
         .none => {
-            const operand = try expr(mod, scope, .none, params[1]);
+            const operand = try expr(mod, scope, .none, rhs);
             return addZIRBinOp(mod, scope, src, .bitcast, dest_type, operand);
         },
         .discard => {
-            const operand = try expr(mod, scope, .none, params[1]);
+            const operand = try expr(mod, scope, .none, rhs);
             const result = try addZIRBinOp(mod, scope, src, .bitcast, dest_type, operand);
             _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
             return result;
         },
         .ref => {
-            const operand = try expr(mod, scope, .ref, params[1]);
+            const operand = try expr(mod, scope, .ref, rhs);
             const result = try addZIRBinOp(mod, scope, src, .bitcast_ref, dest_type, operand);
             return result;
         },
         .ty => |result_ty| {
-            const result = try expr(mod, scope, .none, params[1]);
+            const result = try expr(mod, scope, .none, rhs);
             const bitcasted = try addZIRBinOp(mod, scope, src, .bitcast, dest_type, result);
             return addZIRBinOp(mod, scope, src, .as, result_ty, bitcasted);
         },
         .ptr => |result_ptr| {
             const casted_result_ptr = try addZIRUnOp(mod, scope, src, .bitcast_result_ptr, result_ptr);
-            return expr(mod, scope, .{ .bitcasted_ptr = casted_result_ptr.castTag(.bitcast_result_ptr).? }, params[1]);
+            return expr(mod, scope, .{ .bitcasted_ptr = casted_result_ptr.castTag(.bitcast_result_ptr).? }, rhs);
         },
         .bitcasted_ptr => |bitcasted_ptr| {
-            return mod.failTok(scope, call.builtin_token, "TODO implement @bitCast with result location another @bitCast", .{});
+            return mod.failTok(scope, builtin_token, "TODO implement @bitCast with result location another @bitCast", .{});
         },
         .block_ptr => |block_ptr| {
-            return mod.failTok(scope, call.builtin_token, "TODO implement @bitCast with result location inferred peer types", .{});
+            return mod.failTok(scope, builtin_token, "TODO implement @bitCast with result location inferred peer types", .{});
         },
         .inferred_ptr => |result_alloc| {
             // TODO here we should be able to resolve the inference; we now have a type for the result.
-            return mod.failTok(scope, call.builtin_token, "TODO implement @bitCast with inferred-type result location pointer", .{});
+            return mod.failTok(scope, builtin_token, "TODO implement @bitCast with inferred-type result location pointer", .{});
         },
     }
 }
 
-fn import(mod: *Module, scope: *Scope, call: *ast.Node.builtin_call) InnerError!*zir.Inst {
-    try ensureBuiltinParamCount(mod, scope, call, 1);
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
-    const target = try expr(mod, scope, .none, params[0]);
-    return addZIRUnOp(mod, scope, src, .import, target);
-}
-
-fn compileError(mod: *Module, scope: *Scope, call: *ast.Node.builtin_call) InnerError!*zir.Inst {
-    try ensureBuiltinParamCount(mod, scope, call, 1);
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
-    const target = try expr(mod, scope, .none, params[0]);
-    return addZIRUnOp(mod, scope, src, .compile_error, target);
-}
-
-fn setEvalBranchQuota(mod: *Module, scope: *Scope, call: *ast.Node.builtin_call) InnerError!*zir.Inst {
-    try ensureBuiltinParamCount(mod, scope, call, 1);
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
-    const u32_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.u32_type),
-    });
-    const quota = try expr(mod, scope, .{ .ty = u32_type }, params[0]);
-    return addZIRUnOp(mod, scope, src, .set_eval_branch_quota, quota);
-}
-
-fn typeOf(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.builtin_call) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const arena = scope.arena();
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
+fn typeOf(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    builtin_token: ast.TokenIndex,
+    src: usize,
+    params: []const ast.Node.Index,
+) InnerError!*zir.Inst {
     if (params.len < 1) {
-        return mod.failTok(scope, call.builtin_token, "expected at least 1 argument, found 0", .{});
+        return mod.failTok(scope, builtin_token, "expected at least 1 argument, found 0", .{});
     }
     if (params.len == 1) {
         return rvalue(mod, scope, rl, try addZIRUnOp(mod, scope, src, .typeof, try expr(mod, scope, .none, params[0])));
     }
+    const arena = scope.arena();
     var items = try arena.alloc(*zir.Inst, params.len);
     for (params) |param, param_i|
         items[param_i] = try expr(mod, scope, .none, param);
     return rvalue(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.TypeOfPeer, .{ .items = items }, .{}));
 }
-fn compileLog(mod: *Module, scope: *Scope, call: *ast.Node.builtin_call) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const arena = scope.arena();
-    const src = token_starts[call.builtin_token];
-    const params = call.params();
-    var targets = try arena.alloc(*zir.Inst, params.len);
-    for (params) |param, param_i|
-        targets[param_i] = try expr(mod, scope, .none, param);
-    return addZIRInst(mod, scope, src, zir.Inst.CompileLog, .{ .to_log = targets }, .{});
-}
 
-fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.builtin_call) InnerError!*zir.Inst {
+fn builtinCall(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    call: ast.Node.Index,
+    params: []const ast.Node.Index,
+) InnerError!*zir.Inst {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const builtin_name = tree.tokenSlice(call.builtin_token);
+    const builtin_token = main_tokens[call];
+    const builtin_name = tree.tokenSlice(builtin_token);
 
     // We handle the different builtins manually because they have different semantics depending
     // on the function. For example, `@as` and others participate in result location semantics,
     // and `@cImport` creates a special scope that collects a .c source code text buffer.
     // Also, some builtins have a variable number of parameters.
 
-    if (mem.eql(u8, builtin_name, "@ptrToInt")) {
-        return rvalue(mod, scope, rl, try ptrToInt(mod, scope, call));
-    } else if (mem.eql(u8, builtin_name, "@as")) {
-        return as(mod, scope, rl, call);
-    } else if (mem.eql(u8, builtin_name, "@floatCast")) {
-        return simpleCast(mod, scope, rl, call, .floatcast);
-    } else if (mem.eql(u8, builtin_name, "@intCast")) {
-        return simpleCast(mod, scope, rl, call, .intcast);
-    } else if (mem.eql(u8, builtin_name, "@bitCast")) {
-        return bitCast(mod, scope, rl, call);
-    } else if (mem.eql(u8, builtin_name, "@TypeOf")) {
-        return typeOf(mod, scope, rl, call);
-    } else if (mem.eql(u8, builtin_name, "@breakpoint")) {
-        const src = token_starts[call.builtin_token];
-        return rvalue(mod, scope, rl, try addZIRNoOp(mod, scope, src, .breakpoint));
-    } else if (mem.eql(u8, builtin_name, "@import")) {
-        return rvalue(mod, scope, rl, try import(mod, scope, call));
-    } else if (mem.eql(u8, builtin_name, "@compileError")) {
-        return compileError(mod, scope, call);
-    } else if (mem.eql(u8, builtin_name, "@setEvalBranchQuota")) {
-        return setEvalBranchQuota(mod, scope, call);
-    } else if (mem.eql(u8, builtin_name, "@compileLog")) {
-        return compileLog(mod, scope, call);
-    } else if (mem.eql(u8, builtin_name, "@field")) {
-        return namedField(mod, scope, rl, call);
-    } else {
-        return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{s}'", .{builtin_name});
+    const info = BuiltinFn.list.get(builtin_name) orelse {
+        return mod.failTok(scope, builtin_token, "invalid builtin function: '{s}'", .{
+            builtin_name,
+        });
+    };
+    if (info.param_count != params.len) {
+        const s = if (params.len == 1) "" else "s";
+        return mod.failTok(scope, builtin_token, "expected {d} parameter{s}, found {d}", .{
+            expected, s, found,
+        });
+    }
+    const src = token_starts[builtin_token];
+
+    switch (info.tag) {
+        .ptr_to_int => {
+            const operand = try expr(mod, scope, .none, params[0]);
+            const result = try addZIRUnOp(mod, scope, src, .ptrtoint, operand);
+            return rvalue(mod, scope, rl, result);
+        },
+        .float_cast => {
+            const dest_type = try typeExpr(mod, scope, params[0]);
+            const rhs = try expr(mod, scope, .none, params[1]);
+            const result = try addZIRBinOp(mod, scope, src, .floatcast, dest_type, rhs);
+            return rvalue(mod, scope, rl, result);
+        },
+        .int_cast => {
+            const dest_type = try typeExpr(mod, scope, params[0]);
+            const rhs = try expr(mod, scope, .none, params[1]);
+            const result = try addZIRBinOp(mod, scope, src, .intcast, dest_type, rhs);
+            return rvalue(mod, scope, rl, result);
+        },
+        .breakpoint => {
+            const result = try addZIRNoOp(mod, scope, src, .breakpoint);
+            return rvalue(mod, scope, rl, result);
+        },
+        .import => {
+            const target = try expr(mod, scope, .none, params[0]);
+            const result = try addZIRUnOp(mod, scope, src, .import, target);
+            return rvalue(mod, scope, rl, result);
+        },
+        .compile_error => {
+            const target = try expr(mod, scope, .none, params[0]);
+            const result = addZIRUnOp(mod, scope, src, .compile_error, target);
+            return rvalue(mod, scope, rl, result);
+        },
+        .set_eval_branch_quota => {
+            const u32_type = try addZIRInstConst(mod, scope, src, .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u32_type),
+            });
+            const quota = try expr(mod, scope, .{ .ty = u32_type }, params[0]);
+            const result = try addZIRUnOp(mod, scope, src, .set_eval_branch_quota, quota);
+            return rvalue(mod, scope, rl, result);
+        },
+        .compile_log => {
+            const arena = scope.arena();
+            var targets = try arena.alloc(*zir.Inst, params.len);
+            for (params) |param, param_i|
+                targets[param_i] = try expr(mod, scope, .none, param);
+            const result = try addZIRInst(mod, scope, src, zir.Inst.CompileLog, .{ .to_log = targets }, .{});
+            return rvalue(mod, scope, rl, result);
+        },
+        .field => {
+            const string_type = try addZIRInstConst(mod, scope, src, .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.const_slice_u8_type),
+            });
+            const string_rl: ResultLoc = .{ .ty = string_type };
+
+            if (rl == .ref) {
+                return addZirInstTag(mod, scope, src, .field_ptr_named, .{
+                    .object = try expr(mod, scope, .ref, params[0]),
+                    .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
+                });
+            }
+            return rvalue(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val_named, .{
+                .object = try expr(mod, scope, .none, params[0]),
+                .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
+            }));
+        },
+        .as => return as(mod, scope, rl, builtin_token, src, params[0], params[1]),
+        .bit_cast => return bitCast(mod, scope, rl, builtin_token, src, params[0], params[1]),
+        .TypeOf => return typeOf(mod, scope, rl, builtin_token, src, params),
+
+        .add_with_overflow,
+        .align_cast,
+        .align_of,
+        .async_call,
+        .atomic_load,
+        .atomic_rmw,
+        .atomic_store,
+        .bit_offset_of,
+        .bool_to_int,
+        .bit_size_of,
+        .mul_add,
+        .byte_swap,
+        .bit_reverse,
+        .byte_offset_of,
+        .call,
+        .c_define,
+        .c_import,
+        .c_include,
+        .clz,
+        .cmpxchg_strong,
+        .cmpxchg_weak,
+        .ctz,
+        .c_undef,
+        .div_exact,
+        .div_floor,
+        .div_trunc,
+        .embed_file,
+        .enum_to_int,
+        .error_name,
+        .error_return_trace,
+        .error_to_int,
+        .err_set_cast,
+        .@"export",
+        .fence,
+        .field_parent_ptr,
+        .float_to_int,
+        .frame,
+        .Frame,
+        .frame_address,
+        .frame_size,
+        .has_decl,
+        .has_field,
+        .int_to_enum,
+        .int_to_error,
+        .int_to_float,
+        .int_to_ptr,
+        .memcpy,
+        .memset,
+        .wasm_memory_size,
+        .wasm_memory_grow,
+        .mod,
+        .mul_with_overflow,
+        .panic,
+        .pop_count,
+        .ptr_cast,
+        .rem,
+        .return_address,
+        .set_align_stack,
+        .set_cold,
+        .set_float_mode,
+        .set_runtime_safety,
+        .shl_exact,
+        .shl_with_overflow,
+        .shr_exact,
+        .shuffle,
+        .size_of,
+        .splat,
+        .reduce,
+        .src,
+        .sqrt,
+        .sin,
+        .cos,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .fabs,
+        .floor,
+        .ceil,
+        .trunc,
+        .round,
+        .sub_with_overflow,
+        .tag_name,
+        .This,
+        .truncate,
+        .Type,
+        .type_info,
+        .type_name,
+        .union_init,
+        => return mod.failTok(scope, builtin_token, "TODO: implement builtin function {s}", .{
+            builtin_name,
+        }),
     }
 }
 
-fn callExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.call) InnerError!*zir.Inst {
+fn callExpr(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    call: ast.full.Call,
+) InnerError!*zir.Inst {
+    if (call.async_token) |async_token| {
+        return mod.failTok(scope, async_token, "TODO implement async fn call", .{});
+    }
+
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const lhs = try expr(mod, scope, .none, node.lhs);
+    const lhs = try expr(mod, scope, .none, call.ast.fn_expr);
 
-    const param_nodes = node.params();
-    const args = try scope.getGenZIR().arena.alloc(*zir.Inst, param_nodes.len);
-    for (param_nodes) |param_node, i| {
+    const args = try scope.getGenZIR().arena.alloc(*zir.Inst, call.ast.params.len);
+    for (call.ast.params) |param_node, i| {
         const param_src = token_starts[tree.firstToken(param_node)];
         const param_type = try addZIRInst(mod, scope, param_src, zir.Inst.ParamType, .{
             .func = lhs,
@@ -3277,21 +3316,13 @@ fn callExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.call) In
         args[i] = try expr(mod, scope, .{ .ty = param_type }, param_node);
     }
 
-    const src = token_starts[node.lhs.firstToken()];
+    const src = token_starts[call.ast.lparen];
     const result = try addZIRInst(mod, scope, src, zir.Inst.Call, .{
         .func = lhs,
         .args = args,
     }, .{});
     // TODO function call with result location
     return rvalue(mod, scope, rl, result);
-}
-
-fn unreach(mod: *Module, scope: *Scope, unreach_node: *ast.Node.OneToken) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[unreach_node.token];
-    return addZIRNoOp(mod, scope, src, .unreachable_safe);
 }
 
 fn getSimplePrimitiveValue(name: []const u8) ?TypedValue {
@@ -3430,17 +3461,25 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
             .deref,
             .array_access,
             .block,
+            .while_simple, // This variant cannot have an else expression.
+            .while_cont, // This variant cannot have an else expression.
+            .for_simple, // This variant cannot have an else expression.
+            .if_simple, // This variant cannot have an else expression.
             => return false,
 
-            // Forward the question to a sub-expression.
-            .grouped_expression => node = node.castTag(.grouped_expression).?.expr,
-            .@"try" => node = node.castTag(.@"try").?.rhs,
-            .@"await" => node = node.castTag(.@"await").?.rhs,
-            .@"catch" => node = node.castTag(.@"catch").?.rhs,
-            .@"orelse" => node = node.castTag(.@"orelse").?.rhs,
-            .@"comptime" => node = node.castTag(.@"comptime").?.expr,
-            .@"nosuspend" => node = node.castTag(.@"nosuspend").?.expr,
-            .unwrap_optional => node = node.castTag(.unwrap_optional).?.lhs,
+            // Forward the question to the LHS sub-expression.
+            .grouped_expression,
+            .@"try",
+            .@"await",
+            .@"comptime",
+            .@"nosuspend",
+            .unwrap_optional,
+            => node = datas[node].lhs,
+
+            // Forward the question to the RHS sub-expression.
+            .@"catch",
+            .@"orelse",
+            => node = datas[node].rhs,
 
             // True because these are exactly the expressions we need memory locations for.
             .ArrayInitializer,
@@ -3451,125 +3490,43 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node, scope: *Scope) bool {
 
             // True because depending on comptime conditions, sub-expressions
             // may be the kind that need memory locations.
-            .@"while",
-            .@"for",
+            .@"while", // This variant always has an else expression.
+            .@"if", // This variant always has an else expression.
+            .@"for", // This variant always has an else expression.
             .@"switch",
+            .call_one,
+            .call_one_comma,
+            .async_call_one,
+            .async_call_one_comma,
             .call,
-            .labeled_block,
+            .call_comma,
+            .async_call,
+            .async_call_comma,
             => return true,
 
-            .builtin_call => {
-                @setEvalBranchQuota(5000);
-                const builtin_needs_mem_loc = std.ComptimeStringMap(bool, .{
-                    .{ "@addWithOverflow", false },
-                    .{ "@alignCast", false },
-                    .{ "@alignOf", false },
-                    .{ "@as", true },
-                    .{ "@asyncCall", false },
-                    .{ "@atomicLoad", false },
-                    .{ "@atomicRmw", false },
-                    .{ "@atomicStore", false },
-                    .{ "@bitCast", true },
-                    .{ "@bitOffsetOf", false },
-                    .{ "@boolToInt", false },
-                    .{ "@bitSizeOf", false },
-                    .{ "@breakpoint", false },
-                    .{ "@mulAdd", false },
-                    .{ "@byteSwap", false },
-                    .{ "@bitReverse", false },
-                    .{ "@byteOffsetOf", false },
-                    .{ "@call", true },
-                    .{ "@cDefine", false },
-                    .{ "@cImport", false },
-                    .{ "@cInclude", false },
-                    .{ "@clz", false },
-                    .{ "@cmpxchgStrong", false },
-                    .{ "@cmpxchgWeak", false },
-                    .{ "@compileError", false },
-                    .{ "@compileLog", false },
-                    .{ "@ctz", false },
-                    .{ "@cUndef", false },
-                    .{ "@divExact", false },
-                    .{ "@divFloor", false },
-                    .{ "@divTrunc", false },
-                    .{ "@embedFile", false },
-                    .{ "@enumToInt", false },
-                    .{ "@errorName", false },
-                    .{ "@errorReturnTrace", false },
-                    .{ "@errorToInt", false },
-                    .{ "@errSetCast", false },
-                    .{ "@export", false },
-                    .{ "@fence", false },
-                    .{ "@field", true },
-                    .{ "@fieldParentPtr", false },
-                    .{ "@floatCast", false },
-                    .{ "@floatToInt", false },
-                    .{ "@frame", false },
-                    .{ "@Frame", false },
-                    .{ "@frameAddress", false },
-                    .{ "@frameSize", false },
-                    .{ "@hasDecl", false },
-                    .{ "@hasField", false },
-                    .{ "@import", false },
-                    .{ "@intCast", false },
-                    .{ "@intToEnum", false },
-                    .{ "@intToError", false },
-                    .{ "@intToFloat", false },
-                    .{ "@intToPtr", false },
-                    .{ "@memcpy", false },
-                    .{ "@memset", false },
-                    .{ "@wasmMemorySize", false },
-                    .{ "@wasmMemoryGrow", false },
-                    .{ "@mod", false },
-                    .{ "@mulWithOverflow", false },
-                    .{ "@panic", false },
-                    .{ "@popCount", false },
-                    .{ "@ptrCast", false },
-                    .{ "@ptrToInt", false },
-                    .{ "@rem", false },
-                    .{ "@returnAddress", false },
-                    .{ "@setAlignStack", false },
-                    .{ "@setCold", false },
-                    .{ "@setEvalBranchQuota", false },
-                    .{ "@setFloatMode", false },
-                    .{ "@setRuntimeSafety", false },
-                    .{ "@shlExact", false },
-                    .{ "@shlWithOverflow", false },
-                    .{ "@shrExact", false },
-                    .{ "@shuffle", false },
-                    .{ "@sizeOf", false },
-                    .{ "@splat", true },
-                    .{ "@reduce", false },
-                    .{ "@src", true },
-                    .{ "@sqrt", false },
-                    .{ "@sin", false },
-                    .{ "@cos", false },
-                    .{ "@exp", false },
-                    .{ "@exp2", false },
-                    .{ "@log", false },
-                    .{ "@log2", false },
-                    .{ "@log10", false },
-                    .{ "@fabs", false },
-                    .{ "@floor", false },
-                    .{ "@ceil", false },
-                    .{ "@trunc", false },
-                    .{ "@round", false },
-                    .{ "@subWithOverflow", false },
-                    .{ "@tagName", false },
-                    .{ "@This", false },
-                    .{ "@truncate", false },
-                    .{ "@Type", false },
-                    .{ "@typeInfo", false },
-                    .{ "@typeName", false },
-                    .{ "@TypeOf", false },
-                    .{ "@unionInit", true },
-                });
-                const name = scope.tree().tokenSlice(node.castTag(.builtin_call).?.builtin_token);
-                return builtin_needs_mem_loc.get(name).?;
+            block_two,
+            block_two_semicolon,
+            block,
+            block_semicolon,
+            => {
+                const lbrace = main_tokens[node];
+                if (token_tags[lbrace - 1] == .colon) {
+                    // Labeled blocks may need a memory location to forward
+                    // to their break statements.
+                    return true;
+                } else {
+                    return false;
+                }
             },
 
-            // Depending on AST properties, they may need memory locations.
-            .@"if" => return node.castTag(.@"if").?.@"else" != null,
+            .builtin_call => {
+                const builtin_token = main_tokens[node];
+                const builtin_name = tree.tokenSlice(builtin_token);
+                // If the builtin is an invalid name, we don't cause an error here; instead
+                // let it pass, and the error will be "invalid builtin function" later.
+                const builtin_info = BuiltinFn.list.get(builtin_name) orelse return false;
+                return builtin_info.needs_mem_loc;
+            },
         }
     }
 }
