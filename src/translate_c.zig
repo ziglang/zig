@@ -622,7 +622,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         return; // Avoid processing this decl twice
 
     const is_pub = mangled_name == null;
-    const is_thread_local = var_decl.getTLSKind() != .None;
+    const is_threadlocal = var_decl.getTLSKind() != .None;
     const scope = &c.global_scope.base;
 
     // TODO https://github.com/ziglang/zig/issues/3756
@@ -706,6 +706,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         .is_const = is_const,
         .is_extern = is_extern,
         .is_export = is_export,
+        .is_threadlocal = is_threadlocal,
         .linksection_string = linksection_string,
         .alignment = alignment,
         .name = checked_name,
@@ -1307,6 +1308,7 @@ fn transDeclStmtOne(
                 .is_const = is_const,
                 .is_extern = false,
                 .is_export = false,
+                .is_threadlocal = false,
                 .linksection_string = null,
                 .alignment = null,
                 .name = mangled_name,
@@ -2886,11 +2888,11 @@ fn transCreateCompoundAssign(
     if ((is_mod or is_div) and is_signed) {
         const rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
         const builtin = if (is_mod)
-            try Tag.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
+            try Tag.rem.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node })
         else
-            try Tag.div_trunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
+            try Tag.div_trunc.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node });
 
-        const assign = try transCreateNodeInfixOp(c, &block_scope.base, .assign, lhs_node, builtin, .used);
+        const assign = try transCreateNodeInfixOp(c, &block_scope.base, .assign, ref_node, builtin, .used);
         try block_scope.statements.append(assign);
     } else {
         var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
@@ -4794,6 +4796,10 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             .LBracket => {
                 const index = try macroBoolToInt(c, try parseCExpr(c, m, scope));
                 node = try Tag.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
+                if (m.next().? != .RBracket) {
+                    try m.fail(c, "unable to translate C expr: expected ']'", .{});
+                    return error.ParseError;
+                }
             },
             .LParen => {
                 var args = std.ArrayList(Node).init(c.gpa);

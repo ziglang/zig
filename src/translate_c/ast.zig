@@ -458,6 +458,7 @@ pub const Payload = struct {
             is_const: bool,
             is_extern: bool,
             is_export: bool,
+            is_threadlocal: bool,
             alignment: ?c_uint,
             linksection_string: ?[]const u8,
             name: []const u8,
@@ -1164,42 +1165,42 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
-        .add => return renderBinOp(c, node, .add, .plus, "+"),
+        .add => return renderBinOpGrouped(c, node, .add, .plus, "+"),
         .add_assign => return renderBinOp(c, node, .assign_add, .plus_equal, "+="),
-        .add_wrap => return renderBinOp(c, node, .add_wrap, .plus_percent, "+%"),
+        .add_wrap => return renderBinOpGrouped(c, node, .add_wrap, .plus_percent, "+%"),
         .add_wrap_assign => return renderBinOp(c, node, .assign_add_wrap, .plus_percent_equal, "+%="),
-        .sub => return renderBinOp(c, node, .sub, .minus, "-"),
+        .sub => return renderBinOpGrouped(c, node, .sub, .minus, "-"),
         .sub_assign => return renderBinOp(c, node, .assign_sub, .minus_equal, "-="),
-        .sub_wrap => return renderBinOp(c, node, .sub_wrap, .minus_percent, "-%"),
+        .sub_wrap => return renderBinOpGrouped(c, node, .sub_wrap, .minus_percent, "-%"),
         .sub_wrap_assign => return renderBinOp(c, node, .assign_sub_wrap, .minus_percent_equal, "-%="),
-        .mul => return renderBinOp(c, node, .mul, .asterisk, "*"),
+        .mul => return renderBinOpGrouped(c, node, .mul, .asterisk, "*"),
         .mul_assign => return renderBinOp(c, node, .assign_mul, .asterisk_equal, "*="),
-        .mul_wrap => return renderBinOp(c, node, .mul_wrap, .asterisk_percent, "*="),
+        .mul_wrap => return renderBinOpGrouped(c, node, .mul_wrap, .asterisk_percent, "*%"),
         .mul_wrap_assign => return renderBinOp(c, node, .assign_mul_wrap, .asterisk_percent_equal, "*%="),
-        .div => return renderBinOp(c, node, .div, .slash, "/"),
+        .div => return renderBinOpGrouped(c, node, .div, .slash, "/"),
         .div_assign => return renderBinOp(c, node, .assign_div, .slash_equal, "/="),
-        .shl => return renderBinOp(c, node, .bit_shift_left, .angle_bracket_angle_bracket_left, "<<"),
+        .shl => return renderBinOpGrouped(c, node, .bit_shift_left, .angle_bracket_angle_bracket_left, "<<"),
         .shl_assign => return renderBinOp(c, node, .assign_bit_shift_left, .angle_bracket_angle_bracket_left_equal, "<<="),
-        .shr => return renderBinOp(c, node, .bit_shift_right, .angle_bracket_angle_bracket_right, ">>"),
+        .shr => return renderBinOpGrouped(c, node, .bit_shift_right, .angle_bracket_angle_bracket_right, ">>"),
         .shr_assign => return renderBinOp(c, node, .assign_bit_shift_right, .angle_bracket_angle_bracket_right_equal, ">>="),
-        .mod => return renderBinOp(c, node, .mod, .percent, "%"),
+        .mod => return renderBinOpGrouped(c, node, .mod, .percent, "%"),
         .mod_assign => return renderBinOp(c, node, .assign_mod, .percent_equal, "%="),
-        .@"and" => return renderBinOp(c, node, .bool_and, .keyword_and, "and"),
-        .@"or" => return renderBinOp(c, node, .bool_or, .keyword_or, "or"),
-        .less_than => return renderBinOp(c, node, .less_than, .angle_bracket_left, "<"),
-        .less_than_equal => return renderBinOp(c, node, .less_or_equal, .angle_bracket_left_equal, "<="),
-        .greater_than => return renderBinOp(c, node, .greater_than, .angle_bracket_right, ">="),
-        .greater_than_equal => return renderBinOp(c, node, .greater_or_equal, .angle_bracket_right_equal, ">="),
-        .equal => return renderBinOp(c, node, .equal_equal, .equal_equal, "=="),
-        .not_equal => return renderBinOp(c, node, .bang_equal, .bang_equal, "!="),
-        .bit_and => return renderBinOp(c, node, .bit_and, .ampersand, "&"),
+        .@"and" => return renderBinOpGrouped(c, node, .bool_and, .keyword_and, "and"),
+        .@"or" => return renderBinOpGrouped(c, node, .bool_or, .keyword_or, "or"),
+        .less_than => return renderBinOpGrouped(c, node, .less_than, .angle_bracket_left, "<"),
+        .less_than_equal => return renderBinOpGrouped(c, node, .less_or_equal, .angle_bracket_left_equal, "<="),
+        .greater_than => return renderBinOpGrouped(c, node, .greater_than, .angle_bracket_right, ">="),
+        .greater_than_equal => return renderBinOpGrouped(c, node, .greater_or_equal, .angle_bracket_right_equal, ">="),
+        .equal => return renderBinOpGrouped(c, node, .equal_equal, .equal_equal, "=="),
+        .not_equal => return renderBinOpGrouped(c, node, .bang_equal, .bang_equal, "!="),
+        .bit_and => return renderBinOpGrouped(c, node, .bit_and, .ampersand, "&"),
         .bit_and_assign => return renderBinOp(c, node, .assign_bit_and, .ampersand_equal, "&="),
-        .bit_or => return renderBinOp(c, node, .bit_or, .pipe, "|"),
+        .bit_or => return renderBinOpGrouped(c, node, .bit_or, .pipe, "|"),
         .bit_or_assign => return renderBinOp(c, node, .assign_bit_or, .pipe_equal, "|="),
-        .bit_xor => return renderBinOp(c, node, .bit_xor, .caret, "^"),
+        .bit_xor => return renderBinOpGrouped(c, node, .bit_xor, .caret, "^"),
         .bit_xor_assign => return renderBinOp(c, node, .assign_bit_xor, .caret_equal, "^="),
         .array_cat => return renderBinOp(c, node, .array_cat, .plus_plus, "++"),
-        .ellipsis3 => return renderBinOp(c, node, .switch_range, .ellipsis3, "..."),
+        .ellipsis3 => return renderBinOpGrouped(c, node, .switch_range, .ellipsis3, "..."),
         .assign => return renderBinOp(c, node, .assign, .equal, "="),
         .empty_block => {
             const l_brace = try c.addToken(.l_brace, "{");
@@ -1222,7 +1223,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
             _ = try c.addToken(.r_brace, "}");
             return c.addNode(.{
-                .tag = .block_two,
+                .tag = .block_two_semicolon,
                 .main_token = l_brace,
                 .data = .{
                     .lhs = stmt,
@@ -1410,13 +1411,13 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             var cases = try c.gpa.alloc(NodeIndex, payload.cases.len);
             defer c.gpa.free(cases);
             for (payload.cases) |case, i| {
-                if (i != 0) _ = try c.addToken(.comma, ",");
                 cases[i] = try renderNode(c, case);
+                _ = try c.addToken(.comma, ",");
             }
             const span = try c.listToSpan(cases);
             _ = try c.addToken(.r_brace, "}");
             return c.addNode(.{
-                .tag = .@"switch",
+                .tag = .switch_comma,
                 .main_token = switch_tok,
                 .data = .{
                     .lhs = cond,
@@ -1623,9 +1624,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.tuple).?.data;
             _ = try c.addToken(.period, ".");
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.len, 1));
+            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.len, 2));
             defer c.gpa.free(inits);
             inits[0] = 0;
+            inits[1] = 0;
             for (payload) |init, i| {
                 if (i != 0) _ = try c.addToken(.comma, ",");
                 inits[i] = try renderNode(c, init);
@@ -1661,17 +1663,17 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             defer c.gpa.free(inits);
             inits[0] = 0;
             for (payload.inits) |init, i| {
-                if (i != 0) _ = try c.addToken(.comma, ",");
                 _ = try c.addToken(.period, ".");
                 _ = try c.addIdentifier(init.name);
                 _ = try c.addToken(.equal, "=");
                 inits[i] = try renderNode(c, init.value);
+                _ = try c.addToken(.comma, ",");
             }
             _ = try c.addToken(.r_brace, "}");
 
             if (payload.inits.len < 2) {
                 return c.addNode(.{
-                    .tag = .struct_init_one,
+                    .tag = .struct_init_one_comma,
                     .main_token = l_brace,
                     .data = .{
                         .lhs = lhs,
@@ -1681,7 +1683,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             } else {
                 const span = try c.listToSpan(inits);
                 return c.addNode(.{
-                    .tag = .struct_init,
+                    .tag = .struct_init_comma,
                     .main_token = l_brace,
                     .data = .{
                         .lhs = lhs,
@@ -1791,13 +1793,13 @@ fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex 
     defer c.gpa.free(rendered);
     rendered[0] = 0;
     for (inits) |init, i| {
-        if (i != 0) _ = try c.addToken(.comma, ",");
         rendered[i] = try renderNode(c, init);
+        _ = try c.addToken(.comma, ",");
     }
     _ = try c.addToken(.r_brace, "}");
     if (inits.len < 2) {
         return c.addNode(.{
-            .tag = .array_init_one,
+            .tag = .array_init_one_comma,
             .main_token = l_brace,
             .data = .{
                 .lhs = lhs,
@@ -1807,7 +1809,7 @@ fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex 
     } else {
         const span = try c.listToSpan(rendered);
         return c.addNode(.{
-            .tag = .array_init,
+            .tag = .array_init_comma,
             .main_token = l_brace,
             .data = .{
                 .lhs = lhs,
@@ -1842,21 +1844,28 @@ fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
 fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
     switch (node.tag()) {
         .warning => unreachable,
-        .var_decl, .var_simple, .arg_redecl, .alias, .enum_redecl, .block, .empty_block, .@"switch" => {},
+        .var_decl, .var_simple, .arg_redecl, .alias, .enum_redecl, .block, .empty_block, .block_single, .@"switch" => {},
         .while_true => {
             const payload = node.castTag(.while_true).?.data;
-            return addSemicolonIfNeeded(c, payload);
+            return addSemicolonIfNotBlock(c, payload);
         },
         .@"while" => {
             const payload = node.castTag(.@"while").?.data;
-            return addSemicolonIfNeeded(c, payload.body);
+            return addSemicolonIfNotBlock(c, payload.body);
         },
         .@"if" => {
             const payload = node.castTag(.@"if").?.data;
             if (payload.@"else") |some|
-                return addSemicolonIfNeeded(c, some);
-            return addSemicolonIfNeeded(c, payload.then);
+                return addSemicolonIfNotBlock(c, some);
+            return addSemicolonIfNotBlock(c, payload.then);
         },
+        else => _ = try c.addToken(.semicolon, ";"),
+    }
+}
+
+fn addSemicolonIfNotBlock(c: *Context, node: Node) !void {
+    switch (node.tag()) {
+        .block, .empty_block, .block_single, => {},
         else => _ = try c.addToken(.semicolon, ";"),
     }
 }
@@ -1918,6 +1927,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .func,
         .call,
         .array_type,
+        .bool_to_int,
         => {
             // no grouping needed
             return renderNode(c, node);
@@ -1926,7 +1936,6 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .opaque_literal,
         .empty_array,
         .block_single,
-        .bool_to_int,
         .add,
         .add_wrap,
         .sub,
@@ -2022,7 +2031,7 @@ fn renderPrefixOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: T
     });
 }
 
-fn renderBinOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
+fn renderBinOpGrouped(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
     const payload = @fieldParentPtr(Payload.BinOp, "base", node.ptr_otherwise).data;
     const lhs = try renderNodeGrouped(c, payload.lhs);
     return c.addNode(.{
@@ -2031,6 +2040,19 @@ fn renderBinOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: Toke
         .data = .{
             .lhs = lhs,
             .rhs = try renderNodeGrouped(c, payload.rhs),
+        },
+    });
+}
+
+fn renderBinOp(c: *Context, node: Node, tag: std.zig.ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
+    const payload = @fieldParentPtr(Payload.BinOp, "base", node.ptr_otherwise).data;
+    const lhs = try renderNode(c, payload.lhs);
+    return c.addNode(.{
+        .tag = tag,
+        .main_token = try c.addToken(tok_tag, bytes),
+        .data = .{
+            .lhs = lhs,
+            .rhs = try renderNode(c, payload.rhs),
         },
     });
 }
@@ -2143,6 +2165,7 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
     if (payload.is_pub) _ = try c.addToken(.keyword_pub, "pub");
     if (payload.is_extern) _ = try c.addToken(.keyword_extern, "extern");
     if (payload.is_export) _ = try c.addToken(.keyword_export, "export");
+    if (payload.is_threadlocal) _ = try c.addToken(.keyword_threadlocal, "threadlocal");
     const mut_tok = if (payload.is_const)
         try c.addToken(.keyword_const, "const")
     else
