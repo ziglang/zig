@@ -307,7 +307,7 @@ test "slice of hardcoded address to pointer" {
 
 test "type coercion of pointer to anon struct literal to pointer to slice" {
     const S = struct {
-        const U = union{
+        const U = union {
             a: u32,
             b: bool,
             c: []const u8,
@@ -321,7 +321,7 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
             expect(slice1[0] == 42);
             expect(slice1[1] == 56);
             expect(slice1[2] == 54);
-            
+
             var x2: []const u8 = "hello";
             const t2 = &.{ x2, ", ", "world!" };
             // @compileLog(@TypeOf(t2));

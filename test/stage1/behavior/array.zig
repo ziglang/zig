@@ -434,7 +434,7 @@ test "zero-sized array with recursive type definition" {
 
 test "type coercion of anon struct literal to array" {
     const S = struct {
-        const U = union{
+        const U = union {
             a: u32,
             b: bool,
             c: []const u8,
@@ -447,7 +447,7 @@ test "type coercion of anon struct literal to array" {
             expect(arr1[0] == 42);
             expect(arr1[1] == 56);
             expect(arr1[2] == 54);
-            
+
             var x2: U = .{ .a = 42 };
             const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
             var arr2: [3]U = t2;
@@ -462,7 +462,7 @@ test "type coercion of anon struct literal to array" {
 
 test "type coercion of pointer to anon struct literal to pointer to array" {
     const S = struct {
-        const U = union{
+        const U = union {
             a: u32,
             b: bool,
             c: []const u8,
@@ -471,11 +471,11 @@ test "type coercion of pointer to anon struct literal to pointer to array" {
         fn doTheTest() void {
             var x1: u8 = 42;
             const t1 = &.{ x1, 56, 54 };
-            var arr1: *const[3]u8 = t1;
+            var arr1: *const [3]u8 = t1;
             expect(arr1[0] == 42);
             expect(arr1[1] == 56);
             expect(arr1[2] == 54);
-            
+
             var x2: U = .{ .a = 42 };
             const t2 = &.{ x2, .{ .b = true }, .{ .c = "hello" } };
             var arr2: *const [3]U = t2;

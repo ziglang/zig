@@ -69,6 +69,12 @@ release/bin/zig build test -Denable-qemu -Denable-wasmtime
 
 # Look for HTML errors.
 tidy -qe ../zig-cache/langref.html
+# look for formatting errors
+release/bin/zig fmt --check ../lib/std
+release/bin/zig fmt --check ../src
+release/bin/zig fmt --check ../tools
+release/bin/zig fmt --check ../test
+release/bin/zig fmt --check ../build.zig
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   # Produce the experimental std lib documentation.

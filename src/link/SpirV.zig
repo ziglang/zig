@@ -199,7 +199,7 @@ fn writeCapabilities(binary: *std.ArrayList(u32), target: std.Target) !void {
         else => unreachable, // TODO
     };
 
-    try codegen.writeInstruction(binary, .OpCapability, &[_]u32{ @enumToInt(cap) });
+    try codegen.writeInstruction(binary, .OpCapability, &[_]u32{@enumToInt(cap)});
 }
 
 fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
@@ -221,7 +221,7 @@ fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
     };
 
     try codegen.writeInstruction(binary, .OpMemoryModel, &[_]u32{
-        @enumToInt(addressing_model), @enumToInt(memory_model)
+        @enumToInt(addressing_model), @enumToInt(memory_model),
     });
 }
 

@@ -1294,10 +1294,12 @@ pub const FileSource = union(enum) {
     pub fn dupe(self: FileSource, b: *Builder) FileSource {
         return switch (self) {
             .path => |p| .{ .path = b.dupe(p) },
-            .write_file => |wf| .{ .write_file = .{
-                .step = wf.step,
-                .basename = b.dupe(wf.basename),
-            } },
+            .write_file => |wf| .{
+                .write_file = .{
+                    .step = wf.step,
+                    .basename = b.dupe(wf.basename),
+                },
+            },
             .translate_c => |tc| .{ .translate_c = tc },
         };
     }
@@ -2722,7 +2724,9 @@ pub const InstallDirectoryOptions = struct {
             .install_dir = self.install_dir.dupe(b),
             .install_subdir = b.dupe(self.install_subdir),
             .exclude_extensions = if (self.exclude_extensions) |extensions|
-                b.dupeStrings(extensions) else null,
+                b.dupeStrings(extensions)
+            else
+                null,
         };
     }
 };
