@@ -1924,8 +1924,6 @@ const Space = enum {
     /// Additionally consume the next token if it is a semicolon.
     /// In either case, a newline will be inserted afterwards.
     semicolon,
-    /// Skips writing the possible line comment after the token.
-    no_comment,
 };
 
 fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Space) Error!void {
@@ -1936,8 +1934,6 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
     const lexeme = tokenSliceForRender(tree, token_index);
 
     try ais.writer().writeAll(lexeme);
-
-    if (space == .no_comment) return;
 
     const comment = try renderComments(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]);
     switch (space) {
@@ -1962,8 +1958,6 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
         } else if (!comment) {
             try ais.insertNewline();
         },
-
-        .no_comment => unreachable,
     }
 }
 
@@ -2064,12 +2058,7 @@ fn renderDocComments(ais: *Ais, tree: ast.Tree, end_token: ast.TokenIndex) Error
     try renderExtraNewlineToken(ais, tree, first_tok);
 
     while (token_tags[tok] == .doc_comment) : (tok += 1) {
-        if (first_tok < end_token) {
-            try renderToken(ais, tree, tok, .newline);
-        } else {
-            try renderToken(ais, tree, tok, .no_comment);
-            try ais.insertNewline();
-        }
+        try renderToken(ais, tree, tok, .newline);
     }
 }
 
