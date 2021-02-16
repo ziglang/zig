@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
 
@@ -42,7 +43,7 @@ pub const Object = struct {
     next_arg_index: usize = 0,
     next_local_index: usize = 0,
     next_block_index: usize = 0,
-    indent_writer: std.io.AutoIndentingStream(std.ArrayList(u8).Writer),
+    indent_writer: IndentWriter(std.ArrayList(u8).Writer),
 
     fn resolveInst(o: *Object, inst: *Inst) !CValue {
         if (inst.value()) |_| {
@@ -63,7 +64,7 @@ pub const Object = struct {
         return local_value;
     }
 
-    fn writer(o: *Object) std.io.AutoIndentingStream(std.ArrayList(u8).Writer).Writer {
+    fn writer(o: *Object) IndentWriter(std.ArrayList(u8).Writer).Writer {
         return o.indent_writer.writer();
     }
 
@@ -795,4 +796,57 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
         return CValue.none;
 
     return o.dg.fail(o.dg.decl.src(), "TODO: C backend: inline asm expression result used", .{});
+}
+
+fn IndentWriter(comptime UnderlyingWriter: type) type {
+    return struct {
+        const Self = @This();
+        pub const Error = UnderlyingWriter.Error;
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        pub const indent_delta = 4;
+
+        underlying_writer: UnderlyingWriter,
+        indent_count: usize = 0,
+        current_line_empty: bool = true,
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+
+        pub fn write(self: *Self, bytes: []const u8) Error!usize {
+            if (bytes.len == 0) return @as(usize, 0);
+
+            const current_indent = self.indent_count * Self.indent_delta;
+            if (self.current_line_empty and current_indent > 0) {
+                try self.underlying_writer.writeByteNTimes(' ', current_indent);
+            }
+            self.current_line_empty = false;
+
+            return self.writeNoIndent(bytes);
+        }
+
+        pub fn insertNewline(self: *Self) Error!void {
+            _ = try self.writeNoIndent("\n");
+        }
+
+        pub fn pushIndent(self: *Self) void {
+            self.indent_count += 1;
+        }
+
+        pub fn popIndent(self: *Self) void {
+            assert(self.indent_count != 0);
+            self.indent_count -= 1;
+        }
+
+        fn writeNoIndent(self: *Self, bytes: []const u8) Error!usize {
+            if (bytes.len == 0) return @as(usize, 0);
+
+            try self.underlying_writer.writeAll(bytes);
+            if (bytes[bytes.len - 1] == '\n') {
+                self.current_line_empty = true;
+            }
+            return bytes.len;
+        }
+    };
 }

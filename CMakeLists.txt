@@ -370,7 +370,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/heap.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/heap/arena_allocator.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/io/auto_indenting_stream.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/buffered_atomic_file.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/buffered_writer.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/change_detection_stream.zig"
