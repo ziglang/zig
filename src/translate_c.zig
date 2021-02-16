@@ -1820,9 +1820,53 @@ fn transExprCoercing(c: *Context, scope: *Scope, expr: *const clang.Expr, used: 
                 return transExprCoercing(c, scope, un_expr.getSubExpr(), used);
             }
         },
+        .ImplicitCastExprClass => {
+            const cast_expr = @ptrCast(*const clang.ImplicitCastExpr, expr);
+            const sub_expr = cast_expr.getSubExpr();
+            switch (@ptrCast(*const clang.Stmt, sub_expr).getStmtClass()) {
+                .IntegerLiteralClass, .CharacterLiteralClass => switch (cast_expr.getCastKind()) {
+                    .IntegralToFloating => return transExprCoercing(c, scope, sub_expr, used),
+                    .IntegralCast => {
+                        const dest_type = getExprQualType(c, expr);
+                        if (literalFitsInType(c, sub_expr, dest_type))
+                            return transExprCoercing(c, scope, sub_expr, used);
+                    },
+                    else => {},
+                },
+                else => {},
+            }
+        },
         else => {},
     }
     return transExpr(c, scope, expr, .used);
+}
+
+fn literalFitsInType(c: *Context, expr: *const clang.Expr, qt: clang.QualType) bool {
+    var width = qualTypeIntBitWidth(c, qt) catch 8;
+    if (width == 0) width = 8; // Byte is the smallest type.
+    const is_signed = cIsSignedInteger(qt);
+    const width_max_int= (@as(u64, 1) << math.lossyCast(u6, width - @boolToInt(is_signed))) - 1;
+
+    switch (@ptrCast(*const clang.Stmt, expr).getStmtClass()) {
+        .CharacterLiteralClass => {
+            const char_lit = @ptrCast(*const clang.CharacterLiteral, expr);
+            const val = char_lit.getValue();
+            // If the val is less than the max int then it fits.
+            return val <= width_max_int;
+        },
+        .IntegerLiteralClass => {
+            const int_lit = @ptrCast(*const clang.IntegerLiteral, expr);
+            var eval_result: clang.ExprEvalResult = undefined;
+            if (!int_lit.EvaluateAsInt(&eval_result, c.clang_context)) {
+                return false;
+            }
+
+            const int = eval_result.Val.getInt();
+            return int.lessThanEqual(width_max_int);
+        },
+        else => unreachable,
+    }
+
 }
 
 fn transInitListExprRecord(
@@ -2331,7 +2375,7 @@ fn transDefault(
 
 fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
     var result: clang.ExprEvalResult = undefined;
-    if (!expr.EvaluateAsConstantExpr(&result, .EvaluateForCodeGen, c.clang_context))
+    if (!expr.evaluateAsConstantExpr(&result, .EvaluateForCodeGen, c.clang_context))
         return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid constant expression", .{});
 
     switch (result.Val.getKind()) {
@@ -3171,7 +3215,7 @@ fn qualTypeIsBoolean(qt: clang.QualType) bool {
     return qualTypeCanon(qt).isBooleanType();
 }
 
-fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType, source_loc: clang.SourceLocation) !u32 {
+fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
     const ty = qt.getTypePtr();
 
     switch (ty.getTypeClass()) {
@@ -3211,12 +3255,10 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType, source_loc: clang.Source
         },
         else => return 0,
     }
-
-    unreachable;
 }
 
 fn qualTypeToLog2IntRef(c: *Context, qt: clang.QualType, source_loc: clang.SourceLocation) !Node {
-    const int_bit_width = try qualTypeIntBitWidth(c, qt, source_loc);
+    const int_bit_width = try qualTypeIntBitWidth(c, qt);
 
     if (int_bit_width != 0) {
         // we can perform the log2 now.

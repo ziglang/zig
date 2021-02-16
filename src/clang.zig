@@ -127,6 +127,9 @@ pub const APSInt = opaque {
 
     pub const getNumWords = ZigClangAPSInt_getNumWords;
     extern fn ZigClangAPSInt_getNumWords(*const APSInt) c_uint;
+
+    pub const lessThanEqual = ZigClangAPSInt_lessThanEqual;
+    extern fn ZigClangAPSInt_lessThanEqual(*const APSInt, rhs: u64) bool;
 };
 
 pub const ASTContext = opaque {
@@ -407,7 +410,7 @@ pub const Expr = opaque {
     pub const getBeginLoc = ZigClangExpr_getBeginLoc;
     extern fn ZigClangExpr_getBeginLoc(*const Expr) SourceLocation;
 
-    pub const EvaluateAsConstantExpr = ZigClangExpr_EvaluateAsConstantExpr;
+    pub const evaluateAsConstantExpr = ZigClangExpr_EvaluateAsConstantExpr;
     extern fn ZigClangExpr_EvaluateAsConstantExpr(*const Expr, *ExprEvalResult, Expr_ConstExprUsage, *const ASTContext) bool;
 };
 

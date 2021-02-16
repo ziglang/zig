@@ -313,22 +313,22 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const uuid_t = [16]u8;
         \\pub const UUID_NULL: uuid_t = [16]u8{
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
-        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
         \\};
     });
 
@@ -382,10 +382,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
         \\pub export var ub: union_unnamed_1 = union_unnamed_1{
         \\    .c = [4]u8{
-        \\        @bitCast(u8, @truncate(i8, @as(c_int, 'a'))),
-        \\        @bitCast(u8, @truncate(i8, @as(c_int, 'b'))),
-        \\        @bitCast(u8, @truncate(i8, @as(c_int, 'b'))),
-        \\        @bitCast(u8, @truncate(i8, @as(c_int, 'a'))),
+        \\        'a',
+        \\        'b',
+        \\        'b',
+        \\        'a',
         \\    },
         \\};
     });
@@ -512,7 +512,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var a: c_int = undefined;
-        \\    var b: u8 = @bitCast(u8, @truncate(i8, @as(c_int, 123)));
+        \\    var b: u8 = 123;
         \\    const c: c_int = undefined;
         \\    const d: c_uint = @bitCast(c_uint, @as(c_int, 440));
         \\    var e: c_int = 10;
@@ -1468,7 +1468,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub fn foo() callconv(.C) void {
         \\    var arr: [10]u8 = [1]u8{
-        \\        @bitCast(u8, @truncate(i8, @as(c_int, 1))),
+        \\        1,
         \\    } ++ [1]u8{0} ** 9;
         \\    var arr1: [10][*c]u8 = [1][*c]u8{
         \\        null,
@@ -1721,13 +1721,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    unsigned d = 440;
         \\}
     , &[_][]const u8{
-        \\pub var a: c_long = @bitCast(c_long, @as(c_long, @as(c_int, 2)));
-        \\pub var b: c_long = @bitCast(c_long, @as(c_long, @as(c_int, 2)));
+        \\pub var a: c_long = 2;
+        \\pub var b: c_long = 2;
         \\pub var c: c_int = 4;
         \\pub export fn foo(arg_c_1: u8) void {
         \\    var c_1 = arg_c_1;
         \\    var a_2: c_int = undefined;
-        \\    var b_3: u8 = @bitCast(u8, @truncate(i8, @as(c_int, 123)));
+        \\    var b_3: u8 = 123;
         \\    b_3 = @bitCast(u8, @truncate(i8, a_2));
         \\    {
         \\        var d: c_int = 5;
@@ -1838,7 +1838,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\            };
         \\        }
         \\    }
-        \\    var i: u8 = @bitCast(u8, @truncate(i8, @as(c_int, 2)));
+        \\    var i: u8 = 2;
         \\}
     });
 
@@ -1846,7 +1846,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\unsigned anyerror = 2;
         \\#define noreturn _Noreturn
     , &[_][]const u8{
-        \\pub export var anyerror_1: c_uint = @bitCast(c_uint, @as(c_int, 2));
+        \\pub export var anyerror_1: c_uint = 2;
         ,
         \\pub const noreturn_2 = @compileError("unable to translate C expr: unexpected token .Keyword_noreturn");
     });
@@ -1860,7 +1860,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var a: f32 = @floatCast(f32, 3.1415);
         \\pub export var b: f64 = 3.1415;
         \\pub export var c: c_int = @floatToInt(c_int, 3.1415);
-        \\pub export var d: f64 = @intToFloat(f64, @as(c_int, 3));
+        \\pub export var d: f64 = 3;
     });
 
     cases.add("conditional operator",
@@ -2009,7 +2009,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    // TODO translate-c should in theory be able to figure out to drop all these casts
     cases.add("escape sequences",
         \\const char *escapes() {
         \\char a = '\'',
@@ -2028,17 +2027,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\
     , &[_][]const u8{
         \\pub export fn escapes() [*c]const u8 {
-        \\    var a: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\'')));
-        \\    var b: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\\')));
-        \\    var c: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x07')));
-        \\    var d: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x08')));
-        \\    var e: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x0c')));
-        \\    var f: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\n')));
-        \\    var g: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\r')));
-        \\    var h: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\t')));
-        \\    var i: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x0b')));
-        \\    var j: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\x00')));
-        \\    var k: u8 = @bitCast(u8, @truncate(i8, @as(c_int, '\"')));
+        \\    var a: u8 = '\'';
+        \\    var b: u8 = '\\';
+        \\    var c: u8 = '\x07';
+        \\    var d: u8 = '\x08';
+        \\    var e: u8 = '\x0c';
+        \\    var f: u8 = '\n';
+        \\    var g: u8 = '\r';
+        \\    var h: u8 = '\t';
+        \\    var i: u8 = '\x0b';
+        \\    var j: u8 = '\x00';
+        \\    var k: u8 = '\"';
         \\    return "\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
         \\}
     });
@@ -2308,8 +2307,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var a: [10]c_longlong = undefined;
-        \\    var i: c_longlong = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
-        \\    a[@intCast(usize, i)] = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
+        \\    var i: c_longlong = 0;
+        \\    a[@intCast(usize, i)] = 0;
         \\}
     });
 
@@ -2321,8 +2320,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var a: [10]c_uint = undefined;
-        \\    var i: c_uint = @bitCast(c_uint, @as(c_int, 0));
-        \\    a[i] = @bitCast(c_uint, @as(c_int, 0));
+        \\    var i: c_uint = 0;
+        \\    a[i] = 0;
         \\}
     });
 
@@ -2527,7 +2526,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var i: c_int = 0;
-        \\    var u: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    var u: c_uint = 0;
         \\    i += 1;
         \\    i -= 1;
         \\    u +%= 1;
@@ -2614,7 +2613,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var a: c_int = 0;
-        \\    var b: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    var b: c_uint = 0;
         \\    a += blk: {
         \\        const ref = &a;
         \\        ref.* += @as(c_int, 1);
@@ -2692,7 +2691,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
-        \\    var a: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    var a: c_uint = 0;
         \\    a +%= blk: {
         \\        const ref = &a;
         \\        ref.* +%= @bitCast(c_uint, @as(c_int, 1));
@@ -2752,7 +2751,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var i: c_int = 0;
-        \\    var u: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    var u: c_uint = 0;
         \\    i += 1;
         \\    i -= 1;
         \\    u +%= 1;
