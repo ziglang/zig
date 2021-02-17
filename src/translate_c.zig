@@ -31,23 +31,11 @@ const Scope = struct {
     parent: ?*Scope,
 
     const Id = enum {
-        @"switch",
         block,
         root,
         condition,
         loop,
         do_loop,
-    };
-
-    /// Represents an in-progress Node.Switch. This struct is stack-allocated.
-    /// When it is deinitialized, it produces an Node.Switch which is allocated
-    /// into the main arena.
-    const Switch = struct {
-        base: Scope,
-        pending_block: Block,
-        cases: std.ArrayList(Node),
-        switch_label: ?[]const u8,
-        default_label: ?[]const u8,
     };
 
     /// Used for the scope of condition expressions, for example `if (cond)`.
@@ -230,7 +218,7 @@ const Scope = struct {
         return switch (scope.id) {
             .root => return name,
             .block => @fieldParentPtr(Block, "base", scope).getAlias(name),
-            .@"switch", .loop, .do_loop, .condition => scope.parent.?.getAlias(name),
+            .loop, .do_loop, .condition => scope.parent.?.getAlias(name),
         };
     }
 
@@ -238,7 +226,7 @@ const Scope = struct {
         return switch (scope.id) {
             .root => @fieldParentPtr(Root, "base", scope).contains(name),
             .block => @fieldParentPtr(Block, "base", scope).contains(name),
-            .@"switch", .loop, .do_loop, .condition => scope.parent.?.contains(name),
+            .loop, .do_loop, .condition => scope.parent.?.contains(name),
         };
     }
 
@@ -247,19 +235,7 @@ const Scope = struct {
         while (true) {
             switch (scope.id) {
                 .root => unreachable,
-                .@"switch" => return scope,
                 .loop, .do_loop => return scope,
-                else => scope = scope.parent.?,
-            }
-        }
-    }
-
-    fn getSwitch(inner: *Scope) *Scope.Switch {
-        var scope = inner;
-        while (true) {
-            switch (scope.id) {
-                .root => unreachable,
-                .@"switch" => return @fieldParentPtr(Switch, "base", scope),
                 else => scope = scope.parent.?,
             }
         }
@@ -570,7 +546,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     }
 
     const casted_body = @ptrCast(*const clang.CompoundStmt, body_stmt);
-    transCompoundStmtInline(c, &block_scope.base, casted_body, &block_scope) catch |err| switch (err) {
+    transCompoundStmtInline(c, casted_body, &block_scope) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.UnsupportedTranslation,
         error.UnsupportedType,
@@ -583,24 +559,10 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     };
     // add return statement if the function didn't have one
     blk: {
-        if (fn_ty.getNoReturnAttr()) break :blk;
-        if (isCVoid(return_qt)) break :blk;
-
-        if (block_scope.statements.items.len > 0) {
-            var last = block_scope.statements.items[block_scope.statements.items.len - 1];
-            while (true) {
-                switch (last.tag()) {
-                    .block => {
-                        const block = last.castTag(.block).?;
-                        if (block.data.stmts.len == 0) break;
-
-                        last = block.data.stmts[block.data.stmts.len - 1];
-                    },
-                    // no extra return needed
-                    .@"return", .return_void => break :blk,
-                    else => break,
-                }
-            }
+        const maybe_body = try block_scope.complete(c);
+        if (fn_ty.getNoReturnAttr() or isCVoid(return_qt) or maybe_body.isNoreturn(false)) {
+            proto_node.data.body = maybe_body;
+            break :blk;
         }
 
         const rhs = transZeroInitExpr(c, scope, fn_decl_loc, return_qt.getTypePtr()) catch |err| switch (err) {
@@ -616,9 +578,9 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         };
         const ret = try Tag.@"return".create(c.arena, rhs);
         try block_scope.statements.append(ret);
+        proto_node.data.body = try block_scope.complete(c);
     }
 
-    proto_node.data.body = try block_scope.complete(c);
     return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
 }
 
@@ -1079,7 +1041,7 @@ fn transStmt(
             return Tag.empty_block.init();
         },
         .ContinueStmtClass => return Tag.@"continue".init(),
-        .BreakStmtClass => return transBreak(c, scope),
+        .BreakStmtClass => return Tag.@"break".init(),
         .ForStmtClass => return transForLoop(c, scope, @ptrCast(*const clang.ForStmt, stmt)),
         .FloatingLiteralClass => return transFloatingLiteral(c, scope, @ptrCast(*const clang.FloatingLiteral, stmt), result_used),
         .ConditionalOperatorClass => {
@@ -1089,8 +1051,9 @@ fn transStmt(
             return transBinaryConditionalOperator(c, scope, @ptrCast(*const clang.BinaryConditionalOperator, stmt), result_used);
         },
         .SwitchStmtClass => return transSwitch(c, scope, @ptrCast(*const clang.SwitchStmt, stmt)),
-        .CaseStmtClass => return transCase(c, scope, @ptrCast(*const clang.CaseStmt, stmt)),
-        .DefaultStmtClass => return transDefault(c, scope, @ptrCast(*const clang.DefaultStmt, stmt)),
+        .CaseStmtClass, .DefaultStmtClass => {
+            return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO complex switch", .{});
+        },
         .ConstantExprClass => return transConstantExpr(c, scope, @ptrCast(*const clang.Expr, stmt), result_used),
         .PredefinedExprClass => return transPredefinedExpr(c, scope, @ptrCast(*const clang.PredefinedExpr, stmt), result_used),
         .CharacterLiteralClass => return transCharLiteral(c, scope, @ptrCast(*const clang.CharacterLiteral, stmt), result_used, .with_as),
@@ -1107,13 +1070,7 @@ fn transStmt(
             return maybeSuppressResult(c, scope, result_used, expr);
         },
         else => {
-            return fail(
-                c,
-                error.UnsupportedTranslation,
-                stmt.getBeginLoc(),
-                "TODO implement translation of stmt class {s}",
-                .{@tagName(sc)},
-            );
+            return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
     }
 }
@@ -1255,14 +1212,13 @@ fn transBinaryOperator(
 
 fn transCompoundStmtInline(
     c: *Context,
-    parent_scope: *Scope,
     stmt: *const clang.CompoundStmt,
     block: *Scope.Block,
 ) TransError!void {
     var it = stmt.body_begin();
     const end_it = stmt.body_end();
     while (it != end_it) : (it += 1) {
-        const result = try transStmt(c, parent_scope, it[0], .unused);
+        const result = try transStmt(c, &block.base, it[0], .unused);
         if (result.tag() == .declaration) continue;
         try block.statements.append(result);
     }
@@ -1271,7 +1227,7 @@ fn transCompoundStmtInline(
 fn transCompoundStmt(c: *Context, scope: *Scope, stmt: *const clang.CompoundStmt) TransError!Node {
     var block_scope = try Scope.Block.init(c, scope, false);
     defer block_scope.deinit();
-    try transCompoundStmtInline(c, &block_scope.base, stmt, &block_scope);
+    try transCompoundStmtInline(c, stmt, &block_scope);
     return try block_scope.complete(c);
 }
 
@@ -2162,7 +2118,7 @@ fn transDoWhileLoop(
     defer cond_scope.deinit();
     const cond = try transBoolExpr(c, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used);
     const if_not_break = switch (cond.tag()) {
-        .false_literal => try Tag.@"break".create(c.arena, null),
+        .false_literal => Tag.@"break".init(),
         .true_literal => {
             const body_node = try transStmt(c, scope, stmt.getBody(), .unused);
             return Tag.while_true.create(c.arena, body_node);
@@ -2263,133 +2219,189 @@ fn transSwitch(
     };
     defer cond_scope.deinit();
     const switch_expr = try transExpr(c, &cond_scope.base, stmt.getCond(), .used);
-    const switch_node = try c.arena.create(ast.Payload.Switch);
-    switch_node.* = .{
-        .base = .{ .tag = .@"switch" },
-        .data = .{
-            .cond = switch_expr,
-            .cases = undefined, // set later
-        },
-    };
 
-    var switch_scope = Scope.Switch{
-        .base = .{
-            .id = .@"switch",
-            .parent = scope,
-        },
-        .cases = std.ArrayList(Node).init(c.gpa),
-        .pending_block = undefined,
-        .default_label = null,
-        .switch_label = null,
-    };
-    defer switch_scope.cases.deinit();
+    var cases = std.ArrayList(Node).init(c.gpa);
+    defer cases.deinit();
+    var has_default = false;
 
-    // tmp block that all statements will go before being picked up by a case or default
-    var block_scope = try Scope.Block.init(c, &switch_scope.base, false);
-    defer block_scope.deinit();
+    const body = stmt.getBody();
+    assert(body.getStmtClass() == .CompoundStmtClass);
+    const compound_stmt = @ptrCast(*const clang.CompoundStmt, body);
+    var it = compound_stmt.body_begin();
+    const end_it = compound_stmt.body_end();
+    // Iterate over switch body and collect all cases.
+    // Fallthrough is handled by duplicating statements.
+    while (it != end_it) : (it += 1) {
+        switch (it[0].getStmtClass()) {
+            .CaseStmtClass => {
+                var items = std.ArrayList(Node).init(c.gpa);
+                defer items.deinit();
+                const sub = try transCaseStmt(c, scope, it[0], &items);
+                const res = try transSwitchProngStmt(c, scope, sub, it, end_it);
 
-    // Note that we do not defer a deinit here; the switch_scope.pending_block field
-    // has its own memory management. This resource is freed inside `transCase` and
-    // then the final pending_block is freed at the bottom of this function with
-    // pending_block.deinit().
-    switch_scope.pending_block = try Scope.Block.init(c, scope, false);
-    try switch_scope.pending_block.statements.append(Node.initPayload(&switch_node.base));
+                if (items.items.len == 0) {
+                    has_default = true;
+                    const switch_else = try Tag.switch_else.create(c.arena, res);
+                    try cases.append(switch_else);
+                } else {
+                    const switch_prong = try Tag.switch_prong.create(c.arena, .{
+                        .cases = try c.arena.dupe(Node, items.items),
+                        .cond = res,
+                    });
+                    try cases.append(switch_prong);
+                }
+            },
+            .DefaultStmtClass => {
+                has_default = true;
+                const default_stmt = @ptrCast(*const clang.DefaultStmt, it[0]);
 
-    const last = try transStmt(c, &block_scope.base, stmt.getBody(), .unused);
+                var sub = default_stmt.getSubStmt();
+                while (true) switch (sub.getStmtClass()) {
+                    .CaseStmtClass => sub = @ptrCast(*const clang.CaseStmt, sub).getSubStmt(),
+                    .DefaultStmtClass => sub = @ptrCast(*const clang.DefaultStmt, sub).getSubStmt(),
+                    else => break,
+                };
 
-    // take all pending statements
-    const last_block_stmts = last.castTag(.block).?.data.stmts;
-    try switch_scope.pending_block.statements.ensureCapacity(
-        switch_scope.pending_block.statements.items.len + last_block_stmts.len,
-    );
-    for (last_block_stmts) |n| {
-        switch_scope.pending_block.statements.appendAssumeCapacity(n);
+                const res = try transSwitchProngStmt(c, scope, sub, it, end_it);
+
+                const switch_else = try Tag.switch_else.create(c.arena, res);
+                try cases.append(switch_else);
+            },
+            else => {}, // collected in transSwitchProngStmt
+        }
     }
 
-    if (switch_scope.default_label == null) {
-        switch_scope.switch_label = try block_scope.makeMangledName(c, "switch");
-    }
-    if (switch_scope.switch_label) |l| {
-        switch_scope.pending_block.label = l;
-    }
-    if (switch_scope.default_label == null) {
-        const else_prong = try Tag.switch_else.create(
-            c.arena,
-            try Tag.@"break".create(c.arena, switch_scope.switch_label.?),
-        );
-        try switch_scope.cases.append(else_prong);
+    if (!has_default) {
+        const else_prong = try Tag.switch_else.create(c.arena, Tag.@"break".init());
+        try cases.append(else_prong);
     }
 
-    switch_node.data.cases = try c.arena.dupe(Node, switch_scope.cases.items);
-    const result_node = try switch_scope.pending_block.complete(c);
-    switch_scope.pending_block.deinit();
-    return result_node;
-}
-
-fn transCase(
-    c: *Context,
-    scope: *Scope,
-    stmt: *const clang.CaseStmt,
-) TransError!Node {
-    const block_scope = try scope.findBlockScope(c);
-    const switch_scope = scope.getSwitch();
-    const label = try block_scope.makeMangledName(c, "case");
-
-    const expr = if (stmt.getRHS()) |rhs| blk: {
-        const lhs_node = try transExpr(c, scope, stmt.getLHS(), .used);
-        const rhs_node = try transExpr(c, scope, rhs, .used);
-
-        break :blk try Tag.ellipsis3.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
-    } else
-        try transExpr(c, scope, stmt.getLHS(), .used);
-
-    const switch_prong = try Tag.switch_prong.create(c.arena, .{
-        .lhs = expr,
-        .rhs = try Tag.@"break".create(c.arena, label),
+    return Tag.@"switch".create(c.arena, .{
+        .cond = switch_expr,
+        .cases = try c.arena.dupe(Node, cases.items),
     });
-    try switch_scope.cases.append(switch_prong);
-
-    switch_scope.pending_block.label = label;
-
-    // take all pending statements
-    try switch_scope.pending_block.statements.appendSlice(block_scope.statements.items);
-    block_scope.statements.shrinkAndFree(0);
-
-    const pending_node = try switch_scope.pending_block.complete(c);
-    switch_scope.pending_block.deinit();
-    switch_scope.pending_block = try Scope.Block.init(c, scope, false);
-
-    try switch_scope.pending_block.statements.append(pending_node);
-
-    return transStmt(c, scope, stmt.getSubStmt(), .unused);
 }
 
-fn transDefault(
+/// Collects all items for this case, returns the first statement after the labels.
+/// If items ends up empty, the prong should be translated as an else.
+fn transCaseStmt(c: *Context, scope: *Scope, stmt: *const clang.Stmt, items: *std.ArrayList(Node)) TransError!*const clang.Stmt {
+    var sub = stmt;
+    var seen_default = false;
+    while (true) {
+        switch (sub.getStmtClass()) {
+            .DefaultStmtClass => {
+                seen_default = true;
+                items.items.len = 0;
+                const default_stmt = @ptrCast(*const clang.DefaultStmt, sub);
+                sub = default_stmt.getSubStmt();
+            },
+            .CaseStmtClass => {
+                const case_stmt = @ptrCast(*const clang.CaseStmt, sub);
+
+                if (seen_default) {
+                    items.items.len = 0;
+                    sub = case_stmt.getSubStmt();
+                    continue;
+                }
+
+                const expr = if (case_stmt.getRHS()) |rhs| blk: {
+                    const lhs_node = try transExprCoercing(c, scope, case_stmt.getLHS(), .used);
+                    const rhs_node = try transExprCoercing(c, scope, rhs, .used);
+
+                    break :blk try Tag.ellipsis3.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
+                } else
+                    try transExprCoercing(c, scope, case_stmt.getLHS(), .used);
+
+                try items.append(expr);
+                sub = case_stmt.getSubStmt();
+            },
+            else => return sub,
+        }
+    }
+}
+
+/// Collects all statements seen by this case into a block.
+/// Avoids creating a block if the first statement is a break or return.
+fn transSwitchProngStmt(
     c: *Context,
     scope: *Scope,
-    stmt: *const clang.DefaultStmt,
+    stmt: *const clang.Stmt,
+    parent_it: clang.CompoundStmt.ConstBodyIterator,
+    parent_end_it: clang.CompoundStmt.ConstBodyIterator,
 ) TransError!Node {
-    const block_scope = try scope.findBlockScope(c);
-    const switch_scope = scope.getSwitch();
-    switch_scope.default_label = try block_scope.makeMangledName(c, "default");
+    switch (stmt.getStmtClass()) {
+        .BreakStmtClass => return Tag.empty_block.init(),
+        .ReturnStmtClass => return transStmt(c, scope, stmt, .unused),
+        .CaseStmtClass, .DefaultStmtClass => unreachable,
+        else => {
+            var block_scope = try Scope.Block.init(c, scope, false);
+            defer block_scope.deinit();
 
-    const else_prong = try Tag.switch_else.create(
-        c.arena,
-        try Tag.@"break".create(c.arena, switch_scope.default_label.?),
-    );
-    try switch_scope.cases.append(else_prong);
-    switch_scope.pending_block.label = switch_scope.default_label.?;
+            // we do not need to translate `stmt` since it is the first stmt of `parent_it`
+            try transSwitchProngStmtInline(c, &block_scope, parent_it, parent_end_it);
+            return try block_scope.complete(c);
+        },
+    }
+}
 
-    // take all pending statements
-    try switch_scope.pending_block.statements.appendSlice(block_scope.statements.items);
-    block_scope.statements.shrinkAndFree(0);
+/// Collects all statements seen by this case into a block.
+fn transSwitchProngStmtInline(
+    c: *Context,
+    block: *Scope.Block,
+    start_it: clang.CompoundStmt.ConstBodyIterator,
+    end_it: clang.CompoundStmt.ConstBodyIterator,
+) TransError!void {
+    var it = start_it;
+    while (it != end_it) : (it += 1) {
+        switch (it[0].getStmtClass()) {
+            .ReturnStmtClass => {
+                const result = try transStmt(c, &block.base, it[0], .unused);
+                try block.statements.append(result);
+                return;
+            },
+            .BreakStmtClass => return,
+            .CaseStmtClass => {
+                var sub = @ptrCast(*const clang.CaseStmt, it[0]).getSubStmt();
+                while (true) switch (sub.getStmtClass()) {
+                    .CaseStmtClass => sub = @ptrCast(*const clang.CaseStmt, sub).getSubStmt(),
+                    .DefaultStmtClass => sub = @ptrCast(*const clang.DefaultStmt, sub).getSubStmt(),
+                    else => break,
+                };
+                const result = try transStmt(c, &block.base, sub, .unused);
+                assert(result.tag() != .declaration);
+                try block.statements.append(result);
+            },
+            .DefaultStmtClass => {
+                var sub = @ptrCast(*const clang.DefaultStmt, it[0]).getSubStmt();
+                while (true) switch (sub.getStmtClass()) {
+                    .CaseStmtClass => sub = @ptrCast(*const clang.CaseStmt, sub).getSubStmt(),
+                    .DefaultStmtClass => sub = @ptrCast(*const clang.DefaultStmt, sub).getSubStmt(),
+                    else => break,
+                };
+                const result = try transStmt(c, &block.base, sub, .unused);
+                assert(result.tag() != .declaration);
+                try block.statements.append(result);
+            },
+            .CompoundStmtClass => {
+                const compound_stmt = @ptrCast(*const clang.CompoundStmt, it[0]);
+                var child_block = try Scope.Block.init(c, &block.base, false);
+                defer child_block.deinit();
 
-    const pending_node = try switch_scope.pending_block.complete(c);
-    switch_scope.pending_block.deinit();
-    switch_scope.pending_block = try Scope.Block.init(c, scope, false);
-    try switch_scope.pending_block.statements.append(pending_node);
-
-    return transStmt(c, scope, stmt.getSubStmt(), .unused);
+                try transCompoundStmtInline(c, compound_stmt, &child_block);
+                const result = try child_block.complete(c);
+                try block.statements.append(result);
+                if (result.isNoreturn(true)) {
+                    return;
+                }
+            },
+            else => {
+                const result = try transStmt(c, &block.base, it[0], .unused);
+                if (result.tag() == .declaration) continue;
+                try block.statements.append(result);
+            },
+        }
+    }
+    return;
 }
 
 fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
@@ -3023,19 +3035,6 @@ fn transCPtrCast(
         };
         return Tag.ptr_cast.create(c.arena, .{ .lhs = dst_type_node, .rhs = rhs });
     }
-}
-
-fn transBreak(c: *Context, scope: *Scope) TransError!Node {
-    const break_scope = scope.getBreakableScope();
-    const label_text: ?[]const u8 = if (break_scope.id == .@"switch") blk: {
-        const swtch = @fieldParentPtr(Scope.Switch, "base", break_scope);
-        const block_scope = try scope.findBlockScope(c);
-        swtch.switch_label = try block_scope.makeMangledName(c, "switch");
-        break :blk swtch.switch_label;
-    } else
-        null;
-
-    return Tag.@"break".create(c.arena, label_text);
 }
 
 fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {

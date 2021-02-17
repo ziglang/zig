@@ -30,6 +30,7 @@ pub const Node = extern union {
         noreturn_type,
         @"anytype",
         @"continue",
+        @"break",
         /// pub usingnamespace @import("std").c.builtins;
         usingnamespace_builtins,
         // After this, the tag requires a payload.
@@ -48,9 +49,8 @@ pub const Node = extern union {
         @"switch",
         /// else => operand,
         switch_else,
-        /// lhs => rhs,
+        /// items => body,
         switch_prong,
-        @"break",
         break_val,
         @"return",
         field_access,
@@ -219,6 +219,7 @@ pub const Node = extern union {
                 .noreturn_type,
                 .@"anytype",
                 .@"continue",
+                .@"break",
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .std_mem_zeroes,
@@ -294,7 +295,6 @@ pub const Node = extern union {
                 .int_to_ptr,
                 .array_cat,
                 .ellipsis3,
-                .switch_prong,
                 .assign,
                 .align_cast,
                 .array_access,
@@ -312,8 +312,7 @@ pub const Node = extern union {
                 => Payload.Value,
                 .@"if" => Payload.If,
                 .@"while" => Payload.While,
-                .@"switch", .array_init => Payload.Switch,
-                .@"break" => Payload.Break,
+                .@"switch", .array_init,.switch_prong => Payload.Switch,
                 .break_val => Payload.BreakVal,
                 .call => Payload.Call,
                 .var_decl => Payload.VarDecl,
@@ -377,6 +376,37 @@ pub const Node = extern union {
         std.debug.assert(@enumToInt(payload.tag) >= Tag.no_payload_count);
         return .{ .ptr_otherwise = payload };
     }
+
+    pub fn isNoreturn(node: Node, break_counts: bool) bool {
+        switch (node.tag()) {
+            .block => {
+                const block_node = node.castTag(.block).?;
+                if (block_node.data.stmts.len == 0) return false;
+
+                const last = block_node.data.stmts[block_node.data.stmts.len - 1];
+                return last.isNoreturn(break_counts);
+            },
+            .@"switch" => {
+                const switch_node = node.castTag(.@"switch").?;
+
+                for (switch_node.data.cases) |case| {
+                    const body = if (case.castTag(.switch_else)) |some|
+                        some.data
+                    else if (case.castTag(.switch_prong)) |some|
+                        some.data.cond
+                    else unreachable;
+
+                    if (!body.isNoreturn(break_counts)) return false;
+                }
+                return true;
+            },
+            .@"return", .return_void => return true,
+            .break_val, .@"break" => if (break_counts) return true,
+            else => {},
+        }
+        return false;
+    }
+
 };
 
 pub const Payload = struct {
@@ -432,11 +462,6 @@ pub const Payload = struct {
             cond: Node,
             cases: []Node,
         },
-    };
-
-    pub const Break = struct {
-        base: Payload,
-        data: ?[]const u8,
     };
 
     pub const BreakVal = struct {
@@ -855,22 +880,14 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .rhs = undefined,
             },
         }),
-        .@"break" => {
-            const payload = node.castTag(.@"break").?.data;
-            const tok = try c.addToken(.keyword_break, "break");
-            const break_label = if (payload) |some| blk: {
-                _ = try c.addToken(.colon, ":");
-                break :blk try c.addIdentifier(some);
-            } else 0;
-            return c.addNode(.{
-                .tag = .@"break",
-                .main_token = tok,
-                .data = .{
-                    .lhs = break_label,
-                    .rhs = 0,
-                },
-            });
-        },
+        .@"break" => return c.addNode(.{
+            .tag = .@"break",
+            .main_token = try c.addToken(.keyword_break, "break"),
+            .data = .{
+                .lhs = 0,
+                .rhs = 0,
+            },
+        }),
         .break_val => {
             const payload = node.castTag(.break_val).?.data;
             const tok = try c.addToken(.keyword_break, "break");
@@ -1447,15 +1464,37 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .switch_prong => {
             const payload = node.castTag(.switch_prong).?.data;
-            const item = try renderNode(c, payload.lhs);
-            return c.addNode(.{
-                .tag = .switch_case_one,
-                .main_token = try c.addToken(.equal_angle_bracket_right, "=>"),
-                .data = .{
-                    .lhs = item,
-                    .rhs = try renderNode(c, payload.rhs),
-                },
-            });
+            var items = try c.gpa.alloc(NodeIndex, std.math.max(payload.cases.len, 1));
+            defer c.gpa.free(items);
+            items[0] = 0;
+            for (payload.cases) |item, i| {
+                if (i != 0) _ = try c.addToken(.comma, ",");
+                items[i] = try renderNode(c, item);
+            }
+            _ = try c.addToken(.r_brace, "}");
+            if (items.len < 2) {
+                return c.addNode(.{
+                    .tag = .switch_case_one,
+                    .main_token = try c.addToken(.equal_angle_bracket_right, "=>"),
+                    .data = .{
+                        .lhs = items[0],
+                        .rhs = try renderNode(c, payload.cond),
+                    },
+                });
+            } else {
+                const span = try c.listToSpan(items);
+                return c.addNode(.{
+                    .tag = .switch_case,
+                    .main_token = try c.addToken(.equal_angle_bracket_right, "=>"),
+                    .data = .{
+                        .lhs = try c.addExtra(NodeSubRange{
+                            .start = span.start,
+                            .end = span.end,
+                        }),
+                        .rhs = try renderNode(c, payload.cond),
+                    },
+                });
+            }
         },
         .opaque_literal => {
             const opaque_tok = try c.addToken(.keyword_opaque, "opaque");
@@ -1870,7 +1909,7 @@ fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
 
 fn addSemicolonIfNotBlock(c: *Context, node: Node) !void {
     switch (node.tag()) {
-        .block, .empty_block, .block_single, => {},
+        .block, .empty_block, .block_single => {},
         .@"if" => {
             const payload = node.castTag(.@"if").?.data;
             if (payload.@"else") |some|

@@ -273,12 +273,12 @@ pub const CompoundAssignOperator = opaque {
 
 pub const CompoundStmt = opaque {
     pub const body_begin = ZigClangCompoundStmt_body_begin;
-    extern fn ZigClangCompoundStmt_body_begin(*const CompoundStmt) const_body_iterator;
+    extern fn ZigClangCompoundStmt_body_begin(*const CompoundStmt) ConstBodyIterator;
 
     pub const body_end = ZigClangCompoundStmt_body_end;
-    extern fn ZigClangCompoundStmt_body_end(*const CompoundStmt) const_body_iterator;
+    extern fn ZigClangCompoundStmt_body_end(*const CompoundStmt) ConstBodyIterator;
 
-    pub const const_body_iterator = [*]const *Stmt;
+    pub const ConstBodyIterator = [*]const *Stmt;
 };
 
 pub const ConditionalOperator = opaque {};

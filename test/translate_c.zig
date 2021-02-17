@@ -276,27 +276,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     , &[_][]const u8{ // TODO properly translate this
-        \\pub export fn main() c_int {
-        \\    var i: c_int = 2;
-        \\    @"switch": {
-        \\        case_1: {
-        \\            case: {
-        \\                switch (i) {
-        \\                    @as(c_int, 0) => break :case,
-        \\                    @as(c_int, 2) => break :case_1,
-        \\                    else => break :@"switch",
-        \\                }
-        \\            }
-        \\        }
-        \\        {
-        \\            {
-        \\                i += @as(c_int, 2);
-        \\            }
-        \\            i += @as(c_int, 1);
-        \\        }
-        \\    }
-        \\    return 0;
-        \\}
+        \\source.h:5:13: warning: TODO complex switch
+        ,
+        \\source.h:1:5: warning: unable to translate function, demoted to extern
+        \\pub extern fn main() c_int;
     });
 
     cases.add("correct semicolon after infixop",
@@ -2013,34 +1996,47 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        default:
         \\            res = 3 * i;
         \\            break;
+        \\            break;
         \\        case 4:
+        \\		case 5:
+        \\            res = 69;
+        \\        {
         \\            res = 5;
+        \\			  return;
+        \\        }
+        \\        case 6:
+        \\            res = 1;
+        \\			  return;
         \\    }
         \\}
     , &[_][]const u8{
         \\pub export fn switch_fn(arg_i: c_int) void {
         \\    var i = arg_i;
         \\    var res: c_int = 0;
-        \\    @"switch": {
-        \\        case_2: {
-        \\            default: {
-        \\                case_1: {
-        \\                    case: {
-        \\                        switch (i) {
-        \\                            @as(c_int, 0) => break :case,
-        \\                            @as(c_int, 1)...@as(c_int, 3) => break :case_1,
-        \\                            else => break :default,
-        \\                            @as(c_int, 4) => break :case_2,
-        \\                        }
-        \\                    }
-        \\                    res = 1;
-        \\                }
-        \\                res = 2;
-        \\            }
+        \\    switch (i) {
+        \\        @as(c_int, 0) => {
+        \\            res = 1;
+        \\            res = 2;
         \\            res = @as(c_int, 3) * i;
-        \\            break :@"switch";
-        \\        }
-        \\        res = 5;
+        \\        },
+        \\        @as(c_int, 1)...@as(c_int, 3) => {
+        \\            res = 2;
+        \\            res = @as(c_int, 3) * i;
+        \\        },
+        \\        else => {
+        \\            res = @as(c_int, 3) * i;
+        \\        },
+        \\        @as(c_int, 4), @as(c_int, 5) => {
+        \\            res = 69;
+        \\            {
+        \\                res = 5;
+        \\                return;
+        \\            }
+        \\        },
+        \\        @as(c_int, 6) => {
+        \\            res = 1;
+        \\            return;
+        \\        },
         \\    }
         \\}
     });
