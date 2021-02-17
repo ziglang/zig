@@ -7607,12 +7607,7 @@ static IrInstSrc *ir_gen_fn_call(IrBuilderSrc *irb, Scope *scope, AstNode *node,
 
     bool is_nosuspend = get_scope_nosuspend(scope) != nullptr;
     CallModifier modifier = node->data.fn_call_expr.modifier;
-    if (is_nosuspend) {
-        if (modifier == CallModifierAsync) {
-            add_node_error(irb->codegen, node,
-                    buf_sprintf("async call in nosuspend scope"));
-            return irb->codegen->invalid_inst_src;
-        }
+    if (is_nosuspend && modifier != CallModifierAsync) {
         modifier = CallModifierNoSuspend;
     }
 
