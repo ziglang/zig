@@ -11,12 +11,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("variadic function demoted to prototype",
+    cases.add("variadic function demoted to extern",
         \\int foo(int bar, ...) {
         \\    return 1;
         \\}
     , &[_][]const u8{
-        \\warning: TODO unable to translate variadic function, demoted to declaration
+        \\warning: TODO unable to translate variadic function, demoted to extern
         \\pub extern fn foo(bar: c_int, ...) c_int;
     });
 

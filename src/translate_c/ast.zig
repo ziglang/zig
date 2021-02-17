@@ -1866,6 +1866,12 @@ fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
 fn addSemicolonIfNotBlock(c: *Context, node: Node) !void {
     switch (node.tag()) {
         .block, .empty_block, .block_single, => {},
+        .@"if" => {
+            const payload = node.castTag(.@"if").?.data;
+            if (payload.@"else") |some|
+                return addSemicolonIfNotBlock(c, some);
+            return addSemicolonIfNotBlock(c, payload.then);
+        },
         else => _ = try c.addToken(.semicolon, ";"),
     }
 }

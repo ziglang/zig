@@ -508,7 +508,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
                 decl_ctx.has_body = false;
                 decl_ctx.storage_class = .Extern;
                 decl_ctx.is_export = false;
-                try warn(c, &c.global_scope.base, fn_decl_loc, "TODO unable to translate variadic function, demoted to declaration", .{});
+                try warn(c, &c.global_scope.base, fn_decl_loc, "TODO unable to translate variadic function, demoted to extern", .{});
             }
             break :blk transFnProto(c, fn_decl, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
@@ -543,8 +543,12 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
 
     var param_id: c_uint = 0;
     for (proto_node.data.params) |*param, i| {
-        const param_name = param.name orelse
-            return failDecl(c, fn_decl_loc, fn_name, "function {s} parameter has no name", .{fn_name});
+        const param_name = param.name orelse {
+            proto_node.data.is_extern = true;
+            proto_node.data.is_export = false;
+            try warn(c, &c.global_scope.base, fn_decl_loc, "function {s} parameter has no name, demoted to extern", .{fn_name});
+            return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
+        };
 
         const c_param = fn_decl.getParamDecl(param_id);
         const qual_type = c_param.getOriginalType();
@@ -570,7 +574,12 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         error.OutOfMemory => |e| return e,
         error.UnsupportedTranslation,
         error.UnsupportedType,
-        => return failDecl(c, fn_decl_loc, fn_name, "unable to translate function", .{}),
+        => {
+            proto_node.data.is_extern = true;
+            proto_node.data.is_export = false;
+            try warn(c, &c.global_scope.base, fn_decl_loc, "unable to translate function, demoted to extern", .{});
+            return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
+        },
     };
     // add return statement if the function didn't have one
     blk: {
@@ -598,7 +607,12 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             error.OutOfMemory => |e| return e,
             error.UnsupportedTranslation,
             error.UnsupportedType,
-            => return failDecl(c, fn_decl_loc, fn_name, "unable to create a return value for function", .{}),
+            => {
+                proto_node.data.is_extern = true;
+                proto_node.data.is_export = false;
+                try warn(c, &c.global_scope.base, fn_decl_loc, "unable to create a return value for function, demoted to extern", .{});
+                return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
+            },
         };
         const ret = try Tag.@"return".create(c.arena, rhs);
         try block_scope.statements.append(ret);
@@ -641,8 +655,8 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     // does the same as:
     // extern int foo;
     // int foo = 2;
-    const is_extern = storage_class == .Extern and !has_init;
-    const is_export = !is_extern and storage_class != .Static;
+    var is_extern = storage_class == .Extern and !has_init;
+    var is_export = !is_extern and storage_class != .Static;
 
     const type_node = transQualTypeMaybeInitialized(c, qual_type, decl_init, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedTranslation, error.UnsupportedType => {
@@ -656,7 +670,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     // If the initialization expression is not present, initialize with undefined.
     // If it is an integer literal, we can skip the @as since it will be redundant
     // with the variable type.
-    if (has_init) {
+    if (has_init) trans_init: {
         if (decl_init) |expr| {
             const node_or_error = if (expr.getStmtClass() == .StringLiteralClass)
                 transStringLiteralAsArray(c, scope, @ptrCast(*const clang.StringLiteral, expr), zigArraySize(c, type_node) catch 0)
@@ -666,7 +680,10 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
                 error.UnsupportedTranslation,
                 error.UnsupportedType,
                 => {
-                    return failDecl(c, var_decl_loc, checked_name, "unable to translate initializer", .{});
+                    is_extern = true;
+                    is_export = false;
+                    try warn(c, scope, var_decl_loc, "unable to translate variable initializer, demoted to extern", .{});
+                    break :trans_init;
                 },
                 error.OutOfMemory => |e| return e,
             };
@@ -1845,7 +1862,7 @@ fn literalFitsInType(c: *Context, expr: *const clang.Expr, qt: clang.QualType) b
     var width = qualTypeIntBitWidth(c, qt) catch 8;
     if (width == 0) width = 8; // Byte is the smallest type.
     const is_signed = cIsSignedInteger(qt);
-    const width_max_int= (@as(u64, 1) << math.lossyCast(u6, width - @boolToInt(is_signed))) - 1;
+    const width_max_int = (@as(u64, 1) << math.lossyCast(u6, width - @boolToInt(is_signed))) - 1;
 
     switch (@ptrCast(*const clang.Stmt, expr).getStmtClass()) {
         .CharacterLiteralClass => {
@@ -1866,7 +1883,6 @@ fn literalFitsInType(c: *Context, expr: *const clang.Expr, qt: clang.QualType) b
         },
         else => unreachable,
     }
-
 }
 
 fn transInitListExprRecord(
