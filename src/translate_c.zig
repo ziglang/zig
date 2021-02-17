@@ -433,13 +433,13 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
             return visitFnDecl(c, @ptrCast(*const clang.FunctionDecl, decl));
         },
         .Typedef => {
-            _ = try transTypeDef(c, @ptrCast(*const clang.TypedefNameDecl, decl), true);
+            try transTypeDef(c, &c.global_scope.base, @ptrCast(*const clang.TypedefNameDecl, decl));
         },
         .Enum => {
-            _ = try transEnumDecl(c, @ptrCast(*const clang.EnumDecl, decl));
+            try transEnumDecl(c, &c.global_scope.base, @ptrCast(*const clang.EnumDecl, decl));
         },
         .Record => {
-            _ = try transRecordDecl(c, @ptrCast(*const clang.RecordDecl, decl));
+            try transRecordDecl(c, &c.global_scope.base, @ptrCast(*const clang.RecordDecl, decl));
         },
         .Var => {
             return visitVarDecl(c, @ptrCast(*const clang.VarDecl, decl), null);
@@ -622,11 +622,11 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
 }
 
-fn transQualTypeMaybeInitialized(c: *Context, qt: clang.QualType, decl_init: ?*const clang.Expr, loc: clang.SourceLocation) TransError!Node {
+fn transQualTypeMaybeInitialized(c: *Context, scope: *Scope, qt: clang.QualType, decl_init: ?*const clang.Expr, loc: clang.SourceLocation) TransError!Node {
     return if (decl_init) |init_expr|
-        transQualTypeInitialized(c, qt, init_expr, loc)
+        transQualTypeInitialized(c, scope, qt, init_expr, loc)
     else
-        transQualType(c, qt, loc);
+        transQualType(c, scope, qt, loc);
 }
 
 /// if mangled_name is not null, this var decl was declared in a block scope.
@@ -658,7 +658,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     var is_extern = storage_class == .Extern and !has_init;
     var is_export = !is_extern and storage_class != .Static;
 
-    const type_node = transQualTypeMaybeInitialized(c, qual_type, decl_init, var_decl_loc) catch |err| switch (err) {
+    const type_node = transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedTranslation, error.UnsupportedType => {
             return failDecl(c, var_decl_loc, checked_name, "unable to resolve variable type", .{});
         },
@@ -733,11 +733,6 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     return addTopLevelDecl(c, checked_name, node);
 }
 
-fn transTypeDefAsBuiltin(c: *Context, typedef_decl: *const clang.TypedefNameDecl, builtin_name: []const u8) !Node {
-    _ = try c.decl_table.put(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), builtin_name);
-    return Tag.identifier.create(c.arena, builtin_name);
-}
-
 const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
     .{ "uint8_t", "u8" },
     .{ "int8_t", "i8" },
@@ -753,42 +748,28 @@ const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
     .{ "size_t", "usize" },
 });
 
-fn transTypeDef(c: *Context, typedef_decl: *const clang.TypedefNameDecl, top_level_visit: bool) Error!?Node {
+fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNameDecl) Error!void {
     if (c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl()))) |name|
-        return try Tag.identifier.create(c.arena, name); // Avoid processing this decl twice
+        return; // Avoid processing this decl twice
+    const toplevel = scope.id == .root;
+    const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    const typedef_name = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
+    const bare_name = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ typedef_name, c.getMangle() }) else typedef_name;
-    if (builtin_typedef_map.get(checked_name)) |builtin| {
-        _ = try c.decl_table.put(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), builtin);
-        return try Tag.identifier.create(c.arena, builtin);
+    var name: []const u8 = if (isZigPrimitiveType(bare_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ bare_name, c.getMangle() }) else bare_name;
+    if (builtin_typedef_map.get(name)) |builtin| {
+        return c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), builtin);
     }
+    if (!toplevel) name = try bs.makeMangledName(c, name);
+    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
 
-    if (!top_level_visit) {
-        return try Tag.identifier.create(c.arena, checked_name);
-    }
-
-    _ = try c.decl_table.put(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), checked_name);
-    const node = (try transCreateNodeTypedef(c, typedef_decl, true, checked_name)) orelse return null;
-    try addTopLevelDecl(c, checked_name, node);
-    return try Tag.identifier.create(c.arena, checked_name);
-}
-
-fn transCreateNodeTypedef(
-    c: *Context,
-    typedef_decl: *const clang.TypedefNameDecl,
-    toplevel: bool,
-    checked_name: []const u8,
-) Error!?Node {
     const child_qt = typedef_decl.getUnderlyingType();
     const typedef_loc = typedef_decl.getLocation();
-    const init_node = transQualType(c, child_qt, typedef_loc) catch |err| switch (err) {
+    const init_node = transQualType(c, scope, child_qt, typedef_loc) catch |err| switch (err) {
         error.UnsupportedType => {
-            try failDecl(c, typedef_loc, checked_name, "unable to resolve typedef child type", .{});
-            return null;
+            return failDecl(c, typedef_loc, name, "unable to resolve typedef child type", .{});
         },
         error.OutOfMemory => |e| return e,
     };
@@ -797,17 +778,25 @@ fn transCreateNodeTypedef(
     payload.* = .{
         .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(toplevel)] },
         .data = .{
-            .name = checked_name,
+            .name = name,
             .init = init_node,
         },
     };
-    return Node.initPayload(&payload.base);
+    const node = Node.initPayload(&payload.base);
+
+    if (toplevel) {
+        try addTopLevelDecl(c, name, node);
+    } else {
+        try scope.appendNode(node);
+    }
 }
 
-fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Node {
+fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
     if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |name|
-        return try Tag.identifier.create(c.arena, name); // Avoid processing this decl twice
+        return; // Avoid processing this decl twice
     const record_loc = record_decl.getLocation();
+    const toplevel = scope.id == .root;
+    const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
     var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
     var is_unnamed = false;
@@ -826,14 +815,15 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
     } else if (record_decl.isStruct()) {
         container_kind_name = "struct";
     } else {
-        try warn(c, &c.global_scope.base, record_loc, "record {s} is not a struct or union", .{bare_name});
-        return null;
+        try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), bare_name);
+        return failDecl(c, record_loc, bare_name, "record {s} is not a struct or union", .{bare_name});
     }
 
-    const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
-    _ = try c.decl_table.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
+    var name: []const u8 = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+    if (!toplevel) name = try bs.makeMangledName(c, name);
+    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
 
-    const is_pub = !is_unnamed;
+    const is_pub = toplevel and !is_unnamed;
     const init_node = blk: {
         const record_def = record_decl.getDefinition() orelse {
             _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
@@ -854,13 +844,13 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
 
             if (field_decl.isBitField()) {
                 _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                try warn(c, &c.global_scope.base, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
+                try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
                 break :blk Tag.opaque_literal.init();
             }
 
             if (qualTypeCanon(field_qt).isIncompleteOrZeroLengthArrayType(c.clang_context)) {
                 _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                try warn(c, &c.global_scope.base, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
+                try warn(c, scope, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
                 break :blk Tag.opaque_literal.init();
             }
 
@@ -872,10 +862,10 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
                 unnamed_field_count += 1;
                 is_anon = true;
             }
-            const field_type = transQualType(c, field_qt, field_loc) catch |err| switch (err) {
+            const field_type = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
                     _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                    try warn(c, &c.global_scope.base, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
+                    try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
                     break :blk Tag.opaque_literal.init();
                 },
                 else => |e| return e,
@@ -891,7 +881,7 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
             };
 
             if (is_anon) {
-                _ = try c.decl_table.put(c.gpa, @ptrToInt(field_decl.getCanonicalDecl()), field_name);
+                try c.decl_table.putNoClobber(c.gpa, @ptrToInt(field_decl.getCanonicalDecl()), field_name);
             }
 
             try fields.append(.{
@@ -921,16 +911,21 @@ fn transRecordDecl(c: *Context, record_decl: *const clang.RecordDecl) Error!?Nod
         },
     };
 
-    try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
-    if (!is_unnamed)
-        try c.alias_list.append(.{ .alias = bare_name, .name = name });
-    return try Tag.identifier.create(c.arena, name);
+    if (toplevel) {
+        try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
+        if (!is_unnamed)
+            try c.alias_list.append(.{ .alias = bare_name, .name = name });
+    } else {
+        try scope.appendNode(Node.initPayload(&payload.base));
+    }
 }
 
-fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
+fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) Error!void {
     if (c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |name|
-        return try Tag.identifier.create(c.arena, name); // Avoid processing this decl twice
+        return; // Avoid processing this decl twice
     const enum_loc = enum_decl.getLocation();
+    const toplevel = scope.id == .root;
+    const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
     var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
     var is_unnamed = false;
@@ -939,10 +934,13 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
         is_unnamed = true;
     }
 
-    const name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
-    _ = try c.decl_table.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
+    var name: []const u8 = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
+    if (!toplevel) _ = try bs.makeMangledName(c, name);
+    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
 
-    const is_pub = !is_unnamed;
+    const is_pub = toplevel and !is_unnamed;
+    var redecls = std.ArrayList(Tag.enum_redecl.Data()).init(c.gpa);
+    defer redecls.deinit();
 
     const init_node = if (enum_decl.getDefinition()) |enum_def| blk: {
         var pure_enum = true;
@@ -968,10 +966,9 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
         const init_arg_expr = if (int_type.ptr != null and
             !isCBuiltinType(int_type, .UInt) and
             !isCBuiltinType(int_type, .Int))
-            transQualType(c, int_type, enum_loc) catch |err| switch (err) {
+            transQualType(c, scope, int_type, enum_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    try failDecl(c, enum_loc, name, "unable to translate enum tag type", .{});
-                    return null;
+                    return failDecl(c, enum_loc, name, "unable to translate enum tag type", .{});
                 },
                 else => |e| return e,
             }
@@ -1001,11 +998,11 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
 
             // In C each enum value is in the global namespace. So we put them there too.
             // At this point we can rely on the enum emitting successfully.
-            try addTopLevelDecl(c, field_name, try Tag.enum_redecl.create(c.arena, .{
+            try redecls.append(.{
                 .enum_val_name = enum_val_name,
                 .field_name = field_name,
                 .enum_name = name,
-            }));
+            });
         }
 
         break :blk try Tag.@"enum".create(c.arena, .{
@@ -1026,10 +1023,25 @@ fn transEnumDecl(c: *Context, enum_decl: *const clang.EnumDecl) Error!?Node {
         },
     };
 
-    try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
-    if (!is_unnamed)
-        try c.alias_list.append(.{ .alias = bare_name, .name = name });
-    return try Tag.identifier.create(c.arena, name);
+    if (toplevel) {
+        try addTopLevelDecl(c, name, Node.initPayload(&payload.base));
+        if (!is_unnamed)
+            try c.alias_list.append(.{ .alias = bare_name, .name = name });
+    } else {
+        try scope.appendNode(Node.initPayload(&payload.base));
+    }
+
+    for (redecls.items) |redecl| {
+        if (toplevel) {
+            try addTopLevelDecl(c, redecl.field_name, try Tag.pub_enum_redecl.create(c.arena, redecl));
+        } else {
+            try scope.appendNode(try Tag.enum_redecl.create(c.arena, .{
+                .enum_val_name = try bs.makeMangledName(c, redecl.enum_val_name),
+                .field_name = redecl.field_name,
+                .enum_name = redecl.enum_name,
+            }));
+        }
+    }
 }
 
 const ResultUsed = enum {
@@ -1251,6 +1263,7 @@ fn transCompoundStmtInline(
     const end_it = stmt.body_end();
     while (it != end_it) : (it += 1) {
         const result = try transStmt(c, parent_scope, it[0], .unused);
+        if (result.tag() == .declaration) continue;
         try block.statements.append(result);
     }
 }
@@ -1285,7 +1298,7 @@ fn transDeclStmtOne(
     scope: *Scope,
     decl: *const clang.Decl,
     block_scope: *Scope.Block,
-) TransError!Node {
+) TransError!void {
     switch (decl.getKind()) {
         .Var => {
             const var_decl = @ptrCast(*const clang.VarDecl, decl);
@@ -1299,8 +1312,7 @@ fn transDeclStmtOne(
                 .Extern, .Static => {
                     // This is actually a global variable, put it in the global scope and reference it.
                     // `_ = mangled_name;`
-                    try visitVarDecl(c, var_decl, mangled_name);
-                    return try maybeSuppressResult(c, scope, .unused, try Tag.identifier.create(c.arena, mangled_name));
+                    return visitVarDecl(c, var_decl, mangled_name);
                 },
                 else => {},
             }
@@ -1308,7 +1320,7 @@ fn transDeclStmtOne(
             const is_const = qual_type.isConstQualified();
 
             const loc = decl.getLocation();
-            const type_node = try transQualTypeMaybeInitialized(c, qual_type, decl_init, loc);
+            const type_node = try transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, loc);
 
             var init_node = if (decl_init) |expr|
                 if (expr.getStmtClass() == .StringLiteralClass)
@@ -1320,7 +1332,7 @@ fn transDeclStmtOne(
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
                 init_node = try Tag.bool_to_int.create(c.arena, init_node);
             }
-            return Tag.var_decl.create(c.arena, .{
+            const node = try Tag.var_decl.create(c.arena, .{
                 .is_pub = false,
                 .is_const = is_const,
                 .is_extern = false,
@@ -1332,18 +1344,16 @@ fn transDeclStmtOne(
                 .type = type_node,
                 .init = init_node,
             });
+            try block_scope.statements.append(node);
         },
         .Typedef => {
-            const typedef_decl = @ptrCast(*const clang.TypedefNameDecl, decl);
-            const name = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
-
-            const underlying_qual = typedef_decl.getUnderlyingType();
-            const underlying_type = underlying_qual.getTypePtr();
-
-            const mangled_name = try block_scope.makeMangledName(c, name);
-            const node = (try transCreateNodeTypedef(c, typedef_decl, false, mangled_name)) orelse
-                return error.UnsupportedTranslation;
-            return node;
+            try transTypeDef(c, scope, @ptrCast(*const clang.TypedefNameDecl, decl));
+        },
+        .Record => {
+            try transRecordDecl(c, scope, @ptrCast(*const clang.RecordDecl, decl));
+        },
+        .Enum => {
+            try transEnumDecl(c, scope, @ptrCast(*const clang.EnumDecl, decl));
         },
         else => |kind| return fail(
             c,
@@ -1356,21 +1366,14 @@ fn transDeclStmtOne(
 }
 
 fn transDeclStmt(c: *Context, scope: *Scope, stmt: *const clang.DeclStmt) TransError!Node {
-    const block_scope = scope.findBlockScope(c) catch unreachable;
+    const block_scope = try scope.findBlockScope(c);
 
     var it = stmt.decl_begin();
     const end_it = stmt.decl_end();
-    assert(it != end_it);
-    while (true) : (it += 1) {
-        const node = try transDeclStmtOne(c, scope, it[0], block_scope);
-
-        if (it + 1 == end_it) {
-            return node;
-        } else {
-            try block_scope.statements.append(node);
-        }
+    while (it != end_it) : (it += 1) {
+        try transDeclStmtOne(c, scope, it[0], block_scope);
     }
-    unreachable;
+    return Tag.declaration.init();
 }
 
 fn transDeclRefExpr(
@@ -1619,7 +1622,7 @@ fn transIntegerLiteral(
 
     // @as(T, x)
     const expr_base = @ptrCast(*const clang.Expr, expr);
-    const ty_node = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc());
+    const ty_node = try transQualType(c, scope, expr_base.getType(), expr_base.getBeginLoc());
     const rhs = try transCreateNodeAPInt(c, eval_result.Val.getInt());
     const as = try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = rhs });
     return maybeSuppressResult(c, scope, result_used, as);
@@ -1697,7 +1700,7 @@ fn transStringLiteralAsArray(
     const ty = expr_base.getType().getTypePtr();
     const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
 
-    const elem_type = try transQualType(c, const_arr_ty.getElementType(), expr_base.getBeginLoc());
+    const elem_type = try transQualType(c, scope, const_arr_ty.getElementType(), expr_base.getBeginLoc());
     const arr_type = try Tag.array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_type });
     const init_list = try c.arena.alloc(Node, array_size);
 
@@ -1744,9 +1747,9 @@ fn transCCast(
     if (qualTypeCanon(dst_type).isVoidType()) return expr;
     if (dst_type.eq(src_type)) return expr;
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
-        return transCPtrCast(c, loc, dst_type, src_type, expr);
+        return transCPtrCast(c, scope, loc, dst_type, src_type, expr);
 
-    const dst_node = try transQualType(c, dst_type, loc);
+    const dst_node = try transQualType(c, scope, dst_type, loc);
     if (cIsInteger(dst_type) and (cIsInteger(src_type) or cIsEnum(src_type))) {
         // 1. If src_type is an enum, determine the underlying signed int type
         // 2. Extend or truncate without changing signed-ness.
@@ -1903,7 +1906,7 @@ fn transInitListExprRecord(
     const record_def = record_decl.getDefinition() orelse
         unreachable;
 
-    const ty_node = try transType(c, ty, loc);
+    const ty_node = try transType(c, scope, ty, loc);
     const init_count = expr.getNumInits();
     var field_inits = std.ArrayList(ast.Payload.ContainerInit.Initializer).init(c.gpa);
     defer field_inits.deinit();
@@ -1952,7 +1955,7 @@ fn transInitListExprArray(
 ) TransError!Node {
     const arr_type = ty.getAsArrayTypeUnsafe();
     const child_qt = arr_type.getElementType();
-    const child_type = try transQualType(c, child_qt, loc);
+    const child_type = try transQualType(c, scope, child_qt, loc);
     const init_count = expr.getNumInits();
     assert(@ptrCast(*const clang.Type, arr_type).isConstantArrayType());
     const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, arr_type);
@@ -2217,7 +2220,7 @@ fn transForLoop(
         block_scope = try Scope.Block.init(c, scope, false);
         loop_scope.parent = &block_scope.?.base;
         const init_node = try transStmt(c, &block_scope.?.base, init, .unused);
-        try block_scope.?.statements.append(init_node);
+        if (init_node.tag() != .declaration) try block_scope.?.statements.append(init_node);
     }
     var cond_scope = Scope.Condition{
         .base = .{
@@ -2328,7 +2331,7 @@ fn transCase(
     scope: *Scope,
     stmt: *const clang.CaseStmt,
 ) TransError!Node {
-    const block_scope = scope.findBlockScope(c) catch unreachable;
+    const block_scope = try scope.findBlockScope(c);
     const switch_scope = scope.getSwitch();
     const label = try block_scope.makeMangledName(c, "case");
 
@@ -2366,7 +2369,7 @@ fn transDefault(
     scope: *Scope,
     stmt: *const clang.DefaultStmt,
 ) TransError!Node {
-    const block_scope = scope.findBlockScope(c) catch unreachable;
+    const block_scope = try scope.findBlockScope(c);
     const switch_scope = scope.getSwitch();
     switch_scope.default_label = try block_scope.makeMangledName(c, "default");
 
@@ -2400,7 +2403,7 @@ fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: 
             // @as(T, x)
             const expr_base = @ptrCast(*const clang.Expr, expr);
             const as_node = try Tag.as.create(c.arena, .{
-                .lhs = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc()),
+                .lhs = try transQualType(c, scope, expr_base.getType(), expr_base.getBeginLoc()),
                 .rhs = try transCreateNodeAPInt(c, result.Val.getInt()),
             });
             return maybeSuppressResult(c, scope, used, as_node);
@@ -2446,7 +2449,7 @@ fn transCharLiteral(
     // @as(T, x)
     const expr_base = @ptrCast(*const clang.Expr, stmt);
     const as_node = try Tag.as.create(c.arena, .{
-        .lhs = try transQualType(c, expr_base.getType(), expr_base.getBeginLoc()),
+        .lhs = try transQualType(c, scope, expr_base.getType(), expr_base.getBeginLoc()),
         .rhs = int_lit_node,
     });
     return maybeSuppressResult(c, scope, result_used, as_node);
@@ -2464,6 +2467,7 @@ fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: 
     const end_it = comp.body_end();
     while (it != end_it - 1) : (it += 1) {
         const result = try transStmt(c, &block_scope.base, it[0], .unused);
+        if (result.tag() == .declaration) continue;
         try block_scope.statements.append(result);
     }
     const break_node = try Tag.break_val.create(c.arena, .{
@@ -2657,7 +2661,7 @@ fn transUnaryExprOrTypeTraitExpr(
     result_used: ResultUsed,
 ) TransError!Node {
     const loc = stmt.getBeginLoc();
-    const type_node = try transQualType(c, stmt.getTypeOfArgument(), loc);
+    const type_node = try transQualType(c, scope, stmt.getTypeOfArgument(), loc);
 
     const kind = stmt.getKind();
     switch (kind) {
@@ -2917,9 +2921,9 @@ fn transCreateCompoundAssign(
         if (is_shift or requires_int_cast) {
             // @intCast(rhs)
             const cast_to_type = if (is_shift)
-                try qualTypeToLog2IntRef(c, getExprQualType(c, rhs), loc)
+                try qualTypeToLog2IntRef(c, scope, getExprQualType(c, rhs), loc)
             else
-                try transQualType(c, getExprQualType(c, lhs), loc);
+                try transQualType(c, scope, getExprQualType(c, lhs), loc);
 
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
         }
@@ -2960,9 +2964,9 @@ fn transCreateCompoundAssign(
         if (is_shift or requires_int_cast) {
             // @intCast(rhs)
             const cast_to_type = if (is_shift)
-                try qualTypeToLog2IntRef(c, getExprQualType(c, rhs), loc)
+                try qualTypeToLog2IntRef(c, scope, getExprQualType(c, rhs), loc)
             else
-                try transQualType(c, getExprQualType(c, lhs), loc);
+                try transQualType(c, scope, getExprQualType(c, lhs), loc);
 
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
         }
@@ -2981,6 +2985,7 @@ fn transCreateCompoundAssign(
 
 fn transCPtrCast(
     c: *Context,
+    scope: *Scope,
     loc: clang.SourceLocation,
     dst_type: clang.QualType,
     src_type: clang.QualType,
@@ -2990,7 +2995,7 @@ fn transCPtrCast(
     const child_type = ty.getPointeeType();
     const src_ty = src_type.getTypePtr();
     const src_child_type = src_ty.getPointeeType();
-    const dst_type_node = try transType(c, ty, loc);
+    const dst_type_node = try transType(c, scope, ty, loc);
 
     if ((src_child_type.isConstQualified() and
         !child_type.isConstQualified()) or
@@ -3011,7 +3016,7 @@ fn transCPtrCast(
             // For opaque types a ptrCast is enough
             expr
         else blk: {
-            const child_type_node = try transQualType(c, child_type, loc);
+            const child_type_node = try transQualType(c, scope, child_type, loc);
             const alignof = try Tag.alignof.create(c.arena, child_type_node);
             const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
             break :blk align_cast;
@@ -3160,6 +3165,7 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
 /// by the size of the initializer
 fn transQualTypeInitialized(
     c: *Context,
+    scope: *Scope,
     qt: clang.QualType,
     decl_init: *const clang.Expr,
     source_loc: clang.SourceLocation,
@@ -3167,7 +3173,7 @@ fn transQualTypeInitialized(
     const ty = qt.getTypePtr();
     if (ty.getTypeClass() == .IncompleteArray) {
         const incomplete_array_ty = @ptrCast(*const clang.IncompleteArrayType, ty);
-        const elem_ty = try transType(c, incomplete_array_ty.getElementType().getTypePtr(), source_loc);
+        const elem_ty = try transType(c, scope, incomplete_array_ty.getElementType().getTypePtr(), source_loc);
 
         switch (decl_init.getStmtClass()) {
             .StringLiteralClass => {
@@ -3184,11 +3190,11 @@ fn transQualTypeInitialized(
             else => {},
         }
     }
-    return transQualType(c, qt, source_loc);
+    return transQualType(c, scope, qt, source_loc);
 }
 
-fn transQualType(c: *Context, qt: clang.QualType, source_loc: clang.SourceLocation) TypeError!Node {
-    return transType(c, qt.getTypePtr(), source_loc);
+fn transQualType(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: clang.SourceLocation) TypeError!Node {
+    return transType(c, scope, qt.getTypePtr(), source_loc);
 }
 
 /// Produces a Zig AST node by translating a Clang QualType, respecting the width, but modifying the signed-ness.
@@ -3273,7 +3279,7 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
     }
 }
 
-fn qualTypeToLog2IntRef(c: *Context, qt: clang.QualType, source_loc: clang.SourceLocation) !Node {
+fn qualTypeToLog2IntRef(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: clang.SourceLocation) !Node {
     const int_bit_width = try qualTypeIntBitWidth(c, qt);
 
     if (int_bit_width != 0) {
@@ -3282,7 +3288,7 @@ fn qualTypeToLog2IntRef(c: *Context, qt: clang.QualType, source_loc: clang.Sourc
         return Tag.log2_int_type.create(c.arena, cast_bit_width);
     }
 
-    const zig_type = try transQualType(c, qt, source_loc);
+    const zig_type = try transQualType(c, scope, qt, source_loc);
     return Tag.std_math_Log2Int.create(c.arena, zig_type);
 }
 
@@ -3641,14 +3647,14 @@ fn transCreateNodeShiftOp(
 
     const lhs = try transExpr(c, scope, lhs_expr, .used);
 
-    const rhs_type = try qualTypeToLog2IntRef(c, stmt.getType(), rhs_location);
+    const rhs_type = try qualTypeToLog2IntRef(c, scope, stmt.getType(), rhs_location);
     const rhs = try transExprCoercing(c, scope, rhs_expr, .used);
     const rhs_casted = try Tag.int_cast.create(c.arena, .{ .lhs = rhs_type, .rhs = rhs });
 
     return transCreateNodeInfixOp(c, scope, op, lhs, rhs_casted, used);
 }
 
-fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocation) TypeError!Node {
+fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clang.SourceLocation) TypeError!Node {
     switch (ty.getTypeClass()) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
@@ -3687,16 +3693,16 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
         },
         .Paren => {
             const paren_ty = @ptrCast(*const clang.ParenType, ty);
-            return transQualType(c, paren_ty.getInnerType(), source_loc);
+            return transQualType(c, scope, paren_ty.getInnerType(), source_loc);
         },
         .Pointer => {
             const child_qt = ty.getPointeeType();
             if (qualTypeChildIsFnProto(child_qt)) {
-                return Tag.optional_type.create(c.arena, try transQualType(c, child_qt, source_loc));
+                return Tag.optional_type.create(c.arena, try transQualType(c, scope, child_qt, source_loc));
             }
             const is_const = child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
-            const elem_type = try transQualType(c, child_qt, source_loc);
+            const elem_type = try transQualType(c, scope, child_qt, source_loc);
             if (typeIsOpaque(c, child_qt.getTypePtr(), source_loc) or qualTypeWasDemotedToOpaque(c, child_qt)) {
                 const ptr = try Tag.single_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
                 return Tag.optional_type.create(c.arena, ptr);
@@ -3709,7 +3715,7 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
 
             const size_ap_int = const_arr_ty.getSize();
             const size = size_ap_int.getLimitedValue(math.maxInt(usize));
-            const elem_type = try transType(c, const_arr_ty.getElementType().getTypePtr(), source_loc);
+            const elem_type = try transType(c, scope, const_arr_ty.getElementType().getTypePtr(), source_loc);
 
             return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
         },
@@ -3719,7 +3725,7 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
             const child_qt = incomplete_array_ty.getElementType();
             const is_const = child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
-            const elem_type = try transQualType(c, child_qt, source_loc);
+            const elem_type = try transQualType(c, scope, child_qt, source_loc);
 
             return Tag.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
         },
@@ -3727,38 +3733,41 @@ fn transType(c: *Context, ty: *const clang.Type, source_loc: clang.SourceLocatio
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
 
             const typedef_decl = typedef_ty.getDecl();
-            return (try transTypeDef(c, typedef_decl, false)) orelse
-                fail(c, error.UnsupportedType, source_loc, "unable to translate typedef declaration", .{});
+            try transTypeDef(c, scope, typedef_decl);
+            const name = c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl())).?;
+            return Tag.identifier.create(c.arena, name);
         },
         .Record => {
             const record_ty = @ptrCast(*const clang.RecordType, ty);
 
             const record_decl = record_ty.getDecl();
-            return (try transRecordDecl(c, record_decl)) orelse
-                fail(c, error.UnsupportedType, source_loc, "unable to resolve record declaration", .{});
+            try transRecordDecl(c, scope, record_decl);
+            const name = c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl())).?;
+            return Tag.identifier.create(c.arena, name);
         },
         .Enum => {
             const enum_ty = @ptrCast(*const clang.EnumType, ty);
 
             const enum_decl = enum_ty.getDecl();
-            return (try transEnumDecl(c, enum_decl)) orelse
-                fail(c, error.UnsupportedType, source_loc, "unable to translate enum declaration", .{});
+            try transEnumDecl(c, scope, enum_decl);
+            const name = c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl())).?;
+            return Tag.identifier.create(c.arena, name);
         },
         .Elaborated => {
             const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
-            return transQualType(c, elaborated_ty.getNamedType(), source_loc);
+            return transQualType(c, scope, elaborated_ty.getNamedType(), source_loc);
         },
         .Decayed => {
             const decayed_ty = @ptrCast(*const clang.DecayedType, ty);
-            return transQualType(c, decayed_ty.getDecayedType(), source_loc);
+            return transQualType(c, scope, decayed_ty.getDecayedType(), source_loc);
         },
         .Attributed => {
             const attributed_ty = @ptrCast(*const clang.AttributedType, ty);
-            return transQualType(c, attributed_ty.getEquivalentType(), source_loc);
+            return transQualType(c, scope, attributed_ty.getEquivalentType(), source_loc);
         },
         .MacroQualified => {
             const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, ty);
-            return transQualType(c, macroqualified_ty.getModifiedType(), source_loc);
+            return transQualType(c, scope, macroqualified_ty.getModifiedType(), source_loc);
         },
         else => {
             const type_name = c.str(ty.getTypeClassName());
@@ -3890,6 +3899,7 @@ fn finishTransFnProto(
 ) !*ast.Payload.Func {
     const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
     const is_extern = if (fn_decl_context) |ctx| !ctx.has_body else false;
+    const scope = &c.global_scope.base;
 
     // TODO check for always_inline attribute
     // TODO check for align attribute
@@ -3914,7 +3924,7 @@ fn finishTransFnProto(
 
             break :blk param_name;
         } else null;
-        const type_node = try transQualType(c, param_qt, source_loc);
+        const type_node = try transQualType(c, scope, param_qt, source_loc);
 
         fn_params.addOneAssumeCapacity().* = .{
             .is_noalias = is_noalias,
@@ -3955,9 +3965,9 @@ fn finishTransFnProto(
                 // convert primitive c_void to actual void (only for return type)
                 break :blk Tag.void_type.init();
             } else {
-                break :blk transQualType(c, return_qt, source_loc) catch |err| switch (err) {
+                break :blk transQualType(c, scope, return_qt, source_loc) catch |err| switch (err) {
                     error.UnsupportedType => {
-                        try warn(c, &c.global_scope.base, source_loc, "unsupported function proto return type", .{});
+                        try warn(c, scope, source_loc, "unsupported function proto return type", .{});
                         return err;
                     },
                     error.OutOfMemory => |e| return e,

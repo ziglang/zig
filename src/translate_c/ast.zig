@@ -14,6 +14,8 @@ pub const Node = extern union {
     ptr_otherwise: *Payload,
 
     pub const Tag = enum {
+        /// Declarations add themselves to the correct scopes and should not be emitted as this tag.
+        declaration,
         null_literal,
         undefined_literal,
         /// opaque {}
@@ -186,6 +188,7 @@ pub const Node = extern union {
         /// pub const name = init;
         pub_var_simple,
         /// pub const enum_field_name = @enumToInt(enum_name.field_name);
+        pub_enum_redecl,
         enum_redecl,
 
         /// pub inline fn name(params) return_type body
@@ -201,6 +204,7 @@ pub const Node = extern union {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
+                .declaration,
                 .null_literal,
                 .undefined_literal,
                 .opaque_literal,
@@ -325,7 +329,7 @@ pub const Node = extern union {
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
                 .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
-                .enum_redecl => Payload.EnumRedecl,
+                .pub_enum_redecl, .enum_redecl => Payload.EnumRedecl,
                 .array_filler => Payload.ArrayFiller,
                 .pub_inline_fn => Payload.PubInlineFn,
                 .field_access => Payload.FieldAccess,
@@ -742,6 +746,7 @@ fn renderNodes(c: *Context, nodes: []const Node) Allocator.Error!NodeSubRange {
 
 fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
     switch (node.tag()) {
+        .declaration => unreachable,
         .warning => {
             const payload = node.castTag(.warning).?.data;
             try c.buf.appendSlice(payload);
@@ -1585,9 +1590,9 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
-        .enum_redecl => {
-            const payload = node.castTag(.enum_redecl).?.data;
-            _ = try c.addToken(.keyword_pub, "pub");
+        .pub_enum_redecl, .enum_redecl => {
+            const payload = @fieldParentPtr(Payload.EnumRedecl, "base", node.ptr_otherwise).data;
+            if (node.tag() == .pub_enum_redecl) _ = try c.addToken(.keyword_pub, "pub");
             const const_tok = try c.addToken(.keyword_const, "const");
             _ = try c.addIdentifier(payload.enum_val_name);
             _ = try c.addToken(.equal, "=");
@@ -1878,6 +1883,7 @@ fn addSemicolonIfNotBlock(c: *Context, node: Node) !void {
 
 fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
     switch (node.tag()) {
+        .declaration => unreachable,
         .null_literal,
         .undefined_literal,
         .true_literal,
@@ -1991,6 +1997,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .alias,
         .var_simple,
         .pub_var_simple,
+        .pub_enum_redecl,
         .enum_redecl,
         .@"while",
         .@"switch",

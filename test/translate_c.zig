@@ -3,6 +3,136 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("scoped enum",
+        \\void foo() {
+        \\	enum Foo {
+        \\		A,
+        \\		B,
+        \\		C,
+        \\	};
+        \\	enum Foo a = B;
+        \\	{
+        \\		enum Foo {
+        \\			A,
+        \\			B,
+        \\			C,
+        \\		};
+        \\		enum Foo a = B;
+        \\	}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    const enum_Foo = extern enum(c_int) {
+        \\        A,
+        \\        B,
+        \\        C,
+        \\        _,
+        \\    };
+        \\    const A = @enumToInt(enum_Foo.A);
+        \\    const B = @enumToInt(enum_Foo.B);
+        \\    const C = @enumToInt(enum_Foo.C);
+        \\    var a: enum_Foo = @intToEnum(enum_Foo, B);
+        \\    {
+        \\        const enum_Foo = extern enum(c_int) {
+        \\            A,
+        \\            B,
+        \\            C,
+        \\            _,
+        \\        };
+        \\        const A_2 = @enumToInt(enum_Foo.A);
+        \\        const B_3 = @enumToInt(enum_Foo.B);
+        \\        const C_4 = @enumToInt(enum_Foo.C);
+        \\        var a_5: enum_Foo = @intToEnum(enum_Foo, B_3);
+        \\    }
+        \\}
+    });
+
+    cases.add("scoped record",
+        \\void foo() {
+        \\	struct Foo {
+        \\		int A;
+        \\		int B;
+        \\		int C;
+        \\	};
+        \\	struct Foo a = {0};
+        \\	{
+        \\		struct Foo {
+        \\			int A;
+        \\			int B;
+        \\			int C;
+        \\		};
+        \\		struct Foo a = {0};
+        \\	}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    const struct_Foo = extern struct {
+        \\        A: c_int,
+        \\        B: c_int,
+        \\        C: c_int,
+        \\    };
+        \\    var a: struct_Foo = struct_Foo{
+        \\        .A = @as(c_int, 0),
+        \\        .B = 0,
+        \\        .C = 0,
+        \\    };
+        \\    {
+        \\        const struct_Foo_1 = extern struct {
+        \\            A: c_int,
+        \\            B: c_int,
+        \\            C: c_int,
+        \\        };
+        \\        var a_2: struct_Foo_1 = struct_Foo_1{
+        \\            .A = @as(c_int, 0),
+        \\            .B = 0,
+        \\            .C = 0,
+        \\        };
+        \\    }
+        \\}
+    });
+
+    cases.add("scoped typedef",
+        \\void foo() {
+        \\	typedef union {
+        \\		int A;
+        \\		int B;
+        \\		int C;
+        \\	} Foo;
+        \\	Foo a = {0};
+        \\	{
+        \\		typedef union {
+        \\			int A;
+        \\			int B;
+        \\			int C;
+        \\		} Foo;
+        \\		Foo a = {0};
+        \\	}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    const union_unnamed_1 = extern union {
+        \\        A: c_int,
+        \\        B: c_int,
+        \\        C: c_int,
+        \\    };
+        \\    const Foo = union_unnamed_1;
+        \\    var a: Foo = Foo{
+        \\        .A = @as(c_int, 0),
+        \\    };
+        \\    {
+        \\        const union_unnamed_2 = extern union {
+        \\            A: c_int,
+        \\            B: c_int,
+        \\            C: c_int,
+        \\        };
+        \\        const Foo_1 = union_unnamed_2;
+        \\        var a_2: Foo_1 = Foo_1{
+        \\            .A = @as(c_int, 0),
+        \\        };
+        \\    }
+        \\}
+    });
+
     cases.add("use cast param as macro fn return type",
         \\#define MEM_PHYSICAL_TO_K0(x) (void*)((u32)(x) + SYS_BASE_CACHED)
     , &[_][]const u8{
@@ -62,7 +192,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var bar: f32 = @import("std").mem.zeroes(f32);
         \\threadlocal var bar_1: c_int = 2;
         \\pub export fn foo() c_int {
-        \\    _ = bar_1;
         \\    return 0;
         \\}
     });
@@ -579,9 +708,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    '2',
         \\    0,
         \\};
-        \\pub export fn foo() void {
-        \\    _ = v2;
-        \\}
+        \\pub export fn foo() void {}
     });
 
     cases.add("simple function definition",
@@ -1355,11 +1482,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern enum enum_ty my_enum;
         \\enum enum_ty { FOO };
     , &[_][]const u8{
-        \\pub const FOO = @enumToInt(enum_enum_ty.FOO);
         \\pub const enum_enum_ty = extern enum(c_int) {
         \\    FOO,
         \\    _,
         \\};
+        \\pub const FOO = @enumToInt(enum_enum_ty.FOO);
         \\pub extern var my_enum: enum_enum_ty;
     });
 
@@ -1501,48 +1628,48 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    p,
         \\};
     , &[_][]const u8{
-        \\pub const a = @enumToInt(enum_unnamed_1.a);
-        \\pub const b = @enumToInt(enum_unnamed_1.b);
-        \\pub const c = @enumToInt(enum_unnamed_1.c);
         \\const enum_unnamed_1 = extern enum(c_int) {
         \\    a,
         \\    b,
         \\    c,
         \\    _,
         \\};
+        \\pub const a = @enumToInt(enum_unnamed_1.a);
+        \\pub const b = @enumToInt(enum_unnamed_1.b);
+        \\pub const c = @enumToInt(enum_unnamed_1.c);
         \\pub const d = enum_unnamed_1;
-        \\pub const e = @enumToInt(enum_unnamed_2.e);
-        \\pub const f = @enumToInt(enum_unnamed_2.f);
-        \\pub const g = @enumToInt(enum_unnamed_2.g);
         \\const enum_unnamed_2 = extern enum(c_int) {
         \\    e = 0,
         \\    f = 4,
         \\    g = 5,
         \\    _,
         \\};
+        \\pub const e = @enumToInt(enum_unnamed_2.e);
+        \\pub const f = @enumToInt(enum_unnamed_2.f);
+        \\pub const g = @enumToInt(enum_unnamed_2.g);
         \\pub export var h: enum_unnamed_2 = @intToEnum(enum_unnamed_2, e);
-        \\pub const i = @enumToInt(enum_unnamed_3.i);
-        \\pub const j = @enumToInt(enum_unnamed_3.j);
-        \\pub const k = @enumToInt(enum_unnamed_3.k);
         \\const enum_unnamed_3 = extern enum(c_int) {
         \\    i,
         \\    j,
         \\    k,
         \\    _,
         \\};
+        \\pub const i = @enumToInt(enum_unnamed_3.i);
+        \\pub const j = @enumToInt(enum_unnamed_3.j);
+        \\pub const k = @enumToInt(enum_unnamed_3.k);
         \\pub const struct_Baz = extern struct {
         \\    l: enum_unnamed_3,
         \\    m: d,
         \\};
-        \\pub const n = @enumToInt(enum_i.n);
-        \\pub const o = @enumToInt(enum_i.o);
-        \\pub const p = @enumToInt(enum_i.p);
         \\pub const enum_i = extern enum(c_int) {
         \\    n,
         \\    o,
         \\    p,
         \\    _,
         \\};
+        \\pub const n = @enumToInt(enum_i.n);
+        \\pub const o = @enumToInt(enum_i.o);
+        \\pub const p = @enumToInt(enum_i.p);
         ,
         \\pub const Baz = struct_Baz;
     });
@@ -1989,13 +2116,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    Two,
         \\};
     , &[_][]const u8{
-        \\pub const One = @enumToInt(enum_unnamed_1.One);
-        \\pub const Two = @enumToInt(enum_unnamed_1.Two);
         \\const enum_unnamed_1 = extern enum(c_int) {
         \\    One,
         \\    Two,
         \\    _,
         \\};
+        \\pub const One = @enumToInt(enum_unnamed_1.One);
+        \\pub const Two = @enumToInt(enum_unnamed_1.Two);
     });
 
     cases.add("c style cast",
@@ -2093,15 +2220,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
         \\}
     , &[_][]const u8{
-        \\pub const FooA = @enumToInt(enum_Foo.A);
-        \\pub const FooB = @enumToInt(enum_Foo.B);
-        \\pub const FooC = @enumToInt(enum_Foo.C);
         \\pub const enum_Foo = extern enum(c_int) {
         \\    A,
         \\    B,
         \\    C,
         \\    _,
         \\};
+        \\pub const FooA = @enumToInt(enum_Foo.A);
+        \\pub const FooB = @enumToInt(enum_Foo.B);
+        \\pub const FooC = @enumToInt(enum_Foo.C);
         \\pub const SomeTypedef = c_int;
         \\pub export fn and_or_non_bool(arg_a: c_int, arg_b: f32, arg_c: ?*c_void) c_int {
         \\    var a = arg_a;
@@ -2147,6 +2274,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    B,
         \\    _,
         \\};
+        \\pub const BarA = @enumToInt(enum_Bar.A);
+        \\pub const BarB = @enumToInt(enum_Bar.B);
         \\pub extern fn func(a: [*c]struct_Foo, b: [*c][*c]enum_Bar) void;
         ,
         \\pub const Foo = struct_Foo;
@@ -2413,6 +2542,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    C,
         \\    _,
         \\};
+        \\pub const A = @enumToInt(enum_SomeEnum.A);
+        \\pub const B = @enumToInt(enum_SomeEnum.B);
+        \\pub const C = @enumToInt(enum_SomeEnum.C);
         \\pub export fn if_none_bool(arg_a: c_int, arg_b: f32, arg_c: ?*c_void, arg_d: enum_SomeEnum) c_int {
         \\    var a = arg_a;
         \\    var b = arg_b;
@@ -2872,15 +3004,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    Foo1,
         \\};
     , &[_][]const u8{
-        \\pub const FooA = @enumToInt(enum_Foo.A);
-        \\pub const FooB = @enumToInt(enum_Foo.B);
-        \\pub const Foo1 = @enumToInt(enum_Foo.@"1");
         \\pub const enum_Foo = extern enum(c_int) {
         \\    A = 2,
         \\    B = 5,
         \\    @"1" = 6,
         \\    _,
         \\};
+        \\pub const FooA = @enumToInt(enum_Foo.A);
+        \\pub const FooB = @enumToInt(enum_Foo.B);
+        \\pub const Foo1 = @enumToInt(enum_Foo.@"1");
         ,
         \\pub const Foo = enum_Foo;
     });
