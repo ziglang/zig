@@ -50,6 +50,15 @@ pub const Guid = extern struct {
             @compileError("Unknown format character: '" ++ f ++ "'");
         }
     }
+
+    pub fn eql(a: std.os.uefi.Guid, b: std.os.uefi.Guid) bool {
+        return a.time_low == b.time_low and
+            a.time_mid == b.time_mid and
+            a.time_high_and_version == b.time_high_and_version and
+            a.clock_seq_high_and_reserved == b.clock_seq_high_and_reserved and
+            a.clock_seq_low == b.clock_seq_low and
+            std.mem.eql(u8, &a.node, &b.node);
+    }
 };
 
 /// An EFI Handle represents a collection of related interfaces.
