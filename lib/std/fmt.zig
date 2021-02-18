@@ -1982,23 +1982,34 @@ test "bytes.hex" {
 pub const trim = @compileError("deprecated; use std.mem.trim with std.ascii.spaces instead");
 pub const isWhiteSpace = @compileError("deprecated; use std.ascii.isSpace instead");
 
-pub fn hexToBytes(out: []u8, input: []const u8) !void {
-    if (out.len * 2 < input.len)
+/// Decodes the sequence of bytes represented by the specified string of
+/// hexadecimal characters.
+/// Returns a slice of the output buffer containing the decoded bytes.
+pub fn hexToBytes(out: []u8, input: []const u8) ![]u8 {
+    // Expect 0 or n pairs of hexadecimal digits.
+    if (input.len & 1 != 0)
         return error.InvalidLength;
+    if (out.len * 2 < input.len)
+        return error.NoSpaceLeft;
 
     var in_i: usize = 0;
-    while (in_i != input.len) : (in_i += 2) {
+    while (in_i < input.len) : (in_i += 2) {
         const hi = try charToDigit(input[in_i], 16);
         const lo = try charToDigit(input[in_i + 1], 16);
         out[in_i / 2] = (hi << 4) | lo;
     }
+
+    return out[0 .. in_i / 2];
 }
 
 test "hexToBytes" {
-    const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
-    var pb: [32]u8 = undefined;
-    try hexToBytes(pb[0..], test_hex_str);
-    try expectFmt(test_hex_str, "{X}", .{pb});
+    var buf: [32]u8 = undefined;
+    try expectFmt("90" ** 32, "{X}", .{try hexToBytes(&buf, "90" ** 32)});
+    try expectFmt("ABCD", "{X}", .{try hexToBytes(&buf, "ABCD")});
+    try expectFmt("", "{X}", .{try hexToBytes(&buf, "")});
+    std.testing.expectError(error.InvalidCharacter, hexToBytes(&buf, "012Z"));
+    std.testing.expectError(error.InvalidLength, hexToBytes(&buf, "AAA"));
+    std.testing.expectError(error.NoSpaceLeft, hexToBytes(buf[0..1], "ABAB"));
 }
 
 test "formatIntValue with comptime_int" {

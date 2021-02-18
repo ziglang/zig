@@ -663,7 +663,7 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
 
     // Compare to expected value
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
-    fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
+    _ = fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
     testing.expectEqual(actual_bytes, expected_bytes);
 
     // Restore initial state
