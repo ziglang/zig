@@ -3,6 +3,8 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+const std = @import("../std.zig");
+
 /// A protocol is an interface identified by a GUID.
 pub const protocols = @import("uefi/protocols.zig");
 
@@ -33,10 +35,10 @@ pub const Guid = extern struct {
         self: @This(),
         comptime f: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) Errors!void {
+        writer: anytype,
+    ) !void {
         if (f.len == 0) {
-            return std.fmt.format(out_stream, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
+            return std.fmt.format(writer, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
                 self.time_low,
                 self.time_mid,
                 self.time_high_and_version,
