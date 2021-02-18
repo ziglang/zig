@@ -3,6 +3,12 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("failed macros are only declared once",
+        \\#define FOO =
+        \\#define FOO =
+        \\int main(void) {}
+    , "");
+
     cases.add("parenthesized string literal",
         \\void foo(const char *s) {}
         \\int main(void) {

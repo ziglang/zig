@@ -4025,7 +4025,7 @@ pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, compti
     // location
     // pub const name = @compileError(msg);
     const fail_msg = try std.fmt.allocPrint(c.arena, format, args);
-    try c.global_scope.nodes.append(try Tag.fail_decl.create(c.arena, .{ .actual = name, .mangled = fail_msg }));
+    try addTopLevelDecl(c, name, try Tag.fail_decl.create(c.arena, .{ .actual = name, .mangled = fail_msg }));
     const location_comment = try std.fmt.allocPrint(c.arena, "// {s}", .{c.locStr(loc)});
     try c.global_scope.nodes.append(try Tag.warning.create(c.arena, location_comment));
 }
