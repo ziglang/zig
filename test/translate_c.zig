@@ -3,6 +3,62 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("if as while stmt has semicolon",
+        \\void foo() {
+        \\    while (1) if (1) {
+        \\        int a = 1;
+        \\    } else {
+        \\        int b = 2;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    while (true) if (true) {
+        \\        var a: c_int = 1;
+        \\    } else {
+        \\        var b: c_int = 2;
+        \\    };
+        \\}
+    });
+
+    cases.add("conditional operator cast to void",
+        \\int bar();
+        \\void foo() {
+        \\    int a;
+        \\    a ? a = 2 : bar();
+        \\}
+    , &[_][]const u8{
+        \\pub extern fn bar(...) c_int;
+        \\pub export fn foo() void {
+        \\    var a: c_int = undefined;
+        \\    if (a != 0) a = 2 else _ = bar();
+        \\}
+    });
+
+    cases.add("struct in struct init to zero",
+        \\struct Foo {
+        \\    int a;
+        \\    struct Bar {
+        \\        int a;
+        \\    } b;
+        \\} a = {};
+        \\#define PTR void *
+    , &[_][]const u8{
+        \\pub const struct_Bar = extern struct {
+        \\    a: c_int,
+        \\};
+        \\pub const struct_Foo = extern struct {
+        \\    a: c_int,
+        \\    b: struct_Bar,
+        \\};
+        \\pub export var a: struct_Foo = struct_Foo{
+        \\    .a = 0,
+        \\    .b = @import("std").mem.zeroes(struct_Bar),
+        \\};
+        ,
+        \\pub const PTR = ?*c_void;
+    });
+
     cases.add("scoped enum",
         \\void foo() {
         \\	enum Foo {
@@ -330,9 +386,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    while (false) while (false) {};
         \\    while (true) while (false) {};
-        \\    while (true) while (true) {
-        \\        break;
-        \\    };
+        \\    while (true) {}
         \\}
     });
 
@@ -1044,13 +1098,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    ;;;;;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    {}
-        \\    {}
-        \\    {}
-        \\    {}
-        \\    {}
-        \\}
+        \\pub export fn foo() void {}
     });
 
     if (std.Target.current.os.tag != .windows) {
@@ -3050,9 +3098,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub fn foo() callconv(.C) void {
-        \\    if (true) while (true) {
-        \\        break;
-        \\    };
+        \\    if (true) {}
         \\}
     });
 

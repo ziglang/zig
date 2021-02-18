@@ -1219,8 +1219,10 @@ fn transCompoundStmtInline(
     const end_it = stmt.body_end();
     while (it != end_it) : (it += 1) {
         const result = try transStmt(c, &block.base, it[0], .unused);
-        if (result.tag() == .declaration) continue;
-        try block.statements.append(result);
+        switch (result.tag()) {
+            .declaration, .empty_block => {},
+            else => try block.statements.append(result),
+        }
     }
 }
 
@@ -1394,6 +1396,10 @@ fn transImplicitCastExpr(
         },
         .BuiltinFnToFnPtr => {
             return transExpr(c, scope, sub_expr, result_used);
+        },
+        .ToVoid => {
+            // Should only appear in the rhs and lhs of a ConditionalOperator
+            return transExpr(c, scope, sub_expr, .unused);
         },
         else => |kind| return fail(
             c,
@@ -2032,10 +2038,8 @@ fn transZeroInitExpr(
                 typedef_decl.getUnderlyingType().getTypePtr(),
             );
         },
-        else => {},
+        else => return Tag.std_mem_zeroes.create(c.arena, try transType(c, scope, ty, source_loc)),
     }
-
-    return fail(c, error.UnsupportedType, source_loc, "type does not have an implicit init value", .{});
 }
 
 fn transImplicitValueInitExpr(
@@ -2118,7 +2122,7 @@ fn transDoWhileLoop(
     defer cond_scope.deinit();
     const cond = try transBoolExpr(c, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used);
     const if_not_break = switch (cond.tag()) {
-        .false_literal => Tag.@"break".init(),
+        .false_literal => return transStmt(c, scope, stmt.getBody(), .unused),
         .true_literal => {
             const body_node = try transStmt(c, scope, stmt.getBody(), .unused);
             return Tag.while_true.create(c.arena, body_node);
@@ -2396,8 +2400,10 @@ fn transSwitchProngStmtInline(
             },
             else => {
                 const result = try transStmt(c, &block.base, it[0], .unused);
-                if (result.tag() == .declaration) continue;
-                try block.statements.append(result);
+                switch (result.tag()) {
+                    .declaration, .empty_block => {},
+                    else => try block.statements.append(result),
+                }
             },
         }
     }
@@ -2479,8 +2485,10 @@ fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: 
     const end_it = comp.body_end();
     while (it != end_it - 1) : (it += 1) {
         const result = try transStmt(c, &block_scope.base, it[0], .unused);
-        if (result.tag() == .declaration) continue;
-        try block_scope.statements.append(result);
+        switch (result.tag()) {
+            .declaration, .empty_block => {},
+            else => try block_scope.statements.append(result),
+        }
     }
     const break_node = try Tag.break_val.create(c.arena, .{
         .label = block_scope.label,
@@ -3126,12 +3134,12 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
 
     const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
-    var then_body = try transExpr(c, scope, true_expr, .used);
+    var then_body = try transExpr(c, scope, true_expr, used);
     if (!res_is_bool and isBoolRes(then_body)) {
         then_body = try Tag.bool_to_int.create(c.arena, then_body);
     }
 
-    var else_body = try transExpr(c, scope, false_expr, .used);
+    var else_body = try transExpr(c, scope, false_expr, used);
     if (!res_is_bool and isBoolRes(else_body)) {
         else_body = try Tag.bool_to_int.create(c.arena, else_body);
     }
@@ -3141,7 +3149,8 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
         .then = then_body,
         .@"else" = else_body,
     });
-    return maybeSuppressResult(c, scope, used, if_node);
+    // Clang inserts ImplicitCast(ToVoid)'s to both rhs and lhs so we don't need to supress the result here.
+    return if_node;
 }
 
 fn maybeSuppressResult(
@@ -4794,7 +4803,8 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (true) {
         switch (m.next().?) {
             .Asterisk => {
-                if (m.peek().? == .RParen) {
+                const next = m.peek().?;
+                if (next == .RParen or next == .Nl or next == .Eof) {
                     // type *)
 
                     // last token of `node`

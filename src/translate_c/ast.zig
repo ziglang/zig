@@ -1891,30 +1891,35 @@ fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
         .var_decl, .var_simple, .arg_redecl, .alias, .enum_redecl, .block, .empty_block, .block_single, .@"switch" => {},
         .while_true => {
             const payload = node.castTag(.while_true).?.data;
-            return addSemicolonIfNotBlock(c, payload);
+            return addSemicolonIfNotBlock(c, payload, .yes_if);
         },
         .@"while" => {
             const payload = node.castTag(.@"while").?.data;
-            return addSemicolonIfNotBlock(c, payload.body);
+            return addSemicolonIfNotBlock(c, payload.body, .yes_if);
         },
         .@"if" => {
             const payload = node.castTag(.@"if").?.data;
             if (payload.@"else") |some|
-                return addSemicolonIfNotBlock(c, some);
-            return addSemicolonIfNotBlock(c, payload.then);
+                return addSemicolonIfNotBlock(c, some, .no_if);
+            return addSemicolonIfNotBlock(c, payload.then, .no_if);
         },
         else => _ = try c.addToken(.semicolon, ";"),
     }
 }
 
-fn addSemicolonIfNotBlock(c: *Context, node: Node) !void {
+fn addSemicolonIfNotBlock(c: *Context, node: Node, if_needs_semicolon: enum{ yes_if, no_if}) !void {
     switch (node.tag()) {
         .block, .empty_block, .block_single => {},
         .@"if" => {
+            if (if_needs_semicolon == .yes_if) {
+                _ = try c.addToken(.semicolon, ";");
+                return;
+            }
+
             const payload = node.castTag(.@"if").?.data;
             if (payload.@"else") |some|
-                return addSemicolonIfNotBlock(c, some);
-            return addSemicolonIfNotBlock(c, payload.then);
+                return addSemicolonIfNotBlock(c, some, .no_if);
+            return addSemicolonIfNotBlock(c, payload.then, .no_if);
         },
         else => _ = try c.addToken(.semicolon, ";"),
     }
