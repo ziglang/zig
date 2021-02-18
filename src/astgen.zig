@@ -539,6 +539,7 @@ pub fn comptimeExpr(
     }
 
     const tree = parent_scope.tree();
+    const token_starts = tree.tokens.items(.start);
 
     // Make a scope to collect generated instructions in the sub-expression.
     var block_scope: Scope.GenZIR = .{
@@ -693,7 +694,7 @@ pub fn blockExpr(
     rl: ResultLoc,
     block_node: ast.Node.Index,
     statements: []const ast.Node.Index,
-) InnerError!void {
+) InnerError!*zir.Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1172,20 +1173,6 @@ fn negation(
     });
     const rhs = try expr(mod, scope, .none, node_datas[node].lhs);
     return addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
-}
-
-fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const src = token_starts[node.op_token];
-    return ptrSliceType(mod, scope, src, &node.ptr_info, node.rhs, switch (tree.token_ids[node.op_token]) {
-        .Asterisk, .AsteriskAsterisk => .One,
-        // TODO stage1 type inference bug
-        .LBracket => @as(std.builtin.TypeInfo.Pointer.Size, switch (tree.token_ids[node.op_token + 2]) {
-            .identifier => .C,
-            else => .Many,
-        }),
-        else => unreachable,
-    });
 }
 
 fn ptrSliceType(mod: *Module, scope: *Scope, src: usize, ptr_info: *ast.PtrInfo, rhs: *ast.Node, size: std.builtin.TypeInfo.Pointer.Size) InnerError!*zir.Inst {

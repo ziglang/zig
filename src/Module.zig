@@ -1223,19 +1223,6 @@ fn astgenAndSemaFn(
             .{},
         );
     }
-    const opt_cc: ?*zir.Inst = if (fn_proto.ast.callconv_expr != 0) cc: {
-        // TODO instead of enum literal type, this needs to be the
-        // std.builtin.CallingConvention enum. We need to implement importing other files
-        // and enums in order to fix this.
-        const src = token_starts[tree.firstToken(fn_proto.ast.callconv_expr)];
-        const enum_lit_ty = try astgen.addZIRInstConst(mod, &fn_type_scope.base, src, .{
-            .ty = Type.initTag(.type),
-            .val = Value.initTag(.enum_literal_type),
-        });
-        break :cc try astgen.comptimeExpr(mod, &fn_type_scope.base, .{
-            .ty = enum_lit_ty,
-        }, fn_proto.ast.callconv_expr);
-    } else null;
 
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     if (token_tags[maybe_bang] == .bang) {
@@ -1247,13 +1234,24 @@ fn astgenAndSemaFn(
         type_type_rl,
         fn_proto.ast.return_type,
     );
-    const fn_type_inst = if (opt_cc) |cc|
-        try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type_cc, .{
+    const fn_type_inst = if (fn_proto.ast.callconv_expr != 0) cc: {
+        // TODO instead of enum literal type, this needs to be the
+        // std.builtin.CallingConvention enum. We need to implement importing other files
+        // and enums in order to fix this.
+        const src = token_starts[tree.firstToken(fn_proto.ast.callconv_expr)];
+        const enum_lit_ty = try astgen.addZIRInstConst(mod, &fn_type_scope.base, src, .{
+            .ty = Type.initTag(.type),
+            .val = Value.initTag(.enum_literal_type),
+        });
+        const cc = try astgen.comptimeExpr(mod, &fn_type_scope.base, .{
+            .ty = enum_lit_ty,
+        }, fn_proto.ast.callconv_expr);
+        break :cc try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type_cc, .{
             .return_type = return_type_inst,
             .param_types = param_types,
             .cc = cc,
-        })
-    else
+        });
+    } else
         try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type, .{
             .return_type = return_type_inst,
             .param_types = param_types,
@@ -1362,13 +1360,13 @@ fn astgenAndSemaFn(
             params_scope = &sub_scope.base;
         }
 
-        try astgen.expr(mod, params_scope, .none, body_node);
+        _ = try astgen.expr(mod, params_scope, .none, body_node);
 
         if (gen_scope.instructions.items.len == 0 or
             !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
         {
             const src = token_starts[tree.lastToken(body_node)];
-            _ = try astgen.addZIRNoOp(mod, &gen_scope.base, src, .returnvoid);
+            _ = try astgen.addZIRNoOp(mod, &gen_scope.base, src, .return_void);
         }
 
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
@@ -1542,6 +1540,7 @@ fn astgenAndSemaVarDecl(
             .decl = decl,
             .arena = &gen_scope_arena.allocator,
             .parent = &decl.container.base,
+            .force_comptime = true,
         };
         defer gen_scope.instructions.deinit(mod.gpa);
 
@@ -1600,7 +1599,7 @@ fn astgenAndSemaVarDecl(
     } else if (!is_extern) {
         return mod.failTok(
             &block_scope.base,
-            tree.firstToken(var_decl),
+            var_decl.ast.mut_token,
             "variables must be initialized",
             .{},
         );

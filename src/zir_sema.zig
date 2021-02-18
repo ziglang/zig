@@ -981,8 +981,8 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
     const ret_type = func.ty.fnReturnType();
 
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
-    const is_comptime_call = b.is_comptime or inst.kw_args.modifier == .compile_time;
-    const is_inline_call = is_comptime_call or inst.kw_args.modifier == .always_inline or
+    const is_comptime_call = b.is_comptime or inst.positionals.modifier == .compile_time;
+    const is_inline_call = is_comptime_call or inst.positionals.modifier == .always_inline or
         func.ty.fnCallingConvention() == .Inline;
     if (is_inline_call) {
         const func_val = try mod.resolveConstValue(scope, func);
@@ -1668,13 +1668,13 @@ fn zirSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr, ref: bool)
 
 fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.SwitchBr) InnerError!void {
     // validate usage of '_' prongs
-    if (inst.kw_args.special_prong == .underscore and target.ty.zigTypeTag() != .Enum) {
+    if (inst.positionals.special_prong == .underscore and target.ty.zigTypeTag() != .Enum) {
         return mod.fail(scope, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});
         // TODO notes "'_' prong here" inst.positionals.cases[last].src
     }
 
     // check that target type supports ranges
-    if (inst.kw_args.range) |range_inst| {
+    if (inst.positionals.range) |range_inst| {
         switch (target.ty.zigTypeTag()) {
             .Int, .ComptimeInt => {},
             else => {
@@ -1725,14 +1725,14 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                 const start = try target.ty.minInt(&arena, mod.getTarget());
                 const end = try target.ty.maxInt(&arena, mod.getTarget());
                 if (try range_set.spans(start, end)) {
-                    if (inst.kw_args.special_prong == .@"else") {
+                    if (inst.positionals.special_prong == .@"else") {
                         return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
                     }
                     return;
                 }
             }
 
-            if (inst.kw_args.special_prong != .@"else") {
+            if (inst.positionals.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
             }
         },
@@ -1752,15 +1752,15 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                     return mod.fail(scope, item.src, "duplicate switch value", .{});
                 }
             }
-            if ((true_count + false_count < 2) and inst.kw_args.special_prong != .@"else") {
+            if ((true_count + false_count < 2) and inst.positionals.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
             }
-            if ((true_count + false_count == 2) and inst.kw_args.special_prong == .@"else") {
+            if ((true_count + false_count == 2) and inst.positionals.special_prong == .@"else") {
                 return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
             }
         },
         .EnumLiteral, .Void, .Fn, .Pointer, .Type => {
-            if (inst.kw_args.special_prong != .@"else") {
+            if (inst.positionals.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "else prong required when switching on type '{}'", .{target.ty});
             }
 

@@ -2054,7 +2054,7 @@ pub const full = struct {
                             return null;
                         }
                         const param_type = it.fn_proto.ast.params[it.param_i];
-                        var tok_i = tree.firstToken(param_type) - 1;
+                        var tok_i = it.tree.firstToken(param_type) - 1;
                         while (true) : (tok_i -= 1) switch (token_tags[tok_i]) {
                             .colon => continue,
                             .identifier => name_token = tok_i,
@@ -2063,7 +2063,7 @@ pub const full = struct {
                             else => break,
                         };
                         it.param_i += 1;
-                        it.tok_i = tree.lastToken(param_type) + 1;
+                        it.tok_i = it.tree.lastToken(param_type) + 1;
                         it.tok_flag = true;
                         return Param{
                             .first_doc_comment = first_doc_comment,
