@@ -154,7 +154,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .bool_and => return zirBoolOp(mod, scope, old_inst.castTag(.bool_and).?),
         .bool_or => return zirBoolOp(mod, scope, old_inst.castTag(.bool_or).?),
         .void_value => return mod.constVoid(scope, old_inst.src),
-        .switchbr => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?),
+        .switchbr => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?, false),
+        .switchbr_ref => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?, true),
         .switch_range => return zirSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
 
         .container_field_named,
@@ -1554,10 +1555,15 @@ fn zirSwitchRange(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError
     return mod.constVoid(scope, inst.base.src);
 }
 
-fn zirSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) InnerError!*Inst {
+fn zirSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr, ref: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    const target = try resolveInst(mod, scope, inst.positionals.target);
+
+    const target_ptr = try resolveInst(mod, scope, inst.positionals.target);
+    const target = if (ref)
+        try mod.analyzeDeref(scope, inst.base.src, target_ptr, inst.positionals.target.src)
+    else
+        target_ptr;
     try validateSwitch(mod, scope, target, inst);
 
     if (try mod.resolveDefinedValue(scope, target)) |target_val| {

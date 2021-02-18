@@ -416,9 +416,9 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             return renderToken(ais, tree, rbracket, space); // ]
         },
 
-        .slice_open => try renderSlice(ais, tree, tree.sliceOpen(node), space),
-        .slice => try renderSlice(ais, tree, tree.slice(node), space),
-        .slice_sentinel => try renderSlice(ais, tree, tree.sliceSentinel(node), space),
+        .slice_open => return renderSlice(ais, tree, tree.sliceOpen(node), space),
+        .slice => return renderSlice(ais, tree, tree.slice(node), space),
+        .slice_sentinel => return renderSlice(ais, tree, tree.sliceSentinel(node), space),
 
         .deref => {
             try renderExpression(ais, tree, datas[node].lhs, .none);

@@ -1163,16 +1163,16 @@ fn astgenAndSemaFn(
         }
         assert(param_type_i == param_count);
     }
-    if (fn_proto.lib_name) |lib_name| blk: {
+    if (fn_proto.lib_name) |lib_name_token| blk: {
         // TODO call std.zig.parseStringLiteral
-        const lib_name_str = mem.trim(u8, tree.tokenSlice(lib_name), "\"");
+        const lib_name_str = mem.trim(u8, tree.tokenSlice(lib_name_token), "\"");
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name_str});
         const target = mod.comp.getTarget();
         if (target_util.is_libc_lib_name(target, lib_name_str)) {
             if (!mod.comp.bin_file.options.link_libc) {
                 return mod.failTok(
                     &fn_type_scope.base,
-                    lib_name,
+                    lib_name_token,
                     "dependency on libc must be explicitly specified in the build command",
                     .{},
                 );
@@ -1183,7 +1183,7 @@ fn astgenAndSemaFn(
             if (!mod.comp.bin_file.options.link_libcpp) {
                 return mod.failTok(
                     &fn_type_scope.base,
-                    lib_name,
+                    lib_name_token,
                     "dependency on libc++ must be explicitly specified in the build command",
                     .{},
                 );
@@ -1193,17 +1193,17 @@ fn astgenAndSemaFn(
         if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
             return mod.failTok(
                 &fn_type_scope.base,
-                lib_name,
+                lib_name_token,
                 "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
-                .{ lib_name, lib_name },
+                .{ lib_name_str, lib_name_str },
             );
         }
         mod.comp.stage1AddLinkLib(lib_name_str) catch |err| {
             return mod.failTok(
                 &fn_type_scope.base,
-                lib_name,
+                lib_name_token,
                 "unable to add link lib '{s}': {s}",
-                .{ lib_name, @errorName(err) },
+                .{ lib_name_str, @errorName(err) },
             );
         };
     }

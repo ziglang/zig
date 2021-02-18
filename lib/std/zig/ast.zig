@@ -1528,8 +1528,9 @@ pub const Tree = struct {
 
     pub fn switchCaseOne(tree: Tree, node: Node.Index) full.SwitchCase {
         const data = &tree.nodes.items(.data)[node];
+        const values: *[1]Node.Index = &data.lhs;
         return tree.fullSwitchCase(.{
-            .values = if (data.lhs == 0) &.{} else @ptrCast([*]Node.Index, &data.lhs)[0..1],
+            .values = if (data.lhs == 0) values[0..0] else values[0..1],
             .arrow_token = tree.nodes.items(.main_token)[node],
             .target_expr = data.rhs,
         });
@@ -2532,8 +2533,8 @@ pub const Node = struct {
         @"defer",
         /// lhs catch rhs
         /// lhs catch |err| rhs
-        /// main_token is the catch
-        /// payload is determined by looking at the prev tokens before rhs.
+        /// main_token is the `catch` keyword.
+        /// payload is determined by looking at the next token after the `catch` keyword.
         @"catch",
         /// `lhs.a`. main_token is the dot. rhs is the identifier token index.
         field_access,

@@ -343,6 +343,8 @@ pub const Inst = struct {
         void_value,
         /// A switch expression.
         switchbr,
+        /// Same as `switchbr` but the target is a pointer to the value being switched on.
+        switchbr_ref,
         /// A range in a switch case, `lhs...rhs`.
         /// Only checks that `lhs >= rhs` if they are ints, everything else is
         /// validated by the .switch instruction.
@@ -453,6 +455,8 @@ pub const Inst = struct {
                 .block_comptime_flat,
                 => Block,
 
+                .switchbr, .switchbr_ref => SwitchBr,
+
                 .arg => Arg,
                 .array_type_sentinel => ArrayTypeSentinel,
                 .@"break" => Break,
@@ -488,7 +492,6 @@ pub const Inst = struct {
                 .enum_type => EnumType,
                 .union_type => UnionType,
                 .struct_type => StructType,
-                .switchbr => SwitchBr,
             };
         }
 
@@ -617,7 +620,6 @@ pub const Inst = struct {
                 .struct_type,
                 .void_value,
                 .switch_range,
-                .switchbr,
                 => false,
 
                 .@"break",
@@ -632,6 +634,8 @@ pub const Inst = struct {
                 .container_field_named,
                 .container_field_typed,
                 .container_field,
+                .switchbr,
+                .switchbr_ref,
                 => true,
             };
         }
@@ -730,6 +734,8 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
+    // TODO break this into multiple call instructions to avoid paying the cost
+    // of the calling convention field most of the time.
     pub const Call = struct {
         pub const base_tag = Tag.call;
         base: Inst,
@@ -737,10 +743,9 @@ pub const Inst = struct {
         positionals: struct {
             func: *Inst,
             args: []*Inst,
-        },
-        kw_args: struct {
             modifier: std.builtin.CallOptions.Modifier = .auto,
         },
+        kw_args: struct {},
     };
 
     pub const DeclRef = struct {
@@ -1185,7 +1190,6 @@ pub const Inst = struct {
     };
 
     pub const SwitchBr = struct {
-        pub const base_tag = Tag.switchbr;
         base: Inst,
 
         positionals: struct {
@@ -1194,14 +1198,12 @@ pub const Inst = struct {
             items: []*Inst,
             cases: []Case,
             else_body: Body,
-        },
-        kw_args: struct {
             /// Pointer to first range if such exists.
             range: ?*Inst = null,
             special_prong: SpecialProng = .none,
         },
+        kw_args: struct {},
 
-        // Not anonymous due to stage1 limitations
         pub const SpecialProng = enum {
             none,
             @"else",
