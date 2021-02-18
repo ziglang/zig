@@ -53,3 +53,42 @@ pub const LOG_NOTICE = 5;
 pub const LOG_INFO = 6;
 /// debug-level messages
 pub const LOG_DEBUG = 7;
+
+// `ar` archive file format definitions
+
+pub usingnamespace if (std.Target.current.os.tag == .windows) struct {} else struct {
+    // Archive files start with the ARMAG identifying string.  Then follows a
+    // `struct ar_hdr', and as many bytes of member file data as its `ar_size'
+    // member indicates, for each member file.
+    /// String that begins an archive file.
+    pub const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
+
+    /// Size of that string.
+    pub const SARMAG: u4 = 8;
+
+    /// String in ar_fmag at the end of each header.
+    pub const ARFMAG: *const [2:0]u8 = "`\n";
+
+    pub const ar_hdr = extern struct {
+        /// Member file name, sometimes / terminated.
+        ar_name: [16]u8,
+
+        /// File date, decimal seconds since Epoch.
+        ar_date: [12]u8,
+
+        /// User ID, in ASCII format.
+        ar_uid: [6]u8,
+
+        /// Group ID, in ASCII format.
+        ar_gid: [6]u8,
+
+        /// File mode, in ASCII octal.
+        ar_mode: [8]u8,
+
+        /// File size, in ASCII decimal.
+        ar_size: [10]u8,
+
+        /// Always contains ARFMAG.
+        ar_fmag: [2]u8,
+    };
+};
