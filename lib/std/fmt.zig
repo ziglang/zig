@@ -524,7 +524,7 @@ pub fn formatType(
                     if (actual_fmt.len == 0)
                         @compileError("cannot format array ref without a specifier (i.e. {s} or {*})");
                     if (info.child == u8) {
-                        if (comptime mem.indexOfScalar(u8, "sxXeEzZ", actual_fmt[0]) != null) {
+                        if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                             return formatText(value, actual_fmt, options, writer);
                         }
                     }
@@ -542,7 +542,7 @@ pub fn formatType(
                     return formatType(mem.span(value), actual_fmt, options, writer, max_depth);
                 }
                 if (ptr_info.child == u8) {
-                    if (comptime mem.indexOfScalar(u8, "sxXeEzZ", actual_fmt[0]) != null) {
+                    if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                         return formatText(mem.span(value), actual_fmt, options, writer);
                     }
                 }
@@ -555,7 +555,7 @@ pub fn formatType(
                     return writer.writeAll("{ ... }");
                 }
                 if (ptr_info.child == u8) {
-                    if (comptime mem.indexOfScalar(u8, "sxXeEzZ", actual_fmt[0]) != null) {
+                    if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                         return formatText(value, actual_fmt, options, writer);
                     }
                 }
@@ -576,7 +576,7 @@ pub fn formatType(
                 return writer.writeAll("{ ... }");
             }
             if (info.child == u8) {
-                if (comptime mem.indexOfScalar(u8, "sxXeEzZ", actual_fmt[0]) != null) {
+                if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                     return formatText(&value, actual_fmt, options, writer);
                 }
             }
@@ -658,8 +658,6 @@ pub fn formatIntValue(
         } else {
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
         }
-    } else if (comptime std.mem.eql(u8, fmt, "Z")) {
-        @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
             return formatUnicodeCodepoint(@as(u21, int_value), options, writer);
@@ -735,10 +733,6 @@ pub fn formatText(
             }
         }
         return;
-    } else if (comptime std.mem.eql(u8, fmt, "z")) {
-        @compileError("specifier 'z' has been deprecated, wrap your argument in std.zig.fmtId instead");
-    } else if (comptime std.mem.eql(u8, fmt, "Z")) {
-        @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else {
         @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
     }
