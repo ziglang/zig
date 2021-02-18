@@ -1754,6 +1754,7 @@ enum BuiltinFnId {
     BuiltinFnIdBswap,
     BuiltinFnIdBitReverse,
     BuiltinFnIdImport,
+    BuiltinFnIdTryImport,
     BuiltinFnIdCImport,
     BuiltinFnIdErrName,
     BuiltinFnIdBreakpoint,
@@ -2562,6 +2563,7 @@ enum IrInstSrcId {
     IrInstSrcIdBswap,
     IrInstSrcIdBitReverse,
     IrInstSrcIdImport,
+    IrInstSrcIdTryImport,
     IrInstSrcIdCImport,
     IrInstSrcIdCInclude,
     IrInstSrcIdCDefine,
@@ -3433,6 +3435,12 @@ struct IrInstGenUnionTag {
 };
 
 struct IrInstSrcImport {
+    IrInstSrc base;
+
+    IrInstSrc *name;
+};
+
+struct IrInstSrcTryImport {
     IrInstSrc base;
 
     IrInstSrc *name;

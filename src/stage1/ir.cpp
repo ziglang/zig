@@ -384,6 +384,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchTarget *>(inst));
         case IrInstSrcIdImport:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcImport *>(inst));
+        case IrInstSrcIdTryImport:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTryImport *>(inst));
         case IrInstSrcIdRef:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcRef *>(inst));
         case IrInstSrcIdCompileErr:
@@ -1276,6 +1278,10 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcBitReverse *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcImport *) {
     return IrInstSrcIdImport;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcTryImport *) {
+    return IrInstSrcIdTryImport;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcCImport *) {
@@ -3353,6 +3359,15 @@ static IrInstGen *ir_build_union_tag(IrAnalyze *ira, IrInst *source_instr, IrIns
 
 static IrInstSrc *ir_build_import(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *name) {
     IrInstSrcImport *instruction = ir_build_instruction<IrInstSrcImport>(irb, scope, source_node);
+    instruction->name = name;
+
+    ir_ref_instruction(name, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstSrc *ir_build_try_import(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *name) {
+    IrInstSrcTryImport *instruction = ir_build_instruction<IrInstSrcTryImport>(irb, scope, source_node);
     instruction->name = name;
 
     ir_ref_instruction(name, irb->current_basic_block);
@@ -6463,6 +6478,16 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 IrInstSrc *import = ir_build_import(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, import, lval, result_loc);
+            }
+        case BuiltinFnIdTryImport:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                IrInstSrc *try_import = ir_build_try_import(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, try_import, lval, result_loc);
             }
         case BuiltinFnIdCImport:
             {
@@ -24425,15 +24450,15 @@ static IrInstGen *ir_analyze_instruction_switch_else_var(IrAnalyze *ira,
     return target_value_ptr;
 }
 
-static IrInstGen *ir_analyze_instruction_import(IrAnalyze *ira, IrInstSrcImport *import_instruction) {
+static IrInstGen *ir_analyze_instruction_import_common(IrAnalyze *ira, IrInstSrc *base_instruction, IrInstSrc *name, bool is_try) {
     Error err;
 
-    IrInstGen *name_value = import_instruction->name->child;
+    IrInstGen *name_value = name->child;
     Buf *import_target_str = ir_resolve_str(ira, name_value);
     if (!import_target_str)
         return ira->codegen->invalid_inst_gen;
 
-    AstNode *source_node = import_instruction->base.base.source_node;
+    AstNode *source_node = base_instruction->base.source_node;
     ZigType *import = source_node->owner;
 
     ZigType *target_import;
@@ -24448,6 +24473,12 @@ static IrInstGen *ir_analyze_instruction_import(IrAnalyze *ira, IrInstSrcImport 
                         buf_ptr(import_target_path)));
             return ira->codegen->invalid_inst_gen;
         } else if (err == ErrorFileNotFound) {
+            if (is_try) {
+                ZigType *result_type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                IrInstGen *result = ir_const(ira, &base_instruction->base, result_type);
+                set_optional_value_to_null(result->value);
+                return result;
+            }
             ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
             return ira->codegen->invalid_inst_gen;
@@ -24458,7 +24489,24 @@ static IrInstGen *ir_analyze_instruction_import(IrAnalyze *ira, IrInstSrcImport 
         }
     }
 
-    return ir_const_type(ira, &import_instruction->base.base, target_import);
+    IrInstGen *target_import_result = ir_const_type(ira, &base_instruction->base, target_import);
+
+    if (!is_try) {
+        return target_import_result;
+    }
+
+    ZigType *result_type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+    IrInstGen *result = ir_const(ira, &base_instruction->base, result_type);
+    set_optional_payload(result->value, ir_resolve_const(ira, target_import_result, UndefBad));
+    return result;
+}
+
+static IrInstGen *ir_analyze_instruction_import(IrAnalyze *ira, IrInstSrcImport *import_instruction) {
+    return ir_analyze_instruction_import_common(ira, &import_instruction->base, import_instruction->name, false);
+}
+
+static IrInstGen *ir_analyze_instruction_try_import(IrAnalyze *ira, IrInstSrcTryImport *try_import_instruction) {
+    return ir_analyze_instruction_import_common(ira, &try_import_instruction->base, try_import_instruction->name, true);
 }
 
 static IrInstGen *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstSrcRef *ref_instruction) {
@@ -32257,6 +32305,8 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_switch_else_var(ira, (IrInstSrcSwitchElseVar *)instruction);
         case IrInstSrcIdImport:
             return ir_analyze_instruction_import(ira, (IrInstSrcImport *)instruction);
+        case IrInstSrcIdTryImport:
+            return ir_analyze_instruction_try_import(ira, (IrInstSrcTryImport *)instruction);
         case IrInstSrcIdRef:
             return ir_analyze_instruction_ref(ira, (IrInstSrcRef *)instruction);
         case IrInstSrcIdContainerInitList:
@@ -32726,6 +32776,7 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdSetRuntimeSafety:
         case IrInstSrcIdSetFloatMode:
         case IrInstSrcIdImport:
+        case IrInstSrcIdTryImport:
         case IrInstSrcIdCompileErr:
         case IrInstSrcIdCompileLog:
         case IrInstSrcIdCImport:

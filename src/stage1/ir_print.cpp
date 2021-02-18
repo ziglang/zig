@@ -178,6 +178,8 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcBitReverse";
         case IrInstSrcIdImport:
             return "SrcImport";
+        case IrInstSrcIdTryImport:
+            return "SrcTryImport";
         case IrInstSrcIdCImport:
             return "SrcCImport";
         case IrInstSrcIdCInclude:
@@ -1479,6 +1481,12 @@ static void ir_print_import(IrPrintSrc *irp, IrInstSrcImport *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_try_import(IrPrintSrc *irp, IrInstSrcTryImport *instruction) {
+    fprintf(irp->f, "@tryImport(");
+    ir_print_other_inst_src(irp, instruction->name);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_ref(IrPrintSrc *irp, IrInstSrcRef *instruction) {
     fprintf(irp->f, "ref ");
     ir_print_other_inst_src(irp, instruction->value);
@@ -2746,6 +2754,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdImport:
             ir_print_import(irp, (IrInstSrcImport *)instruction);
+            break;
+        case IrInstSrcIdTryImport:
+            ir_print_try_import(irp, (IrInstSrcTryImport *)instruction);
             break;
         case IrInstSrcIdRef:
             ir_print_ref(irp, (IrInstSrcRef *)instruction);
