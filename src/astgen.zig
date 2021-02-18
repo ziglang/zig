@@ -539,17 +539,6 @@ pub fn comptimeExpr(
     }
 
     const tree = parent_scope.tree();
-    const main_tokens = tree.nodes.items(.main_token);
-    const token_tags = tree.tokens.items(.tag);
-
-    // Optimization for labeled blocks: don't need to have 2 layers of blocks,
-    // we can reuse the existing one.
-    const lbrace = main_tokens[node];
-    if (token_tags[lbrace - 1] == .colon and
-        token_tags[lbrace - 2] == .identifier)
-    {
-        return labeledBlockExpr(mod, parent_scope, rl, node, .block_comptime);
-    }
 
     // Make a scope to collect generated instructions in the sub-expression.
     var block_scope: Scope.GenZIR = .{
@@ -708,9 +697,13 @@ pub fn blockExpr(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const tree = scope.tree();
+    const main_tokens = tree.nodes.items(.main_token);
+    const token_tags = tree.tokens.items(.tag);
+
     const lbrace = main_tokens[node];
     if (token_tags[lbrace - 1] == .colon) {
-        return labeledBlockExpr(mod, scope, rl, block_node, .block);
+        return labeledBlockExpr(mod, scope, rl, block_node, statements, .block);
     }
 
     try blockExprStmts(mod, scope, block_node, statements);
@@ -766,7 +759,8 @@ fn labeledBlockExpr(
     mod: *Module,
     parent_scope: *Scope,
     rl: ResultLoc,
-    block_node: *ast.Node.labeled_block,
+    block_node: ast.Node.Index,
+    statements: []const ast.Node.Index,
     zir_tag: zir.Inst.Tag,
 ) InnerError!*zir.Inst {
     const tracy = trace(@src());
@@ -777,9 +771,14 @@ fn labeledBlockExpr(
     const tree = parent_scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const src = token_starts[block_node.lbrace];
+    const token_starts = tree.tokens.items(.start);
 
-    try checkLabelRedefinition(mod, parent_scope, block_node.label);
+    const lbrace = main_tokens[block_node];
+    const label_token = lbrace - 1;
+    assert(token_tags[label_token] == .identifier);
+    const src = token_starts[lbrace];
+
+    try checkLabelRedefinition(mod, parent_scope, label_token);
 
     // Create the Block ZIR instruction so that we can put it into the GenZIR struct
     // so that break statements can reference it.
@@ -804,7 +803,7 @@ fn labeledBlockExpr(
         .instructions = .{},
         // TODO @as here is working around a stage1 miscompilation bug :(
         .label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
-            .token = block_node.label,
+            .token = label_token,
             .block_inst = block_inst,
         }),
     };
@@ -813,7 +812,7 @@ fn labeledBlockExpr(
     defer block_scope.labeled_breaks.deinit(mod.gpa);
     defer block_scope.labeled_store_to_block_ptr_list.deinit(mod.gpa);
 
-    try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
+    try blockExprStmts(mod, &block_scope.base, block_node, block_node.statements());
 
     if (!block_scope.label.?.used) {
         return mod.fail(parent_scope, token_starts[block_node.label], "unused block label", .{});

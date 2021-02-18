@@ -172,8 +172,10 @@ pub const Inst = struct {
         floatcast,
         /// Declare a function body.
         @"fn",
-        /// Returns a function type.
-        fntype,
+        /// Returns a function type, assuming unspecified calling convention.
+        fn_type,
+        /// Returns a function type, with a calling convention instruction operand.
+        fn_type_cc,
         /// @import(operand)
         import,
         /// Integer literal.
@@ -478,7 +480,8 @@ pub const Inst = struct {
                 .@"export" => Export,
                 .param_type => ParamType,
                 .primitive => Primitive,
-                .fntype => FnType,
+                .fn_type => FnType,
+                .fn_type_cc => FnTypeCc,
                 .elem_ptr, .elem_val => Elem,
                 .condbr => CondBr,
                 .ptr_type => PtrType,
@@ -552,7 +555,8 @@ pub const Inst = struct {
                 .field_ptr_named,
                 .field_val_named,
                 .@"fn",
-                .fntype,
+                .fn_type,
+                .fn_type_cc,
                 .int,
                 .intcast,
                 .int_type,
@@ -877,7 +881,18 @@ pub const Inst = struct {
     };
 
     pub const FnType = struct {
-        pub const base_tag = Tag.fntype;
+        pub const base_tag = Tag.fn_type;
+        base: Inst,
+
+        positionals: struct {
+            param_types: []*Inst,
+            return_type: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const FnTypeCc = struct {
+        pub const base_tag = Tag.fn_type_cc;
         base: Inst,
 
         positionals: struct {

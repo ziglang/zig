@@ -1223,14 +1223,20 @@ fn astgenAndSemaFn(
             .{},
         );
     }
-    if (fn_proto.ast.callconv_expr != 0) {
-        return mod.failNode(
-            &fn_type_scope.base,
-            fn_proto.ast.callconv_expr,
-            "TODO implement function calling convention expression",
-            .{},
-        );
-    }
+    const opt_cc: ?*zir.Inst = if (fn_proto.ast.callconv_expr != 0) cc: {
+        // TODO instead of enum literal type, this needs to be the
+        // std.builtin.CallingConvention enum. We need to implement importing other files
+        // and enums in order to fix this.
+        const src = token_starts[tree.firstToken(fn_proto.ast.callconv_expr)];
+        const enum_lit_ty = try astgen.addZIRInstConst(mod, &fn_type_scope.base, src, .{
+            .ty = Type.initTag(.type),
+            .val = Value.initTag(.enum_literal_type),
+        });
+        break :cc try astgen.comptimeExpr(mod, &fn_type_scope.base, .{
+            .ty = enum_lit_ty,
+        }, fn_proto.ast.callconv_expr);
+    } else null;
+
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     if (token_tags[maybe_bang] == .bang) {
         return mod.failTok(&fn_type_scope.base, maybe_bang, "TODO implement inferred error sets", .{});
@@ -1241,10 +1247,17 @@ fn astgenAndSemaFn(
         type_type_rl,
         fn_proto.ast.return_type,
     );
-    const fn_type_inst = try astgen.addZIRInst(mod, &fn_type_scope.base, fn_src, zir.Inst.FnType, .{
-        .return_type = return_type_inst,
-        .param_types = param_types,
-    }, .{});
+    const fn_type_inst = if (opt_cc) |cc|
+        try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type_cc, .{
+            .return_type = return_type_inst,
+            .param_types = param_types,
+            .cc = cc,
+        })
+    else
+        try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type, .{
+            .return_type = return_type_inst,
+            .param_types = param_types,
+        });
 
     if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
         zir.dumpZir(mod.gpa, "fn_type", decl.name, fn_type_scope.instructions.items) catch {};
@@ -1316,6 +1329,7 @@ fn astgenAndSemaFn(
             .decl = decl,
             .arena = &decl_arena.allocator,
             .parent = &decl.container.base,
+            .force_comptime = false,
         };
         defer gen_scope.instructions.deinit(mod.gpa);
 
@@ -1348,7 +1362,7 @@ fn astgenAndSemaFn(
             params_scope = &sub_scope.base;
         }
 
-        try astgen.blockExpr(mod, params_scope, body_node);
+        try astgen.expr(mod, params_scope, .none, body_node);
 
         if (gen_scope.instructions.items.len == 0 or
             !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
@@ -1496,7 +1510,7 @@ fn astgenAndSemaVarDecl(
         assert(is_extern);
         return mod.failTok(&block_scope.base, lib_name, "TODO implement function library name", .{});
     }
-    const is_mutable = token_tags[var_decl.mut_token] == .keyword_var;
+    const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
     const is_threadlocal = if (var_decl.threadlocal_token) |some| blk: {
         if (!is_mutable) {
             return mod.failTok(&block_scope.base, some, "threadlocal variable cannot be constant", .{});

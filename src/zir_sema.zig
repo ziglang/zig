@@ -91,7 +91,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .@"fn" => return zirFn(mod, scope, old_inst.castTag(.@"fn").?),
         .@"export" => return zirExport(mod, scope, old_inst.castTag(.@"export").?),
         .primitive => return zirPrimitive(mod, scope, old_inst.castTag(.primitive).?),
-        .fntype => return zirFnType(mod, scope, old_inst.castTag(.fntype).?),
+        .fn_type => return zirFnType(mod, scope, old_inst.castTag(.fn_type).?),
+        .fn_type_cc => return zirFnTypeCc(mod, scope, old_inst.castTag(.fn_type_cc).?),
         .intcast => return zirIntcast(mod, scope, old_inst.castTag(.intcast).?),
         .bitcast => return zirBitcast(mod, scope, old_inst.castTag(.bitcast).?),
         .floatcast => return zirFloatcast(mod, scope, old_inst.castTag(.floatcast).?),
@@ -155,7 +156,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .bool_or => return zirBoolOp(mod, scope, old_inst.castTag(.bool_or).?),
         .void_value => return mod.constVoid(scope, old_inst.src),
         .switchbr => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?, false),
-        .switchbr_ref => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?, true),
+        .switchbr_ref => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr_ref).?, true),
         .switch_range => return zirSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
 
         .container_field_named,
@@ -958,11 +959,11 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
         );
     }
 
-    if (inst.kw_args.modifier == .compile_time) {
+    if (inst.positionals.modifier == .compile_time) {
         return mod.fail(scope, inst.base.src, "TODO implement comptime function calls", .{});
     }
-    if (inst.kw_args.modifier != .auto) {
-        return mod.fail(scope, inst.base.src, "TODO implement call with modifier {}", .{inst.kw_args.modifier});
+    if (inst.positionals.modifier != .auto) {
+        return mod.fail(scope, inst.base.src, "TODO implement call with modifier {}", .{inst.positionals.modifier});
     }
 
     // TODO handle function calls of generic functions
@@ -1295,34 +1296,69 @@ fn zirEnsureErrPayloadVoid(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) 
 fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    const return_type = try resolveType(mod, scope, fntype.positionals.return_type);
+
+    return fnTypeCommon(
+        mod,
+        scope,
+        &fntype.base,
+        fntype.positionals.param_types,
+        fntype.positionals.return_type,
+        .Unspecified,
+    );
+}
+
+fn zirFnTypeCc(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnTypeCc) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const cc_tv = try resolveInstConst(mod, scope, fntype.positionals.cc);
+    // TODO once we're capable of importing and analyzing decls from
+    // std.builtin, this needs to change
     const cc_str = cc_tv.val.castTag(.enum_literal).?.data;
     const cc = std.meta.stringToEnum(std.builtin.CallingConvention, cc_str) orelse
         return mod.fail(scope, fntype.positionals.cc.src, "Unknown calling convention {s}", .{cc_str});
+    return fnTypeCommon(
+        mod,
+        scope,
+        &fntype.base,
+        fntype.positionals.param_types,
+        fntype.positionals.return_type,
+        cc,
+    );
+}
+
+fn fnTypeCommon(
+    mod: *Module,
+    scope: *Scope,
+    zir_inst: *zir.Inst,
+    zir_param_types: []*zir.Inst,
+    zir_return_type: *zir.Inst,
+    cc: std.builtin.CallingConvention,
+) InnerError!*Inst {
+    const return_type = try resolveType(mod, scope, zir_return_type);
 
     // Hot path for some common function types.
-    if (fntype.positionals.param_types.len == 0) {
+    if (zir_param_types.len == 0) {
         if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
-            return mod.constType(scope, fntype.base.src, Type.initTag(.fn_noreturn_no_args));
+            return mod.constType(scope, zir_inst.src, Type.initTag(.fn_noreturn_no_args));
         }
 
         if (return_type.zigTypeTag() == .Void and cc == .Unspecified) {
-            return mod.constType(scope, fntype.base.src, Type.initTag(.fn_void_no_args));
+            return mod.constType(scope, zir_inst.src, Type.initTag(.fn_void_no_args));
         }
 
         if (return_type.zigTypeTag() == .NoReturn and cc == .Naked) {
-            return mod.constType(scope, fntype.base.src, Type.initTag(.fn_naked_noreturn_no_args));
+            return mod.constType(scope, zir_inst.src, Type.initTag(.fn_naked_noreturn_no_args));
         }
 
         if (return_type.zigTypeTag() == .Void and cc == .C) {
-            return mod.constType(scope, fntype.base.src, Type.initTag(.fn_ccc_void_no_args));
+            return mod.constType(scope, zir_inst.src, Type.initTag(.fn_ccc_void_no_args));
         }
     }
 
     const arena = scope.arena();
-    const param_types = try arena.alloc(Type, fntype.positionals.param_types.len);
-    for (fntype.positionals.param_types) |param_type, i| {
+    const param_types = try arena.alloc(Type, zir_param_types.len);
+    for (zir_param_types) |param_type, i| {
         const resolved = try resolveType(mod, scope, param_type);
         // TODO skip for comptime params
         if (!resolved.isValidVarType(false)) {
@@ -1336,7 +1372,7 @@ fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*
         .return_type = return_type,
         .cc = cc,
     });
-    return mod.constType(scope, fntype.base.src, fn_ty);
+    return mod.constType(scope, zir_inst.src, fn_ty);
 }
 
 fn zirPrimitive(mod: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) InnerError!*Inst {
