@@ -381,7 +381,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return addZIRNoOp(mod, scope, src, .unreachable_safe);
         },
         .@"return" => return ret(mod, scope, node),
-        .field_access => return field(mod, scope, rl, node),
+        .field_access => return fieldAccess(mod, scope, rl, node),
         .float_literal => return floatLiteral(mod, scope, rl, node),
 
         .if_simple => return ifExpr(mod, scope, rl, tree.ifSimple(node)),
@@ -1423,17 +1423,17 @@ fn arrayTypeSentinel(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.
 fn containerField(
     mod: *Module,
     scope: *Scope,
-    node: *ast.Node.ContainerField,
+    field: ast.full.ContainerField,
 ) InnerError!*zir.Inst {
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
 
-    const src = token_starts[tree.firstToken(node)];
-    const name = try mod.identifierTokenString(scope, node.name_token);
+    const src = token_starts[field.ast.name_token];
+    const name = try mod.identifierTokenString(scope, field.ast.name_token);
 
-    if (node.comptime_token == null and node.value_expr == null and node.align_expr == null) {
-        if (node.type_expr) |some| {
-            const ty = try typeExpr(mod, scope, some);
+    if (field.comptime_token == null and field.ast.value_expr == 0 and field.ast.align_expr == 0) {
+        if (field.ast.type_expr != 0) {
+            const ty = try typeExpr(mod, scope, field.ast.type_expr);
             return addZIRInst(mod, scope, src, zir.Inst.ContainerFieldTyped, .{
                 .bytes = name,
                 .ty = ty,
@@ -1445,9 +1445,11 @@ fn containerField(
         }
     }
 
-    const ty = if (node.type_expr) |some| try typeExpr(mod, scope, some) else null;
-    const alignment = if (node.align_expr) |some| try expr(mod, scope, .none, some) else null;
-    const init = if (node.value_expr) |some| try expr(mod, scope, .none, some) else null;
+    const ty = if (field.ast.type_expr != 0) try typeExpr(mod, scope, field.ast.type_expr) else null;
+    // TODO result location should be alignment type
+    const alignment = if (field.ast.align_expr != 0) try expr(mod, scope, .none, field.ast.align_expr) else null;
+    // TODO result location should be the field type
+    const init = if (field.ast.value_expr != 0) try expr(mod, scope, .none, field.ast.value_expr) else null;
 
     return addZIRInst(mod, scope, src, zir.Inst.ContainerField, .{
         .bytes = name,
@@ -1455,7 +1457,7 @@ fn containerField(
         .ty = ty,
         .init = init,
         .alignment = alignment,
-        .is_comptime = node.comptime_token != null,
+        .is_comptime = field.comptime_token != null,
     });
 }
 
@@ -1485,12 +1487,15 @@ fn containerDecl(
     defer fields.deinit();
 
     for (container_decl.ast.members) |member| {
-        switch (node_tags[member]) {
-            .container_field_init, .container_field_align, .container_field => {
-                try fields.append(try containerField(mod, &gen_scope.base, member));
-            },
+        // TODO just handle these cases differently since they end up with different ZIR
+        // instructions anyway. It will be simpler & have fewer branches.
+        const field = switch (node_tags[member]) {
+            .container_field_init => try containerField(mod, &gen_scope.base, tree.containerFieldInit(member)),
+            .container_field_align => try containerField(mod, &gen_scope.base, tree.containerFieldAlign(member)),
+            .container_field => try containerField(mod, &gen_scope.base, tree.containerField(member)),
             else => continue,
-        }
+        };
+        try fields.append(field);
     }
 
     var decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
@@ -1847,7 +1852,7 @@ fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: as
     return mem.eql(u8, ident_name_1, ident_name_2);
 }
 
-pub fn field(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
+pub fn fieldAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
     const main_tokens = tree.nodes.items(.main_token);
@@ -3269,7 +3274,7 @@ fn asRlPtr(
     rl: ResultLoc,
     src: usize,
     result_ptr: *zir.Inst,
-    operand_node: *ast.Node,
+    operand_node: ast.Node.Index,
     dest_type: *zir.Inst,
 ) InnerError!*zir.Inst {
     // Detect whether this expr() call goes into rvalue() to store the result into the
