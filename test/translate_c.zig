@@ -10,6 +10,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    } else {
         \\        int b = 2;
         \\    }
+        \\    if (1) if (1) {}
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
@@ -18,6 +19,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    } else {
         \\        var b: c_int = 2;
         \\    };
+        \\    if (true) if (true) {};
         \\}
     });
 
