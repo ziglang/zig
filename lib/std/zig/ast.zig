@@ -146,6 +146,7 @@ pub const Tree = struct {
             .ExpectedFn => |*x| return x.render(tokens, stream),
             .ExpectedReturnType => |*x| return x.render(tokens, stream),
             .ExpectedAggregateKw => |*x| return x.render(tokens, stream),
+            .SameLineDocComment => |*x| return x.render(tokens, stream),
             .UnattachedDocComment => |*x| return x.render(tokens, stream),
             .ExpectedEqOrSemi => |*x| return x.render(tokens, stream),
             .ExpectedSemiOrLBrace => |*x| return x.render(tokens, stream),
@@ -200,6 +201,7 @@ pub const Tree = struct {
             .ExpectedFn => |x| return x.token,
             .ExpectedReturnType => |x| return x.token,
             .ExpectedAggregateKw => |x| return x.token,
+            .SameLineDocComment => |x| return x.token,
             .UnattachedDocComment => |x| return x.token,
             .ExpectedEqOrSemi => |x| return x.token,
             .ExpectedSemiOrLBrace => |x| return x.token,
@@ -2250,6 +2252,7 @@ pub const Error = union(enum) {
     ExpectedFn: ExpectedFn,
     ExpectedReturnType: ExpectedReturnType,
     ExpectedAggregateKw: ExpectedAggregateKw,
+    SameLineDocComment: SameLineDocComment,
     UnattachedDocComment: UnattachedDocComment,
     ExpectedEqOrSemi: ExpectedEqOrSemi,
     ExpectedSemiOrLBrace: ExpectedSemiOrLBrace,
@@ -2326,6 +2329,7 @@ pub const Error = union(enum) {
 
     pub const ExpectedParamType = SimpleError("Expected parameter type");
     pub const ExpectedPubItem = SimpleError("Expected function or variable declaration after pub");
+    pub const SameLineDocComment = SimpleError("Same line documentation comment");
     pub const UnattachedDocComment = SimpleError("Unattached documentation comment");
     pub const ExtraAlignQualifier = SimpleError("Extra align qualifier");
     pub const ExtraConstQualifier = SimpleError("Extra const qualifier");

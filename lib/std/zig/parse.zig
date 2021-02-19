@@ -190,7 +190,7 @@ const Parser = struct {
 
         var trailing_comma = false;
         while (true) {
-            const doc_comment = p.eatDocComments();
+            const doc_comment = try p.eatDocComments ();
 
             switch (p.token_tags[p.tok_i]) {
                 .keyword_test => {
@@ -515,7 +515,6 @@ const Parser = struct {
             switch (p.token_tags[p.tok_i]) {
                 .semicolon => {
                     const semicolon_token = p.nextToken();
-                    try p.parseAppendedDocComment(semicolon_token);
                     return p.addNode(.{
                         .tag = .fn_decl,
                         .main_token = p.nodes.items(.main_token)[fn_proto],
@@ -557,7 +556,6 @@ const Parser = struct {
         const var_decl = try p.parseVarDecl();
         if (var_decl != 0) {
             const semicolon_token = try p.expectToken(.semicolon);
-            try p.parseAppendedDocComment(semicolon_token);
             return var_decl;
         }
         if (thread_local_token != null) {
@@ -585,7 +583,6 @@ const Parser = struct {
         const usingnamespace_token = try p.expectToken(.keyword_usingnamespace);
         const expr = try p.expectExpr();
         const semicolon_token = try p.expectToken(.semicolon);
-        try p.parseAppendedDocComment(semicolon_token);
         return p.addNode(.{
             .tag = .@"usingnamespace",
             .main_token = usingnamespace_token,
@@ -2885,7 +2882,7 @@ const Parser = struct {
                     }
 
                     while (true) {
-                        const doc_comment = p.eatDocComments();
+                        const doc_comment = try p.eatDocComments();
                         const identifier = try p.expectToken(.identifier);
                         switch (p.token_tags[p.nextToken()]) {
                             .comma => {
@@ -3274,7 +3271,7 @@ const Parser = struct {
     /// such as in the case of anytype and `...`. Caller must look for rparen to find
     /// out when there are no more param decls left.
     fn expectParamDecl(p: *Parser) !Node.Index {
-        _ = p.eatDocComments();
+        _ = try p.eatDocComments();
         switch (p.token_tags[p.tok_i]) {
             .keyword_noalias, .keyword_comptime => p.tok_i += 1,
             .ellipsis3 => {
@@ -4075,8 +4072,13 @@ const Parser = struct {
     }
 
     /// Skips over doc comment tokens. Returns the first one, if any.
-    fn eatDocComments(p: *Parser) ?TokenIndex {
-        if (p.eatToken(.doc_comment)) |first_line| {
+    fn eatDocComments(p: *Parser) !?TokenIndex {
+        if (p.eatToken(.doc_comment)) |tok| {
+            var first_line = tok;
+            if (tok > 0 and tokensOnSameLine(p, tok - 1, tok)) {
+                try p.warn(.{ .SameLineDocComment = .{ .token = tok } });
+                first_line = p.eatToken(.doc_comment) orelse return null;
+            }
             while (p.eatToken(.doc_comment)) |_| {}
             return first_line;
         }
@@ -4085,14 +4087,6 @@ const Parser = struct {
 
     fn tokensOnSameLine(p: *Parser, token1: TokenIndex, token2: TokenIndex) bool {
         return std.mem.indexOfScalar(u8, p.source[p.token_starts[token1]..p.token_starts[token2]], '\n') == null;
-    }
-
-    /// Eat a single-line doc comment on the same line as another node
-    fn parseAppendedDocComment(p: *Parser, after_token: TokenIndex) !void {
-        const comment_token = p.eatToken(.doc_comment) orelse return;
-        if (!p.tokensOnSameLine(after_token, comment_token)) {
-            p.tok_i -= 1;
-        }
     }
 
     fn eatToken(p: *Parser, tag: Token.Tag) ?TokenIndex {

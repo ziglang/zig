@@ -1016,23 +1016,6 @@ test "zig fmt: linksection" {
     );
 }
 
-//test "zig fmt: correctly move doc comments on struct fields" {
-//    try testTransform(
-//        \\pub const section_64 = extern struct {
-//        \\    sectname: [16]u8, /// name of this section
-//        \\    segname: [16]u8,  /// segment this section goes in
-//        \\};
-//    ,
-//        \\pub const section_64 = extern struct {
-//        \\    /// name of this section
-//        \\    sectname: [16]u8,
-//        \\    /// segment this section goes in
-//        \\    segname: [16]u8,
-//        \\};
-//        \\
-//    );
-//}
-
 test "zig fmt: correctly space struct fields with doc comments" {
     try testTransform(
         \\pub const S = struct {
@@ -1446,31 +1429,6 @@ test "zig fmt: async call in if condition" {
 //        \\        .used = false,
 //        \\    });
 //        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line doc comment on variable declaration" {
-//    try testTransform(
-//        \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space
-//        \\pub const MAP_FILE = 0x0000; /// map from file (default)
-//        \\
-//        \\pub const EMEDIUMTYPE = 124; /// Wrong medium type
-//        \\
-//        \\// nameserver query return codes
-//        \\pub const ENSROK = 0; /// DNS server returned answer with no data
-//    ,
-//        \\/// allocated from memory, swap space
-//        \\pub const MAP_ANONYMOUS = 0x1000;
-//        \\/// map from file (default)
-//        \\pub const MAP_FILE = 0x0000;
-//        \\
-//        \\/// Wrong medium type
-//        \\pub const EMEDIUMTYPE = 124;
-//        \\
-//        \\// nameserver query return codes
-//        \\/// DNS server returned answer with no data
-//        \\pub const ENSROK = 0;
 //        \\
 //    );
 //}
@@ -3625,6 +3583,30 @@ test "zig fmt: file ends with struct field" {
 //    });
 //}
 
+test "zig fmt: same line doc comment returns error" {
+    try testError(
+        \\const Foo = struct{
+        \\    bar: u32, /// comment
+        \\    foo: u32, /// comment
+        \\    /// commment
+        \\};
+        \\
+        \\const a = 42; /// comment
+        \\
+        \\extern fn foo() void; /// comment
+        \\
+        \\/// comment
+        \\
+    , &[_]Error{
+        .SameLineDocComment,
+        .SameLineDocComment,
+        .UnattachedDocComment,
+        .SameLineDocComment,
+        .SameLineDocComment,
+        .UnattachedDocComment,
+    });
+}
+
 test "zig fmt: integer literals with underscore separators" {
     try testTransform(
         \\const
@@ -4388,6 +4370,6 @@ fn testError(source: []const u8, expected_errors: []const Error) !void {
 
     std.testing.expect(tree.errors.len == expected_errors.len);
     for (expected_errors) |expected, i| {
-        std.testing.expect(expected == tree.errors[i]);
+        std.testing.expectEqual(expected, tree.errors[i]);
     }
 }
