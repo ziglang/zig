@@ -677,8 +677,8 @@ fn renderPtrType(
     ptr_type: ast.full.PtrType,
     space: Space,
 ) Error!void {
-    switch (ptr_type.kind) {
-        .one => {
+    switch (ptr_type.size) {
+        .One => {
             // Since ** tokens exist and the same token is shared by two
             // nested pointer types, we check to see if we are the parent
             // in such a relationship. If so, skip rendering anything for
@@ -691,33 +691,35 @@ fn renderPtrType(
             }
             try renderToken(ais, tree, ptr_type.ast.main_token, .none); // asterisk
         },
-        .many => {
-            try renderToken(ais, tree, ptr_type.ast.main_token - 1, .none); // lbracket
-            try renderToken(ais, tree, ptr_type.ast.main_token, .none); // asterisk
-            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // rbracket
+        .Many => {
+            if (ptr_type.ast.sentinel == 0) {
+                try renderToken(ais, tree, ptr_type.ast.main_token - 1, .none); // lbracket
+                try renderToken(ais, tree, ptr_type.ast.main_token, .none); // asterisk
+                try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // rbracket
+            } else {
+                try renderToken(ais, tree, ptr_type.ast.main_token - 1, .none); // lbracket
+                try renderToken(ais, tree, ptr_type.ast.main_token, .none); // asterisk
+                try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // colon
+                try renderExpression(ais, tree, ptr_type.ast.sentinel, .none);
+                try renderToken(ais, tree, tree.lastToken(ptr_type.ast.sentinel) + 1, .none); // rbracket
+            }
         },
-        .sentinel => {
-            try renderToken(ais, tree, ptr_type.ast.main_token - 1, .none); // lbracket
-            try renderToken(ais, tree, ptr_type.ast.main_token, .none); // asterisk
-            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // colon
-            try renderExpression(ais, tree, ptr_type.ast.sentinel, .none);
-            try renderToken(ais, tree, tree.lastToken(ptr_type.ast.sentinel) + 1, .none); // rbracket
-        },
-        .c => {
+        .C => {
             try renderToken(ais, tree, ptr_type.ast.main_token - 1, .none); // lbracket
             try renderToken(ais, tree, ptr_type.ast.main_token, .none); // asterisk
             try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // c
             try renderToken(ais, tree, ptr_type.ast.main_token + 2, .none); // rbracket
         },
-        .slice => {
-            try renderToken(ais, tree, ptr_type.ast.main_token, .none); // lbracket
-            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // rbracket
-        },
-        .slice_sentinel => {
-            try renderToken(ais, tree, ptr_type.ast.main_token, .none); // lbracket
-            try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // colon
-            try renderExpression(ais, tree, ptr_type.ast.sentinel, .none);
-            try renderToken(ais, tree, tree.lastToken(ptr_type.ast.sentinel) + 1, .none); // rbracket
+        .Slice => {
+            if (ptr_type.ast.sentinel == 0) {
+                try renderToken(ais, tree, ptr_type.ast.main_token, .none); // lbracket
+                try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // rbracket
+            } else {
+                try renderToken(ais, tree, ptr_type.ast.main_token, .none); // lbracket
+                try renderToken(ais, tree, ptr_type.ast.main_token + 1, .none); // colon
+                try renderExpression(ais, tree, ptr_type.ast.sentinel, .none);
+                try renderToken(ais, tree, tree.lastToken(ptr_type.ast.sentinel) + 1, .none); // rbracket
+            }
         },
     }
 

@@ -115,727 +115,730 @@ allows_lvalue: bool = false,
 /// of parameters.
 param_count: ?u8,
 
-pub const list = std.ComptimeStringMap(@This(), .{
-    .{
-        "@addWithOverflow",
+pub const list = list: {
+    @setEvalBranchQuota(3000);
+    break :list std.ComptimeStringMap(@This(), .{
         .{
-            .tag = .add_with_overflow,
-            .param_count = 4,
+            "@addWithOverflow",
+            .{
+                .tag = .add_with_overflow,
+                .param_count = 4,
+            },
         },
-    },
-    .{
-        "@alignCast",
         .{
-            .tag = align_cast,
-            .param_count = 1,
+            "@alignCast",
+            .{
+                .tag = .align_cast,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@alignOf",
         .{
-            .tag = .align_of,
-            .param_count = 1,
+            "@alignOf",
+            .{
+                .tag = .align_of,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@as",
         .{
-            .tag = .as,
-            .needs_mem_loc = true,
-            .param_count = 2,
+            "@as",
+            .{
+                .tag = .as,
+                .needs_mem_loc = true,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@asyncCall",
         .{
-            .tag = .async_call,
-            .param_count = null,
+            "@asyncCall",
+            .{
+                .tag = .async_call,
+                .param_count = null,
+            },
         },
-    },
-    .{
-        "@atomicLoad",
         .{
-            .tag = .atomic_load,
-            .param_count = 3,
+            "@atomicLoad",
+            .{
+                .tag = .atomic_load,
+                .param_count = 3,
+            },
         },
-    },
-    .{
-        "@atomicRmw",
         .{
-            .tag = .atomic_rmw,
-            .param_count = 5,
+            "@atomicRmw",
+            .{
+                .tag = .atomic_rmw,
+                .param_count = 5,
+            },
         },
-    },
-    .{
-        "@atomicStore",
         .{
-            .tag = .atomic_store,
-            .param_count = 4,
+            "@atomicStore",
+            .{
+                .tag = .atomic_store,
+                .param_count = 4,
+            },
         },
-    },
-    .{
-        "@bitCast",
         .{
-            .tag = .bit_cast,
-            .needs_mem_loc = true,
-            .param_count = 2,
+            "@bitCast",
+            .{
+                .tag = .bit_cast,
+                .needs_mem_loc = true,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@bitOffsetOf",
         .{
-            .tag = .bit_offset_of,
-            .param_count = 2,
+            "@bitOffsetOf",
+            .{
+                .tag = .bit_offset_of,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@boolToInt",
         .{
-            .tag = .bool_to_int,
-            .param_count = 1,
+            "@boolToInt",
+            .{
+                .tag = .bool_to_int,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@bitSizeOf",
         .{
-            .tag = .bit_size_of,
-            .param_count = 1,
+            "@bitSizeOf",
+            .{
+                .tag = .bit_size_of,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@breakpoint",
         .{
-            .tag = .breakpoint,
-            .param_count = 0,
+            "@breakpoint",
+            .{
+                .tag = .breakpoint,
+                .param_count = 0,
+            },
         },
-    },
-    .{
-        "@mulAdd",
         .{
-            .tag = .mul_add,
-            .param_count = 4,
+            "@mulAdd",
+            .{
+                .tag = .mul_add,
+                .param_count = 4,
+            },
         },
-    },
-    .{
-        "@byteSwap",
         .{
-            .tag = .byte_swap,
-            .param_count = 2,
+            "@byteSwap",
+            .{
+                .tag = .byte_swap,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@bitReverse",
         .{
-            .tag = .bit_reverse,
-            .param_count = 2,
+            "@bitReverse",
+            .{
+                .tag = .bit_reverse,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@byteOffsetOf",
         .{
-            .tag = .byte_offset_of,
-            .param_count = 2,
+            "@byteOffsetOf",
+            .{
+                .tag = .byte_offset_of,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@call",
         .{
-            .tag = .call,
-            .needs_mem_loc = true,
-            .param_count = 3,
+            "@call",
+            .{
+                .tag = .call,
+                .needs_mem_loc = true,
+                .param_count = 3,
+            },
         },
-    },
-    .{
-        "@cDefine",
         .{
-            .tag = .c_define,
-            .param_count = 2,
+            "@cDefine",
+            .{
+                .tag = .c_define,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@cImport",
         .{
-            .tag = .c_import,
-            .param_count = 1,
+            "@cImport",
+            .{
+                .tag = .c_import,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@cInclude",
         .{
-            .tag = .c_include,
-            .param_count = 1,
+            "@cInclude",
+            .{
+                .tag = .c_include,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@clz",
         .{
-            .tag = .clz,
-            .param_count = 2,
+            "@clz",
+            .{
+                .tag = .clz,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@cmpxchgStrong",
         .{
-            .tag = .cmpxchg_strong,
-            .param_count = 6,
+            "@cmpxchgStrong",
+            .{
+                .tag = .cmpxchg_strong,
+                .param_count = 6,
+            },
         },
-    },
-    .{
-        "@cmpxchgWeak",
         .{
-            .tag = .cmpxchg_weak,
-            .param_count = 6,
+            "@cmpxchgWeak",
+            .{
+                .tag = .cmpxchg_weak,
+                .param_count = 6,
+            },
         },
-    },
-    .{
-        "@compileError",
         .{
-            .tag = .compile_error,
-            .param_count = 1,
+            "@compileError",
+            .{
+                .tag = .compile_error,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@compileLog",
         .{
-            .tag = .compile_log,
-            .param_count = null,
+            "@compileLog",
+            .{
+                .tag = .compile_log,
+                .param_count = null,
+            },
         },
-    },
-    .{
-        "@ctz",
         .{
-            .tag = .ctz,
-            .param_count = 2,
+            "@ctz",
+            .{
+                .tag = .ctz,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@cUndef",
         .{
-            .tag = .c_undef,
-            .param_count = 1,
+            "@cUndef",
+            .{
+                .tag = .c_undef,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@divExact",
         .{
-            .tag = .div_exact,
-            .param_count = 2,
+            "@divExact",
+            .{
+                .tag = .div_exact,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@divFloor",
         .{
-            .tag = .div_floor,
-            .param_count = 2,
+            "@divFloor",
+            .{
+                .tag = .div_floor,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@divTrunc",
         .{
-            .tag = .div_trunc,
-            .param_count = 2,
+            "@divTrunc",
+            .{
+                .tag = .div_trunc,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@embedFile",
         .{
-            .tag = .embed_file,
-            .param_count = 1,
+            "@embedFile",
+            .{
+                .tag = .embed_file,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@enumToInt",
         .{
-            .tag = .enum_to_int,
-            .param_count = 1,
+            "@enumToInt",
+            .{
+                .tag = .enum_to_int,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@errorName",
         .{
-            .tag = .error_name,
-            .param_count = 1,
+            "@errorName",
+            .{
+                .tag = .error_name,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@errorReturnTrace",
         .{
-            .tag = .error_return_trace,
-            .param_count = 0,
+            "@errorReturnTrace",
+            .{
+                .tag = .error_return_trace,
+                .param_count = 0,
+            },
         },
-    },
-    .{
-        "@errorToInt",
         .{
-            .tag = .error_to_int,
-            .param_count = 1,
+            "@errorToInt",
+            .{
+                .tag = .error_to_int,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@errSetCast",
         .{
-            .tag = .err_set_cast,
-            .param_count = 2,
+            "@errSetCast",
+            .{
+                .tag = .err_set_cast,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@export",
         .{
-            .tag = .@"export",
-            .param_count = 2,
+            "@export",
+            .{
+                .tag = .@"export",
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@fence",
         .{
-            .tag = .fence,
-            .param_count = 0,
+            "@fence",
+            .{
+                .tag = .fence,
+                .param_count = 0,
+            },
         },
-    },
-    .{
-        "@field",
         .{
-            .tag = .field,
-            .needs_mem_loc = true,
-            .param_count = 2,
-            .allows_lvalue = true,
+            "@field",
+            .{
+                .tag = .field,
+                .needs_mem_loc = true,
+                .param_count = 2,
+                .allows_lvalue = true,
+            },
         },
-    },
-    .{
-        "@fieldParentPtr",
         .{
-            .tag = .field_parent_ptr,
-            .param_count = 3,
+            "@fieldParentPtr",
+            .{
+                .tag = .field_parent_ptr,
+                .param_count = 3,
+            },
         },
-    },
-    .{
-        "@floatCast",
         .{
-            .tag = .float_cast,
-            .param_count = 1,
+            "@floatCast",
+            .{
+                .tag = .float_cast,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@floatToInt",
         .{
-            .tag = .float_to_int,
-            .param_count = 1,
+            "@floatToInt",
+            .{
+                .tag = .float_to_int,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@frame",
         .{
-            .tag = .frame,
-            .param_count = 0,
+            "@frame",
+            .{
+                .tag = .frame,
+                .param_count = 0,
+            },
         },
-    },
-    .{
-        "@Frame",
         .{
-            .tag = .Frame,
-            .param_count = 1,
+            "@Frame",
+            .{
+                .tag = .Frame,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@frameAddress",
         .{
-            .tag = .frame_address,
-            .param_count = 0,
+            "@frameAddress",
+            .{
+                .tag = .frame_address,
+                .param_count = 0,
+            },
         },
-    },
-    .{
-        "@frameSize",
         .{
-            .tag = .frame_size,
-            .param_count = 1,
+            "@frameSize",
+            .{
+                .tag = .frame_size,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@hasDecl",
         .{
-            .tag = .has_decl,
-            .param_count = 2,
+            "@hasDecl",
+            .{
+                .tag = .has_decl,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@hasField",
         .{
-            .tag = .has_field,
-            .param_count = 2,
+            "@hasField",
+            .{
+                .tag = .has_field,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@import",
         .{
-            .tag = .import,
-            .param_count = 1,
+            "@import",
+            .{
+                .tag = .import,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@intCast",
         .{
-            .tag = .int_cast,
-            .param_count = 1,
+            "@intCast",
+            .{
+                .tag = .int_cast,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@intToEnum",
         .{
-            .tag = .int_to_enum,
-            .param_count = 1,
+            "@intToEnum",
+            .{
+                .tag = .int_to_enum,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@intToError",
         .{
-            .tag = .int_to_error,
-            .param_count = 1,
+            "@intToError",
+            .{
+                .tag = .int_to_error,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@intToFloat",
         .{
-            .tag = .int_to_float,
-            .param_count = 1,
+            "@intToFloat",
+            .{
+                .tag = .int_to_float,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@intToPtr",
         .{
-            .tag = .int_to_ptr,
-            .param_count = 2,
+            "@intToPtr",
+            .{
+                .tag = .int_to_ptr,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@memcpy",
         .{
-            .tag = .memcpy,
-            .param_count = 3,
+            "@memcpy",
+            .{
+                .tag = .memcpy,
+                .param_count = 3,
+            },
         },
-    },
-    .{
-        "@memset",
         .{
-            .tag = .memset,
-            .param_count = 3,
+            "@memset",
+            .{
+                .tag = .memset,
+                .param_count = 3,
+            },
         },
-    },
-    .{
-        "@wasmMemorySize",
         .{
-            .tag = .wasm_memory_size,
-            .param_count = 1,
+            "@wasmMemorySize",
+            .{
+                .tag = .wasm_memory_size,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@wasmMemoryGrow",
         .{
-            .tag = .wasm_memory_grow,
-            .param_count = 2,
+            "@wasmMemoryGrow",
+            .{
+                .tag = .wasm_memory_grow,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@mod",
         .{
-            .tag = .mod,
-            .param_count = 2,
+            "@mod",
+            .{
+                .tag = .mod,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@mulWithOverflow",
         .{
-            .tag = .mul_with_overflow,
-            .param_count = 4,
+            "@mulWithOverflow",
+            .{
+                .tag = .mul_with_overflow,
+                .param_count = 4,
+            },
         },
-    },
-    .{
-        "@panic",
         .{
-            .tag = .panic,
-            .param_count = 1,
+            "@panic",
+            .{
+                .tag = .panic,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@popCount",
         .{
-            .tag = .pop_count,
-            .param_count = 2,
+            "@popCount",
+            .{
+                .tag = .pop_count,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@ptrCast",
         .{
-            .tag = .ptr_cast,
-            .param_count = 2,
+            "@ptrCast",
+            .{
+                .tag = .ptr_cast,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@ptrToInt",
         .{
-            .tag = .ptr_to_int,
-            .param_count = 1,
+            "@ptrToInt",
+            .{
+                .tag = .ptr_to_int,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@rem",
         .{
-            .tag = .rem,
-            .param_count = 2,
+            "@rem",
+            .{
+                .tag = .rem,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@returnAddress",
         .{
-            .tag = .return_address,
-            .param_count = 0,
+            "@returnAddress",
+            .{
+                .tag = .return_address,
+                .param_count = 0,
+            },
         },
-    },
-    .{
-        "@setAlignStack",
         .{
-            .tag = .set_align_stack,
-            .param_count = 1,
+            "@setAlignStack",
+            .{
+                .tag = .set_align_stack,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@setCold",
         .{
-            .tag = .set_cold,
-            .param_count = 1,
+            "@setCold",
+            .{
+                .tag = .set_cold,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@setEvalBranchQuota",
         .{
-            .tag = .set_eval_branch_quota,
-            .param_count = 1,
+            "@setEvalBranchQuota",
+            .{
+                .tag = .set_eval_branch_quota,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@setFloatMode",
         .{
-            .tag = .set_float_mode,
-            .param_count = 1,
+            "@setFloatMode",
+            .{
+                .tag = .set_float_mode,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@setRuntimeSafety",
         .{
-            .tag = .set_runtime_safety,
-            .param_count = 1,
+            "@setRuntimeSafety",
+            .{
+                .tag = .set_runtime_safety,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@shlExact",
         .{
-            .tag = .shl_exact,
-            .param_count = 2,
+            "@shlExact",
+            .{
+                .tag = .shl_exact,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@shlWithOverflow",
         .{
-            .tag = .shl_with_overflow,
-            .param_count = 4,
+            "@shlWithOverflow",
+            .{
+                .tag = .shl_with_overflow,
+                .param_count = 4,
+            },
         },
-    },
-    .{
-        "@shrExact",
         .{
-            .tag = .shr_exact,
-            .param_count = 2,
+            "@shrExact",
+            .{
+                .tag = .shr_exact,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@shuffle",
         .{
-            .tag = .shuffle,
-            .param_count = 4,
+            "@shuffle",
+            .{
+                .tag = .shuffle,
+                .param_count = 4,
+            },
         },
-    },
-    .{
-        "@sizeOf",
         .{
-            .tag = .size_of,
-            .param_count = 1,
+            "@sizeOf",
+            .{
+                .tag = .size_of,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@splat",
         .{
-            .tag = .splat,
-            .needs_mem_loc = true,
-            .param_count = 2,
+            "@splat",
+            .{
+                .tag = .splat,
+                .needs_mem_loc = true,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@reduce",
         .{
-            .tag = .reduce,
-            .param_count = 2,
+            "@reduce",
+            .{
+                .tag = .reduce,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@src",
         .{
-            .tag = .src,
-            .needs_mem_loc = true,
-            .param_count = 0,
+            "@src",
+            .{
+                .tag = .src,
+                .needs_mem_loc = true,
+                .param_count = 0,
+            },
         },
-    },
-    .{
-        "@sqrt",
         .{
-            .tag = .sqrt,
-            .param_count = 1,
+            "@sqrt",
+            .{
+                .tag = .sqrt,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@sin",
         .{
-            .tag = .sin,
-            .param_count = 1,
+            "@sin",
+            .{
+                .tag = .sin,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@cos",
         .{
-            .tag = .cos,
-            .param_count = 1,
+            "@cos",
+            .{
+                .tag = .cos,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@exp",
         .{
-            .tag = .exp,
-            .param_count = 1,
+            "@exp",
+            .{
+                .tag = .exp,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@exp2",
         .{
-            .tag = .exp2,
-            .param_count = 1,
+            "@exp2",
+            .{
+                .tag = .exp2,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@log",
         .{
-            .tag = .log,
-            .param_count = 1,
+            "@log",
+            .{
+                .tag = .log,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@log2",
         .{
-            .tag = .log2,
-            .param_count = 1,
+            "@log2",
+            .{
+                .tag = .log2,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@log10",
         .{
-            .tag = .log10,
-            .param_count = 1,
+            "@log10",
+            .{
+                .tag = .log10,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@fabs",
         .{
-            .tag = .fabs,
-            .param_count = 1,
+            "@fabs",
+            .{
+                .tag = .fabs,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@floor",
         .{
-            .tag = .floor,
-            .param_count = 1,
+            "@floor",
+            .{
+                .tag = .floor,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@ceil",
         .{
-            .tag = .ceil,
-            .param_count = 1,
+            "@ceil",
+            .{
+                .tag = .ceil,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@trunc",
         .{
-            .tag = .trunc,
-            .param_count = 1,
+            "@trunc",
+            .{
+                .tag = .trunc,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@round",
         .{
-            .tag = .round,
-            .param_count = 1,
+            "@round",
+            .{
+                .tag = .round,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@subWithOverflow",
         .{
-            .tag = .sub_with_overflow,
-            .param_count = 4,
+            "@subWithOverflow",
+            .{
+                .tag = .sub_with_overflow,
+                .param_count = 4,
+            },
         },
-    },
-    .{
-        "@tagName",
         .{
-            .tag = .tag_name,
-            .param_count = 1,
+            "@tagName",
+            .{
+                .tag = .tag_name,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@This",
         .{
-            .tag = .This,
-            .param_count = 0,
+            "@This",
+            .{
+                .tag = .This,
+                .param_count = 0,
+            },
         },
-    },
-    .{
-        "@truncate",
         .{
-            .tag = .truncate,
-            .param_count = 2,
+            "@truncate",
+            .{
+                .tag = .truncate,
+                .param_count = 2,
+            },
         },
-    },
-    .{
-        "@Type",
         .{
-            .tag = .Type,
-            .param_count = 1,
+            "@Type",
+            .{
+                .tag = .Type,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@typeInfo",
         .{
-            .tag = .type_info,
-            .param_count = 1,
+            "@typeInfo",
+            .{
+                .tag = .type_info,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@typeName",
         .{
-            .tag = .type_name,
-            .param_count = 1,
+            "@typeName",
+            .{
+                .tag = .type_name,
+                .param_count = 1,
+            },
         },
-    },
-    .{
-        "@TypeOf",
         .{
-            .tag = .TypeOf,
-            .param_count = null,
+            "@TypeOf",
+            .{
+                .tag = .TypeOf,
+                .param_count = null,
+            },
         },
-    },
-    .{
-        "@unionInit",
         .{
-            .tag = .union_init,
-            .needs_mem_loc = true,
-            .param_count = 3,
+            "@unionInit",
+            .{
+                .tag = .union_init,
+                .needs_mem_loc = true,
+                .param_count = 3,
+            },
         },
-    },
-});
+    });
+};

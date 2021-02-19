@@ -2023,19 +2023,21 @@ fn zirDeref(mod: *Module, scope: *Scope, deref: *zir.Inst.UnOp) InnerError!*Inst
 fn zirAsm(mod: *Module, scope: *Scope, assembly: *zir.Inst.Asm) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
+
     const return_type = try resolveType(mod, scope, assembly.positionals.return_type);
     const asm_source = try resolveConstString(mod, scope, assembly.positionals.asm_source);
     const output = if (assembly.kw_args.output) |o| try resolveConstString(mod, scope, o) else null;
 
-    const inputs = try scope.arena().alloc([]const u8, assembly.kw_args.inputs.len);
-    const clobbers = try scope.arena().alloc([]const u8, assembly.kw_args.clobbers.len);
-    const args = try scope.arena().alloc(*Inst, assembly.kw_args.args.len);
+    const arena = scope.arena();
+    const inputs = try arena.alloc([]const u8, assembly.kw_args.inputs.len);
+    const clobbers = try arena.alloc([]const u8, assembly.kw_args.clobbers.len);
+    const args = try arena.alloc(*Inst, assembly.kw_args.args.len);
 
     for (inputs) |*elem, i| {
-        elem.* = try resolveConstString(mod, scope, assembly.kw_args.inputs[i]);
+        elem.* = try arena.dupe(u8, assembly.kw_args.inputs[i]);
     }
     for (clobbers) |*elem, i| {
-        elem.* = try resolveConstString(mod, scope, assembly.kw_args.clobbers[i]);
+        elem.* = try arena.dupe(u8, assembly.kw_args.clobbers[i]);
     }
     for (args) |*elem, i| {
         const arg = try resolveInst(mod, scope, assembly.kw_args.args[i]);

@@ -1754,25 +1754,20 @@ pub const Tree = struct {
         const token_tags = tree.tokens.items(.tag);
         // TODO: looks like stage1 isn't quite smart enough to handle enum
         // literals in some places here
-        const Kind = full.PtrType.Kind;
-        const kind: Kind = switch (token_tags[info.main_token]) {
+        const Size = std.builtin.TypeInfo.Pointer.Size;
+        const size: Size = switch (token_tags[info.main_token]) {
             .asterisk,
             .asterisk_asterisk,
             => switch (token_tags[info.main_token + 1]) {
-                .r_bracket => .many,
-                .colon => .sentinel,
-                .identifier => if (token_tags[info.main_token - 1] == .l_bracket) Kind.c else .one,
-                else => .one,
+                .r_bracket, .colon => .Many,
+                .identifier => if (token_tags[info.main_token - 1] == .l_bracket) Size.C else .One,
+                else => .One,
             },
-            .l_bracket => switch (token_tags[info.main_token + 1]) {
-                .r_bracket => Kind.slice,
-                .colon => .slice_sentinel,
-                else => unreachable,
-            },
+            .l_bracket => Size.Slice,
             else => unreachable,
         };
         var result: full.PtrType = .{
-            .kind = kind,
+            .size = size,
             .allowzero_token = null,
             .const_token = null,
             .volatile_token = null,
@@ -1782,13 +1777,7 @@ pub const Tree = struct {
         // here while looking for modifiers as that could result in false
         // positives. Therefore, start after a sentinel if there is one and
         // skip over any align node and bit range nodes.
-        var i = if (kind == .sentinel or kind == .slice_sentinel) blk: {
-            assert(info.sentinel != 0);
-            break :blk tree.lastToken(info.sentinel) + 1;
-        } else blk: {
-            assert(info.sentinel == 0);
-            break :blk info.main_token;
-        };
+        var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else info.main_token;
         const end = tree.firstToken(info.child_type);
         while (i < end) : (i += 1) {
             switch (token_tags[i]) {
@@ -2115,7 +2104,7 @@ pub const full = struct {
                             .comptime_noalias = comptime_noalias,
                             .name_token = name_token,
                             .anytype_ellipsis3 = it.tok_i - 1,
-                            .type_expr = param_type,
+                            .type_expr = 0,
                         };
                     }
                     it.tok_flag = false;
@@ -2166,20 +2155,11 @@ pub const full = struct {
     };
 
     pub const PtrType = struct {
-        kind: Kind,
+        size: std.builtin.TypeInfo.Pointer.Size,
         allowzero_token: ?TokenIndex,
         const_token: ?TokenIndex,
         volatile_token: ?TokenIndex,
         ast: Ast,
-
-        pub const Kind = enum {
-            one,
-            many,
-            sentinel,
-            c,
-            slice,
-            slice_sentinel,
-        };
 
         pub const Ast = struct {
             main_token: TokenIndex,

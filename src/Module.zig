@@ -430,12 +430,12 @@ pub const Scope = struct {
     /// Asserts the scope is a child of a File and has an AST tree and returns the tree.
     pub fn tree(self: *Scope) *const ast.Tree {
         switch (self.tag) {
-            .file => return self.cast(File).?.tree,
-            .block => return self.cast(Block).?.src_decl.container.file_scope.tree,
-            .gen_zir => return self.cast(GenZIR).?.decl.container.file_scope.tree,
-            .local_val => return self.cast(LocalVal).?.gen_zir.decl.container.file_scope.tree,
-            .local_ptr => return self.cast(LocalPtr).?.gen_zir.decl.container.file_scope.tree,
-            .container => return self.cast(Container).?.file_scope.tree,
+            .file => return &self.cast(File).?.tree,
+            .block => return &self.cast(Block).?.src_decl.container.file_scope.tree,
+            .gen_zir => return &self.cast(GenZIR).?.decl.container.file_scope.tree,
+            .local_val => return &self.cast(LocalVal).?.gen_zir.decl.container.file_scope.tree,
+            .local_ptr => return &self.cast(LocalPtr).?.gen_zir.decl.container.file_scope.tree,
+            .container => return &self.cast(Container).?.file_scope.tree,
         }
     }
 
@@ -1612,6 +1612,7 @@ fn astgenAndSemaVarDecl(
             .decl = decl,
             .arena = &type_scope_arena.allocator,
             .parent = &decl.container.base,
+            .force_comptime = true,
         };
         defer type_scope.instructions.deinit(mod.gpa);
 
@@ -1630,7 +1631,7 @@ fn astgenAndSemaVarDecl(
     } else {
         return mod.failTok(
             &block_scope.base,
-            tree.firstToken(var_decl),
+            var_decl.ast.mut_token,
             "unable to infer variable type",
             .{},
         );
@@ -1639,7 +1640,7 @@ fn astgenAndSemaVarDecl(
     if (is_mutable and !var_info.ty.isValidVarType(is_extern)) {
         return mod.failTok(
             &block_scope.base,
-            tree.firstToken(var_decl),
+            var_decl.ast.mut_token,
             "variable of type '{}' must be const",
             .{var_info.ty},
         );

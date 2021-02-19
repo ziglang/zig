@@ -863,8 +863,8 @@ pub const Inst = struct {
         kw_args: struct {
             @"volatile": bool = false,
             output: ?*Inst = null,
-            inputs: []*Inst = &[0]*Inst{},
-            clobbers: []*Inst = &[0]*Inst{},
+            inputs: []const []const u8 = &.{},
+            clobbers: []const []const u8 = &.{},
             args: []*Inst = &[0]*Inst{},
         },
     };
@@ -1192,16 +1192,9 @@ pub const Inst = struct {
         },
         kw_args: struct {
             init_inst: ?*Inst = null,
-            init_kind: InitKind = .none,
+            has_enum_token: bool,
             layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
         },
-
-        // TODO error: values of type '(enum literal)' must be comptime known
-        pub const InitKind = enum {
-            enum_type,
-            tag_type,
-            none,
-        };
     };
 
     pub const SwitchBr = struct {
@@ -1413,6 +1406,7 @@ const Writer = struct {
         }
         switch (@TypeOf(param)) {
             *Inst => return self.writeInstParamToStream(stream, param),
+            ?*Inst => return self.writeInstParamToStream(stream, param.?),
             []*Inst => {
                 try stream.writeByte('[');
                 for (param) |inst, i| {
@@ -1480,7 +1474,7 @@ const Writer = struct {
                 const name = self.loop_table.get(param).?;
                 return stream.print("\"{}\"", .{std.zig.fmtEscapes(name)});
             },
-            [][]const u8 => {
+            [][]const u8, []const []const u8 => {
                 try stream.writeByte('[');
                 for (param) |str, i| {
                     if (i != 0) {
