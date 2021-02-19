@@ -6,6 +6,8 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
     cases.add("failed macros are only declared once",
         \\#define FOO =
         \\#define FOO =
+        \\#define PtrToPtr64(p) ((void *POINTER_64) p)
+        \\#define STRUC_ALIGNED_STACK_COPY(t,s) ((CONST t *)(s))
         \\int main(void) {}
     , "");
 

@@ -677,7 +677,19 @@ pub fn render(gpa: *Allocator, nodes: []const Node) !std.zig.ast.Tree {
             .rhs = undefined,
         },
     });
-    const root_members = try renderNodes(&ctx, nodes);
+
+    const root_members = blk: {
+        var result = std.ArrayList(NodeIndex).init(gpa);
+        defer result.deinit();
+
+        for (nodes) |node| {
+            const res = try renderNode(&ctx, node);
+            if (node.tag() == .warning) continue;
+            try result.append(res);
+        }
+        break :blk try ctx.listToSpan(result.items);
+    };
+
     ctx.nodes.items(.data)[0] = .{
         .lhs = root_members.start,
         .rhs = root_members.end,
@@ -762,7 +774,6 @@ fn renderNodes(c: *Context, nodes: []const Node) Allocator.Error!NodeSubRange {
     for (nodes) |node| {
         const res = try renderNode(c, node);
         if (node.tag() == .warning) continue;
-        if (c.nodes.items(.tag)[res] == .identifier) continue; // TODO remove
         try result.append(res);
     }
 
@@ -1176,7 +1187,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             };
             if (payload.is_const) _ = try c.addToken(.keyword_const, "const");
             if (payload.is_volatile) _ = try c.addToken(.keyword_volatile, "volatile");
-            const elem_type = try renderNode(c, payload.elem_type);
+            const elem_type = try renderNodeGrouped(c, payload.elem_type);
 
             return c.addNode(.{
                 .tag = .ptr_type_aligned,
@@ -2447,7 +2458,7 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.r_paren, ")");
         break :blk res;
     };
-    const return_type_expr = try renderNode(c, payload.return_type);
+    const return_type_expr = try renderNodeGrouped(c, payload.return_type);
 
     const fn_proto = try blk: {
         if (params.items.len < 2)
