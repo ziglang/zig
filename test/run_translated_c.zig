@@ -3,6 +3,14 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("failed macros are only declared once",
+        \\#define FOO =
+        \\#define FOO =
+        \\#define PtrToPtr64(p) ((void *POINTER_64) p)
+        \\#define STRUC_ALIGNED_STACK_COPY(t,s) ((CONST t *)(s))
+        \\int main(void) {}
+    , "");
+
     cases.add("parenthesized string literal",
         \\void foo(const char *s) {}
         \\int main(void) {
@@ -919,6 +927,15 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    int x = 0;
         \\    x = (x = 3, 4, x + 1);
         \\    if (x != 4) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Use correct break label for statement expression in nested scope",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int x = ({1, ({2; 3;});});
+        \\    if (x != 3) abort();
         \\    return 0;
         \\}
     , "");

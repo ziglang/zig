@@ -556,14 +556,11 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
 
         .builtin_call_two, .builtin_call_two_comma => {
             if (datas[node].lhs == 0) {
-                const params = [_]ast.Node.Index{};
-                return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
+                return renderBuiltinCall(ais, tree, main_tokens[node], &.{}, space);
             } else if (datas[node].rhs == 0) {
-                const params = [_]ast.Node.Index{datas[node].lhs};
-                return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
+                return renderBuiltinCall(ais, tree, main_tokens[node], &.{datas[node].lhs}, space);
             } else {
-                const params = [_]ast.Node.Index{ datas[node].lhs, datas[node].rhs };
-                return renderBuiltinCall(ais, tree, main_tokens[node], &params, space);
+                return renderBuiltinCall(ais, tree, main_tokens[node], &.{ datas[node].lhs, datas[node].rhs }, space);
             }
         },
         .builtin_call, .builtin_call_comma => {
@@ -1319,7 +1316,7 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.full.FnProto, space: S
                 .r_paren => break,
                 .comma => {
                     try renderToken(ais, tree, last_param_token, .space); // ,
-                    last_param_token += 1;
+                    continue;
                 },
                 else => {}, // Parameter type without a name.
             }

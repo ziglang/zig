@@ -3695,12 +3695,12 @@ test "zig fmt: hexadeciaml float literals with underscore separators" {
     );
 }
 
-//test "zig fmt: C var args" {
-//    try testCanonical(
-//        \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
-//        \\
-//    );
-//}
+test "zig fmt: C var args" {
+   try testCanonical(
+       \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
+       \\
+   );
+}
 
 //test "zig fmt: Only indent multiline string literals in function calls" {
 //    try testCanonical(

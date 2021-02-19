@@ -1334,7 +1334,7 @@ pub fn update(self: *Compilation) !void {
         self.c_object_work_queue.writeItemAssumeCapacity(entry.key);
     }
 
-    const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_llvm;
+    const use_stage1 = build_options.omit_stage2 or build_options.is_stage1 and self.bin_file.options.use_llvm;
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
             module.compile_log_text.shrinkAndFree(module.gpa, 0);
