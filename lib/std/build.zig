@@ -543,7 +543,7 @@ pub const Builder = struct {
                 .Scalar => |s| {
                     const n = std.fmt.parseInt(T, s, 10) catch |err| switch (err) {
                         error.Overflow => {
-                            warn("-D{s} value {} cannot fit into type {s}.\n\n", .{ name, s, @typeName(T) });
+                            warn("-D{s} value {s} cannot fit into type {s}.\n\n", .{ name, s, @typeName(T) });
                             self.markInvalidUserInput();
                             return null;
                         },
