@@ -2898,7 +2898,7 @@ fn printErrMsgToFile(
         .on => true,
         .off => false,
     };
-    const lok_token = parse_error.loc();
+    const lok_token = parse_error.token;
 
     const token_starts = tree.tokens.items(.start);
     const token_tags = tree.tokens.items(.tag);

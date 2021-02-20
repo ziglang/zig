@@ -1723,7 +1723,7 @@ pub fn getAstTree(self: *Module, root_scope: *Scope.File) !*const ast.Tree {
                 err_msg.* = .{
                     .src_loc = .{
                         .file_scope = root_scope,
-                        .byte_offset = tree.tokens.items(.start)[parse_err.loc()],
+                        .byte_offset = tree.tokens.items(.start)[parse_err.token],
                     },
                     .msg = msg.toOwnedSlice(),
                 };

@@ -132,113 +132,160 @@ pub const Tree = struct {
     }
 
     pub fn renderError(tree: Tree, parse_error: Error, stream: anytype) !void {
-        const tokens = tree.tokens.items(.tag);
-        switch (parse_error) {
-            .InvalidToken => |*x| return x.render(tokens, stream),
-            .ExpectedContainerMembers => |*x| return x.render(tokens, stream),
-            .ExpectedStringLiteral => |*x| return x.render(tokens, stream),
-            .ExpectedIntegerLiteral => |*x| return x.render(tokens, stream),
-            .ExpectedPubItem => |*x| return x.render(tokens, stream),
-            .ExpectedIdentifier => |*x| return x.render(tokens, stream),
-            .ExpectedStatement => |*x| return x.render(tokens, stream),
-            .ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
-            .ExpectedVarDecl => |*x| return x.render(tokens, stream),
-            .ExpectedFn => |*x| return x.render(tokens, stream),
-            .ExpectedReturnType => |*x| return x.render(tokens, stream),
-            .ExpectedAggregateKw => |*x| return x.render(tokens, stream),
-            .SameLineDocComment => |*x| return x.render(tokens, stream),
-            .UnattachedDocComment => |*x| return x.render(tokens, stream),
-            .ExpectedEqOrSemi => |*x| return x.render(tokens, stream),
-            .ExpectedSemiOrLBrace => |*x| return x.render(tokens, stream),
-            .ExpectedSemiOrElse => |*x| return x.render(tokens, stream),
-            .ExpectedLabelOrLBrace => |*x| return x.render(tokens, stream),
-            .ExpectedLBrace => |*x| return x.render(tokens, stream),
-            .ExpectedColonOrRParen => |*x| return x.render(tokens, stream),
-            .ExpectedLabelable => |*x| return x.render(tokens, stream),
-            .ExpectedInlinable => |*x| return x.render(tokens, stream),
-            .ExpectedAsmOutputReturnOrType => |*x| return x.render(tokens, stream),
-            .ExpectedCall => |x| return x.render(tree, stream),
-            .ExpectedCallOrFnProto => |x| return x.render(tree, stream),
-            .ExpectedSliceOrRBracket => |*x| return x.render(tokens, stream),
-            .ExtraAlignQualifier => |*x| return x.render(tokens, stream),
-            .ExtraConstQualifier => |*x| return x.render(tokens, stream),
-            .ExtraVolatileQualifier => |*x| return x.render(tokens, stream),
-            .ExtraAllowZeroQualifier => |*x| return x.render(tokens, stream),
-            .ExpectedTypeExpr => |*x| return x.render(tokens, stream),
-            .ExpectedPrimaryTypeExpr => |*x| return x.render(tokens, stream),
-            .ExpectedParamType => |*x| return x.render(tokens, stream),
-            .ExpectedExpr => |*x| return x.render(tokens, stream),
-            .ExpectedPrimaryExpr => |*x| return x.render(tokens, stream),
-            .ExpectedToken => |*x| return x.render(tokens, stream),
-            .ExpectedCommaOrEnd => |*x| return x.render(tokens, stream),
-            .ExpectedParamList => |*x| return x.render(tokens, stream),
-            .ExpectedPayload => |*x| return x.render(tokens, stream),
-            .ExpectedBlockOrAssignment => |*x| return x.render(tokens, stream),
-            .ExpectedBlockOrExpression => |*x| return x.render(tokens, stream),
-            .ExpectedExprOrAssignment => |*x| return x.render(tokens, stream),
-            .ExpectedPrefixExpr => |*x| return x.render(tokens, stream),
-            .ExpectedLoopExpr => |*x| return x.render(tokens, stream),
-            .ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
-            .ExpectedSuffixOp => |*x| return x.render(tokens, stream),
-            .ExpectedBlockOrField => |*x| return x.render(tokens, stream),
-            .DeclBetweenFields => |*x| return x.render(tokens, stream),
-            .InvalidAnd => |*x| return x.render(tokens, stream),
-            .AsteriskAfterPointerDereference => |*x| return x.render(tokens, stream),
-        }
-    }
+        const token_tags = tree.tokens.items(.tag);
+        switch (parse_error.tag) {
+            .asterisk_after_ptr_deref => {
+                return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
+            },
+            .decl_between_fields => {
+                return stream.writeAll("declarations are not allowed between container fields");
+            },
+            .expected_block => {
+                return stream.print("expected block or field, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_block_or_assignment => {
+                return stream.print("expected block or assignment, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_block_or_expr => {
+                return stream.print("expected block or expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_block_or_field => {
+                return stream.print("expected block or field, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_container_members => {
+                return stream.print("expected test, comptime, var decl, or container field, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_expr => {
+                return stream.print("expected expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_expr_or_assignment => {
+                return stream.print("expected expression or assignment, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_fn => {
+                return stream.print("expected function, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_inlinable => {
+                return stream.print("expected 'while' or 'for', found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_labelable => {
+                return stream.print("expected 'while', 'for', 'inline', 'suspend', or '{{', found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_param_list => {
+                return stream.print("expected parameter list, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_prefix_expr => {
+                return stream.print("expected prefix expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_primary_type_expr => {
+                return stream.print("expected primary type expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_return_type => {
+                return stream.print("expected return type expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_semi_or_else => {
+                return stream.print("expected ';' or 'else', found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_semi_or_lbrace => {
+                return stream.print("expected ';' or '{{', found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_statement => {
+                return stream.print("expected statement, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_string_literal => {
+                return stream.print("expected string literal, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_suffix_op => {
+                return stream.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_type_expr => {
+                return stream.print("expected type expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_var_decl => {
+                return stream.print("expected variable declaration, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_var_decl_or_fn => {
+                return stream.print("expected variable declaration or function, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .extra_align_qualifier => {
+                return stream.writeAll("extra align qualifier");
+            },
+            .extra_allowzero_qualifier => {
+                return stream.writeAll("extra allowzero qualifier");
+            },
+            .extra_const_qualifier => {
+                return stream.writeAll("extra const qualifier");
+            },
+            .extra_volatile_qualifier => {
+                return stream.writeAll("extra volatile qualifier");
+            },
+            .invalid_token => {
+                return stream.print("invalid token '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .same_line_doc_comment => {
+                return stream.writeAll("same line documentation comment");
+            },
+            .unattached_doc_comment => {
+                return stream.writeAll("unattached documentation comment");
+            },
 
-    pub fn errorToken(tree: Tree, parse_error: Error) TokenIndex {
-        switch (parse_error) {
-            .InvalidToken => |x| return x.token,
-            .ExpectedContainerMembers => |x| return x.token,
-            .ExpectedStringLiteral => |x| return x.token,
-            .ExpectedIntegerLiteral => |x| return x.token,
-            .ExpectedPubItem => |x| return x.token,
-            .ExpectedIdentifier => |x| return x.token,
-            .ExpectedStatement => |x| return x.token,
-            .ExpectedVarDeclOrFn => |x| return x.token,
-            .ExpectedVarDecl => |x| return x.token,
-            .ExpectedFn => |x| return x.token,
-            .ExpectedReturnType => |x| return x.token,
-            .ExpectedAggregateKw => |x| return x.token,
-            .SameLineDocComment => |x| return x.token,
-            .UnattachedDocComment => |x| return x.token,
-            .ExpectedEqOrSemi => |x| return x.token,
-            .ExpectedSemiOrLBrace => |x| return x.token,
-            .ExpectedSemiOrElse => |x| return x.token,
-            .ExpectedLabelOrLBrace => |x| return x.token,
-            .ExpectedLBrace => |x| return x.token,
-            .ExpectedColonOrRParen => |x| return x.token,
-            .ExpectedLabelable => |x| return x.token,
-            .ExpectedInlinable => |x| return x.token,
-            .ExpectedAsmOutputReturnOrType => |x| return x.token,
-            .ExpectedCall => |x| return tree.nodes.items(.main_token)[x.node],
-            .ExpectedCallOrFnProto => |x| return tree.nodes.items(.main_token)[x.node],
-            .ExpectedSliceOrRBracket => |x| return x.token,
-            .ExtraAlignQualifier => |x| return x.token,
-            .ExtraConstQualifier => |x| return x.token,
-            .ExtraVolatileQualifier => |x| return x.token,
-            .ExtraAllowZeroQualifier => |x| return x.token,
-            .ExpectedTypeExpr => |x| return x.token,
-            .ExpectedPrimaryTypeExpr => |x| return x.token,
-            .ExpectedParamType => |x| return x.token,
-            .ExpectedExpr => |x| return x.token,
-            .ExpectedPrimaryExpr => |x| return x.token,
-            .ExpectedToken => |x| return x.token,
-            .ExpectedCommaOrEnd => |x| return x.token,
-            .ExpectedParamList => |x| return x.token,
-            .ExpectedPayload => |x| return x.token,
-            .ExpectedBlockOrAssignment => |x| return x.token,
-            .ExpectedBlockOrExpression => |x| return x.token,
-            .ExpectedExprOrAssignment => |x| return x.token,
-            .ExpectedPrefixExpr => |x| return x.token,
-            .ExpectedLoopExpr => |x| return x.token,
-            .ExpectedDerefOrUnwrap => |x| return x.token,
-            .ExpectedSuffixOp => |x| return x.token,
-            .ExpectedBlockOrField => |x| return x.token,
-            .DeclBetweenFields => |x| return x.token,
-            .InvalidAnd => |x| return x.token,
-            .AsteriskAfterPointerDereference => |x| return x.token,
+            .expected_token => {
+                const found_tag = token_tags[parse_error.token];
+                const expected_symbol = parse_error.extra.expected_tag.symbol();
+                switch (found_tag) {
+                    .invalid => return stream.print("expected '{s}', found invalid bytes", .{
+                        expected_symbol,
+                    }),
+                    else => return stream.print("expected '{s}', found '{s}'", .{
+                        expected_symbol, found_tag.symbol(),
+                    }),
+                }
+            },
         }
     }
 
@@ -2239,236 +2286,50 @@ pub const full = struct {
     };
 };
 
-pub const Error = union(enum) {
-    InvalidToken: InvalidToken,
-    ExpectedContainerMembers: ExpectedContainerMembers,
-    ExpectedStringLiteral: ExpectedStringLiteral,
-    ExpectedIntegerLiteral: ExpectedIntegerLiteral,
-    ExpectedPubItem: ExpectedPubItem,
-    ExpectedIdentifier: ExpectedIdentifier,
-    ExpectedStatement: ExpectedStatement,
-    ExpectedVarDeclOrFn: ExpectedVarDeclOrFn,
-    ExpectedVarDecl: ExpectedVarDecl,
-    ExpectedFn: ExpectedFn,
-    ExpectedReturnType: ExpectedReturnType,
-    ExpectedAggregateKw: ExpectedAggregateKw,
-    SameLineDocComment: SameLineDocComment,
-    UnattachedDocComment: UnattachedDocComment,
-    ExpectedEqOrSemi: ExpectedEqOrSemi,
-    ExpectedSemiOrLBrace: ExpectedSemiOrLBrace,
-    ExpectedSemiOrElse: ExpectedSemiOrElse,
-    ExpectedLabelOrLBrace: ExpectedLabelOrLBrace,
-    ExpectedLBrace: ExpectedLBrace,
-    ExpectedColonOrRParen: ExpectedColonOrRParen,
-    ExpectedLabelable: ExpectedLabelable,
-    ExpectedInlinable: ExpectedInlinable,
-    ExpectedAsmOutputReturnOrType: ExpectedAsmOutputReturnOrType,
-    ExpectedCall: ExpectedCall,
-    ExpectedCallOrFnProto: ExpectedCallOrFnProto,
-    ExpectedSliceOrRBracket: ExpectedSliceOrRBracket,
-    ExtraAlignQualifier: ExtraAlignQualifier,
-    ExtraConstQualifier: ExtraConstQualifier,
-    ExtraVolatileQualifier: ExtraVolatileQualifier,
-    ExtraAllowZeroQualifier: ExtraAllowZeroQualifier,
-    ExpectedTypeExpr: ExpectedTypeExpr,
-    ExpectedPrimaryTypeExpr: ExpectedPrimaryTypeExpr,
-    ExpectedParamType: ExpectedParamType,
-    ExpectedExpr: ExpectedExpr,
-    ExpectedPrimaryExpr: ExpectedPrimaryExpr,
-    ExpectedToken: ExpectedToken,
-    ExpectedCommaOrEnd: ExpectedCommaOrEnd,
-    ExpectedParamList: ExpectedParamList,
-    ExpectedPayload: ExpectedPayload,
-    ExpectedBlockOrAssignment: ExpectedBlockOrAssignment,
-    ExpectedBlockOrExpression: ExpectedBlockOrExpression,
-    ExpectedExprOrAssignment: ExpectedExprOrAssignment,
-    ExpectedPrefixExpr: ExpectedPrefixExpr,
-    ExpectedLoopExpr: ExpectedLoopExpr,
-    ExpectedDerefOrUnwrap: ExpectedDerefOrUnwrap,
-    ExpectedSuffixOp: ExpectedSuffixOp,
-    ExpectedBlockOrField: ExpectedBlockOrField,
-    DeclBetweenFields: DeclBetweenFields,
-    InvalidAnd: InvalidAnd,
-    AsteriskAfterPointerDereference: AsteriskAfterPointerDereference,
+pub const Error = struct {
+    tag: Tag,
+    token: TokenIndex,
+    extra: union {
+        none: void,
+        expected_tag: Token.Tag,
+    } = .{ .none = {} },
 
-    pub const InvalidToken = SingleTokenError("Invalid token '{s}'");
-    pub const ExpectedContainerMembers = SingleTokenError("Expected test, comptime, var decl, or container field, found '{s}'");
-    pub const ExpectedStringLiteral = SingleTokenError("Expected string literal, found '{s}'");
-    pub const ExpectedIntegerLiteral = SingleTokenError("Expected integer literal, found '{s}'");
-    pub const ExpectedIdentifier = SingleTokenError("Expected identifier, found '{s}'");
-    pub const ExpectedStatement = SingleTokenError("Expected statement, found '{s}'");
-    pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found '{s}'");
-    pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{s}'");
-    pub const ExpectedFn = SingleTokenError("Expected function, found '{s}'");
-    pub const ExpectedReturnType = SingleTokenError("Expected return type expression, found '{s}'");
-    pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Tag.keyword_struct.symbol() ++ "', '" ++ Token.Tag.keyword_union.symbol() ++ "', '" ++ Token.Tag.keyword_enum.symbol() ++ "', or '" ++ Token.Tag.keyword_opaque.symbol() ++ "', found '{s}'");
-    pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{s}'");
-    pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found '{s}'");
-    pub const ExpectedSemiOrElse = SingleTokenError("Expected ';' or 'else', found '{s}'");
-    pub const ExpectedLBrace = SingleTokenError("Expected '{{', found '{s}'");
-    pub const ExpectedLabelOrLBrace = SingleTokenError("Expected label or '{{', found '{s}'");
-    pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found '{s}'");
-    pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found '{s}'");
-    pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found '{s}'");
-    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or '" ++ Token.Tag.identifier.symbol() ++ "', found '{s}'");
-    pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found '{s}'");
-    pub const ExpectedTypeExpr = SingleTokenError("Expected type expression, found '{s}'");
-    pub const ExpectedPrimaryTypeExpr = SingleTokenError("Expected primary type expression, found '{s}'");
-    pub const ExpectedExpr = SingleTokenError("Expected expression, found '{s}'");
-    pub const ExpectedPrimaryExpr = SingleTokenError("Expected primary expression, found '{s}'");
-    pub const ExpectedParamList = SingleTokenError("Expected parameter list, found '{s}'");
-    pub const ExpectedPayload = SingleTokenError("Expected loop payload, found '{s}'");
-    pub const ExpectedBlockOrAssignment = SingleTokenError("Expected block or assignment, found '{s}'");
-    pub const ExpectedBlockOrExpression = SingleTokenError("Expected block or expression, found '{s}'");
-    pub const ExpectedExprOrAssignment = SingleTokenError("Expected expression or assignment, found '{s}'");
-    pub const ExpectedPrefixExpr = SingleTokenError("Expected prefix expression, found '{s}'");
-    pub const ExpectedLoopExpr = SingleTokenError("Expected loop expression, found '{s}'");
-    pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found '{s}'");
-    pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found '{s}'");
-    pub const ExpectedBlockOrField = SingleTokenError("Expected block or field, found '{s}'");
+    pub const Tag = enum {
+        asterisk_after_ptr_deref,
+        decl_between_fields,
+        expected_block,
+        expected_block_or_assignment,
+        expected_block_or_expr,
+        expected_block_or_field,
+        expected_container_members,
+        expected_expr,
+        expected_expr_or_assignment,
+        expected_fn,
+        expected_inlinable,
+        expected_labelable,
+        expected_param_list,
+        expected_prefix_expr,
+        expected_primary_type_expr,
+        expected_return_type,
+        expected_semi_or_else,
+        expected_semi_or_lbrace,
+        expected_statement,
+        expected_string_literal,
+        expected_suffix_op,
+        expected_type_expr,
+        expected_var_decl,
+        expected_var_decl_or_fn,
+        extra_align_qualifier,
+        extra_allowzero_qualifier,
+        extra_const_qualifier,
+        extra_volatile_qualifier,
+        invalid_token,
+        same_line_doc_comment,
+        unattached_doc_comment,
 
-    pub const ExpectedParamType = SimpleError("Expected parameter type");
-    pub const ExpectedPubItem = SimpleError("Expected function or variable declaration after pub");
-    pub const SameLineDocComment = SimpleError("Same line documentation comment");
-    pub const UnattachedDocComment = SimpleError("Unattached documentation comment");
-    pub const ExtraAlignQualifier = SimpleError("Extra align qualifier");
-    pub const ExtraConstQualifier = SimpleError("Extra const qualifier");
-    pub const ExtraVolatileQualifier = SimpleError("Extra volatile qualifier");
-    pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
-    pub const DeclBetweenFields = SimpleError("Declarations are not allowed between container fields");
-    pub const InvalidAnd = SimpleError("`&&` is invalid. Note that `and` is boolean AND.");
-    pub const AsteriskAfterPointerDereference = SimpleError("`.*` can't be followed by `*`. Are you missing a space?");
-
-    pub const ExpectedCall = struct {
-        node: Node.Index,
-
-        pub fn render(self: ExpectedCall, tree: Tree, stream: anytype) !void {
-            const node_tag = tree.nodes.items(.tag)[self.node];
-            return stream.print("expected " ++ @tagName(Node.Tag.call) ++ ", found {s}", .{
-                @tagName(node_tag),
-            });
-        }
+        /// `expected_tag` is populated.
+        expected_token,
     };
-
-    pub const ExpectedCallOrFnProto = struct {
-        node: Node.Index,
-
-        pub fn render(self: ExpectedCallOrFnProto, tree: Tree, stream: anytype) !void {
-            const node_tag = tree.nodes.items(.tag)[self.node];
-            return stream.print("expected " ++ @tagName(Node.Tag.call) ++ " or " ++
-                @tagName(Node.Tag.fn_proto) ++ ", found {s}", .{@tagName(node_tag)});
-        }
-    };
-
-    pub const ExpectedToken = struct {
-        token: TokenIndex,
-        expected_id: Token.Tag,
-
-        pub fn render(self: *const ExpectedToken, tokens: []const Token.Tag, stream: anytype) !void {
-            const found_token = tokens[self.token];
-            switch (found_token) {
-                .invalid => {
-                    return stream.print("expected '{s}', found invalid bytes", .{self.expected_id.symbol()});
-                },
-                else => {
-                    const token_name = found_token.symbol();
-                    return stream.print("expected '{s}', found '{s}'", .{ self.expected_id.symbol(), token_name });
-                },
-            }
-        }
-    };
-
-    pub const ExpectedCommaOrEnd = struct {
-        token: TokenIndex,
-        end_id: Token.Tag,
-
-        pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token.Tag, stream: anytype) !void {
-            const actual_token = tokens[self.token];
-            return stream.print("expected ',' or '{s}', found '{s}'", .{
-                self.end_id.symbol(),
-                actual_token.symbol(),
-            });
-        }
-    };
-
-    fn SingleTokenError(comptime msg: []const u8) type {
-        return struct {
-            const ThisError = @This();
-
-            token: TokenIndex,
-
-            pub fn render(self: *const ThisError, tokens: []const Token.Tag, stream: anytype) !void {
-                const actual_token = tokens[self.token];
-                return stream.print(msg, .{actual_token.symbol()});
-            }
-        };
-    }
-
-    fn SimpleError(comptime msg: []const u8) type {
-        return struct {
-            const ThisError = @This();
-
-            token: TokenIndex,
-
-            pub fn render(self: *const ThisError, tokens: []const Token.Tag, stream: anytype) !void {
-                return stream.writeAll(msg);
-            }
-        };
-    }
-
-    pub fn loc(self: Error) TokenIndex {
-        switch (self) {
-            .InvalidToken => |x| return x.token,
-            .ExpectedContainerMembers => |x| return x.token,
-            .ExpectedStringLiteral => |x| return x.token,
-            .ExpectedIntegerLiteral => |x| return x.token,
-            .ExpectedPubItem => |x| return x.token,
-            .ExpectedIdentifier => |x| return x.token,
-            .ExpectedStatement => |x| return x.token,
-            .ExpectedVarDeclOrFn => |x| return x.token,
-            .ExpectedVarDecl => |x| return x.token,
-            .ExpectedFn => |x| return x.token,
-            .ExpectedReturnType => |x| return x.token,
-            .ExpectedAggregateKw => |x| return x.token,
-            .UnattachedDocComment => |x| return x.token,
-            .ExpectedEqOrSemi => |x| return x.token,
-            .ExpectedSemiOrLBrace => |x| return x.token,
-            .ExpectedSemiOrElse => |x| return x.token,
-            .ExpectedLabelOrLBrace => |x| return x.token,
-            .ExpectedLBrace => |x| return x.token,
-            .ExpectedColonOrRParen => |x| return x.token,
-            .ExpectedLabelable => |x| return x.token,
-            .ExpectedInlinable => |x| return x.token,
-            .ExpectedAsmOutputReturnOrType => |x| return x.token,
-            .ExpectedCall => |x| @panic("TODO redo ast errors"),
-            .ExpectedCallOrFnProto => |x| @panic("TODO redo ast errors"),
-            .ExpectedSliceOrRBracket => |x| return x.token,
-            .ExtraAlignQualifier => |x| return x.token,
-            .ExtraConstQualifier => |x| return x.token,
-            .ExtraVolatileQualifier => |x| return x.token,
-            .ExtraAllowZeroQualifier => |x| return x.token,
-            .ExpectedTypeExpr => |x| return x.token,
-            .ExpectedPrimaryTypeExpr => |x| return x.token,
-            .ExpectedParamType => |x| return x.token,
-            .ExpectedExpr => |x| return x.token,
-            .ExpectedPrimaryExpr => |x| return x.token,
-            .ExpectedToken => |x| return x.token,
-            .ExpectedCommaOrEnd => |x| return x.token,
-            .ExpectedParamList => |x| return x.token,
-            .ExpectedPayload => |x| return x.token,
-            .ExpectedBlockOrAssignment => |x| return x.token,
-            .ExpectedBlockOrExpression => |x| return x.token,
-            .ExpectedExprOrAssignment => |x| return x.token,
-            .ExpectedPrefixExpr => |x| return x.token,
-            .ExpectedLoopExpr => |x| return x.token,
-            .ExpectedDerefOrUnwrap => |x| return x.token,
-            .ExpectedSuffixOp => |x| return x.token,
-            .ExpectedBlockOrField => |x| return x.token,
-            .DeclBetweenFields => |x| return x.token,
-            .InvalidAnd => |x| return x.token,
-            .AsteriskAfterPointerDereference => |x| return x.token,
-        }
-    }
 };
 
 pub const Node = struct {

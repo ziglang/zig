@@ -127,7 +127,7 @@ test "zig fmt: decl between fields" {
         \\    b: usize,
         \\};
     , &[_]Error{
-        .DeclBetweenFields,
+        .decl_between_fields,
     });
 }
 
@@ -135,7 +135,7 @@ test "zig fmt: eof after missing comma" {
     try testError(
         \\foo()
     , &[_]Error{
-        .ExpectedToken,
+        .expected_token,
     });
 }
 
@@ -3578,7 +3578,7 @@ test "zig fmt: file ends with struct field" {
 //        \\const container = extern {};
 //        \\
 //    , &[_]Error{
-//        .ExpectedExpr,
+//        .expected_expr,
 //        .ExpectedVarDeclOrFn,
 //    });
 //}
@@ -3598,12 +3598,12 @@ test "zig fmt: same line doc comment returns error" {
         \\/// comment
         \\
     , &[_]Error{
-        .SameLineDocComment,
-        .SameLineDocComment,
-        .UnattachedDocComment,
-        .SameLineDocComment,
-        .SameLineDocComment,
-        .UnattachedDocComment,
+        .same_line_doc_comment,
+        .same_line_doc_comment,
+        .unattached_doc_comment,
+        .same_line_doc_comment,
+        .same_line_doc_comment,
+        .unattached_doc_comment,
     });
 }
 
@@ -3678,10 +3678,10 @@ test "zig fmt: hexadeciaml float literals with underscore separators" {
 }
 
 test "zig fmt: C var args" {
-   try testCanonical(
-       \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
-       \\
-   );
+    try testCanonical(
+        \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
+        \\
+    );
 }
 
 //test "zig fmt: Only indent multiline string literals in function calls" {
@@ -4037,8 +4037,8 @@ test "recovery: top level" {
         \\test "" {inline}
         \\test "" {inline}
     , &[_]Error{
-        .ExpectedInlinable,
-        .ExpectedInlinable,
+        .expected_inlinable,
+        .expected_inlinable,
     });
 }
 
@@ -4049,8 +4049,8 @@ test "recovery: block statements" {
         \\    inline;
         \\}
     , &[_]Error{
-        .InvalidToken,
-        .ExpectedInlinable,
+        .invalid_token,
+        .expected_inlinable,
     });
 }
 
@@ -4066,10 +4066,10 @@ test "recovery: block statements" {
 //        \\    }
 //        \\}
 //    , &[_]Error{
-//        .ExpectedToken,
-//        .ExpectedToken,
-//        .InvalidAnd,
-//        .InvalidToken,
+//        .expected_token,
+//        .expected_token,
+//        .invalid_and,
+//        .invalid_token,
 //    });
 //}
 
@@ -4078,8 +4078,8 @@ test "recovery: extra qualifier" {
         \\const a: *const const u8;
         \\test ""
     , &[_]Error{
-        .ExtraConstQualifier,
-        .ExpectedLBrace,
+        .extra_const_qualifier,
+        .expected_block,
     });
 }
 
@@ -4091,8 +4091,8 @@ test "recovery: extra qualifier" {
 //        \\test ""
 //    , &[_]Error{
 //        .ExpectedReturnType,
-//        .InvalidAnd,
-//        .ExpectedLBrace,
+//        .invalid_and,
+//        .expected_block,
 //    });
 //}
 
@@ -4105,10 +4105,10 @@ test "recovery: extra qualifier" {
 //        \\    async a && b;
 //        \\}
 //    , &[_]Error{
-//        .ExpectedToken,
+//        .expected_token,
 //        .ExpectedPubItem,
 //        .ExpectedParamList,
-//        .InvalidAnd,
+//        .invalid_and,
 //    });
 //    try testError(
 //        \\threadlocal test "" {
@@ -4117,7 +4117,7 @@ test "recovery: extra qualifier" {
 //    , &[_]Error{
 //        .ExpectedVarDecl,
 //        .ExpectedParamList,
-//        .InvalidAnd,
+//        .invalid_and,
 //    });
 //}
 
@@ -4126,13 +4126,13 @@ test "recovery: extra qualifier" {
 //        \\inline test "" { a && b; }
 //    , &[_]Error{
 //        .ExpectedFn,
-//        .InvalidAnd,
+//        .invalid_and,
 //    });
 //    try testError(
 //        \\extern "" test "" { a && b; }
 //    , &[_]Error{
 //        .ExpectedVarDeclOrFn,
-//        .InvalidAnd,
+//        .invalid_and,
 //    });
 //}
 
@@ -4144,12 +4144,12 @@ test "recovery: extra qualifier" {
 //        \\    @foo
 //        \\}
 //    , &[_]Error{
-//        .InvalidAnd,
-//        .ExpectedToken,
-//        .InvalidAnd,
-//        .ExpectedToken,
+//        .invalid_and,
+//        .expected_token,
+//        .invalid_and,
+//        .expected_token,
 //        .ExpectedParamList,
-//        .ExpectedToken,
+//        .expected_token,
 //    });
 //}
 
@@ -4163,12 +4163,12 @@ test "recovery: extra qualifier" {
 //        \\    a && b
 //        \\}
 //    , &[_]Error{
-//        .ExpectedExpr,
-//        .ExpectedToken,
-//        .ExpectedToken,
-//        .ExpectedContainerMembers,
-//        .InvalidAnd,
-//        .ExpectedToken,
+//        .expected_expr,
+//        .expected_token,
+//        .expected_token,
+//        .expected_container_members,
+//        .invalid_and,
+//        .expected_token,
 //    });
 //}
 
@@ -4178,7 +4178,7 @@ test "recovery: extra qualifier" {
 //        \\    a(comptime T: type)
 //        \\}
 //    , &[_]Error{
-//        .ExpectedToken,
+//        .expected_token,
 //    });
 //}
 
@@ -4189,10 +4189,10 @@ test "recovery: extra qualifier" {
 //        \\    a && b;
 //        \\}
 //    , &[_]Error{
-//        .ExpectedContainerMembers,
-//        .ExpectedContainerMembers,
-//        .ExpectedContainerMembers,
-//        .InvalidAnd,
+//        .expected_container_members,
+//        .expected_container_members,
+//        .expected_container_members,
+//        .invalid_and,
 //    });
 //}
 //
@@ -4202,7 +4202,7 @@ test "recovery: mismatched bracket at top level" {
         \\    arr: 128]?G
         \\};
     , &[_]Error{
-        .ExpectedToken,
+        .expected_token,
     });
 }
 
@@ -4212,9 +4212,9 @@ test "recovery: mismatched bracket at top level" {
 //        \\    error && foo;
 //        \\}
 //    , &[_]Error{
-//        .ExpectedToken,
+//        .expected_token,
 //        .ExpectedIdentifier,
-//        .InvalidAnd,
+//        .invalid_and,
 //    });
 //}
 
@@ -4224,15 +4224,15 @@ test "recovery: mismatched bracket at top level" {
 //        \\    var sequence = "repeat".*** 10;
 //        \\}
 //    , &[_]Error{
-//        .AsteriskAfterPointerDereference,
+//        .asterisk_after_ptr_deref,
 //    });
 //    try testError(
 //        \\test "" {
 //        \\    var sequence = "repeat".** 10&&a;
 //        \\}
 //    , &[_]Error{
-//        .AsteriskAfterPointerDereference,
-//        .InvalidAnd,
+//        .asterisk_after_ptr_deref,
+//        .invalid_and,
 //    });
 //}
 
@@ -4245,10 +4245,10 @@ test "recovery: mismatched bracket at top level" {
 //        \\    a && b;
 //        \\}
 //    , &[_]Error{
-//        .ExpectedSemiOrElse,
-//        .ExpectedSemiOrElse,
-//        .ExpectedSemiOrElse,
-//        .InvalidAnd,
+//        .expected_semi_or_else,
+//        .expected_semi_or_else,
+//        .expected_semi_or_else,
+//        .invalid_and,
 //    });
 //}
 
@@ -4256,7 +4256,7 @@ test "recovery: invalid comptime" {
     try testError(
         \\comptime
     , &[_]Error{
-        .ExpectedBlockOrField,
+        .expected_block_or_field,
     });
 }
 
@@ -4264,12 +4264,12 @@ test "recovery: missing block after for/while loops" {
     try testError(
         \\test "" { while (foo) }
     , &[_]Error{
-        .ExpectedBlockOrAssignment,
+        .expected_block_or_assignment,
     });
     try testError(
         \\test "" { for (foo) |bar| }
     , &[_]Error{
-        .ExpectedBlockOrAssignment,
+        .expected_block_or_assignment,
     });
 }
 
@@ -4288,9 +4288,8 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     defer tree.deinit(allocator);
 
     for (tree.errors) |parse_error| {
-        const error_token = tree.errorToken(parse_error);
-        const token_start = tree.tokens.items(.start)[error_token];
-        const loc = tree.tokenLocation(0, error_token);
+        const token_start = tree.tokens.items(.start)[parse_error.token];
+        const loc = tree.tokenLocation(0, parse_error.token);
         try stderr.print("(memory buffer):{d}:{d}: error: ", .{ loc.line + 1, loc.column + 1 });
         try tree.renderError(parse_error, stderr);
         try stderr.print("\n{s}\n", .{source[loc.line_start..loc.line_end]});
@@ -4362,7 +4361,7 @@ fn testCanonical(source: []const u8) !void {
     return testTransform(source, source);
 }
 
-const Error = std.meta.Tag(std.zig.ast.Error);
+const Error = std.zig.ast.Error.Tag;
 
 fn testError(source: []const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);
@@ -4370,6 +4369,6 @@ fn testError(source: []const u8, expected_errors: []const Error) !void {
 
     std.testing.expect(tree.errors.len == expected_errors.len);
     for (expected_errors) |expected, i| {
-        std.testing.expectEqual(expected, tree.errors[i]);
+        std.testing.expectEqual(expected, tree.errors[i].tag);
     }
 }
