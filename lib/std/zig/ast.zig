@@ -2566,8 +2566,10 @@ pub const Node = struct {
         /// before the final rbrace.
         struct_init_comma,
         /// `lhs(rhs)`. rhs can be omitted.
+        /// main_token is the lparen.
         call_one,
         /// `lhs(rhs,)`. rhs can be omitted.
+        /// main_token is the lparen.
         call_one_comma,
         /// `async lhs(rhs)`. rhs can be omitted.
         async_call_one,

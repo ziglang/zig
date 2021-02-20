@@ -901,7 +901,7 @@ fn labeledBlockExpr(
     const token_tags = tree.tokens.items(.tag);
 
     const lbrace = main_tokens[block_node];
-    const label_token = lbrace - 1;
+    const label_token = lbrace - 2;
     assert(token_tags[label_token] == .identifier);
     const src = token_starts[lbrace];
 
@@ -3072,7 +3072,7 @@ fn multilineStringLiteral(
     // Count the number of bytes to allocate.
     const len: usize = len: {
         var tok_i = start;
-        var len: usize = 0;
+        var len: usize = end - start + 1;
         while (tok_i <= end) : (tok_i += 1) {
             // 2 for the '//' + 1 for '\n'
             len += tree.tokenSlice(tok_i).len - 3;
