@@ -430,6 +430,7 @@ pub const SYS = extern enum(usize) {
     pidfd_getfd = Linux + 438,
     faccessat2 = Linux + 439,
     process_madvise = Linux + 440,
+    epoll_pwait2 = Linux + 441,
 
     _,
 };
