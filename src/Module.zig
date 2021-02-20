@@ -924,7 +924,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
         .complete => return,
 
         .outdated => blk: {
-            log.debug("re-analyzing {s}\n", .{decl.name});
+            log.debug("re-analyzing {s}", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
@@ -1943,7 +1943,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug("noticed '{s}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{s}' deleted from source", .{entry.key.name});
         try mod.deleteDecl(entry.key);
     }
 }
@@ -2087,7 +2087,7 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
     // not be present in the set, and this does nothing.
     decl.container.removeDecl(decl);
 
-    log.debug("deleting decl '{s}'\n", .{decl.name});
+    log.debug("deleting decl '{s}'", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -2189,18 +2189,18 @@ pub fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     defer inner_block.instructions.deinit(self.gpa);
 
     func.state = .in_progress;
-    log.debug("set {s} to in_progress\n", .{decl.name});
+    log.debug("set {s} to in_progress", .{decl.name});
 
     try zir_sema.analyzeBody(self, &inner_block, func.zir);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
     func.state = .success;
     func.body = .{ .instructions = instructions };
-    log.debug("set {s} to success\n", .{decl.name});
+    log.debug("set {s} to success", .{decl.name});
 }
 
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
-    log.debug("mark {s} outdated\n", .{decl.name});
+    log.debug("mark {s} outdated", .{decl.name});
     try self.comp.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(self.gpa);

@@ -1935,7 +1935,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         "o", &digest, cimport_zig_basename,
     });
     if (comp.verbose_cimport) {
-        log.info("C import output: {s}\n", .{out_zig_path});
+        log.info("C import output: {s}", .{out_zig_path});
     }
     return CImportResult{
         .out_zig_path = out_zig_path,
@@ -2999,7 +2999,7 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
         for (errors.list) |full_err_msg| {
             switch (full_err_msg) {
                 .src => |src| {
-                    log.err("{s}:{d}:{d}: {s}\n", .{
+                    log.err("{s}:{d}:{d}: {s}", .{
                         src.src_path,
                         src.line + 1,
                         src.column + 1,
