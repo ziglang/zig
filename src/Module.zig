@@ -1340,13 +1340,15 @@ fn astgenAndSemaFn(
             const name_token = param.name_token.?;
             const src = token_starts[name_token];
             const param_name = try mod.identifierTokenString(&gen_scope.base, name_token);
-            const arg = try decl_arena.allocator.create(zir.Inst.NoOp);
+            const arg = try decl_arena.allocator.create(zir.Inst.Arg);
             arg.* = .{
                 .base = .{
                     .tag = .arg,
                     .src = src,
                 },
-                .positionals = .{},
+                .positionals = .{
+                    .name = param_name,
+                },
                 .kw_args = .{},
             };
             gen_scope.instructions.items[i] = &arg.base;
@@ -3929,7 +3931,9 @@ pub fn validateVarType(mod: *Module, scope: *Scope, src: usize, ty: Type) !void 
 /// Identifier token -> String (allocated in scope.arena())
 pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
     const tree = scope.tree();
+    const token_tags = tree.tokens.items(.tag);
     const token_starts = tree.tokens.items(.start);
+    assert(token_tags[token] == .identifier);
 
     const ident_name = tree.tokenSlice(token);
     if (mem.startsWith(u8, ident_name, "@")) {
