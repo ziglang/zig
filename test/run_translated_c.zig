@@ -3,6 +3,25 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("use global scope for record/enum/typedef type transalation if needed",
+        \\void bar(void);
+        \\void baz(void);
+        \\struct foo { int x; };
+        \\void bar() {
+        \\	struct foo tmp;
+        \\}
+        \\
+        \\void baz() {
+        \\	struct foo tmp;
+        \\}
+        \\
+        \\int main(void) {
+        \\	bar();
+        \\	baz();
+        \\	return 0;
+        \\}
+    , "");
+
     cases.add("failed macros are only declared once",
         \\#define FOO =
         \\#define FOO =

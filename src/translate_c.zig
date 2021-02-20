@@ -3741,7 +3741,12 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
 
             const typedef_decl = typedef_ty.getDecl();
-            try transTypeDef(c, scope, typedef_decl);
+            var trans_scope = scope;
+            if (@ptrCast(*const clang.Decl, typedef_decl).castToNamedDecl()) |named_decl| {
+                const decl_name = try c.str(named_decl.getName_bytes_begin());
+                if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+            }
+            try transTypeDef(c, trans_scope, typedef_decl);
             const name = c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },
@@ -3749,7 +3754,12 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const record_ty = @ptrCast(*const clang.RecordType, ty);
 
             const record_decl = record_ty.getDecl();
-            try transRecordDecl(c, scope, record_decl);
+            var trans_scope = scope;
+            if (@ptrCast(*const clang.Decl, record_decl).castToNamedDecl()) |named_decl| {
+                const decl_name = try c.str(named_decl.getName_bytes_begin());
+                if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+            }
+            try transRecordDecl(c, trans_scope, record_decl);
             const name = c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },
@@ -3757,7 +3767,12 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const enum_ty = @ptrCast(*const clang.EnumType, ty);
 
             const enum_decl = enum_ty.getDecl();
-            try transEnumDecl(c, scope, enum_decl);
+            var trans_scope = scope;
+            if (@ptrCast(*const clang.Decl, enum_decl).castToNamedDecl()) |named_decl| {
+                const decl_name = try c.str(named_decl.getName_bytes_begin());
+                if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+            }
+            try transEnumDecl(c, trans_scope, enum_decl);
             const name = c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },

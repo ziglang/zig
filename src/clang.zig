@@ -697,8 +697,6 @@ pub const ReturnStmt = opaque {
     extern fn ZigClangReturnStmt_getRetValue(*const ReturnStmt) ?*const Expr;
 };
 
-pub const SkipFunctionBodiesScope = opaque {};
-
 pub const SourceManager = opaque {
     pub const getSpellingLoc = ZigClangSourceManager_getSpellingLoc;
     extern fn ZigClangSourceManager_getSpellingLoc(*const SourceManager, Loc: SourceLocation) SourceLocation;
