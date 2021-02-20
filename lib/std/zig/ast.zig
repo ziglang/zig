@@ -1071,8 +1071,8 @@ pub const Tree = struct {
         const first_token = tree.firstToken(node);
         const last_token = tree.lastToken(node);
         const start = token_starts[first_token];
-        const len = tree.tokenSlice(last_token).len;
-        return tree.source[start..][0..len];
+        const end = token_starts[last_token] + tree.tokenSlice(last_token).len;
+        return tree.source[start..end];
     }
 
     pub fn globalVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
