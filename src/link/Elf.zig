@@ -3037,7 +3037,7 @@ const min_nop_size = 2;
 
 /// Writes to the file a buffer, prefixed and suffixed by the specified number of
 /// bytes of NOPs. Asserts each padding size is at least `min_nop_size` and total padding bytes
-/// are less than 126,976 bytes (if this limit is ever reached, this function can be
+/// are less than 1044480 bytes (if this limit is ever reached, this function can be
 /// improved to make more than one pwritev call, or the limit can be raised by a fixed
 /// amount by increasing the length of `vecs`).
 fn pwriteDbgLineNops(
@@ -3052,7 +3052,7 @@ fn pwriteDbgLineNops(
 
     const page_of_nops = [1]u8{DW.LNS_negate_stmt} ** 4096;
     const three_byte_nop = [3]u8{ DW.LNS_advance_pc, 0b1000_0000, 0 };
-    var vecs: [32]std.os.iovec_const = undefined;
+    var vecs: [256]std.os.iovec_const = undefined;
     var vec_index: usize = 0;
     {
         var padding_left = prev_padding_size;
