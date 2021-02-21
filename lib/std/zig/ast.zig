@@ -2642,20 +2642,29 @@ pub const Node = struct {
         @"return",
         /// `fn(a: lhs) rhs`. lhs can be omitted.
         /// anytype and ... parameters are omitted from the AST tree.
+        /// main_token is the `fn` keyword.
+        /// extern function declarations use this tag.
         fn_proto_simple,
         /// `fn(a: b, c: d) rhs`. `sub_range_list[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
+        /// main_token is the `fn` keyword.
+        /// extern function declarations use this tag.
         fn_proto_multi,
         /// `fn(a: b) rhs linksection(e) callconv(f)`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
+        /// main_token is the `fn` keyword.
+        /// extern function declarations use this tag.
         fn_proto_one,
         /// `fn(a: b, c: d) rhs linksection(e) callconv(f)`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
+        /// main_token is the `fn` keyword.
+        /// extern function declarations use this tag.
         fn_proto,
         /// lhs is the fn_proto.
-        /// rhs is the function body block if non-zero.
-        /// if rhs is zero, the function decl has no body (e.g. an extern function)
+        /// rhs is the function body block.
+        /// Note that extern function declarations use the fn_proto tags rather
+        /// than this one.
         fn_decl,
         /// `anyframe->rhs`. main_token is `anyframe`. `lhs` is arrow token index.
         anyframe_type,

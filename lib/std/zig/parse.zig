@@ -542,15 +542,8 @@ const Parser = struct {
         if (fn_proto != 0) {
             switch (p.token_tags[p.tok_i]) {
                 .semicolon => {
-                    const semicolon_token = p.nextToken();
-                    return p.addNode(.{
-                        .tag = .fn_decl,
-                        .main_token = p.nodes.items(.main_token)[fn_proto],
-                        .data = .{
-                            .lhs = fn_proto,
-                            .rhs = 0,
-                        },
-                    });
+                    p.tok_i += 1;
+                    return fn_proto;
                 },
                 .l_brace => {
                     const body_block = try p.parseBlock();

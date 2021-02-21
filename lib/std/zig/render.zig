@@ -81,19 +81,39 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
             while (i < fn_token) : (i += 1) {
                 try renderToken(ais, tree, i, .space);
             }
-            if (datas[decl].rhs != 0) {
-                try renderExpression(ais, tree, fn_proto, .space);
-                return renderExpression(ais, tree, datas[decl].rhs, space);
-            } else {
-                try renderExpression(ais, tree, fn_proto, .none);
-                return renderToken(ais, tree, tree.lastToken(fn_proto) + 1, space); // semicolon
-            }
+            assert(datas[decl].rhs != 0);
+            try renderExpression(ais, tree, fn_proto, .space);
+            return renderExpression(ais, tree, datas[decl].rhs, space);
         },
         .fn_proto_simple,
         .fn_proto_multi,
         .fn_proto_one,
         .fn_proto,
         => {
+            // Extern function prototypes are parsed as these tags.
+            // Go back to the first token we should render here.
+            const fn_token = main_tokens[decl];
+            var i = fn_token;
+            while (i > 0) {
+                i -= 1;
+                switch (token_tags[i]) {
+                    .keyword_extern,
+                    .keyword_export,
+                    .keyword_pub,
+                    .string_literal,
+                    .keyword_inline,
+                    .keyword_noinline,
+                    => continue,
+
+                    else => {
+                        i += 1;
+                        break;
+                    },
+                }
+            }
+            while (i < fn_token) : (i += 1) {
+                try renderToken(ais, tree, i, .space);
+            }
             try renderExpression(ais, tree, decl, .none);
             return renderToken(ais, tree, tree.lastToken(decl) + 1, space); // semicolon
         },
