@@ -4032,6 +4032,22 @@ test "zig fmt: trailing comma should force multiline 1 column" {
 //    );
 //}
 
+test "zig fmt: error for invalid bit range" {
+    try testError(
+        \\var x: []align(0:0:0)u8 = bar;
+    , &[_]Error{
+        .invalid_bit_range,
+    });
+}
+
+test "zig fmt: error for invalid align" {
+    try testError(
+        \\var x: [10]align(10)u8 = bar;
+    , &[_]Error{
+        .invalid_align,
+    });
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}

@@ -1777,10 +1777,10 @@ const Parser = struct {
                     const mods = try p.parsePtrModifiers();
                     const elem_type = try p.expectTypeExpr();
                     if (mods.bit_range_start != 0) {
-                        @panic("TODO implement this error");
-                        //try p.warn(.{
-                        //    .BitRangeInvalid = .{ .node = mods.bit_range_start },
-                        //});
+                        try p.warnMsg(.{
+                            .tag = .invalid_bit_range,
+                            .token = p.nodes.items(.main_token)[mods.bit_range_start],
+                        });
                     }
                     if (len_expr == 0) {
                         if (sentinel == 0) {
@@ -1816,10 +1816,10 @@ const Parser = struct {
                         }
                     } else {
                         if (mods.align_node != 0) {
-                            @panic("TODO implement this error");
-                            //try p.warn(.{
-                            //    .AlignInvalid = .{ .node = mods.align_node },
-                            //});
+                            try p.warnMsg(.{
+                                .tag = .invalid_align,
+                                .token = p.nodes.items(.main_token)[mods.align_node],
+                            });
                         }
                         if (sentinel == 0) {
                             return p.addNode(.{

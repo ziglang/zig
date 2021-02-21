@@ -262,6 +262,12 @@ pub const Tree = struct {
             .extra_volatile_qualifier => {
                 return stream.writeAll("extra volatile qualifier");
             },
+            .invalid_align => {
+                return stream.writeAll("alignment not allowed on arrays");
+            },
+            .invalid_bit_range => {
+                return stream.writeAll("bit range not allowed on slices and arrays");
+            },
             .invalid_token => {
                 return stream.print("invalid token '{s}'", .{
                     token_tags[parse_error.token].symbol(),
@@ -2323,6 +2329,8 @@ pub const Error = struct {
         extra_allowzero_qualifier,
         extra_const_qualifier,
         extra_volatile_qualifier,
+        invalid_align,
+        invalid_bit_range,
         invalid_token,
         same_line_doc_comment,
         unattached_doc_comment,
