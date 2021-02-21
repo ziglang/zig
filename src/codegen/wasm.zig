@@ -161,15 +161,19 @@ pub const Context = struct {
     pub fn gen(self: *Context) InnerError!void {
         assert(self.code.items.len == 0);
         try self.genFunctype();
-        const writer = self.code.writer();
-
-        // Reserve space to write the size after generating the code as well as space for locals count
-        try self.code.resize(10);
 
         // Write instructions
         // TODO: check for and handle death of instructions
         const tv = self.decl.typed_value.most_recent.typed_value;
-        const mod_fn = tv.val.castTag(.function).?.data;
+        const mod_fn = blk: {
+            if (tv.val.castTag(.function)) |func| break :blk func.data;
+            if (tv.val.castTag(.extern_fn)) |ext_fn| return; // don't need codegen for extern functions
+            return self.fail(self.decl.src(), "TODO: Wasm codegen for decl type '{s}'", .{tv.ty.tag()});
+        };
+
+        // Reserve space to write the size after generating the code as well as space for locals count
+        try self.code.resize(10);
+
         try self.genBody(mod_fn.body);
 
         // finally, write our local types at the 'offset' position
@@ -189,6 +193,7 @@ pub const Context = struct {
             }
         }
 
+        const writer = self.code.writer();
         try writer.writeByte(wasm.opcode(.end));
 
         // Fill in the size of the generated code to the reserved space at the
@@ -239,9 +244,16 @@ pub const Context = struct {
 
     fn genCall(self: *Context, inst: *Inst.Call) InnerError!WValue {
         const func_inst = inst.func.castTag(.constant).?;
-        const func = func_inst.val.castTag(.function).?.data;
-        const target = func.owner_decl;
-        const target_ty = target.typed_value.most_recent.typed_value.ty;
+        const func_val = inst.func.value().?;
+
+        const target = blk: {
+            if (func_val.castTag(.function)) |func| {
+                break :blk func.data.owner_decl;
+            } else if (func_val.castTag(.extern_fn)) |ext_fn| {
+                break :blk ext_fn.data;
+            }
+            return self.fail(inst.base.src, "Expected a function, but instead found type '{s}'", .{func_val.tag()});
+        };
 
         for (inst.args) |arg| {
             const arg_val = self.resolveInst(arg);
@@ -495,7 +507,7 @@ pub const Context = struct {
     }
 
     fn genBr(self: *Context, br: *Inst.Br) InnerError!WValue {
-        // of operand has codegen bits we should break with a value
+        // if operand has codegen bits we should break with a value
         if (br.operand.ty.hasCodeGenBits()) {
             const operand = self.resolveInst(br.operand);
             try self.emitWValue(operand);

@@ -253,6 +253,20 @@ pub fn section(val: Section) u8 {
     return @enumToInt(val);
 }
 
+/// The kind of the type when importing or exporting to/from the host environment
+/// https://webassembly.github.io/spec/core/syntax/modules.html
+pub const ExternalKind = enum(u8) {
+    function,
+    table,
+    memory,
+    global,
+};
+
+/// Returns the integer value of a given `ExternalKind`
+pub fn externalKind(val: ExternalKind) u8 {
+    return @enumToInt(val);
+}
+
 // types
 pub const element_type: u8 = 0x70;
 pub const function_type: u8 = 0x60;
