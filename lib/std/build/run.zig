@@ -71,7 +71,7 @@ pub const RunStep = struct {
 
     pub fn addFileSourceArg(self: *RunStep, file_source: build.FileSource) void {
         self.argv.append(Arg{
-            .file_source = file_source,
+            .file_source = file_source.dupe(self.builder),
         }) catch unreachable;
         file_source.addStepDependencies(&self.step);
     }
@@ -314,7 +314,7 @@ pub const RunStep = struct {
     fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
         for (artifact.link_objects.items) |link_object| {
             switch (link_object) {
-                .OtherStep => |other| {
+                .other_step => |other| {
                     if (other.target.isWindows() and other.isDynamicLibrary()) {
                         self.addPathDir(fs.path.dirname(other.getOutputPath()).?);
                         self.addPathForDynLibs(other);
