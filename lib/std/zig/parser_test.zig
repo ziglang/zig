@@ -3579,7 +3579,7 @@ test "zig fmt: file ends with struct field" {
 //        \\
 //    , &[_]Error{
 //        .expected_expr,
-//        .ExpectedVarDeclOrFn,
+//        .expected_var_decl_or_fn,
 //    });
 //}
 
@@ -4070,24 +4070,24 @@ test "recovery: block statements" {
     });
 }
 
-//test "recovery: missing comma" {
-//    try testError(
-//        \\test "" {
-//        \\    switch (foo) {
-//        \\        2 => {}
-//        \\        3 => {}
-//        \\        else => {
-//        \\            foo && bar +;
-//        \\        }
-//        \\    }
-//        \\}
-//    , &[_]Error{
-//        .expected_token,
-//        .expected_token,
-//        .invalid_and,
-//        .invalid_token,
-//    });
-//}
+test "recovery: missing comma" {
+    try testError(
+        \\test "" {
+        \\    switch (foo) {
+        \\        2 => {}
+        \\        3 => {}
+        \\        else => {
+        \\            foo && bar +;
+        \\        }
+        \\    }
+        \\}
+    , &[_]Error{
+        .expected_token,
+        .expected_token,
+        .invalid_and,
+        .invalid_token,
+    });
+}
 
 test "recovery: extra qualifier" {
     try testError(
@@ -4099,94 +4099,93 @@ test "recovery: extra qualifier" {
     });
 }
 
-//test "recovery: missing return type" {
-//    try testError(
-//        \\fn foo() {
-//        \\    a && b;
-//        \\}
-//        \\test ""
-//    , &[_]Error{
-//        .ExpectedReturnType,
-//        .invalid_and,
-//        .expected_block,
-//    });
-//}
+test "recovery: missing return type" {
+    try testError(
+        \\fn foo() {
+        \\    a && b;
+        \\}
+        \\test ""
+    , &[_]Error{
+        .expected_return_type,
+        .invalid_and,
+        .expected_block,
+    });
+}
 
-//test "recovery: continue after invalid decl" {
-//    try testError(
-//        \\fn foo {
-//        \\    inline;
-//        \\}
-//        \\pub test "" {
-//        \\    async a && b;
-//        \\}
-//    , &[_]Error{
-//        .expected_token,
-//        .ExpectedPubItem,
-//        .ExpectedParamList,
-//        .invalid_and,
-//    });
-//    try testError(
-//        \\threadlocal test "" {
-//        \\    @a && b;
-//        \\}
-//    , &[_]Error{
-//        .ExpectedVarDecl,
-//        .ExpectedParamList,
-//        .invalid_and,
-//    });
-//}
+test "recovery: continue after invalid decl" {
+    try testError(
+        \\fn foo {
+        \\    inline;
+        \\}
+        \\pub test "" {
+        \\    async a && b;
+        \\}
+    , &[_]Error{
+        .expected_token,
+        .expected_pub_item,
+        .expected_param_list,
+        .invalid_and,
+    });
+    try testError(
+        \\threadlocal test "" {
+        \\    @a && b;
+        \\}
+    , &[_]Error{
+        .expected_var_decl,
+        .expected_param_list,
+        .invalid_and,
+    });
+}
 
-//test "recovery: invalid extern/inline" {
-//    try testError(
-//        \\inline test "" { a && b; }
-//    , &[_]Error{
-//        .ExpectedFn,
-//        .invalid_and,
-//    });
-//    try testError(
-//        \\extern "" test "" { a && b; }
-//    , &[_]Error{
-//        .ExpectedVarDeclOrFn,
-//        .invalid_and,
-//    });
-//}
+test "recovery: invalid extern/inline" {
+    try testError(
+        \\inline test "" { a && b; }
+    , &[_]Error{
+        .expected_fn,
+        .invalid_and,
+    });
+    try testError(
+        \\extern "" test "" { a && b; }
+    , &[_]Error{
+        .expected_var_decl_or_fn,
+        .invalid_and,
+    });
+}
 
-//test "recovery: missing semicolon" {
-//    try testError(
-//        \\test "" {
-//        \\    comptime a && b
-//        \\    c && d
-//        \\    @foo
-//        \\}
-//    , &[_]Error{
-//        .invalid_and,
-//        .expected_token,
-//        .invalid_and,
-//        .expected_token,
-//        .ExpectedParamList,
-//        .expected_token,
-//    });
-//}
+test "recovery: missing semicolon" {
+    try testError(
+        \\test "" {
+        \\    comptime a && b
+        \\    c && d
+        \\    @foo
+        \\}
+    , &[_]Error{
+        .invalid_and,
+        .expected_token,
+        .invalid_and,
+        .expected_token,
+        .expected_param_list,
+        .expected_token,
+    });
+}
 
-//test "recovery: invalid container members" {
-//    try testError(
-//        \\usingnamespace;
-//        \\foo+
-//        \\bar@,
-//        \\while (a == 2) { test "" {}}
-//        \\test "" {
-//        \\    a && b
-//        \\}
-//    , &[_]Error{
-//        .expected_expr,
-//        .expected_token,
-//        .expected_token,
-//        .expected_container_members,
-//        .invalid_and,
-//        .expected_token,
-//    });
-//}
+test "recovery: invalid container members" {
+    try testError(
+        \\usingnamespace;
+        \\foo+
+        \\bar@,
+        \\while (a == 2) { test "" {}}
+        \\test "" {
+        \\    a && b
+        \\}
+    , &[_]Error{
+        .expected_expr,
+        .expected_token,
+        .expected_container_members,
+        .invalid_and,
+        .expected_token,
+    });
+}
 
 //test "recovery: invalid parameter" {
 //    try testError(

@@ -423,7 +423,7 @@ const Parser = struct {
         while (true) {
             const tok = p.nextToken();
             switch (p.token_tags[tok]) {
-                // any of these can start a new top level declaration
+                // Any of these can start a new top level declaration.
                 .keyword_test,
                 .keyword_comptime,
                 .keyword_pub,
@@ -436,9 +436,14 @@ const Parser = struct {
                 .keyword_const,
                 .keyword_var,
                 .keyword_fn,
-                .identifier,
                 => {
                     if (level == 0) {
+                        p.tok_i -= 1;
+                        return;
+                    }
+                },
+                .identifier => {
+                    if (p.token_tags[tok + 1] == .comma and level == 0) {
                         p.tok_i -= 1;
                         return;
                     }
@@ -531,10 +536,13 @@ const Parser = struct {
     fn expectTopLevelDecl(p: *Parser) !Node.Index {
         const extern_export_inline_token = p.nextToken();
         var expect_fn: bool = false;
-        var exported: bool = false;
+        var expect_var_or_fn: bool = false;
         switch (p.token_tags[extern_export_inline_token]) {
-            .keyword_extern => _ = p.eatToken(.string_literal),
-            .keyword_export => exported = true,
+            .keyword_extern => {
+                _ = p.eatToken(.string_literal);
+                expect_var_or_fn = true;
+            },
+            .keyword_export => expect_var_or_fn = true,
             .keyword_inline, .keyword_noinline => expect_fn = true,
             else => p.tok_i -= 1,
         }
@@ -580,11 +588,12 @@ const Parser = struct {
         if (thread_local_token != null) {
             return p.fail(.expected_var_decl);
         }
-
-        if (exported) {
+        if (expect_var_or_fn) {
             return p.fail(.expected_var_decl_or_fn);
         }
-
+        if (p.token_tags[p.tok_i] != .keyword_usingnamespace) {
+            return p.fail(.expected_pub_item);
+        }
         return p.expectUsingNamespace();
     }
 
@@ -599,7 +608,7 @@ const Parser = struct {
     }
 
     fn expectUsingNamespace(p: *Parser) !Node.Index {
-        const usingnamespace_token = try p.expectToken(.keyword_usingnamespace);
+        const usingnamespace_token = p.assertToken(.keyword_usingnamespace);
         const expr = try p.expectExpr();
         const semicolon_token = try p.expectToken(.semicolon);
         return p.addNode(.{
@@ -1345,6 +1354,11 @@ const Parser = struct {
                             .rhs = rhs,
                         },
                     });
+                },
+                .invalid_ampersands => {
+                    try p.warn(.invalid_and);
+                    p.tok_i += 1;
+                    return p.parseCompareExpr();
                 },
                 else => return res,
             }
@@ -2283,10 +2297,12 @@ const Parser = struct {
                 if (node == 0) break;
                 res = node;
             }
-            const lparen = (try p.expectTokenRecoverable(.l_paren)) orelse {
+            const lparen = p.nextToken();
+            if (p.token_tags[lparen] != .l_paren) {
+                p.tok_i -= 1;
                 try p.warn(.expected_param_list);
                 return res;
-            };
+            }
             if (p.eatToken(.r_paren)) |_| {
                 return p.addNode(.{
                     .tag = .async_call_one,
@@ -3769,7 +3785,8 @@ const Parser = struct {
     /// ExprList <- (Expr COMMA)* Expr?
     fn parseBuiltinCall(p: *Parser) !Node.Index {
         const builtin_token = p.assertToken(.builtin);
-        _ = (try p.expectTokenRecoverable(.l_paren)) orelse {
+        if (p.token_tags[p.nextToken()] != .l_paren) {
+            p.tok_i -= 1;
             try p.warn(.expected_param_list);
             // Pretend this was an identifier so we can continue parsing.
             return p.addNode(.{
@@ -3780,7 +3797,7 @@ const Parser = struct {
                     .rhs = undefined,
                 },
             });
-        };
+        }
         if (p.eatToken(.r_paren)) |_| {
             return p.addNode(.{
                 .tag = .builtin_call_two,
@@ -4015,6 +4032,7 @@ const Parser = struct {
     fn expectToken(p: *Parser, tag: Token.Tag) Error!TokenIndex {
         const token = p.nextToken();
         if (p.token_tags[token] != tag) {
+            p.tok_i -= 1; // Go back so that we can recover properly.
             return p.failMsg(.{
                 .tag = .expected_token,
                 .token = token,

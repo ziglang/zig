@@ -205,6 +205,9 @@ pub const Tree = struct {
                     token_tags[parse_error.token].symbol(),
                 });
             },
+            .expected_pub_item => {
+                return stream.writeAll("expected function or variable declaration after pub");
+            },
             .expected_return_type => {
                 return stream.print("expected return type expression, found '{s}'", .{
                     token_tags[parse_error.token].symbol(),
@@ -264,6 +267,9 @@ pub const Tree = struct {
             },
             .invalid_align => {
                 return stream.writeAll("alignment not allowed on arrays");
+            },
+            .invalid_and => {
+                return stream.writeAll("`&&` is invalid; note that `and` is boolean AND");
             },
             .invalid_bit_range => {
                 return stream.writeAll("bit range not allowed on slices and arrays");
@@ -2316,6 +2322,7 @@ pub const Error = struct {
         expected_param_list,
         expected_prefix_expr,
         expected_primary_type_expr,
+        expected_pub_item,
         expected_return_type,
         expected_semi_or_else,
         expected_semi_or_lbrace,
@@ -2330,6 +2337,7 @@ pub const Error = struct {
         extra_const_qualifier,
         extra_volatile_qualifier,
         invalid_align,
+        invalid_and,
         invalid_bit_range,
         invalid_token,
         same_line_doc_comment,
