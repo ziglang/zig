@@ -3727,24 +3727,24 @@ test "zig fmt: Don't add extra newline after if" {
     );
 }
 
-//test "zig fmt: comments in ternary ifs" {
-//    try testCanonical(
-//        \\const x = if (true) {
-//        \\    1;
-//        \\} else if (false)
-//        \\    // Comment
-//        \\    0;
-//        \\const y = if (true)
-//        \\    // Comment
-//        \\    1
-//        \\else
-//        \\    0;
-//        \\
-//        \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
-//        \\
-//    );
-//}
-//
+test "zig fmt: comments in ternary ifs" {
+    try testCanonical(
+        \\const x = if (true) {
+        \\    1;
+        \\} else if (false)
+        \\    // Comment
+        \\    0;
+        \\const y = if (true)
+        \\    // Comment
+        \\    1
+        \\else
+        \\    0;
+        \\
+        \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
+        \\
+    );
+}
+
 //test "zig fmt: test comments in field access chain" {
 //    try testCanonical(
 //        \\pub const str = struct {

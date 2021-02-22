@@ -366,10 +366,6 @@ pub const Tree = struct {
             .@"nosuspend",
             .asm_simple,
             .@"asm",
-            .fn_proto_simple,
-            .fn_proto_multi,
-            .fn_proto_one,
-            .fn_proto,
             .array_type,
             .array_type_sentinel,
             .error_value,
@@ -449,7 +445,12 @@ pub const Tree = struct {
             .error_union,
             => n = datas[n].lhs,
 
-            .fn_decl => {
+            .fn_decl,
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
+            => {
                 var i = main_tokens[n]; // fn token
                 while (i > 0) {
                     i -= 1;
