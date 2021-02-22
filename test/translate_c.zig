@@ -3117,7 +3117,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    // TODO fix zig fmt here
+    // TODO fix zig fmt here - it incorrectly inserts an additional indentation
+    // level inside blk_1.
     // cases.add("nested assignment",
     //     \\int foo(int *p, int x) {
     //     \\    return *p++ = x;

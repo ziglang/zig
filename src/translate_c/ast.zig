@@ -2407,13 +2407,13 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
             });
     };
 
-    const body = if (payload.body) |some|
-        try renderNode(c, some)
-    else if (payload.is_extern) blk: {
-        _ = try c.addToken(.semicolon, ";");
-        break :blk 0;
-    } else return fn_proto;
-
+    const payload_body = payload.body orelse {
+        if (payload.is_extern) {
+            _ = try c.addToken(.semicolon, ";");
+        }
+        return fn_proto;
+    };
+    const body = try renderNode(c, payload_body);
     return c.addNode(.{
         .tag = .fn_decl,
         .main_token = fn_token,
