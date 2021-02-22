@@ -2055,6 +2055,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\			  return;
         \\        }
         \\        case 6:
+        \\            switch (res) {
+        \\                case 9: break;
+        \\            }
         \\            res = 1;
         \\			  return;
         \\    }
@@ -2084,6 +2087,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\            }
         \\        },
         \\        @as(c_int, 6) => {
+        \\            switch (res) {
+        \\                @as(c_int, 9) => {},
+        \\                else => {},
+        \\            }
         \\            res = 1;
         \\            return;
         \\        },

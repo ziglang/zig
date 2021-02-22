@@ -2276,7 +2276,7 @@ fn transSwitch(
     }
 
     if (!has_default) {
-        const else_prong = try Tag.switch_else.create(c.arena, Tag.@"break".init());
+        const else_prong = try Tag.switch_else.create(c.arena, Tag.empty_block.init());
         try cases.append(else_prong);
     }
 
