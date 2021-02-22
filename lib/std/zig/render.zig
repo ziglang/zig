@@ -1879,23 +1879,23 @@ fn renderCall(
     const after_last_param_tok = tree.lastToken(last_param) + 1;
     if (token_tags[after_last_param_tok] == .comma) {
         ais.pushIndentNextLine();
-        try renderToken(ais, tree, lparen, Space.newline); // (
+        try renderToken(ais, tree, lparen, .newline); // (
         for (params) |param_node, i| {
             if (i + 1 < params.len) {
-                try renderExpression(ais, tree, param_node, Space.none);
+                try renderExpression(ais, tree, param_node, .none);
 
-                // Unindent the comma for multiline string literals
+                // Unindent the comma for multiline string literals.
                 const is_multiline_string = node_tags[param_node] == .multiline_string_literal;
                 if (is_multiline_string) ais.popIndent();
 
                 const comma = tree.lastToken(param_node) + 1;
-                try renderToken(ais, tree, comma, Space.newline); // ,
+                try renderToken(ais, tree, comma, .newline); // ,
 
                 if (is_multiline_string) ais.pushIndent();
 
                 try renderExtraNewline(ais, tree, params[i + 1]);
             } else {
-                try renderExpression(ais, tree, param_node, Space.comma);
+                try renderExpression(ais, tree, param_node, .comma);
             }
         }
         ais.popIndent();
@@ -1903,14 +1903,23 @@ fn renderCall(
     }
 
     ais.pushIndentNextLine();
-    try renderToken(ais, tree, lparen, Space.none); // (
+    try renderToken(ais, tree, lparen, .none); // (
 
     for (params) |param_node, i| {
-        try renderExpression(ais, tree, param_node, Space.none);
+        try renderExpression(ais, tree, param_node, .none);
 
         if (i + 1 < params.len) {
             const comma = tree.lastToken(param_node) + 1;
-            try renderToken(ais, tree, comma, Space.space);
+            const this_multiline_string = node_tags[param_node] == .multiline_string_literal;
+            const next_multiline_string = node_tags[params[i + 1]] == .multiline_string_literal;
+            const comma_space: Space = if (next_multiline_string) .none else .space;
+            if (this_multiline_string) {
+                ais.popIndent();
+                try renderToken(ais, tree, comma, comma_space);
+                ais.pushIndent();
+            } else {
+                try renderToken(ais, tree, comma, comma_space);
+            }
         }
     }
 

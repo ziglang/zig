@@ -1280,17 +1280,34 @@ test "zig fmt: async call in if condition" {
     );
 }
 
-//test "zig fmt: 2nd arg multiline string" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    cases.addAsm("hello world linux x86_64",
-//        \\        \\.text
-//        \\    , "Hello, world!\n");
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: 2nd arg multiline string" {
+    try testCanonical(
+        \\comptime {
+        \\    cases.addAsm("hello world linux x86_64",
+        \\        \\.text
+        \\    , "Hello, world!\n");
+        \\}
+        \\
+    );
+    try testTransform(
+        \\comptime {
+        \\    cases.addAsm("hello world linux x86_64",
+        \\        \\.text
+        \\    , "Hello, world!\n",);
+        \\}
+    ,
+        \\comptime {
+        \\    cases.addAsm(
+        \\        "hello world linux x86_64",
+        \\        \\.text
+        \\    ,
+        \\        "Hello, world!\n",
+        \\    );
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: 2nd arg multiline string many args" {
 //    try testCanonical(
 //        \\comptime {
