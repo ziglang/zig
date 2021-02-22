@@ -22,12 +22,12 @@ const fmt_lib = std.fmt;
 const File = std.fs.File;
 const CrossTarget = std.zig.CrossTarget;
 
-pub const FmtStep = @import("build/fmt.zig").FmtStep;
-pub const TranslateCStep = @import("build/translate_c.zig").TranslateCStep;
-pub const WriteFileStep = @import("build/write_file.zig").WriteFileStep;
-pub const RunStep = @import("build/run.zig").RunStep;
-pub const CheckFileStep = @import("build/check_file.zig").CheckFileStep;
-pub const InstallRawStep = @import("build/emit_raw.zig").InstallRawStep;
+pub const FmtStep = @import("build/FmtStep.zig");
+pub const TranslateCStep = @import("build/TranslateCStep.zig");
+pub const WriteFileStep = @import("build/WriteFileStep.zig");
+pub const RunStep = @import("build/RunStep.zig");
+pub const CheckFileStep = @import("build/CheckFileStep.zig");
+pub const InstallRawStep = @import("build/InstallRawStep.zig");
 
 pub const Builder = struct {
     install_tls: TopLevelStep,
