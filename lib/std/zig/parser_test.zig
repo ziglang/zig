@@ -4222,39 +4222,39 @@ test "recovery: invalid global error set access" {
     });
 }
 
-//test "recovery: invalid asterisk after pointer dereference" {
-//    try testError(
-//        \\test "" {
-//        \\    var sequence = "repeat".*** 10;
-//        \\}
-//    , &[_]Error{
-//        .asterisk_after_ptr_deref,
-//    });
-//    try testError(
-//        \\test "" {
-//        \\    var sequence = "repeat".** 10&&a;
-//        \\}
-//    , &[_]Error{
-//        .asterisk_after_ptr_deref,
-//        .invalid_and,
-//    });
-//}
+test "recovery: invalid asterisk after pointer dereference" {
+    try testError(
+        \\test "" {
+        \\    var sequence = "repeat".*** 10;
+        \\}
+    , &[_]Error{
+        .asterisk_after_ptr_deref,
+    });
+    try testError(
+        \\test "" {
+        \\    var sequence = "repeat".** 10&&a;
+        \\}
+    , &[_]Error{
+        .asterisk_after_ptr_deref,
+        .invalid_and,
+    });
+}
 
-//test "recovery: missing semicolon after if, for, while stmt" {
-//    try testError(
-//        \\test "" {
-//        \\    if (foo) bar
-//        \\    for (foo) |a| bar
-//        \\    while (foo) bar
-//        \\    a && b;
-//        \\}
-//    , &[_]Error{
-//        .expected_semi_or_else,
-//        .expected_semi_or_else,
-//        .expected_semi_or_else,
-//        .invalid_and,
-//    });
-//}
+test "recovery: missing semicolon after if, for, while stmt" {
+    try testError(
+        \\test "" {
+        \\    if (foo) bar
+        \\    for (foo) |a| bar
+        \\    while (foo) bar
+        \\    a && b;
+        \\}
+    , &[_]Error{
+        .expected_semi_or_else,
+        .expected_semi_or_else,
+        .expected_semi_or_else,
+        .invalid_and,
+    });
+}
 
 test "recovery: invalid comptime" {
     try testError(

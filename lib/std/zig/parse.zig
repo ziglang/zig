@@ -985,7 +985,7 @@ const Parser = struct {
         };
         const else_token = p.eatToken(.keyword_else) orelse {
             if (else_required) {
-                return p.fail(.expected_semi_or_else);
+                try p.warn(.expected_semi_or_else);
             }
             return p.addNode(.{
                 .tag = .if_simple,
@@ -1079,7 +1079,7 @@ const Parser = struct {
         };
         const else_token = p.eatToken(.keyword_else) orelse {
             if (else_required) {
-                return p.fail(.expected_semi_or_else);
+                try p.warn(.expected_semi_or_else);
             }
             return p.addNode(.{
                 .tag = .for_simple,
@@ -1154,7 +1154,7 @@ const Parser = struct {
         };
         const else_token = p.eatToken(.keyword_else) orelse {
             if (else_required) {
-                return p.fail(.expected_semi_or_else);
+                try p.warn(.expected_semi_or_else);
             }
             if (cont_expr == 0) {
                 return p.addNode(.{
