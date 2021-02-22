@@ -1006,13 +1006,11 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
                     break :blk ident + 1;
                 }
             };
-            const cond_has_newline = !tree.tokensOnSameLine(while_node.ast.while_token, pipe);
-            const brace_space: Space = if (cond_has_newline) .newline else .space;
+            const brace_space: Space = if (ais.isLineOverIndented()) .newline else .space;
             try renderToken(ais, tree, pipe, brace_space); // |
         } else {
             const rparen = tree.lastToken(while_node.ast.cond_expr) + 1;
-            const cond_has_newline = !tree.tokensOnSameLine(while_node.ast.while_token, rparen);
-            const brace_space: Space = if (cond_has_newline) .newline else .space;
+            const brace_space: Space = if (ais.isLineOverIndented()) .newline else .space;
             try renderToken(ais, tree, rparen, brace_space); // rparen
         }
         if (while_node.ast.cont_expr != 0) {

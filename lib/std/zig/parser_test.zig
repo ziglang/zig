@@ -1410,31 +1410,31 @@ test "zig fmt: if condition wraps" {
         \\
     );
 }
-//
-//test "zig fmt: if condition has line break but must not wrap" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    if (self.user_input_options.put(
-//        \\        name,
-//        \\        UserInputOption{
-//        \\            .name = name,
-//        \\            .used = false,
-//        \\        },
-//        \\    ) catch unreachable) |*prev_value| {
-//        \\        foo();
-//        \\        bar();
-//        \\    }
-//        \\    if (put(
-//        \\        a,
-//        \\        b,
-//        \\    )) {
-//        \\        foo();
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+
+test "zig fmt: if condition has line break but must not wrap" {
+    try testCanonical(
+        \\comptime {
+        \\    if (self.user_input_options.put(
+        \\        name,
+        \\        UserInputOption{
+        \\            .name = name,
+        \\            .used = false,
+        \\        },
+        \\    ) catch unreachable) |*prev_value| {
+        \\        foo();
+        \\        bar();
+        \\    }
+        \\    if (put(
+        \\        a,
+        \\        b,
+        \\    )) {
+        \\        foo();
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: if condition has line break but must not wrap" {
 //    try testCanonical(
 //        \\comptime {
