@@ -2103,34 +2103,34 @@ test "zig fmt: same line comments in expression" {
     );
 }
 
-//test "zig fmt: add comma on last switch prong" {
-//    try testTransform(
-//        \\test "aoeu" {
-//        \\switch (self.init_arg_expr) {
-//        \\    InitArg.Type => |t| { },
-//        \\    InitArg.None,
-//        \\    InitArg.Enum => { }
-//        \\}
-//        \\ switch (self.init_arg_expr) {
-//        \\     InitArg.Type => |t| { },
-//        \\     InitArg.None,
-//        \\     InitArg.Enum => { }//line comment
-//        \\ }
-//        \\}
-//    ,
-//        \\test "aoeu" {
-//        \\    switch (self.init_arg_expr) {
-//        \\        InitArg.Type => |t| {},
-//        \\        InitArg.None, InitArg.Enum => {},
-//        \\    }
-//        \\    switch (self.init_arg_expr) {
-//        \\        InitArg.Type => |t| {},
-//        \\        InitArg.None, InitArg.Enum => {}, //line comment
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: add comma on last switch prong" {
+    try testTransform(
+        \\test "aoeu" {
+        \\switch (self.init_arg_expr) {
+        \\    InitArg.Type => |t| { },
+        \\    InitArg.None,
+        \\    InitArg.Enum => { }
+        \\}
+        \\ switch (self.init_arg_expr) {
+        \\     InitArg.Type => |t| { },
+        \\     InitArg.None,
+        \\     InitArg.Enum => { }//line comment
+        \\ }
+        \\}
+    ,
+        \\test "aoeu" {
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None, InitArg.Enum => {},
+        \\    }
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None, InitArg.Enum => {}, //line comment
+        \\    }
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: same-line comment after a statement" {
     try testCanonical(

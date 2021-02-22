@@ -1948,7 +1948,7 @@ const Space = enum {
     space,
     /// Output the token lexeme followed by a newline.
     newline,
-    /// Additionally consume the next token if it is a comma.
+    /// If the next token is a comma, render it as well. If not, insert one.
     /// In either case, a newline will be inserted afterwards.
     comma,
     /// Additionally consume the next token if it is a comma.
@@ -1967,6 +1967,10 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
     const lexeme = tokenSliceForRender(tree, token_index);
 
     try ais.writer().writeAll(lexeme);
+
+    if (space == .comma and token_tags[token_index + 1] != .comma) {
+        try ais.writer().writeByte(',');
+    }
 
     const comment = try renderComments(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]);
     switch (space) {
