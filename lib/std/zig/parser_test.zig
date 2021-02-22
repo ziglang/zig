@@ -4187,16 +4187,6 @@ test "recovery: invalid container members" {
     });
 }
 
-//test "recovery: invalid parameter" {
-//    try testError(
-//        \\fn main() void {
-//        \\    a(comptime T: type)
-//        \\}
-//    , &[_]Error{
-//        .expected_token,
-//    });
-//}
-
 //test "recovery: extra '}' at top level" {
 //    try testError(
 //        \\}}}
