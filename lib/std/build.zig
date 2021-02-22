@@ -1421,6 +1421,8 @@ pub const LibExeObjStep = struct {
     /// Overrides the default stack size
     stack_size: ?u64 = null,
 
+    want_lto: ?bool = null,
+
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
@@ -2586,6 +2588,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fPIE");
             } else {
                 try zig_args.append("-fno-PIE");
+            }
+        }
+
+        if (self.want_lto) |lto| {
+            if (lto) {
+                try zig_args.append("-flto");
+            } else {
+                try zig_args.append("-fno-lto");
             }
         }
 
