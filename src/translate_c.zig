@@ -2374,6 +2374,9 @@ fn transSwitchProngStmtInline(
                 const result = try transStmt(c, &block.base, sub, .unused);
                 assert(result.tag() != .declaration);
                 try block.statements.append(result);
+                if (result.isNoreturn(true)) {
+                    return;
+                }
             },
             .DefaultStmtClass => {
                 var sub = @ptrCast(*const clang.DefaultStmt, it[0]).getSubStmt();
@@ -2385,14 +2388,12 @@ fn transSwitchProngStmtInline(
                 const result = try transStmt(c, &block.base, sub, .unused);
                 assert(result.tag() != .declaration);
                 try block.statements.append(result);
+                if (result.isNoreturn(true)) {
+                    return;
+                }
             },
             .CompoundStmtClass => {
-                const compound_stmt = @ptrCast(*const clang.CompoundStmt, it[0]);
-                var child_block = try Scope.Block.init(c, &block.base, false);
-                defer child_block.deinit();
-
-                try transCompoundStmtInline(c, compound_stmt, &child_block);
-                const result = try child_block.complete(c);
+                const result = try transCompoundStmt(c, &block.base, @ptrCast(*const clang.CompoundStmt, it[0]));
                 try block.statements.append(result);
                 if (result.isNoreturn(true)) {
                     return;

@@ -401,7 +401,7 @@ pub const Node = extern union {
                 return true;
             },
             .@"return", .return_void => return true,
-            .break_val, .@"break" => if (break_counts) return true,
+            .@"break" => if (break_counts) return true,
             else => {},
         }
         return false;

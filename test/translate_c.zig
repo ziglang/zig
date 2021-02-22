@@ -2047,6 +2047,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\            res = 3 * i;
         \\            break;
         \\            break;
+        \\        case 7: {
+        \\           res = 7;
+        \\           break;
+        \\        }
         \\        case 4:
         \\		case 5:
         \\            res = 69;
@@ -2078,6 +2082,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        },
         \\        else => {
         \\            res = @as(c_int, 3) * i;
+        \\        },
+        \\        @as(c_int, 7) => {
+        \\            {
+        \\                res = 7;
+        \\                break;
+        \\            }
         \\        },
         \\        @as(c_int, 4), @as(c_int, 5) => {
         \\            res = 69;
