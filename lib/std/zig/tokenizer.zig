@@ -1444,6 +1444,7 @@ pub const Tokenizer = struct {
                 self.pending_invalid_token = null;
                 return token;
             }
+            result.loc.start = self.index;
         }
 
         result.loc.end = self.index;
@@ -2055,4 +2056,5 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) void {
     }
     const last_token = tokenizer.next();
     std.testing.expect(last_token.tag == .eof);
+    std.testing.expect(last_token.loc.start == source.len);
 }

@@ -26,10 +26,7 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: ast.Tree) Error!void {
     const ais = &auto_indenting_stream;
 
     // Render all the line comments at the beginning of the file.
-    const comment_end_loc = if (tree.tokens.items(.tag)[0] == .eof)
-        tree.source.len
-    else
-        tree.tokens.items(.start)[0];
+    const comment_end_loc = tree.tokens.items(.start)[0];
     _ = try renderComments(ais, tree, 0, comment_end_loc);
 
     try renderMembers(ais, tree, tree.rootDecls());
@@ -1609,15 +1606,18 @@ fn renderArrayInit(
     } else {
         try renderExpression(ais, tree, array_init.ast.type_expr, .none); // T
     }
+
     if (array_init.ast.elements.len == 0) {
         ais.pushIndentNextLine();
         try renderToken(ais, tree, array_init.ast.lbrace, .none); // lbrace
         ais.popIndent();
         return renderToken(ais, tree, array_init.ast.lbrace + 1, space); // rbrace
     }
+
     const last_elem = array_init.ast.elements[array_init.ast.elements.len - 1];
     const last_elem_token = tree.lastToken(last_elem);
-    if (token_tags[last_elem_token + 1] == .comma) {
+    const trailing_comma = token_tags[last_elem_token + 1] == .comma;
+    if (trailing_comma) {
         // Render one element per line.
         ais.pushIndentNextLine();
         try renderToken(ais, tree, array_init.ast.lbrace, .newline);
@@ -2001,18 +2001,12 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
     var rendered_empty_comments = false;
     while (mem.indexOf(u8, tree.source[index..end], "//")) |offset| {
         const comment_start = index + offset;
-        const newline_index = mem.indexOfScalar(u8, tree.source[comment_start..end], '\n') orelse {
-            // comment ends in EOF.
-            const untrimmed_comment = tree.source[comment_start..];
-            const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.spaces);
-            if (trimmed_comment.len != 2) {
-                try ais.writer().print("{s}\n", .{trimmed_comment});
-                index = end;
-            }
-            return index != start;
-        };
-        const newline = comment_start + newline_index;
-        const untrimmed_comment = tree.source[comment_start..newline];
+
+        // If there is no newline, the comment ends with EOF
+        const newline_index = mem.indexOfScalar(u8, tree.source[comment_start..end], '\n');
+        const newline = if (newline_index) |i| comment_start + i else null;
+
+        const untrimmed_comment = tree.source[comment_start .. newline orelse tree.source.len];
         const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.spaces);
 
         // Don't leave any whitespace at the start of the file
@@ -2041,7 +2035,7 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
             try ais.writer().print("{s}\n", .{trimmed_comment});
             rendered_empty_comments = false;
         }
-        index = newline + 1;
+        index = 1 + (newline orelse return true);
 
         if (ais.disabled_offset) |disabled_offset| {
             if (mem.eql(u8, trimmed_comment, "// zig fmt: on")) {

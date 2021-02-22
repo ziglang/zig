@@ -93,6 +93,17 @@ test "zig fmt: file ends in comment" {
     );
 }
 
+test "zig fmt: file ends in comment after var decl" {
+    try testTransform(
+        \\const x = 42;
+        \\     //foobar
+    ,
+        \\const x = 42;
+        \\//foobar
+        \\
+    );
+}
+
 test "zig fmt: doc comments on test" {
     try testCanonical(
         \\/// hello
