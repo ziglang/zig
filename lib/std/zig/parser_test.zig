@@ -2414,14 +2414,14 @@ test "zig fmt: preserve spacing" {
     );
 }
 
-//test "zig fmt: return types" {
-//    try testCanonical(
-//        \\pub fn main() !void {}
-//        \\pub fn main() anytype {}
-//        \\pub fn main() i32 {}
-//        \\
-//    );
-//}
+test "zig fmt: return types" {
+    try testCanonical(
+        \\pub fn main() !void {}
+        \\pub fn main() FooBar {}
+        \\pub fn main() i32 {}
+        \\
+    );
+}
 
 test "zig fmt: imports" {
     try testCanonical(
@@ -2652,12 +2652,12 @@ test "zig fmt: call expression" {
     );
 }
 
-//test "zig fmt: anytype type" {
-//    try testCanonical(
-//        \\fn print(args: anytype) anytype {}
-//        \\
-//    );
-//}
+test "zig fmt: anytype type" {
+    try testCanonical(
+        \\fn print(args: anytype) @This() {}
+        \\
+    );
+}
 
 test "zig fmt: functions" {
     try testCanonical(
