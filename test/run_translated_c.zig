@@ -958,4 +958,100 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("pointer difference: scalar array w/ size truncation or negative result. Issue #7216",
+        \\#include <stdlib.h>
+        \\#include <stddef.h>
+        \\#define SIZE 10
+        \\int main() {
+        \\    int foo[SIZE];
+        \\    int *start = &foo[0];
+        \\    int *one_past_end = start + SIZE;
+        \\    ptrdiff_t diff = one_past_end - start;
+        \\    char diff_char = one_past_end - start;
+        \\    if (diff != SIZE || diff_char != SIZE) abort();
+        \\    diff = start - one_past_end;
+        \\    if (diff != -SIZE) abort();
+        \\    if (one_past_end - foo != SIZE) abort();
+        \\    if ((one_past_end - 1) - foo != SIZE - 1) abort();
+        \\    if ((start + 1) - foo != 1) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    // C standard: if the expression P points either to an element of an array object or one
+    // past the last element of an array object, and the expression Q points to the last
+    // element of the same array object, the expression ((Q)+1)-(P) has the same value as
+    // ((Q)-(P))+1 and as -((P)-((Q)+1)), and has the value zero if the expression P points
+    // one past the last element of the array object, even though the expression (Q)+1
+    // does not point to an element of the array object
+    cases.add("pointer difference: C standard edge case",
+        \\#include <stdlib.h>
+        \\#include <stddef.h>
+        \\#define SIZE 10
+        \\int main() {
+        \\    int foo[SIZE];
+        \\    int *start = &foo[0];
+        \\    int *P = start + SIZE;
+        \\    int *Q = &foo[SIZE - 1];
+        \\    if ((Q + 1) - P != 0) abort();
+        \\    if ((Q + 1) - P != (Q - P) + 1) abort();
+        \\    if ((Q + 1) - P != -(P - (Q + 1))) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("pointer difference: unary operators",
+        \\#include <stdlib.h>
+        \\int main() {
+        \\    int foo[10];
+        \\    int *x = &foo[1];
+        \\    const int *y = &foo[5];
+        \\    if (y - x++ != 4) abort();
+        \\    if (y - x != 3) abort();
+        \\    if (y - ++x != 2) abort();
+        \\    if (y - x-- != 2) abort();
+        \\    if (y - x != 3) abort();
+        \\    if (y - --x != 4) abort();
+        \\    if (y - &foo[0] != 5) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("pointer difference: struct array with padding",
+        \\#include <stdlib.h>
+        \\#include <stddef.h>
+        \\#define SIZE 10
+        \\typedef struct my_struct {
+        \\    int x;
+        \\    char c;
+        \\    int y;
+        \\} my_struct_t;
+        \\int main() {
+        \\    my_struct_t foo[SIZE];
+        \\    my_struct_t *start = &foo[0];
+        \\    my_struct_t *one_past_end = start + SIZE;
+        \\    ptrdiff_t diff = one_past_end - start;
+        \\    int diff_int = one_past_end - start;
+        \\    if (diff != SIZE || diff_int != SIZE) abort();
+        \\    diff = start - one_past_end;
+        \\    if (diff != -SIZE) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("pointer difference: array of function pointers",
+        \\#include <stdlib.h>
+        \\int a(void) { return 1;}
+        \\int b(void) { return 2;}
+        \\int c(void) { return 3;}
+        \\typedef int (*myfunc)(void);
+        \\int main() {
+        \\    myfunc arr[] = {a, b, c, a, b, c};
+        \\    myfunc *f1 = &arr[1];
+        \\    myfunc *f4 = &arr[4];
+        \\    if (f4 - f1 != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

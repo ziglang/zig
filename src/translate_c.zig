@@ -1083,6 +1083,7 @@ fn transBinaryOperator(
 ) TransError!Node {
     const op = stmt.getOpcode();
     const qt = stmt.getType();
+    const isPointerDiffExpr = cIsPointerDiffExpr(c, stmt);
     switch (op) {
         .Assign => return try transCreateNodeAssign(c, scope, result_used, stmt.getLHS(), stmt.getRHS()),
         .Comma => {
@@ -1143,7 +1144,7 @@ fn transBinaryOperator(
             }
         },
         .Sub => {
-            if (cIsUnsignedInteger(qt)) {
+            if (cIsUnsignedInteger(qt) or isPointerDiffExpr) {
                 op_id = .sub_wrap;
             } else {
                 op_id = .sub;
@@ -1199,15 +1200,40 @@ fn transBinaryOperator(
 
     const lhs = if (isBoolRes(lhs_uncasted))
         try Tag.bool_to_int.create(c.arena, lhs_uncasted)
+    else if (isPointerDiffExpr)
+        try Tag.ptr_to_int.create(c.arena, lhs_uncasted)
     else
         lhs_uncasted;
 
     const rhs = if (isBoolRes(rhs_uncasted))
         try Tag.bool_to_int.create(c.arena, rhs_uncasted)
+    else if (isPointerDiffExpr)
+        try Tag.ptr_to_int.create(c.arena, rhs_uncasted)
     else
         rhs_uncasted;
 
-    return transCreateNodeInfixOp(c, scope, op_id, lhs, rhs, result_used);
+    const infixOpNode = try transCreateNodeInfixOp(c, scope, op_id, lhs, rhs, result_used);
+    if (isPointerDiffExpr) {
+        // @divExact(@bitCast(<platform-ptrdiff_t>, @ptrToInt(lhs) -% @ptrToInt(rhs)), @sizeOf(<lhs target type>))
+        const ptrdiff_type = try transQualTypeIntWidthOf(c, qt, true);
+
+        // C standard requires that pointer subtraction operands are of the same type,
+        // otherwise it is undefined behavior. So we can assume the left and right
+        // sides are the same QualType and arbitrarily choose left.
+        const lhs_expr = stmt.getLHS();
+        const lhs_qt = getExprQualType(c, lhs_expr);
+        const lhs_qt_translated = try transQualType(c, scope, lhs_qt, lhs_expr.getBeginLoc());
+        const elem_type = lhs_qt_translated.castTag(.c_pointer).?.data.elem_type;
+        const sizeof = try Tag.sizeof.create(c.arena, elem_type);
+
+        const bitcast = try Tag.bit_cast.create(c.arena, .{ .lhs = ptrdiff_type, .rhs = infixOpNode });
+
+        return Tag.div_exact.create(c.arena, .{
+            .lhs = bitcast,
+            .rhs = sizeof,
+        });
+    }
+    return infixOpNode;
 }
 
 fn transCompoundStmtInline(
@@ -1681,6 +1707,17 @@ fn transStringLiteralAsArray(
         .cond = arr_type,
         .cases = init_list,
     });
+}
+
+/// determine whether `stmt` is a "pointer subtraction expression" - a subtraction where
+/// both operands resolve to addresses. The C standard requires that both operands
+/// point to elements of the same array object, but we do not verify that here.
+fn cIsPointerDiffExpr(c: *Context, stmt: *const clang.BinaryOperator) bool {
+    const lhs = @ptrCast(*const clang.Stmt, stmt.getLHS());
+    const rhs = @ptrCast(*const clang.Stmt, stmt.getRHS());
+    return stmt.getOpcode() == .Sub and
+        qualTypeIsPtr(@ptrCast(*const clang.Expr, lhs).getType()) and
+        qualTypeIsPtr(@ptrCast(*const clang.Expr, rhs).getType());
 }
 
 fn cIsEnum(qt: clang.QualType) bool {
