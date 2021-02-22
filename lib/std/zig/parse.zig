@@ -3627,7 +3627,10 @@ const Parser = struct {
                     break :blk null_node;
                 }
             },
-            else => unreachable,
+            else => {
+                p.tok_i -= 1;
+                return p.fail(.expected_container);
+            },
         };
         _ = try p.expectToken(.l_brace);
         const members = try p.parseContainerMembers();

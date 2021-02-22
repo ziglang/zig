@@ -258,6 +258,11 @@ pub const Tree = struct {
                     token_tags[parse_error.token].symbol(),
                 });
             },
+            .expected_container => {
+                return stream.print("expected a struct, enum or union, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
             .extra_align_qualifier => {
                 return stream.writeAll("extra align qualifier");
             },
@@ -441,9 +446,26 @@ pub const Tree = struct {
             .call,
             .call_comma,
             .switch_range,
-            .fn_decl,
             .error_union,
             => n = datas[n].lhs,
+
+            .fn_decl => {
+                var i = main_tokens[n]; // fn token
+                while (i > 0) {
+                    i -= 1;
+                    switch (token_tags[i]) {
+                        .keyword_extern,
+                        .keyword_export,
+                        .keyword_pub,
+                        .keyword_threadlocal,
+                        .string_literal,
+                        => continue,
+
+                        else => return i + 1 - end_offset,
+                    }
+                }
+                return i - end_offset;
+            },
 
             .async_call_one,
             .async_call_one_comma,
@@ -2338,6 +2360,7 @@ pub const Error = struct {
         expected_var_decl,
         expected_var_decl_or_fn,
         expected_loop_payload,
+        expected_container,
         extra_align_qualifier,
         extra_allowzero_qualifier,
         extra_const_qualifier,

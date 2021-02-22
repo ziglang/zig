@@ -873,7 +873,7 @@ fn renderVarDecl(ais: *Ais, tree: ast.Tree, var_decl: ast.full.VarDecl) Error!vo
         try renderToken(ais, tree, extern_export_token, Space.space); // extern
 
         if (var_decl.lib_name) |lib_name| {
-            try renderExpression(ais, tree, lib_name, Space.space); // "lib"
+            try renderToken(ais, tree, lib_name, Space.space); // "lib"
         }
     }
 
