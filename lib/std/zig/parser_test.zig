@@ -1308,108 +1308,108 @@ test "zig fmt: 2nd arg multiline string" {
     );
 }
 
-//test "zig fmt: 2nd arg multiline string many args" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    cases.addAsm("hello world linux x86_64",
-//        \\        \\.text
-//        \\    , "Hello, world!\n", "Hello, world!\n");
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: final arg multiline string" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    cases.addAsm("hello world linux x86_64", "Hello, world!\n",
-//        \\        \\.text
-//        \\    );
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: if condition wraps" {
-//    try testTransform(
-//        \\comptime {
-//        \\    if (cond and
-//        \\        cond) {
-//        \\        return x;
-//        \\    }
-//        \\    while (cond and
-//        \\        cond) {
-//        \\        return x;
-//        \\    }
-//        \\    if (a == b and
-//        \\        c) {
-//        \\        a = b;
-//        \\    }
-//        \\    while (a == b and
-//        \\        c) {
-//        \\        a = b;
-//        \\    }
-//        \\    if ((cond and
-//        \\        cond)) {
-//        \\        return x;
-//        \\    }
-//        \\    while ((cond and
-//        \\        cond)) {
-//        \\        return x;
-//        \\    }
-//        \\    var a = if (a) |*f| x: {
-//        \\        break :x &a.b;
-//        \\    } else |err| err;
-//        \\    var a = if (cond and
-//        \\                cond) |*f|
-//        \\    x: {
-//        \\        break :x &a.b;
-//        \\    } else |err| err;
-//        \\}
-//    ,
-//        \\comptime {
-//        \\    if (cond and
-//        \\        cond)
-//        \\    {
-//        \\        return x;
-//        \\    }
-//        \\    while (cond and
-//        \\        cond)
-//        \\    {
-//        \\        return x;
-//        \\    }
-//        \\    if (a == b and
-//        \\        c)
-//        \\    {
-//        \\        a = b;
-//        \\    }
-//        \\    while (a == b and
-//        \\        c)
-//        \\    {
-//        \\        a = b;
-//        \\    }
-//        \\    if ((cond and
-//        \\        cond))
-//        \\    {
-//        \\        return x;
-//        \\    }
-//        \\    while ((cond and
-//        \\        cond))
-//        \\    {
-//        \\        return x;
-//        \\    }
-//        \\    var a = if (a) |*f| x: {
-//        \\        break :x &a.b;
-//        \\    } else |err| err;
-//        \\    var a = if (cond and
-//        \\        cond) |*f|
-//        \\    x: {
-//        \\        break :x &a.b;
-//        \\    } else |err| err;
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: 2nd arg multiline string many args" {
+    try testCanonical(
+        \\comptime {
+        \\    cases.addAsm("hello world linux x86_64",
+        \\        \\.text
+        \\    , "Hello, world!\n", "Hello, world!\n");
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: final arg multiline string" {
+    try testCanonical(
+        \\comptime {
+        \\    cases.addAsm("hello world linux x86_64", "Hello, world!\n",
+        \\        \\.text
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: if condition wraps" {
+    try testTransform(
+        \\comptime {
+        \\    if (cond and
+        \\        cond) {
+        \\        return x;
+        \\    }
+        \\    while (cond and
+        \\        cond) {
+        \\        return x;
+        \\    }
+        \\    if (a == b and
+        \\        c) {
+        \\        a = b;
+        \\    }
+        \\    while (a == b and
+        \\        c) {
+        \\        a = b;
+        \\    }
+        \\    if ((cond and
+        \\        cond)) {
+        \\        return x;
+        \\    }
+        \\    while ((cond and
+        \\        cond)) {
+        \\        return x;
+        \\    }
+        \\    var a = if (a) |*f| x: {
+        \\        break :x &a.b;
+        \\    } else |err| err;
+        \\    var a = if (cond and
+        \\                cond) |*f|
+        \\    x: {
+        \\        break :x &a.b;
+        \\    } else |err| err;
+        \\}
+    ,
+        \\comptime {
+        \\    if (cond and
+        \\        cond)
+        \\    {
+        \\        return x;
+        \\    }
+        \\    while (cond and
+        \\        cond)
+        \\    {
+        \\        return x;
+        \\    }
+        \\    if (a == b and
+        \\        c)
+        \\    {
+        \\        a = b;
+        \\    }
+        \\    while (a == b and
+        \\        c)
+        \\    {
+        \\        a = b;
+        \\    }
+        \\    if ((cond and
+        \\        cond))
+        \\    {
+        \\        return x;
+        \\    }
+        \\    while ((cond and
+        \\        cond))
+        \\    {
+        \\        return x;
+        \\    }
+        \\    var a = if (a) |*f| x: {
+        \\        break :x &a.b;
+        \\    } else |err| err;
+        \\    var a = if (cond and
+        \\        cond) |*f|
+        \\    x: {
+        \\        break :x &a.b;
+        \\    } else |err| err;
+        \\}
+        \\
+    );
+}
 //
 //test "zig fmt: if condition has line break but must not wrap" {
 //    try testCanonical(

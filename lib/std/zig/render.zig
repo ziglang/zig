@@ -499,10 +499,9 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
         },
 
         .grouped_expression => {
-            ais.pushIndentNextLine();
             try renderToken(ais, tree, main_tokens[node], .none); // lparen
+            ais.pushIndentOneShot();
             try renderExpression(ais, tree, datas[node].lhs, .none);
-            ais.popIndent();
             return renderToken(ais, tree, datas[node].rhs, space); // rparen
         },
 
@@ -981,13 +980,13 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
     }
 
     try renderToken(ais, tree, while_node.ast.while_token, .space); // if
-    try renderToken(ais, tree, while_node.ast.while_token + 1, .none); // (
+    try renderToken(ais, tree, while_node.ast.while_token + 1, .none); // lparen
     try renderExpression(ais, tree, while_node.ast.cond_expr, .none); // condition
 
     const then_tag = node_tags[while_node.ast.then_expr];
     if (nodeIsBlock(then_tag) and !nodeIsIf(then_tag)) {
         if (while_node.payload_token) |payload_token| {
-            try renderToken(ais, tree, payload_token - 2, .space); // )
+            try renderToken(ais, tree, payload_token - 2, .space); // rparen
             try renderToken(ais, tree, payload_token - 1, .none); // |
             const ident = blk: {
                 if (token_tags[payload_token] == .asterisk) {
@@ -1007,10 +1006,14 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
                     break :blk ident + 1;
                 }
             };
-            try renderToken(ais, tree, pipe, .space); // |
+            const cond_has_newline = !tree.tokensOnSameLine(while_node.ast.while_token, pipe);
+            const brace_space: Space = if (cond_has_newline) .newline else .space;
+            try renderToken(ais, tree, pipe, brace_space); // |
         } else {
             const rparen = tree.lastToken(while_node.ast.cond_expr) + 1;
-            try renderToken(ais, tree, rparen, .space); // )
+            const cond_has_newline = !tree.tokensOnSameLine(while_node.ast.while_token, rparen);
+            const brace_space: Space = if (cond_has_newline) .newline else .space;
+            try renderToken(ais, tree, rparen, brace_space); // rparen
         }
         if (while_node.ast.cont_expr != 0) {
             const rparen = tree.lastToken(while_node.ast.cont_expr) + 1;
@@ -1040,7 +1043,7 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
 
     if (src_has_newline) {
         if (while_node.payload_token) |payload_token| {
-            try renderToken(ais, tree, payload_token - 2, .space); // )
+            try renderToken(ais, tree, payload_token - 2, .space); // rparen
             try renderToken(ais, tree, payload_token - 1, .none); // |
             const ident = blk: {
                 if (token_tags[payload_token] == .asterisk) {
@@ -1063,7 +1066,7 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
             try renderToken(ais, tree, pipe, .newline); // |
         } else {
             ais.pushIndent();
-            try renderToken(ais, tree, rparen, .newline); // )
+            try renderToken(ais, tree, rparen, .newline); // rparen
             ais.popIndent();
         }
         if (while_node.ast.cont_expr != 0) {
