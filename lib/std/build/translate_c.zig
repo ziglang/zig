@@ -62,7 +62,7 @@ pub const TranslateCStep = struct {
 
     /// Creates a step to build an executable from the translated source.
     pub fn addExecutable(self: *TranslateCStep) *LibExeObjStep {
-        return self.builder.addExecutableSource("translated_c", @as(build.FileSource, .{ .generated = &self.output_file }));
+        return self.builder.addExecutableSource("translated_c", build.FileSource{ .generated = &self.output_file }, false);
     }
 
     pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {

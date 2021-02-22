@@ -47,12 +47,9 @@ pub const RunStep = struct {
     };
 
     pub const Arg = union(enum) {
-        Artifact: *LibExeObjStep,
-        WriteFile: struct {
-            step: *WriteFileStep,
-            file_name: []const u8,
-        },
-        Bytes: []u8,
+        artifact: *LibExeObjStep,
+        file_source: build.FileSource,
+        bytes: []u8,
     };
 
     pub fn create(builder: *Builder, name: []const u8) *RunStep {
@@ -68,22 +65,19 @@ pub const RunStep = struct {
     }
 
     pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
-        self.argv.append(Arg{ .Artifact = artifact }) catch unreachable;
+        self.argv.append(Arg{ .artifact = artifact }) catch unreachable;
         self.step.dependOn(&artifact.step);
     }
 
-    pub fn addWriteFileArg(self: *RunStep, write_file: *WriteFileStep, file_name: []const u8) void {
+    pub fn addFileSourceArg(self: *RunStep, file_source: build.FileSource) void {
         self.argv.append(Arg{
-            .WriteFile = .{
-                .step = write_file,
-                .file_name = self.builder.dupePath(file_name),
-            },
+            .file_source = file_source,
         }) catch unreachable;
-        self.step.dependOn(&write_file.step);
+        file_source.addStepDependencies(&self.step);
     }
 
     pub fn addArg(self: *RunStep, arg: []const u8) void {
-        self.argv.append(Arg{ .Bytes = self.builder.dupe(arg) }) catch unreachable;
+        self.argv.append(Arg{ .bytes = self.builder.dupe(arg) }) catch unreachable;
     }
 
     pub fn addArgs(self: *RunStep, args: []const []const u8) void {
@@ -162,11 +156,9 @@ pub const RunStep = struct {
         var argv_list = ArrayList([]const u8).init(self.builder.allocator);
         for (self.argv.items) |arg| {
             switch (arg) {
-                Arg.Bytes => |bytes| try argv_list.append(bytes),
-                Arg.WriteFile => |file| {
-                    try argv_list.append(file.step.getOutputPath(file.file_name));
-                },
-                Arg.Artifact => |artifact| {
+                .bytes => |bytes| try argv_list.append(bytes),
+                .file_source => |file| try argv_list.append(file.getPath(self.builder)),
+                .artifact => |artifact| {
                     if (artifact.target.isWindows()) {
                         // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                         self.addPathForDynLibs(artifact);

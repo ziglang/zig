@@ -204,55 +204,24 @@ pub const Builder = struct {
         self.h_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "include" }) catch unreachable;
     }
 
+    fn convertOptionalPathToFileSource(path: ?[]const u8) ?FileSource {
+        return if (path) |p|
+            FileSource.relative(p)
+        else
+            null;
+    }
+
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return LibExeObjStep.createExecutable(
-            self,
-            name,
-            if (root_src) |p| FileSource{ .path = p } else null,
-            false,
-        );
+        return addExecutableSource(self, name, convertOptionalPathToFileSource(root_src), false);
     }
 
-    pub fn addExecutableFromWriteFileStep(
-        self: *Builder,
-        name: []const u8,
-        wfs: *WriteFileStep,
-        basename: []const u8,
-    ) *LibExeObjStep {
-        return LibExeObjStep.createExecutable(self, name, @as(FileSource, .{
-            .write_file = .{
-                .step = wfs,
-                .basename = basename,
-            },
-        }), false);
-    }
-
-    pub fn addExecutableSource(
-        self: *Builder,
-        name: []const u8,
-        root_src: ?FileSource,
-    ) *LibExeObjStep {
-        return LibExeObjStep.createExecutable(self, name, root_src, false);
-    }
+    pub const addExecutableSource = LibExeObjStep.createExecutable;
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
-        return LibExeObjStep.createObject(self, name, root_src_param);
+        return addObjectSource(self, name, convertOptionalPathToFileSource(root_src));
     }
 
-    pub fn addObjectFromWriteFileStep(
-        self: *Builder,
-        name: []const u8,
-        wfs: *WriteFileStep,
-        basename: []const u8,
-    ) *LibExeObjStep {
-        return LibExeObjStep.createObject(self, name, @as(FileSource, .{
-            .write_file = .{
-                .step = wfs,
-                .basename = basename,
-            },
-        }));
-    }
+    pub const addObjectSource = LibExeObjStep.createObject;
 
     pub fn addSharedLibrary(
         self: *Builder,
@@ -260,64 +229,33 @@ pub const Builder = struct {
         root_src: ?[]const u8,
         kind: LibExeObjStep.SharedLibKind,
     ) *LibExeObjStep {
-        const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
-        return LibExeObjStep.createSharedLibrary(self, name, root_src_param, kind);
+        return addSharedLibrarySource(self, name, convertOptionalPathToFileSource(root_src), kind);
     }
 
-    pub fn addSharedLibraryFromWriteFileStep(
-        self: *Builder,
-        name: []const u8,
-        wfs: *WriteFileStep,
-        basename: []const u8,
-        kind: LibExeObjStep.SharedLibKind,
-    ) *LibExeObjStep {
-        return LibExeObjStep.createSharedLibrary(self, name, @as(FileSource, .{
-            .write_file = .{
-                .step = wfs,
-                .basename = basename,
-            },
-        }), kind);
-    }
+    pub const addSharedLibrarySource = LibExeObjStep.createSharedLibrary;
 
     pub fn addStaticLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
         return LibExeObjStep.createStaticLibrary(self, name, root_src_param);
     }
 
-    pub fn addStaticLibraryFromWriteFileStep(
-        self: *Builder,
-        name: []const u8,
-        wfs: *WriteFileStep,
-        basename: []const u8,
-    ) *LibExeObjStep {
-        return LibExeObjStep.createStaticLibrary(self, name, @as(FileSource, .{
-            .write_file = .{
-                .step = wfs,
-                .basename = basename,
-            },
-        }));
-    }
+    pub const addStaticLibrarySource = LibExeObjStep.createStaticLibrary;
 
     pub fn addTest(self: *Builder, root_src: []const u8) *LibExeObjStep {
         return LibExeObjStep.createTest(self, "test", .{ .path = root_src });
     }
 
-    pub fn addTestFromWriteFileStep(
-        self: *Builder,
-        wfs: *WriteFileStep,
-        basename: []const u8,
-    ) *LibExeObjStep {
-        return LibExeObjStep.createTest(self, "test", @as(FileSource, .{
-            .write_file = .{
-                .step = wfs,
-                .basename = basename,
-            },
-        }));
+    pub fn addTestSource(self: *Builder, root_src: FileSource) *LibExeObjStep {
+        return LibExeObjStep.createTest(self, "test", root_src);
     }
 
     pub fn addAssemble(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
+        return addAssembleSource(self, name, FileSource.relative(src));
+    }
+
+    pub fn addAssembleSource(self: *Builder, name: []const u8, src: FileSource) *LibExeObjStep {
         const obj_step = LibExeObjStep.createObject(self, name, null);
-        obj_step.addAssemblyFile(src);
+        obj_step.addAssemblyFileSource(src);
         return obj_step;
     }
 
@@ -938,7 +876,7 @@ pub const Builder = struct {
 
     ///`dest_rel_path` is relative to prefix path
     pub fn installFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) void {
-        self.getInstallStep().dependOn(&self.addInstallFileWithDir(src_path, .Prefix, dest_rel_path).step);
+        self.getInstallStep().dependOn(&self.addInstallFileWithDir(FileSource.relative(src_path), .Prefix, dest_rel_path).step);
     }
 
     pub fn installDirectory(self: *Builder, options: InstallDirectoryOptions) void {
@@ -947,12 +885,12 @@ pub const Builder = struct {
 
     ///`dest_rel_path` is relative to bin path
     pub fn installBinFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) void {
-        self.getInstallStep().dependOn(&self.addInstallFileWithDir(src_path, .Bin, dest_rel_path).step);
+        self.getInstallStep().dependOn(&self.addInstallFileWithDir(FileSource.relative(src_path), .Bin, dest_rel_path).step);
     }
 
     ///`dest_rel_path` is relative to lib path
     pub fn installLibFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) void {
-        self.getInstallStep().dependOn(&self.addInstallFileWithDir(src_path, .Lib, dest_rel_path).step);
+        self.getInstallStep().dependOn(&self.addInstallFileWithDir(FileSource.relative(src_path), .Lib, dest_rel_path).step);
     }
 
     pub fn installRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) void {
@@ -961,17 +899,17 @@ pub const Builder = struct {
 
     ///`dest_rel_path` is relative to install prefix path
     pub fn addInstallFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
-        return self.addInstallFileWithDir(src_path, .Prefix, dest_rel_path);
+        return self.addInstallFileWithDir(FileSource.relative(src_path), .Prefix, dest_rel_path);
     }
 
     ///`dest_rel_path` is relative to bin path
     pub fn addInstallBinFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
-        return self.addInstallFileWithDir(src_path, .Bin, dest_rel_path);
+        return self.addInstallFileWithDir(FileSource.relative(src_path), .Bin, dest_rel_path);
     }
 
     ///`dest_rel_path` is relative to lib path
     pub fn addInstallLibFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
-        return self.addInstallFileWithDir(src_path, .Lib, dest_rel_path);
+        return self.addInstallFileWithDir(FileSource.relative(src_path), .Lib, dest_rel_path);
     }
 
     pub fn addInstallRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *InstallRawStep {
@@ -980,7 +918,7 @@ pub const Builder = struct {
 
     pub fn addInstallFileWithDir(
         self: *Builder,
-        src_path: []const u8,
+        source: FileSource,
         install_dir: InstallDir,
         dest_rel_path: []const u8,
     ) *InstallFileStep {
@@ -988,7 +926,7 @@ pub const Builder = struct {
             panic("dest_rel_path must be non-empty", .{});
         }
         const install_step = self.allocator.create(InstallFileStep) catch unreachable;
-        install_step.* = InstallFileStep.init(self, src_path, install_dir, dest_rel_path);
+        install_step.* = InstallFileStep.init(self, source, install_dir, dest_rel_path);
         return install_step;
     }
 
@@ -1301,42 +1239,41 @@ pub const GeneratedFile = struct {
 pub const FileSource = union(enum) {
     /// Relative to build root
     path: []const u8,
-    write_file: struct {
-        step: *WriteFileStep,
-        basename: []const u8,
-    },
     generated: *const GeneratedFile,
 
     pub fn relative(path: []const u8) FileSource {
         return FileSource{ .path = path };
     }
 
+    /// Returns a string that can be shown to represent the file source.
+    /// Either returns the path or `"generated"`.
+    pub fn getDisplayName(self: FileSource) []const u8 {
+        return switch (self) {
+            .path => self.path,
+            .generated => "generated",
+        };
+    }
+
     pub fn addStepDependencies(self: FileSource, step: *Step) void {
         switch (self) {
             .path => {},
-            .write_file => |wf| step.dependOn(&wf.step.step),
             .generated => |gen| step.dependOn(gen.step),
         }
     }
 
-    /// Should only be called during make()
+    /// Should only be called during make(), returns an absolute path to the file.
     pub fn getPath(self: FileSource, builder: *Builder) []const u8 {
-        return switch (self) {
+        const path = switch (self) {
             .path => |p| builder.pathFromRoot(p),
-            .write_file => |wf| wf.step.getOutputPath(wf.basename),
             .generated => |gen| gen.getPath(),
         };
+        std.debug.assert(std.fs.path.isAbsolute(path));
+        return path;
     }
 
     pub fn dupe(self: FileSource, b: *Builder) FileSource {
         return switch (self) {
             .path => |p| .{ .path = b.dupePath(p) },
-            .write_file => |wf| .{
-                .write_file = .{
-                    .step = wf.step,
-                    .basename = b.dupe(wf.basename),
-                },
-            },
             .generated => |gen| .{ .generated = gen },
         };
     }
@@ -1965,15 +1902,6 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(LinkObject{
             .AssemblyFile = .{ .path = self.builder.dupe(path) },
         }) catch unreachable;
-    }
-
-    pub fn addAssemblyFileFromWriteFileStep(self: *LibExeObjStep, wfs: *WriteFileStep, basename: []const u8) void {
-        self.addAssemblyFileSource(.{
-            .write_file = .{
-                .step = wfs,
-                .basename = self.builder.dupe(basename),
-            },
-        });
     }
 
     pub fn addAssemblyFileSource(self: *LibExeObjStep, source: FileSource) void {
@@ -2834,21 +2762,21 @@ pub const InstallArtifactStep = struct {
 pub const InstallFileStep = struct {
     step: Step,
     builder: *Builder,
-    src_path: []const u8,
+    source: FileSource,
     dir: InstallDir,
     dest_rel_path: []const u8,
 
     pub fn init(
         builder: *Builder,
-        src_path: []const u8,
+        source: FileSource,
         dir: InstallDir,
         dest_rel_path: []const u8,
     ) InstallFileStep {
         builder.pushInstalledFile(dir, dest_rel_path);
         return InstallFileStep{
             .builder = builder,
-            .step = Step.init(.InstallFile, builder.fmt("install {s}", .{src_path}), builder.allocator, make),
-            .src_path = builder.dupePath(src_path),
+            .step = Step.init(.InstallFile, builder.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }), builder.allocator, make),
+            .source = source.dupe(builder),
             .dir = dir.dupe(builder),
             .dest_rel_path = builder.dupePath(dest_rel_path),
         };
@@ -2857,7 +2785,7 @@ pub const InstallFileStep = struct {
     fn make(step: *Step) !void {
         const self = @fieldParentPtr(InstallFileStep, "step", step);
         const full_dest_path = self.builder.getInstallPath(self.dir, self.dest_rel_path);
-        const full_src_path = self.builder.pathFromRoot(self.src_path);
+        const full_src_path = self.source.getPath(self.builder);
         try self.builder.updateFile(full_src_path, full_dest_path);
     }
 };
