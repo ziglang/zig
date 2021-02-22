@@ -984,7 +984,8 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
     try renderToken(ais, tree, while_node.ast.while_token + 1, .none); // (
     try renderExpression(ais, tree, while_node.ast.cond_expr, .none); // condition
 
-    if (nodeIsBlock(node_tags[while_node.ast.then_expr])) {
+    const then_tag = node_tags[while_node.ast.then_expr];
+    if (nodeIsBlock(then_tag) and !nodeIsIf(then_tag)) {
         if (while_node.payload_token) |payload_token| {
             try renderToken(ais, tree, payload_token - 2, .space); // )
             try renderToken(ais, tree, payload_token - 1, .none); // |
@@ -2124,6 +2125,13 @@ fn nodeIsBlock(tag: ast.Node.Tag) bool {
         .@"switch",
         .switch_comma,
         => true,
+        else => false,
+    };
+}
+
+fn nodeIsIf(tag: ast.Node.Tag) bool {
+    return switch (tag) {
+        .@"if", .if_simple => true,
         else => false,
     };
 }
