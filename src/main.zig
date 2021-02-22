@@ -2866,8 +2866,7 @@ fn fmtPathFile(
     try fmt.out_buffer.ensureCapacity(source_code.len);
 
     try tree.renderToArrayList(&fmt.out_buffer);
-    const anything_changed = mem.eql(u8, fmt.out_buffer.items, source_code);
-    if (!anything_changed)
+    if (mem.eql(u8, fmt.out_buffer.items, source_code))
         return;
 
     if (check_mode) {

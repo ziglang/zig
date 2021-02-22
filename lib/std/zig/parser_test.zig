@@ -84,6 +84,15 @@ test "zig fmt: empty file" {
     );
 }
 
+test "zig fmt: file ends in comment" {
+    try testTransform(
+        \\     //foobar
+        ,
+        \\//foobar
+        \\
+    );
+}
+
 test "zig fmt: doc comments on test" {
     try testCanonical(
         \\/// hello
@@ -3385,20 +3394,20 @@ test "zig fmt: file ends with struct field" {
     );
 }
 
-//test "zig fmt: comment after empty comment" {
-//    try testTransform(
-//        \\const x = true; //
-//        \\//
-//        \\//
-//        \\//a
-//        \\
-//    ,
-//        \\const x = true;
-//        \\//a
-//        \\
-//    );
-//}
-//
+test "zig fmt: comment after empty comment" {
+   try testTransform(
+       \\const x = true; //
+       \\//
+       \\//
+       \\//a
+       \\
+   ,
+       \\const x = true;
+       \\//a
+       \\
+   );
+}
+
 //test "zig fmt: line comment in array" {
 //    try testTransform(
 //        \\test "a" {

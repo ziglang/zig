@@ -26,7 +26,10 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: ast.Tree) Error!void {
     const ais = &auto_indenting_stream;
 
     // Render all the line comments at the beginning of the file.
-    const comment_end_loc: usize = tree.tokens.items(.start)[0];
+    const comment_end_loc = if (tree.tokens.items(.tag)[0] == .eof)
+        tree.source.len
+    else
+        tree.tokens.items(.start)[0];
     _ = try renderComments(ais, tree, 0, comment_end_loc);
 
     try renderMembers(ais, tree, tree.rootDecls());
@@ -1995,11 +1998,20 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
 /// that end is the last byte before the next token.
 fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!bool {
     var index: usize = start;
+    var rendered_empty_comments = false;
     while (mem.indexOf(u8, tree.source[index..end], "//")) |offset| {
         const comment_start = index + offset;
-        const newline = comment_start +
-            mem.indexOfScalar(u8, tree.source[comment_start..end], '\n').?;
-
+        const newline_index = mem.indexOfScalar(u8, tree.source[comment_start..end], '\n') orelse {
+            // comment ends in EOF.
+            const untrimmed_comment = tree.source[comment_start..];
+            const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.spaces);
+            if (trimmed_comment.len != 2) {
+                try ais.writer().print("{s}\n", .{trimmed_comment});
+                index = end;
+            }
+            return index != start;
+        };
+        const newline = comment_start + newline_index;
         const untrimmed_comment = tree.source[comment_start..newline];
         const trimmed_comment = mem.trimRight(u8, untrimmed_comment, &std.ascii.spaces);
 
@@ -2013,6 +2025,11 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
                 // Respect the newline directly before the comment.
                 // Note: This allows an empty line between comments
                 try ais.insertNewline();
+            } else if (trimmed_comment.len == 2) {
+                if (!rendered_empty_comments) {
+                    try ais.writer().writeByte('\n');
+                    rendered_empty_comments = true;
+                }
             } else if (index == start) {
                 // Otherwise if the first comment is on the same line as
                 // the token before it, prefix it with a single space.
@@ -2020,7 +2037,10 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
             }
         }
 
-        try ais.writer().print("{s}\n", .{trimmed_comment});
+        if (trimmed_comment.len != 2) {
+            try ais.writer().print("{s}\n", .{trimmed_comment});
+            rendered_empty_comments = false;
+        }
         index = newline + 1;
 
         if (ais.disabled_offset) |disabled_offset| {
