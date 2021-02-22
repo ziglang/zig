@@ -66,9 +66,9 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!Tree {
     });
     const root_members = try parser.parseContainerMembers();
     const root_decls = try root_members.toSpan(&parser);
-    // parseContainerMembers will try to skip as much invalid tokens as
-    // it can, so we are now at EOF.
-    assert(parser.token_tags[parser.tok_i] == .eof);
+    if (parser.token_tags[parser.tok_i] != .eof) {
+        try parser.warnExpected(.eof);
+    }
     parser.nodes.items(.data)[0] = .{
         .lhs = root_decls.start,
         .rhs = root_decls.end,

@@ -4187,20 +4187,21 @@ test "recovery: invalid container members" {
     });
 }
 
-//test "recovery: extra '}' at top level" {
-//    try testError(
-//        \\}}}
-//        \\test "" {
-//        \\    a && b;
-//        \\}
-//    , &[_]Error{
-//        .expected_container_members,
-//        .expected_container_members,
-//        .expected_container_members,
-//        .invalid_and,
-//    });
-//}
-//
+// TODO after https://github.com/ziglang/zig/issues/35 is implemented,
+// we should be able to recover from this *at any indentation level*,
+// reporting a parse error and yet also parsing all the decls even
+// inside structs.
+test "recovery: extra '}' at top level" {
+    try testError(
+        \\}}}
+        \\test "" {
+        \\    a && b;
+        \\}
+    , &[_]Error{
+        .expected_token,
+    });
+}
+
 test "recovery: mismatched bracket at top level" {
     try testError(
         \\const S = struct {
