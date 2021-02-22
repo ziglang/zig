@@ -4212,17 +4212,15 @@ test "recovery: mismatched bracket at top level" {
     });
 }
 
-//test "recovery: invalid global error set access" {
-//    try testError(
-//        \\test "" {
-//        \\    error && foo;
-//        \\}
-//    , &[_]Error{
-//        .expected_token,
-//        .ExpectedIdentifier,
-//        .invalid_and,
-//    });
-//}
+test "recovery: invalid global error set access" {
+    try testError(
+        \\test "" {
+        \\    error && foo;
+        \\}
+    , &[_]Error{
+        .expected_token,
+    });
+}
 
 //test "recovery: invalid asterisk after pointer dereference" {
 //    try testError(
