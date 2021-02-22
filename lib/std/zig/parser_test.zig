@@ -87,7 +87,7 @@ test "zig fmt: empty file" {
 test "zig fmt: file ends in comment" {
     try testTransform(
         \\     //foobar
-        ,
+    ,
         \\//foobar
         \\
     );
@@ -2400,18 +2400,18 @@ test "zig fmt: comments before test decl" {
 }
 
 test "zig fmt: preserve spacing" {
-   try testCanonical(
-       \\const std = @import("std");
-       \\
-       \\pub fn main() !void {
-       \\    var stdout_file = std.io.getStdOut;
-       \\    var stdout_file = std.io.getStdOut;
-       \\
-       \\    var stdout_file = std.io.getStdOut;
-       \\    var stdout_file = std.io.getStdOut;
-       \\}
-       \\
-   );
+    try testCanonical(
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
+        \\
+        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
+        \\}
+        \\
+    );
 }
 
 //test "zig fmt: return types" {
@@ -2432,25 +2432,25 @@ test "zig fmt: imports" {
 }
 
 test "zig fmt: global declarations" {
-   try testCanonical(
-       \\const a = b;
-       \\pub const a = b;
-       \\var a = b;
-       \\pub var a = b;
-       \\const a: i32 = b;
-       \\pub const a: i32 = b;
-       \\var a: i32 = b;
-       \\pub var a: i32 = b;
-       \\extern const a: i32 = b;
-       \\pub extern const a: i32 = b;
-       \\extern var a: i32 = b;
-       \\pub extern var a: i32 = b;
-       \\extern "a" const a: i32 = b;
-       \\pub extern "a" const a: i32 = b;
-       \\extern "a" var a: i32 = b;
-       \\pub extern "a" var a: i32 = b;
-       \\
-   );
+    try testCanonical(
+        \\const a = b;
+        \\pub const a = b;
+        \\var a = b;
+        \\pub var a = b;
+        \\const a: i32 = b;
+        \\pub const a: i32 = b;
+        \\var a: i32 = b;
+        \\pub var a: i32 = b;
+        \\extern const a: i32 = b;
+        \\pub extern const a: i32 = b;
+        \\extern var a: i32 = b;
+        \\pub extern var a: i32 = b;
+        \\extern "a" const a: i32 = b;
+        \\pub extern "a" const a: i32 = b;
+        \\extern "a" var a: i32 = b;
+        \\pub extern "a" var a: i32 = b;
+        \\
+    );
 }
 
 test "zig fmt: extern declaration" {
@@ -2681,21 +2681,21 @@ test "zig fmt: functions" {
 }
 
 test "zig fmt: multiline string" {
-   try testCanonical(
-       \\test "" {
-       \\    const s1 =
-       \\        \\one
-       \\        \\two)
-       \\        \\three
-       \\    ;
-       \\    const s3 = // hi
-       \\        \\one
-       \\        \\two)
-       \\        \\three
-       \\    ;
-       \\}
-       \\
-   );
+    try testCanonical(
+        \\test "" {
+        \\    const s1 =
+        \\        \\one
+        \\        \\two)
+        \\        \\three
+        \\    ;
+        \\    const s3 = // hi
+        \\        \\one
+        \\        \\two)
+        \\        \\three
+        \\    ;
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: values" {
@@ -3395,17 +3395,17 @@ test "zig fmt: file ends with struct field" {
 }
 
 test "zig fmt: comment after empty comment" {
-   try testTransform(
-       \\const x = true; //
-       \\//
-       \\//
-       \\//a
-       \\
-   ,
-       \\const x = true;
-       \\//a
-       \\
-   );
+    try testTransform(
+        \\const x = true; //
+        \\//
+        \\//
+        \\//a
+        \\
+    ,
+        \\const x = true;
+        \\//a
+        \\
+    );
 }
 
 //test "zig fmt: line comment in array" {
@@ -3579,12 +3579,12 @@ test "zig fmt: comment after empty comment" {
 //}
 
 test "zig fmt: extern without container keyword returns error" {
-   try testError(
-       \\const container = extern {};
-       \\
-   , &[_]Error{
-       .expected_container,
-   });
+    try testError(
+        \\const container = extern {};
+        \\
+    , &[_]Error{
+        .expected_container,
+    });
 }
 
 test "zig fmt: same line doc comment returns error" {
@@ -3706,14 +3706,14 @@ test "zig fmt: C var args" {
 //}
 
 test "zig fmt: Don't add extra newline after if" {
-   try testCanonical(
-       \\pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
-       \\    if (cwd().symLink(existing_path, new_path, .{})) {
-       \\        return;
-       \\    }
-       \\}
-       \\
-   );
+    try testCanonical(
+        \\pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
+        \\    if (cwd().symLink(existing_path, new_path, .{})) {
+        \\        return;
+        \\    }
+        \\}
+        \\
+    );
 }
 
 //test "zig fmt: comments in ternary ifs" {
