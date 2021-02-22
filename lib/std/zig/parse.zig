@@ -1052,7 +1052,8 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const array_expr = try p.expectExpr();
         _ = try p.expectToken(.r_paren);
-        _ = try p.parsePtrIndexPayload();
+        const found_payload = try p.parsePtrIndexPayload();
+        if (found_payload == 0) try p.warn(.expected_loop_payload);
 
         // TODO propose to change the syntax so that semicolons are always required
         // inside while statements, even if there is an `else`.
@@ -2067,7 +2068,8 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const array_expr = try p.expectExpr();
         _ = try p.expectToken(.r_paren);
-        _ = try p.parsePtrIndexPayload();
+        const found_payload = try p.parsePtrIndexPayload();
+        if (found_payload == 0) try p.warn(.expected_loop_payload);
 
         const then_expr = try p.expectExpr();
         const else_token = p.eatToken(.keyword_else) orelse {
@@ -2672,6 +2674,16 @@ const Parser = struct {
                     },
                 }),
             },
+            .keyword_inline => {
+                p.tok_i += 1;
+                switch (p.token_tags[p.tok_i]) {
+                    .keyword_for => return p.parseForTypeExpr(),
+                    .keyword_while => return p.parseWhileTypeExpr(),
+                    else => return p.fail(.expected_inlinable),
+                }
+            },
+            .keyword_for => return p.parseForTypeExpr(),
+            .keyword_while => return p.parseWhileTypeExpr(),
             .period => switch (p.token_tags[p.tok_i + 1]) {
                 .identifier => return p.addNode(.{
                     .tag = .enum_literal,
@@ -2879,14 +2891,21 @@ const Parser = struct {
                         },
                     });
                 },
-                else => return p.addNode(.{
-                    .tag = .error_value,
-                    .main_token = p.nextToken(),
-                    .data = .{
-                        .lhs = try p.expectToken(.period),
-                        .rhs = try p.expectToken(.identifier),
-                    },
-                }),
+                else => {
+                    const main_token = p.nextToken();
+                    const period = p.eatToken(.period);
+                    if (period == null) try p.warnExpected(.period);
+                    const identifier = p.eatToken(.identifier);
+                    if (identifier == null) try p.warnExpected(.identifier);
+                    return p.addNode(.{
+                        .tag = .error_value,
+                        .main_token = main_token,
+                        .data = .{
+                            .lhs = period orelse 0,
+                            .rhs = identifier orelse 0,
+                        },
+                    });
+                },
             },
             .l_paren => return p.addNode(.{
                 .tag = .grouped_expression,
@@ -2913,9 +2932,10 @@ const Parser = struct {
     fn parseForTypeExpr(p: *Parser) !Node.Index {
         const for_token = p.eatToken(.keyword_for) orelse return null_node;
         _ = try p.expectToken(.l_paren);
-        const array_expr = try p.expectTypeExpr();
+        const array_expr = try p.expectExpr();
         _ = try p.expectToken(.r_paren);
-        _ = try p.parsePtrIndexPayload();
+        const found_payload = try p.parsePtrIndexPayload();
+        if (found_payload == 0) try p.warn(.expected_loop_payload);
 
         const then_expr = try p.expectExpr();
         const else_token = p.eatToken(.keyword_else) orelse {

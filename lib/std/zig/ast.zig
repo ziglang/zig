@@ -253,6 +253,11 @@ pub const Tree = struct {
                     token_tags[parse_error.token].symbol(),
                 });
             },
+            .expected_loop_payload => {
+                return stream.print("expected loop payload, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
             .extra_align_qualifier => {
                 return stream.writeAll("extra align qualifier");
             },
@@ -2332,6 +2337,7 @@ pub const Error = struct {
         expected_type_expr,
         expected_var_decl,
         expected_var_decl_or_fn,
+        expected_loop_payload,
         extra_align_qualifier,
         extra_allowzero_qualifier,
         extra_const_qualifier,

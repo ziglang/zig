@@ -4215,6 +4215,8 @@ test "recovery: invalid global error set access" {
         \\}
     , &[_]Error{
         .expected_token,
+        .expected_token,
+        .invalid_and,
     });
 }
 
@@ -4270,6 +4272,20 @@ test "recovery: missing block after for/while loops" {
         \\test "" { for (foo) |bar| }
     , &[_]Error{
         .expected_block_or_assignment,
+    });
+}
+
+test "recovery: missing for payload" {
+    try testError(
+        \\comptime {
+        \\    const a = for(a) {};
+        \\    const a: for(a) {};
+        \\    for(a) {}
+        \\}
+    , &[_]Error{
+        .expected_loop_payload,
+        .expected_loop_payload,
+        .expected_loop_payload,
     });
 }
 
