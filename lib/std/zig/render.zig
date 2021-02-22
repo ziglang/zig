@@ -79,6 +79,11 @@ fn renderMember(ais: *Ais, tree: ast.Tree, decl: ast.Node.Index, space: Space) E
                 }
             }
             while (i < fn_token) : (i += 1) {
+                if (token_tags[i] == .keyword_inline) {
+                    // TODO remove this special case when 0.9.0 is released.
+                    // See the commit that introduced this comment for more details.
+                    continue;
+                }
                 try renderToken(ais, tree, i, .space);
             }
             assert(datas[decl].rhs != 0);
@@ -1260,6 +1265,9 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.full.FnProto, space: S
     const token_tags = tree.tokens.items(.tag);
     const token_starts = tree.tokens.items(.start);
 
+    const is_inline = fn_proto.ast.fn_token > 0 and
+        token_tags[fn_proto.ast.fn_token - 1] == .keyword_inline;
+
     const after_fn_token = fn_proto.ast.fn_token + 1;
     const lparen = if (token_tags[after_fn_token] == .identifier) blk: {
         try renderToken(ais, tree, fn_proto.ast.fn_token, .space); // fn
@@ -1435,6 +1443,8 @@ fn renderFnProto(ais: *Ais, tree: ast.Tree, fn_proto: ast.full.FnProto, space: S
         try renderToken(ais, tree, callconv_lparen, .none); // (
         try renderExpression(ais, tree, fn_proto.ast.callconv_expr, .none);
         try renderToken(ais, tree, callconv_rparen, .space); // )
+    } else if (is_inline) {
+        try ais.writer().writeAll("callconv(.Inline) ");
     }
 
     if (token_tags[maybe_bang] == .bang) {

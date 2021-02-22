@@ -4,18 +4,16 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
-// TODO Remove this after zig 0.8.0 is released.
-// TODO need to add the logic to make this test pass. it was added in master
-// but was not added in the ast-memory-layout branch yet.
-//test "zig fmt: rewrite inline functions as callconv(.Inline)" {
-//    try testTransform(
-//        \\inline fn foo() void {}
-//        \\
-//    ,
-//        \\fn foo() callconv(.Inline) void {}
-//        \\
-//    );
-//}
+// TODO Remove this after zig 0.9.0 is released.
+test "zig fmt: rewrite inline functions as callconv(.Inline)" {
+    try testTransform(
+        \\inline fn foo() void {}
+        \\
+    ,
+        \\fn foo() callconv(.Inline) void {}
+        \\
+    );
+}
 
 test "zig fmt: simple top level comptime block" {
     try testCanonical(
@@ -2490,8 +2488,6 @@ test "zig fmt: function attributes" {
         \\pub extern fn foo() void;
         \\extern "c" fn foo() void;
         \\pub extern "c" fn foo() void;
-        \\inline fn foo() void {}
-        \\pub inline fn foo() void {}
         \\noinline fn foo() void {}
         \\pub noinline fn foo() void {}
         \\
