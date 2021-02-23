@@ -1640,7 +1640,11 @@ fn renderArrayInit(
     const last_elem = array_init.ast.elements[array_init.ast.elements.len - 1];
     const last_elem_token = tree.lastToken(last_elem);
     const trailing_comma = token_tags[last_elem_token + 1] == .comma;
-    if (!trailing_comma) {
+    const rbrace = if (trailing_comma) last_elem_token + 2 else last_elem_token + 1;
+    assert(token_tags[rbrace] == .r_brace);
+    const contains_newlines = !tree.tokensOnSameLine(array_init.ast.lbrace, rbrace);
+
+    if (!trailing_comma and !contains_newlines) {
         // Render all on one line, no trailing comma.
         if (array_init.ast.elements.len == 1) {
             // If there is only one element, we don't use spaces
@@ -1658,8 +1662,6 @@ fn renderArrayInit(
     ais.pushIndentNextLine();
     try renderToken(ais, tree, array_init.ast.lbrace, .newline);
 
-    const rbrace = last_elem_token + 2;
-    assert(token_tags[rbrace] == .r_brace);
 
     var expr_index: usize = 0;
     while (rowSize(tree, array_init.ast.elements[expr_index..], rbrace)) |row_size| {
@@ -1673,28 +1675,31 @@ fn renderArrayInit(
         defer gpa.free(expr_newlines);
         mem.set(bool, expr_newlines, false);
 
-        const expr_widths = widths[0 .. widths.len - row_size];
-        const column_widths = widths[widths.len - row_size ..];
+        const expr_widths = widths[0..row_exprs.len];
+        const column_widths = widths[row_exprs.len..];
 
-        // Find next row with trailing comment (if any) to end the current section
+        // Find next row with trailing comment (if any) to end the current section.
         const section_end = sec_end: {
             var this_line_first_expr: usize = 0;
             var this_line_size = rowSize(tree, row_exprs, rbrace);
             for (row_exprs) |expr, i| {
-                // Ignore comment on first line of this section
-                if (i == 0 or tree.tokensOnSameLine(tree.firstToken(row_exprs[0]), tree.lastToken(expr))) continue;
-                // Track start of line containing comment
-                if (!tree.tokensOnSameLine(tree.firstToken(row_exprs[this_line_first_expr]), tree.lastToken(expr))) {
+                // Ignore comment on first line of this section.
+                if (i == 0) continue;
+                const expr_last_token = tree.lastToken(expr);
+                if (tree.tokensOnSameLine(tree.firstToken(row_exprs[0]), expr_last_token))
+                    continue;
+                // Track start of line containing comment.
+                if (!tree.tokensOnSameLine(tree.firstToken(row_exprs[this_line_first_expr]), expr_last_token)) {
                     this_line_first_expr = i;
                     this_line_size = rowSize(tree, row_exprs[this_line_first_expr..], rbrace);
                 }
 
-                const maybe_comma = tree.lastToken(expr) + 1;
+                const maybe_comma = expr_last_token + 1;
                 if (token_tags[maybe_comma] == .comma) {
                     const after_comma_src = tree.source[token_starts[maybe_comma]..token_starts[maybe_comma + 1]];
-                    const same_line_comment = for (after_comma_src) |byte| switch (byte) {
+                    for (after_comma_src) |byte| switch (byte) {
                         '\n' => break,
-                        '/' => break :sec_end i - this_line_size.? + 1, // Found row ending in comment
+                        '/' => break :sec_end i - this_line_size.? + 1,
                         else => continue,
                     };
                 }
@@ -1754,7 +1759,7 @@ fn renderArrayInit(
             }
         }
 
-        // Render exprs in current section
+        // Render exprs in current section.
         column_counter = 0;
         var last_col_index: usize = row_size - 1;
         for (section_exprs) |expr, i| {
@@ -1785,19 +1790,12 @@ fn renderArrayInit(
                 try renderToken(ais, tree, comma, .newline); // ,
                 try renderExtraNewline(ais, tree, next_expr);
             } else {
-                const maybe_comma = tree.lastToken(expr) + 1;
-                if (token_tags[maybe_comma] == .comma) {
-                    try renderExpression(gpa, ais, tree, expr, .none); // ,
-                    try renderToken(ais, tree, maybe_comma, .newline); // ,
-                } else {
-                    try renderExpression(gpa, ais, tree, expr, .comma); // ,
-                }
+                try renderExpression(gpa, ais, tree, expr, .comma); // ,
             }
         }
 
-        if (expr_index == array_init.ast.elements.len) {
+        if (expr_index == array_init.ast.elements.len)
             break;
-        }
     }
 
     ais.popIndent();
@@ -2175,7 +2173,6 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
 /// that end is the last byte before the next token.
 fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!bool {
     var index: usize = start;
-    var rendered_empty_comments = false;
     while (mem.indexOf(u8, tree.source[index..end], "//")) |offset| {
         const comment_start = index + offset;
 
@@ -2196,11 +2193,6 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
                 // Respect the newline directly before the comment.
                 // Note: This allows an empty line between comments
                 try ais.insertNewline();
-            } else if (trimmed_comment.len == 2) {
-                if (!rendered_empty_comments) {
-                    try ais.writer().writeByte('\n');
-                    rendered_empty_comments = true;
-                }
             } else if (index == start) {
                 // Otherwise if the first comment is on the same line as
                 // the token before it, prefix it with a single space.
@@ -2208,10 +2200,7 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
             }
         }
 
-        if (trimmed_comment.len != 2) {
-            try ais.writer().print("{s}\n", .{trimmed_comment});
-            rendered_empty_comments = false;
-        }
+        try ais.writer().print("{s}\n", .{trimmed_comment});
         index = 1 + (newline orelse return true);
 
         if (ais.disabled_offset) |disabled_offset| {
