@@ -107,6 +107,7 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
+
         TestTarget{
             .target = .{
                 .cpu_arch = .aarch64,
@@ -226,6 +227,7 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+
 
         TestTarget{
             .target = .{
@@ -654,7 +656,7 @@ pub const StackTracesContext = struct {
         const b = self.b;
         const src_basename = "source.zig";
         const write_src = b.addWriteFile(src_basename, source);
-        const exe = b.addExecutableFromWriteFileStep("test", write_src, src_basename);
+            const exe = b.addExecutableSource("test", write_src.getFileSource(src_basename).?, false);
         exe.setBuildMode(mode);
 
         const run_and_compare = RunAndCompareStep.create(
@@ -667,6 +669,7 @@ pub const StackTracesContext = struct {
 
         self.step.dependOn(&run_and_compare.step);
     }
+
 
     const RunAndCompareStep = struct {
         step: build.Step,
@@ -776,6 +779,7 @@ pub const StackTracesContext = struct {
                 var it = mem.split(stderr, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
+
                     // offset search past `[drive]:` on windows
                     var pos: usize = if (std.Target.current.os.tag == .windows) 2 else 0;
                     // locate delims/anchor
@@ -935,7 +939,7 @@ pub const CompileErrorContext = struct {
                 try zig_args.append("build-obj");
             }
             const root_src_basename = self.case.sources.items[0].filename;
-            try zig_args.append(self.write_src.getOutputPath(root_src_basename));
+            try zig_args.append(self.write_src.getFileSource(root_src_basename).?.getPath(b));
 
             zig_args.append("--name") catch unreachable;
             zig_args.append("test") catch unreachable;

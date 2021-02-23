@@ -48,10 +48,7 @@ pub fn add(self: *WriteFileStep, basename: []const u8, bytes: []const u8) void {
 
     self.files.append(node);
 }
-/// Unless setOutputDir was called, this function must be called only in
-/// the make step, from a step that has declared a dependency on this one.
-/// To run an executable built with zig build, use `run`, or create an install step and invoke it.
-//pub const getOutputPath = @compileError("WriteFileStep.getOutputPath is deprecated! Use getFileSource to retrieve a ");
+
 /// Gets a file source for the given basename. If the file does not exist, returns `null`.
 pub fn getFileSource(step: *WriteFileStep, basename: []const u8) ?build.FileSource {
     var it = step.files.first;

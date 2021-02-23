@@ -63,7 +63,7 @@ pub fn setTarget(self: *TranslateCStep, target: CrossTarget) void {
 
 /// Creates a step to build an executable from the translated source.
 pub fn addExecutable(self: *TranslateCStep) *LibExeObjStep {
-    return self.builder.addExecutableSource("translated_c", build.FileSource{ .generated = &self.output_file }, false);
+    return self.builder.addExecutableSource("translated_c", build.FileSource{ .generated = &self.output_file }, .static);
 }
 
 pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
