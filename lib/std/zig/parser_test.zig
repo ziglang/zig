@@ -1594,50 +1594,67 @@ test "zig fmt: struct literal no trailing comma" {
     );
 }
 
-//test "zig fmt: struct literal containing a multiline expression" {
-//    try testTransform(
-//        \\const a = A{ .x = if (f1()) 10 else 20 };
-//        \\const a = A{ .x = if (f1()) 10 else 20, };
-//        \\const a = A{ .x = if (f1())
-//        \\    10 else 20 };
-//        \\const a = A{ .x = if (f1()) 10 else 20, .y = f2() + 100 };
-//        \\const a = A{ .x = if (f1()) 10 else 20, .y = f2() + 100, };
-//        \\const a = A{ .x = if (f1())
-//        \\    10 else 20};
-//        \\const a = A{ .x = switch(g) {0 => "ok", else => "no"} };
-//        \\
-//    ,
-//        \\const a = A{ .x = if (f1()) 10 else 20 };
-//        \\const a = A{
-//        \\    .x = if (f1()) 10 else 20,
-//        \\};
-//        \\const a = A{
-//        \\    .x = if (f1())
-//        \\        10
-//        \\    else
-//        \\        20,
-//        \\};
-//        \\const a = A{ .x = if (f1()) 10 else 20, .y = f2() + 100 };
-//        \\const a = A{
-//        \\    .x = if (f1()) 10 else 20,
-//        \\    .y = f2() + 100,
-//        \\};
-//        \\const a = A{
-//        \\    .x = if (f1())
-//        \\        10
-//        \\    else
-//        \\        20,
-//        \\};
-//        \\const a = A{
-//        \\    .x = switch (g) {
-//        \\        0 => "ok",
-//        \\        else => "no",
-//        \\    },
-//        \\};
-//        \\
-//    );
-//}
-//
+test "zig fmt: struct literal containing a multiline expression" {
+    try testTransform(
+        \\const a = A{ .x = if (f1()) 10 else 20 };
+        \\const a = A{ .x = if (f1()) 10 else 20, };
+        \\const a = A{ .x = if (f1())
+        \\    10 else 20 };
+        \\const a = A{ .x = if (f1())
+        \\    10 else 20,};
+        \\const a = A{ .x = if (f1()) 10 else 20, .y = f2() + 100 };
+        \\const a = A{ .x = if (f1()) 10 else 20, .y = f2() + 100, };
+        \\const a = A{ .x = if (f1())
+        \\    10 else 20};
+        \\const a = A{ .x = if (f1())
+        \\    10 else 20,};
+        \\const a = A{ .x = switch(g) {0 => "ok", else => "no"} };
+        \\const a = A{ .x = switch(g) {0 => "ok", else => "no"}, };
+        \\
+    ,
+        \\const a = A{ .x = if (f1()) 10 else 20 };
+        \\const a = A{
+        \\    .x = if (f1()) 10 else 20,
+        \\};
+        \\const a = A{ .x = if (f1())
+        \\    10
+        \\else
+        \\    20 };
+        \\const a = A{
+        \\    .x = if (f1())
+        \\        10
+        \\    else
+        \\        20,
+        \\};
+        \\const a = A{ .x = if (f1()) 10 else 20, .y = f2() + 100 };
+        \\const a = A{
+        \\    .x = if (f1()) 10 else 20,
+        \\    .y = f2() + 100,
+        \\};
+        \\const a = A{ .x = if (f1())
+        \\    10
+        \\else
+        \\    20 };
+        \\const a = A{
+        \\    .x = if (f1())
+        \\        10
+        \\    else
+        \\        20,
+        \\};
+        \\const a = A{ .x = switch (g) {
+        \\    0 => "ok",
+        \\    else => "no",
+        \\} };
+        \\const a = A{
+        \\    .x = switch (g) {
+        \\        0 => "ok",
+        \\        else => "no",
+        \\    },
+        \\};
+        \\
+    );
+}
+
 //test "zig fmt: array literal with hint" {
 //    try testTransform(
 //        \\const a = []u8{
