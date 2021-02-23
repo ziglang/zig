@@ -1416,9 +1416,7 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
                     continue;
                 },
                 .r_paren => break,
-                else => {
-                    std.debug.print("\n{}\n", .{token_tags[last_param_token]});
-                },
+                else => unreachable,
             }
             if (token_tags[last_param_token] == .identifier) {
                 try renderToken(ais, tree, last_param_token, .none); // name
