@@ -3790,40 +3790,88 @@ test "zig fmt: comments in ternary ifs" {
     );
 }
 
-//test "zig fmt: test comments in field access chain" {
-//    try testCanonical(
-//        \\pub const str = struct {
-//        \\    pub const Thing = more.more //
-//        \\        .more() //
-//        \\        .more().more() //
-//        \\        .more() //
-//        \\    // .more() //
-//        \\        .more() //
-//        \\        .more();
-//        \\    data: Data,
-//        \\};
-//        \\
-//        \\pub const str = struct {
-//        \\    pub const Thing = more.more //
-//        \\        .more() //
-//        \\    // .more() //
-//        \\    // .more() //
-//        \\    // .more() //
-//        \\        .more() //
-//        \\        .more();
-//        \\    data: Data,
-//        \\};
-//        \\
-//        \\pub const str = struct {
-//        \\    pub const Thing = more //
-//        \\        .more //
-//        \\        .more() //
-//        \\        .more();
-//        \\    data: Data,
-//        \\};
-//        \\
-//    );
-//}
+test "zig fmt: test comments in field access chain" {
+    try testCanonical(
+        \\pub const str = struct {
+        \\    pub const Thing = more.more //
+        \\        .more() //
+        \\        .more().more() //
+        \\        .more() //
+        \\    // .more() //
+        \\        .more() //
+        \\        .more();
+        \\    data: Data,
+        \\};
+        \\
+        \\pub const str = struct {
+        \\    pub const Thing = more.more //
+        \\        .more() //
+        \\    // .more() //
+        \\    // .more() //
+        \\    // .more() //
+        \\        .more() //
+        \\        .more();
+        \\    data: Data,
+        \\};
+        \\
+        \\pub const str = struct {
+        \\    pub const Thing = more //
+        \\        .more //
+        \\        .more() //
+        \\        .more();
+        \\    data: Data,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: allow line break before field access" {
+    try testCanonical(
+        \\test {
+        \\    const w = foo.bar().zippy(zag).iguessthisisok();
+        \\
+        \\    const x = foo
+        \\        .bar()
+        \\        . // comment
+        \\    // comment
+        \\        swooop().zippy(zag)
+        \\        .iguessthisisok();
+        \\
+        \\    const y = view.output.root.server.input_manager.default_seat.wlr_seat.name;
+        \\
+        \\    const z = view.output.root.server
+        \\        .input_manager //
+        \\        .default_seat
+        \\        . // comment
+        \\    // another comment
+        \\        wlr_seat.name;
+        \\}
+        \\
+    );
+    try testTransform(
+        \\test {
+        \\    const x = foo.
+        \\        bar()
+        \\        .zippy(zag).iguessthisisok();
+        \\
+        \\    const z = view.output.root.server.
+        \\        input_manager.
+        \\        default_seat.wlr_seat.name;
+        \\}
+        \\
+    ,
+        \\test {
+        \\    const x = foo
+        \\        .bar()
+        \\        .zippy(zag).iguessthisisok();
+        \\
+        \\    const z = view.output.root.server
+        \\        .input_manager
+        \\        .default_seat.wlr_seat.name;
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: Indent comma correctly after multiline string literals in arg list (trailing comma)" {
     try testCanonical(

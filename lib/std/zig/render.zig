@@ -298,9 +298,31 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
         },
 
         .field_access => {
+            const main_token = main_tokens[node];
             const field_access = datas[node];
+
             try renderExpression(gpa, ais, tree, field_access.lhs, .none);
-            try renderToken(ais, tree, main_tokens[node], .none);
+
+            // Allow a line break between the lhs and the dot if the lhs and rhs
+            // are on different lines.
+            const lhs_last_token = tree.lastToken(field_access.lhs);
+            const same_line = tree.tokensOnSameLine(lhs_last_token, main_token + 1);
+            if (!same_line) {
+                if (!hasComment(tree, lhs_last_token, main_token)) try ais.insertNewline();
+                ais.pushIndentOneShot();
+            }
+
+            try renderToken(ais, tree, main_token, .none);
+
+            // This check ensures that zag() is indented in the following example:
+            // const x = foo
+            //     .bar()
+            //     . // comment
+            //     zag();
+            if (!same_line and hasComment(tree, main_token, main_token + 1)) {
+                ais.pushIndentOneShot();
+            }
+
             return renderToken(ais, tree, field_access.rhs, space);
         },
 
