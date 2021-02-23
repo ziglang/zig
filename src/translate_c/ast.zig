@@ -1629,7 +1629,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
             const span = try c.listToSpan(members);
             return c.addNode(.{
-                .tag = .container_decl_arg_comma,
+                .tag = .container_decl_arg_trailing,
                 .main_token = enum_tok,
                 .data = .{
                     .lhs = arg_expr,
@@ -1811,7 +1811,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
 
     if (members.len <= 2) {
         return c.addNode(.{
-            .tag = .container_decl_two_comma,
+            .tag = .container_decl_two_trailing,
             .main_token = kind_tok,
             .data = .{
                 .lhs = members[0],
@@ -1821,7 +1821,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     } else {
         const span = try c.listToSpan(members);
         return c.addNode(.{
-            .tag = .container_decl_comma,
+            .tag = .container_decl_trailing,
             .main_token = kind_tok,
             .data = .{
                 .lhs = span.start,
