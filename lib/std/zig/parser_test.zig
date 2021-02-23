@@ -3447,21 +3447,15 @@ test "zig fmt: file ends with struct field" {
     );
 }
 
-// TODO intentionally change the behavior of this case?
-// for array literals we necessarily have meaningful empty comments
-//test "zig fmt: comment after empty comment" {
-//    try testTransform(
-//        \\const x = true; //
-//        \\//
-//        \\//
-//        \\//a
-//        \\
-//    ,
-//        \\const x = true;
-//        \\//a
-//        \\
-//    );
-//}
+test "zig fmt: comment after empty comment" {
+    try testCanonical(
+        \\const x = true; //
+        \\//
+        \\//
+        \\//a
+        \\
+    );
+}
 
 test "zig fmt: line comment in array" {
     try testTransform(
