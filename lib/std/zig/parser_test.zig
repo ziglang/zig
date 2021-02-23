@@ -680,7 +680,7 @@ test "zig fmt: enum literal inside array literal" {
     );
 }
 
-test "zig fmt: character literal larger than u8" {
+test "zig fmt: Unicode code point literal larger than u8" {
     try testCanonical(
         \\const x = '\u{01f4a9}';
         \\
