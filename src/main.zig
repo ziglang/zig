@@ -547,6 +547,7 @@ fn buildOutputType(
     var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
+    var use_zld: ?bool = null;
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
@@ -906,6 +907,8 @@ fn buildOutputType(
                         use_lld = true;
                     } else if (mem.eql(u8, arg, "-fno-LLD")) {
                         use_lld = false;
+                    } else if (mem.eql(u8, arg, "-fZLD")) {
+                        use_zld = true;
                     } else if (mem.eql(u8, arg, "-fClang")) {
                         use_clang = true;
                     } else if (mem.eql(u8, arg, "-fno-Clang")) {
@@ -1864,6 +1867,7 @@ fn buildOutputType(
         .want_compiler_rt = want_compiler_rt,
         .use_llvm = use_llvm,
         .use_lld = use_lld,
+        .use_zld = use_zld,
         .use_clang = use_clang,
         .rdynamic = rdynamic,
         .linker_script = linker_script,

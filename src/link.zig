@@ -61,6 +61,8 @@ pub const Options = struct {
     /// Darwin-only. If this is true, `use_llvm` is true, and `is_native_os` is true, this link code will
     /// use system linker `ld` instead of the LLD.
     system_linker_hack: bool,
+    /// Experimental Zig linker.
+    use_zld: bool,
     link_libc: bool,
     link_libcpp: bool,
     function_sections: bool,

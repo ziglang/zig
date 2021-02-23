@@ -26,6 +26,7 @@ const target_util = @import("../target.zig");
 const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
+const Zld = @import("MachO/Zld.zig");
 
 usingnamespace @import("MachO/commands.zig");
 
@@ -636,6 +637,31 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(self.base.allocator);
         defer argv.deinit();
+
+        if (true) {
+            // if (self.base.options.use_zld) {
+            var zld = Zld.init(self.base.allocator);
+            defer zld.deinit();
+            zld.arch = target.cpu.arch;
+
+            var input_files = std.ArrayList([]const u8).init(self.base.allocator);
+            defer input_files.deinit();
+            // Positional arguments to the linker such as object files.
+            try input_files.appendSlice(self.base.options.objects);
+            for (comp.c_object_table.items()) |entry| {
+                try input_files.append(entry.key.status.success.object_path);
+            }
+            if (module_obj_path) |p| {
+                try input_files.append(p);
+            }
+            try input_files.append(comp.compiler_rt_static_lib.?.full_object_path);
+            // libc++ dep
+            if (self.base.options.link_libcpp) {
+                try input_files.append(comp.libcxxabi_static_lib.?.full_object_path);
+                try input_files.append(comp.libcxx_static_lib.?.full_object_path);
+            }
+            return zld.link(input_files.items, full_out_path);
+        }
 
         // TODO https://github.com/ziglang/zig/issues/6971
         // Note that there is no need to check if running natively since we do that already
