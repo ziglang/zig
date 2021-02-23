@@ -2581,9 +2581,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        var a: c_int = 2;
         \\    }
         \\    if ((blk: {
-        \\            _ = @as(c_int, 2);
-        \\            break :blk @as(c_int, 5);
-        \\        }) != 0) {
+        \\        _ = @as(c_int, 2);
+        \\        break :blk @as(c_int, 5);
+        \\    }) != 0) {
         \\        var a: c_int = 2;
         \\    }
         \\}
@@ -3134,28 +3134,26 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    // TODO fix zig fmt here - it incorrectly inserts an additional indentation
-    // level inside blk_1.
-    // cases.add("nested assignment",
-    //     \\int foo(int *p, int x) {
-    //     \\    return *p++ = x;
-    //     \\}
-    // , &[_][]const u8{
-    //     \\pub export fn foo(arg_p: [*c]c_int, arg_x: c_int) c_int {
-    //     \\    var p = arg_p;
-    //     \\    var x = arg_x;
-    //     \\    return blk: {
-    //     \\        const tmp = x;
-    //     \\        (blk_1: {
-    //     \\            const ref = &p;
-    //     \\            const tmp_2 = ref.*;
-    //     \\            ref.* += 1;
-    //     \\            break :blk_1 tmp_2;
-    //     \\        }).?.* = tmp;
-    //     \\        break :blk tmp;
-    //     \\    };
-    //     \\}
-    // });
+    cases.add("nested assignment",
+        \\int foo(int *p, int x) {
+        \\    return *p++ = x;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_p: [*c]c_int, arg_x: c_int) c_int {
+        \\    var p = arg_p;
+        \\    var x = arg_x;
+        \\    return blk: {
+        \\        const tmp = x;
+        \\        (blk_1: {
+        \\            const ref = &p;
+        \\            const tmp_2 = ref.*;
+        \\            ref.* += 1;
+        \\            break :blk_1 tmp_2;
+        \\        }).?.* = tmp;
+        \\        break :blk tmp;
+        \\    };
+        \\}
+    });
 
     cases.add("widening and truncating integer casting to different signedness",
         \\unsigned long foo(void) {
