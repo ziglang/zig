@@ -113,7 +113,7 @@ const Parser = struct {
         len: usize,
         lhs: Node.Index,
         rhs: Node.Index,
-        trailing_comma: bool,
+        trailing: bool,
 
         fn toSpan(self: Members, p: *Parser) !Node.SubRange {
             if (self.len <= 2) {
@@ -215,7 +215,7 @@ const Parser = struct {
         // Skip container doc comments.
         while (p.eatToken(.container_doc_comment)) |_| {}
 
-        var trailing_comma = false;
+        var trailing = false;
         while (true) {
             const doc_comment = try p.eatDocComments();
 
@@ -228,7 +228,7 @@ const Parser = struct {
                         }
                         try list.append(test_decl_node);
                     }
-                    trailing_comma = false;
+                    trailing = false;
                 },
                 .keyword_comptime => switch (p.token_tags[p.tok_i + 1]) {
                     .identifier => {
@@ -251,11 +251,11 @@ const Parser = struct {
                             switch (p.token_tags[p.tok_i]) {
                                 .comma => {
                                     p.tok_i += 1;
-                                    trailing_comma = true;
+                                    trailing = true;
                                     continue;
                                 },
                                 .r_brace, .eof => {
-                                    trailing_comma = false;
+                                    trailing = false;
                                     break;
                                 },
                                 else => {},
@@ -289,7 +289,7 @@ const Parser = struct {
                             }
                             try list.append(comptime_node);
                         }
-                        trailing_comma = false;
+                        trailing = false;
                     },
                     else => {
                         p.tok_i += 1;
@@ -305,7 +305,7 @@ const Parser = struct {
                         }
                         try list.append(top_level_decl);
                     }
-                    trailing_comma = false;
+                    trailing = p.token_tags[p.tok_i - 1] == .semicolon;
                 },
                 .keyword_usingnamespace => {
                     const node = try p.expectUsingNamespaceRecoverable();
@@ -315,7 +315,7 @@ const Parser = struct {
                         }
                         try list.append(node);
                     }
-                    trailing_comma = false;
+                    trailing = p.token_tags[p.tok_i - 1] == .semicolon;
                 },
                 .keyword_const,
                 .keyword_var,
@@ -333,7 +333,7 @@ const Parser = struct {
                         }
                         try list.append(top_level_decl);
                     }
-                    trailing_comma = false;
+                    trailing = p.token_tags[p.tok_i - 1] == .semicolon;
                 },
                 .identifier => {
                     const container_field = try p.expectContainerFieldRecoverable();
@@ -354,11 +354,11 @@ const Parser = struct {
                         switch (p.token_tags[p.tok_i]) {
                             .comma => {
                                 p.tok_i += 1;
-                                trailing_comma = true;
+                                trailing = true;
                                 continue;
                             },
                             .r_brace, .eof => {
-                                trailing_comma = false;
+                                trailing = false;
                                 break;
                             },
                             else => {},
@@ -391,19 +391,19 @@ const Parser = struct {
                 .len = 0,
                 .lhs = 0,
                 .rhs = 0,
-                .trailing_comma = trailing_comma,
+                .trailing = trailing,
             },
             1 => return Members{
                 .len = 1,
                 .lhs = list.items[0],
                 .rhs = 0,
-                .trailing_comma = trailing_comma,
+                .trailing = trailing,
             },
             2 => return Members{
                 .len = 2,
                 .lhs = list.items[0],
                 .rhs = list.items[1],
-                .trailing_comma = trailing_comma,
+                .trailing = trailing,
             },
             else => {
                 const span = try p.listToSpan(list.items);
@@ -411,7 +411,7 @@ const Parser = struct {
                     .len = list.items.len,
                     .lhs = span.start,
                     .rhs = span.end,
-                    .trailing_comma = trailing_comma,
+                    .trailing = trailing,
                 };
             },
         }
@@ -3575,8 +3575,8 @@ const Parser = struct {
                             const members_span = try members.toSpan(p);
                             _ = try p.expectToken(.r_brace);
                             return p.addNode(.{
-                                .tag = switch (members.trailing_comma) {
-                                    true => .tagged_union_enum_tag_comma,
+                                .tag = switch (members.trailing) {
+                                    true => .tagged_union_enum_tag_trailing,
                                     false => .tagged_union_enum_tag,
                                 },
                                 .main_token = main_token,
@@ -3593,8 +3593,8 @@ const Parser = struct {
                             _ = try p.expectToken(.r_brace);
                             if (members.len <= 2) {
                                 return p.addNode(.{
-                                    .tag = switch (members.trailing_comma) {
-                                        true => .tagged_union_two_comma,
+                                    .tag = switch (members.trailing) {
+                                        true => .tagged_union_two_trailing,
                                         false => .tagged_union_two,
                                     },
                                     .main_token = main_token,
@@ -3606,8 +3606,8 @@ const Parser = struct {
                             } else {
                                 const span = try members.toSpan(p);
                                 return p.addNode(.{
-                                    .tag = switch (members.trailing_comma) {
-                                        true => .tagged_union_comma,
+                                    .tag = switch (members.trailing) {
+                                        true => .tagged_union_trailing,
                                         false => .tagged_union,
                                     },
                                     .main_token = main_token,
@@ -3638,8 +3638,8 @@ const Parser = struct {
         if (arg_expr == 0) {
             if (members.len <= 2) {
                 return p.addNode(.{
-                    .tag = switch (members.trailing_comma) {
-                        true => .container_decl_two_comma,
+                    .tag = switch (members.trailing) {
+                        true => .container_decl_two_trailing,
                         false => .container_decl_two,
                     },
                     .main_token = main_token,
@@ -3651,8 +3651,8 @@ const Parser = struct {
             } else {
                 const span = try members.toSpan(p);
                 return p.addNode(.{
-                    .tag = switch (members.trailing_comma) {
-                        true => .container_decl_comma,
+                    .tag = switch (members.trailing) {
+                        true => .container_decl_trailing,
                         false => .container_decl,
                     },
                     .main_token = main_token,
@@ -3665,8 +3665,8 @@ const Parser = struct {
         } else {
             const span = try members.toSpan(p);
             return p.addNode(.{
-                .tag = switch (members.trailing_comma) {
-                    true => .container_decl_arg_comma,
+                .tag = switch (members.trailing) {
+                    true => .container_decl_arg_trailing,
                     false => .container_decl_arg,
                 },
                 .main_token = main_token,

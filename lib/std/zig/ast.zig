@@ -525,17 +525,17 @@ pub const Tree = struct {
             },
 
             .container_decl,
-            .container_decl_comma,
+            .container_decl_trailing,
             .container_decl_two,
-            .container_decl_two_comma,
+            .container_decl_two_trailing,
             .container_decl_arg,
-            .container_decl_arg_comma,
+            .container_decl_arg_trailing,
             .tagged_union,
-            .tagged_union_comma,
+            .tagged_union_trailing,
             .tagged_union_two,
-            .tagged_union_two_comma,
+            .tagged_union_two_trailing,
             .tagged_union_enum_tag,
-            .tagged_union_enum_tag_comma,
+            .tagged_union_enum_tag_trailing,
             => {
                 const main_token = main_tokens[n];
                 switch (token_tags[main_token - 1]) {
@@ -606,6 +606,7 @@ pub const Tree = struct {
         const datas = tree.nodes.items(.data);
         const main_tokens = tree.nodes.items(.main_token);
         const token_starts = tree.tokens.items(.start);
+        const token_tags = tree.tokens.items(.tag);
         var n = node;
         var end_offset: TokenIndex = 0;
         while (true) switch (tags[n]) {
@@ -738,9 +739,9 @@ pub const Tree = struct {
             },
             .call_comma,
             .async_call_comma,
-            .tagged_union_enum_tag_comma,
+            .tagged_union_enum_tag_trailing,
             => {
-                end_offset += 2; // for the comma + rparen/rbrace
+                end_offset += 2; // for the comma/semicolon + rparen/rbrace
                 const params = tree.extraData(datas[n].rhs, Node.SubRange);
                 assert(params.end > params.start);
                 n = tree.extra_data[params.end - 1]; // last parameter
@@ -779,7 +780,7 @@ pub const Tree = struct {
             },
             .array_init_comma,
             .struct_init_comma,
-            .container_decl_arg_comma,
+            .container_decl_arg_trailing,
             .switch_comma,
             => {
                 const members = tree.extraData(datas[n].rhs, Node.SubRange);
@@ -801,8 +802,8 @@ pub const Tree = struct {
             .array_init_dot_comma,
             .struct_init_dot_comma,
             .block_semicolon,
-            .container_decl_comma,
-            .tagged_union_comma,
+            .container_decl_trailing,
+            .tagged_union_trailing,
             .builtin_call_comma,
             => {
                 assert(datas[n].rhs - datas[n].lhs > 0);
@@ -838,10 +839,17 @@ pub const Tree = struct {
                         .block_two,
                         .struct_init_dot_two,
                         => end_offset += 1, // rbrace
-                        .builtin_call_two,
-                        .container_decl_two,
-                        => end_offset += 2, // lparen/lbrace + rparen/rbrace
-                        .tagged_union_two => end_offset += 5, // (enum) {}
+                        .builtin_call_two => end_offset += 2, // lparen/lbrace + rparen/rbrace
+                        .container_decl_two => {
+                            var i: u32 = 2; // lbrace + rbrace
+                            while (token_tags[main_tokens[n] + i] == .container_doc_comment) i += 1;
+                            end_offset += i;
+                        },
+                        .tagged_union_two => {
+                            var i: u32 = 5; // (enum) {}
+                            while (token_tags[main_tokens[n] + i] == .container_doc_comment) i += 1;
+                            end_offset += i;
+                        },
                         else => unreachable,
                     }
                     return main_tokens[n] + end_offset;
@@ -851,8 +859,8 @@ pub const Tree = struct {
             .builtin_call_two_comma,
             .block_two_semicolon,
             .struct_init_dot_two_comma,
-            .container_decl_two_comma,
-            .tagged_union_two_comma,
+            .container_decl_two_trailing,
+            .tagged_union_two_trailing,
             => {
                 end_offset += 2; // for the comma/semicolon + rbrace/rparen
                 if (datas[n].rhs != 0) {
@@ -1531,7 +1539,7 @@ pub const Tree = struct {
 
     pub fn containerDeclTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.ContainerDecl {
         assert(tree.nodes.items(.tag)[node] == .container_decl_two or
-            tree.nodes.items(.tag)[node] == .container_decl_two_comma);
+            tree.nodes.items(.tag)[node] == .container_decl_two_trailing);
         const data = tree.nodes.items(.data)[node];
         buffer.* = .{ data.lhs, data.rhs };
         const members = if (data.rhs != 0)
@@ -1550,7 +1558,7 @@ pub const Tree = struct {
 
     pub fn containerDecl(tree: Tree, node: Node.Index) full.ContainerDecl {
         assert(tree.nodes.items(.tag)[node] == .container_decl or
-            tree.nodes.items(.tag)[node] == .container_decl_comma);
+            tree.nodes.items(.tag)[node] == .container_decl_trailing);
         const data = tree.nodes.items(.data)[node];
         return tree.fullContainerDecl(.{
             .main_token = tree.nodes.items(.main_token)[node],
@@ -1562,7 +1570,7 @@ pub const Tree = struct {
 
     pub fn containerDeclArg(tree: Tree, node: Node.Index) full.ContainerDecl {
         assert(tree.nodes.items(.tag)[node] == .container_decl_arg or
-            tree.nodes.items(.tag)[node] == .container_decl_arg_comma);
+            tree.nodes.items(.tag)[node] == .container_decl_arg_trailing);
         const data = tree.nodes.items(.data)[node];
         const members_range = tree.extraData(data.rhs, Node.SubRange);
         return tree.fullContainerDecl(.{
@@ -1575,7 +1583,7 @@ pub const Tree = struct {
 
     pub fn taggedUnionTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.ContainerDecl {
         assert(tree.nodes.items(.tag)[node] == .tagged_union_two or
-            tree.nodes.items(.tag)[node] == .tagged_union_two_comma);
+            tree.nodes.items(.tag)[node] == .tagged_union_two_trailing);
         const data = tree.nodes.items(.data)[node];
         buffer.* = .{ data.lhs, data.rhs };
         const members = if (data.rhs != 0)
@@ -1595,7 +1603,7 @@ pub const Tree = struct {
 
     pub fn taggedUnion(tree: Tree, node: Node.Index) full.ContainerDecl {
         assert(tree.nodes.items(.tag)[node] == .tagged_union or
-            tree.nodes.items(.tag)[node] == .tagged_union_comma);
+            tree.nodes.items(.tag)[node] == .tagged_union_trailing);
         const data = tree.nodes.items(.data)[node];
         const main_token = tree.nodes.items(.main_token)[node];
         return tree.fullContainerDecl(.{
@@ -1608,7 +1616,7 @@ pub const Tree = struct {
 
     pub fn taggedUnionEnumTag(tree: Tree, node: Node.Index) full.ContainerDecl {
         assert(tree.nodes.items(.tag)[node] == .tagged_union_enum_tag or
-            tree.nodes.items(.tag)[node] == .tagged_union_enum_tag_comma);
+            tree.nodes.items(.tag)[node] == .tagged_union_enum_tag_trailing);
         const data = tree.nodes.items(.data)[node];
         const members_range = tree.extraData(data.rhs, Node.SubRange);
         const main_token = tree.nodes.items(.main_token)[node];
@@ -2762,36 +2770,40 @@ pub const Node = struct {
         /// `struct {}`, `union {}`, `opaque {}`, `enum {}`. `extra_data[lhs..rhs]`.
         /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
         container_decl,
-        /// Same as ContainerDecl but there is known to be a trailing comma before the rbrace.
-        container_decl_comma,
+        /// Same as ContainerDecl but there is known to be a trailing comma
+        /// or semicolon before the rbrace.
+        container_decl_trailing,
         /// `struct {lhs, rhs}`, `union {lhs, rhs}`, `opaque {lhs, rhs}`, `enum {lhs, rhs}`.
         /// lhs or rhs can be omitted.
         /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
         container_decl_two,
         /// Same as ContainerDeclTwo except there is known to be a trailing comma
-        /// before the rbrace.
-        container_decl_two_comma,
+        /// or semicolon before the rbrace.
+        container_decl_two_trailing,
         /// `union(lhs)` / `enum(lhs)`. `SubRange[rhs]`.
         container_decl_arg,
-        /// Same as container_decl_arg but there is known to be a trailing comma before the rbrace.
-        container_decl_arg_comma,
+        /// Same as container_decl_arg but there is known to be a trailing
+        /// comma or semicolon before the rbrace.
+        container_decl_arg_trailing,
         /// `union(enum) {}`. `sub_list[lhs..rhs]`.
         /// Note that tagged unions with explicitly provided enums are represented
         /// by `container_decl_arg`.
         tagged_union,
-        /// Same as tagged_union but there is known to be a trailing comma before the rbrace.
-        tagged_union_comma,
+        /// Same as tagged_union but there is known to be a trailing comma
+        /// or semicolon before the rbrace.
+        tagged_union_trailing,
         /// `union(enum) {lhs, rhs}`. lhs or rhs may be omitted.
         /// Note that tagged unions with explicitly provided enums are represented
         /// by `container_decl_arg`.
         tagged_union_two,
-        /// Same as tagged_union_two but there is known to be a trailing comma before the rbrace.
-        tagged_union_two_comma,
+        /// Same as tagged_union_two but there is known to be a trailing comma
+        /// or semicolon before the rbrace.
+        tagged_union_two_trailing,
         /// `union(enum(lhs)) {}`. `SubRange[rhs]`.
         tagged_union_enum_tag,
         /// Same as tagged_union_enum_tag but there is known to be a trailing comma
-        /// before the rbrace.
-        tagged_union_enum_tag_comma,
+        /// or semicolon before the rbrace.
+        tagged_union_enum_tag_trailing,
         /// `a: lhs = rhs,`. lhs and rhs can be omitted.
         /// main_token is the field name identifier.
         /// lastToken() does not include the possible trailing comma.

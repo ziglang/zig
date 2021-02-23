@@ -3577,61 +3577,61 @@ test "zig fmt: file ends with struct field" {
 //    );
 //}
 
-//test "zig fmt: top level doc comments" {
-//    try testCanonical(
-//        \\//! tld 1
-//        \\//! tld 2
-//        \\//! tld 3
-//        \\
-//        \\// comment
-//        \\
-//        \\/// A doc
-//        \\const A = struct {
-//        \\    //! A tld 1
-//        \\    //! A tld 2
-//        \\    //! A tld 3
-//        \\};
-//        \\
-//        \\/// B doc
-//        \\const B = struct {
-//        \\    //! B tld 1
-//        \\    //! B tld 2
-//        \\    //! B tld 3
-//        \\
-//        \\    /// b doc
-//        \\    b: u32,
-//        \\};
-//        \\
-//        \\/// C doc
-//        \\const C = struct {
-//        \\    //! C tld 1
-//        \\    //! C tld 2
-//        \\    //! C tld 3
-//        \\
-//        \\    /// c1 doc
-//        \\    c1: u32,
-//        \\
-//        \\    //! C tld 4
-//        \\    //! C tld 5
-//        \\    //! C tld 6
-//        \\
-//        \\    /// c2 doc
-//        \\    c2: u32,
-//        \\};
-//        \\
-//    );
-//    try testCanonical(
-//        \\//! Top-level documentation.
-//        \\
-//        \\/// This is A
-//        \\pub const A = usize;
-//        \\
-//    );
-//    try testCanonical(
-//        \\//! Nothing here
-//        \\
-//    );
-//}
+test "zig fmt: container doc comments" {
+    try testCanonical(
+        \\//! tld 1
+        \\//! tld 2
+        \\//! tld 3
+        \\
+        \\// comment
+        \\
+        \\/// A doc
+        \\const A = struct {
+        \\    //! A tld 1
+        \\    //! A tld 2
+        \\    //! A tld 3
+        \\};
+        \\
+        \\/// B doc
+        \\const B = struct {
+        \\    //! B tld 1
+        \\    //! B tld 2
+        \\    //! B tld 3
+        \\
+        \\    /// B doc
+        \\    b: u32,
+        \\};
+        \\
+        \\/// C doc
+        \\const C = union(enum) { // comment
+        \\    //! C tld 1
+        \\    //! C tld 2
+        \\    //! C tld 3
+        \\};
+        \\
+        \\/// D doc
+        \\const D = union(Foo) {
+        \\    //! D tld 1
+        \\    //! D tld 2
+        \\    //! D tld 3
+        \\
+        \\    /// D doc
+        \\    b: u32,
+        \\};
+        \\
+    );
+    try testCanonical(
+        \\//! Top-level documentation.
+        \\
+        \\/// This is A
+        \\pub const A = usize;
+        \\
+    );
+    try testCanonical(
+        \\//! Nothing here
+        \\
+    );
+}
 
 test "zig fmt: extern without container keyword returns error" {
     try testError(

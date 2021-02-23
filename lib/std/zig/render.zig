@@ -30,6 +30,10 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: ast.Tree) Error!void {
     const comment_end_loc = tree.tokens.items(.start)[0];
     _ = try renderComments(ais, tree, 0, comment_end_loc);
 
+    if (tree.tokens.items(.tag)[0] == .container_doc_comment) {
+        try renderContainerDocComments(ais, tree, 0);
+    }
+
     try renderMembers(buffer.allocator, ais, tree, tree.rootDecls());
 
     if (ais.disabled_offset) |disabled_offset| {
@@ -506,28 +510,28 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
         },
 
         .container_decl,
-        .container_decl_comma,
-        => return renderContainerDecl(gpa, ais, tree, tree.containerDecl(node), space),
+        .container_decl_trailing,
+        => return renderContainerDecl(gpa, ais, tree, node, tree.containerDecl(node), space),
 
-        .container_decl_two, .container_decl_two_comma => {
+        .container_decl_two, .container_decl_two_trailing => {
             var buffer: [2]ast.Node.Index = undefined;
-            return renderContainerDecl(gpa, ais, tree, tree.containerDeclTwo(&buffer, node), space);
+            return renderContainerDecl(gpa, ais, tree, node, tree.containerDeclTwo(&buffer, node), space);
         },
         .container_decl_arg,
-        .container_decl_arg_comma,
-        => return renderContainerDecl(gpa, ais, tree, tree.containerDeclArg(node), space),
+        .container_decl_arg_trailing,
+        => return renderContainerDecl(gpa, ais, tree, node, tree.containerDeclArg(node), space),
 
         .tagged_union,
-        .tagged_union_comma,
-        => return renderContainerDecl(gpa, ais, tree, tree.taggedUnion(node), space),
+        .tagged_union_trailing,
+        => return renderContainerDecl(gpa, ais, tree, node, tree.taggedUnion(node), space),
 
-        .tagged_union_two, .tagged_union_two_comma => {
+        .tagged_union_two, .tagged_union_two_trailing => {
             var buffer: [2]ast.Node.Index = undefined;
-            return renderContainerDecl(gpa, ais, tree, tree.taggedUnionTwo(&buffer, node), space);
+            return renderContainerDecl(gpa, ais, tree, node, tree.taggedUnionTwo(&buffer, node), space);
         },
         .tagged_union_enum_tag,
-        .tagged_union_enum_tag_comma,
-        => return renderContainerDecl(gpa, ais, tree, tree.taggedUnionEnumTag(node), space),
+        .tagged_union_enum_tag_trailing,
+        => return renderContainerDecl(gpa, ais, tree, node, tree.taggedUnionEnumTag(node), space),
 
         .error_set_decl => {
             const error_token = main_tokens[node];
@@ -1662,7 +1666,6 @@ fn renderArrayInit(
     ais.pushIndentNextLine();
     try renderToken(ais, tree, array_init.ast.lbrace, .newline);
 
-
     var expr_index: usize = 0;
     while (rowSize(tree, array_init.ast.elements[expr_index..], rbrace)) |row_size| {
         const row_exprs = array_init.ast.elements[expr_index..];
@@ -1806,6 +1809,7 @@ fn renderContainerDecl(
     gpa: *Allocator,
     ais: *Ais,
     tree: ast.Tree,
+    container_decl_node: ast.Node.Index,
     container_decl: ast.full.ContainerDecl,
     space: Space,
 ) Error!void {
@@ -1844,25 +1848,20 @@ fn renderContainerDecl(
         lbrace = container_decl.ast.main_token + 1;
     }
 
+    const rbrace = tree.lastToken(container_decl_node);
     if (container_decl.ast.members.len == 0) {
-        try renderToken(ais, tree, lbrace, Space.none); // lbrace
-        return renderToken(ais, tree, lbrace + 1, space); // rbrace
+        ais.pushIndentNextLine();
+        if (token_tags[lbrace + 1] == .container_doc_comment) {
+            try renderToken(ais, tree, lbrace, .newline); // lbrace
+            try renderContainerDocComments(ais, tree, lbrace + 1);
+        } else {
+            try renderToken(ais, tree, lbrace, .none); // lbrace
+        }
+        ais.popIndent();
+        return renderToken(ais, tree, rbrace, space); // rbrace
     }
 
-    const last_member = container_decl.ast.members[container_decl.ast.members.len - 1];
-    const last_member_token = tree.lastToken(last_member);
-    const rbrace = switch (token_tags[last_member_token + 1]) {
-        .doc_comment => last_member_token + 2,
-        .comma, .semicolon => switch (token_tags[last_member_token + 2]) {
-            .doc_comment => last_member_token + 3,
-            .r_brace => last_member_token + 2,
-            else => unreachable,
-        },
-        .r_brace => last_member_token + 1,
-        else => unreachable,
-    };
-    const src_has_trailing_comma = token_tags[last_member_token + 1] == .comma;
-
+    const src_has_trailing_comma = token_tags[rbrace - 1] == .comma;
     if (!src_has_trailing_comma) one_line: {
         // We can only print all the members in-line if all the members are fields.
         for (container_decl.ast.members) |member| {
@@ -1879,6 +1878,9 @@ fn renderContainerDecl(
     // One member per line.
     ais.pushIndentNextLine();
     try renderToken(ais, tree, lbrace, .newline); // lbrace
+    if (token_tags[lbrace + 1] == .container_doc_comment) {
+        try renderContainerDocComments(ais, tree, lbrace + 1);
+    }
     try renderMembers(gpa, ais, tree, container_decl.ast.members);
     ais.popIndent();
 
@@ -2268,6 +2270,15 @@ fn renderDocComments(ais: *Ais, tree: ast.Tree, end_token: ast.TokenIndex) Error
     try renderExtraNewlineToken(ais, tree, first_tok);
 
     while (token_tags[tok] == .doc_comment) : (tok += 1) {
+        try renderToken(ais, tree, tok, .newline);
+    }
+}
+
+/// start_token is first container doc comment token.
+fn renderContainerDocComments(ais: *Ais, tree: ast.Tree, start_token: ast.TokenIndex) Error!void {
+    const token_tags = tree.tokens.items(.tag);
+    var tok = start_token;
+    while (token_tags[tok] == .container_doc_comment) : (tok += 1) {
         try renderToken(ais, tree, tok, .newline);
     }
 }
