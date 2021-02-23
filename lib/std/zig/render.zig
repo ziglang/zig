@@ -411,18 +411,18 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
 
         .struct_init_one, .struct_init_one_comma => {
             var fields: [1]ast.Node.Index = undefined;
-            return renderStructInit(gpa, ais, tree, tree.structInitOne(&fields, node), space);
+            return renderStructInit(gpa, ais, tree, node, tree.structInitOne(&fields, node), space);
         },
         .struct_init_dot_two, .struct_init_dot_two_comma => {
             var fields: [2]ast.Node.Index = undefined;
-            return renderStructInit(gpa, ais, tree, tree.structInitDotTwo(&fields, node), space);
+            return renderStructInit(gpa, ais, tree, node, tree.structInitDotTwo(&fields, node), space);
         },
         .struct_init_dot,
         .struct_init_dot_comma,
-        => return renderStructInit(gpa, ais, tree, tree.structInitDot(node), space),
+        => return renderStructInit(gpa, ais, tree, node, tree.structInitDot(node), space),
         .struct_init,
         .struct_init_comma,
-        => return renderStructInit(gpa, ais, tree, tree.structInit(node), space),
+        => return renderStructInit(gpa, ais, tree, node, tree.structInit(node), space),
 
         .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => {
             var params: [1]ast.Node.Index = undefined;
@@ -1564,11 +1564,11 @@ fn renderBlock(
     try renderToken(ais, tree, tree.lastToken(block_node), space); // rbrace
 }
 
-// TODO: handle comments between fields
 fn renderStructInit(
     gpa: *Allocator,
     ais: *Ais,
     tree: ast.Tree,
+    struct_node: ast.Node.Index,
     struct_init: ast.full.StructInit,
     space: Space,
 ) Error!void {
@@ -1582,9 +1582,10 @@ fn renderStructInit(
         try renderToken(ais, tree, struct_init.ast.lbrace, .none); // lbrace
         return renderToken(ais, tree, struct_init.ast.lbrace + 1, space); // rbrace
     }
-    const last_field = struct_init.ast.fields[struct_init.ast.fields.len - 1];
-    const last_field_token = tree.lastToken(last_field);
-    if (token_tags[last_field_token + 1] == .comma) {
+
+    const rbrace = tree.lastToken(struct_node);
+    const trailing_comma = token_tags[rbrace - 1] == .comma;
+    if (trailing_comma or hasComment(tree, struct_init.ast.lbrace, rbrace)) {
         // Render one field init per line.
         ais.pushIndentNextLine();
         try renderToken(ais, tree, struct_init.ast.lbrace, .newline);
@@ -1604,7 +1605,6 @@ fn renderStructInit(
         }
 
         ais.popIndent();
-        return renderToken(ais, tree, last_field_token + 2, space); // rbrace
     } else {
         // Render all on one line, no trailing comma.
         try renderToken(ais, tree, struct_init.ast.lbrace, .space);
@@ -1616,9 +1616,9 @@ fn renderStructInit(
             try renderToken(ais, tree, init_token - 1, .space); // =
             try renderExpression(gpa, ais, tree, field_init, .comma_space);
         }
-
-        return renderToken(ais, tree, last_field_token + 1, space); // rbrace
     }
+
+    return renderToken(ais, tree, rbrace, space);
 }
 
 // TODO: handle comments between elements

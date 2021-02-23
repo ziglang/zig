@@ -3552,31 +3552,32 @@ test "zig fmt: comment after params" {
 //    );
 //}
 
-//test "zig fmt: comments at several places in struct init" {
-//    try testTransform(
-//        \\var bar = Bar{
-//        \\    .x = 10, // test
-//        \\    .y = "test"
-//        \\    // test
-//        \\};
-//        \\
-//    ,
-//        \\var bar = Bar{
-//        \\    .x = 10, // test
-//        \\    .y = "test", // test
-//        \\};
-//        \\
-//    );
-//
-//    try testCanonical(
-//        \\var bar = Bar{ // test
-//        \\    .x = 10, // test
-//        \\    .y = "test",
-//        \\    // test
-//        \\};
-//        \\
-//    );
-//}
+test "zig fmt: comments at several places in struct init" {
+    try testTransform(
+        \\var bar = Bar{
+        \\    .x = 10, // test
+        \\    .y = "test"
+        \\    // test
+        \\};
+        \\
+    ,
+        \\var bar = Bar{
+        \\    .x = 10, // test
+        \\    .y = "test",
+        \\    // test
+        \\};
+        \\
+    );
+
+    try testCanonical(
+        \\var bar = Bar{ // test
+        \\    .x = 10, // test
+        \\    .y = "test",
+        \\    // test
+        \\};
+        \\
+    );
+}
 
 test "zig fmt: container doc comments" {
     try testCanonical(
