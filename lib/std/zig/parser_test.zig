@@ -1435,27 +1435,27 @@ test "zig fmt: if condition has line break but must not wrap" {
     );
 }
 
-//test "zig fmt: if condition has line break but must not wrap" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    if (self.user_input_options.put(name, UserInputOption{
-//        \\        .name = name,
-//        \\        .used = false,
-//        \\    }) catch unreachable) |*prev_value| {
-//        \\        foo();
-//        \\        bar();
-//        \\    }
-//        \\    if (put(
-//        \\        a,
-//        \\        b,
-//        \\    )) {
-//        \\        foo();
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
+test "zig fmt: if condition has line break but must not wrap (no fn call comma)" {
+    try testCanonical(
+        \\comptime {
+        \\    if (self.user_input_options.put(name, UserInputOption{
+        \\        .name = name,
+        \\        .used = false,
+        \\    }) catch unreachable) |*prev_value| {
+        \\        foo();
+        \\        bar();
+        \\    }
+        \\    if (put(
+        \\        a,
+        \\        b,
+        \\    )) {
+        \\        foo();
+        \\    }
+        \\}
+        \\
+    );
+}
+
 //test "zig fmt: function call with multiline argument" {
 //    try testCanonical(
 //        \\comptime {

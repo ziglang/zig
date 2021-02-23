@@ -1903,28 +1903,23 @@ fn renderCall(
         return renderToken(ais, tree, after_last_param_tok + 1, space); // )
     }
 
-    ais.pushIndentNextLine();
     try renderToken(ais, tree, lparen, .none); // (
 
     for (params) |param_node, i| {
+        const this_multiline_string = node_tags[param_node] == .multiline_string_literal;
+        if (this_multiline_string) {
+            ais.pushIndentOneShot();
+        }
         try renderExpression(ais, tree, param_node, .none);
 
         if (i + 1 < params.len) {
             const comma = tree.lastToken(param_node) + 1;
-            const this_multiline_string = node_tags[param_node] == .multiline_string_literal;
             const next_multiline_string = node_tags[params[i + 1]] == .multiline_string_literal;
             const comma_space: Space = if (next_multiline_string) .none else .space;
-            if (this_multiline_string) {
-                ais.popIndent();
-                try renderToken(ais, tree, comma, comma_space);
-                ais.pushIndent();
-            } else {
-                try renderToken(ais, tree, comma, comma_space);
-            }
+            try renderToken(ais, tree, comma, comma_space);
         }
     }
 
-    ais.popIndent();
     return renderToken(ais, tree, after_last_param_tok, space); // )
 }
 
@@ -2234,9 +2229,12 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         indent_count: usize = 0,
         indent_delta: usize,
         current_line_empty: bool = true,
-        indent_one_shot_count: usize = 0, // automatically popped when applied
-        applied_indent: usize = 0, // the most recently applied indent
-        indent_next_line: usize = 0, // not used until the next line
+        /// automatically popped when applied
+        indent_one_shot_count: usize = 0,
+        /// the most recently applied indent
+        applied_indent: usize = 0,
+        /// not used until the next line
+        indent_next_line: usize = 0,
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
@@ -2291,9 +2289,9 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         }
 
         /// Push default indentation
+        /// Doesn't actually write any indentation.
+        /// Just primes the stream to be able to write the correct indentation if it needs to.
         pub fn pushIndent(self: *Self) void {
-            // Doesn't actually write any indentation.
-            // Just primes the stream to be able to write the correct indentation if it needs to.
             self.indent_count += 1;
         }
 
