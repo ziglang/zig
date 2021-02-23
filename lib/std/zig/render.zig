@@ -1006,11 +1006,17 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
                     break :blk ident + 1;
                 }
             };
-            const brace_space: Space = if (ais.isLineOverIndented()) .newline else .space;
+            const brace_space = if (while_node.ast.cont_expr == 0 and ais.isLineOverIndented())
+                Space.newline
+            else
+                Space.space;
             try renderToken(ais, tree, pipe, brace_space); // |
         } else {
             const rparen = tree.lastToken(while_node.ast.cond_expr) + 1;
-            const brace_space: Space = if (ais.isLineOverIndented()) .newline else .space;
+            const brace_space = if (while_node.ast.cont_expr == 0 and ais.isLineOverIndented())
+                Space.newline
+            else
+                Space.space;
             try renderToken(ais, tree, rparen, brace_space); // rparen
         }
         if (while_node.ast.cont_expr != 0) {
@@ -1019,7 +1025,8 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
             try renderToken(ais, tree, lparen - 1, .space); // :
             try renderToken(ais, tree, lparen, .none); // lparen
             try renderExpression(ais, tree, while_node.ast.cont_expr, .none);
-            try renderToken(ais, tree, rparen, .space); // rparen
+            const brace_space: Space = if (ais.isLineOverIndented()) .newline else .space;
+            try renderToken(ais, tree, rparen, brace_space); // rparen
         }
         if (while_node.ast.else_expr != 0) {
             try renderExpression(ais, tree, while_node.ast.then_expr, Space.space);
@@ -1061,10 +1068,12 @@ fn renderWhile(ais: *Ais, tree: ast.Tree, while_node: ast.full.While, space: Spa
                     break :blk ident + 1;
                 }
             };
-            try renderToken(ais, tree, pipe, .newline); // |
+            const after_space: Space = if (while_node.ast.cont_expr != 0) .space else .newline; 
+            try renderToken(ais, tree, pipe, after_space); // |
         } else {
             ais.pushIndent();
-            try renderToken(ais, tree, rparen, .newline); // rparen
+            const after_space: Space = if (while_node.ast.cont_expr != 0) .space else .newline; 
+            try renderToken(ais, tree, rparen, after_space); // rparen
             ais.popIndent();
         }
         if (while_node.ast.cont_expr != 0) {

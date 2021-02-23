@@ -587,11 +587,16 @@ pub const Tree = struct {
             .for_simple,
             .@"for",
             => {
+                // Look for a label and inline.
                 const main_token = main_tokens[n];
-                return switch (token_tags[main_token - 1]) {
-                    .keyword_inline => main_token - 1,
-                    else => main_token,
-                } - end_offset;
+                var result = main_token;
+                if (token_tags[result - 1] == .keyword_inline) {
+                    result -= 1;
+                }
+                if (token_tags[result - 1] == .colon) {
+                    result -= 2;
+                }
+                return result - end_offset;
             },
         };
     }

@@ -1456,17 +1456,17 @@ test "zig fmt: if condition has line break but must not wrap (no fn call comma)"
     );
 }
 
-//test "zig fmt: function call with multiline argument" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    self.user_input_options.put(name, UserInputOption{
-//        \\        .name = name,
-//        \\        .used = false,
-//        \\    });
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: function call with multiline argument" {
+    try testCanonical(
+        \\comptime {
+        \\    self.user_input_options.put(name, UserInputOption{
+        \\        .name = name,
+        \\        .used = false,
+        \\    });
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: if-else with comment before else" {
     try testCanonical(
@@ -1817,14 +1817,24 @@ test "zig fmt: empty block with only comment" {
     );
 }
 
-//test "zig fmt: no trailing comma on struct decl" {
-//    try testCanonical(
-//        \\const RoundParam = struct {
-//        \\    k: usize, s: u32, t: u32
-//        \\};
-//        \\
-//    );
-//}
+test "zig fmt: trailing commas on struct decl" {
+    try testTransform(
+        \\const RoundParam = struct {
+        \\    k: usize, s: u32, t: u32
+        \\};
+        \\const RoundParam = struct {
+        \\    k: usize, s: u32, t: u32,
+        \\};
+    ,
+        \\const RoundParam = struct { k: usize, s: u32, t: u32 };
+        \\const RoundParam = struct {
+        \\    k: usize,
+        \\    s: u32,
+        \\    t: u32,
+        \\};
+        \\
+    );
+}
 
 test "zig fmt: extra newlines at the end" {
     try testTransform(
@@ -2975,75 +2985,75 @@ test "zig fmt: switch" {
     );
 }
 
-//test "zig fmt: while" {
-//    try testCanonical(
-//        \\test "while" {
-//        \\    while (10 < 1) unreachable;
-//        \\
-//        \\    while (10 < 1) unreachable else unreachable;
-//        \\
-//        \\    while (10 < 1) {
-//        \\        unreachable;
-//        \\    }
-//        \\
-//        \\    while (10 < 1)
-//        \\        unreachable;
-//        \\
-//        \\    var i: usize = 0;
-//        \\    while (i < 10) : (i += 1) {
-//        \\        continue;
-//        \\    }
-//        \\
-//        \\    i = 0;
-//        \\    while (i < 10) : (i += 1)
-//        \\        continue;
-//        \\
-//        \\    i = 0;
-//        \\    var j: usize = 0;
-//        \\    while (i < 10) : ({
-//        \\        i += 1;
-//        \\        j += 1;
-//        \\    }) {
-//        \\        continue;
-//        \\    }
-//        \\
-//        \\    var a: ?u8 = 2;
-//        \\    while (a) |v| : (a = null) {
-//        \\        continue;
-//        \\    }
-//        \\
-//        \\    while (a) |v| : (a = null)
-//        \\        unreachable;
-//        \\
-//        \\    label: while (10 < 0) {
-//        \\        unreachable;
-//        \\    }
-//        \\
-//        \\    const res = while (0 < 10) {
-//        \\        break 7;
-//        \\    } else {
-//        \\        unreachable;
-//        \\    };
-//        \\
-//        \\    const res = while (0 < 10)
-//        \\        break 7
-//        \\    else
-//        \\        unreachable;
-//        \\
-//        \\    var a: anyerror!u8 = 0;
-//        \\    while (a) |v| {
-//        \\        a = error.Err;
-//        \\    } else |err| {
-//        \\        i = 1;
-//        \\    }
-//        \\
-//        \\    comptime var k: usize = 0;
-//        \\    inline while (i < 10) : (i += 1)
-//        \\        j += 2;
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: while" {
+    try testCanonical(
+        \\test "while" {
+        \\    while (10 < 1) unreachable;
+        \\
+        \\    while (10 < 1) unreachable else unreachable;
+        \\
+        \\    while (10 < 1) {
+        \\        unreachable;
+        \\    }
+        \\
+        \\    while (10 < 1)
+        \\        unreachable;
+        \\
+        \\    var i: usize = 0;
+        \\    while (i < 10) : (i += 1) {
+        \\        continue;
+        \\    }
+        \\
+        \\    i = 0;
+        \\    while (i < 10) : (i += 1)
+        \\        continue;
+        \\
+        \\    i = 0;
+        \\    var j: usize = 0;
+        \\    while (i < 10) : ({
+        \\        i += 1;
+        \\        j += 1;
+        \\    }) {
+        \\        continue;
+        \\    }
+        \\
+        \\    var a: ?u8 = 2;
+        \\    while (a) |v| : (a = null) {
+        \\        continue;
+        \\    }
+        \\
+        \\    while (a) |v| : (a = null)
+        \\        unreachable;
+        \\
+        \\    label: while (10 < 0) {
+        \\        unreachable;
+        \\    }
+        \\
+        \\    const res = while (0 < 10) {
+        \\        break 7;
+        \\    } else {
+        \\        unreachable;
+        \\    };
+        \\
+        \\    const res = while (0 < 10)
+        \\        break 7
+        \\    else
+        \\        unreachable;
+        \\
+        \\    var a: anyerror!u8 = 0;
+        \\    while (a) |v| {
+        \\        a = error.Err;
+        \\    } else |err| {
+        \\        i = 1;
+        \\    }
+        \\
+        \\    comptime var k: usize = 0;
+        \\    inline while (i < 10) : (i += 1)
+        \\        j += 2;
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: for" {
     try testCanonical(
