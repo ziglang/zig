@@ -1291,6 +1291,12 @@ fn renderBuiltinCall(
         try renderToken(ais, tree, builtin_token + 1, .none); // (
 
         for (params) |param_node, i| {
+            const first_param_token = tree.firstToken(param_node);
+            if (token_tags[first_param_token] == .multiline_string_literal_line or
+                hasSameLineComment(tree, first_param_token - 1))
+            {
+                ais.pushIndentOneShot();
+            }
             try renderExpression(gpa, ais, tree, param_node, .none);
 
             if (i + 1 < params.len) {
@@ -1733,12 +1739,8 @@ fn renderArrayInit(
 
                 const maybe_comma = expr_last_token + 1;
                 if (token_tags[maybe_comma] == .comma) {
-                    const after_comma_src = tree.source[token_starts[maybe_comma]..token_starts[maybe_comma + 1]];
-                    for (after_comma_src) |byte| switch (byte) {
-                        '\n' => break,
-                        '/' => break :sec_end i - this_line_size.? + 1,
-                        else => continue,
-                    };
+                    if (hasSameLineComment(tree, maybe_comma))
+                        break :sec_end i - this_line_size.? + 1;
                 }
             }
             break :sec_end row_exprs.len;
@@ -2106,9 +2108,10 @@ fn renderCall(
     try renderToken(ais, tree, lparen, .none); // (
 
     for (params) |param_node, i| {
-        const this_multiline_string =
-            token_tags[tree.firstToken(param_node)] == .multiline_string_literal_line;
-        if (this_multiline_string) {
+        const first_param_token = tree.firstToken(param_node);
+        if (token_tags[first_param_token] == .multiline_string_literal_line or
+            hasSameLineComment(tree, first_param_token - 1))
+        {
             ais.pushIndentOneShot();
         }
         try renderExpression(gpa, ais, tree, param_node, .none);
@@ -2337,6 +2340,17 @@ fn tokenSliceForRender(tree: ast.Tree, token_index: ast.TokenIndex) []const u8 {
         ret.len -= 1;
     }
     return ret;
+}
+
+fn hasSameLineComment(tree: ast.Tree, token_index: ast.TokenIndex) bool {
+    const token_starts = tree.tokens.items(.start);
+    const between_source = tree.source[token_starts[token_index]..token_starts[token_index + 1]];
+    for (between_source) |byte| switch (byte) {
+        '\n' => return false,
+        '/' => return true,
+        else => continue,
+    };
+    return false;
 }
 
 fn writeFixingWhitespace(writer: std.ArrayList(u8).Writer, slice: []const u8) Error!void {
