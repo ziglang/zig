@@ -540,23 +540,23 @@ test "zig fmt: anon literal in array" {
     );
 }
 
-//test "zig fmt: alignment in anonymous literal" {
-//    try testTransform(
-//        \\const a = .{
-//        \\    "U",     "L",     "F",
-//        \\    "U'",
-//        \\    "L'",
-//        \\    "F'",
-//        \\};
-//        \\
-//    ,
-//        \\const a = .{
-//        \\    "U",  "L",  "F",
-//        \\    "U'", "L'", "F'",
-//        \\};
-//        \\
-//    );
-//}
+test "zig fmt: alignment in anonymous literal" {
+    try testTransform(
+        \\const a = .{
+        \\    "U",     "L",     "F",
+        \\    "U'",
+        \\    "L'",
+        \\    "F'",
+        \\};
+        \\
+    ,
+        \\const a = .{
+        \\    "U",  "L",  "F",
+        \\    "U'", "L'", "F'",
+        \\};
+        \\
+    );
+}
 
 test "zig fmt: anon struct literal 0 element" {
     try testCanonical(
