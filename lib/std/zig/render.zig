@@ -439,9 +439,13 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
             const suffix = datas[node];
             const lbracket = tree.firstToken(suffix.rhs) - 1;
             const rbracket = tree.lastToken(suffix.rhs) + 1;
+            const one_line = tree.tokensOnSameLine(lbracket, rbracket);
+            const inner_space = if (one_line) Space.none else Space.newline;
             try renderExpression(gpa, ais, tree, suffix.lhs, .none);
-            try renderToken(ais, tree, lbracket, .none); // [
-            try renderExpression(gpa, ais, tree, suffix.rhs, .none);
+            ais.pushIndentNextLine();
+            try renderToken(ais, tree, lbracket, inner_space); // [
+            try renderExpression(gpa, ais, tree, suffix.rhs, inner_space);
+            ais.popIndent();
             return renderToken(ais, tree, rbracket, space); // ]
         },
 
@@ -679,7 +683,6 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
     }
 }
 
-// TODO: handle comments inside the brackets
 fn renderArrayType(
     gpa: *Allocator,
     ais: *Ais,
@@ -687,13 +690,18 @@ fn renderArrayType(
     array_type: ast.full.ArrayType,
     space: Space,
 ) Error!void {
-    try renderToken(ais, tree, array_type.ast.lbracket, .none); // lbracket
-    try renderExpression(gpa, ais, tree, array_type.ast.elem_count, .none);
+    const rbracket = tree.firstToken(array_type.ast.elem_type) - 1;
+    const one_line = tree.tokensOnSameLine(array_type.ast.lbracket, rbracket);
+    const inner_space = if (one_line) Space.none else Space.newline;
+    ais.pushIndentNextLine();
+    try renderToken(ais, tree, array_type.ast.lbracket, inner_space); // lbracket
+    try renderExpression(gpa, ais, tree, array_type.ast.elem_count, inner_space);
     if (array_type.ast.sentinel) |sentinel| {
-        try renderToken(ais, tree, tree.firstToken(sentinel) - 1, .none); // colon
-        try renderExpression(gpa, ais, tree, sentinel, .none);
+        try renderToken(ais, tree, tree.firstToken(sentinel) - 1, inner_space); // colon
+        try renderExpression(gpa, ais, tree, sentinel, inner_space);
     }
-    try renderToken(ais, tree, tree.firstToken(array_type.ast.elem_type) - 1, .none); // rbracket
+    ais.popIndent();
+    try renderToken(ais, tree, rbracket, .none); // rbracket
     return renderExpression(gpa, ais, tree, array_type.ast.elem_type, space);
 }
 
@@ -1577,7 +1585,9 @@ fn renderStructInit(
         try renderExpression(gpa, ais, tree, struct_init.ast.type_expr, .none); // T
     }
     if (struct_init.ast.fields.len == 0) {
+        ais.pushIndentNextLine();
         try renderToken(ais, tree, struct_init.ast.lbrace, .none); // lbrace
+        ais.popIndent();
         return renderToken(ais, tree, struct_init.ast.lbrace + 1, space); // rbrace
     }
 

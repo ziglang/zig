@@ -3521,37 +3521,41 @@ test "zig fmt: comment after params" {
     );
 }
 
-//test "zig fmt: comment in array initializer/access" {
-//    try testCanonical(
-//        \\test "a" {
-//        \\    var a = x{ //aa
-//        \\        //bb
-//        \\    };
-//        \\    var a = []x{ //aa
-//        \\        //bb
-//        \\    };
-//        \\    var b = [ //aa
-//        \\        _
-//        \\    ]x{ //aa
-//        \\        //bb
-//        \\        9,
-//        \\    };
-//        \\    var c = b[ //aa
-//        \\        0
-//        \\    ];
-//        \\    var d = [_
-//        \\        //aa
-//        \\    ]x{ //aa
-//        \\        //bb
-//        \\        9,
-//        \\    };
-//        \\    var e = d[0
-//        \\        //aa
-//        \\    ];
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: comment in array initializer/access" {
+    try testCanonical(
+        \\test "a" {
+        \\    var a = x{ //aa
+        \\        //bb
+        \\    };
+        \\    var a = []x{ //aa
+        \\        //bb
+        \\    };
+        \\    var b = [ //aa
+        \\        _
+        \\    ]x{ //aa
+        \\        //bb
+        \\        9,
+        \\    };
+        \\    var c = b[ //aa
+        \\        0
+        \\    ];
+        \\    var d = [
+        \\        _
+        \\        //aa
+        \\        :
+        \\        0
+        \\    ]x{ //aa
+        \\        //bb
+        \\        9,
+        \\    };
+        \\    var e = d[
+        \\        0
+        \\        //aa
+        \\    ];
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: comments at several places in struct init" {
     try testTransform(
