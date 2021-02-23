@@ -197,11 +197,10 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
             while (locked_indents > 0) : (locked_indents -= 1) ais.popIndent();
 
             switch (space) {
-                .none => {},
+                .none, .space, .newline => {},
                 .semicolon => if (token_tags[i] == .semicolon) try renderToken(ais, tree, i, .newline),
                 .comma => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .newline),
                 .comma_space => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .space),
-                else => unreachable,
             }
         },
 
@@ -358,8 +357,8 @@ fn renderExpression(ais: *Ais, tree: ast.Tree, node: ast.Node.Index, space: Spac
                 ais.pushIndent();
                 try renderToken(ais, tree, op_token, .newline);
                 ais.popIndent();
-                ais.pushIndentOneShot();
             }
+            ais.pushIndentOneShot();
             return renderExpression(ais, tree, infix.rhs, space);
         },
 
@@ -1868,7 +1867,6 @@ fn renderCall(
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
-    const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
 
     if (call.async_token) |async_token| {
@@ -1895,7 +1893,8 @@ fn renderCall(
                 try renderExpression(ais, tree, param_node, .none);
 
                 // Unindent the comma for multiline string literals.
-                const is_multiline_string = node_tags[param_node] == .multiline_string_literal;
+                const is_multiline_string =
+                    token_tags[tree.firstToken(param_node)] == .multiline_string_literal_line;
                 if (is_multiline_string) ais.popIndent();
 
                 const comma = tree.lastToken(param_node) + 1;
@@ -1915,7 +1914,8 @@ fn renderCall(
     try renderToken(ais, tree, lparen, .none); // (
 
     for (params) |param_node, i| {
-        const this_multiline_string = node_tags[param_node] == .multiline_string_literal;
+        const this_multiline_string =
+            token_tags[tree.firstToken(param_node)] == .multiline_string_literal_line;
         if (this_multiline_string) {
             ais.pushIndentOneShot();
         }
@@ -1923,7 +1923,8 @@ fn renderCall(
 
         if (i + 1 < params.len) {
             const comma = tree.lastToken(param_node) + 1;
-            const next_multiline_string = node_tags[params[i + 1]] == .multiline_string_literal;
+            const next_multiline_string =
+                token_tags[tree.firstToken(params[i + 1])] == .multiline_string_literal_line;
             const comma_space: Space = if (next_multiline_string) .none else .space;
             try renderToken(ais, tree, comma, comma_space);
         }

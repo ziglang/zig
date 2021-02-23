@@ -3726,22 +3726,22 @@ test "zig fmt: C var args" {
     );
 }
 
-//test "zig fmt: Only indent multiline string literals in function calls" {
-//    try testCanonical(
-//        \\test "zig fmt:" {
-//        \\    try testTransform(
-//        \\        \\const X = struct {
-//        \\        \\    foo: i32, bar: i8 };
-//        \\    ,
-//        \\        \\const X = struct {
-//        \\        \\    foo: i32, bar: i8
-//        \\        \\};
-//        \\        \\
-//        \\    );
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: Only indent multiline string literals in function calls" {
+    try testCanonical(
+        \\test "zig fmt:" {
+        \\    try testTransform(
+        \\        \\const X = struct {
+        \\        \\    foo: i32, bar: i8 };
+        \\    ,
+        \\        \\const X = struct {
+        \\        \\    foo: i32, bar: i8
+        \\        \\};
+        \\        \\
+        \\    );
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: Don't add extra newline after if" {
     try testCanonical(
@@ -3806,68 +3806,66 @@ test "zig fmt: comments in ternary ifs" {
 //        \\
 //    );
 //}
-//
-//test "zig fmt: Indent comma correctly after multiline string literals in arg list (trailing comma)" {
-//    try testCanonical(
-//        \\fn foo() void {
-//        \\    z.display_message_dialog(
-//        \\        *const [323:0]u8,
-//        \\        \\Message Text
-//        \\        \\------------
-//        \\        \\xxxxxxxxxxxx
-//        \\        \\xxxxxxxxxxxx
-//        \\    ,
-//        \\        g.GtkMessageType.GTK_MESSAGE_WARNING,
-//        \\        null,
-//        \\    );
-//        \\
-//        \\    z.display_message_dialog(*const [323:0]u8,
-//        \\        \\Message Text
-//        \\        \\------------
-//        \\        \\xxxxxxxxxxxx
-//        \\        \\xxxxxxxxxxxx
-//        \\    , g.GtkMessageType.GTK_MESSAGE_WARNING, null);
-//        \\}
-//        \\
-//    );
-//}
 
-//test "zig fmt: Control flow statement as body of blockless if" {
-//    try testCanonical(
-//        \\pub fn main() void {
-//        \\    const zoom_node = if (focused_node == layout_first)
-//        \\        if (it.next()) {
-//        \\            if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
-//        \\        } else null
-//        \\    else
-//        \\        focused_node;
-//        \\
-//        \\    const zoom_node = if (focused_node == layout_first) while (it.next()) |node| {
-//        \\        if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
-//        \\    } else null else
-//        \\        focused_node;
-//        \\
-//        \\    const zoom_node = if (focused_node == layout_first)
-//        \\        if (it.next()) {
-//        \\            if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
-//        \\        } else null;
-//        \\
-//        \\    const zoom_node = if (focused_node == layout_first) while (it.next()) |node| {
-//        \\        if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
-//        \\    };
-//        \\
-//        \\    const zoom_node = if (focused_node == layout_first) for (nodes) |node| {
-//        \\        break node;
-//        \\    };
-//        \\
-//        \\    const zoom_node = if (focused_node == layout_first) switch (nodes) {
-//        \\        0 => 0,
-//        \\    } else
-//        \\        focused_node;
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: Indent comma correctly after multiline string literals in arg list (trailing comma)" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    z.display_message_dialog(
+        \\        *const [323:0]u8,
+        \\        \\Message Text
+        \\        \\------------
+        \\        \\xxxxxxxxxxxx
+        \\        \\xxxxxxxxxxxx
+        \\    ,
+        \\        g.GtkMessageType.GTK_MESSAGE_WARNING,
+        \\        null,
+        \\    );
+        \\
+        \\    z.display_message_dialog(*const [323:0]u8,
+        \\        \\Message Text
+        \\        \\------------
+        \\        \\xxxxxxxxxxxx
+        \\        \\xxxxxxxxxxxx
+        \\    , g.GtkMessageType.GTK_MESSAGE_WARNING, null);
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: Control flow statement as body of blockless if" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    const zoom_node = if (focused_node == layout_first)
+        \\        if (it.next()) {
+        \\            if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\        } else null
+        \\    else
+        \\        focused_node;
+        \\
+        \\    const zoom_node = if (focused_node == layout_first) while (it.next()) |node| {
+        \\        if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\    } else null else focused_node;
+        \\
+        \\    const zoom_node = if (focused_node == layout_first)
+        \\        if (it.next()) {
+        \\            if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\        } else null;
+        \\
+        \\    const zoom_node = if (focused_node == layout_first) while (it.next()) |node| {
+        \\        if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\    };
+        \\
+        \\    const zoom_node = if (focused_node == layout_first) for (nodes) |node| {
+        \\        break node;
+        \\    };
+        \\
+        \\    const zoom_node = if (focused_node == layout_first) switch (nodes) {
+        \\        0 => 0,
+        \\    } else focused_node;
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: regression test for #5722" {
     try testCanonical(
@@ -4058,21 +4056,21 @@ test "zig fmt: trailing comma should force multiline 1 column" {
     );
 }
 
-//test "zig fmt: function params should align nicely" {
-//    try testCanonical(
-//        \\pub fn foo() void {
-//        \\    cases.addRuntimeSafety("slicing operator with sentinel",
-//        \\        \\const std = @import("std");
-//        \\        ++ check_panic_msg ++
-//        \\        \\pub fn main() void {
-//        \\        \\    var buf = [4]u8{'a','b','c',0};
-//        \\        \\    const slice = buf[0..:0];
-//        \\        \\}
-//        \\    );
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: function params should align nicely" {
+    try testCanonical(
+        \\pub fn foo() void {
+        \\    cases.addRuntimeSafety("slicing operator with sentinel",
+        \\        \\const std = @import("std");
+        \\    ++ check_panic_msg ++
+        \\        \\pub fn main() void {
+        \\        \\    var buf = [4]u8{'a','b','c',0};
+        \\        \\    const slice = buf[0..:0];
+        \\        \\}
+        \\    );
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: error for invalid bit range" {
     try testError(
