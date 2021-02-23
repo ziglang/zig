@@ -3463,36 +3463,37 @@ test "zig fmt: file ends with struct field" {
 //    );
 //}
 
-//test "zig fmt: line comment in array" {
-//    try testTransform(
-//        \\test "a" {
-//        \\    var arr = [_]u32{
-//        \\        0
-//        \\        // 1,
-//        \\        // 2,
-//        \\    };
-//        \\}
-//        \\
-//    ,
-//        \\test "a" {
-//        \\    var arr = [_]u32{
-//        \\        0, // 1,
-//        \\        // 2,
-//        \\    };
-//        \\}
-//        \\
-//    );
-//    try testCanonical(
-//        \\test "a" {
-//        \\    var arr = [_]u32{
-//        \\        0,
-//        \\        // 1,
-//        \\        // 2,
-//        \\    };
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: line comment in array" {
+    try testTransform(
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    ,
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0,
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    );
+    try testCanonical(
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0,
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: comment after params" {
     try testTransform(
