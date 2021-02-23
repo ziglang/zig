@@ -1809,7 +1809,16 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     }
     _ = try c.addToken(.r_brace, "}");
 
-    if (members.len <= 2) {
+    if (payload.fields.len == 0) {
+        return c.addNode(.{
+            .tag = .container_decl_two,
+            .main_token = kind_tok,
+            .data = .{
+                .lhs = 0,
+                .rhs = 0,
+            },
+        });
+    } else if (payload.fields.len <= 2) {
         return c.addNode(.{
             .tag = .container_decl_two_trailing,
             .main_token = kind_tok,

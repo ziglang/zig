@@ -572,12 +572,12 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/target.zig"
     "${CMAKE_SOURCE_DIR}/src/tracy.zig"
     "${CMAKE_SOURCE_DIR}/src/translate_c.zig"
+    "${CMAKE_SOURCE_DIR}/src/translate_c/ast.zig"
     "${CMAKE_SOURCE_DIR}/src/type.zig"
     "${CMAKE_SOURCE_DIR}/src/value.zig"
     "${CMAKE_SOURCE_DIR}/src/windows_sdk.zig"
     "${CMAKE_SOURCE_DIR}/src/zir.zig"
     "${CMAKE_SOURCE_DIR}/src/zir_sema.zig"
-    "${CMAKE_SOURCE_DIR}/src/translate_c/ast.zig"
 )
 
 if(MSVC)
