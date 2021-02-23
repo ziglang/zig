@@ -1861,6 +1861,8 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
         const regs = info.ContextRecord.getRegs();
         // Don't use std.debug.print() as stderr_mutex may still be locked.
         nosuspend {
+            const held = stderr_mutex.acquire();
+            defer held.release();
             const stderr = io.getStdErr().writer();
             _ = switch (msg) {
                 0 => stderr.print("{s}\n", .{format.?}),
