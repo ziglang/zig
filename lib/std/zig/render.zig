@@ -1337,7 +1337,8 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
 
     // The params list is a sparse set that does *not* include anytype or ... parameters.
 
-    if (token_tags[rparen - 1] != .comma) {
+    const trailing_comma = token_tags[rparen - 1] == .comma;
+    if (!trailing_comma and !hasComment(tree, lparen, rparen)) {
         // Render all on one line, no trailing comma.
         try renderToken(ais, tree, lparen, .none); // (
 
@@ -1415,7 +1416,9 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
                     continue;
                 },
                 .r_paren => break,
-                else => unreachable,
+                else => {
+                    std.debug.print("\n{}\n", .{token_tags[last_param_token]});
+                },
             }
             if (token_tags[last_param_token] == .identifier) {
                 try renderToken(ais, tree, last_param_token, .none); // name
@@ -1430,7 +1433,8 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
             const param = fn_proto.ast.params[param_i];
             param_i += 1;
             try renderExpression(gpa, ais, tree, param, .comma);
-            last_param_token = tree.lastToken(param) + 1;
+            last_param_token = tree.lastToken(param);
+            if (token_tags[last_param_token + 1] == .comma) last_param_token += 1;
         }
         ais.popIndent();
     }
@@ -2169,6 +2173,19 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
             try ais.insertNewline();
         },
     }
+}
+
+/// Returns true if there exists a comment between the start of token
+/// `start_token` and the start of token `end_token`. This is used to determine
+/// if e.g. a fn_proto should be wrapped and have a trailing comma inserted
+/// even if there is none in the source.
+fn hasComment(tree: ast.Tree, start_token: ast.TokenIndex, end_token: ast.TokenIndex) bool {
+    const token_starts = tree.tokens.items(.start);
+
+    const start = token_starts[start_token];
+    const end = token_starts[end_token];
+
+    return mem.indexOf(u8, tree.source[start..end], "//") != null;
 }
 
 /// Assumes that start is the first byte past the previous token and

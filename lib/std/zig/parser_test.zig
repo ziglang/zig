@@ -3494,30 +3494,31 @@ test "zig fmt: file ends with struct field" {
 //    );
 //}
 
-//test "zig fmt: comment after params" {
-//    try testTransform(
-//        \\fn a(
-//        \\    b: u32
-//        \\    // c: u32,
-//        \\    // d: u32,
-//        \\) void {}
-//        \\
-//    ,
-//        \\fn a(
-//        \\    b: u32, // c: u32,
-//        \\    // d: u32,
-//        \\) void {}
-//        \\
-//    );
-//    try testCanonical(
-//        \\fn a(
-//        \\    b: u32,
-//        \\    // c: u32,
-//        \\    // d: u32,
-//        \\) void {}
-//        \\
-//    );
-//}
+test "zig fmt: comment after params" {
+    try testTransform(
+        \\fn a(
+        \\    b: u32
+        \\    // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    ,
+        \\fn a(
+        \\    b: u32,
+        \\    // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    );
+    try testCanonical(
+        \\fn a(
+        \\    b: u32,
+        \\    // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    );
+}
 
 //test "zig fmt: comment in array initializer/access" {
 //    try testCanonical(
