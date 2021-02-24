@@ -4152,6 +4152,18 @@ test "zig fmt: space after top level doc comment" {
     );
 }
 
+test "zig fmt: for loop with ptr payload and index" {
+    try testCanonical(
+        \\test {
+        \\    for (self.entries.items) |*item, i| {}
+        \\    for (self.entries.items) |*item, i|
+        \\        a = b;
+        \\    for (self.entries.items) |*item, i| a = b;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;

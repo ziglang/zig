@@ -1040,7 +1040,7 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
                 if (token_tags[ident + 1] == .comma) {
                     try renderToken(ais, tree, ident + 1, .space); // ,
                     try renderToken(ais, tree, ident + 2, .none); // index
-                    break :blk payload_token + 3;
+                    break :blk ident + 3;
                 } else {
                     break :blk ident + 1;
                 }
@@ -1102,7 +1102,7 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
                 if (token_tags[ident + 1] == .comma) {
                     try renderToken(ais, tree, ident + 1, .space); // ,
                     try renderToken(ais, tree, ident + 2, .none); // index
-                    break :blk payload_token + 3;
+                    break :blk ident + 3;
                 } else {
                     break :blk ident + 1;
                 }
@@ -1177,7 +1177,7 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
             if (token_tags[ident + 1] == .comma) {
                 try renderToken(ais, tree, ident + 1, .space); // ,
                 try renderToken(ais, tree, ident + 2, .none); // index
-                break :blk payload_token + 3;
+                break :blk ident + 3;
             } else {
                 break :blk ident + 1;
             }
