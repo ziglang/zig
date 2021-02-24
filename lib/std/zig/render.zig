@@ -1533,7 +1533,9 @@ fn renderSwitchCase(
     } else if (switch_case.ast.values.len == 1) {
         // render on one line and drop the trailing comma if any
         try renderExpression(gpa, ais, tree, switch_case.ast.values[0], .space);
-    } else if (trailing_comma) {
+    } else if (trailing_comma or
+        hasComment(tree, tree.firstToken(switch_case.ast.values[0]), switch_case.ast.arrow_token))
+    {
         // Render each value on a new line
         try renderExpressions(gpa, ais, tree, switch_case.ast.values, .comma);
     } else {

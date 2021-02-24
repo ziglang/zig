@@ -4202,6 +4202,37 @@ test "zig fmt: respect extra newline between switch items" {
     );
 }
 
+test "zig fmt: insert trailing comma if there are comments between switch values" {
+    try testTransform(
+        \\const a = switch (b) {
+        \\    .c => {},
+        \\
+        \\    .d, // foobar
+        \\    .e
+        \\    => f,
+        \\
+        \\    .g, .h
+        \\    // comment
+        \\    => i,
+        \\};
+        \\
+    ,
+        \\const a = switch (b) {
+        \\    .c => {},
+        \\
+        \\    .d, // foobar
+        \\    .e,
+        \\    => f,
+        \\
+        \\    .g,
+        \\    .h,
+        \\    // comment
+        \\    => i,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;
