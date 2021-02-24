@@ -1686,6 +1686,19 @@ fn renderArrayInit(
     const trailing_comma = token_tags[last_elem_token + 1] == .comma;
     const rbrace = if (trailing_comma) last_elem_token + 2 else last_elem_token + 1;
     assert(token_tags[rbrace] == .r_brace);
+
+    if (array_init.ast.elements.len == 1) {
+        const only_elem = array_init.ast.elements[0];
+        const first_token = tree.firstToken(only_elem);
+        if (token_tags[first_token] != .multiline_string_literal_line and
+            !anythingBetween(tree, last_elem_token, rbrace))
+        {
+            try renderToken(ais, tree, array_init.ast.lbrace, .none);
+            try renderExpression(gpa, ais, tree, only_elem, .none);
+            return renderToken(ais, tree, rbrace, space);
+        }
+    }
+
     const contains_newlines = !tree.tokensOnSameLine(array_init.ast.lbrace, rbrace);
 
     if (!trailing_comma and !contains_newlines) {
@@ -2347,6 +2360,19 @@ fn hasSameLineComment(tree: ast.Tree, token_index: ast.TokenIndex) bool {
     const between_source = tree.source[token_starts[token_index]..token_starts[token_index + 1]];
     for (between_source) |byte| switch (byte) {
         '\n' => return false,
+        '/' => return true,
+        else => continue,
+    };
+    return false;
+}
+
+/// Returns `true` if and only if there are any tokens or line comments between
+/// start_token and end_token.
+fn anythingBetween(tree: ast.Tree, start_token: ast.TokenIndex, end_token: ast.TokenIndex) bool {
+    if (start_token + 1 != end_token) return true;
+    const token_starts = tree.tokens.items(.start);
+    const between_source = tree.source[token_starts[start_token]..token_starts[start_token + 1]];
+    for (between_source) |byte| switch (byte) {
         '/' => return true,
         else => continue,
     };
