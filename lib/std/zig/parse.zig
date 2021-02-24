@@ -2656,6 +2656,10 @@ const Parser = struct {
                         p.tok_i += 2;
                         return p.parseWhileTypeExpr();
                     },
+                    .l_brace => {
+                        p.tok_i += 2;
+                        return p.parseBlock();
+                    },
                     else => return p.addNode(.{
                         .tag = .identifier,
                         .main_token = p.nextToken(),

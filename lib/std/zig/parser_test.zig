@@ -4179,6 +4179,17 @@ test "zig fmt: proper indent line comment after multi-line single expr while loo
     );
 }
 
+test "zig fmt: function with labeled block as return type" {
+    try testCanonical(
+        \\fn foo() t: {
+        \\    break :t bar;
+        \\} {
+        \\    baz();
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: line comment after multiline single expr if statement with multiline string" {
     try testCanonical(
         \\test {
