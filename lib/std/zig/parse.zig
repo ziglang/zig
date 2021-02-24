@@ -3706,7 +3706,12 @@ const Parser = struct {
             const param = try p.expectParamDecl();
             if (param != 0) break param;
             switch (p.token_tags[p.nextToken()]) {
-                .comma => continue,
+                .comma => {
+                    if (p.eatToken(.r_paren)) |_| {
+                        return SmallSpan{ .zero_or_one = 0 };
+                    }
+                    continue;
+                },
                 .r_paren => return SmallSpan{ .zero_or_one = 0 },
                 else => {
                     // This is likely just a missing comma;

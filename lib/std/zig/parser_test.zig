@@ -4134,6 +4134,24 @@ test "zig fmt: function params should align nicely" {
     );
 }
 
+test "zig fmt: fn proto end with anytype and comma" {
+    try testCanonical(
+        \\pub fn format(
+        \\    out_stream: anytype,
+        \\) !void {}
+        \\
+    );
+}
+
+test "zig fmt: space after top level doc comment" {
+    try testCanonical(
+        \\//! top level doc comment
+        \\
+        \\field: i32,
+        \\
+    );
+}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;

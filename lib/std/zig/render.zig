@@ -1449,6 +1449,8 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
                 .identifier => {},
                 .keyword_anytype => {
                     try renderToken(ais, tree, last_param_token, .comma); // anytype
+                    if (token_tags[last_param_token + 1] == .comma)
+                        last_param_token += 1;
                     continue;
                 },
                 .r_paren => break,
@@ -1462,6 +1464,8 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
             }
             if (token_tags[last_param_token] == .keyword_anytype) {
                 try renderToken(ais, tree, last_param_token, .comma); // anytype
+                if (token_tags[last_param_token + 1] == .comma)
+                    last_param_token += 1;
                 continue;
             }
             const param = fn_proto.ast.params[param_i];
@@ -2362,6 +2366,12 @@ fn renderContainerDocComments(ais: *Ais, tree: ast.Tree, start_token: ast.TokenI
     var tok = start_token;
     while (token_tags[tok] == .container_doc_comment) : (tok += 1) {
         try renderToken(ais, tree, tok, .newline);
+    }
+    // Render extra newline if there is one between final container doc comment and
+    // the next token. If the next token is a doc comment, that code path
+    // will have its own logic to insert a newline.
+    if (token_tags[tok] != .doc_comment) {
+        try renderExtraNewlineToken(ais, tree, tok);
     }
 }
 
