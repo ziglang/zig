@@ -4178,17 +4178,16 @@ test "zig fmt: for loop with ptr payload and index" {
 //    );
 //}
 
-// TODO
-//test "zig fmt: respect extra newline between fn and pub usingnamespace" {
-//    try testCanonical(
-//        \\fn foo() void {
-//        \\    bar();
-//        \\}
-//        \\
-//        \\pub usingnamespace baz;
-//        \\
-//    );
-//}
+test "zig fmt: respect extra newline between fn and pub usingnamespace" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    bar();
+        \\}
+        \\
+        \\pub usingnamespace baz;
+        \\
+    );
+}
 
 // TODO
 //test "zig fmt: respect extra newline between switch items" {

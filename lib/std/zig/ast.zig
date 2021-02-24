@@ -321,7 +321,6 @@ pub const Tree = struct {
         while (true) switch (tags[n]) {
             .root => return 0,
 
-            .@"usingnamespace",
             .test_decl,
             .@"errdefer",
             .@"defer",
@@ -466,6 +465,14 @@ pub const Tree = struct {
                     }
                 }
                 return i - end_offset;
+            },
+
+            .@"usingnamespace" => {
+                const main_token = main_tokens[n];
+                if (main_token > 0 and token_tags[main_token - 1] == .keyword_pub) {
+                    end_offset += 1;
+                }
+                return main_token - end_offset;
             },
 
             .async_call_one,
