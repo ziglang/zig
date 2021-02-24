@@ -664,8 +664,15 @@ pub const Target = struct {
                     return @ptrCast(*const [byte_count]u8, &set.ints);
                 }
 
-                pub fn eql(set: Set, other: Set) bool {
-                    return mem.eql(usize, &set.ints, &other.ints);
+                pub fn eql(set: Set, other_set: Set) bool {
+                    return mem.eql(usize, &set.ints, &other_set.ints);
+                }
+
+                /// Is the other set a sub set of this set
+                pub fn subSet(set: Set, other_set: Set) bool {
+                    return std.meta.eql((@as(std.meta.Vector(usize_count, usize), set.ints) &
+                        @as(std.meta.Vector(usize_count, usize), other_set.ints)),
+                        @as(std.meta.Vector(usize_count, usize), other_set.ints));
                 }
             };
 

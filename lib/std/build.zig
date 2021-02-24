@@ -640,12 +640,18 @@ pub const Builder = struct {
         const mcpu = self.option([]const u8, "cpu", "Target CPU");
 
         const triple = maybe_triple orelse return args.default_target;
+        const cpu_features = self.option(
+            []const u8,
+            "mcpu",
+            "The list of CPU features to add or subtract",
+        );
 
         var diags: CrossTarget.ParseOptions.Diagnostics = .{};
         const selected_target = CrossTarget.parse(.{
             .arch_os_abi = triple,
             .cpu_features = mcpu,
             .diagnostics = &diags,
+            .cpu_features = cpu_features,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {
                 warn("Unknown CPU: '{s}'\nAvailable CPUs for architecture '{s}':\n", .{
@@ -699,20 +705,63 @@ pub const Builder = struct {
 
         if (args.whitelist) |list| whitelist_check: {
             // Make sure it's a match of one of the list.
+            var mismatch_triple = true;
+            var mismatch_cpu_features = true;
+            var whitelist_item = CrossTarget{};
             for (list) |t| {
+                mismatch_cpu_features = true;
+                mismatch_triple = true;
+
                 const t_triple = t.zigTriple(self.allocator) catch unreachable;
                 if (mem.eql(u8, t_triple, selected_canonicalized_triple)) {
-                    break :whitelist_check;
+                    mismatch_triple = false;
+                    whitelist_item = t;
+                    if (t.getCpuFeatures().subSet(selected_target.getCpuFeatures())) {
+                        mismatch_cpu_features = false;
+                        break :whitelist_check;
+                    } else {
+                        break;
+                    }
                 }
             }
-            warn("Chosen target '{s}' does not match one of the supported targets:\n", .{
-                selected_canonicalized_triple,
-            });
-            for (list) |t| {
-                const t_triple = t.zigTriple(self.allocator) catch unreachable;
-                warn(" {s}\n", .{t_triple});
+            if (mismatch_triple) {
+                warn("Chosen target '{s}' does not match one of the supported targets:\n", .{
+                    selected_canonicalized_triple,
+                });
+                for (list) |t| {
+                    const t_triple = t.zigTriple(self.allocator) catch unreachable;
+                    warn(" {s}\n", .{t_triple});
+                }
+                warn("\n", .{});
+            } else { // mismatch_cpu_features
+                const whitelist_cpu = whitelist_item.getCpu();
+                const selected_cpu = selected_target.getCpu();
+                warn("Chosen CPU model '{s}' does not match one of the supported targets:\n", .{
+                    selected_cpu.model.name,
+                });
+                warn("  Supported feature Set: ", .{});
+                const all_features = whitelist_cpu.arch.allFeaturesList();
+                var populated_cpu_features = whitelist_cpu.model.features;
+                populated_cpu_features.populateDependencies(all_features);
+                for (all_features) |feature, i_usize| {
+                    const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+                    const in_cpu_set = populated_cpu_features.isEnabled(i);
+                    if (in_cpu_set) {
+                        warn("{s} ", .{feature.name});
+                    }
+                }
+                warn("\n", .{});
+                warn("  Remove: ", .{});
+                for (all_features) |feature, i_usize| {
+                    const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+                    const in_cpu_set = populated_cpu_features.isEnabled(i);
+                    const in_actual_set = selected_cpu.features.isEnabled(i);
+                    if (in_actual_set and !in_cpu_set) {
+                        warn("{s} ", .{feature.name});
+                    }
+                }
+                warn("\n", .{});
             }
-            warn("\n", .{});
             self.markInvalidUserInput();
             return args.default_target;
         }
