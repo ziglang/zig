@@ -203,7 +203,11 @@ pub fn MultiArrayList(comptime S: type) type {
             const other_slice = other.slice();
             inline for (fields) |field_info, i| {
                 const field = @intToEnum(Field, i);
-                mem.copy(field_info.field_type, other_slice.items(field), self_slice.items(field));
+                // TODO we should be able to use std.mem.copy here but it causes a
+                // test failure on aarch64 with -OReleaseFast
+                const src_slice = mem.sliceAsBytes(self_slice.items(field));
+                const dst_slice = mem.sliceAsBytes(other_slice.items(field));
+                @memcpy(dst_slice.ptr, src_slice.ptr, src_slice.len);
             }
             gpa.free(self.allocatedBytes());
             self.* = other;
@@ -256,25 +260,20 @@ pub fn MultiArrayList(comptime S: type) type {
             const other_slice = other.slice();
             inline for (fields) |field_info, i| {
                 const field = @intToEnum(Field, i);
-                mem.copy(field_info.field_type, other_slice.items(field), self_slice.items(field));
+                // TODO we should be able to use std.mem.copy here but it causes a
+                // test failure on aarch64 with -OReleaseFast
+                const src_slice = mem.sliceAsBytes(self_slice.items(field));
+                const dst_slice = mem.sliceAsBytes(other_slice.items(field));
+                @memcpy(dst_slice.ptr, src_slice.ptr, src_slice.len);
             }
             gpa.free(self.allocatedBytes());
             self.* = other;
         }
 
         fn capacityInBytes(capacity: usize) usize {
-            // TODO move this workaround of LLVM SIMD bugs into the Zig frontend.
-            if (std.Target.current.cpu.arch == .aarch64) {
-                var sum: usize = 0;
-                for (sizes.bytes) |size| {
-                    sum += capacity * size;
-                }
-                return sum;
-            } else {
-                const sizes_vector: std.meta.Vector(sizes.bytes.len, usize) = sizes.bytes;
-                const capacity_vector = @splat(sizes.bytes.len, capacity);
-                return @reduce(.Add, capacity_vector * sizes_vector);
-            }
+            const sizes_vector: std.meta.Vector(sizes.bytes.len, usize) = sizes.bytes;
+            const capacity_vector = @splat(sizes.bytes.len, capacity);
+            return @reduce(.Add, capacity_vector * sizes_vector);
         }
 
         fn allocatedBytes(self: Self) []align(@alignOf(S)) u8 {
