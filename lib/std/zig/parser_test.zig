@@ -1496,12 +1496,14 @@ test "zig fmt: if nested" {
         \\            GE_EQUAL
         \\        else
         \\            GE_GREATER
+        \\        // comment
         \\    else if (aInt > bInt)
         \\        GE_LESS
         \\    else if (aInt == bInt)
         \\        GE_EQUAL
         \\    else
         \\        GE_GREATER;
+        \\    // comment
         \\}
         \\
     );
@@ -4182,6 +4184,21 @@ test "zig fmt: line comment after multiline single expr if statement with multil
         \\test {
         \\    if (foo)
         \\        x =
+        \\            \\hello
+        \\            \\hello
+        \\            \\
+        \\        ;
+        \\
+        \\    // bar
+        \\    baz();
+        \\
+        \\    if (foo)
+        \\        x =
+        \\            \\hello
+        \\            \\hello
+        \\            \\
+        \\    else
+        \\        y =
         \\            \\hello
         \\            \\hello
         \\            \\
