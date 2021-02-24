@@ -1863,46 +1863,42 @@ test "zig fmt: extra newlines at the end" {
     );
 }
 
-//test "zig fmt: simple asm" {
-//    try testTransform(
-//        \\comptime {
-//        \\    asm volatile (
-//        \\        \\.globl aoeu;
-//        \\        \\.type aoeu, @function;
-//        \\        \\.set aoeu, derp;
-//        \\    );
-//        \\
-//        \\    asm ("not real assembly"
-//        \\        :[a] "x" (x),);
-//        \\    asm ("not real assembly"
-//        \\        :[a] "x" (->i32),:[a] "x" (1),);
-//        \\    asm ("still not real assembly"
-//        \\        :::"a","b",);
-//        \\}
-//    ,
-//        \\comptime {
-//        \\    asm volatile (
-//        \\        \\.globl aoeu;
-//        \\        \\.type aoeu, @function;
-//        \\        \\.set aoeu, derp;
-//        \\    );
-//        \\
-//        \\    asm ("not real assembly"
-//        \\        : [a] "x" (x)
-//        \\    );
-//        \\    asm ("not real assembly"
-//        \\        : [a] "x" (-> i32)
-//        \\        : [a] "x" (1)
-//        \\    );
-//        \\    asm ("still not real assembly"
-//        \\        :
-//        \\        :
-//        \\        : "a", "b"
-//        \\    );
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: simple asm" {
+    try testTransform(
+        \\comptime {
+        \\    asm volatile (
+        \\        \\.globl aoeu;
+        \\        \\.type aoeu, @function;
+        \\        \\.set aoeu, derp;
+        \\    );
+        \\
+        \\    asm ("not real assembly"
+        \\        :[a] "x" (x),);
+        \\    asm ("not real assembly"
+        \\        :[a] "x" (->i32),:[a] "x" (1),);
+        \\    asm ("still not real assembly"
+        \\        :::"a","b",);
+        \\}
+    ,
+        \\comptime {
+        \\    asm volatile (
+        \\        \\.globl aoeu;
+        \\        \\.type aoeu, @function;
+        \\        \\.set aoeu, derp;
+        \\    );
+        \\
+        \\    asm ("not real assembly"
+        \\        : [a] "x" (x)
+        \\    );
+        \\    asm ("not real assembly"
+        \\        : [a] "x" (-> i32)
+        \\        : [a] "x" (1)
+        \\    );
+        \\    asm ("still not real assembly" ::: "a", "b");
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: nested struct literal with one item" {
     try testCanonical(
@@ -3363,46 +3359,43 @@ test "zig fmt: comptime block in container" {
     );
 }
 
-//test "zig fmt: inline asm parameter alignment" {
-//    try testCanonical(
-//        \\pub fn main() void {
-//        \\    asm volatile (
-//        \\        \\ foo
-//        \\        \\ bar
-//        \\    );
-//        \\    asm volatile (
-//        \\        \\ foo
-//        \\        \\ bar
-//        \\        : [_] "" (-> usize),
-//        \\          [_] "" (-> usize)
-//        \\    );
-//        \\    asm volatile (
-//        \\        \\ foo
-//        \\        \\ bar
-//        \\        :
-//        \\        : [_] "" (0),
-//        \\          [_] "" (0)
-//        \\    );
-//        \\    asm volatile (
-//        \\        \\ foo
-//        \\        \\ bar
-//        \\        :
-//        \\        :
-//        \\        : "", ""
-//        \\    );
-//        \\    asm volatile (
-//        \\        \\ foo
-//        \\        \\ bar
-//        \\        : [_] "" (-> usize),
-//        \\          [_] "" (-> usize)
-//        \\        : [_] "" (0),
-//        \\          [_] "" (0)
-//        \\        : "", ""
-//        \\    );
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: inline asm parameter alignment" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        : [_] "" (-> usize),
+        \\          [_] "" (-> usize)
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        :
+        \\        : [_] "" (0),
+        \\          [_] "" (0)
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        ::: "", "");
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        : [_] "" (-> usize),
+        \\          [_] "" (-> usize)
+        \\        : [_] "" (0),
+        \\          [_] "" (0)
+        \\        : "", ""
+        \\    );
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: multiline string in array" {
     try testCanonical(

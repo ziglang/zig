@@ -1955,21 +1955,40 @@ fn renderAsm(
     }
 
     if (asm_node.ast.items.len == 0) {
-        try renderExpression(gpa, ais, tree, asm_node.ast.template, .none);
+        ais.pushIndent();
         if (asm_node.first_clobber) |first_clobber| {
             // asm ("foo" ::: "a", "b")
+            // asm ("foo" ::: "a", "b",)
+            try renderExpression(gpa, ais, tree, asm_node.ast.template, .space);
+            // Render the three colons.
+            try renderToken(ais, tree, first_clobber - 3, .none);
+            try renderToken(ais, tree, first_clobber - 2, .none);
+            try renderToken(ais, tree, first_clobber - 1, .space);
+
             var tok_i = first_clobber;
             while (true) : (tok_i += 1) {
                 try renderToken(ais, tree, tok_i, .none);
                 tok_i += 1;
                 switch (token_tags[tok_i]) {
-                    .r_paren => return renderToken(ais, tree, tok_i, space),
-                    .comma => try renderToken(ais, tree, tok_i, .space),
+                    .r_paren => {
+                        ais.popIndent();
+                        return renderToken(ais, tree, tok_i, space);
+                    },
+                    .comma => {
+                        if (token_tags[tok_i + 1] == .r_paren) {
+                            ais.popIndent();
+                            return renderToken(ais, tree, tok_i + 1, space);
+                        } else {
+                            try renderToken(ais, tree, tok_i, .space);
+                        }
+                    },
                     else => unreachable,
                 }
             }
         } else {
             // asm ("foo")
+            try renderExpression(gpa, ais, tree, asm_node.ast.template, .none);
+            ais.popIndent();
             return renderToken(ais, tree, asm_node.ast.rparen, space); // rparen
         }
     }
