@@ -645,7 +645,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         };
 
         const darwin_options: DarwinOptions = if (build_options.have_llvm and comptime std.Target.current.isDarwin()) outer: {
-            const opts: DarwinOptions = if (use_lld and options.is_native_os and options.target.isDarwin()) inner: {
+            const opts: DarwinOptions = if (use_lld and std.builtin.os.tag == .macos and options.target.isDarwin()) inner: {
                 // TODO Revisit this targeting versions lower than macOS 11 when LLVM 12 is out.
                 // See https://github.com/ziglang/zig/issues/6996
                 const at_least_big_sur = options.target.os.getVersionRange().semver.min.major >= 11;
@@ -1538,7 +1538,9 @@ pub fn getCompileLogOutput(self: *Compilation) []const u8 {
 }
 
 pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
-    var progress: std.Progress = .{};
+    // If the terminal is dumb, we dont want to show the user all the
+    // output.
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
     var main_progress_node = try progress.start("", 0);
     defer main_progress_node.end();
     if (self.color == .off) progress.terminal = null;

@@ -13,7 +13,7 @@ cond: Condition = .{},
 //! It is OK to initialize this field to any value.
 permits: usize = 0,
 
-const RwLock = @This();
+const Semaphore = @This();
 const std = @import("../std.zig");
 const Mutex = std.Thread.Mutex;
 const Condition = std.Thread.Condition;

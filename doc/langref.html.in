@@ -310,7 +310,7 @@ pub fn main() !void {
       <p>
         The two arguments passed to the <code>stdout.print()</code> function, <code>"Hello, {s}!\n"</code>
         and <code>.{"world"}</code>, are evaluated at {#link|compile-time|comptime#}. The code sample is
-        purposely written to show how to perform {#link|string|String Literals and Character Literals#}
+        purposely written to show how to perform {#link|string|String Literals and Unicode Code Point Literals#}
         substitution in the <code>print</code> function. The curly-braces inside of the first argument
         are substituted with the compile-time known value inside of the second argument
         (known as an {#link|anonymous struct literal|Anonymous Struct Literals#}). The <code>\n</code>
@@ -682,18 +682,31 @@ pub fn main() void {
       </div>
       {#see_also|Optionals|undefined#}
       {#header_close#}
-      {#header_open|String Literals and Character Literals#}
+      {#header_open|String Literals and Unicode Code Point Literals#}
       <p>
-      String literals are single-item constant {#link|Pointers#} to null-terminated UTF-8 encoded byte arrays.
+      String literals are single-item constant {#link|Pointers#} to null-terminated byte arrays.
       The type of string literals encodes both the length, and the fact that they are null-terminated,
       and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
       {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
       Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
       <p>
-      Character literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
+      The encoding of a string in Zig is de-facto assumed to be UTF-8.
+      Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any non-ASCII bytes appearing within a string literal
+      in source code carry their UTF-8 meaning into the content of the string in the Zig program;
+      the bytes are not modified by the compiler.
+      However, it is possible to embbed non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
+      </p>
+      <p>
+      Unicode code point literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
       {#link|Integer Literals#}. All {#link|Escape Sequences#} are valid in both string literals
-      and character literals.
+      and Unicode code point literals.
+      </p>
+      <p>
+      In many other programming languages, a Unicode code point literal is called a "character literal".
+      However, there is <a href="https://unicode.org/glossary">no precise technical definition of a "character"</a>
+      in recent versions of the Unicode specification (as of Unicode 13.0).
+      In Zig, a Unicode code point literal corresponds to the Unicode definition of a code point.
       </p>
       {#code_begin|test#}
 const expect = @import("std").testing.expect;
@@ -709,6 +722,7 @@ test "string literals" {
     expect('\u{1f4a9}' == 128169);
     expect('💯' == 128175);
     expect(mem.eql(u8, "hello", "h\x65llo"));
+    expect("\xff"[0] == 0xff); // non-UTF-8 strings are possible with \xNN notation.
 }
       {#code_end#}
       {#see_also|Arrays|Zig Test|Source Encoding#}
@@ -749,11 +763,11 @@ test "string literals" {
         </tr>
         <tr>
             <td><code>\xNN</code></td>
-          <td>hexadecimal 8-bit character code (2 digits)</td>
+          <td>hexadecimal 8-bit byte value (2 digits)</td>
         </tr>
         <tr>
             <td><code>\u{NNNNNN}</code></td>
-          <td>hexadecimal Unicode character code UTF-8 encoded (1 or more digits)</td>
+          <td>hexadecimal Unicode code point UTF-8 encoded (1 or more digits)</td>
         </tr>
       </table>
       </div>
@@ -7414,7 +7428,7 @@ test "main" {
       This function returns a compile time constant pointer to null-terminated,
       fixed-size array with length equal to the byte count of the file given by
       {#syntax#}path{#endsyntax#}. The contents of the array are the contents of the file.
-      This is equivalent to a {#link|string literal|String Literals and Character Literals#}
+      This is equivalent to a {#link|string literal|String Literals and Unicode Code Point Literals#}
       with the file contents.
       </p>
       <p>

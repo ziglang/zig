@@ -25,6 +25,13 @@ terminal: ?std.fs.File = undefined,
 /// Whether the terminal supports ANSI escape codes.
 supports_ansi_escape_codes: bool = false,
 
+/// If the terminal is "dumb", don't print output.
+/// This can be useful if you don't want to print all
+/// the stages of code generation if there are a lot.
+/// You should not use it if the user should see output
+/// for example showing the user what tests run.
+dont_print_on_dumb: bool = false,
+
 root: Node = undefined,
 
 /// Keeps track of how much time has passed since the beginning.
@@ -141,6 +148,9 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*
         self.supports_ansi_escape_codes = true;
     } else if (std.builtin.os.tag == .windows and stderr.isTty()) {
         self.terminal = stderr;
+    } else if (std.builtin.os.tag != .windows) {
+        // we are in a "dumb" terminal like in acme or writing to a file
+        self.terminal = stderr;
     }
     self.root = Node{
         .context = self,
@@ -178,6 +188,8 @@ pub fn refresh(self: *Progress) void {
 }
 
 fn refreshWithHeldLock(self: *Progress) void {
+    const is_dumb = !self.supports_ansi_escape_codes and !(std.builtin.os.tag == .windows);
+    if (is_dumb and self.dont_print_on_dumb) return;
     const file = self.terminal orelse return;
 
     const prev_columns_written = self.columns_written;
@@ -226,7 +238,11 @@ fn refreshWithHeldLock(self: *Progress) void {
 
             if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE)
                 unreachable;
-        } else unreachable;
+        } else {
+            // we are in a "dumb" terminal like in acme or writing to a file
+            self.output_buffer[end] = '\n';
+            end += 1;
+        }
 
         self.columns_written = 0;
     }

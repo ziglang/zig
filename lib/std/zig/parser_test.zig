@@ -648,7 +648,7 @@ test "zig fmt: struct literal 1 element" {
     );
 }
 
-test "zig fmt: struct literal 1 element comma" {
+test "zig fmt: Unicode code point literal larger than u8" {
     try testCanonical(
         \\test {
         \\    const x = X{

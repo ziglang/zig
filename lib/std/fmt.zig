@@ -524,7 +524,7 @@ pub fn formatType(
                     if (actual_fmt.len == 0)
                         @compileError("cannot format array ref without a specifier (i.e. {s} or {*})");
                     if (info.child == u8) {
-                        if (comptime mem.indexOfScalar(u8, "sxXeEzZ", actual_fmt[0]) != null) {
+                        if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                             return formatText(value, actual_fmt, options, writer);
                         }
                     }
@@ -542,7 +542,7 @@ pub fn formatType(
                     return formatType(mem.span(value), actual_fmt, options, writer, max_depth);
                 }
                 if (ptr_info.child == u8) {
-                    if (comptime mem.indexOfScalar(u8, "sxXeEzZ", actual_fmt[0]) != null) {
+                    if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                         return formatText(mem.span(value), actual_fmt, options, writer);
                     }
                 }
@@ -555,7 +555,7 @@ pub fn formatType(
                     return writer.writeAll("{ ... }");
                 }
                 if (ptr_info.child == u8) {
-                    if (comptime mem.indexOfScalar(u8, "sxXeEzZ", actual_fmt[0]) != null) {
+                    if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                         return formatText(value, actual_fmt, options, writer);
                     }
                 }
@@ -576,7 +576,7 @@ pub fn formatType(
                 return writer.writeAll("{ ... }");
             }
             if (info.child == u8) {
-                if (comptime mem.indexOfScalar(u8, "sxXeEzZ", actual_fmt[0]) != null) {
+                if (comptime mem.indexOfScalar(u8, "sxXeE", actual_fmt[0]) != null) {
                     return formatText(&value, actual_fmt, options, writer);
                 }
             }
@@ -658,8 +658,6 @@ pub fn formatIntValue(
         } else {
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
         }
-    } else if (comptime std.mem.eql(u8, fmt, "Z")) {
-        @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
             return formatUnicodeCodepoint(@as(u21, int_value), options, writer);
@@ -735,10 +733,6 @@ pub fn formatText(
             }
         }
         return;
-    } else if (comptime std.mem.eql(u8, fmt, "z")) {
-        @compileError("specifier 'z' has been deprecated, wrap your argument in std.zig.fmtId instead");
-    } else if (comptime std.mem.eql(u8, fmt, "Z")) {
-        @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead");
     } else {
         @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
     }
@@ -1988,23 +1982,34 @@ test "bytes.hex" {
 pub const trim = @compileError("deprecated; use std.mem.trim with std.ascii.spaces instead");
 pub const isWhiteSpace = @compileError("deprecated; use std.ascii.isSpace instead");
 
-pub fn hexToBytes(out: []u8, input: []const u8) !void {
-    if (out.len * 2 < input.len)
+/// Decodes the sequence of bytes represented by the specified string of
+/// hexadecimal characters.
+/// Returns a slice of the output buffer containing the decoded bytes.
+pub fn hexToBytes(out: []u8, input: []const u8) ![]u8 {
+    // Expect 0 or n pairs of hexadecimal digits.
+    if (input.len & 1 != 0)
         return error.InvalidLength;
+    if (out.len * 2 < input.len)
+        return error.NoSpaceLeft;
 
     var in_i: usize = 0;
-    while (in_i != input.len) : (in_i += 2) {
+    while (in_i < input.len) : (in_i += 2) {
         const hi = try charToDigit(input[in_i], 16);
         const lo = try charToDigit(input[in_i + 1], 16);
         out[in_i / 2] = (hi << 4) | lo;
     }
+
+    return out[0 .. in_i / 2];
 }
 
 test "hexToBytes" {
-    const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
-    var pb: [32]u8 = undefined;
-    try hexToBytes(pb[0..], test_hex_str);
-    try expectFmt(test_hex_str, "{X}", .{pb});
+    var buf: [32]u8 = undefined;
+    try expectFmt("90" ** 32, "{X}", .{try hexToBytes(&buf, "90" ** 32)});
+    try expectFmt("ABCD", "{X}", .{try hexToBytes(&buf, "ABCD")});
+    try expectFmt("", "{X}", .{try hexToBytes(&buf, "")});
+    std.testing.expectError(error.InvalidCharacter, hexToBytes(&buf, "012Z"));
+    std.testing.expectError(error.InvalidLength, hexToBytes(&buf, "AAA"));
+    std.testing.expectError(error.NoSpaceLeft, hexToBytes(buf[0..1], "ABAB"));
 }
 
 test "formatIntValue with comptime_int" {

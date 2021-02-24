@@ -1634,6 +1634,92 @@ pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:
     }
 }
 
+pub const LinkError = UnexpectedError || error{
+    AccessDenied,
+    DiskQuota,
+    PathAlreadyExists,
+    FileSystem,
+    SymLinkLoop,
+    LinkQuotaExceeded,
+    NameTooLong,
+    FileNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    ReadOnlyFileSystem,
+    NotSameFileSystem,
+};
+
+pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkError!void {
+    switch (errno(system.link(oldpath, newpath, flags))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EDQUOT => return error.DiskQuota,
+        EEXIST => return error.PathAlreadyExists,
+        EFAULT => unreachable,
+        EIO => return error.FileSystem,
+        ELOOP => return error.SymLinkLoop,
+        EMLINK => return error.LinkQuotaExceeded,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOMEM => return error.SystemResources,
+        ENOSPC => return error.NoSpaceLeft,
+        EPERM => return error.AccessDenied,
+        EROFS => return error.ReadOnlyFileSystem,
+        EXDEV => return error.NotSameFileSystem,
+        EINVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn link(oldpath: []const u8, newpath: []const u8, flags: i32) LinkError!void {
+    const old = try toPosixPath(oldpath);
+    const new = try toPosixPath(newpath);
+    return try linkZ(&old, &new, flags);
+}
+
+pub const LinkatError = LinkError || error{NotDir};
+
+pub fn linkatZ(
+    olddir: fd_t,
+    oldpath: [*:0]const u8,
+    newdir: fd_t,
+    newpath: [*:0]const u8,
+    flags: i32,
+) LinkatError!void {
+    switch (errno(system.linkat(olddir, oldpath, newdir, newpath, flags))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EDQUOT => return error.DiskQuota,
+        EEXIST => return error.PathAlreadyExists,
+        EFAULT => unreachable,
+        EIO => return error.FileSystem,
+        ELOOP => return error.SymLinkLoop,
+        EMLINK => return error.LinkQuotaExceeded,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOMEM => return error.SystemResources,
+        ENOSPC => return error.NoSpaceLeft,
+        ENOTDIR => return error.NotDir,
+        EPERM => return error.AccessDenied,
+        EROFS => return error.ReadOnlyFileSystem,
+        EXDEV => return error.NotSameFileSystem,
+        EINVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn linkat(
+    olddir: fd_t,
+    oldpath: []const u8,
+    newdir: fd_t,
+    newpath: []const u8,
+    flags: i32,
+) LinkatError!void {
+    const old = try toPosixPath(oldpath);
+    const new = try toPosixPath(newpath);
+    return try linkatZ(olddir, &old, newdir, &new, flags);
+}
+
 pub const UnlinkError = error{
     FileNotFound,
 

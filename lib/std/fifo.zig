@@ -44,6 +44,8 @@ pub fn LinearFifo(
         count: usize,
 
         const Self = @This();
+        pub const Reader = std.io.Reader(*Self, error{}, readFn);
+        pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
         // Type of Self argument for slice operations.
         // If buffer is inline (Static) then we need to ensure we haven't
@@ -153,7 +155,7 @@ pub fn LinearFifo(
             var start = self.head + offset;
             if (start >= self.buf.len) {
                 start -= self.buf.len;
-                return self.buf[start .. self.count - offset];
+                return self.buf[start .. start + (self.count - offset)];
             } else {
                 const end = math.min(self.head + self.count, self.buf.len);
                 return self.buf[start..end];
@@ -228,7 +230,7 @@ pub fn LinearFifo(
             return self.read(dest);
         }
 
-        pub fn reader(self: *Self) std.io.Reader(*Self, error{}, readFn) {
+        pub fn reader(self: *Self) Reader {
             return .{ .context = self };
         }
 
@@ -318,7 +320,7 @@ pub fn LinearFifo(
             return bytes.len;
         }
 
-        pub fn writer(self: *Self) std.io.Writer(*Self, error{OutOfMemory}, appendWrite) {
+        pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
 
@@ -427,6 +429,8 @@ test "LinearFifo(u8, .Dynamic)" {
         fifo.writeAssumeCapacity("6<chars<11");
         testing.expectEqualSlices(u8, "HELLO6<char", fifo.readableSlice(0));
         testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(11));
+        testing.expectEqualSlices(u8, "11", fifo.readableSlice(13));
+        testing.expectEqualSlices(u8, "", fifo.readableSlice(15));
         fifo.discard(11);
         testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(0));
         fifo.discard(4);

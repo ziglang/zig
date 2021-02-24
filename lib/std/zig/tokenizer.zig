@@ -1535,7 +1535,7 @@ test "tokenizer - unknown length pointer and then c pointer" {
     });
 }
 
-test "tokenizer - char literal with hex escape" {
+test "tokenizer - code point literal with hex escape" {
     testTokenize(
         \\'\x1b'
     , &.{.char_literal});
@@ -1544,7 +1544,7 @@ test "tokenizer - char literal with hex escape" {
     , &.{ .invalid, .invalid });
 }
 
-test "tokenizer - char literal with unicode escapes" {
+test "tokenizer - code point literal with unicode escapes" {
     // Valid unicode escapes
     testTokenize(
         \\'\u{3}'
@@ -1594,7 +1594,7 @@ test "tokenizer - char literal with unicode escapes" {
     , &.{ .invalid, .integer_literal, .invalid });
 }
 
-test "tokenizer - char literal with unicode code point" {
+test "tokenizer - code point literal with unicode code point" {
     testTokenize(
         \\'💩'
     , &.{.char_literal});
