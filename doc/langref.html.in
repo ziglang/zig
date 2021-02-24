@@ -691,7 +691,7 @@ pub fn main() void {
       Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
       <p>
-      The encoding of a string is Zig is de-facto assumed to be UTF-8.
+      The encoding of a string in Zig is de-facto assumed to be UTF-8.
       Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any non-ASCII bytes appearing within a string literal
       in source code carry their UTF-8 meaning into the content of the string in the Zig program;
       the bytes are not modified by the compiler.
