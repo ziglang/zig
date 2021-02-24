@@ -4189,19 +4189,18 @@ test "zig fmt: respect extra newline between fn and pub usingnamespace" {
     );
 }
 
-// TODO
-//test "zig fmt: respect extra newline between switch items" {
-//    try testCanonical(
-//        \\const a = switch (b) {
-//        \\    .c => {},
-//        \\
-//        \\    .d,
-//        \\    .e,
-//        \\    => f,
-//        \\};
-//        \\
-//    );
-//}
+test "zig fmt: respect extra newline between switch items" {
+    try testCanonical(
+        \\const a = switch (b) {
+        \\    .c => {},
+        \\
+        \\    .d,
+        \\    .e,
+        \\    => f,
+        \\};
+        \\
+    );
+}
 
 test "zig fmt: error for invalid bit range" {
     try testError(

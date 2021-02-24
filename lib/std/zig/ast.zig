@@ -580,7 +580,7 @@ pub const Tree = struct {
             .switch_case => {
                 const extra = tree.extraData(datas[n].lhs, Node.SubRange);
                 assert(extra.end - extra.start > 0);
-                n = extra.start;
+                n = tree.extra_data[extra.start];
             },
 
             .asm_output, .asm_input => {
