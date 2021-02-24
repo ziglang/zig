@@ -4164,6 +4164,46 @@ test "zig fmt: for loop with ptr payload and index" {
     );
 }
 
+// TODO
+//test "zig fmt: proper indent line comment after multi-line single expr while loop" {
+//    try testCanonical(
+//        \\test {
+//        \\    while (a) : (b)
+//        \\        foo();
+//        \\
+//        \\    // bar
+//        \\    baz();
+//        \\}
+//        \\
+//    );
+//}
+
+// TODO
+//test "zig fmt: respect extra newline between fn and pub usingnamespace" {
+//    try testCanonical(
+//        \\fn foo() void {
+//        \\    bar();
+//        \\}
+//        \\
+//        \\pub usingnamespace baz;
+//        \\
+//    );
+//}
+
+// TODO
+//test "zig fmt: respect extra newline between switch items" {
+//    try testCanonical(
+//        \\const a = switch (b) {
+//        \\    .c => {},
+//        \\
+//        \\    .d,
+//        \\    .e,
+//        \\    => f,
+//        \\};
+//        \\
+//    );
+//}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;
