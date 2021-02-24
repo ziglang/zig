@@ -4164,19 +4164,35 @@ test "zig fmt: for loop with ptr payload and index" {
     );
 }
 
-// TODO
-//test "zig fmt: proper indent line comment after multi-line single expr while loop" {
-//    try testCanonical(
-//        \\test {
-//        \\    while (a) : (b)
-//        \\        foo();
-//        \\
-//        \\    // bar
-//        \\    baz();
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: proper indent line comment after multi-line single expr while loop" {
+    try testCanonical(
+        \\test {
+        \\    while (a) : (b)
+        \\        foo();
+        \\
+        \\    // bar
+        \\    baz();
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: line comment after multiline single expr if statement with multiline string" {
+    try testCanonical(
+        \\test {
+        \\    if (foo)
+        \\        x =
+        \\            \\hello
+        \\            \\hello
+        \\            \\
+        \\        ;
+        \\
+        \\    // bar
+        \\    baz();
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: respect extra newline between fn and pub usingnamespace" {
     try testCanonical(

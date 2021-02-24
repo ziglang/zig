@@ -203,7 +203,9 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
 
             switch (space) {
                 .none, .space, .newline => {},
+                .newline_pop => ais.popIndent(),
                 .semicolon => if (token_tags[i] == .semicolon) try renderToken(ais, tree, i, .newline),
+                .semicolon_pop => if (token_tags[i] == .semicolon) try renderToken(ais, tree, i, .newline_pop),
                 .comma => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .newline),
                 .comma_space => if (token_tags[i] == .comma) try renderToken(ais, tree, i, .space),
             }
@@ -1152,8 +1154,8 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
             }
         } else {
             ais.pushIndent();
-            try renderExpression(gpa, ais, tree, while_node.ast.then_expr, space);
-            ais.popIndent();
+            assert(space == .semicolon);
+            try renderExpression(gpa, ais, tree, while_node.ast.then_expr, .semicolon_pop);
             return;
         }
     }
@@ -2196,6 +2198,9 @@ const Space = enum {
     space,
     /// Output the token lexeme followed by a newline.
     newline,
+    /// Same as newline, but pop an indent level before rendering the
+    /// following comments if any.
+    newline_pop,
     /// If the next token is a comma, render it as well. If not, insert one.
     /// In either case, a newline will be inserted afterwards.
     comma,
@@ -2205,6 +2210,9 @@ const Space = enum {
     /// Additionally consume the next token if it is a semicolon.
     /// In either case, a newline will be inserted afterwards.
     semicolon,
+    /// Same as semicolon, but pop an indent level before rendering the
+    /// following comments if any.
+    semicolon_pop,
 };
 
 fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Space) Error!void {
@@ -2216,32 +2224,64 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
 
     try ais.writer().writeAll(lexeme);
 
-    if (space == .comma and token_tags[token_index + 1] != .comma) {
-        try ais.writer().writeByte(',');
-    }
-
-    const comment = try renderComments(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]);
+    const token_end = token_start + lexeme.len;
+    const next_token_start = token_starts[token_index + 1];
     switch (space) {
-        .none => {},
-        .space => if (!comment) try ais.writer().writeByte(' '),
-        .newline => if (!comment) try ais.insertNewline(),
+        .none => _ = try renderComments(ais, tree, token_end, next_token_start),
 
-        .comma => if (token_tags[token_index + 1] == .comma) {
-            try renderToken(ais, tree, token_index + 1, .newline);
-        } else if (!comment) {
-            try ais.insertNewline();
-        },
-
-        .comma_space => if (token_tags[token_index + 1] == .comma) {
-            try renderToken(ais, tree, token_index + 1, .space);
-        } else if (!comment) {
+        .space => if (!try renderComments(ais, tree, token_end, next_token_start)) {
             try ais.writer().writeByte(' ');
         },
 
-        .semicolon => if (token_tags[token_index + 1] == .semicolon) {
-            try renderToken(ais, tree, token_index + 1, .newline);
-        } else if (!comment) {
+        .newline => if (!try renderComments(ais, tree, token_end, next_token_start)) {
             try ais.insertNewline();
+        },
+
+        .newline_pop => {
+            ais.popIndent();
+            if (!try renderComments(ais, tree, token_end, next_token_start)) {
+                try ais.insertNewline();
+            }
+        },
+
+        .comma => if (token_tags[token_index + 1] == .comma) {
+            _ = try renderComments(ais, tree, token_end, next_token_start);
+            try renderToken(ais, tree, token_index + 1, .newline);
+        } else {
+            try ais.writer().writeByte(',');
+            if (!try renderComments(ais, tree, token_end, next_token_start)) {
+                try ais.insertNewline();
+            }
+        },
+
+        .comma_space => {
+            const comment = try renderComments(ais, tree, token_end, next_token_start);
+            if (token_tags[token_index + 1] == .comma) {
+                try renderToken(ais, tree, token_index + 1, .space);
+            } else if (!comment) {
+                try ais.writer().writeByte(' ');
+            }
+        },
+
+        .semicolon => {
+            const comment = try renderComments(ais, tree, token_end, next_token_start);
+            if (token_tags[token_index + 1] == .semicolon) {
+                try renderToken(ais, tree, token_index + 1, .newline);
+            } else if (!comment) {
+                try ais.insertNewline();
+            }
+        },
+
+        .semicolon_pop => {
+            if (token_tags[token_index + 1] == .semicolon) {
+                _ = try renderComments(ais, tree, token_end, next_token_start);
+                try renderToken(ais, tree, token_index + 1, .newline_pop);
+            } else {
+                ais.popIndent();
+                if (!try renderComments(ais, tree, token_end, next_token_start)) {
+                    try ais.insertNewline();
+                }
+            }
         },
     }
 }
