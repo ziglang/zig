@@ -263,9 +263,18 @@ pub fn MultiArrayList(comptime S: type) type {
         }
 
         fn capacityInBytes(capacity: usize) usize {
-            const sizes_vector: std.meta.Vector(sizes.bytes.len, usize) = sizes.bytes;
-            const capacity_vector = @splat(sizes.bytes.len, capacity);
-            return @reduce(.Add, capacity_vector * sizes_vector);
+            // TODO move this workaround of LLVM SIMD bugs into the Zig frontend.
+            if (std.Target.current.cpu.arch == .aarch64) {
+                var sum: usize = 0;
+                for (sizes.bytes) |size| {
+                    sum += capacity * size;
+                }
+                return sum;
+            } else {
+                const sizes_vector: std.meta.Vector(sizes.bytes.len, usize) = sizes.bytes;
+                const capacity_vector = @splat(sizes.bytes.len, capacity);
+                return @reduce(.Add, capacity_vector * sizes_vector);
+            }
         }
 
         fn allocatedBytes(self: Self) []align(@alignOf(S)) u8 {
@@ -356,4 +365,83 @@ test "basic usage" {
     testing.expectEqualStrings("foobar", list.items(.b)[0]);
     testing.expectEqualStrings("zigzag", list.items(.b)[1]);
     testing.expectEqualStrings("fizzbuzz", list.items(.b)[2]);
+}
+
+// This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes
+// function used the @reduce code path.
+test "regression test for @reduce bug" {
+    const ally = std.testing.allocator;
+    var list = MultiArrayList(struct {
+        tag: std.zig.Token.Tag,
+        start: u32,
+    }){};
+    defer list.deinit(ally);
+
+    try list.ensureCapacity(ally, 20);
+
+    try list.append(ally, .{ .tag = .keyword_const, .start = 0 });
+    try list.append(ally, .{ .tag = .identifier, .start = 6 });
+    try list.append(ally, .{ .tag = .equal, .start = 10 });
+    try list.append(ally, .{ .tag = .builtin, .start = 12 });
+    try list.append(ally, .{ .tag = .l_paren, .start = 19 });
+    try list.append(ally, .{ .tag = .string_literal, .start = 20 });
+    try list.append(ally, .{ .tag = .r_paren, .start = 25 });
+    try list.append(ally, .{ .tag = .semicolon, .start = 26 });
+    try list.append(ally, .{ .tag = .keyword_pub, .start = 29 });
+    try list.append(ally, .{ .tag = .keyword_fn, .start = 33 });
+    try list.append(ally, .{ .tag = .identifier, .start = 36 });
+    try list.append(ally, .{ .tag = .l_paren, .start = 40 });
+    try list.append(ally, .{ .tag = .r_paren, .start = 41 });
+    try list.append(ally, .{ .tag = .identifier, .start = 43 });
+    try list.append(ally, .{ .tag = .bang, .start = 51 });
+    try list.append(ally, .{ .tag = .identifier, .start = 52 });
+    try list.append(ally, .{ .tag = .l_brace, .start = 57 });
+    try list.append(ally, .{ .tag = .identifier, .start = 63 });
+    try list.append(ally, .{ .tag = .period, .start = 66 });
+    try list.append(ally, .{ .tag = .identifier, .start = 67 });
+    try list.append(ally, .{ .tag = .period, .start = 70 });
+    try list.append(ally, .{ .tag = .identifier, .start = 71 });
+    try list.append(ally, .{ .tag = .l_paren, .start = 75 });
+    try list.append(ally, .{ .tag = .string_literal, .start = 76 });
+    try list.append(ally, .{ .tag = .comma, .start = 113 });
+    try list.append(ally, .{ .tag = .period, .start = 115 });
+    try list.append(ally, .{ .tag = .l_brace, .start = 116 });
+    try list.append(ally, .{ .tag = .r_brace, .start = 117 });
+    try list.append(ally, .{ .tag = .r_paren, .start = 118 });
+    try list.append(ally, .{ .tag = .semicolon, .start = 119 });
+    try list.append(ally, .{ .tag = .r_brace, .start = 121 });
+    try list.append(ally, .{ .tag = .eof, .start = 123 });
+
+    const tags = list.items(.tag);
+    std.testing.expectEqual(tags[1], .identifier);
+    std.testing.expectEqual(tags[2], .equal);
+    std.testing.expectEqual(tags[3], .builtin);
+    std.testing.expectEqual(tags[4], .l_paren);
+    std.testing.expectEqual(tags[5], .string_literal);
+    std.testing.expectEqual(tags[6], .r_paren);
+    std.testing.expectEqual(tags[7], .semicolon);
+    std.testing.expectEqual(tags[8], .keyword_pub);
+    std.testing.expectEqual(tags[9], .keyword_fn);
+    std.testing.expectEqual(tags[10], .identifier);
+    std.testing.expectEqual(tags[11], .l_paren);
+    std.testing.expectEqual(tags[12], .r_paren);
+    std.testing.expectEqual(tags[13], .identifier);
+    std.testing.expectEqual(tags[14], .bang);
+    std.testing.expectEqual(tags[15], .identifier);
+    std.testing.expectEqual(tags[16], .l_brace);
+    std.testing.expectEqual(tags[17], .identifier);
+    std.testing.expectEqual(tags[18], .period);
+    std.testing.expectEqual(tags[19], .identifier);
+    std.testing.expectEqual(tags[20], .period);
+    std.testing.expectEqual(tags[21], .identifier);
+    std.testing.expectEqual(tags[22], .l_paren);
+    std.testing.expectEqual(tags[23], .string_literal);
+    std.testing.expectEqual(tags[24], .comma);
+    std.testing.expectEqual(tags[25], .period);
+    std.testing.expectEqual(tags[26], .l_brace);
+    std.testing.expectEqual(tags[27], .r_brace);
+    std.testing.expectEqual(tags[28], .r_paren);
+    std.testing.expectEqual(tags[29], .semicolon);
+    std.testing.expectEqual(tags[30], .r_brace);
+    std.testing.expectEqual(tags[31], .eof);
 }
