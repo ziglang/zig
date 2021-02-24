@@ -1447,7 +1447,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                 tokenize_error(&t, "unterminated string");
                 break;
             } else if (t.cur_tok->id == TokenIdCharLiteral) {
-                tokenize_error(&t, "unterminated character literal");
+                tokenize_error(&t, "unterminated Unicode code point literal");
                 break;
             } else {
                 zig_unreachable();
@@ -1456,7 +1456,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateCharLiteral:
         case TokenizeStateCharLiteralEnd:
         case TokenizeStateCharLiteralUnicode:
-            tokenize_error(&t, "unterminated character literal");
+            tokenize_error(&t, "unterminated Unicode code point literal");
             break;
         case TokenizeStateSymbol:
         case TokenizeStateZero:
