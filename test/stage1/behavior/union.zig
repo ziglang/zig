@@ -804,3 +804,23 @@ test "union enum type gets a separate scope" {
 
     S.doTheTest();
 }
+
+test "switch on union created with @Type" {
+    const E = enum { foo, bar };
+    const U = @Type(.{
+        .Union = .{
+            .layout = .Auto,
+            .tag_type = E,
+            .fields = &[_]std.builtin.TypeInfo.UnionField{
+                .{ .name = "foo", .field_type = u32, .alignment = 0 },
+                .{ .name = "bar", .field_type = void, .alignment = 0 },
+            },
+            .decls = &.{},
+        },
+    });
+    var t = U{ .foo = 5 };
+    switch (t) {
+        .foo => |f| expect(f == 5),
+        .bar => unreachable,
+    }
+}

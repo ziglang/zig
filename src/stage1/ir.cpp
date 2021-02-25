@@ -24152,8 +24152,9 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         }
         case ZigTypeIdUnion: {
             AstNode *decl_node = target_type->data.unionation.decl_node;
-            if (!decl_node->data.container_decl.auto_enum &&
+            if ((!decl_node->data.container_decl.auto_enum &&
                 decl_node->data.container_decl.init_arg_expr == nullptr)
+                || target_type->data.unionation.tag_type == nullptr)
             {
                 ErrorMsg *msg = ir_add_error(ira, &target_value_ptr->base,
                     buf_sprintf("switch on union which has no attached enum"));
