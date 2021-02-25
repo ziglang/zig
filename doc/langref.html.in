@@ -10465,7 +10465,7 @@ fn readU32Be() u32 {}
       <p>
       HT hard tabs (byte value 0x09, code point U+0009, {#syntax#}'\t'{#endsyntax#}) are interchangeable with
       SP spaces (byte value 0x20, code point U+0020, {#syntax#}' '{#endsyntax#}) as a token separator,
-      but use of hard tabs is discouraged. See {#link|grammar#}.
+      but use of hard tabs is discouraged. See {#link|Grammar#}.
       </p>
       <p>
       Note that running <code>zig fmt</code> on a source file will implement all recommendations mentioned here.
