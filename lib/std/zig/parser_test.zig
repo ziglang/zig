@@ -4190,6 +4190,17 @@ test "zig fmt: function with labeled block as return type" {
     );
 }
 
+test "zig fmt: extern function with missing param name" {
+    try testCanonical(
+        \\extern fn a(
+        \\    *b,
+        \\    c: *d,
+        \\) e;
+        \\extern fn f(*g, h: *i) j;
+        \\
+    );
+}
+
 test "zig fmt: line comment after multiline single expr if statement with multiline string" {
     try testCanonical(
         \\test {

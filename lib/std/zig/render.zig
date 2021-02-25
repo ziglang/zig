@@ -1449,9 +1449,11 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
                     continue;
                 },
                 .r_paren => break,
-                else => unreachable,
+                else => {}, // Parameter type without a name.
             }
-            if (token_tags[last_param_token] == .identifier) {
+            if (token_tags[last_param_token] == .identifier and
+                token_tags[last_param_token + 1] == .colon)
+            {
                 try renderToken(ais, tree, last_param_token, .none); // name
                 last_param_token += 1;
                 try renderToken(ais, tree, last_param_token, .space); // :
