@@ -222,12 +222,10 @@ pub const Base64DecoderWithIgnore = struct {
                         } else if (decoder_with_ignore.char_is_ignored[c]) {
                             // we can even ignore chars during the padding
                             continue;
-                        } else
-                            return error.InvalidCharacter;
+                        } else return error.InvalidCharacter;
                     }
                     break;
-                } else
-                    return error.InvalidCharacter;
+                } else return error.InvalidCharacter;
             }
 
             switch (available_chars) {

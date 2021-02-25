@@ -173,8 +173,7 @@ pub const Coff = struct {
             skip_size = 2 * @sizeOf(u8) + 8 * @sizeOf(u16) + 18 * @sizeOf(u32);
         } else if (self.pe_header.magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
             skip_size = 2 * @sizeOf(u8) + 8 * @sizeOf(u16) + 12 * @sizeOf(u32) + 5 * @sizeOf(u64);
-        } else
-            return error.InvalidPEMagic;
+        } else return error.InvalidPEMagic;
 
         try self.in_file.seekBy(skip_size);
 

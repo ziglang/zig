@@ -81,8 +81,8 @@ const State128L = struct {
         while (i < 7) : (i += 1) {
             state.update(tmp, tmp);
         }
-        return blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4]).
-            xorBlocks(blocks[5]).xorBlocks(blocks[6]).toBytes();
+        return blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4])
+            .xorBlocks(blocks[5]).xorBlocks(blocks[6]).toBytes();
     }
 };
 
@@ -244,8 +244,8 @@ const State256 = struct {
         while (i < 7) : (i += 1) {
             state.update(tmp);
         }
-        return blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4]).
-            xorBlocks(blocks[5]).toBytes();
+        return blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4])
+            .xorBlocks(blocks[5]).toBytes();
     }
 };
 

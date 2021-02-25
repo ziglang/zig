@@ -70,16 +70,8 @@ else switch (std.Target.current.os.tag) {
 /// Signals the processor that it is inside a busy-wait spin-loop ("spin lock").
 pub fn spinLoopHint() void {
     switch (std.Target.current.cpu.arch) {
-        .i386, .x86_64 => asm volatile ("pause"
-            :
-            :
-            : "memory"
-        ),
-        .arm, .aarch64 => asm volatile ("yield"
-            :
-            :
-            : "memory"
-        ),
+        .i386, .x86_64 => asm volatile ("pause" ::: "memory"),
+        .arm, .aarch64 => asm volatile ("yield" ::: "memory"),
         else => {},
     }
 }
@@ -90,12 +82,11 @@ pub fn spinLoopHint() void {
 pub fn getCurrentId() Id {
     if (use_pthreads) {
         return c.pthread_self();
-    } else
-        return switch (std.Target.current.os.tag) {
-            .linux => os.linux.gettid(),
-            .windows => windows.kernel32.GetCurrentThreadId(),
-            else => @compileError("Unsupported OS"),
-        };
+    } else return switch (std.Target.current.os.tag) {
+        .linux => os.linux.gettid(),
+        .windows => windows.kernel32.GetCurrentThreadId(),
+        else => @compileError("Unsupported OS"),
+    };
 }
 
 /// Returns the handle of this thread.

@@ -836,13 +836,15 @@ pub const ucontext_t = extern struct {
     sigmask: sigset_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    __pad: [switch (builtin.arch) {
-        .i386 => 4,
-        .mips, .mipsel, .mips64, .mips64el => 14,
-        .arm, .armeb, .thumb, .thumbeb => 1,
-        .sparc, .sparcel, .sparcv9 => if (@sizeOf(usize) == 4) 43 else 8,
-        else => 0,
-    }]u32,
+    __pad: [
+        switch (builtin.arch) {
+            .i386 => 4,
+            .mips, .mipsel, .mips64, .mips64el => 14,
+            .arm, .armeb, .thumb, .thumbeb => 1,
+            .sparc, .sparcel, .sparcv9 => if (@sizeOf(usize) == 4) 43 else 8,
+            else => 0,
+        }
+    ]u32,
 };
 
 pub const EPERM = 1; // Operation not permitted

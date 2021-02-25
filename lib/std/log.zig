@@ -3,9 +3,6 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const std = @import("std.zig");
-const builtin = std.builtin;
-const root = @import("root");
 
 //! std.log is a standardized interface for logging which allows for the logging
 //! of programs and libraries using this interface to be formatted and filtered
@@ -76,6 +73,10 @@ const root = @import("root");
 //! [warn] (default): Flux capacitor is starting to overheat
 //! [err] (nice_library): Something went very wrong, sorry
 //! ```
+
+const std = @import("std.zig");
+const builtin = std.builtin;
+const root = @import("root");
 
 pub const Level = enum {
     /// Emergency: a condition that cannot be handled, usually followed by a

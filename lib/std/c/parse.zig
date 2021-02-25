@@ -300,8 +300,7 @@ const Parser = struct {
                     try node.initializers.push((try parser.initializer(dr)) orelse return parser.err(.{
                         .ExpectedInitializer = .{ .token = parser.it.index },
                     }));
-                } else
-                    try node.initializers.push(&dr.base);
+                } else try node.initializers.push(&dr.base);
                 if (parser.eatToken(.Comma) != null) break;
                 dr = @fieldParentPtr(Node.Declarator, "base", (try parser.declarator(.Must)) orelse return parser.err(.{
                     .ExpectedDeclarator = .{ .token = parser.it.index },

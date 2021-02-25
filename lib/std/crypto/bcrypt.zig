@@ -109,9 +109,7 @@ const State = struct {
         }
     }
 
-    const Halves = struct {
-        l: u32, r: u32
-    };
+    const Halves = struct { l: u32, r: u32 };
 
     fn feistelF(state: State, x: u32) u32 {
         var r = state.sboxes[0][@truncate(u8, x >> 24)];

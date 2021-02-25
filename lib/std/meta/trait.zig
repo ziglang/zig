@@ -544,15 +544,11 @@ test "std.meta.trait.hasUniqueRepresentation" {
 
     testing.expect(hasUniqueRepresentation(TestStruct3));
 
-    const TestStruct4 = struct {
-        a: []const u8
-    };
+    const TestStruct4 = struct { a: []const u8 };
 
     testing.expect(!hasUniqueRepresentation(TestStruct4));
 
-    const TestStruct5 = struct {
-        a: TestStruct4
-    };
+    const TestStruct5 = struct { a: TestStruct4 };
 
     testing.expect(!hasUniqueRepresentation(TestStruct5));
 

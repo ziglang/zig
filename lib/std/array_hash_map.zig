@@ -1237,8 +1237,7 @@ test "shrink" {
         if (i < 17) {
             testing.expect(gop.found_existing == true);
             testing.expect(gop.entry.value == i * 10);
-        } else
-            testing.expect(gop.found_existing == false);
+        } else testing.expect(gop.found_existing == false);
     }
 
     // Test `shrinkAndFree`.
@@ -1251,8 +1250,7 @@ test "shrink" {
         if (i < 15) {
             testing.expect(gop.found_existing == true);
             testing.expect(gop.entry.value == i * 10);
-        } else
-            testing.expect(gop.found_existing == false);
+        } else testing.expect(gop.found_existing == false);
     }
 }
 

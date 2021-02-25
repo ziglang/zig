@@ -6,12 +6,22 @@
 
 const std = @import("std");
 
-pub fn __builtin_bswap16(val: u16) callconv(.Inline) u16 { return @byteSwap(u16, val); }
-pub fn __builtin_bswap32(val: u32) callconv(.Inline) u32 { return @byteSwap(u32, val); }
-pub fn __builtin_bswap64(val: u64) callconv(.Inline) u64 { return @byteSwap(u64, val); }
+pub fn __builtin_bswap16(val: u16) callconv(.Inline) u16 {
+    return @byteSwap(u16, val);
+}
+pub fn __builtin_bswap32(val: u32) callconv(.Inline) u32 {
+    return @byteSwap(u32, val);
+}
+pub fn __builtin_bswap64(val: u64) callconv(.Inline) u64 {
+    return @byteSwap(u64, val);
+}
 
-pub fn __builtin_signbit(val: f64) callconv(.Inline) c_int { return @boolToInt(std.math.signbit(val)); }
-pub fn __builtin_signbitf(val: f32) callconv(.Inline) c_int { return @boolToInt(std.math.signbit(val)); }
+pub fn __builtin_signbit(val: f64) callconv(.Inline) c_int {
+    return @boolToInt(std.math.signbit(val));
+}
+pub fn __builtin_signbitf(val: f32) callconv(.Inline) c_int {
+    return @boolToInt(std.math.signbit(val));
+}
 
 pub fn __builtin_popcount(val: c_uint) callconv(.Inline) c_int {
     // popcount of a c_uint will never exceed the capacity of a c_int
@@ -31,40 +41,96 @@ pub fn __builtin_clz(val: c_uint) callconv(.Inline) c_int {
     return @bitCast(c_int, @as(c_uint, @clz(c_uint, val)));
 }
 
-pub fn __builtin_sqrt(val: f64) callconv(.Inline) f64 { return @sqrt(val); }
-pub fn __builtin_sqrtf(val: f32) callconv(.Inline) f32 { return @sqrt(val); }
+pub fn __builtin_sqrt(val: f64) callconv(.Inline) f64 {
+    return @sqrt(val);
+}
+pub fn __builtin_sqrtf(val: f32) callconv(.Inline) f32 {
+    return @sqrt(val);
+}
 
-pub fn __builtin_sin(val: f64) callconv(.Inline) f64 { return @sin(val); }
-pub fn __builtin_sinf(val: f32) callconv(.Inline) f32 { return @sin(val); }
-pub fn __builtin_cos(val: f64) callconv(.Inline) f64 { return @cos(val); }
-pub fn __builtin_cosf(val: f32) callconv(.Inline) f32 { return @cos(val); }
+pub fn __builtin_sin(val: f64) callconv(.Inline) f64 {
+    return @sin(val);
+}
+pub fn __builtin_sinf(val: f32) callconv(.Inline) f32 {
+    return @sin(val);
+}
+pub fn __builtin_cos(val: f64) callconv(.Inline) f64 {
+    return @cos(val);
+}
+pub fn __builtin_cosf(val: f32) callconv(.Inline) f32 {
+    return @cos(val);
+}
 
-pub fn __builtin_exp(val: f64) callconv(.Inline) f64 { return @exp(val); }
-pub fn __builtin_expf(val: f32) callconv(.Inline) f32 { return @exp(val); }
-pub fn __builtin_exp2(val: f64) callconv(.Inline) f64 { return @exp2(val); }
-pub fn __builtin_exp2f(val: f32) callconv(.Inline) f32 { return @exp2(val); }
-pub fn __builtin_log(val: f64) callconv(.Inline) f64 { return @log(val); }
-pub fn __builtin_logf(val: f32) callconv(.Inline) f32 { return @log(val); }
-pub fn __builtin_log2(val: f64) callconv(.Inline) f64 { return @log2(val); }
-pub fn __builtin_log2f(val: f32) callconv(.Inline) f32 { return @log2(val); }
-pub fn __builtin_log10(val: f64) callconv(.Inline) f64 { return @log10(val); }
-pub fn __builtin_log10f(val: f32) callconv(.Inline) f32 { return @log10(val); }
+pub fn __builtin_exp(val: f64) callconv(.Inline) f64 {
+    return @exp(val);
+}
+pub fn __builtin_expf(val: f32) callconv(.Inline) f32 {
+    return @exp(val);
+}
+pub fn __builtin_exp2(val: f64) callconv(.Inline) f64 {
+    return @exp2(val);
+}
+pub fn __builtin_exp2f(val: f32) callconv(.Inline) f32 {
+    return @exp2(val);
+}
+pub fn __builtin_log(val: f64) callconv(.Inline) f64 {
+    return @log(val);
+}
+pub fn __builtin_logf(val: f32) callconv(.Inline) f32 {
+    return @log(val);
+}
+pub fn __builtin_log2(val: f64) callconv(.Inline) f64 {
+    return @log2(val);
+}
+pub fn __builtin_log2f(val: f32) callconv(.Inline) f32 {
+    return @log2(val);
+}
+pub fn __builtin_log10(val: f64) callconv(.Inline) f64 {
+    return @log10(val);
+}
+pub fn __builtin_log10f(val: f32) callconv(.Inline) f32 {
+    return @log10(val);
+}
 
 // Standard C Library bug: The absolute value of the most negative integer remains negative.
-pub fn __builtin_abs(val: c_int) callconv(.Inline) c_int { return std.math.absInt(val) catch std.math.minInt(c_int); }
-pub fn __builtin_fabs(val: f64) callconv(.Inline) f64 { return @fabs(val); }
-pub fn __builtin_fabsf(val: f32) callconv(.Inline) f32 { return @fabs(val); }
+pub fn __builtin_abs(val: c_int) callconv(.Inline) c_int {
+    return std.math.absInt(val) catch std.math.minInt(c_int);
+}
+pub fn __builtin_fabs(val: f64) callconv(.Inline) f64 {
+    return @fabs(val);
+}
+pub fn __builtin_fabsf(val: f32) callconv(.Inline) f32 {
+    return @fabs(val);
+}
 
-pub fn __builtin_floor(val: f64) callconv(.Inline) f64 { return @floor(val); }
-pub fn __builtin_floorf(val: f32) callconv(.Inline) f32 { return @floor(val); }
-pub fn __builtin_ceil(val: f64) callconv(.Inline) f64 { return @ceil(val); }
-pub fn __builtin_ceilf(val: f32) callconv(.Inline) f32 { return @ceil(val); }
-pub fn __builtin_trunc(val: f64) callconv(.Inline) f64 { return @trunc(val); }
-pub fn __builtin_truncf(val: f32) callconv(.Inline) f32 { return @trunc(val); }
-pub fn __builtin_round(val: f64) callconv(.Inline) f64 { return @round(val); }
-pub fn __builtin_roundf(val: f32) callconv(.Inline) f32 { return @round(val); }
+pub fn __builtin_floor(val: f64) callconv(.Inline) f64 {
+    return @floor(val);
+}
+pub fn __builtin_floorf(val: f32) callconv(.Inline) f32 {
+    return @floor(val);
+}
+pub fn __builtin_ceil(val: f64) callconv(.Inline) f64 {
+    return @ceil(val);
+}
+pub fn __builtin_ceilf(val: f32) callconv(.Inline) f32 {
+    return @ceil(val);
+}
+pub fn __builtin_trunc(val: f64) callconv(.Inline) f64 {
+    return @trunc(val);
+}
+pub fn __builtin_truncf(val: f32) callconv(.Inline) f32 {
+    return @trunc(val);
+}
+pub fn __builtin_round(val: f64) callconv(.Inline) f64 {
+    return @round(val);
+}
+pub fn __builtin_roundf(val: f32) callconv(.Inline) f32 {
+    return @round(val);
+}
 
-pub fn __builtin_strlen(s: [*c]const u8) callconv(.Inline) usize { return std.mem.lenZ(s); }
+pub fn __builtin_strlen(s: [*c]const u8) callconv(.Inline) usize {
+    return std.mem.lenZ(s);
+}
 pub fn __builtin_strcmp(s1: [*c]const u8, s2: [*c]const u8) callconv(.Inline) c_int {
     return @as(c_int, std.cstr.cmp(s1, s2));
 }

@@ -1315,11 +1315,13 @@ pub const PEB = extern struct {
     ImageSubSystemMinorVersion: ULONG,
     // note: there is padding here on 64 bit
     ActiveProcessAffinityMask: KAFFINITY,
-    GdiHandleBuffer: [switch (@sizeOf(usize)) {
-        4 => 0x22,
-        8 => 0x3C,
-        else => unreachable,
-    }]ULONG,
+    GdiHandleBuffer: [
+        switch (@sizeOf(usize)) {
+            4 => 0x22,
+            8 => 0x3C,
+            else => unreachable,
+        }
+    ]ULONG,
 
     // Fields appended in 5.0 (Windows 2000):
     PostProcessInitRoutine: PVOID,

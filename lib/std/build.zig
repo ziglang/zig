@@ -2763,7 +2763,9 @@ pub const InstallDirectoryOptions = struct {
             .install_dir = self.install_dir.dupe(b),
             .install_subdir = b.dupe(self.install_subdir),
             .exclude_extensions = if (self.exclude_extensions) |extensions|
-                b.dupeStrings(extensions) else null,
+                b.dupeStrings(extensions)
+            else
+                null,
         };
     }
 };

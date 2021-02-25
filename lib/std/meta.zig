@@ -534,9 +534,7 @@ pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
 }
 
 test "std.meta.fieldNames" {
-    const E1 = enum {
-        A, B
-    };
+    const E1 = enum { A, B };
     const E2 = error{A};
     const S1 = struct {
         a: u8,
@@ -1002,19 +1000,19 @@ pub fn sizeof(target: anytype) usize {
                 // Note: sizeof(void) is 1 on clang/gcc and 0 on MSVC.
                 return 1;
             } else {
-                @compileError("Cannot use C sizeof on opaque type "++@typeName(T));
+                @compileError("Cannot use C sizeof on opaque type " ++ @typeName(T));
             }
         },
         .Optional => |opt| {
             if (@typeInfo(opt.child) == .Pointer) {
                 return sizeof(opt.child);
             } else {
-                @compileError("Cannot use C sizeof on non-pointer optional "++@typeName(T));
+                @compileError("Cannot use C sizeof on non-pointer optional " ++ @typeName(T));
             }
         },
         .Pointer => |ptr| {
             if (ptr.size == .Slice) {
-                @compileError("Cannot use C sizeof on slice type "++@typeName(T));
+                @compileError("Cannot use C sizeof on slice type " ++ @typeName(T));
             }
             // for strings, sizeof("a") returns 2.
             // normal pointer decay scenarios from C are handled
@@ -1024,8 +1022,9 @@ pub fn sizeof(target: anytype) usize {
             if (ptr.size == .One and ptr.is_const and @typeInfo(ptr.child) == .Array) {
                 const array_info = @typeInfo(ptr.child).Array;
                 if ((array_info.child == u8 or array_info.child == u16) and
-                     array_info.sentinel != null and
-                     array_info.sentinel.? == 0) {
+                    array_info.sentinel != null and
+                    array_info.sentinel.? == 0)
+                {
                     // length of the string plus one for the null terminator.
                     return (array_info.len + 1) * @sizeOf(array_info.child);
                 }
@@ -1067,10 +1066,10 @@ test "sizeof" {
 
     testing.expect(sizeof(S) == 4);
 
-    testing.expect(sizeof([_]u32{4, 5, 6}) == 12);
+    testing.expect(sizeof([_]u32{ 4, 5, 6 }) == 12);
     testing.expect(sizeof([3]u32) == 12);
     testing.expect(sizeof([3:0]u32) == 16);
-    testing.expect(sizeof(&[_]u32{4, 5, 6}) == ptr_size);
+    testing.expect(sizeof(&[_]u32{ 4, 5, 6 }) == ptr_size);
 
     testing.expect(sizeof(*u32) == ptr_size);
     testing.expect(sizeof([*]u32) == ptr_size);
@@ -1082,7 +1081,7 @@ test "sizeof" {
     testing.expect(sizeof(null) == ptr_size);
 
     testing.expect(sizeof("foobar") == 7);
-    testing.expect(sizeof(&[_:0]u16{'f','o','o','b','a','r'}) == 14);
+    testing.expect(sizeof(&[_:0]u16{ 'f', 'o', 'o', 'b', 'a', 'r' }) == 14);
     testing.expect(sizeof(*const [4:0]u8) == 5);
     testing.expect(sizeof(*[4:0]u8) == ptr_size);
     testing.expect(sizeof([*]const [4:0]u8) == ptr_size);

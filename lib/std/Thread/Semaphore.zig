@@ -10,7 +10,7 @@
 
 mutex: Mutex = .{},
 cond: Condition = .{},
-//! It is OK to initialize this field to any value.
+/// It is OK to initialize this field to any value.
 permits: usize = 0,
 
 const Semaphore = @This();

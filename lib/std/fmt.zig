@@ -646,8 +646,7 @@ pub fn formatIntValue(
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
         break :blk @as(Int, value);
-    } else
-        value;
+    } else value;
 
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
         radix = 10;
@@ -1087,8 +1086,7 @@ pub fn formatInt(
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
         break :blk @as(Int, value);
-    } else
-        value;
+    } else value;
 
     const value_info = @typeInfo(@TypeOf(int_value)).Int;
 

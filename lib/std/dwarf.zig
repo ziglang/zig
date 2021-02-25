@@ -213,13 +213,11 @@ const LineNumberProgram = struct {
                 return error.MissingDebugInfo;
             } else if (self.prev_file - 1 >= self.file_entries.items.len) {
                 return error.InvalidDebugInfo;
-            } else
-                &self.file_entries.items[self.prev_file - 1];
+            } else &self.file_entries.items[self.prev_file - 1];
 
             const dir_name = if (file_entry.dir_index >= self.include_dirs.len) {
                 return error.InvalidDebugInfo;
-            } else
-                self.include_dirs[file_entry.dir_index];
+            } else self.include_dirs[file_entry.dir_index];
             const file_name = try fs.path.join(self.file_entries.allocator, &[_][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return debug.LineInfo{
