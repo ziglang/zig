@@ -3892,7 +3892,7 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
             }
         }
     }
-    if (comptime std.Target.current.isHaiku()) {
+    if (std.Target.current.os.tag == .haiku) {
         var fds: [2]fd_t = try pipe();
         if (flags == 0) return fds;
         errdefer {
@@ -3939,10 +3939,10 @@ pub fn sysctl(
     newlen: usize,
 ) SysCtlError!void {
     if (builtin.os.tag == .wasi) {
-        @panic("unsupported");
+        @panic("unsupported"); // TODO should be compile error, not panic
     }
     if (builtin.os.tag == .haiku) {
-        @panic("unsupported");
+        @panic("unsupported"); // TODO should be compile error, not panic
     }
 
     const name_len = math.cast(c_uint, name.len) catch return error.NameTooLong;
@@ -3966,10 +3966,10 @@ pub fn sysctlbynameZ(
     newlen: usize,
 ) SysCtlError!void {
     if (builtin.os.tag == .wasi) {
-        @panic("unsupported");
+        @panic("unsupported"); // TODO should be compile error, not panic
     }
     if (builtin.os.tag == .haiku) {
-        @panic("unsupported");
+        @panic("unsupported"); // TODO should be compile error, not panic
     }
 
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {

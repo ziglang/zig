@@ -1339,10 +1339,6 @@ pub const Target = struct {
         return self.os.tag.isDarwin();
     }
 
-    pub fn isHaiku(self: Target) bool {
-        return self.os.tag == .haiku;
-    }
-
     pub fn isGnuLibC_os_tag_abi(os_tag: Os.Tag, abi: Abi) bool {
         return os_tag == .linux and abi.isGnu();
     }
