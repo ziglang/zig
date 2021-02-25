@@ -26,8 +26,7 @@ pub const Arm64 = union(enum) {
         rn: u5,
         offset: u12,
         _1: u8 = 0b111_0_01_01,
-        size: u1,
-        _2: u1 = 0b1,
+        size: u2,
     },
     LoadLiteral: packed struct {
         reg: u5,
@@ -135,13 +134,33 @@ pub const Arm64 = union(enum) {
         };
     }
 
-    pub fn ldrr(rt: u5, rn: u5, offset: u12, size: u1) Arm64 {
+    pub fn ldrq(rt: u5, rn: u5, offset: u12) Arm64 {
         return Arm64{
             .LoadRegister = .{
                 .rt = rt,
                 .rn = rn,
                 .offset = offset,
-                .size = size,
+                .size = 0b11,
+            },
+        };
+    }
+    pub fn ldrh(rt: u5, rn: u5, offset: u12) Arm64 {
+        return Arm64{
+            .LoadRegister = .{
+                .rt = rt,
+                .rn = rn,
+                .offset = offset,
+                .size = 0b01,
+            },
+        };
+    }
+    pub fn ldrb(rt: u5, rn: u5, offset: u12) Arm64 {
+        return Arm64{
+            .LoadRegister = .{
+                .rt = rt,
+                .rn = rn,
+                .offset = offset,
+                .size = 0b00,
             },
         };
     }
