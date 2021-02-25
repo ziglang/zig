@@ -146,12 +146,8 @@ fn moveBytes(
     assert(new_len > 0);
     const new_mem = try self.allocFn(self, new_len, new_alignment, len_align, return_address);
     @memcpy(new_mem.ptr, old_mem.ptr, math.min(new_len, old_mem.len));
-    // TODO DISABLED TO AVOID BUGS IN TRANSLATE C
-    // TODO see also https://github.com/ziglang/zig/issues/4298
-    // use './zig build test-translate-c' to reproduce, some of the symbols in the
-    // generated C code will be a sequence of 0xaa (the undefined value), meaning
-    // it is printing data that has been freed
-    //@memset(old_mem.ptr, undefined, old_mem.len);
+    // TODO https://github.com/ziglang/zig/issues/4298
+    @memset(old_mem.ptr, undefined, old_mem.len);
     _ = self.shrinkBytes(old_mem, old_align, 0, 0, return_address);
     return new_mem;
 }
