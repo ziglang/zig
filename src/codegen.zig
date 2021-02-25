@@ -451,11 +451,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             const src_data: struct { lbrace_src: usize, rbrace_src: usize, source: []const u8 } = blk: {
                 const container_scope = module_fn.owner_decl.container;
-                const tree = container_scope.file_scope.contents.tree;
-                const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
-                const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-                const lbrace_src = tree.token_locs[block.lbrace].start;
-                const rbrace_src = tree.token_locs[block.rbrace].start;
+                const tree = container_scope.file_scope.tree;
+                const node_tags = tree.nodes.items(.tag);
+                const node_datas = tree.nodes.items(.data);
+                const token_starts = tree.tokens.items(.start);
+
+                const fn_decl = tree.rootDecls()[module_fn.owner_decl.src_index];
+                assert(node_tags[fn_decl] == .fn_decl);
+                const block = node_datas[fn_decl].rhs;
+                const lbrace_src = token_starts[tree.firstToken(block)];
+                const rbrace_src = token_starts[tree.lastToken(block)];
                 break :blk .{
                     .lbrace_src = lbrace_src,
                     .rbrace_src = rbrace_src,

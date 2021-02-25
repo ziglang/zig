@@ -2158,7 +2158,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
         const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
         const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
         var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
-        const tree = translate_c.translate(
+        var tree = translate_c.translate(
             comp.gpa,
             new_argv.ptr,
             new_argv.ptr + new_argv.len,
@@ -2179,7 +2179,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
                 process.exit(1);
             },
         };
-        defer tree.deinit();
+        defer tree.deinit(comp.gpa);
 
         if (out_dep_path) |dep_file_path| {
             const dep_basename = std.fs.path.basename(dep_file_path);
@@ -2193,16 +2193,21 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
 
         const digest = man.final();
         const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest });
+
         var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
+
         var zig_file = try o_dir.createFile(translated_zig_basename, .{});
         defer zig_file.close();
 
-        var bw = io.bufferedWriter(zig_file.writer());
-        _ = try std.zig.render(comp.gpa, bw.writer(), tree);
-        try bw.flush();
+        const formatted = try tree.render(comp.gpa);
+        defer comp.gpa.free(formatted);
 
-        man.writeManifest() catch |err| warn("failed to write cache manifest: {s}", .{@errorName(err)});
+        try zig_file.writeAll(formatted);
+
+        man.writeManifest() catch |err| warn("failed to write cache manifest: {s}", .{
+            @errorName(err),
+        });
 
         break :digest digest;
     };
@@ -2689,10 +2694,10 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         const source_code = try stdin.readAllAlloc(gpa, max_src_size);
         defer gpa.free(source_code);
 
-        const tree = std.zig.parse(gpa, source_code) catch |err| {
+        var tree = std.zig.parse(gpa, source_code) catch |err| {
             fatal("error parsing stdin: {s}", .{err});
         };
-        defer tree.deinit();
+        defer tree.deinit(gpa);
 
         for (tree.errors) |parse_error| {
             try printErrMsgToFile(gpa, parse_error, tree, "<stdin>", stderr_file, color);
@@ -2700,16 +2705,15 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         if (tree.errors.len != 0) {
             process.exit(1);
         }
+        const formatted = try tree.render(gpa);
+        defer gpa.free(formatted);
+
         if (check_flag) {
-            const anything_changed = try std.zig.render(gpa, io.null_writer, tree);
-            const code = if (anything_changed) @as(u8, 1) else @as(u8, 0);
+            const code: u8 = @boolToInt(mem.eql(u8, formatted, source_code));
             process.exit(code);
         }
 
-        var bw = io.bufferedWriter(io.getStdOut().writer());
-        _ = try std.zig.render(gpa, bw.writer(), tree);
-        try bw.flush();
-        return;
+        return io.getStdOut().writeAll(formatted);
     }
 
     if (input_files.items.len == 0) {
@@ -2846,8 +2850,8 @@ fn fmtPathFile(
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    const tree = try std.zig.parse(fmt.gpa, source_code);
-    defer tree.deinit();
+    var tree = try std.zig.parse(fmt.gpa, source_code);
+    defer tree.deinit(fmt.gpa);
 
     for (tree.errors) |parse_error| {
         try printErrMsgToFile(fmt.gpa, parse_error, tree, file_path, std.io.getStdErr(), fmt.color);
@@ -2857,22 +2861,19 @@ fn fmtPathFile(
         return;
     }
 
-    if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.gpa, io.null_writer, tree);
-        if (anything_changed) {
-            const stdout = io.getStdOut().writer();
-            try stdout.print("{s}\n", .{file_path});
-            fmt.any_error = true;
-        }
-    } else {
-        // As a heuristic, we make enough capacity for the same as the input source.
-        try fmt.out_buffer.ensureCapacity(source_code.len);
-        fmt.out_buffer.items.len = 0;
-        const writer = fmt.out_buffer.writer();
-        const anything_changed = try std.zig.render(fmt.gpa, writer, tree);
-        if (!anything_changed)
-            return; // Good thing we didn't waste any file system access on this.
+    // As a heuristic, we make enough capacity for the same as the input source.
+    fmt.out_buffer.shrinkRetainingCapacity(0);
+    try fmt.out_buffer.ensureCapacity(source_code.len);
 
+    try tree.renderToArrayList(&fmt.out_buffer);
+    if (mem.eql(u8, fmt.out_buffer.items, source_code))
+        return;
+
+    if (check_mode) {
+        const stdout = io.getStdOut().writer();
+        try stdout.print("{s}\n", .{file_path});
+        fmt.any_error = true;
+    } else {
         var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
         defer af.deinit();
 
@@ -2886,7 +2887,7 @@ fn fmtPathFile(
 fn printErrMsgToFile(
     gpa: *mem.Allocator,
     parse_error: ast.Error,
-    tree: *ast.Tree,
+    tree: ast.Tree,
     path: []const u8,
     file: fs.File,
     color: Color,
@@ -2896,19 +2897,17 @@ fn printErrMsgToFile(
         .on => true,
         .off => false,
     };
-    const lok_token = parse_error.loc();
-    const span_first = lok_token;
-    const span_last = lok_token;
+    const lok_token = parse_error.token;
 
-    const first_token = tree.token_locs[span_first];
-    const last_token = tree.token_locs[span_last];
-    const start_loc = tree.tokenLocationLoc(0, first_token);
-    const end_loc = tree.tokenLocationLoc(first_token.end, last_token);
+    const token_starts = tree.tokens.items(.start);
+    const token_tags = tree.tokens.items(.tag);
+    const first_token_start = token_starts[lok_token];
+    const start_loc = tree.tokenLocation(0, lok_token);
 
     var text_buf = std.ArrayList(u8).init(gpa);
     defer text_buf.deinit();
     const writer = text_buf.writer();
-    try parse_error.render(tree.token_ids, writer);
+    try tree.renderError(parse_error, writer);
     const text = text_buf.items;
 
     const stream = file.writer();
@@ -2925,8 +2924,12 @@ fn printErrMsgToFile(
     }
     try stream.writeByte('\n');
     try stream.writeByteNTimes(' ', start_loc.column);
-    try stream.writeByteNTimes('~', last_token.end - first_token.start);
-    try stream.writeByte('\n');
+    if (token_tags[lok_token].lexeme()) |lexeme| {
+        try stream.writeByteNTimes('~', lexeme.len);
+        try stream.writeByte('\n');
+    } else {
+        try stream.writeAll("^\n");
+    }
 }
 
 pub const info_zen =

@@ -91,7 +91,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .@"fn" => return zirFn(mod, scope, old_inst.castTag(.@"fn").?),
         .@"export" => return zirExport(mod, scope, old_inst.castTag(.@"export").?),
         .primitive => return zirPrimitive(mod, scope, old_inst.castTag(.primitive).?),
-        .fntype => return zirFnType(mod, scope, old_inst.castTag(.fntype).?),
+        .fn_type => return zirFnType(mod, scope, old_inst.castTag(.fn_type).?),
+        .fn_type_cc => return zirFnTypeCc(mod, scope, old_inst.castTag(.fn_type_cc).?),
         .intcast => return zirIntcast(mod, scope, old_inst.castTag(.intcast).?),
         .bitcast => return zirBitcast(mod, scope, old_inst.castTag(.bitcast).?),
         .floatcast => return zirFloatcast(mod, scope, old_inst.castTag(.floatcast).?),
@@ -154,7 +155,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .bool_and => return zirBoolOp(mod, scope, old_inst.castTag(.bool_and).?),
         .bool_or => return zirBoolOp(mod, scope, old_inst.castTag(.bool_or).?),
         .void_value => return mod.constVoid(scope, old_inst.src),
-        .switchbr => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?),
+        .switchbr => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr).?, false),
+        .switchbr_ref => return zirSwitchBr(mod, scope, old_inst.castTag(.switchbr_ref).?, true),
         .switch_range => return zirSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
 
         .container_field_named,
@@ -957,11 +959,11 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
         );
     }
 
-    if (inst.kw_args.modifier == .compile_time) {
+    if (inst.positionals.modifier == .compile_time) {
         return mod.fail(scope, inst.base.src, "TODO implement comptime function calls", .{});
     }
-    if (inst.kw_args.modifier != .auto) {
-        return mod.fail(scope, inst.base.src, "TODO implement call with modifier {}", .{inst.kw_args.modifier});
+    if (inst.positionals.modifier != .auto) {
+        return mod.fail(scope, inst.base.src, "TODO implement call with modifier {}", .{inst.positionals.modifier});
     }
 
     // TODO handle function calls of generic functions
@@ -979,8 +981,8 @@ fn zirCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
     const ret_type = func.ty.fnReturnType();
 
     const b = try mod.requireFunctionBlock(scope, inst.base.src);
-    const is_comptime_call = b.is_comptime or inst.kw_args.modifier == .compile_time;
-    const is_inline_call = is_comptime_call or inst.kw_args.modifier == .always_inline or
+    const is_comptime_call = b.is_comptime or inst.positionals.modifier == .compile_time;
+    const is_inline_call = is_comptime_call or inst.positionals.modifier == .always_inline or
         func.ty.fnCallingConvention() == .Inline;
     if (is_inline_call) {
         const func_val = try mod.resolveConstValue(scope, func);
@@ -1294,34 +1296,69 @@ fn zirEnsureErrPayloadVoid(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) 
 fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    const return_type = try resolveType(mod, scope, fntype.positionals.return_type);
+
+    return fnTypeCommon(
+        mod,
+        scope,
+        &fntype.base,
+        fntype.positionals.param_types,
+        fntype.positionals.return_type,
+        .Unspecified,
+    );
+}
+
+fn zirFnTypeCc(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnTypeCc) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const cc_tv = try resolveInstConst(mod, scope, fntype.positionals.cc);
+    // TODO once we're capable of importing and analyzing decls from
+    // std.builtin, this needs to change
     const cc_str = cc_tv.val.castTag(.enum_literal).?.data;
     const cc = std.meta.stringToEnum(std.builtin.CallingConvention, cc_str) orelse
         return mod.fail(scope, fntype.positionals.cc.src, "Unknown calling convention {s}", .{cc_str});
+    return fnTypeCommon(
+        mod,
+        scope,
+        &fntype.base,
+        fntype.positionals.param_types,
+        fntype.positionals.return_type,
+        cc,
+    );
+}
+
+fn fnTypeCommon(
+    mod: *Module,
+    scope: *Scope,
+    zir_inst: *zir.Inst,
+    zir_param_types: []*zir.Inst,
+    zir_return_type: *zir.Inst,
+    cc: std.builtin.CallingConvention,
+) InnerError!*Inst {
+    const return_type = try resolveType(mod, scope, zir_return_type);
 
     // Hot path for some common function types.
-    if (fntype.positionals.param_types.len == 0) {
+    if (zir_param_types.len == 0) {
         if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
-            return mod.constType(scope, fntype.base.src, Type.initTag(.fn_noreturn_no_args));
+            return mod.constType(scope, zir_inst.src, Type.initTag(.fn_noreturn_no_args));
         }
 
         if (return_type.zigTypeTag() == .Void and cc == .Unspecified) {
-            return mod.constType(scope, fntype.base.src, Type.initTag(.fn_void_no_args));
+            return mod.constType(scope, zir_inst.src, Type.initTag(.fn_void_no_args));
         }
 
         if (return_type.zigTypeTag() == .NoReturn and cc == .Naked) {
-            return mod.constType(scope, fntype.base.src, Type.initTag(.fn_naked_noreturn_no_args));
+            return mod.constType(scope, zir_inst.src, Type.initTag(.fn_naked_noreturn_no_args));
         }
 
         if (return_type.zigTypeTag() == .Void and cc == .C) {
-            return mod.constType(scope, fntype.base.src, Type.initTag(.fn_ccc_void_no_args));
+            return mod.constType(scope, zir_inst.src, Type.initTag(.fn_ccc_void_no_args));
         }
     }
 
     const arena = scope.arena();
-    const param_types = try arena.alloc(Type, fntype.positionals.param_types.len);
-    for (fntype.positionals.param_types) |param_type, i| {
+    const param_types = try arena.alloc(Type, zir_param_types.len);
+    for (zir_param_types) |param_type, i| {
         const resolved = try resolveType(mod, scope, param_type);
         // TODO skip for comptime params
         if (!resolved.isValidVarType(false)) {
@@ -1335,7 +1372,7 @@ fn zirFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*
         .return_type = return_type,
         .cc = cc,
     });
-    return mod.constType(scope, fntype.base.src, fn_ty);
+    return mod.constType(scope, zir_inst.src, fn_ty);
 }
 
 fn zirPrimitive(mod: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) InnerError!*Inst {
@@ -1554,10 +1591,15 @@ fn zirSwitchRange(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError
     return mod.constVoid(scope, inst.base.src);
 }
 
-fn zirSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) InnerError!*Inst {
+fn zirSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr, ref: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    const target = try resolveInst(mod, scope, inst.positionals.target);
+
+    const target_ptr = try resolveInst(mod, scope, inst.positionals.target);
+    const target = if (ref)
+        try mod.analyzeDeref(scope, inst.base.src, target_ptr, inst.positionals.target.src)
+    else
+        target_ptr;
     try validateSwitch(mod, scope, target, inst);
 
     if (try mod.resolveDefinedValue(scope, target)) |target_val| {
@@ -1626,13 +1668,13 @@ fn zirSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) InnerError
 
 fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.SwitchBr) InnerError!void {
     // validate usage of '_' prongs
-    if (inst.kw_args.special_prong == .underscore and target.ty.zigTypeTag() != .Enum) {
+    if (inst.positionals.special_prong == .underscore and target.ty.zigTypeTag() != .Enum) {
         return mod.fail(scope, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});
         // TODO notes "'_' prong here" inst.positionals.cases[last].src
     }
 
     // check that target type supports ranges
-    if (inst.kw_args.range) |range_inst| {
+    if (inst.positionals.range) |range_inst| {
         switch (target.ty.zigTypeTag()) {
             .Int, .ComptimeInt => {},
             else => {
@@ -1683,14 +1725,14 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                 const start = try target.ty.minInt(&arena, mod.getTarget());
                 const end = try target.ty.maxInt(&arena, mod.getTarget());
                 if (try range_set.spans(start, end)) {
-                    if (inst.kw_args.special_prong == .@"else") {
+                    if (inst.positionals.special_prong == .@"else") {
                         return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
                     }
                     return;
                 }
             }
 
-            if (inst.kw_args.special_prong != .@"else") {
+            if (inst.positionals.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
             }
         },
@@ -1710,15 +1752,15 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                     return mod.fail(scope, item.src, "duplicate switch value", .{});
                 }
             }
-            if ((true_count + false_count < 2) and inst.kw_args.special_prong != .@"else") {
+            if ((true_count + false_count < 2) and inst.positionals.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
             }
-            if ((true_count + false_count == 2) and inst.kw_args.special_prong == .@"else") {
+            if ((true_count + false_count == 2) and inst.positionals.special_prong == .@"else") {
                 return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
             }
         },
         .EnumLiteral, .Void, .Fn, .Pointer, .Type => {
-            if (inst.kw_args.special_prong != .@"else") {
+            if (inst.positionals.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "else prong required when switching on type '{}'", .{target.ty});
             }
 
@@ -1981,19 +2023,21 @@ fn zirDeref(mod: *Module, scope: *Scope, deref: *zir.Inst.UnOp) InnerError!*Inst
 fn zirAsm(mod: *Module, scope: *Scope, assembly: *zir.Inst.Asm) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
+
     const return_type = try resolveType(mod, scope, assembly.positionals.return_type);
     const asm_source = try resolveConstString(mod, scope, assembly.positionals.asm_source);
     const output = if (assembly.kw_args.output) |o| try resolveConstString(mod, scope, o) else null;
 
-    const inputs = try scope.arena().alloc([]const u8, assembly.kw_args.inputs.len);
-    const clobbers = try scope.arena().alloc([]const u8, assembly.kw_args.clobbers.len);
-    const args = try scope.arena().alloc(*Inst, assembly.kw_args.args.len);
+    const arena = scope.arena();
+    const inputs = try arena.alloc([]const u8, assembly.kw_args.inputs.len);
+    const clobbers = try arena.alloc([]const u8, assembly.kw_args.clobbers.len);
+    const args = try arena.alloc(*Inst, assembly.kw_args.args.len);
 
     for (inputs) |*elem, i| {
-        elem.* = try resolveConstString(mod, scope, assembly.kw_args.inputs[i]);
+        elem.* = try arena.dupe(u8, assembly.kw_args.inputs[i]);
     }
     for (clobbers) |*elem, i| {
-        elem.* = try resolveConstString(mod, scope, assembly.kw_args.clobbers[i]);
+        elem.* = try arena.dupe(u8, assembly.kw_args.clobbers[i]);
     }
     for (args) |*elem, i| {
         const arg = try resolveInst(mod, scope, assembly.kw_args.args[i]);

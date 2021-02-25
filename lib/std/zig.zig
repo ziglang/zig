@@ -12,7 +12,6 @@ pub const fmtId = @import("zig/fmt.zig").fmtId;
 pub const fmtEscapes = @import("zig/fmt.zig").fmtEscapes;
 pub const parse = @import("zig/parse.zig").parse;
 pub const parseStringLiteral = @import("zig/string_literal.zig").parse;
-pub const render = @import("zig/render.zig").render;
 pub const ast = @import("zig/ast.zig");
 pub const system = @import("zig/system.zig");
 pub const CrossTarget = @import("zig/cross_target.zig").CrossTarget;

@@ -20,6 +20,7 @@ pub const ComptimeStringMap = @import("comptime_string_map.zig").ComptimeStringM
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const HashMap = hash_map.HashMap;
 pub const HashMapUnmanaged = hash_map.HashMapUnmanaged;
+pub const MultiArrayList = @import("multi_array_list.zig").MultiArrayList;
 pub const PackedIntArray = @import("packed_int_array.zig").PackedIntArray;
 pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayEndian;
 pub const PackedIntSlice = @import("packed_int_array.zig").PackedIntSlice;

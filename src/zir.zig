@@ -53,6 +53,9 @@ pub const Inst = struct {
         indexable_ptr_len,
         /// Function parameter value. These must be first in a function's main block,
         /// in respective order with the parameters.
+        /// TODO make this instruction implicit; after we transition to having ZIR
+        /// instructions be same sized and referenced by index, the first N indexes
+        /// will implicitly be references to the parameters of the function.
         arg,
         /// Type coercion.
         as,
@@ -169,8 +172,10 @@ pub const Inst = struct {
         floatcast,
         /// Declare a function body.
         @"fn",
-        /// Returns a function type.
-        fntype,
+        /// Returns a function type, assuming unspecified calling convention.
+        fn_type,
+        /// Returns a function type, with a calling convention instruction operand.
+        fn_type_cc,
         /// @import(operand)
         import,
         /// Integer literal.
@@ -340,6 +345,8 @@ pub const Inst = struct {
         void_value,
         /// A switch expression.
         switchbr,
+        /// Same as `switchbr` but the target is a pointer to the value being switched on.
+        switchbr_ref,
         /// A range in a switch case, `lhs...rhs`.
         /// Only checks that `lhs >= rhs` if they are ints, everything else is
         /// validated by the .switch instruction.
@@ -450,6 +457,8 @@ pub const Inst = struct {
                 .block_comptime_flat,
                 => Block,
 
+                .switchbr, .switchbr_ref => SwitchBr,
+
                 .arg => Arg,
                 .array_type_sentinel => ArrayTypeSentinel,
                 .@"break" => Break,
@@ -471,7 +480,8 @@ pub const Inst = struct {
                 .@"export" => Export,
                 .param_type => ParamType,
                 .primitive => Primitive,
-                .fntype => FnType,
+                .fn_type => FnType,
+                .fn_type_cc => FnTypeCc,
                 .elem_ptr, .elem_val => Elem,
                 .condbr => CondBr,
                 .ptr_type => PtrType,
@@ -485,7 +495,6 @@ pub const Inst = struct {
                 .enum_type => EnumType,
                 .union_type => UnionType,
                 .struct_type => StructType,
-                .switchbr => SwitchBr,
             };
         }
 
@@ -546,7 +555,8 @@ pub const Inst = struct {
                 .field_ptr_named,
                 .field_val_named,
                 .@"fn",
-                .fntype,
+                .fn_type,
+                .fn_type_cc,
                 .int,
                 .intcast,
                 .int_type,
@@ -614,7 +624,6 @@ pub const Inst = struct {
                 .struct_type,
                 .void_value,
                 .switch_range,
-                .switchbr,
                 => false,
 
                 .@"break",
@@ -629,6 +638,8 @@ pub const Inst = struct {
                 .container_field_named,
                 .container_field_typed,
                 .container_field,
+                .switchbr,
+                .switchbr_ref,
                 => true,
             };
         }
@@ -689,6 +700,8 @@ pub const Inst = struct {
         base: Inst,
 
         positionals: struct {
+            /// This exists to be passed to the arg TZIR instruction, which
+            /// needs it for debug info.
             name: []const u8,
         },
         kw_args: struct {},
@@ -725,6 +738,8 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
+    // TODO break this into multiple call instructions to avoid paying the cost
+    // of the calling convention field most of the time.
     pub const Call = struct {
         pub const base_tag = Tag.call;
         base: Inst,
@@ -732,10 +747,9 @@ pub const Inst = struct {
         positionals: struct {
             func: *Inst,
             args: []*Inst,
-        },
-        kw_args: struct {
             modifier: std.builtin.CallOptions.Modifier = .auto,
         },
+        kw_args: struct {},
     };
 
     pub const DeclRef = struct {
@@ -849,8 +863,8 @@ pub const Inst = struct {
         kw_args: struct {
             @"volatile": bool = false,
             output: ?*Inst = null,
-            inputs: []*Inst = &[0]*Inst{},
-            clobbers: []*Inst = &[0]*Inst{},
+            inputs: []const []const u8 = &.{},
+            clobbers: []const []const u8 = &.{},
             args: []*Inst = &[0]*Inst{},
         },
     };
@@ -867,7 +881,18 @@ pub const Inst = struct {
     };
 
     pub const FnType = struct {
-        pub const base_tag = Tag.fntype;
+        pub const base_tag = Tag.fn_type;
+        base: Inst,
+
+        positionals: struct {
+            param_types: []*Inst,
+            return_type: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const FnTypeCc = struct {
+        pub const base_tag = Tag.fn_type_cc;
         base: Inst,
 
         positionals: struct {
@@ -1167,20 +1192,12 @@ pub const Inst = struct {
         },
         kw_args: struct {
             init_inst: ?*Inst = null,
-            init_kind: InitKind = .none,
+            has_enum_token: bool,
             layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
         },
-
-        // TODO error: values of type '(enum literal)' must be comptime known
-        pub const InitKind = enum {
-            enum_type,
-            tag_type,
-            none,
-        };
     };
 
     pub const SwitchBr = struct {
-        pub const base_tag = Tag.switchbr;
         base: Inst,
 
         positionals: struct {
@@ -1189,14 +1206,12 @@ pub const Inst = struct {
             items: []*Inst,
             cases: []Case,
             else_body: Body,
-        },
-        kw_args: struct {
             /// Pointer to first range if such exists.
             range: ?*Inst = null,
             special_prong: SpecialProng = .none,
         },
+        kw_args: struct {},
 
-        // Not anonymous due to stage1 limitations
         pub const SpecialProng = enum {
             none,
             @"else",
@@ -1391,6 +1406,7 @@ const Writer = struct {
         }
         switch (@TypeOf(param)) {
             *Inst => return self.writeInstParamToStream(stream, param),
+            ?*Inst => return self.writeInstParamToStream(stream, param.?),
             []*Inst => {
                 try stream.writeByte('[');
                 for (param) |inst, i| {
@@ -1458,7 +1474,7 @@ const Writer = struct {
                 const name = self.loop_table.get(param).?;
                 return stream.print("\"{}\"", .{std.zig.fmtEscapes(name)});
             },
-            [][]const u8 => {
+            [][]const u8, []const []const u8 => {
                 try stream.writeByte('[');
                 for (param) |str, i| {
                     if (i != 0) {
@@ -1586,6 +1602,7 @@ const DumpTzir = struct {
                 .unreach,
                 .breakpoint,
                 .dbg_stmt,
+                .arg,
                 => {},
 
                 .ref,
@@ -1629,8 +1646,6 @@ const DumpTzir = struct {
                     try dtz.findConst(bin_op.lhs);
                     try dtz.findConst(bin_op.rhs);
                 },
-
-                .arg => {},
 
                 .br => {
                     const br = inst.castTag(.br).?;

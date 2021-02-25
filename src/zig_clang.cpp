@@ -2244,6 +2244,11 @@ unsigned ZigClangAPSInt_getNumWords(const ZigClangAPSInt *self) {
     return casted->getNumWords();
 }
 
+bool ZigClangAPSInt_lessThanEqual(const ZigClangAPSInt *self, uint64_t rhs) {
+    auto casted = reinterpret_cast<const llvm::APSInt *>(self);
+    return casted->ule(rhs);
+}
+
 uint64_t ZigClangAPInt_getLimitedValue(const ZigClangAPInt *self, uint64_t limit) {
     auto casted = reinterpret_cast<const llvm::APInt *>(self);
     return casted->getLimitedValue(limit);

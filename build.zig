@@ -77,10 +77,12 @@ pub fn build(b: *Builder) !void {
 
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
+    const strip = b.option(bool, "strip", "Omit debug information") orelse false;
 
     const main_file = if (is_stage1) "src/stage1.zig" else "src/main.zig";
 
     var exe = b.addExecutable("zig", main_file);
+    exe.strip = strip;
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);

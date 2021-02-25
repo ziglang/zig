@@ -1365,17 +1365,17 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("ELF LLD new_digest={} error: {s}", .{ digest, @errorName(err) });
+            log.debug("ELF LLD new_digest={x} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("ELF LLD digest={} match - skipping invocation", .{digest});
+            log.debug("ELF LLD digest={x} match - skipping invocation", .{digest});
             // Hot diggity dog! The output binary is already there.
             self.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("ELF LLD prev_digest={} new_digest={}", .{ prev_digest, digest });
+        log.debug("ELF LLD prev_digest={x} new_digest={x}", .{ prev_digest, digest });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
@@ -2223,13 +2223,19 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         try dbg_line_buffer.ensureCapacity(26);
 
         const line_off: u28 = blk: {
-            const tree = decl.container.file_scope.contents.tree;
-            const file_ast_decls = tree.root_node.decls();
+            const tree = decl.container.file_scope.tree;
+            const node_tags = tree.nodes.items(.tag);
+            const node_datas = tree.nodes.items(.data);
+            const token_starts = tree.tokens.items(.start);
+
+            const file_ast_decls = tree.rootDecls();
             // TODO Look into improving the performance here by adding a token-index-to-line
             // lookup table. Currently this involves scanning over the source code for newlines.
-            const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-            const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-            const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+            const fn_decl = file_ast_decls[decl.src_index];
+            assert(node_tags[fn_decl] == .fn_decl);
+            const block = node_datas[fn_decl].rhs;
+            const lbrace = tree.firstToken(block);
+            const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
             break :blk @intCast(u28, line_delta);
         };
 
@@ -2744,13 +2750,19 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
 
     if (self.llvm_ir_module) |_| return;
 
-    const tree = decl.container.file_scope.contents.tree;
-    const file_ast_decls = tree.root_node.decls();
+    const tree = decl.container.file_scope.tree;
+    const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+    const token_starts = tree.tokens.items(.start);
+
+    const file_ast_decls = tree.rootDecls();
     // TODO Look into improving the performance here by adding a token-index-to-line
     // lookup table. Currently this involves scanning over the source code for newlines.
-    const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-    const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-    const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+    const fn_decl = file_ast_decls[decl.src_index];
+    assert(node_tags[fn_decl] == .fn_decl);
+    const block = node_datas[fn_decl].rhs;
+    const lbrace = tree.firstToken(block);
+    const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
     const casted_line_off = @intCast(u28, line_delta);
 
     const shdr = &self.sections.items[self.debug_line_section_index.?];
@@ -3025,7 +3037,7 @@ const min_nop_size = 2;
 
 /// Writes to the file a buffer, prefixed and suffixed by the specified number of
 /// bytes of NOPs. Asserts each padding size is at least `min_nop_size` and total padding bytes
-/// are less than 126,976 bytes (if this limit is ever reached, this function can be
+/// are less than 1044480 bytes (if this limit is ever reached, this function can be
 /// improved to make more than one pwritev call, or the limit can be raised by a fixed
 /// amount by increasing the length of `vecs`).
 fn pwriteDbgLineNops(
@@ -3040,7 +3052,7 @@ fn pwriteDbgLineNops(
 
     const page_of_nops = [1]u8{DW.LNS_negate_stmt} ** 4096;
     const three_byte_nop = [3]u8{ DW.LNS_advance_pc, 0b1000_0000, 0 };
-    var vecs: [32]std.os.iovec_const = undefined;
+    var vecs: [256]std.os.iovec_const = undefined;
     var vec_index: usize = 0;
     {
         var padding_left = prev_padding_size;

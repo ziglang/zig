@@ -391,17 +391,17 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("WASM LLD new_digest={} error: {s}", .{ digest, @errorName(err) });
+            log.debug("WASM LLD new_digest={x} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("WASM LLD digest={} match - skipping invocation", .{digest});
+            log.debug("WASM LLD digest={x} match - skipping invocation", .{digest});
             // Hot diggity dog! The output binary is already there.
             self.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("WASM LLD prev_digest={} new_digest={}", .{ prev_digest, digest });
+        log.debug("WASM LLD prev_digest={x} new_digest={x}", .{ prev_digest, digest });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {

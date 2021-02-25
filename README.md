@@ -5,7 +5,7 @@ A general-purpose programming language and toolchain for maintaining
 
 ## Resources
 
- * [Introduction](https://ziglang.org/#Introduction)
+ * [Introduction](https://ziglang.org/learn/#introduction)
  * [Download & Documentation](https://ziglang.org/download)
  * [Chapter 0 - Getting Started | ZigLearn.org](https://ziglearn.org/)
  * [Community](https://github.com/ziglang/zig/wiki/Community)

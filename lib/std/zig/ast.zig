@@ -9,48 +9,26 @@ const testing = std.testing;
 const mem = std.mem;
 const Token = std.zig.Token;
 
-pub const TokenIndex = usize;
-pub const NodeIndex = usize;
+pub const TokenIndex = u32;
+pub const ByteOffset = u32;
+
+pub const TokenList = std.MultiArrayList(struct {
+    tag: Token.Tag,
+    start: ByteOffset,
+});
+pub const NodeList = std.MultiArrayList(Node);
 
 pub const Tree = struct {
     /// Reference to externally-owned data.
     source: []const u8,
-    token_ids: []const Token.Id,
-    token_locs: []const Token.Loc,
+
+    tokens: TokenList.Slice,
+    /// The root AST node is assumed to be index 0. Since there can be no
+    /// references to the root node, this means 0 is available to indicate null.
+    nodes: NodeList.Slice,
+    extra_data: []Node.Index,
+
     errors: []const Error,
-    root_node: *Node.Root,
-
-    arena: std.heap.ArenaAllocator.State,
-    gpa: *mem.Allocator,
-
-    /// translate-c uses this to avoid having to emit correct newlines
-    /// TODO get rid of this hack
-    generated: bool = false,
-
-    pub fn deinit(self: *Tree) void {
-        self.gpa.free(self.token_ids);
-        self.gpa.free(self.token_locs);
-        self.gpa.free(self.errors);
-        self.arena.promote(self.gpa).deinit();
-    }
-
-    pub fn renderError(self: *Tree, parse_error: *const Error, stream: anytype) !void {
-        return parse_error.render(self.token_ids, stream);
-    }
-
-    pub fn tokenSlice(self: *Tree, token_index: TokenIndex) []const u8 {
-        return self.tokenSliceLoc(self.token_locs[token_index]);
-    }
-
-    pub fn tokenSliceLoc(self: *Tree, token: Token.Loc) []const u8 {
-        return self.source[token.start..token.end];
-    }
-
-    pub fn getNodeSource(self: *const Tree, node: *const Node) []const u8 {
-        const first_token = self.token_locs[node.firstToken()];
-        const last_token = self.token_locs[node.lastToken()];
-        return self.source[first_token.start..last_token.end];
-    }
 
     pub const Location = struct {
         line: usize,
@@ -59,21 +37,50 @@ pub const Tree = struct {
         line_end: usize,
     };
 
-    /// Return the Location of the token relative to the offset specified by `start_index`.
-    pub fn tokenLocationLoc(self: *Tree, start_index: usize, token: Token.Loc) Location {
+    pub fn deinit(tree: *Tree, gpa: *mem.Allocator) void {
+        tree.tokens.deinit(gpa);
+        tree.nodes.deinit(gpa);
+        gpa.free(tree.extra_data);
+        gpa.free(tree.errors);
+        tree.* = undefined;
+    }
+
+    pub const RenderError = error{
+        /// Ran out of memory allocating call stack frames to complete rendering, or
+        /// ran out of memory allocating space in the output buffer.
+        OutOfMemory,
+    };
+
+    /// `gpa` is used for allocating the resulting formatted source code, as well as
+    /// for allocating extra stack memory if needed, because this function utilizes recursion.
+    /// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
+    /// Caller owns the returned slice of bytes, allocated with `gpa`.
+    pub fn render(tree: Tree, gpa: *mem.Allocator) RenderError![]u8 {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+
+        try tree.renderToArrayList(&buffer);
+        return buffer.toOwnedSlice();
+    }
+
+    pub fn renderToArrayList(tree: Tree, buffer: *std.ArrayList(u8)) RenderError!void {
+        return @import("./render.zig").renderTree(buffer, tree);
+    }
+
+    pub fn tokenLocation(self: Tree, start_offset: ByteOffset, token_index: TokenIndex) Location {
         var loc = Location{
             .line = 0,
             .column = 0,
-            .line_start = start_index,
+            .line_start = start_offset,
             .line_end = self.source.len,
         };
-        if (self.generated)
-            return loc;
-        const token_start = token.start;
-        for (self.source[start_index..]) |c, i| {
-            if (i + start_index == token_start) {
-                loc.line_end = i + start_index;
-                while (loc.line_end < self.source.len and self.source[loc.line_end] != '\n') : (loc.line_end += 1) {}
+        const token_start = self.tokens.items(.start)[token_index];
+        for (self.source[start_offset..]) |c, i| {
+            if (i + start_offset == token_start) {
+                loc.line_end = i + start_offset;
+                while (loc.line_end < self.source.len and self.source[loc.line_end] != '\n') {
+                    loc.line_end += 1;
+                }
                 return loc;
             }
             if (c == '\n') {
@@ -87,3205 +94,2878 @@ pub const Tree = struct {
         return loc;
     }
 
-    pub fn tokenLocation(self: *Tree, start_index: usize, token_index: TokenIndex) Location {
-        return self.tokenLocationLoc(start_index, self.token_locs[token_index]);
-    }
+    pub fn tokenSlice(tree: Tree, token_index: TokenIndex) []const u8 {
+        const token_starts = tree.tokens.items(.start);
+        const token_tags = tree.tokens.items(.tag);
+        const token_tag = token_tags[token_index];
 
-    pub fn tokensOnSameLine(self: *Tree, token1_index: TokenIndex, token2_index: TokenIndex) bool {
-        return self.tokensOnSameLineLoc(self.token_locs[token1_index], self.token_locs[token2_index]);
-    }
-
-    pub fn tokensOnSameLineLoc(self: *Tree, token1: Token.Loc, token2: Token.Loc) bool {
-        return mem.indexOfScalar(u8, self.source[token1.end..token2.start], '\n') == null;
-    }
-
-    pub fn dump(self: *Tree) void {
-        self.root_node.base.dump(0);
-    }
-
-    /// Skips over comments
-    pub fn prevToken(self: *Tree, token_index: TokenIndex) TokenIndex {
-        var index = token_index - 1;
-        while (self.token_ids[index] == Token.Id.LineComment) {
-            index -= 1;
+        // Many tokens can be determined entirely by their tag.
+        if (token_tag.lexeme()) |lexeme| {
+            return lexeme;
         }
-        return index;
+
+        // For some tokens, re-tokenization is needed to find the end.
+        var tokenizer: std.zig.Tokenizer = .{
+            .buffer = tree.source,
+            .index = token_starts[token_index],
+            .pending_invalid_token = null,
+        };
+        const token = tokenizer.next();
+        assert(token.tag == token_tag);
+        return tree.source[token.loc.start..token.loc.end];
     }
 
-    /// Skips over comments
-    pub fn nextToken(self: *Tree, token_index: TokenIndex) TokenIndex {
-        var index = token_index + 1;
-        while (self.token_ids[index] == Token.Id.LineComment) {
-            index += 1;
+    pub fn extraData(tree: Tree, index: usize, comptime T: type) T {
+        const fields = std.meta.fields(T);
+        var result: T = undefined;
+        inline for (fields) |field, i| {
+            comptime assert(field.field_type == Node.Index);
+            @field(result, field.name) = tree.extra_data[index + i];
         }
-        return index;
+        return result;
+    }
+
+    pub fn rootDecls(tree: Tree) []const Node.Index {
+        // Root is always index 0.
+        const nodes_data = tree.nodes.items(.data);
+        return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
+    }
+
+    pub fn renderError(tree: Tree, parse_error: Error, stream: anytype) !void {
+        const token_tags = tree.tokens.items(.tag);
+        switch (parse_error.tag) {
+            .asterisk_after_ptr_deref => {
+                return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
+            },
+            .decl_between_fields => {
+                return stream.writeAll("declarations are not allowed between container fields");
+            },
+            .expected_block => {
+                return stream.print("expected block or field, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_block_or_assignment => {
+                return stream.print("expected block or assignment, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_block_or_expr => {
+                return stream.print("expected block or expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_block_or_field => {
+                return stream.print("expected block or field, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_container_members => {
+                return stream.print("expected test, comptime, var decl, or container field, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_expr => {
+                return stream.print("expected expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_expr_or_assignment => {
+                return stream.print("expected expression or assignment, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_fn => {
+                return stream.print("expected function, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_inlinable => {
+                return stream.print("expected 'while' or 'for', found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_labelable => {
+                return stream.print("expected 'while', 'for', 'inline', 'suspend', or '{{', found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_param_list => {
+                return stream.print("expected parameter list, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_prefix_expr => {
+                return stream.print("expected prefix expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_primary_type_expr => {
+                return stream.print("expected primary type expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_pub_item => {
+                return stream.writeAll("expected function or variable declaration after pub");
+            },
+            .expected_return_type => {
+                return stream.print("expected return type expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_semi_or_else => {
+                return stream.print("expected ';' or 'else', found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_semi_or_lbrace => {
+                return stream.print("expected ';' or '{{', found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_statement => {
+                return stream.print("expected statement, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_string_literal => {
+                return stream.print("expected string literal, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_suffix_op => {
+                return stream.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_type_expr => {
+                return stream.print("expected type expression, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_var_decl => {
+                return stream.print("expected variable declaration, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_var_decl_or_fn => {
+                return stream.print("expected variable declaration or function, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_loop_payload => {
+                return stream.print("expected loop payload, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .expected_container => {
+                return stream.print("expected a struct, enum or union, found '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .extra_align_qualifier => {
+                return stream.writeAll("extra align qualifier");
+            },
+            .extra_allowzero_qualifier => {
+                return stream.writeAll("extra allowzero qualifier");
+            },
+            .extra_const_qualifier => {
+                return stream.writeAll("extra const qualifier");
+            },
+            .extra_volatile_qualifier => {
+                return stream.writeAll("extra volatile qualifier");
+            },
+            .invalid_align => {
+                return stream.writeAll("alignment not allowed on arrays");
+            },
+            .invalid_and => {
+                return stream.writeAll("`&&` is invalid; note that `and` is boolean AND");
+            },
+            .invalid_bit_range => {
+                return stream.writeAll("bit range not allowed on slices and arrays");
+            },
+            .invalid_token => {
+                return stream.print("invalid token '{s}'", .{
+                    token_tags[parse_error.token].symbol(),
+                });
+            },
+            .same_line_doc_comment => {
+                return stream.writeAll("same line documentation comment");
+            },
+            .unattached_doc_comment => {
+                return stream.writeAll("unattached documentation comment");
+            },
+
+            .expected_token => {
+                const found_tag = token_tags[parse_error.token];
+                const expected_symbol = parse_error.extra.expected_tag.symbol();
+                switch (found_tag) {
+                    .invalid => return stream.print("expected '{s}', found invalid bytes", .{
+                        expected_symbol,
+                    }),
+                    else => return stream.print("expected '{s}', found '{s}'", .{
+                        expected_symbol, found_tag.symbol(),
+                    }),
+                }
+            },
+        }
+    }
+
+    pub fn firstToken(tree: Tree, node: Node.Index) TokenIndex {
+        const tags = tree.nodes.items(.tag);
+        const datas = tree.nodes.items(.data);
+        const main_tokens = tree.nodes.items(.main_token);
+        const token_tags = tree.tokens.items(.tag);
+        var end_offset: TokenIndex = 0;
+        var n = node;
+        while (true) switch (tags[n]) {
+            .root => return 0,
+
+            .test_decl,
+            .@"errdefer",
+            .@"defer",
+            .bool_not,
+            .negation,
+            .bit_not,
+            .negation_wrap,
+            .address_of,
+            .@"try",
+            .@"await",
+            .optional_type,
+            .@"switch",
+            .switch_comma,
+            .if_simple,
+            .@"if",
+            .@"suspend",
+            .@"resume",
+            .@"continue",
+            .@"break",
+            .@"return",
+            .anyframe_type,
+            .identifier,
+            .anyframe_literal,
+            .char_literal,
+            .integer_literal,
+            .float_literal,
+            .false_literal,
+            .true_literal,
+            .null_literal,
+            .undefined_literal,
+            .unreachable_literal,
+            .string_literal,
+            .multiline_string_literal,
+            .grouped_expression,
+            .builtin_call_two,
+            .builtin_call_two_comma,
+            .builtin_call,
+            .builtin_call_comma,
+            .error_set_decl,
+            .@"anytype",
+            .@"comptime",
+            .@"nosuspend",
+            .asm_simple,
+            .@"asm",
+            .array_type,
+            .array_type_sentinel,
+            .error_value,
+            => return main_tokens[n] - end_offset,
+
+            .array_init_dot,
+            .array_init_dot_comma,
+            .array_init_dot_two,
+            .array_init_dot_two_comma,
+            .struct_init_dot,
+            .struct_init_dot_comma,
+            .struct_init_dot_two,
+            .struct_init_dot_two_comma,
+            .enum_literal,
+            => return main_tokens[n] - 1 - end_offset,
+
+            .@"catch",
+            .field_access,
+            .unwrap_optional,
+            .equal_equal,
+            .bang_equal,
+            .less_than,
+            .greater_than,
+            .less_or_equal,
+            .greater_or_equal,
+            .assign_mul,
+            .assign_div,
+            .assign_mod,
+            .assign_add,
+            .assign_sub,
+            .assign_bit_shift_left,
+            .assign_bit_shift_right,
+            .assign_bit_and,
+            .assign_bit_xor,
+            .assign_bit_or,
+            .assign_mul_wrap,
+            .assign_add_wrap,
+            .assign_sub_wrap,
+            .assign,
+            .merge_error_sets,
+            .mul,
+            .div,
+            .mod,
+            .array_mult,
+            .mul_wrap,
+            .add,
+            .sub,
+            .array_cat,
+            .add_wrap,
+            .sub_wrap,
+            .bit_shift_left,
+            .bit_shift_right,
+            .bit_and,
+            .bit_xor,
+            .bit_or,
+            .@"orelse",
+            .bool_and,
+            .bool_or,
+            .slice_open,
+            .slice,
+            .slice_sentinel,
+            .deref,
+            .array_access,
+            .array_init_one,
+            .array_init_one_comma,
+            .array_init,
+            .array_init_comma,
+            .struct_init_one,
+            .struct_init_one_comma,
+            .struct_init,
+            .struct_init_comma,
+            .call_one,
+            .call_one_comma,
+            .call,
+            .call_comma,
+            .switch_range,
+            .error_union,
+            => n = datas[n].lhs,
+
+            .fn_decl,
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
+            => {
+                var i = main_tokens[n]; // fn token
+                while (i > 0) {
+                    i -= 1;
+                    switch (token_tags[i]) {
+                        .keyword_extern,
+                        .keyword_export,
+                        .keyword_pub,
+                        .keyword_threadlocal,
+                        .string_literal,
+                        => continue,
+
+                        else => return i + 1 - end_offset,
+                    }
+                }
+                return i - end_offset;
+            },
+
+            .@"usingnamespace" => {
+                const main_token = main_tokens[n];
+                if (main_token > 0 and token_tags[main_token - 1] == .keyword_pub) {
+                    end_offset += 1;
+                }
+                return main_token - end_offset;
+            },
+
+            .async_call_one,
+            .async_call_one_comma,
+            .async_call,
+            .async_call_comma,
+            => {
+                end_offset += 1; // async token
+                n = datas[n].lhs;
+            },
+
+            .container_field_init,
+            .container_field_align,
+            .container_field,
+            => {
+                const name_token = main_tokens[n];
+                if (name_token > 0 and token_tags[name_token - 1] == .keyword_comptime) {
+                    end_offset += 1;
+                }
+                return name_token - end_offset;
+            },
+
+            .global_var_decl,
+            .local_var_decl,
+            .simple_var_decl,
+            .aligned_var_decl,
+            => {
+                var i = main_tokens[n]; // mut token
+                while (i > 0) {
+                    i -= 1;
+                    switch (token_tags[i]) {
+                        .keyword_extern,
+                        .keyword_export,
+                        .keyword_comptime,
+                        .keyword_pub,
+                        .keyword_threadlocal,
+                        .string_literal,
+                        => continue,
+
+                        else => return i + 1 - end_offset,
+                    }
+                }
+                return i - end_offset;
+            },
+
+            .block,
+            .block_semicolon,
+            .block_two,
+            .block_two_semicolon,
+            => {
+                // Look for a label.
+                const lbrace = main_tokens[n];
+                if (token_tags[lbrace - 1] == .colon) {
+                    end_offset += 2;
+                }
+                return lbrace - end_offset;
+            },
+
+            .container_decl,
+            .container_decl_trailing,
+            .container_decl_two,
+            .container_decl_two_trailing,
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            .tagged_union,
+            .tagged_union_trailing,
+            .tagged_union_two,
+            .tagged_union_two_trailing,
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            => {
+                const main_token = main_tokens[n];
+                switch (token_tags[main_token - 1]) {
+                    .keyword_packed, .keyword_extern => end_offset += 1,
+                    else => {},
+                }
+                return main_token - end_offset;
+            },
+
+            .ptr_type_aligned,
+            .ptr_type_sentinel,
+            .ptr_type,
+            .ptr_type_bit_range,
+            => {
+                const main_token = main_tokens[n];
+                return switch (token_tags[main_token]) {
+                    .asterisk,
+                    .asterisk_asterisk,
+                    => switch (token_tags[main_token - 1]) {
+                        .l_bracket => main_token - 1,
+                        else => main_token,
+                    },
+                    .l_bracket => main_token,
+                    else => unreachable,
+                } - end_offset;
+            },
+
+            .switch_case_one => {
+                if (datas[n].lhs == 0) {
+                    return main_tokens[n] - 1 - end_offset; // else token
+                } else {
+                    n = datas[n].lhs;
+                }
+            },
+            .switch_case => {
+                const extra = tree.extraData(datas[n].lhs, Node.SubRange);
+                assert(extra.end - extra.start > 0);
+                n = tree.extra_data[extra.start];
+            },
+
+            .asm_output, .asm_input => {
+                assert(token_tags[main_tokens[n] - 1] == .l_bracket);
+                return main_tokens[n] - 1 - end_offset;
+            },
+
+            .while_simple,
+            .while_cont,
+            .@"while",
+            .for_simple,
+            .@"for",
+            => {
+                // Look for a label and inline.
+                const main_token = main_tokens[n];
+                var result = main_token;
+                if (token_tags[result - 1] == .keyword_inline) {
+                    result -= 1;
+                }
+                if (token_tags[result - 1] == .colon) {
+                    result -= 2;
+                }
+                return result - end_offset;
+            },
+        };
+    }
+
+    pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
+        const tags = tree.nodes.items(.tag);
+        const datas = tree.nodes.items(.data);
+        const main_tokens = tree.nodes.items(.main_token);
+        const token_starts = tree.tokens.items(.start);
+        const token_tags = tree.tokens.items(.tag);
+        var n = node;
+        var end_offset: TokenIndex = 0;
+        while (true) switch (tags[n]) {
+            .root => return @intCast(TokenIndex, tree.tokens.len - 1),
+
+            .@"usingnamespace",
+            .bool_not,
+            .negation,
+            .bit_not,
+            .negation_wrap,
+            .address_of,
+            .@"try",
+            .@"await",
+            .optional_type,
+            .@"resume",
+            .@"nosuspend",
+            .@"comptime",
+            => n = datas[n].lhs,
+
+            .test_decl,
+            .@"errdefer",
+            .@"defer",
+            .@"catch",
+            .equal_equal,
+            .bang_equal,
+            .less_than,
+            .greater_than,
+            .less_or_equal,
+            .greater_or_equal,
+            .assign_mul,
+            .assign_div,
+            .assign_mod,
+            .assign_add,
+            .assign_sub,
+            .assign_bit_shift_left,
+            .assign_bit_shift_right,
+            .assign_bit_and,
+            .assign_bit_xor,
+            .assign_bit_or,
+            .assign_mul_wrap,
+            .assign_add_wrap,
+            .assign_sub_wrap,
+            .assign,
+            .merge_error_sets,
+            .mul,
+            .div,
+            .mod,
+            .array_mult,
+            .mul_wrap,
+            .add,
+            .sub,
+            .array_cat,
+            .add_wrap,
+            .sub_wrap,
+            .bit_shift_left,
+            .bit_shift_right,
+            .bit_and,
+            .bit_xor,
+            .bit_or,
+            .@"orelse",
+            .bool_and,
+            .bool_or,
+            .anyframe_type,
+            .error_union,
+            .if_simple,
+            .while_simple,
+            .for_simple,
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .ptr_type_aligned,
+            .ptr_type_sentinel,
+            .ptr_type,
+            .ptr_type_bit_range,
+            .array_type,
+            .switch_case_one,
+            .switch_case,
+            .switch_range,
+            => n = datas[n].rhs,
+
+            .field_access,
+            .unwrap_optional,
+            .grouped_expression,
+            .multiline_string_literal,
+            .error_set_decl,
+            .asm_simple,
+            .asm_output,
+            .asm_input,
+            .error_value,
+            => return datas[n].rhs + end_offset,
+
+            .@"anytype",
+            .anyframe_literal,
+            .char_literal,
+            .integer_literal,
+            .float_literal,
+            .false_literal,
+            .true_literal,
+            .null_literal,
+            .undefined_literal,
+            .unreachable_literal,
+            .identifier,
+            .deref,
+            .enum_literal,
+            .string_literal,
+            => return main_tokens[n] + end_offset,
+
+            .@"return" => if (datas[n].lhs != 0) {
+                n = datas[n].lhs;
+            } else {
+                return main_tokens[n] + end_offset;
+            },
+
+            .call, .async_call => {
+                end_offset += 1; // for the rparen
+                const params = tree.extraData(datas[n].rhs, Node.SubRange);
+                if (params.end - params.start == 0) {
+                    return main_tokens[n] + end_offset;
+                }
+                n = tree.extra_data[params.end - 1]; // last parameter
+            },
+            .tagged_union_enum_tag => {
+                const members = tree.extraData(datas[n].rhs, Node.SubRange);
+                if (members.end - members.start == 0) {
+                    end_offset += 4; // for the rparen + rparen + lbrace + rbrace
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 1; // for the rbrace
+                    n = tree.extra_data[members.end - 1]; // last parameter
+                }
+            },
+            .call_comma,
+            .async_call_comma,
+            .tagged_union_enum_tag_trailing,
+            => {
+                end_offset += 2; // for the comma/semicolon + rparen/rbrace
+                const params = tree.extraData(datas[n].rhs, Node.SubRange);
+                assert(params.end > params.start);
+                n = tree.extra_data[params.end - 1]; // last parameter
+            },
+            .@"switch" => {
+                const cases = tree.extraData(datas[n].rhs, Node.SubRange);
+                if (cases.end - cases.start == 0) {
+                    end_offset += 3; // rparen, lbrace, rbrace
+                    n = datas[n].lhs; // condition expression
+                } else {
+                    end_offset += 1; // for the rbrace
+                    n = tree.extra_data[cases.end - 1]; // last case
+                }
+            },
+            .container_decl_arg => {
+                const members = tree.extraData(datas[n].rhs, Node.SubRange);
+                if (members.end - members.start == 0) {
+                    end_offset += 1; // for the rparen
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 1; // for the rbrace
+                    n = tree.extra_data[members.end - 1]; // last parameter
+                }
+            },
+            .@"asm" => {
+                const extra = tree.extraData(datas[n].rhs, Node.Asm);
+                return extra.rparen + end_offset;
+            },
+            .array_init,
+            .struct_init,
+            => {
+                const elements = tree.extraData(datas[n].rhs, Node.SubRange);
+                assert(elements.end - elements.start > 0);
+                end_offset += 1; // for the rbrace
+                n = tree.extra_data[elements.end - 1]; // last element
+            },
+            .array_init_comma,
+            .struct_init_comma,
+            .container_decl_arg_trailing,
+            .switch_comma,
+            => {
+                const members = tree.extraData(datas[n].rhs, Node.SubRange);
+                assert(members.end - members.start > 0);
+                end_offset += 2; // for the comma + rbrace
+                n = tree.extra_data[members.end - 1]; // last parameter
+            },
+            .array_init_dot,
+            .struct_init_dot,
+            .block,
+            .container_decl,
+            .tagged_union,
+            .builtin_call,
+            => {
+                assert(datas[n].rhs - datas[n].lhs > 0);
+                end_offset += 1; // for the rbrace
+                n = tree.extra_data[datas[n].rhs - 1]; // last statement
+            },
+            .array_init_dot_comma,
+            .struct_init_dot_comma,
+            .block_semicolon,
+            .container_decl_trailing,
+            .tagged_union_trailing,
+            .builtin_call_comma,
+            => {
+                assert(datas[n].rhs - datas[n].lhs > 0);
+                end_offset += 2; // for the comma/semicolon + rbrace/rparen
+                n = tree.extra_data[datas[n].rhs - 1]; // last member
+            },
+            .call_one,
+            .async_call_one,
+            .array_access,
+            => {
+                end_offset += 1; // for the rparen/rbracket
+                if (datas[n].rhs == 0) {
+                    return main_tokens[n] + end_offset;
+                }
+                n = datas[n].rhs;
+            },
+            .array_init_dot_two,
+            .block_two,
+            .builtin_call_two,
+            .struct_init_dot_two,
+            .container_decl_two,
+            .tagged_union_two,
+            => {
+                if (datas[n].rhs != 0) {
+                    end_offset += 1; // for the rparen/rbrace
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    end_offset += 1; // for the rparen/rbrace
+                    n = datas[n].lhs;
+                } else {
+                    switch (tags[n]) {
+                        .array_init_dot_two,
+                        .block_two,
+                        .struct_init_dot_two,
+                        => end_offset += 1, // rbrace
+                        .builtin_call_two => end_offset += 2, // lparen/lbrace + rparen/rbrace
+                        .container_decl_two => {
+                            var i: u32 = 2; // lbrace + rbrace
+                            while (token_tags[main_tokens[n] + i] == .container_doc_comment) i += 1;
+                            end_offset += i;
+                        },
+                        .tagged_union_two => {
+                            var i: u32 = 5; // (enum) {}
+                            while (token_tags[main_tokens[n] + i] == .container_doc_comment) i += 1;
+                            end_offset += i;
+                        },
+                        else => unreachable,
+                    }
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .array_init_dot_two_comma,
+            .builtin_call_two_comma,
+            .block_two_semicolon,
+            .struct_init_dot_two_comma,
+            .container_decl_two_trailing,
+            .tagged_union_two_trailing,
+            => {
+                end_offset += 2; // for the comma/semicolon + rbrace/rparen
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    unreachable;
+                }
+            },
+            .simple_var_decl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 1; // from mut token to name
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .aligned_var_decl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    end_offset += 1; // for the rparen
+                    n = datas[n].lhs;
+                } else {
+                    end_offset += 1; // from mut token to name
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .global_var_decl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else {
+                    const extra = tree.extraData(datas[n].lhs, Node.GlobalVarDecl);
+                    if (extra.section_node != 0) {
+                        end_offset += 1; // for the rparen
+                        n = extra.section_node;
+                    } else if (extra.align_node != 0) {
+                        end_offset += 1; // for the rparen
+                        n = extra.align_node;
+                    } else if (extra.type_node != 0) {
+                        n = extra.type_node;
+                    } else {
+                        end_offset += 1; // from mut token to name
+                        return main_tokens[n] + end_offset;
+                    }
+                }
+            },
+            .local_var_decl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else {
+                    const extra = tree.extraData(datas[n].lhs, Node.LocalVarDecl);
+                    if (extra.align_node != 0) {
+                        end_offset += 1; // for the rparen
+                        n = extra.align_node;
+                    } else if (extra.type_node != 0) {
+                        n = extra.type_node;
+                    } else {
+                        end_offset += 1; // from mut token to name
+                        return main_tokens[n] + end_offset;
+                    }
+                }
+            },
+            .container_field_init => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .container_field_align => {
+                if (datas[n].rhs != 0) {
+                    end_offset += 1; // for the rparen
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .container_field => {
+                const extra = tree.extraData(datas[n].rhs, Node.ContainerField);
+                if (extra.value_expr != 0) {
+                    n = extra.value_expr;
+                } else if (extra.align_expr != 0) {
+                    end_offset += 1; // for the rparen
+                    n = extra.align_expr;
+                } else if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+
+            .array_init_one,
+            .struct_init_one,
+            => {
+                end_offset += 1; // rbrace
+                if (datas[n].rhs == 0) {
+                    return main_tokens[n] + end_offset;
+                } else {
+                    n = datas[n].rhs;
+                }
+            },
+            .slice_open,
+            .call_one_comma,
+            .async_call_one_comma,
+            .array_init_one_comma,
+            .struct_init_one_comma,
+            => {
+                end_offset += 2; // ellipsis2 + rbracket, or comma + rparen
+                n = datas[n].rhs;
+                assert(n != 0);
+            },
+            .slice => {
+                const extra = tree.extraData(datas[n].rhs, Node.Slice);
+                assert(extra.end != 0); // should have used SliceOpen
+                end_offset += 1; // rbracket
+                n = extra.end;
+            },
+            .slice_sentinel => {
+                const extra = tree.extraData(datas[n].rhs, Node.SliceSentinel);
+                assert(extra.sentinel != 0); // should have used Slice
+                end_offset += 1; // rbracket
+                n = extra.sentinel;
+            },
+
+            .@"continue" => {
+                if (datas[n].lhs != 0) {
+                    return datas[n].lhs + end_offset;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .@"break" => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else if (datas[n].lhs != 0) {
+                    return datas[n].lhs + end_offset;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .fn_decl => {
+                if (datas[n].rhs != 0) {
+                    n = datas[n].rhs;
+                } else {
+                    n = datas[n].lhs;
+                }
+            },
+            .fn_proto_one => {
+                const extra = tree.extraData(datas[n].lhs, Node.FnProtoOne);
+                // linksection, callconv, align can appear in any order, so we
+                // find the last one here.
+                var max_node: Node.Index = datas[n].rhs;
+                var max_start = token_starts[main_tokens[max_node]];
+                var max_offset: TokenIndex = 0;
+                if (extra.align_expr != 0) {
+                    const start = token_starts[main_tokens[extra.align_expr]];
+                    if (start > max_start) {
+                        max_node = extra.align_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                if (extra.section_expr != 0) {
+                    const start = token_starts[main_tokens[extra.section_expr]];
+                    if (start > max_start) {
+                        max_node = extra.section_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                if (extra.callconv_expr != 0) {
+                    const start = token_starts[main_tokens[extra.callconv_expr]];
+                    if (start > max_start) {
+                        max_node = extra.callconv_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                n = max_node;
+                end_offset += max_offset;
+            },
+            .fn_proto => {
+                const extra = tree.extraData(datas[n].lhs, Node.FnProto);
+                // linksection, callconv, align can appear in any order, so we
+                // find the last one here.
+                var max_node: Node.Index = datas[n].rhs;
+                var max_start = token_starts[main_tokens[max_node]];
+                var max_offset: TokenIndex = 0;
+                if (extra.align_expr != 0) {
+                    const start = token_starts[main_tokens[extra.align_expr]];
+                    if (start > max_start) {
+                        max_node = extra.align_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                if (extra.section_expr != 0) {
+                    const start = token_starts[main_tokens[extra.section_expr]];
+                    if (start > max_start) {
+                        max_node = extra.section_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                if (extra.callconv_expr != 0) {
+                    const start = token_starts[main_tokens[extra.callconv_expr]];
+                    if (start > max_start) {
+                        max_node = extra.callconv_expr;
+                        max_start = start;
+                        max_offset = 1; // for the rparen
+                    }
+                }
+                n = max_node;
+                end_offset += max_offset;
+            },
+            .while_cont => {
+                const extra = tree.extraData(datas[n].rhs, Node.WhileCont);
+                assert(extra.then_expr != 0);
+                n = extra.then_expr;
+            },
+            .@"while" => {
+                const extra = tree.extraData(datas[n].rhs, Node.While);
+                assert(extra.else_expr != 0);
+                n = extra.else_expr;
+            },
+            .@"if", .@"for" => {
+                const extra = tree.extraData(datas[n].rhs, Node.If);
+                assert(extra.else_expr != 0);
+                n = extra.else_expr;
+            },
+            .@"suspend" => {
+                if (datas[n].lhs != 0) {
+                    n = datas[n].lhs;
+                } else {
+                    return main_tokens[n] + end_offset;
+                }
+            },
+            .array_type_sentinel => {
+                const extra = tree.extraData(datas[n].rhs, Node.ArrayTypeSentinel);
+                n = extra.elem_type;
+            },
+        };
+    }
+
+    pub fn tokensOnSameLine(tree: Tree, token1: TokenIndex, token2: TokenIndex) bool {
+        const token_starts = tree.tokens.items(.start);
+        const source = tree.source[token_starts[token1]..token_starts[token2]];
+        return mem.indexOfScalar(u8, source, '\n') == null;
+    }
+
+    pub fn getNodeSource(tree: Tree, node: Node.Index) []const u8 {
+        const token_starts = tree.tokens.items(.start);
+        const first_token = tree.firstToken(node);
+        const last_token = tree.lastToken(node);
+        const start = token_starts[first_token];
+        const end = token_starts[last_token] + tree.tokenSlice(last_token).len;
+        return tree.source[start..end];
+    }
+
+    pub fn globalVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
+        assert(tree.nodes.items(.tag)[node] == .global_var_decl);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.GlobalVarDecl);
+        return tree.fullVarDecl(.{
+            .type_node = extra.type_node,
+            .align_node = extra.align_node,
+            .section_node = extra.section_node,
+            .init_node = data.rhs,
+            .mut_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn localVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
+        assert(tree.nodes.items(.tag)[node] == .local_var_decl);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.LocalVarDecl);
+        return tree.fullVarDecl(.{
+            .type_node = extra.type_node,
+            .align_node = extra.align_node,
+            .section_node = 0,
+            .init_node = data.rhs,
+            .mut_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn simpleVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
+        assert(tree.nodes.items(.tag)[node] == .simple_var_decl);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullVarDecl(.{
+            .type_node = data.lhs,
+            .align_node = 0,
+            .section_node = 0,
+            .init_node = data.rhs,
+            .mut_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn alignedVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
+        assert(tree.nodes.items(.tag)[node] == .aligned_var_decl);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullVarDecl(.{
+            .type_node = 0,
+            .align_node = data.lhs,
+            .section_node = 0,
+            .init_node = data.rhs,
+            .mut_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn ifSimple(tree: Tree, node: Node.Index) full.If {
+        assert(tree.nodes.items(.tag)[node] == .if_simple);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullIf(.{
+            .cond_expr = data.lhs,
+            .then_expr = data.rhs,
+            .else_expr = 0,
+            .if_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn ifFull(tree: Tree, node: Node.Index) full.If {
+        assert(tree.nodes.items(.tag)[node] == .@"if");
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.If);
+        return tree.fullIf(.{
+            .cond_expr = data.lhs,
+            .then_expr = extra.then_expr,
+            .else_expr = extra.else_expr,
+            .if_token = tree.nodes.items(.main_token)[node],
+        });
+    }
+
+    pub fn containerField(tree: Tree, node: Node.Index) full.ContainerField {
+        assert(tree.nodes.items(.tag)[node] == .container_field);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.ContainerField);
+        return tree.fullContainerField(.{
+            .name_token = tree.nodes.items(.main_token)[node],
+            .type_expr = data.lhs,
+            .value_expr = extra.value_expr,
+            .align_expr = extra.align_expr,
+        });
+    }
+
+    pub fn containerFieldInit(tree: Tree, node: Node.Index) full.ContainerField {
+        assert(tree.nodes.items(.tag)[node] == .container_field_init);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullContainerField(.{
+            .name_token = tree.nodes.items(.main_token)[node],
+            .type_expr = data.lhs,
+            .value_expr = data.rhs,
+            .align_expr = 0,
+        });
+    }
+
+    pub fn containerFieldAlign(tree: Tree, node: Node.Index) full.ContainerField {
+        assert(tree.nodes.items(.tag)[node] == .container_field_align);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullContainerField(.{
+            .name_token = tree.nodes.items(.main_token)[node],
+            .type_expr = data.lhs,
+            .value_expr = 0,
+            .align_expr = data.rhs,
+        });
+    }
+
+    pub fn fnProtoSimple(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.FnProto {
+        assert(tree.nodes.items(.tag)[node] == .fn_proto_simple);
+        const data = tree.nodes.items(.data)[node];
+        buffer[0] = data.lhs;
+        const params = if (data.lhs == 0) buffer[0..0] else buffer[0..1];
+        return tree.fullFnProto(.{
+            .fn_token = tree.nodes.items(.main_token)[node],
+            .return_type = data.rhs,
+            .params = params,
+            .align_expr = 0,
+            .section_expr = 0,
+            .callconv_expr = 0,
+        });
+    }
+
+    pub fn fnProtoMulti(tree: Tree, node: Node.Index) full.FnProto {
+        assert(tree.nodes.items(.tag)[node] == .fn_proto_multi);
+        const data = tree.nodes.items(.data)[node];
+        const params_range = tree.extraData(data.lhs, Node.SubRange);
+        const params = tree.extra_data[params_range.start..params_range.end];
+        return tree.fullFnProto(.{
+            .fn_token = tree.nodes.items(.main_token)[node],
+            .return_type = data.rhs,
+            .params = params,
+            .align_expr = 0,
+            .section_expr = 0,
+            .callconv_expr = 0,
+        });
+    }
+
+    pub fn fnProtoOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.FnProto {
+        assert(tree.nodes.items(.tag)[node] == .fn_proto_one);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.FnProtoOne);
+        buffer[0] = extra.param;
+        const params = if (extra.param == 0) buffer[0..0] else buffer[0..1];
+        return tree.fullFnProto(.{
+            .fn_token = tree.nodes.items(.main_token)[node],
+            .return_type = data.rhs,
+            .params = params,
+            .align_expr = extra.align_expr,
+            .section_expr = extra.section_expr,
+            .callconv_expr = extra.callconv_expr,
+        });
+    }
+
+    pub fn fnProto(tree: Tree, node: Node.Index) full.FnProto {
+        assert(tree.nodes.items(.tag)[node] == .fn_proto);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.FnProto);
+        const params = tree.extra_data[extra.params_start..extra.params_end];
+        return tree.fullFnProto(.{
+            .fn_token = tree.nodes.items(.main_token)[node],
+            .return_type = data.rhs,
+            .params = params,
+            .align_expr = extra.align_expr,
+            .section_expr = extra.section_expr,
+            .callconv_expr = extra.callconv_expr,
+        });
+    }
+
+    pub fn structInitOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.StructInit {
+        assert(tree.nodes.items(.tag)[node] == .struct_init_one or
+            tree.nodes.items(.tag)[node] == .struct_init_one_comma);
+        const data = tree.nodes.items(.data)[node];
+        buffer[0] = data.rhs;
+        const fields = if (data.rhs == 0) buffer[0..0] else buffer[0..1];
+        return tree.fullStructInit(.{
+            .lbrace = tree.nodes.items(.main_token)[node],
+            .fields = fields,
+            .type_expr = data.lhs,
+        });
+    }
+
+    pub fn structInitDotTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.StructInit {
+        assert(tree.nodes.items(.tag)[node] == .struct_init_dot_two or
+            tree.nodes.items(.tag)[node] == .struct_init_dot_two_comma);
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{ data.lhs, data.rhs };
+        const fields = if (data.rhs != 0)
+            buffer[0..2]
+        else if (data.lhs != 0)
+            buffer[0..1]
+        else
+            buffer[0..0];
+        return tree.fullStructInit(.{
+            .lbrace = tree.nodes.items(.main_token)[node],
+            .fields = fields,
+            .type_expr = 0,
+        });
+    }
+
+    pub fn structInitDot(tree: Tree, node: Node.Index) full.StructInit {
+        assert(tree.nodes.items(.tag)[node] == .struct_init_dot or
+            tree.nodes.items(.tag)[node] == .struct_init_dot_comma);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullStructInit(.{
+            .lbrace = tree.nodes.items(.main_token)[node],
+            .fields = tree.extra_data[data.lhs..data.rhs],
+            .type_expr = 0,
+        });
+    }
+
+    pub fn structInit(tree: Tree, node: Node.Index) full.StructInit {
+        assert(tree.nodes.items(.tag)[node] == .struct_init or
+            tree.nodes.items(.tag)[node] == .struct_init_comma);
+        const data = tree.nodes.items(.data)[node];
+        const fields_range = tree.extraData(data.rhs, Node.SubRange);
+        return tree.fullStructInit(.{
+            .lbrace = tree.nodes.items(.main_token)[node],
+            .fields = tree.extra_data[fields_range.start..fields_range.end],
+            .type_expr = data.lhs,
+        });
+    }
+
+    pub fn arrayInitOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.ArrayInit {
+        assert(tree.nodes.items(.tag)[node] == .array_init_one or
+            tree.nodes.items(.tag)[node] == .array_init_one_comma);
+        const data = tree.nodes.items(.data)[node];
+        buffer[0] = data.rhs;
+        const elements = if (data.rhs == 0) buffer[0..0] else buffer[0..1];
+        return .{
+            .ast = .{
+                .lbrace = tree.nodes.items(.main_token)[node],
+                .elements = elements,
+                .type_expr = data.lhs,
+            },
+        };
+    }
+
+    pub fn arrayInitDotTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.ArrayInit {
+        assert(tree.nodes.items(.tag)[node] == .array_init_dot_two or
+            tree.nodes.items(.tag)[node] == .array_init_dot_two_comma);
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{ data.lhs, data.rhs };
+        const elements = if (data.rhs != 0)
+            buffer[0..2]
+        else if (data.lhs != 0)
+            buffer[0..1]
+        else
+            buffer[0..0];
+        return .{
+            .ast = .{
+                .lbrace = tree.nodes.items(.main_token)[node],
+                .elements = elements,
+                .type_expr = 0,
+            },
+        };
+    }
+
+    pub fn arrayInitDot(tree: Tree, node: Node.Index) full.ArrayInit {
+        assert(tree.nodes.items(.tag)[node] == .array_init_dot or
+            tree.nodes.items(.tag)[node] == .array_init_dot_comma);
+        const data = tree.nodes.items(.data)[node];
+        return .{
+            .ast = .{
+                .lbrace = tree.nodes.items(.main_token)[node],
+                .elements = tree.extra_data[data.lhs..data.rhs],
+                .type_expr = 0,
+            },
+        };
+    }
+
+    pub fn arrayInit(tree: Tree, node: Node.Index) full.ArrayInit {
+        assert(tree.nodes.items(.tag)[node] == .array_init or
+            tree.nodes.items(.tag)[node] == .array_init_comma);
+        const data = tree.nodes.items(.data)[node];
+        const elem_range = tree.extraData(data.rhs, Node.SubRange);
+        return .{
+            .ast = .{
+                .lbrace = tree.nodes.items(.main_token)[node],
+                .elements = tree.extra_data[elem_range.start..elem_range.end],
+                .type_expr = data.lhs,
+            },
+        };
+    }
+
+    pub fn arrayType(tree: Tree, node: Node.Index) full.ArrayType {
+        assert(tree.nodes.items(.tag)[node] == .array_type);
+        const data = tree.nodes.items(.data)[node];
+        return .{
+            .ast = .{
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .elem_count = data.lhs,
+                .sentinel = null,
+                .elem_type = data.rhs,
+            },
+        };
+    }
+
+    pub fn arrayTypeSentinel(tree: Tree, node: Node.Index) full.ArrayType {
+        assert(tree.nodes.items(.tag)[node] == .array_type_sentinel);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.ArrayTypeSentinel);
+        return .{
+            .ast = .{
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .elem_count = data.lhs,
+                .sentinel = extra.sentinel,
+                .elem_type = extra.elem_type,
+            },
+        };
+    }
+
+    pub fn ptrTypeAligned(tree: Tree, node: Node.Index) full.PtrType {
+        assert(tree.nodes.items(.tag)[node] == .ptr_type_aligned);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullPtrType(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .align_node = data.lhs,
+            .sentinel = 0,
+            .bit_range_start = 0,
+            .bit_range_end = 0,
+            .child_type = data.rhs,
+        });
+    }
+
+    pub fn ptrTypeSentinel(tree: Tree, node: Node.Index) full.PtrType {
+        assert(tree.nodes.items(.tag)[node] == .ptr_type_sentinel);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullPtrType(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .align_node = 0,
+            .sentinel = data.lhs,
+            .bit_range_start = 0,
+            .bit_range_end = 0,
+            .child_type = data.rhs,
+        });
+    }
+
+    pub fn ptrType(tree: Tree, node: Node.Index) full.PtrType {
+        assert(tree.nodes.items(.tag)[node] == .ptr_type);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.PtrType);
+        return tree.fullPtrType(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .align_node = extra.align_node,
+            .sentinel = extra.sentinel,
+            .bit_range_start = 0,
+            .bit_range_end = 0,
+            .child_type = data.rhs,
+        });
+    }
+
+    pub fn ptrTypeBitRange(tree: Tree, node: Node.Index) full.PtrType {
+        assert(tree.nodes.items(.tag)[node] == .ptr_type_bit_range);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.PtrTypeBitRange);
+        return tree.fullPtrType(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .align_node = extra.align_node,
+            .sentinel = extra.sentinel,
+            .bit_range_start = extra.bit_range_start,
+            .bit_range_end = extra.bit_range_end,
+            .child_type = data.rhs,
+        });
+    }
+
+    pub fn sliceOpen(tree: Tree, node: Node.Index) full.Slice {
+        assert(tree.nodes.items(.tag)[node] == .slice_open);
+        const data = tree.nodes.items(.data)[node];
+        return .{
+            .ast = .{
+                .sliced = data.lhs,
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .start = data.rhs,
+                .end = 0,
+                .sentinel = 0,
+            },
+        };
+    }
+
+    pub fn slice(tree: Tree, node: Node.Index) full.Slice {
+        assert(tree.nodes.items(.tag)[node] == .slice);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.Slice);
+        return .{
+            .ast = .{
+                .sliced = data.lhs,
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .start = extra.start,
+                .end = extra.end,
+                .sentinel = 0,
+            },
+        };
+    }
+
+    pub fn sliceSentinel(tree: Tree, node: Node.Index) full.Slice {
+        assert(tree.nodes.items(.tag)[node] == .slice_sentinel);
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.SliceSentinel);
+        return .{
+            .ast = .{
+                .sliced = data.lhs,
+                .lbracket = tree.nodes.items(.main_token)[node],
+                .start = extra.start,
+                .end = extra.end,
+                .sentinel = extra.sentinel,
+            },
+        };
+    }
+
+    pub fn containerDeclTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .container_decl_two or
+            tree.nodes.items(.tag)[node] == .container_decl_two_trailing);
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{ data.lhs, data.rhs };
+        const members = if (data.rhs != 0)
+            buffer[0..2]
+        else if (data.lhs != 0)
+            buffer[0..1]
+        else
+            buffer[0..0];
+        return tree.fullContainerDecl(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .enum_token = null,
+            .members = members,
+            .arg = 0,
+        });
+    }
+
+    pub fn containerDecl(tree: Tree, node: Node.Index) full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .container_decl or
+            tree.nodes.items(.tag)[node] == .container_decl_trailing);
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullContainerDecl(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .enum_token = null,
+            .members = tree.extra_data[data.lhs..data.rhs],
+            .arg = 0,
+        });
+    }
+
+    pub fn containerDeclArg(tree: Tree, node: Node.Index) full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .container_decl_arg or
+            tree.nodes.items(.tag)[node] == .container_decl_arg_trailing);
+        const data = tree.nodes.items(.data)[node];
+        const members_range = tree.extraData(data.rhs, Node.SubRange);
+        return tree.fullContainerDecl(.{
+            .main_token = tree.nodes.items(.main_token)[node],
+            .enum_token = null,
+            .members = tree.extra_data[members_range.start..members_range.end],
+            .arg = data.lhs,
+        });
+    }
+
+    pub fn taggedUnionTwo(tree: Tree, buffer: *[2]Node.Index, node: Node.Index) full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .tagged_union_two or
+            tree.nodes.items(.tag)[node] == .tagged_union_two_trailing);
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{ data.lhs, data.rhs };
+        const members = if (data.rhs != 0)
+            buffer[0..2]
+        else if (data.lhs != 0)
+            buffer[0..1]
+        else
+            buffer[0..0];
+        const main_token = tree.nodes.items(.main_token)[node];
+        return tree.fullContainerDecl(.{
+            .main_token = main_token,
+            .enum_token = main_token + 2, // union lparen enum
+            .members = members,
+            .arg = 0,
+        });
+    }
+
+    pub fn taggedUnion(tree: Tree, node: Node.Index) full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .tagged_union or
+            tree.nodes.items(.tag)[node] == .tagged_union_trailing);
+        const data = tree.nodes.items(.data)[node];
+        const main_token = tree.nodes.items(.main_token)[node];
+        return tree.fullContainerDecl(.{
+            .main_token = main_token,
+            .enum_token = main_token + 2, // union lparen enum
+            .members = tree.extra_data[data.lhs..data.rhs],
+            .arg = 0,
+        });
+    }
+
+    pub fn taggedUnionEnumTag(tree: Tree, node: Node.Index) full.ContainerDecl {
+        assert(tree.nodes.items(.tag)[node] == .tagged_union_enum_tag or
+            tree.nodes.items(.tag)[node] == .tagged_union_enum_tag_trailing);
+        const data = tree.nodes.items(.data)[node];
+        const members_range = tree.extraData(data.rhs, Node.SubRange);
+        const main_token = tree.nodes.items(.main_token)[node];
+        return tree.fullContainerDecl(.{
+            .main_token = main_token,
+            .enum_token = main_token + 2, // union lparen enum
+            .members = tree.extra_data[members_range.start..members_range.end],
+            .arg = data.lhs,
+        });
+    }
+
+    pub fn switchCaseOne(tree: Tree, node: Node.Index) full.SwitchCase {
+        const data = &tree.nodes.items(.data)[node];
+        const values: *[1]Node.Index = &data.lhs;
+        return tree.fullSwitchCase(.{
+            .values = if (data.lhs == 0) values[0..0] else values[0..1],
+            .arrow_token = tree.nodes.items(.main_token)[node],
+            .target_expr = data.rhs,
+        });
+    }
+
+    pub fn switchCase(tree: Tree, node: Node.Index) full.SwitchCase {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.lhs, Node.SubRange);
+        return tree.fullSwitchCase(.{
+            .values = tree.extra_data[extra.start..extra.end],
+            .arrow_token = tree.nodes.items(.main_token)[node],
+            .target_expr = data.rhs,
+        });
+    }
+
+    pub fn asmSimple(tree: Tree, node: Node.Index) full.Asm {
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullAsm(.{
+            .asm_token = tree.nodes.items(.main_token)[node],
+            .template = data.lhs,
+            .items = &.{},
+            .rparen = data.rhs,
+        });
+    }
+
+    pub fn asmFull(tree: Tree, node: Node.Index) full.Asm {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.Asm);
+        return tree.fullAsm(.{
+            .asm_token = tree.nodes.items(.main_token)[node],
+            .template = data.lhs,
+            .items = tree.extra_data[extra.items_start..extra.items_end],
+            .rparen = extra.rparen,
+        });
+    }
+
+    pub fn whileSimple(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = 0,
+            .then_expr = data.rhs,
+            .else_expr = 0,
+        });
+    }
+
+    pub fn whileCont(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.WhileCont);
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = extra.cont_expr,
+            .then_expr = extra.then_expr,
+            .else_expr = 0,
+        });
+    }
+
+    pub fn whileFull(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.While);
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = extra.cont_expr,
+            .then_expr = extra.then_expr,
+            .else_expr = extra.else_expr,
+        });
+    }
+
+    pub fn forSimple(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = 0,
+            .then_expr = data.rhs,
+            .else_expr = 0,
+        });
+    }
+
+    pub fn forFull(tree: Tree, node: Node.Index) full.While {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.If);
+        return tree.fullWhile(.{
+            .while_token = tree.nodes.items(.main_token)[node],
+            .cond_expr = data.lhs,
+            .cont_expr = 0,
+            .then_expr = extra.then_expr,
+            .else_expr = extra.else_expr,
+        });
+    }
+
+    pub fn callOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.Call {
+        const data = tree.nodes.items(.data)[node];
+        buffer.* = .{data.rhs};
+        const params = if (data.rhs != 0) buffer[0..1] else buffer[0..0];
+        return tree.fullCall(.{
+            .lparen = tree.nodes.items(.main_token)[node],
+            .fn_expr = data.lhs,
+            .params = params,
+        });
+    }
+
+    pub fn callFull(tree: Tree, node: Node.Index) full.Call {
+        const data = tree.nodes.items(.data)[node];
+        const extra = tree.extraData(data.rhs, Node.SubRange);
+        return tree.fullCall(.{
+            .lparen = tree.nodes.items(.main_token)[node],
+            .fn_expr = data.lhs,
+            .params = tree.extra_data[extra.start..extra.end],
+        });
+    }
+
+    fn fullVarDecl(tree: Tree, info: full.VarDecl.Ast) full.VarDecl {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.VarDecl = .{
+            .ast = info,
+            .visib_token = null,
+            .extern_export_token = null,
+            .lib_name = null,
+            .threadlocal_token = null,
+            .comptime_token = null,
+        };
+        var i = info.mut_token;
+        while (i > 0) {
+            i -= 1;
+            switch (token_tags[i]) {
+                .keyword_extern, .keyword_export => result.extern_export_token = i,
+                .keyword_comptime => result.comptime_token = i,
+                .keyword_pub => result.visib_token = i,
+                .keyword_threadlocal => result.threadlocal_token = i,
+                .string_literal => result.lib_name = i,
+                else => break,
+            }
+        }
+        return result;
+    }
+
+    fn fullIf(tree: Tree, info: full.If.Ast) full.If {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.If = .{
+            .ast = info,
+            .payload_token = null,
+            .error_token = null,
+            .else_token = undefined,
+        };
+        // if (cond_expr) |x|
+        //              ^ ^
+        const payload_pipe = tree.lastToken(info.cond_expr) + 2;
+        if (token_tags[payload_pipe] == .pipe) {
+            result.payload_token = payload_pipe + 1;
+        }
+        if (info.else_expr != 0) {
+            // then_expr else |x|
+            //           ^    ^
+            result.else_token = tree.lastToken(info.then_expr) + 1;
+            if (token_tags[result.else_token + 1] == .pipe) {
+                result.error_token = result.else_token + 2;
+            }
+        }
+        return result;
+    }
+
+    fn fullContainerField(tree: Tree, info: full.ContainerField.Ast) full.ContainerField {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.ContainerField = .{
+            .ast = info,
+            .comptime_token = null,
+        };
+        // comptime name: type = init,
+        // ^
+        if (info.name_token > 0 and token_tags[info.name_token - 1] == .keyword_comptime) {
+            result.comptime_token = info.name_token - 1;
+        }
+        return result;
+    }
+
+    fn fullFnProto(tree: Tree, info: full.FnProto.Ast) full.FnProto {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.FnProto = .{
+            .ast = info,
+            .visib_token = null,
+            .extern_export_token = null,
+            .lib_name = null,
+            .name_token = null,
+            .lparen = undefined,
+        };
+        var i = info.fn_token;
+        while (i > 0) {
+            i -= 1;
+            switch (token_tags[i]) {
+                .keyword_extern, .keyword_export => result.extern_export_token = i,
+                .keyword_pub => result.visib_token = i,
+                .string_literal => result.lib_name = i,
+                else => break,
+            }
+        }
+        const after_fn_token = info.fn_token + 1;
+        if (token_tags[after_fn_token] == .identifier) {
+            result.name_token = after_fn_token;
+            result.lparen = after_fn_token + 1;
+        } else {
+            result.lparen = after_fn_token;
+        }
+        assert(token_tags[result.lparen] == .l_paren);
+
+        return result;
+    }
+
+    fn fullStructInit(tree: Tree, info: full.StructInit.Ast) full.StructInit {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.StructInit = .{
+            .ast = info,
+        };
+        return result;
+    }
+
+    fn fullPtrType(tree: Tree, info: full.PtrType.Ast) full.PtrType {
+        const token_tags = tree.tokens.items(.tag);
+        // TODO: looks like stage1 isn't quite smart enough to handle enum
+        // literals in some places here
+        const Size = std.builtin.TypeInfo.Pointer.Size;
+        const size: Size = switch (token_tags[info.main_token]) {
+            .asterisk,
+            .asterisk_asterisk,
+            => switch (token_tags[info.main_token + 1]) {
+                .r_bracket, .colon => .Many,
+                .identifier => if (token_tags[info.main_token - 1] == .l_bracket) Size.C else .One,
+                else => .One,
+            },
+            .l_bracket => Size.Slice,
+            else => unreachable,
+        };
+        var result: full.PtrType = .{
+            .size = size,
+            .allowzero_token = null,
+            .const_token = null,
+            .volatile_token = null,
+            .ast = info,
+        };
+        // We need to be careful that we don't iterate over any sub-expressions
+        // here while looking for modifiers as that could result in false
+        // positives. Therefore, start after a sentinel if there is one and
+        // skip over any align node and bit range nodes.
+        var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else info.main_token;
+        const end = tree.firstToken(info.child_type);
+        while (i < end) : (i += 1) {
+            switch (token_tags[i]) {
+                .keyword_allowzero => result.allowzero_token = i,
+                .keyword_const => result.const_token = i,
+                .keyword_volatile => result.volatile_token = i,
+                .keyword_align => {
+                    assert(info.align_node != 0);
+                    if (info.bit_range_end != 0) {
+                        assert(info.bit_range_start != 0);
+                        i = tree.lastToken(info.bit_range_end) + 1;
+                    } else {
+                        i = tree.lastToken(info.align_node) + 1;
+                    }
+                },
+                else => {},
+            }
+        }
+        return result;
+    }
+
+    fn fullContainerDecl(tree: Tree, info: full.ContainerDecl.Ast) full.ContainerDecl {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.ContainerDecl = .{
+            .ast = info,
+            .layout_token = null,
+        };
+        switch (token_tags[info.main_token - 1]) {
+            .keyword_extern, .keyword_packed => result.layout_token = info.main_token - 1,
+            else => {},
+        }
+        return result;
+    }
+
+    fn fullSwitchCase(tree: Tree, info: full.SwitchCase.Ast) full.SwitchCase {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.SwitchCase = .{
+            .ast = info,
+            .payload_token = null,
+        };
+        if (token_tags[info.arrow_token + 1] == .pipe) {
+            result.payload_token = info.arrow_token + 2;
+        }
+        return result;
+    }
+
+    fn fullAsm(tree: Tree, info: full.Asm.Ast) full.Asm {
+        const token_tags = tree.tokens.items(.tag);
+        const node_tags = tree.nodes.items(.tag);
+        var result: full.Asm = .{
+            .ast = info,
+            .volatile_token = null,
+            .inputs = &.{},
+            .outputs = &.{},
+            .first_clobber = null,
+        };
+        if (token_tags[info.asm_token + 1] == .keyword_volatile) {
+            result.volatile_token = info.asm_token + 1;
+        }
+        const outputs_end: usize = for (info.items) |item, i| {
+            switch (node_tags[item]) {
+                .asm_output => continue,
+                else => break i,
+            }
+        } else info.items.len;
+
+        result.outputs = info.items[0..outputs_end];
+        result.inputs = info.items[outputs_end..];
+
+        if (info.items.len == 0) {
+            // asm ("foo" ::: "a", "b");
+            const template_token = tree.lastToken(info.template);
+            if (token_tags[template_token + 1] == .colon and
+                token_tags[template_token + 2] == .colon and
+                token_tags[template_token + 3] == .colon and
+                token_tags[template_token + 4] == .string_literal)
+            {
+                result.first_clobber = template_token + 4;
+            }
+        } else if (result.inputs.len != 0) {
+            // asm ("foo" :: [_] "" (y) : "a", "b");
+            const last_input = result.inputs[result.inputs.len - 1];
+            const rparen = tree.lastToken(last_input);
+            if (token_tags[rparen + 1] == .colon and
+                token_tags[rparen + 2] == .string_literal)
+            {
+                result.first_clobber = rparen + 2;
+            }
+        } else {
+            // asm ("foo" : [_] "" (x) :: "a", "b");
+            const last_output = result.outputs[result.outputs.len - 1];
+            const rparen = tree.lastToken(last_output);
+            if (token_tags[rparen + 1] == .colon and
+                token_tags[rparen + 2] == .colon and
+                token_tags[rparen + 3] == .string_literal)
+            {
+                result.first_clobber = rparen + 3;
+            }
+        }
+
+        return result;
+    }
+
+    fn fullWhile(tree: Tree, info: full.While.Ast) full.While {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.While = .{
+            .ast = info,
+            .inline_token = null,
+            .label_token = null,
+            .payload_token = null,
+            .else_token = undefined,
+            .error_token = null,
+        };
+        var tok_i = info.while_token - 1;
+        if (token_tags[tok_i] == .keyword_inline) {
+            result.inline_token = tok_i;
+            tok_i -= 1;
+        }
+        if (token_tags[tok_i] == .colon and
+            token_tags[tok_i - 1] == .identifier)
+        {
+            result.label_token = tok_i - 1;
+        }
+        const last_cond_token = tree.lastToken(info.cond_expr);
+        if (token_tags[last_cond_token + 2] == .pipe) {
+            result.payload_token = last_cond_token + 3;
+        }
+        if (info.else_expr != 0) {
+            // then_expr else |x|
+            //           ^    ^
+            result.else_token = tree.lastToken(info.then_expr) + 1;
+            if (token_tags[result.else_token + 1] == .pipe) {
+                result.error_token = result.else_token + 2;
+            }
+        }
+        return result;
+    }
+
+    fn fullCall(tree: Tree, info: full.Call.Ast) full.Call {
+        const token_tags = tree.tokens.items(.tag);
+        var result: full.Call = .{
+            .ast = info,
+            .async_token = null,
+        };
+        const maybe_async_token = tree.firstToken(info.fn_expr) - 1;
+        if (token_tags[maybe_async_token] == .keyword_async) {
+            result.async_token = maybe_async_token;
+        }
+        return result;
     }
 };
 
-pub const Error = union(enum) {
-    InvalidToken: InvalidToken,
-    ExpectedContainerMembers: ExpectedContainerMembers,
-    ExpectedStringLiteral: ExpectedStringLiteral,
-    ExpectedIntegerLiteral: ExpectedIntegerLiteral,
-    ExpectedPubItem: ExpectedPubItem,
-    ExpectedIdentifier: ExpectedIdentifier,
-    ExpectedStatement: ExpectedStatement,
-    ExpectedVarDeclOrFn: ExpectedVarDeclOrFn,
-    ExpectedVarDecl: ExpectedVarDecl,
-    ExpectedFn: ExpectedFn,
-    ExpectedReturnType: ExpectedReturnType,
-    ExpectedAggregateKw: ExpectedAggregateKw,
-    UnattachedDocComment: UnattachedDocComment,
-    ExpectedEqOrSemi: ExpectedEqOrSemi,
-    ExpectedSemiOrLBrace: ExpectedSemiOrLBrace,
-    ExpectedSemiOrElse: ExpectedSemiOrElse,
-    ExpectedLabelOrLBrace: ExpectedLabelOrLBrace,
-    ExpectedLBrace: ExpectedLBrace,
-    ExpectedColonOrRParen: ExpectedColonOrRParen,
-    ExpectedLabelable: ExpectedLabelable,
-    ExpectedInlinable: ExpectedInlinable,
-    ExpectedAsmOutputReturnOrType: ExpectedAsmOutputReturnOrType,
-    ExpectedCall: ExpectedCall,
-    ExpectedCallOrFnProto: ExpectedCallOrFnProto,
-    ExpectedSliceOrRBracket: ExpectedSliceOrRBracket,
-    ExtraAlignQualifier: ExtraAlignQualifier,
-    ExtraConstQualifier: ExtraConstQualifier,
-    ExtraVolatileQualifier: ExtraVolatileQualifier,
-    ExtraAllowZeroQualifier: ExtraAllowZeroQualifier,
-    ExpectedTypeExpr: ExpectedTypeExpr,
-    ExpectedPrimaryTypeExpr: ExpectedPrimaryTypeExpr,
-    ExpectedParamType: ExpectedParamType,
-    ExpectedExpr: ExpectedExpr,
-    ExpectedPrimaryExpr: ExpectedPrimaryExpr,
-    ExpectedToken: ExpectedToken,
-    ExpectedCommaOrEnd: ExpectedCommaOrEnd,
-    ExpectedParamList: ExpectedParamList,
-    ExpectedPayload: ExpectedPayload,
-    ExpectedBlockOrAssignment: ExpectedBlockOrAssignment,
-    ExpectedBlockOrExpression: ExpectedBlockOrExpression,
-    ExpectedExprOrAssignment: ExpectedExprOrAssignment,
-    ExpectedPrefixExpr: ExpectedPrefixExpr,
-    ExpectedLoopExpr: ExpectedLoopExpr,
-    ExpectedDerefOrUnwrap: ExpectedDerefOrUnwrap,
-    ExpectedSuffixOp: ExpectedSuffixOp,
-    ExpectedBlockOrField: ExpectedBlockOrField,
-    DeclBetweenFields: DeclBetweenFields,
-    InvalidAnd: InvalidAnd,
-    AsteriskAfterPointerDereference: AsteriskAfterPointerDereference,
+/// Fully assembled AST node information.
+pub const full = struct {
+    pub const VarDecl = struct {
+        visib_token: ?TokenIndex,
+        extern_export_token: ?TokenIndex,
+        lib_name: ?TokenIndex,
+        threadlocal_token: ?TokenIndex,
+        comptime_token: ?TokenIndex,
+        ast: Ast,
 
-    pub fn render(self: *const Error, tokens: []const Token.Id, stream: anytype) !void {
-        switch (self.*) {
-            .InvalidToken => |*x| return x.render(tokens, stream),
-            .ExpectedContainerMembers => |*x| return x.render(tokens, stream),
-            .ExpectedStringLiteral => |*x| return x.render(tokens, stream),
-            .ExpectedIntegerLiteral => |*x| return x.render(tokens, stream),
-            .ExpectedPubItem => |*x| return x.render(tokens, stream),
-            .ExpectedIdentifier => |*x| return x.render(tokens, stream),
-            .ExpectedStatement => |*x| return x.render(tokens, stream),
-            .ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
-            .ExpectedVarDecl => |*x| return x.render(tokens, stream),
-            .ExpectedFn => |*x| return x.render(tokens, stream),
-            .ExpectedReturnType => |*x| return x.render(tokens, stream),
-            .ExpectedAggregateKw => |*x| return x.render(tokens, stream),
-            .UnattachedDocComment => |*x| return x.render(tokens, stream),
-            .ExpectedEqOrSemi => |*x| return x.render(tokens, stream),
-            .ExpectedSemiOrLBrace => |*x| return x.render(tokens, stream),
-            .ExpectedSemiOrElse => |*x| return x.render(tokens, stream),
-            .ExpectedLabelOrLBrace => |*x| return x.render(tokens, stream),
-            .ExpectedLBrace => |*x| return x.render(tokens, stream),
-            .ExpectedColonOrRParen => |*x| return x.render(tokens, stream),
-            .ExpectedLabelable => |*x| return x.render(tokens, stream),
-            .ExpectedInlinable => |*x| return x.render(tokens, stream),
-            .ExpectedAsmOutputReturnOrType => |*x| return x.render(tokens, stream),
-            .ExpectedCall => |*x| return x.render(tokens, stream),
-            .ExpectedCallOrFnProto => |*x| return x.render(tokens, stream),
-            .ExpectedSliceOrRBracket => |*x| return x.render(tokens, stream),
-            .ExtraAlignQualifier => |*x| return x.render(tokens, stream),
-            .ExtraConstQualifier => |*x| return x.render(tokens, stream),
-            .ExtraVolatileQualifier => |*x| return x.render(tokens, stream),
-            .ExtraAllowZeroQualifier => |*x| return x.render(tokens, stream),
-            .ExpectedTypeExpr => |*x| return x.render(tokens, stream),
-            .ExpectedPrimaryTypeExpr => |*x| return x.render(tokens, stream),
-            .ExpectedParamType => |*x| return x.render(tokens, stream),
-            .ExpectedExpr => |*x| return x.render(tokens, stream),
-            .ExpectedPrimaryExpr => |*x| return x.render(tokens, stream),
-            .ExpectedToken => |*x| return x.render(tokens, stream),
-            .ExpectedCommaOrEnd => |*x| return x.render(tokens, stream),
-            .ExpectedParamList => |*x| return x.render(tokens, stream),
-            .ExpectedPayload => |*x| return x.render(tokens, stream),
-            .ExpectedBlockOrAssignment => |*x| return x.render(tokens, stream),
-            .ExpectedBlockOrExpression => |*x| return x.render(tokens, stream),
-            .ExpectedExprOrAssignment => |*x| return x.render(tokens, stream),
-            .ExpectedPrefixExpr => |*x| return x.render(tokens, stream),
-            .ExpectedLoopExpr => |*x| return x.render(tokens, stream),
-            .ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
-            .ExpectedSuffixOp => |*x| return x.render(tokens, stream),
-            .ExpectedBlockOrField => |*x| return x.render(tokens, stream),
-            .DeclBetweenFields => |*x| return x.render(tokens, stream),
-            .InvalidAnd => |*x| return x.render(tokens, stream),
-            .AsteriskAfterPointerDereference => |*x| return x.render(tokens, stream),
-        }
-    }
-
-    pub fn loc(self: *const Error) TokenIndex {
-        switch (self.*) {
-            .InvalidToken => |x| return x.token,
-            .ExpectedContainerMembers => |x| return x.token,
-            .ExpectedStringLiteral => |x| return x.token,
-            .ExpectedIntegerLiteral => |x| return x.token,
-            .ExpectedPubItem => |x| return x.token,
-            .ExpectedIdentifier => |x| return x.token,
-            .ExpectedStatement => |x| return x.token,
-            .ExpectedVarDeclOrFn => |x| return x.token,
-            .ExpectedVarDecl => |x| return x.token,
-            .ExpectedFn => |x| return x.token,
-            .ExpectedReturnType => |x| return x.token,
-            .ExpectedAggregateKw => |x| return x.token,
-            .UnattachedDocComment => |x| return x.token,
-            .ExpectedEqOrSemi => |x| return x.token,
-            .ExpectedSemiOrLBrace => |x| return x.token,
-            .ExpectedSemiOrElse => |x| return x.token,
-            .ExpectedLabelOrLBrace => |x| return x.token,
-            .ExpectedLBrace => |x| return x.token,
-            .ExpectedColonOrRParen => |x| return x.token,
-            .ExpectedLabelable => |x| return x.token,
-            .ExpectedInlinable => |x| return x.token,
-            .ExpectedAsmOutputReturnOrType => |x| return x.token,
-            .ExpectedCall => |x| return x.node.firstToken(),
-            .ExpectedCallOrFnProto => |x| return x.node.firstToken(),
-            .ExpectedSliceOrRBracket => |x| return x.token,
-            .ExtraAlignQualifier => |x| return x.token,
-            .ExtraConstQualifier => |x| return x.token,
-            .ExtraVolatileQualifier => |x| return x.token,
-            .ExtraAllowZeroQualifier => |x| return x.token,
-            .ExpectedTypeExpr => |x| return x.token,
-            .ExpectedPrimaryTypeExpr => |x| return x.token,
-            .ExpectedParamType => |x| return x.token,
-            .ExpectedExpr => |x| return x.token,
-            .ExpectedPrimaryExpr => |x| return x.token,
-            .ExpectedToken => |x| return x.token,
-            .ExpectedCommaOrEnd => |x| return x.token,
-            .ExpectedParamList => |x| return x.token,
-            .ExpectedPayload => |x| return x.token,
-            .ExpectedBlockOrAssignment => |x| return x.token,
-            .ExpectedBlockOrExpression => |x| return x.token,
-            .ExpectedExprOrAssignment => |x| return x.token,
-            .ExpectedPrefixExpr => |x| return x.token,
-            .ExpectedLoopExpr => |x| return x.token,
-            .ExpectedDerefOrUnwrap => |x| return x.token,
-            .ExpectedSuffixOp => |x| return x.token,
-            .ExpectedBlockOrField => |x| return x.token,
-            .DeclBetweenFields => |x| return x.token,
-            .InvalidAnd => |x| return x.token,
-            .AsteriskAfterPointerDereference => |x| return x.token,
-        }
-    }
-
-    pub const InvalidToken = SingleTokenError("Invalid token '{s}'");
-    pub const ExpectedContainerMembers = SingleTokenError("Expected test, comptime, var decl, or container field, found '{s}'");
-    pub const ExpectedStringLiteral = SingleTokenError("Expected string literal, found '{s}'");
-    pub const ExpectedIntegerLiteral = SingleTokenError("Expected integer literal, found '{s}'");
-    pub const ExpectedIdentifier = SingleTokenError("Expected identifier, found '{s}'");
-    pub const ExpectedStatement = SingleTokenError("Expected statement, found '{s}'");
-    pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found '{s}'");
-    pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{s}'");
-    pub const ExpectedFn = SingleTokenError("Expected function, found '{s}'");
-    pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found '{s}'");
-    pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Id.Keyword_struct.symbol() ++ "', '" ++ Token.Id.Keyword_union.symbol() ++ "', '" ++ Token.Id.Keyword_enum.symbol() ++ "', or '" ++ Token.Id.Keyword_opaque.symbol() ++ "', found '{s}'");
-    pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{s}'");
-    pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found '{s}'");
-    pub const ExpectedSemiOrElse = SingleTokenError("Expected ';' or 'else', found '{s}'");
-    pub const ExpectedLBrace = SingleTokenError("Expected '{{', found '{s}'");
-    pub const ExpectedLabelOrLBrace = SingleTokenError("Expected label or '{{', found '{s}'");
-    pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found '{s}'");
-    pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found '{s}'");
-    pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found '{s}'");
-    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or '" ++ Token.Id.Identifier.symbol() ++ "', found '{s}'");
-    pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found '{s}'");
-    pub const ExpectedTypeExpr = SingleTokenError("Expected type expression, found '{s}'");
-    pub const ExpectedPrimaryTypeExpr = SingleTokenError("Expected primary type expression, found '{s}'");
-    pub const ExpectedExpr = SingleTokenError("Expected expression, found '{s}'");
-    pub const ExpectedPrimaryExpr = SingleTokenError("Expected primary expression, found '{s}'");
-    pub const ExpectedParamList = SingleTokenError("Expected parameter list, found '{s}'");
-    pub const ExpectedPayload = SingleTokenError("Expected loop payload, found '{s}'");
-    pub const ExpectedBlockOrAssignment = SingleTokenError("Expected block or assignment, found '{s}'");
-    pub const ExpectedBlockOrExpression = SingleTokenError("Expected block or expression, found '{s}'");
-    pub const ExpectedExprOrAssignment = SingleTokenError("Expected expression or assignment, found '{s}'");
-    pub const ExpectedPrefixExpr = SingleTokenError("Expected prefix expression, found '{s}'");
-    pub const ExpectedLoopExpr = SingleTokenError("Expected loop expression, found '{s}'");
-    pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found '{s}'");
-    pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found '{s}'");
-    pub const ExpectedBlockOrField = SingleTokenError("Expected block or field, found '{s}'");
-
-    pub const ExpectedParamType = SimpleError("Expected parameter type");
-    pub const ExpectedPubItem = SimpleError("Expected function or variable declaration after pub");
-    pub const UnattachedDocComment = SimpleError("Unattached documentation comment");
-    pub const ExtraAlignQualifier = SimpleError("Extra align qualifier");
-    pub const ExtraConstQualifier = SimpleError("Extra const qualifier");
-    pub const ExtraVolatileQualifier = SimpleError("Extra volatile qualifier");
-    pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
-    pub const DeclBetweenFields = SimpleError("Declarations are not allowed between container fields");
-    pub const InvalidAnd = SimpleError("`&&` is invalid. Note that `and` is boolean AND.");
-    pub const AsteriskAfterPointerDereference = SimpleError("`.*` can't be followed by `*`. Are you missing a space?");
-
-    pub const ExpectedCall = struct {
-        node: *Node,
-
-        pub fn render(self: *const ExpectedCall, tokens: []const Token.Id, stream: anytype) !void {
-            return stream.print("expected " ++ @tagName(Node.Tag.Call) ++ ", found {s}", .{
-                @tagName(self.node.tag),
-            });
-        }
+        pub const Ast = struct {
+            mut_token: TokenIndex,
+            type_node: Node.Index,
+            align_node: Node.Index,
+            section_node: Node.Index,
+            init_node: Node.Index,
+        };
     };
 
-    pub const ExpectedCallOrFnProto = struct {
-        node: *Node,
+    pub const If = struct {
+        /// Points to the first token after the `|`. Will either be an identifier or
+        /// a `*` (with an identifier immediately after it).
+        payload_token: ?TokenIndex,
+        /// Points to the identifier after the `|`.
+        error_token: ?TokenIndex,
+        /// Populated only if else_expr != 0.
+        else_token: TokenIndex,
+        ast: Ast,
 
-        pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token.Id, stream: anytype) !void {
-            return stream.print("expected " ++ @tagName(Node.Tag.Call) ++ " or " ++
-                @tagName(Node.Tag.FnProto) ++ ", found {s}", .{@tagName(self.node.tag)});
-        }
+        pub const Ast = struct {
+            if_token: TokenIndex,
+            cond_expr: Node.Index,
+            then_expr: Node.Index,
+            else_expr: Node.Index,
+        };
     };
 
-    pub const ExpectedToken = struct {
-        token: TokenIndex,
-        expected_id: Token.Id,
+    pub const While = struct {
+        ast: Ast,
+        inline_token: ?TokenIndex,
+        label_token: ?TokenIndex,
+        payload_token: ?TokenIndex,
+        error_token: ?TokenIndex,
+        /// Populated only if else_expr != 0.
+        else_token: TokenIndex,
 
-        pub fn render(self: *const ExpectedToken, tokens: []const Token.Id, stream: anytype) !void {
-            const found_token = tokens[self.token];
-            switch (found_token) {
-                .Invalid => {
-                    return stream.print("expected '{s}', found invalid bytes", .{self.expected_id.symbol()});
-                },
-                else => {
-                    const token_name = found_token.symbol();
-                    return stream.print("expected '{s}', found '{s}'", .{ self.expected_id.symbol(), token_name });
-                },
-            }
-        }
+        pub const Ast = struct {
+            while_token: TokenIndex,
+            cond_expr: Node.Index,
+            cont_expr: Node.Index,
+            then_expr: Node.Index,
+            else_expr: Node.Index,
+        };
     };
 
-    pub const ExpectedCommaOrEnd = struct {
-        token: TokenIndex,
-        end_id: Token.Id,
+    pub const ContainerField = struct {
+        comptime_token: ?TokenIndex,
+        ast: Ast,
 
-        pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token.Id, stream: anytype) !void {
-            const actual_token = tokens[self.token];
-            return stream.print("expected ',' or '{s}', found '{s}'", .{
-                self.end_id.symbol(),
-                actual_token.symbol(),
-            });
-        }
+        pub const Ast = struct {
+            name_token: TokenIndex,
+            type_expr: Node.Index,
+            value_expr: Node.Index,
+            align_expr: Node.Index,
+        };
     };
 
-    fn SingleTokenError(comptime msg: []const u8) type {
-        return struct {
-            const ThisError = @This();
+    pub const FnProto = struct {
+        visib_token: ?TokenIndex,
+        extern_export_token: ?TokenIndex,
+        lib_name: ?TokenIndex,
+        name_token: ?TokenIndex,
+        lparen: TokenIndex,
+        ast: Ast,
 
-            token: TokenIndex,
+        pub const Ast = struct {
+            fn_token: TokenIndex,
+            return_type: Node.Index,
+            params: []const Node.Index,
+            align_expr: Node.Index,
+            section_expr: Node.Index,
+            callconv_expr: Node.Index,
+        };
 
-            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: anytype) !void {
-                const actual_token = tokens[self.token];
-                return stream.print(msg, .{actual_token.symbol()});
+        pub const Param = struct {
+            first_doc_comment: ?TokenIndex,
+            name_token: ?TokenIndex,
+            comptime_noalias: ?TokenIndex,
+            anytype_ellipsis3: ?TokenIndex,
+            type_expr: Node.Index,
+        };
+
+        /// Abstracts over the fact that anytype and ... are not included
+        /// in the params slice, since they are simple identifiers and
+        /// not sub-expressions.
+        pub const Iterator = struct {
+            tree: *const Tree,
+            fn_proto: *const FnProto,
+            param_i: usize,
+            tok_i: TokenIndex,
+            tok_flag: bool,
+
+            pub fn next(it: *Iterator) ?Param {
+                const token_tags = it.tree.tokens.items(.tag);
+                while (true) {
+                    var first_doc_comment: ?TokenIndex = null;
+                    var comptime_noalias: ?TokenIndex = null;
+                    var name_token: ?TokenIndex = null;
+                    if (!it.tok_flag) {
+                        if (it.param_i >= it.fn_proto.ast.params.len) {
+                            return null;
+                        }
+                        const param_type = it.fn_proto.ast.params[it.param_i];
+                        var tok_i = it.tree.firstToken(param_type) - 1;
+                        while (true) : (tok_i -= 1) switch (token_tags[tok_i]) {
+                            .colon => continue,
+                            .identifier => name_token = tok_i,
+                            .doc_comment => first_doc_comment = tok_i,
+                            .keyword_comptime, .keyword_noalias => comptime_noalias = tok_i,
+                            else => break,
+                        };
+                        it.param_i += 1;
+                        it.tok_i = it.tree.lastToken(param_type) + 1;
+                        it.tok_flag = true;
+                        return Param{
+                            .first_doc_comment = first_doc_comment,
+                            .comptime_noalias = comptime_noalias,
+                            .name_token = name_token,
+                            .anytype_ellipsis3 = null,
+                            .type_expr = param_type,
+                        };
+                    }
+                    // Look for anytype and ... params afterwards.
+                    if (token_tags[it.tok_i] == .comma) {
+                        it.tok_i += 1;
+                    } else {
+                        return null;
+                    }
+                    if (token_tags[it.tok_i] == .doc_comment) {
+                        first_doc_comment = it.tok_i;
+                        while (token_tags[it.tok_i] == .doc_comment) {
+                            it.tok_i += 1;
+                        }
+                    }
+                    switch (token_tags[it.tok_i]) {
+                        .ellipsis3 => {
+                            it.tok_flag = false; // Next iteration should return null.
+                            return Param{
+                                .first_doc_comment = first_doc_comment,
+                                .comptime_noalias = null,
+                                .name_token = null,
+                                .anytype_ellipsis3 = it.tok_i,
+                                .type_expr = 0,
+                            };
+                        },
+                        .keyword_noalias, .keyword_comptime => {
+                            comptime_noalias = it.tok_i;
+                            it.tok_i += 1;
+                        },
+                        else => {},
+                    }
+                    if (token_tags[it.tok_i] == .identifier and
+                        token_tags[it.tok_i + 1] == .colon)
+                    {
+                        name_token = it.tok_i;
+                        it.tok_i += 2;
+                    }
+                    if (token_tags[it.tok_i] == .keyword_anytype) {
+                        it.tok_i += 1;
+                        return Param{
+                            .first_doc_comment = first_doc_comment,
+                            .comptime_noalias = comptime_noalias,
+                            .name_token = name_token,
+                            .anytype_ellipsis3 = it.tok_i - 1,
+                            .type_expr = 0,
+                        };
+                    }
+                    it.tok_flag = false;
+                }
             }
         };
-    }
 
-    fn SimpleError(comptime msg: []const u8) type {
-        return struct {
-            const ThisError = @This();
+        pub fn iterate(fn_proto: FnProto, tree: Tree) Iterator {
+            return .{
+                .tree = &tree,
+                .fn_proto = &fn_proto,
+                .param_i = 0,
+                .tok_i = undefined,
+                .tok_flag = false,
+            };
+        }
+    };
 
-            token: TokenIndex,
+    pub const StructInit = struct {
+        ast: Ast,
 
-            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: anytype) !void {
-                return stream.writeAll(msg);
-            }
+        pub const Ast = struct {
+            lbrace: TokenIndex,
+            fields: []const Node.Index,
+            type_expr: Node.Index,
         };
-    }
+    };
+
+    pub const ArrayInit = struct {
+        ast: Ast,
+
+        pub const Ast = struct {
+            lbrace: TokenIndex,
+            elements: []const Node.Index,
+            type_expr: Node.Index,
+        };
+    };
+
+    pub const ArrayType = struct {
+        ast: Ast,
+
+        pub const Ast = struct {
+            lbracket: TokenIndex,
+            elem_count: Node.Index,
+            sentinel: ?Node.Index,
+            elem_type: Node.Index,
+        };
+    };
+
+    pub const PtrType = struct {
+        size: std.builtin.TypeInfo.Pointer.Size,
+        allowzero_token: ?TokenIndex,
+        const_token: ?TokenIndex,
+        volatile_token: ?TokenIndex,
+        ast: Ast,
+
+        pub const Ast = struct {
+            main_token: TokenIndex,
+            align_node: Node.Index,
+            sentinel: Node.Index,
+            bit_range_start: Node.Index,
+            bit_range_end: Node.Index,
+            child_type: Node.Index,
+        };
+    };
+
+    pub const Slice = struct {
+        ast: Ast,
+
+        pub const Ast = struct {
+            sliced: Node.Index,
+            lbracket: TokenIndex,
+            start: Node.Index,
+            end: Node.Index,
+            sentinel: Node.Index,
+        };
+    };
+
+    pub const ContainerDecl = struct {
+        layout_token: ?TokenIndex,
+        ast: Ast,
+
+        pub const Ast = struct {
+            main_token: TokenIndex,
+            /// Populated when main_token is Keyword_union.
+            enum_token: ?TokenIndex,
+            members: []const Node.Index,
+            arg: Node.Index,
+        };
+    };
+
+    pub const SwitchCase = struct {
+        /// Points to the first token after the `|`. Will either be an identifier or
+        /// a `*` (with an identifier immediately after it).
+        payload_token: ?TokenIndex,
+        ast: Ast,
+
+        pub const Ast = struct {
+            /// If empty, this is an else case
+            values: []const Node.Index,
+            arrow_token: TokenIndex,
+            target_expr: Node.Index,
+        };
+    };
+
+    pub const Asm = struct {
+        ast: Ast,
+        volatile_token: ?TokenIndex,
+        first_clobber: ?TokenIndex,
+        outputs: []const Node.Index,
+        inputs: []const Node.Index,
+
+        pub const Ast = struct {
+            asm_token: TokenIndex,
+            template: Node.Index,
+            items: []const Node.Index,
+            rparen: TokenIndex,
+        };
+    };
+
+    pub const Call = struct {
+        ast: Ast,
+        async_token: ?TokenIndex,
+
+        pub const Ast = struct {
+            lparen: TokenIndex,
+            fn_expr: Node.Index,
+            params: []const Node.Index,
+        };
+    };
+};
+
+pub const Error = struct {
+    tag: Tag,
+    token: TokenIndex,
+    extra: union {
+        none: void,
+        expected_tag: Token.Tag,
+    } = .{ .none = {} },
+
+    pub const Tag = enum {
+        asterisk_after_ptr_deref,
+        decl_between_fields,
+        expected_block,
+        expected_block_or_assignment,
+        expected_block_or_expr,
+        expected_block_or_field,
+        expected_container_members,
+        expected_expr,
+        expected_expr_or_assignment,
+        expected_fn,
+        expected_inlinable,
+        expected_labelable,
+        expected_param_list,
+        expected_prefix_expr,
+        expected_primary_type_expr,
+        expected_pub_item,
+        expected_return_type,
+        expected_semi_or_else,
+        expected_semi_or_lbrace,
+        expected_statement,
+        expected_string_literal,
+        expected_suffix_op,
+        expected_type_expr,
+        expected_var_decl,
+        expected_var_decl_or_fn,
+        expected_loop_payload,
+        expected_container,
+        extra_align_qualifier,
+        extra_allowzero_qualifier,
+        extra_const_qualifier,
+        extra_volatile_qualifier,
+        invalid_align,
+        invalid_and,
+        invalid_bit_range,
+        invalid_token,
+        same_line_doc_comment,
+        unattached_doc_comment,
+
+        /// `expected_tag` is populated.
+        expected_token,
+    };
 };
 
 pub const Node = struct {
     tag: Tag,
+    main_token: TokenIndex,
+    data: Data,
 
+    pub const Index = u32;
+
+    comptime {
+        // Goal is to keep this under one byte for efficiency.
+        assert(@sizeOf(Tag) == 1);
+    }
+
+    /// Note: The FooComma/FooSemicolon variants exist to ease the implementation of
+    /// Tree.lastToken()
     pub const Tag = enum {
-        // Top level
-        Root,
-        Use,
-        TestDecl,
+        /// sub_list[lhs...rhs]
+        root,
+        /// `usingnamespace lhs;`. rhs unused. main_token is `usingnamespace`.
+        @"usingnamespace",
+        /// lhs is test name token (must be string literal), if any.
+        /// rhs is the body node.
+        test_decl,
+        /// lhs is the index into extra_data.
+        /// rhs is the initialization expression, if any.
+        /// main_token is `var` or `const`.
+        global_var_decl,
+        /// `var a: x align(y) = rhs`
+        /// lhs is the index into extra_data.
+        /// main_token is `var` or `const`.
+        local_var_decl,
+        /// `var a: lhs = rhs`. lhs and rhs may be unused.
+        /// Can be local or global.
+        /// main_token is `var` or `const`.
+        simple_var_decl,
+        /// `var a align(lhs) = rhs`. lhs and rhs may be unused.
+        /// Can be local or global.
+        /// main_token is `var` or `const`.
+        aligned_var_decl,
+        /// lhs is the identifier token payload if any,
+        /// rhs is the deferred expression.
+        @"errdefer",
+        /// lhs is unused.
+        /// rhs is the deferred expression.
+        @"defer",
+        /// lhs catch rhs
+        /// lhs catch |err| rhs
+        /// main_token is the `catch` keyword.
+        /// payload is determined by looking at the next token after the `catch` keyword.
+        @"catch",
+        /// `lhs.a`. main_token is the dot. rhs is the identifier token index.
+        field_access,
+        /// `lhs.?`. main_token is the dot. rhs is the `?` token index.
+        unwrap_optional,
+        /// `lhs == rhs`. main_token is op.
+        equal_equal,
+        /// `lhs != rhs`. main_token is op.
+        bang_equal,
+        /// `lhs < rhs`. main_token is op.
+        less_than,
+        /// `lhs > rhs`. main_token is op.
+        greater_than,
+        /// `lhs <= rhs`. main_token is op.
+        less_or_equal,
+        /// `lhs >= rhs`. main_token is op.
+        greater_or_equal,
+        /// `lhs *= rhs`. main_token is op.
+        assign_mul,
+        /// `lhs /= rhs`. main_token is op.
+        assign_div,
+        /// `lhs *= rhs`. main_token is op.
+        assign_mod,
+        /// `lhs += rhs`. main_token is op.
+        assign_add,
+        /// `lhs -= rhs`. main_token is op.
+        assign_sub,
+        /// `lhs <<= rhs`. main_token is op.
+        assign_bit_shift_left,
+        /// `lhs >>= rhs`. main_token is op.
+        assign_bit_shift_right,
+        /// `lhs &= rhs`. main_token is op.
+        assign_bit_and,
+        /// `lhs ^= rhs`. main_token is op.
+        assign_bit_xor,
+        /// `lhs |= rhs`. main_token is op.
+        assign_bit_or,
+        /// `lhs *%= rhs`. main_token is op.
+        assign_mul_wrap,
+        /// `lhs +%= rhs`. main_token is op.
+        assign_add_wrap,
+        /// `lhs -%= rhs`. main_token is op.
+        assign_sub_wrap,
+        /// `lhs = rhs`. main_token is op.
+        assign,
+        /// `lhs || rhs`. main_token is the `||`.
+        merge_error_sets,
+        /// `lhs * rhs`. main_token is the `*`.
+        mul,
+        /// `lhs / rhs`. main_token is the `/`.
+        div,
+        /// `lhs % rhs`. main_token is the `%`.
+        mod,
+        /// `lhs ** rhs`. main_token is the `**`.
+        array_mult,
+        /// `lhs *% rhs`. main_token is the `*%`.
+        mul_wrap,
+        /// `lhs + rhs`. main_token is the `+`.
+        add,
+        /// `lhs - rhs`. main_token is the `-`.
+        sub,
+        /// `lhs ++ rhs`. main_token is the `++`.
+        array_cat,
+        /// `lhs +% rhs`. main_token is the `+%`.
+        add_wrap,
+        /// `lhs -% rhs`. main_token is the `-%`.
+        sub_wrap,
+        /// `lhs << rhs`. main_token is the `<<`.
+        bit_shift_left,
+        /// `lhs >> rhs`. main_token is the `>>`.
+        bit_shift_right,
+        /// `lhs & rhs`. main_token is the `&`.
+        bit_and,
+        /// `lhs ^ rhs`. main_token is the `^`.
+        bit_xor,
+        /// `lhs | rhs`. main_token is the `|`.
+        bit_or,
+        /// `lhs orelse rhs`. main_token is the `orelse`.
+        @"orelse",
+        /// `lhs and rhs`. main_token is the `and`.
+        bool_and,
+        /// `lhs or rhs`. main_token is the `or`.
+        bool_or,
+        /// `op lhs`. rhs unused. main_token is op.
+        bool_not,
+        /// `op lhs`. rhs unused. main_token is op.
+        negation,
+        /// `op lhs`. rhs unused. main_token is op.
+        bit_not,
+        /// `op lhs`. rhs unused. main_token is op.
+        negation_wrap,
+        /// `op lhs`. rhs unused. main_token is op.
+        address_of,
+        /// `op lhs`. rhs unused. main_token is op.
+        @"try",
+        /// `op lhs`. rhs unused. main_token is op.
+        @"await",
+        /// `?lhs`. rhs unused. main_token is the `?`.
+        optional_type,
+        /// `[lhs]rhs`. lhs can be omitted to make it a slice.
+        array_type,
+        /// `[lhs:a]b`. `array_type_sentinel[rhs]`.
+        array_type_sentinel,
+        /// `[*]align(lhs) rhs`. lhs can be omitted.
+        /// `*align(lhs) rhs`. lhs can be omitted.
+        /// `[]rhs`.
+        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token might be a ** token, which is shared with a parent/child
+        /// pointer type and may require special handling.
+        ptr_type_aligned,
+        /// `[*:lhs]rhs`. lhs can be omitted.
+        /// `*rhs`.
+        /// `[:lhs]rhs`.
+        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token might be a ** token, which is shared with a parent/child
+        /// pointer type and may require special handling.
+        ptr_type_sentinel,
+        /// lhs is index into ptr_type. rhs is the element type expression.
+        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token might be a ** token, which is shared with a parent/child
+        /// pointer type and may require special handling.
+        ptr_type,
+        /// lhs is index into ptr_type_bit_range. rhs is the element type expression.
+        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token might be a ** token, which is shared with a parent/child
+        /// pointer type and may require special handling.
+        ptr_type_bit_range,
+        /// `lhs[rhs..]`
+        /// main_token is the lbracket.
+        slice_open,
+        /// `lhs[b..c]`. rhs is index into Slice
+        /// main_token is the lbracket.
+        slice,
+        /// `lhs[b..c :d]`. rhs is index into SliceSentinel
+        /// main_token is the lbracket.
+        slice_sentinel,
+        /// `lhs.*`. rhs is unused.
+        deref,
+        /// `lhs[rhs]`.
+        array_access,
+        /// `lhs{rhs}`. rhs can be omitted.
+        array_init_one,
+        /// `lhs{rhs,}`. rhs can *not* be omitted
+        array_init_one_comma,
+        /// `.{lhs, rhs}`. lhs and rhs can be omitted.
+        array_init_dot_two,
+        /// Same as `array_init_dot_two` except there is known to be a trailing comma
+        /// before the final rbrace.
+        array_init_dot_two_comma,
+        /// `.{a, b}`. `sub_list[lhs..rhs]`.
+        array_init_dot,
+        /// Same as `array_init_dot` except there is known to be a trailing comma
+        /// before the final rbrace.
+        array_init_dot_comma,
+        /// `lhs{a, b}`. `sub_range_list[rhs]`. lhs can be omitted which means `.{a, b}`.
+        array_init,
+        /// Same as `array_init` except there is known to be a trailing comma
+        /// before the final rbrace.
+        array_init_comma,
+        /// `lhs{.a = rhs}`. rhs can be omitted making it empty.
+        /// main_token is the lbrace.
+        struct_init_one,
+        /// `lhs{.a = rhs,}`. rhs can *not* be omitted.
+        /// main_token is the lbrace.
+        struct_init_one_comma,
+        /// `.{.a = lhs, .b = rhs}`. lhs and rhs can be omitted.
+        /// main_token is the lbrace.
+        /// No trailing comma before the rbrace.
+        struct_init_dot_two,
+        /// Same as `struct_init_dot_two` except there is known to be a trailing comma
+        /// before the final rbrace.
+        struct_init_dot_two_comma,
+        /// `.{.a = b, .c = d}`. `sub_list[lhs..rhs]`.
+        /// main_token is the lbrace.
+        struct_init_dot,
+        /// Same as `struct_init_dot` except there is known to be a trailing comma
+        /// before the final rbrace.
+        struct_init_dot_comma,
+        /// `lhs{.a = b, .c = d}`. `sub_range_list[rhs]`.
+        /// lhs can be omitted which means `.{.a = b, .c = d}`.
+        /// main_token is the lbrace.
+        struct_init,
+        /// Same as `struct_init` except there is known to be a trailing comma
+        /// before the final rbrace.
+        struct_init_comma,
+        /// `lhs(rhs)`. rhs can be omitted.
+        /// main_token is the lparen.
+        call_one,
+        /// `lhs(rhs,)`. rhs can be omitted.
+        /// main_token is the lparen.
+        call_one_comma,
+        /// `async lhs(rhs)`. rhs can be omitted.
+        async_call_one,
+        /// `async lhs(rhs,)`.
+        async_call_one_comma,
+        /// `lhs(a, b, c)`. `SubRange[rhs]`.
+        /// main_token is the `(`.
+        call,
+        /// `lhs(a, b, c,)`. `SubRange[rhs]`.
+        /// main_token is the `(`.
+        call_comma,
+        /// `async lhs(a, b, c)`. `SubRange[rhs]`.
+        /// main_token is the `(`.
+        async_call,
+        /// `async lhs(a, b, c,)`. `SubRange[rhs]`.
+        /// main_token is the `(`.
+        async_call_comma,
+        /// `switch(lhs) {}`. `SubRange[rhs]`.
+        @"switch",
+        /// Same as switch except there is known to be a trailing comma
+        /// before the final rbrace
+        switch_comma,
+        /// `lhs => rhs`. If lhs is omitted it means `else`.
+        /// main_token is the `=>`
+        switch_case_one,
+        /// `a, b, c => rhs`. `SubRange[lhs]`.
+        /// main_token is the `=>`
+        switch_case,
+        /// `lhs...rhs`.
+        switch_range,
+        /// `while (lhs) rhs`.
+        /// `while (lhs) |x| rhs`.
+        while_simple,
+        /// `while (lhs) : (a) b`. `WhileCont[rhs]`.
+        /// `while (lhs) : (a) b`. `WhileCont[rhs]`.
+        while_cont,
+        /// `while (lhs) : (a) b else c`. `While[rhs]`.
+        /// `while (lhs) |x| : (a) b else c`. `While[rhs]`.
+        /// `while (lhs) |x| : (a) b else |y| c`. `While[rhs]`.
+        @"while",
+        /// `for (lhs) rhs`.
+        for_simple,
+        /// `for (lhs) a else b`. `if_list[rhs]`.
+        @"for",
+        /// `if (lhs) rhs`.
+        /// `if (lhs) |a| rhs`.
+        if_simple,
+        /// `if (lhs) a else b`. `If[rhs]`.
+        /// `if (lhs) |x| a else b`. `If[rhs]`.
+        /// `if (lhs) |x| a else |y| b`. `If[rhs]`.
+        @"if",
+        /// `suspend lhs`. lhs can be omitted. rhs is unused.
+        @"suspend",
+        /// `resume lhs`. rhs is unused.
+        @"resume",
+        /// `continue`. lhs is token index of label if any. rhs is unused.
+        @"continue",
+        /// `break :lhs rhs`
+        /// both lhs and rhs may be omitted.
+        @"break",
+        /// `return lhs`. lhs can be omitted. rhs is unused.
+        @"return",
+        /// `fn(a: lhs) rhs`. lhs can be omitted.
+        /// anytype and ... parameters are omitted from the AST tree.
+        /// main_token is the `fn` keyword.
+        /// extern function declarations use this tag.
+        fn_proto_simple,
+        /// `fn(a: b, c: d) rhs`. `sub_range_list[lhs]`.
+        /// anytype and ... parameters are omitted from the AST tree.
+        /// main_token is the `fn` keyword.
+        /// extern function declarations use this tag.
+        fn_proto_multi,
+        /// `fn(a: b) rhs linksection(e) callconv(f)`. `FnProtoOne[lhs]`.
+        /// zero or one parameters.
+        /// anytype and ... parameters are omitted from the AST tree.
+        /// main_token is the `fn` keyword.
+        /// extern function declarations use this tag.
+        fn_proto_one,
+        /// `fn(a: b, c: d) rhs linksection(e) callconv(f)`. `FnProto[lhs]`.
+        /// anytype and ... parameters are omitted from the AST tree.
+        /// main_token is the `fn` keyword.
+        /// extern function declarations use this tag.
+        fn_proto,
+        /// lhs is the fn_proto.
+        /// rhs is the function body block.
+        /// Note that extern function declarations use the fn_proto tags rather
+        /// than this one.
+        fn_decl,
+        /// `anyframe->rhs`. main_token is `anyframe`. `lhs` is arrow token index.
+        anyframe_type,
+        /// Both lhs and rhs unused.
+        anyframe_literal,
+        /// Both lhs and rhs unused.
+        char_literal,
+        /// Both lhs and rhs unused.
+        integer_literal,
+        /// Both lhs and rhs unused.
+        float_literal,
+        /// Both lhs and rhs unused.
+        false_literal,
+        /// Both lhs and rhs unused.
+        true_literal,
+        /// Both lhs and rhs unused.
+        null_literal,
+        /// Both lhs and rhs unused.
+        undefined_literal,
+        /// Both lhs and rhs unused.
+        unreachable_literal,
+        /// Both lhs and rhs unused.
+        /// Most identifiers will not have explicit AST nodes, however for expressions
+        /// which could be one of many different kinds of AST nodes, there will be an
+        /// identifier AST node for it.
+        identifier,
+        /// lhs is the dot token index, rhs unused, main_token is the identifier.
+        enum_literal,
+        /// main_token is the string literal token
+        /// Both lhs and rhs unused.
+        string_literal,
+        /// main_token is the first token index (redundant with lhs)
+        /// lhs is the first token index; rhs is the last token index.
+        /// Could be a series of multiline_string_literal_line tokens, or a single
+        /// string_literal token.
+        multiline_string_literal,
+        /// `(lhs)`. main_token is the `(`; rhs is the token index of the `)`.
+        grouped_expression,
+        /// `@a(lhs, rhs)`. lhs and rhs may be omitted.
+        /// main_token is the builtin token.
+        builtin_call_two,
+        /// Same as builtin_call_two but there is known to be a trailing comma before the rparen.
+        builtin_call_two_comma,
+        /// `@a(b, c)`. `sub_list[lhs..rhs]`.
+        /// main_token is the builtin token.
+        builtin_call,
+        /// Same as builtin_call but there is known to be a trailing comma before the rparen.
+        builtin_call_comma,
+        /// `error{a, b}`.
+        /// rhs is the rbrace, lhs is unused.
+        error_set_decl,
+        /// `struct {}`, `union {}`, `opaque {}`, `enum {}`. `extra_data[lhs..rhs]`.
+        /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
+        container_decl,
+        /// Same as ContainerDecl but there is known to be a trailing comma
+        /// or semicolon before the rbrace.
+        container_decl_trailing,
+        /// `struct {lhs, rhs}`, `union {lhs, rhs}`, `opaque {lhs, rhs}`, `enum {lhs, rhs}`.
+        /// lhs or rhs can be omitted.
+        /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
+        container_decl_two,
+        /// Same as ContainerDeclTwo except there is known to be a trailing comma
+        /// or semicolon before the rbrace.
+        container_decl_two_trailing,
+        /// `union(lhs)` / `enum(lhs)`. `SubRange[rhs]`.
+        container_decl_arg,
+        /// Same as container_decl_arg but there is known to be a trailing
+        /// comma or semicolon before the rbrace.
+        container_decl_arg_trailing,
+        /// `union(enum) {}`. `sub_list[lhs..rhs]`.
+        /// Note that tagged unions with explicitly provided enums are represented
+        /// by `container_decl_arg`.
+        tagged_union,
+        /// Same as tagged_union but there is known to be a trailing comma
+        /// or semicolon before the rbrace.
+        tagged_union_trailing,
+        /// `union(enum) {lhs, rhs}`. lhs or rhs may be omitted.
+        /// Note that tagged unions with explicitly provided enums are represented
+        /// by `container_decl_arg`.
+        tagged_union_two,
+        /// Same as tagged_union_two but there is known to be a trailing comma
+        /// or semicolon before the rbrace.
+        tagged_union_two_trailing,
+        /// `union(enum(lhs)) {}`. `SubRange[rhs]`.
+        tagged_union_enum_tag,
+        /// Same as tagged_union_enum_tag but there is known to be a trailing comma
+        /// or semicolon before the rbrace.
+        tagged_union_enum_tag_trailing,
+        /// `a: lhs = rhs,`. lhs and rhs can be omitted.
+        /// main_token is the field name identifier.
+        /// lastToken() does not include the possible trailing comma.
+        container_field_init,
+        /// `a: lhs align(rhs),`. rhs can be omitted.
+        /// main_token is the field name identifier.
+        /// lastToken() does not include the possible trailing comma.
+        container_field_align,
+        /// `a: lhs align(c) = d,`. `container_field_list[rhs]`.
+        /// main_token is the field name identifier.
+        /// lastToken() does not include the possible trailing comma.
+        container_field,
+        /// `anytype`. both lhs and rhs unused.
+        /// Used by `ContainerField`.
+        @"anytype",
+        /// `comptime lhs`. rhs unused.
+        @"comptime",
+        /// `nosuspend lhs`. rhs unused.
+        @"nosuspend",
+        /// `{lhs rhs}`. rhs or lhs can be omitted.
+        /// main_token points at the lbrace.
+        block_two,
+        /// Same as block_two but there is known to be a semicolon before the rbrace.
+        block_two_semicolon,
+        /// `{}`. `sub_list[lhs..rhs]`.
+        /// main_token points at the lbrace.
+        block,
+        /// Same as block but there is known to be a semicolon before the rbrace.
+        block_semicolon,
+        /// `asm(lhs)`. rhs is the token index of the rparen.
+        asm_simple,
+        /// `asm(lhs, a)`. `Asm[rhs]`.
+        @"asm",
+        /// `[a] "b" (c)`. lhs is 0, rhs is token index of the rparen.
+        /// `[a] "b" (-> lhs)`. rhs is token index of the rparen.
+        /// main_token is `a`.
+        asm_output,
+        /// `[a] "b" (lhs)`. rhs is token index of the rparen.
+        /// main_token is `a`.
+        asm_input,
+        /// `error.a`. lhs is token index of `.`. rhs is token index of `a`.
+        error_value,
+        /// `lhs!rhs`. main_token is the `!`.
+        error_union,
 
-        // Statements
-        VarDecl,
-        Defer,
-
-        // Infix operators
-        Catch,
-
-        // SimpleInfixOp
-        Add,
-        AddWrap,
-        ArrayCat,
-        ArrayMult,
-        Assign,
-        AssignBitAnd,
-        AssignBitOr,
-        AssignBitShiftLeft,
-        AssignBitShiftRight,
-        AssignBitXor,
-        AssignDiv,
-        AssignSub,
-        AssignSubWrap,
-        AssignMod,
-        AssignAdd,
-        AssignAddWrap,
-        AssignMul,
-        AssignMulWrap,
-        BangEqual,
-        BitAnd,
-        BitOr,
-        BitShiftLeft,
-        BitShiftRight,
-        BitXor,
-        BoolAnd,
-        BoolOr,
-        Div,
-        EqualEqual,
-        ErrorUnion,
-        GreaterOrEqual,
-        GreaterThan,
-        LessOrEqual,
-        LessThan,
-        MergeErrorSets,
-        Mod,
-        Mul,
-        MulWrap,
-        Period,
-        Range,
-        Sub,
-        SubWrap,
-        OrElse,
-
-        // SimplePrefixOp
-        AddressOf,
-        Await,
-        BitNot,
-        BoolNot,
-        OptionalType,
-        Negation,
-        NegationWrap,
-        Resume,
-        Try,
-
-        ArrayType,
-        /// ArrayType but has a sentinel node.
-        ArrayTypeSentinel,
-        PtrType,
-        SliceType,
-        /// `a[b..c]`
-        Slice,
-        /// `a.*`
-        Deref,
-        /// `a.?`
-        UnwrapOptional,
-        /// `a[b]`
-        ArrayAccess,
-        /// `T{a, b}`
-        ArrayInitializer,
-        /// ArrayInitializer but with `.` instead of a left-hand-side operand.
-        ArrayInitializerDot,
-        /// `T{.a = b}`
-        StructInitializer,
-        /// StructInitializer but with `.` instead of a left-hand-side operand.
-        StructInitializerDot,
-        /// `foo()`
-        Call,
-
-        // Control flow
-        Switch,
-        While,
-        For,
-        If,
-        Suspend,
-        Continue,
-        Break,
-        Return,
-
-        // Type expressions
-        AnyType,
-        ErrorType,
-        FnProto,
-        AnyFrameType,
-
-        // Primary expressions
-        IntegerLiteral,
-        FloatLiteral,
-        EnumLiteral,
-        StringLiteral,
-        MultilineStringLiteral,
-        CharLiteral,
-        BoolLiteral,
-        NullLiteral,
-        UndefinedLiteral,
-        Unreachable,
-        Identifier,
-        GroupedExpression,
-        BuiltinCall,
-        ErrorSetDecl,
-        ContainerDecl,
-        Asm,
-        Comptime,
-        Nosuspend,
-        Block,
-        LabeledBlock,
-
-        // Misc
-        DocComment,
-        SwitchCase, // TODO make this not a child of AST Node
-        SwitchElse, // TODO make this not a child of AST Node
-        Else, // TODO make this not a child of AST Node
-        Payload, // TODO make this not a child of AST Node
-        PointerPayload, // TODO make this not a child of AST Node
-        PointerIndexPayload, // TODO make this not a child of AST Node
-        ContainerField,
-        ErrorTag, // TODO make this not a child of AST Node
-        FieldInitializer, // TODO make this not a child of AST Node
-
-        pub fn Type(tag: Tag) type {
+        pub fn isContainerField(tag: Tag) bool {
             return switch (tag) {
-                .Root => Root,
-                .Use => Use,
-                .TestDecl => TestDecl,
-                .VarDecl => VarDecl,
-                .Defer => Defer,
-                .Catch => Catch,
+                .container_field_init,
+                .container_field_align,
+                .container_field,
+                => true,
 
-                .Add,
-                .AddWrap,
-                .ArrayCat,
-                .ArrayMult,
-                .Assign,
-                .AssignBitAnd,
-                .AssignBitOr,
-                .AssignBitShiftLeft,
-                .AssignBitShiftRight,
-                .AssignBitXor,
-                .AssignDiv,
-                .AssignSub,
-                .AssignSubWrap,
-                .AssignMod,
-                .AssignAdd,
-                .AssignAddWrap,
-                .AssignMul,
-                .AssignMulWrap,
-                .BangEqual,
-                .BitAnd,
-                .BitOr,
-                .BitShiftLeft,
-                .BitShiftRight,
-                .BitXor,
-                .BoolAnd,
-                .BoolOr,
-                .Div,
-                .EqualEqual,
-                .ErrorUnion,
-                .GreaterOrEqual,
-                .GreaterThan,
-                .LessOrEqual,
-                .LessThan,
-                .MergeErrorSets,
-                .Mod,
-                .Mul,
-                .MulWrap,
-                .Period,
-                .Range,
-                .Sub,
-                .SubWrap,
-                .OrElse,
-                => SimpleInfixOp,
-
-                .AddressOf,
-                .Await,
-                .BitNot,
-                .BoolNot,
-                .OptionalType,
-                .Negation,
-                .NegationWrap,
-                .Resume,
-                .Try,
-                => SimplePrefixOp,
-
-                .Identifier,
-                .BoolLiteral,
-                .NullLiteral,
-                .UndefinedLiteral,
-                .Unreachable,
-                .AnyType,
-                .ErrorType,
-                .IntegerLiteral,
-                .FloatLiteral,
-                .StringLiteral,
-                .CharLiteral,
-                => OneToken,
-
-                .Continue,
-                .Break,
-                .Return,
-                => ControlFlowExpression,
-
-                .ArrayType => ArrayType,
-                .ArrayTypeSentinel => ArrayTypeSentinel,
-
-                .PtrType => PtrType,
-                .SliceType => SliceType,
-                .Slice => Slice,
-                .Deref, .UnwrapOptional => SimpleSuffixOp,
-                .ArrayAccess => ArrayAccess,
-
-                .ArrayInitializer => ArrayInitializer,
-                .ArrayInitializerDot => ArrayInitializerDot,
-
-                .StructInitializer => StructInitializer,
-                .StructInitializerDot => StructInitializerDot,
-
-                .Call => Call,
-                .Switch => Switch,
-                .While => While,
-                .For => For,
-                .If => If,
-                .Suspend => Suspend,
-                .FnProto => FnProto,
-                .AnyFrameType => AnyFrameType,
-                .EnumLiteral => EnumLiteral,
-                .MultilineStringLiteral => MultilineStringLiteral,
-                .GroupedExpression => GroupedExpression,
-                .BuiltinCall => BuiltinCall,
-                .ErrorSetDecl => ErrorSetDecl,
-                .ContainerDecl => ContainerDecl,
-                .Asm => Asm,
-                .Comptime => Comptime,
-                .Nosuspend => Nosuspend,
-                .Block => Block,
-                .LabeledBlock => LabeledBlock,
-                .DocComment => DocComment,
-                .SwitchCase => SwitchCase,
-                .SwitchElse => SwitchElse,
-                .Else => Else,
-                .Payload => Payload,
-                .PointerPayload => PointerPayload,
-                .PointerIndexPayload => PointerIndexPayload,
-                .ContainerField => ContainerField,
-                .ErrorTag => ErrorTag,
-                .FieldInitializer => FieldInitializer,
-            };
-        }
-
-        pub fn isBlock(tag: Tag) bool {
-            return switch (tag) {
-                .Block, .LabeledBlock => true,
                 else => false,
             };
         }
     };
 
-    /// Prefer `castTag` to this.
-    pub fn cast(base: *Node, comptime T: type) ?*T {
-        if (std.meta.fieldInfo(T, .base).default_value) |default_base| {
-            return base.castTag(default_base.tag);
-        }
-        inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const tag = @intToEnum(Tag, field.value);
-            if (base.tag == tag) {
-                if (T == tag.Type()) {
-                    return @fieldParentPtr(T, "base", base);
-                }
-                return null;
-            }
-        }
-        unreachable;
-    }
-
-    pub fn castTag(base: *Node, comptime tag: Tag) ?*tag.Type() {
-        if (base.tag == tag) {
-            return @fieldParentPtr(tag.Type(), "base", base);
-        }
-        return null;
-    }
-
-    pub fn iterate(base: *Node, index: usize) ?*Node {
-        inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const tag = @intToEnum(Tag, field.value);
-            if (base.tag == tag) {
-                return @fieldParentPtr(tag.Type(), "base", base).iterate(index);
-            }
-        }
-        unreachable;
-    }
-
-    pub fn firstToken(base: *const Node) TokenIndex {
-        inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const tag = @intToEnum(Tag, field.value);
-            if (base.tag == tag) {
-                return @fieldParentPtr(tag.Type(), "base", base).firstToken();
-            }
-        }
-        unreachable;
-    }
-
-    pub fn lastToken(base: *const Node) TokenIndex {
-        inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const tag = @intToEnum(Tag, field.value);
-            if (base.tag == tag) {
-                return @fieldParentPtr(tag.Type(), "base", base).lastToken();
-            }
-        }
-        unreachable;
-    }
-
-    pub fn requireSemiColon(base: *const Node) bool {
-        var n = base;
-        while (true) {
-            switch (n.tag) {
-                .Root,
-                .ContainerField,
-                .Block,
-                .LabeledBlock,
-                .Payload,
-                .PointerPayload,
-                .PointerIndexPayload,
-                .Switch,
-                .SwitchCase,
-                .SwitchElse,
-                .FieldInitializer,
-                .DocComment,
-                .TestDecl,
-                => return false,
-
-                .While => {
-                    const while_node = @fieldParentPtr(While, "base", n);
-                    if (while_node.@"else") |@"else"| {
-                        n = &@"else".base;
-                        continue;
-                    }
-
-                    return !while_node.body.tag.isBlock();
-                },
-                .For => {
-                    const for_node = @fieldParentPtr(For, "base", n);
-                    if (for_node.@"else") |@"else"| {
-                        n = &@"else".base;
-                        continue;
-                    }
-
-                    return !for_node.body.tag.isBlock();
-                },
-                .If => {
-                    const if_node = @fieldParentPtr(If, "base", n);
-                    if (if_node.@"else") |@"else"| {
-                        n = &@"else".base;
-                        continue;
-                    }
-
-                    return !if_node.body.tag.isBlock();
-                },
-                .Else => {
-                    const else_node = @fieldParentPtr(Else, "base", n);
-                    n = else_node.body;
-                    continue;
-                },
-                .Defer => {
-                    const defer_node = @fieldParentPtr(Defer, "base", n);
-                    return !defer_node.expr.tag.isBlock();
-                },
-                .Comptime => {
-                    const comptime_node = @fieldParentPtr(Comptime, "base", n);
-                    return !comptime_node.expr.tag.isBlock();
-                },
-                .Suspend => {
-                    const suspend_node = @fieldParentPtr(Suspend, "base", n);
-                    if (suspend_node.body) |body| {
-                        return !body.tag.isBlock();
-                    }
-
-                    return true;
-                },
-                .Nosuspend => {
-                    const nosuspend_node = @fieldParentPtr(Nosuspend, "base", n);
-                    return !nosuspend_node.expr.tag.isBlock();
-                },
-                else => return true,
-            }
-        }
-    }
-
-    /// Asserts the node is a Block or LabeledBlock and returns the statements slice.
-    pub fn blockStatements(base: *Node) []*Node {
-        if (base.castTag(.Block)) |block| {
-            return block.statements();
-        } else if (base.castTag(.LabeledBlock)) |labeled_block| {
-            return labeled_block.statements();
-        } else {
-            unreachable;
-        }
-    }
-
-    pub fn findFirstWithId(self: *Node, id: Id) ?*Node {
-        if (self.id == id) return self;
-        var child_i: usize = 0;
-        while (self.iterate(child_i)) |child| : (child_i += 1) {
-            if (child.findFirstWithId(id)) |result| return result;
-        }
-        return null;
-    }
-
-    pub fn dump(self: *Node, indent: usize) void {
-        {
-            var i: usize = 0;
-            while (i < indent) : (i += 1) {
-                std.debug.warn(" ", .{});
-            }
-        }
-        std.debug.warn("{s}\n", .{@tagName(self.tag)});
-
-        var child_i: usize = 0;
-        while (self.iterate(child_i)) |child| : (child_i += 1) {
-            child.dump(indent + 2);
-        }
-    }
-
-    /// The decls data follows this struct in memory as an array of Node pointers.
-    pub const Root = struct {
-        base: Node = Node{ .tag = .Root },
-        eof_token: TokenIndex,
-        decls_len: NodeIndex,
-
-        /// After this the caller must initialize the decls list.
-        pub fn create(allocator: *mem.Allocator, decls_len: NodeIndex, eof_token: TokenIndex) !*Root {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(Root), sizeInBytes(decls_len));
-            const self = @ptrCast(*Root, bytes.ptr);
-            self.* = .{
-                .eof_token = eof_token,
-                .decls_len = decls_len,
-            };
-            return self;
-        }
-
-        pub fn destroy(self: *Decl, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.decls_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const Root, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.decls_len) return self.declsConst()[i];
-            return null;
-        }
-
-        pub fn decls(self: *Root) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(Root);
-            return @ptrCast([*]*Node, decls_start)[0..self.decls_len];
-        }
-
-        pub fn declsConst(self: *const Root) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(Root);
-            return @ptrCast([*]const *Node, decls_start)[0..self.decls_len];
-        }
-
-        pub fn firstToken(self: *const Root) TokenIndex {
-            if (self.decls_len == 0) return self.eof_token;
-            return self.declsConst()[0].firstToken();
-        }
-
-        pub fn lastToken(self: *const Root) TokenIndex {
-            if (self.decls_len == 0) return self.eof_token;
-            return self.declsConst()[self.decls_len - 1].lastToken();
-        }
-
-        fn sizeInBytes(decls_len: NodeIndex) usize {
-            return @sizeOf(Root) + @sizeOf(*Node) * @as(usize, decls_len);
-        }
+    pub const Data = struct {
+        lhs: Index,
+        rhs: Index,
     };
 
-    /// Trailed in memory by possibly many things, with each optional thing
-    /// determined by a bit in `trailer_flags`.
-    pub const VarDecl = struct {
-        base: Node = Node{ .tag = .VarDecl },
-        trailer_flags: TrailerFlags,
-        mut_token: TokenIndex,
-        name_token: TokenIndex,
-        semicolon_token: TokenIndex,
-
-        pub const TrailerFlags = std.meta.TrailerFlags(struct {
-            doc_comments: *DocComment,
-            visib_token: TokenIndex,
-            thread_local_token: TokenIndex,
-            eq_token: TokenIndex,
-            comptime_token: TokenIndex,
-            extern_export_token: TokenIndex,
-            lib_name: *Node,
-            type_node: *Node,
-            align_node: *Node,
-            section_node: *Node,
-            init_node: *Node,
-        });
-
-        pub fn getDocComments(self: *const VarDecl) ?*DocComment {
-            return self.getTrailer(.doc_comments);
-        }
-
-        pub fn setDocComments(self: *VarDecl, value: *DocComment) void {
-            self.setTrailer(.doc_comments, value);
-        }
-
-        pub fn getVisibToken(self: *const VarDecl) ?TokenIndex {
-            return self.getTrailer(.visib_token);
-        }
-
-        pub fn setVisibToken(self: *VarDecl, value: TokenIndex) void {
-            self.setTrailer(.visib_token, value);
-        }
-
-        pub fn getThreadLocalToken(self: *const VarDecl) ?TokenIndex {
-            return self.getTrailer(.thread_local_token);
-        }
-
-        pub fn setThreadLocalToken(self: *VarDecl, value: TokenIndex) void {
-            self.setTrailer(.thread_local_token, value);
-        }
-
-        pub fn getEqToken(self: *const VarDecl) ?TokenIndex {
-            return self.getTrailer(.eq_token);
-        }
-
-        pub fn setEqToken(self: *VarDecl, value: TokenIndex) void {
-            self.setTrailer(.eq_token, value);
-        }
-
-        pub fn getComptimeToken(self: *const VarDecl) ?TokenIndex {
-            return self.getTrailer(.comptime_token);
-        }
-
-        pub fn setComptimeToken(self: *VarDecl, value: TokenIndex) void {
-            self.setTrailer(.comptime_token, value);
-        }
-
-        pub fn getExternExportToken(self: *const VarDecl) ?TokenIndex {
-            return self.getTrailer(.extern_export_token);
-        }
-
-        pub fn setExternExportToken(self: *VarDecl, value: TokenIndex) void {
-            self.setTrailer(.extern_export_token, value);
-        }
-
-        pub fn getLibName(self: *const VarDecl) ?*Node {
-            return self.getTrailer(.lib_name);
-        }
-
-        pub fn setLibName(self: *VarDecl, value: *Node) void {
-            self.setTrailer(.lib_name, value);
-        }
-
-        pub fn getTypeNode(self: *const VarDecl) ?*Node {
-            return self.getTrailer(.type_node);
-        }
-
-        pub fn setTypeNode(self: *VarDecl, value: *Node) void {
-            self.setTrailer(.type_node, value);
-        }
-
-        pub fn getAlignNode(self: *const VarDecl) ?*Node {
-            return self.getTrailer(.align_node);
-        }
-
-        pub fn setAlignNode(self: *VarDecl, value: *Node) void {
-            self.setTrailer(.align_node, value);
-        }
-
-        pub fn getSectionNode(self: *const VarDecl) ?*Node {
-            return self.getTrailer(.section_node);
-        }
-
-        pub fn setSectionNode(self: *VarDecl, value: *Node) void {
-            self.setTrailer(.section_node, value);
-        }
-
-        pub fn getInitNode(self: *const VarDecl) ?*Node {
-            return self.getTrailer(.init_node);
-        }
-
-        pub fn setInitNode(self: *VarDecl, value: *Node) void {
-            self.setTrailer(.init_node, value);
-        }
-
-        pub const RequiredFields = struct {
-            mut_token: TokenIndex,
-            name_token: TokenIndex,
-            semicolon_token: TokenIndex,
-        };
-
-        fn getTrailer(self: *const VarDecl, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
-            const trailers_start = @ptrCast([*]const u8, self) + @sizeOf(VarDecl);
-            return self.trailer_flags.get(trailers_start, field);
-        }
-
-        fn setTrailer(self: *VarDecl, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
-            const trailers_start = @ptrCast([*]u8, self) + @sizeOf(VarDecl);
-            self.trailer_flags.set(trailers_start, field, value);
-        }
-
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*VarDecl {
-            const trailer_flags = TrailerFlags.init(trailers);
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(VarDecl), sizeInBytes(trailer_flags));
-            const var_decl = @ptrCast(*VarDecl, bytes.ptr);
-            var_decl.* = .{
-                .trailer_flags = trailer_flags,
-                .mut_token = required.mut_token,
-                .name_token = required.name_token,
-                .semicolon_token = required.semicolon_token,
-            };
-            const trailers_start = bytes.ptr + @sizeOf(VarDecl);
-            trailer_flags.setMany(trailers_start, trailers);
-            return var_decl;
-        }
-
-        pub fn destroy(self: *VarDecl, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.trailer_flags)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const VarDecl, index: usize) ?*Node {
-            var i = index;
-
-            if (self.getTypeNode()) |type_node| {
-                if (i < 1) return type_node;
-                i -= 1;
-            }
-
-            if (self.getAlignNode()) |align_node| {
-                if (i < 1) return align_node;
-                i -= 1;
-            }
-
-            if (self.getSectionNode()) |section_node| {
-                if (i < 1) return section_node;
-                i -= 1;
-            }
-
-            if (self.getInitNode()) |init_node| {
-                if (i < 1) return init_node;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const VarDecl) TokenIndex {
-            if (self.getVisibToken()) |visib_token| return visib_token;
-            if (self.getThreadLocalToken()) |thread_local_token| return thread_local_token;
-            if (self.getComptimeToken()) |comptime_token| return comptime_token;
-            if (self.getExternExportToken()) |extern_export_token| return extern_export_token;
-            assert(self.getLibName() == null);
-            return self.mut_token;
-        }
-
-        pub fn lastToken(self: *const VarDecl) TokenIndex {
-            return self.semicolon_token;
-        }
-
-        fn sizeInBytes(trailer_flags: TrailerFlags) usize {
-            return @sizeOf(VarDecl) + trailer_flags.sizeInBytes();
-        }
-    };
-
-    pub const Use = struct {
-        base: Node = Node{ .tag = .Use },
-        doc_comments: ?*DocComment,
-        visib_token: ?TokenIndex,
-        use_token: TokenIndex,
-        expr: *Node,
-        semicolon_token: TokenIndex,
-
-        pub fn iterate(self: *const Use, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Use) TokenIndex {
-            if (self.visib_token) |visib_token| return visib_token;
-            return self.use_token;
-        }
-
-        pub fn lastToken(self: *const Use) TokenIndex {
-            return self.semicolon_token;
-        }
-    };
-
-    pub const ErrorSetDecl = struct {
-        base: Node = Node{ .tag = .ErrorSetDecl },
-        error_token: TokenIndex,
-        rbrace_token: TokenIndex,
-        decls_len: NodeIndex,
-
-        /// After this the caller must initialize the decls list.
-        pub fn alloc(allocator: *mem.Allocator, decls_len: NodeIndex) !*ErrorSetDecl {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(ErrorSetDecl), sizeInBytes(decls_len));
-            return @ptrCast(*ErrorSetDecl, bytes.ptr);
-        }
-
-        pub fn free(self: *ErrorSetDecl, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.decls_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const ErrorSetDecl, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.decls_len) return self.declsConst()[i];
-            i -= self.decls_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ErrorSetDecl) TokenIndex {
-            return self.error_token;
-        }
-
-        pub fn lastToken(self: *const ErrorSetDecl) TokenIndex {
-            return self.rbrace_token;
-        }
-
-        pub fn decls(self: *ErrorSetDecl) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(ErrorSetDecl);
-            return @ptrCast([*]*Node, decls_start)[0..self.decls_len];
-        }
-
-        pub fn declsConst(self: *const ErrorSetDecl) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(ErrorSetDecl);
-            return @ptrCast([*]const *Node, decls_start)[0..self.decls_len];
-        }
-
-        fn sizeInBytes(decls_len: NodeIndex) usize {
-            return @sizeOf(ErrorSetDecl) + @sizeOf(*Node) * @as(usize, decls_len);
-        }
-    };
-
-    /// The fields and decls Node pointers directly follow this struct in memory.
-    pub const ContainerDecl = struct {
-        base: Node = Node{ .tag = .ContainerDecl },
-        kind_token: TokenIndex,
-        layout_token: ?TokenIndex,
-        lbrace_token: TokenIndex,
-        rbrace_token: TokenIndex,
-        fields_and_decls_len: NodeIndex,
-        init_arg_expr: InitArg,
-
-        pub const InitArg = union(enum) {
-            None,
-            Enum: ?*Node,
-            Type: *Node,
-        };
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, fields_and_decls_len: NodeIndex) !*ContainerDecl {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(ContainerDecl), sizeInBytes(fields_and_decls_len));
-            return @ptrCast(*ContainerDecl, bytes.ptr);
-        }
-
-        pub fn free(self: *ContainerDecl, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.fields_and_decls_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const ContainerDecl, index: usize) ?*Node {
-            var i = index;
-
-            switch (self.init_arg_expr) {
-                .Type => |t| {
-                    if (i < 1) return t;
-                    i -= 1;
-                },
-                .None, .Enum => {},
-            }
-
-            if (i < self.fields_and_decls_len) return self.fieldsAndDeclsConst()[i];
-            i -= self.fields_and_decls_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ContainerDecl) TokenIndex {
-            if (self.layout_token) |layout_token| {
-                return layout_token;
-            }
-            return self.kind_token;
-        }
-
-        pub fn lastToken(self: *const ContainerDecl) TokenIndex {
-            return self.rbrace_token;
-        }
-
-        pub fn fieldsAndDecls(self: *ContainerDecl) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(ContainerDecl);
-            return @ptrCast([*]*Node, decls_start)[0..self.fields_and_decls_len];
-        }
-
-        pub fn fieldsAndDeclsConst(self: *const ContainerDecl) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(ContainerDecl);
-            return @ptrCast([*]const *Node, decls_start)[0..self.fields_and_decls_len];
-        }
-
-        fn sizeInBytes(fields_and_decls_len: NodeIndex) usize {
-            return @sizeOf(ContainerDecl) + @sizeOf(*Node) * @as(usize, fields_and_decls_len);
-        }
-    };
-
-    pub const ContainerField = struct {
-        base: Node = Node{ .tag = .ContainerField },
-        doc_comments: ?*DocComment,
-        comptime_token: ?TokenIndex,
-        name_token: TokenIndex,
-        type_expr: ?*Node,
-        value_expr: ?*Node,
-        align_expr: ?*Node,
-
-        pub fn iterate(self: *const ContainerField, index: usize) ?*Node {
-            var i = index;
-
-            if (self.type_expr) |type_expr| {
-                if (i < 1) return type_expr;
-                i -= 1;
-            }
-
-            if (self.align_expr) |align_expr| {
-                if (i < 1) return align_expr;
-                i -= 1;
-            }
-
-            if (self.value_expr) |value_expr| {
-                if (i < 1) return value_expr;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ContainerField) TokenIndex {
-            return self.comptime_token orelse self.name_token;
-        }
-
-        pub fn lastToken(self: *const ContainerField) TokenIndex {
-            if (self.value_expr) |value_expr| {
-                return value_expr.lastToken();
-            }
-            if (self.align_expr) |align_expr| {
-                // The expression refers to what's inside the parenthesis, the
-                // last token is the closing one
-                return align_expr.lastToken() + 1;
-            }
-            if (self.type_expr) |type_expr| {
-                return type_expr.lastToken();
-            }
-
-            return self.name_token;
-        }
-    };
-
-    pub const ErrorTag = struct {
-        base: Node = Node{ .tag = .ErrorTag },
-        doc_comments: ?*DocComment,
-        name_token: TokenIndex,
-
-        pub fn iterate(self: *const ErrorTag, index: usize) ?*Node {
-            var i = index;
-
-            if (self.doc_comments) |comments| {
-                if (i < 1) return &comments.base;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ErrorTag) TokenIndex {
-            return self.name_token;
-        }
-
-        pub fn lastToken(self: *const ErrorTag) TokenIndex {
-            return self.name_token;
-        }
-    };
-
-    pub const OneToken = struct {
-        base: Node,
-        token: TokenIndex,
-
-        pub fn iterate(self: *const OneToken, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const OneToken) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const OneToken) TokenIndex {
-            return self.token;
-        }
-    };
-
-    /// The params are directly after the FnProto in memory.
-    /// Next, each optional thing determined by a bit in `trailer_flags`.
-    pub const FnProto = struct {
-        base: Node = Node{ .tag = .FnProto },
-        trailer_flags: TrailerFlags,
-        fn_token: TokenIndex,
-        params_len: NodeIndex,
-        return_type: ReturnType,
-
-        pub const TrailerFlags = std.meta.TrailerFlags(struct {
-            doc_comments: *DocComment,
-            body_node: *Node,
-            lib_name: *Node, // populated if this is an extern declaration
-            align_expr: *Node, // populated if align(A) is present
-            section_expr: *Node, // populated if linksection(A) is present
-            callconv_expr: *Node, // populated if callconv(A) is present
-            visib_token: TokenIndex,
-            name_token: TokenIndex,
-            var_args_token: TokenIndex,
-            extern_export_inline_token: TokenIndex,
-            is_extern_prototype: void, // TODO: Remove once extern fn rewriting is
-            is_async: void, // TODO: remove once async fn rewriting is
-            is_inline: void, // TODO: remove once inline fn rewriting is
-        });
-
-        pub const RequiredFields = struct {
-            fn_token: TokenIndex,
-            params_len: NodeIndex,
-            return_type: ReturnType,
-        };
-
-        pub const ReturnType = union(enum) {
-            Explicit: *Node,
-            InferErrorSet: *Node,
-            Invalid: TokenIndex,
-        };
-
-        pub const ParamDecl = struct {
-            doc_comments: ?*DocComment,
-            comptime_token: ?TokenIndex,
-            noalias_token: ?TokenIndex,
-            name_token: ?TokenIndex,
-            param_type: ParamType,
-
-            pub const ParamType = union(enum) {
-                any_type: *Node,
-                type_expr: *Node,
-            };
-
-            pub fn iterate(self: *const ParamDecl, index: usize) ?*Node {
-                var i = index;
-
-                if (i < 1) {
-                    switch (self.param_type) {
-                        .any_type, .type_expr => |node| return node,
-                    }
-                }
-                i -= 1;
-
-                return null;
-            }
-
-            pub fn firstToken(self: *const ParamDecl) TokenIndex {
-                if (self.comptime_token) |comptime_token| return comptime_token;
-                if (self.noalias_token) |noalias_token| return noalias_token;
-                if (self.name_token) |name_token| return name_token;
-                switch (self.param_type) {
-                    .any_type, .type_expr => |node| return node.firstToken(),
-                }
-            }
-
-            pub fn lastToken(self: *const ParamDecl) TokenIndex {
-                switch (self.param_type) {
-                    .any_type, .type_expr => |node| return node.lastToken(),
-                }
-            }
-        };
-
-        /// For debugging purposes.
-        pub fn dump(self: *const FnProto) void {
-            const trailers_start = @alignCast(
-                @alignOf(ParamDecl),
-                @ptrCast([*]const u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
-            );
-            std.debug.print("{*} flags: {b} name_token: {s} {*} params_len: {d}\n", .{
-                self,
-                self.trailer_flags.bits,
-                self.getNameToken(),
-                self.trailer_flags.ptrConst(trailers_start, .name_token),
-                self.params_len,
-            });
-        }
-
-        pub fn getDocComments(self: *const FnProto) ?*DocComment {
-            return self.getTrailer(.doc_comments);
-        }
-
-        pub fn setDocComments(self: *FnProto, value: *DocComment) void {
-            self.setTrailer(.doc_comments, value);
-        }
-
-        pub fn getBodyNode(self: *const FnProto) ?*Node {
-            return self.getTrailer(.body_node);
-        }
-
-        pub fn setBodyNode(self: *FnProto, value: *Node) void {
-            self.setTrailer(.body_node, value);
-        }
-
-        pub fn getLibName(self: *const FnProto) ?*Node {
-            return self.getTrailer(.lib_name);
-        }
-
-        pub fn setLibName(self: *FnProto, value: *Node) void {
-            self.setTrailer(.lib_name, value);
-        }
-
-        pub fn getAlignExpr(self: *const FnProto) ?*Node {
-            return self.getTrailer(.align_expr);
-        }
-
-        pub fn setAlignExpr(self: *FnProto, value: *Node) void {
-            self.setTrailer(.align_expr, value);
-        }
-
-        pub fn getSectionExpr(self: *const FnProto) ?*Node {
-            return self.getTrailer(.section_expr);
-        }
-
-        pub fn setSectionExpr(self: *FnProto, value: *Node) void {
-            self.setTrailer(.section_expr, value);
-        }
-
-        pub fn getCallconvExpr(self: *const FnProto) ?*Node {
-            return self.getTrailer(.callconv_expr);
-        }
-
-        pub fn setCallconvExpr(self: *FnProto, value: *Node) void {
-            self.setTrailer(.callconv_expr, value);
-        }
-
-        pub fn getVisibToken(self: *const FnProto) ?TokenIndex {
-            return self.getTrailer(.visib_token);
-        }
-
-        pub fn setVisibToken(self: *FnProto, value: TokenIndex) void {
-            self.setTrailer(.visib_token, value);
-        }
-
-        pub fn getNameToken(self: *const FnProto) ?TokenIndex {
-            return self.getTrailer(.name_token);
-        }
-
-        pub fn setNameToken(self: *FnProto, value: TokenIndex) void {
-            self.setTrailer(.name_token, value);
-        }
-
-        pub fn getVarArgsToken(self: *const FnProto) ?TokenIndex {
-            return self.getTrailer(.var_args_token);
-        }
-
-        pub fn setVarArgsToken(self: *FnProto, value: TokenIndex) void {
-            self.setTrailer(.var_args_token, value);
-        }
-
-        pub fn getExternExportInlineToken(self: *const FnProto) ?TokenIndex {
-            return self.getTrailer(.extern_export_inline_token);
-        }
-
-        pub fn setExternExportInlineToken(self: *FnProto, value: TokenIndex) void {
-            self.setTrailer(.extern_export_inline_token, value);
-        }
-
-        pub fn getIsExternPrototype(self: *const FnProto) ?void {
-            return self.getTrailer(.is_extern_prototype);
-        }
-
-        pub fn setIsExternPrototype(self: *FnProto, value: void) void {
-            self.setTrailer(.is_extern_prototype, value);
-        }
-
-        pub fn getIsAsync(self: *const FnProto) ?void {
-            return self.getTrailer(.is_async);
-        }
-
-        pub fn setIsAsync(self: *FnProto, value: void) void {
-            self.setTrailer(.is_async, value);
-        }
-
-        pub fn getIsInline(self: *const FnProto) ?void {
-            return self.getTrailer(.is_inline);
-        }
-
-        pub fn setIsInline(self: *FnProto, value: void) void {
-            self.setTrailer(.is_inline, value);
-        }
-
-        fn getTrailer(self: *const FnProto, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
-            const trailers_start = @alignCast(
-                @alignOf(ParamDecl),
-                @ptrCast([*]const u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
-            );
-            return self.trailer_flags.get(trailers_start, field);
-        }
-
-        fn setTrailer(self: *FnProto, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
-            const trailers_start = @alignCast(
-                @alignOf(ParamDecl),
-                @ptrCast([*]u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
-            );
-            self.trailer_flags.set(trailers_start, field, value);
-        }
-
-        /// After this the caller must initialize the params list.
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*FnProto {
-            const trailer_flags = TrailerFlags.init(trailers);
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(FnProto), sizeInBytes(
-                required.params_len,
-                trailer_flags,
-            ));
-            const fn_proto = @ptrCast(*FnProto, bytes.ptr);
-            fn_proto.* = .{
-                .trailer_flags = trailer_flags,
-                .fn_token = required.fn_token,
-                .params_len = required.params_len,
-                .return_type = required.return_type,
-            };
-            const trailers_start = @alignCast(
-                @alignOf(ParamDecl),
-                bytes.ptr + @sizeOf(FnProto) + @sizeOf(ParamDecl) * required.params_len,
-            );
-            trailer_flags.setMany(trailers_start, trailers);
-            return fn_proto;
-        }
-
-        pub fn destroy(self: *FnProto, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.params_len, self.trailer_flags)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const FnProto, index: usize) ?*Node {
-            var i = index;
-
-            if (self.getLibName()) |lib_name| {
-                if (i < 1) return lib_name;
-                i -= 1;
-            }
-
-            const params_len: usize = if (self.params_len == 0)
-                0
-            else switch (self.paramsConst()[self.params_len - 1].param_type) {
-                .any_type, .type_expr => self.params_len,
-            };
-            if (i < params_len) {
-                switch (self.paramsConst()[i].param_type) {
-                    .any_type => |n| return n,
-                    .type_expr => |n| return n,
-                }
-            }
-            i -= params_len;
-
-            if (self.getAlignExpr()) |align_expr| {
-                if (i < 1) return align_expr;
-                i -= 1;
-            }
-
-            if (self.getSectionExpr()) |section_expr| {
-                if (i < 1) return section_expr;
-                i -= 1;
-            }
-
-            switch (self.return_type) {
-                .Explicit, .InferErrorSet => |node| {
-                    if (i < 1) return node;
-                    i -= 1;
-                },
-                .Invalid => {},
-            }
-
-            if (self.getBodyNode()) |body_node| {
-                if (i < 1) return body_node;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const FnProto) TokenIndex {
-            if (self.getVisibToken()) |visib_token| return visib_token;
-            if (self.getExternExportInlineToken()) |extern_export_inline_token| return extern_export_inline_token;
-            assert(self.getLibName() == null);
-            return self.fn_token;
-        }
-
-        pub fn lastToken(self: *const FnProto) TokenIndex {
-            if (self.getBodyNode()) |body_node| return body_node.lastToken();
-            switch (self.return_type) {
-                .Explicit, .InferErrorSet => |node| return node.lastToken(),
-                .Invalid => |tok| return tok,
-            }
-        }
-
-        pub fn params(self: *FnProto) []ParamDecl {
-            const params_start = @ptrCast([*]u8, self) + @sizeOf(FnProto);
-            return @ptrCast([*]ParamDecl, params_start)[0..self.params_len];
-        }
-
-        pub fn paramsConst(self: *const FnProto) []const ParamDecl {
-            const params_start = @ptrCast([*]const u8, self) + @sizeOf(FnProto);
-            return @ptrCast([*]const ParamDecl, params_start)[0..self.params_len];
-        }
-
-        fn sizeInBytes(params_len: NodeIndex, trailer_flags: TrailerFlags) usize {
-            return @sizeOf(FnProto) + @sizeOf(ParamDecl) * @as(usize, params_len) + trailer_flags.sizeInBytes();
-        }
-    };
-
-    pub const AnyFrameType = struct {
-        base: Node = Node{ .tag = .AnyFrameType },
-        anyframe_token: TokenIndex,
-        result: ?Result,
-
-        pub const Result = struct {
-            arrow_token: TokenIndex,
-            return_type: *Node,
-        };
-
-        pub fn iterate(self: *const AnyFrameType, index: usize) ?*Node {
-            var i = index;
-
-            if (self.result) |result| {
-                if (i < 1) return result.return_type;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const AnyFrameType) TokenIndex {
-            return self.anyframe_token;
-        }
-
-        pub fn lastToken(self: *const AnyFrameType) TokenIndex {
-            if (self.result) |result| return result.return_type.lastToken();
-            return self.anyframe_token;
-        }
-    };
-
-    /// The statements of the block follow Block directly in memory.
-    pub const Block = struct {
-        base: Node = Node{ .tag = .Block },
-        statements_len: NodeIndex,
-        lbrace: TokenIndex,
-        rbrace: TokenIndex,
-
-        /// After this the caller must initialize the statements list.
-        pub fn alloc(allocator: *mem.Allocator, statements_len: NodeIndex) !*Block {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(Block), sizeInBytes(statements_len));
-            return @ptrCast(*Block, bytes.ptr);
-        }
-
-        pub fn free(self: *Block, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.statements_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const Block, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.statements_len) return self.statementsConst()[i];
-            i -= self.statements_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Block) TokenIndex {
-            return self.lbrace;
-        }
-
-        pub fn lastToken(self: *const Block) TokenIndex {
-            return self.rbrace;
-        }
-
-        pub fn statements(self: *Block) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(Block);
-            return @ptrCast([*]*Node, decls_start)[0..self.statements_len];
-        }
-
-        pub fn statementsConst(self: *const Block) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(Block);
-            return @ptrCast([*]const *Node, decls_start)[0..self.statements_len];
-        }
-
-        fn sizeInBytes(statements_len: NodeIndex) usize {
-            return @sizeOf(Block) + @sizeOf(*Node) * @as(usize, statements_len);
-        }
-    };
-
-    /// The statements of the block follow LabeledBlock directly in memory.
-    pub const LabeledBlock = struct {
-        base: Node = Node{ .tag = .LabeledBlock },
-        statements_len: NodeIndex,
-        lbrace: TokenIndex,
-        rbrace: TokenIndex,
-        label: TokenIndex,
-
-        /// After this the caller must initialize the statements list.
-        pub fn alloc(allocator: *mem.Allocator, statements_len: NodeIndex) !*LabeledBlock {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(LabeledBlock), sizeInBytes(statements_len));
-            return @ptrCast(*LabeledBlock, bytes.ptr);
-        }
-
-        pub fn free(self: *LabeledBlock, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.statements_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const LabeledBlock, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.statements_len) return self.statementsConst()[i];
-            i -= self.statements_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const LabeledBlock) TokenIndex {
-            return self.label;
-        }
-
-        pub fn lastToken(self: *const LabeledBlock) TokenIndex {
-            return self.rbrace;
-        }
-
-        pub fn statements(self: *LabeledBlock) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(LabeledBlock);
-            return @ptrCast([*]*Node, decls_start)[0..self.statements_len];
-        }
-
-        pub fn statementsConst(self: *const LabeledBlock) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(LabeledBlock);
-            return @ptrCast([*]const *Node, decls_start)[0..self.statements_len];
-        }
-
-        fn sizeInBytes(statements_len: NodeIndex) usize {
-            return @sizeOf(LabeledBlock) + @sizeOf(*Node) * @as(usize, statements_len);
-        }
-    };
-
-    pub const Defer = struct {
-        base: Node = Node{ .tag = .Defer },
-        defer_token: TokenIndex,
-        payload: ?*Node,
-        expr: *Node,
-
-        pub fn iterate(self: *const Defer, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Defer) TokenIndex {
-            return self.defer_token;
-        }
-
-        pub fn lastToken(self: *const Defer) TokenIndex {
-            return self.expr.lastToken();
-        }
-    };
-
-    pub const Comptime = struct {
-        base: Node = Node{ .tag = .Comptime },
-        doc_comments: ?*DocComment,
-        comptime_token: TokenIndex,
-        expr: *Node,
-
-        pub fn iterate(self: *const Comptime, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Comptime) TokenIndex {
-            return self.comptime_token;
-        }
-
-        pub fn lastToken(self: *const Comptime) TokenIndex {
-            return self.expr.lastToken();
-        }
-    };
-
-    pub const Nosuspend = struct {
-        base: Node = Node{ .tag = .Nosuspend },
-        nosuspend_token: TokenIndex,
-        expr: *Node,
-
-        pub fn iterate(self: *const Nosuspend, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Nosuspend) TokenIndex {
-            return self.nosuspend_token;
-        }
-
-        pub fn lastToken(self: *const Nosuspend) TokenIndex {
-            return self.expr.lastToken();
-        }
-    };
-
-    pub const Payload = struct {
-        base: Node = Node{ .tag = .Payload },
-        lpipe: TokenIndex,
-        error_symbol: *Node,
-        rpipe: TokenIndex,
-
-        pub fn iterate(self: *const Payload, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.error_symbol;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Payload) TokenIndex {
-            return self.lpipe;
-        }
-
-        pub fn lastToken(self: *const Payload) TokenIndex {
-            return self.rpipe;
-        }
-    };
-
-    pub const PointerPayload = struct {
-        base: Node = Node{ .tag = .PointerPayload },
-        lpipe: TokenIndex,
-        ptr_token: ?TokenIndex,
-        value_symbol: *Node,
-        rpipe: TokenIndex,
-
-        pub fn iterate(self: *const PointerPayload, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.value_symbol;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const PointerPayload) TokenIndex {
-            return self.lpipe;
-        }
-
-        pub fn lastToken(self: *const PointerPayload) TokenIndex {
-            return self.rpipe;
-        }
-    };
-
-    pub const PointerIndexPayload = struct {
-        base: Node = Node{ .tag = .PointerIndexPayload },
-        lpipe: TokenIndex,
-        ptr_token: ?TokenIndex,
-        value_symbol: *Node,
-        index_symbol: ?*Node,
-        rpipe: TokenIndex,
-
-        pub fn iterate(self: *const PointerIndexPayload, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.value_symbol;
-            i -= 1;
-
-            if (self.index_symbol) |index_symbol| {
-                if (i < 1) return index_symbol;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const PointerIndexPayload) TokenIndex {
-            return self.lpipe;
-        }
-
-        pub fn lastToken(self: *const PointerIndexPayload) TokenIndex {
-            return self.rpipe;
-        }
-    };
-
-    pub const Else = struct {
-        base: Node = Node{ .tag = .Else },
-        else_token: TokenIndex,
-        payload: ?*Node,
-        body: *Node,
-
-        pub fn iterate(self: *const Else, index: usize) ?*Node {
-            var i = index;
-
-            if (self.payload) |payload| {
-                if (i < 1) return payload;
-                i -= 1;
-            }
-
-            if (i < 1) return self.body;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Else) TokenIndex {
-            return self.else_token;
-        }
-
-        pub fn lastToken(self: *const Else) TokenIndex {
-            return self.body.lastToken();
-        }
-    };
-
-    /// The cases node pointers are found in memory after Switch.
-    /// They must be SwitchCase or SwitchElse nodes.
-    pub const Switch = struct {
-        base: Node = Node{ .tag = .Switch },
-        switch_token: TokenIndex,
-        rbrace: TokenIndex,
-        cases_len: NodeIndex,
-        expr: *Node,
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, cases_len: NodeIndex) !*Switch {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(Switch), sizeInBytes(cases_len));
-            return @ptrCast(*Switch, bytes.ptr);
-        }
-
-        pub fn free(self: *Switch, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.cases_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const Switch, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            if (i < self.cases_len) return self.casesConst()[i];
-            i -= self.cases_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Switch) TokenIndex {
-            return self.switch_token;
-        }
-
-        pub fn lastToken(self: *const Switch) TokenIndex {
-            return self.rbrace;
-        }
-
-        pub fn cases(self: *Switch) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(Switch);
-            return @ptrCast([*]*Node, decls_start)[0..self.cases_len];
-        }
-
-        pub fn casesConst(self: *const Switch) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(Switch);
-            return @ptrCast([*]const *Node, decls_start)[0..self.cases_len];
-        }
-
-        fn sizeInBytes(cases_len: NodeIndex) usize {
-            return @sizeOf(Switch) + @sizeOf(*Node) * @as(usize, cases_len);
-        }
-    };
-
-    /// Items sub-nodes appear in memory directly following SwitchCase.
-    pub const SwitchCase = struct {
-        base: Node = Node{ .tag = .SwitchCase },
-        arrow_token: TokenIndex,
-        payload: ?*Node,
-        expr: *Node,
-        items_len: NodeIndex,
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, items_len: NodeIndex) !*SwitchCase {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(SwitchCase), sizeInBytes(items_len));
-            return @ptrCast(*SwitchCase, bytes.ptr);
-        }
-
-        pub fn free(self: *SwitchCase, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.items_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const SwitchCase, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.items_len) return self.itemsConst()[i];
-            i -= self.items_len;
-
-            if (self.payload) |payload| {
-                if (i < 1) return payload;
-                i -= 1;
-            }
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const SwitchCase) TokenIndex {
-            return self.itemsConst()[0].firstToken();
-        }
-
-        pub fn lastToken(self: *const SwitchCase) TokenIndex {
-            return self.expr.lastToken();
-        }
-
-        pub fn items(self: *SwitchCase) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(SwitchCase);
-            return @ptrCast([*]*Node, decls_start)[0..self.items_len];
-        }
-
-        pub fn itemsConst(self: *const SwitchCase) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(SwitchCase);
-            return @ptrCast([*]const *Node, decls_start)[0..self.items_len];
-        }
-
-        fn sizeInBytes(items_len: NodeIndex) usize {
-            return @sizeOf(SwitchCase) + @sizeOf(*Node) * @as(usize, items_len);
-        }
-    };
-
-    pub const SwitchElse = struct {
-        base: Node = Node{ .tag = .SwitchElse },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const SwitchElse, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const SwitchElse) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const SwitchElse) TokenIndex {
-            return self.token;
-        }
-    };
-
-    pub const While = struct {
-        base: Node = Node{ .tag = .While },
-        label: ?TokenIndex,
-        inline_token: ?TokenIndex,
-        while_token: TokenIndex,
-        condition: *Node,
-        payload: ?*Node,
-        continue_expr: ?*Node,
-        body: *Node,
-        @"else": ?*Else,
-
-        pub fn iterate(self: *const While, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.condition;
-            i -= 1;
-
-            if (self.payload) |payload| {
-                if (i < 1) return payload;
-                i -= 1;
-            }
-
-            if (self.continue_expr) |continue_expr| {
-                if (i < 1) return continue_expr;
-                i -= 1;
-            }
-
-            if (i < 1) return self.body;
-            i -= 1;
-
-            if (self.@"else") |@"else"| {
-                if (i < 1) return &@"else".base;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const While) TokenIndex {
-            if (self.label) |label| {
-                return label;
-            }
-
-            if (self.inline_token) |inline_token| {
-                return inline_token;
-            }
-
-            return self.while_token;
-        }
-
-        pub fn lastToken(self: *const While) TokenIndex {
-            if (self.@"else") |@"else"| {
-                return @"else".body.lastToken();
-            }
-
-            return self.body.lastToken();
-        }
-    };
-
-    pub const For = struct {
-        base: Node = Node{ .tag = .For },
-        label: ?TokenIndex,
-        inline_token: ?TokenIndex,
-        for_token: TokenIndex,
-        array_expr: *Node,
-        payload: *Node,
-        body: *Node,
-        @"else": ?*Else,
-
-        pub fn iterate(self: *const For, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.array_expr;
-            i -= 1;
-
-            if (i < 1) return self.payload;
-            i -= 1;
-
-            if (i < 1) return self.body;
-            i -= 1;
-
-            if (self.@"else") |@"else"| {
-                if (i < 1) return &@"else".base;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const For) TokenIndex {
-            if (self.label) |label| {
-                return label;
-            }
-
-            if (self.inline_token) |inline_token| {
-                return inline_token;
-            }
-
-            return self.for_token;
-        }
-
-        pub fn lastToken(self: *const For) TokenIndex {
-            if (self.@"else") |@"else"| {
-                return @"else".body.lastToken();
-            }
-
-            return self.body.lastToken();
-        }
-    };
-
-    pub const If = struct {
-        base: Node = Node{ .tag = .If },
-        if_token: TokenIndex,
-        condition: *Node,
-        payload: ?*Node,
-        body: *Node,
-        @"else": ?*Else,
-
-        pub fn iterate(self: *const If, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.condition;
-            i -= 1;
-
-            if (self.payload) |payload| {
-                if (i < 1) return payload;
-                i -= 1;
-            }
-
-            if (i < 1) return self.body;
-            i -= 1;
-
-            if (self.@"else") |@"else"| {
-                if (i < 1) return &@"else".base;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const If) TokenIndex {
-            return self.if_token;
-        }
-
-        pub fn lastToken(self: *const If) TokenIndex {
-            if (self.@"else") |@"else"| {
-                return @"else".body.lastToken();
-            }
-
-            return self.body.lastToken();
-        }
-    };
-
-    pub const Catch = struct {
-        base: Node = Node{ .tag = .Catch },
-        op_token: TokenIndex,
-        lhs: *Node,
-        rhs: *Node,
-        payload: ?*Node,
-
-        pub fn iterate(self: *const Catch, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.lhs;
-            i -= 1;
-
-            if (self.payload) |payload| {
-                if (i < 1) return payload;
-                i -= 1;
-            }
-
-            if (i < 1) return self.rhs;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Catch) TokenIndex {
-            return self.lhs.firstToken();
-        }
-
-        pub fn lastToken(self: *const Catch) TokenIndex {
-            return self.rhs.lastToken();
-        }
-    };
-
-    pub const SimpleInfixOp = struct {
-        base: Node,
-        op_token: TokenIndex,
-        lhs: *Node,
-        rhs: *Node,
-
-        pub fn iterate(self: *const SimpleInfixOp, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.lhs;
-            i -= 1;
-
-            if (i < 1) return self.rhs;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const SimpleInfixOp) TokenIndex {
-            return self.lhs.firstToken();
-        }
-
-        pub fn lastToken(self: *const SimpleInfixOp) TokenIndex {
-            return self.rhs.lastToken();
-        }
-    };
-
-    pub const SimplePrefixOp = struct {
-        base: Node,
-        op_token: TokenIndex,
-        rhs: *Node,
-
-        const Self = @This();
-
-        pub fn iterate(self: *const Self, index: usize) ?*Node {
-            if (index == 0) return self.rhs;
-            return null;
-        }
-
-        pub fn firstToken(self: *const Self) TokenIndex {
-            return self.op_token;
-        }
-
-        pub fn lastToken(self: *const Self) TokenIndex {
-            return self.rhs.lastToken();
-        }
-    };
-
-    pub const ArrayType = struct {
-        base: Node = Node{ .tag = .ArrayType },
-        op_token: TokenIndex,
-        rhs: *Node,
-        len_expr: *Node,
-
-        pub fn iterate(self: *const ArrayType, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.len_expr;
-            i -= 1;
-
-            if (i < 1) return self.rhs;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ArrayType) TokenIndex {
-            return self.op_token;
-        }
-
-        pub fn lastToken(self: *const ArrayType) TokenIndex {
-            return self.rhs.lastToken();
-        }
+    pub const LocalVarDecl = struct {
+        type_node: Index,
+        align_node: Index,
     };
 
     pub const ArrayTypeSentinel = struct {
-        base: Node = Node{ .tag = .ArrayTypeSentinel },
-        op_token: TokenIndex,
-        rhs: *Node,
-        len_expr: *Node,
-        sentinel: *Node,
-
-        pub fn iterate(self: *const ArrayTypeSentinel, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.len_expr;
-            i -= 1;
-
-            if (i < 1) return self.sentinel;
-            i -= 1;
-
-            if (i < 1) return self.rhs;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ArrayTypeSentinel) TokenIndex {
-            return self.op_token;
-        }
-
-        pub fn lastToken(self: *const ArrayTypeSentinel) TokenIndex {
-            return self.rhs.lastToken();
-        }
+        elem_type: Index,
+        sentinel: Index,
     };
 
     pub const PtrType = struct {
-        base: Node = Node{ .tag = .PtrType },
-        op_token: TokenIndex,
-        rhs: *Node,
-        /// TODO Add a u8 flags field to Node where it would otherwise be padding, and each bit represents
-        /// one of these possibly-null things. Then we have them directly follow the PtrType in memory.
-        ptr_info: PtrInfo = .{},
-
-        pub fn iterate(self: *const PtrType, index: usize) ?*Node {
-            var i = index;
-
-            if (self.ptr_info.sentinel) |sentinel| {
-                if (i < 1) return sentinel;
-                i -= 1;
-            }
-
-            if (self.ptr_info.align_info) |align_info| {
-                if (i < 1) return align_info.node;
-                i -= 1;
-            }
-
-            if (i < 1) return self.rhs;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const PtrType) TokenIndex {
-            return self.op_token;
-        }
-
-        pub fn lastToken(self: *const PtrType) TokenIndex {
-            return self.rhs.lastToken();
-        }
+        sentinel: Index,
+        align_node: Index,
     };
 
-    pub const SliceType = struct {
-        base: Node = Node{ .tag = .SliceType },
-        op_token: TokenIndex,
-        rhs: *Node,
-        /// TODO Add a u8 flags field to Node where it would otherwise be padding, and each bit represents
-        /// one of these possibly-null things. Then we have them directly follow the SliceType in memory.
-        ptr_info: PtrInfo = .{},
-
-        pub fn iterate(self: *const SliceType, index: usize) ?*Node {
-            var i = index;
-
-            if (self.ptr_info.sentinel) |sentinel| {
-                if (i < 1) return sentinel;
-                i -= 1;
-            }
-
-            if (self.ptr_info.align_info) |align_info| {
-                if (i < 1) return align_info.node;
-                i -= 1;
-            }
-
-            if (i < 1) return self.rhs;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const SliceType) TokenIndex {
-            return self.op_token;
-        }
-
-        pub fn lastToken(self: *const SliceType) TokenIndex {
-            return self.rhs.lastToken();
-        }
+    pub const PtrTypeBitRange = struct {
+        sentinel: Index,
+        align_node: Index,
+        bit_range_start: Index,
+        bit_range_end: Index,
     };
 
-    pub const FieldInitializer = struct {
-        base: Node = Node{ .tag = .FieldInitializer },
-        period_token: TokenIndex,
-        name_token: TokenIndex,
-        expr: *Node,
-
-        pub fn iterate(self: *const FieldInitializer, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const FieldInitializer) TokenIndex {
-            return self.period_token;
-        }
-
-        pub fn lastToken(self: *const FieldInitializer) TokenIndex {
-            return self.expr.lastToken();
-        }
+    pub const SubRange = struct {
+        /// Index into sub_list.
+        start: Index,
+        /// Index into sub_list.
+        end: Index,
     };
 
-    /// Elements occur directly in memory after ArrayInitializer.
-    pub const ArrayInitializer = struct {
-        base: Node = Node{ .tag = .ArrayInitializer },
-        rtoken: TokenIndex,
-        list_len: NodeIndex,
-        lhs: *Node,
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, list_len: NodeIndex) !*ArrayInitializer {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(ArrayInitializer), sizeInBytes(list_len));
-            return @ptrCast(*ArrayInitializer, bytes.ptr);
-        }
-
-        pub fn free(self: *ArrayInitializer, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.list_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const ArrayInitializer, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.lhs;
-            i -= 1;
-
-            if (i < self.list_len) return self.listConst()[i];
-            i -= self.list_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ArrayInitializer) TokenIndex {
-            return self.lhs.firstToken();
-        }
-
-        pub fn lastToken(self: *const ArrayInitializer) TokenIndex {
-            return self.rtoken;
-        }
-
-        pub fn list(self: *ArrayInitializer) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(ArrayInitializer);
-            return @ptrCast([*]*Node, decls_start)[0..self.list_len];
-        }
-
-        pub fn listConst(self: *const ArrayInitializer) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(ArrayInitializer);
-            return @ptrCast([*]const *Node, decls_start)[0..self.list_len];
-        }
-
-        fn sizeInBytes(list_len: NodeIndex) usize {
-            return @sizeOf(ArrayInitializer) + @sizeOf(*Node) * @as(usize, list_len);
-        }
+    pub const If = struct {
+        then_expr: Index,
+        else_expr: Index,
     };
 
-    /// Elements occur directly in memory after ArrayInitializerDot.
-    pub const ArrayInitializerDot = struct {
-        base: Node = Node{ .tag = .ArrayInitializerDot },
-        dot: TokenIndex,
-        rtoken: TokenIndex,
-        list_len: NodeIndex,
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, list_len: NodeIndex) !*ArrayInitializerDot {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(ArrayInitializerDot), sizeInBytes(list_len));
-            return @ptrCast(*ArrayInitializerDot, bytes.ptr);
-        }
-
-        pub fn free(self: *ArrayInitializerDot, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.list_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const ArrayInitializerDot, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.list_len) return self.listConst()[i];
-            i -= self.list_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ArrayInitializerDot) TokenIndex {
-            return self.dot;
-        }
-
-        pub fn lastToken(self: *const ArrayInitializerDot) TokenIndex {
-            return self.rtoken;
-        }
-
-        pub fn list(self: *ArrayInitializerDot) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(ArrayInitializerDot);
-            return @ptrCast([*]*Node, decls_start)[0..self.list_len];
-        }
-
-        pub fn listConst(self: *const ArrayInitializerDot) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(ArrayInitializerDot);
-            return @ptrCast([*]const *Node, decls_start)[0..self.list_len];
-        }
-
-        fn sizeInBytes(list_len: NodeIndex) usize {
-            return @sizeOf(ArrayInitializerDot) + @sizeOf(*Node) * @as(usize, list_len);
-        }
+    pub const ContainerField = struct {
+        value_expr: Index,
+        align_expr: Index,
     };
 
-    /// Elements occur directly in memory after StructInitializer.
-    pub const StructInitializer = struct {
-        base: Node = Node{ .tag = .StructInitializer },
-        rtoken: TokenIndex,
-        list_len: NodeIndex,
-        lhs: *Node,
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, list_len: NodeIndex) !*StructInitializer {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(StructInitializer), sizeInBytes(list_len));
-            return @ptrCast(*StructInitializer, bytes.ptr);
-        }
-
-        pub fn free(self: *StructInitializer, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.list_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const StructInitializer, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.lhs;
-            i -= 1;
-
-            if (i < self.list_len) return self.listConst()[i];
-            i -= self.list_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const StructInitializer) TokenIndex {
-            return self.lhs.firstToken();
-        }
-
-        pub fn lastToken(self: *const StructInitializer) TokenIndex {
-            return self.rtoken;
-        }
-
-        pub fn list(self: *StructInitializer) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(StructInitializer);
-            return @ptrCast([*]*Node, decls_start)[0..self.list_len];
-        }
-
-        pub fn listConst(self: *const StructInitializer) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(StructInitializer);
-            return @ptrCast([*]const *Node, decls_start)[0..self.list_len];
-        }
-
-        fn sizeInBytes(list_len: NodeIndex) usize {
-            return @sizeOf(StructInitializer) + @sizeOf(*Node) * @as(usize, list_len);
-        }
-    };
-
-    /// Elements occur directly in memory after StructInitializerDot.
-    pub const StructInitializerDot = struct {
-        base: Node = Node{ .tag = .StructInitializerDot },
-        dot: TokenIndex,
-        rtoken: TokenIndex,
-        list_len: NodeIndex,
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, list_len: NodeIndex) !*StructInitializerDot {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(StructInitializerDot), sizeInBytes(list_len));
-            return @ptrCast(*StructInitializerDot, bytes.ptr);
-        }
-
-        pub fn free(self: *StructInitializerDot, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.list_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const StructInitializerDot, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.list_len) return self.listConst()[i];
-            i -= self.list_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const StructInitializerDot) TokenIndex {
-            return self.dot;
-        }
-
-        pub fn lastToken(self: *const StructInitializerDot) TokenIndex {
-            return self.rtoken;
-        }
-
-        pub fn list(self: *StructInitializerDot) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(StructInitializerDot);
-            return @ptrCast([*]*Node, decls_start)[0..self.list_len];
-        }
-
-        pub fn listConst(self: *const StructInitializerDot) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(StructInitializerDot);
-            return @ptrCast([*]const *Node, decls_start)[0..self.list_len];
-        }
-
-        fn sizeInBytes(list_len: NodeIndex) usize {
-            return @sizeOf(StructInitializerDot) + @sizeOf(*Node) * @as(usize, list_len);
-        }
-    };
-
-    /// Parameter nodes directly follow Call in memory.
-    pub const Call = struct {
-        base: Node = Node{ .tag = .Call },
-        rtoken: TokenIndex,
-        lhs: *Node,
-        params_len: NodeIndex,
-        async_token: ?TokenIndex,
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, params_len: NodeIndex) !*Call {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(Call), sizeInBytes(params_len));
-            return @ptrCast(*Call, bytes.ptr);
-        }
-
-        pub fn free(self: *Call, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.params_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const Call, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.lhs;
-            i -= 1;
-
-            if (i < self.params_len) return self.paramsConst()[i];
-            i -= self.params_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Call) TokenIndex {
-            if (self.async_token) |async_token| return async_token;
-            return self.lhs.firstToken();
-        }
-
-        pub fn lastToken(self: *const Call) TokenIndex {
-            return self.rtoken;
-        }
-
-        pub fn params(self: *Call) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(Call);
-            return @ptrCast([*]*Node, decls_start)[0..self.params_len];
-        }
-
-        pub fn paramsConst(self: *const Call) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(Call);
-            return @ptrCast([*]const *Node, decls_start)[0..self.params_len];
-        }
-
-        fn sizeInBytes(params_len: NodeIndex) usize {
-            return @sizeOf(Call) + @sizeOf(*Node) * @as(usize, params_len);
-        }
-    };
-
-    pub const ArrayAccess = struct {
-        base: Node = Node{ .tag = .ArrayAccess },
-        rtoken: TokenIndex,
-        lhs: *Node,
-        index_expr: *Node,
-
-        pub fn iterate(self: *const ArrayAccess, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.lhs;
-            i -= 1;
-
-            if (i < 1) return self.index_expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ArrayAccess) TokenIndex {
-            return self.lhs.firstToken();
-        }
-
-        pub fn lastToken(self: *const ArrayAccess) TokenIndex {
-            return self.rtoken;
-        }
-    };
-
-    pub const SimpleSuffixOp = struct {
-        base: Node,
-        rtoken: TokenIndex,
-        lhs: *Node,
-
-        pub fn iterate(self: *const SimpleSuffixOp, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.lhs;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const SimpleSuffixOp) TokenIndex {
-            return self.lhs.firstToken();
-        }
-
-        pub fn lastToken(self: *const SimpleSuffixOp) TokenIndex {
-            return self.rtoken;
-        }
+    pub const GlobalVarDecl = struct {
+        type_node: Index,
+        align_node: Index,
+        section_node: Index,
     };
 
     pub const Slice = struct {
-        base: Node = Node{ .tag = .Slice },
-        rtoken: TokenIndex,
-        lhs: *Node,
-        start: *Node,
-        end: ?*Node,
-        sentinel: ?*Node,
-
-        pub fn iterate(self: *const Slice, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.lhs;
-            i -= 1;
-
-            if (i < 1) return self.start;
-            i -= 1;
-
-            if (self.end) |end| {
-                if (i < 1) return end;
-                i -= 1;
-            }
-            if (self.sentinel) |sentinel| {
-                if (i < 1) return sentinel;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Slice) TokenIndex {
-            return self.lhs.firstToken();
-        }
-
-        pub fn lastToken(self: *const Slice) TokenIndex {
-            return self.rtoken;
-        }
+        start: Index,
+        end: Index,
     };
 
-    pub const GroupedExpression = struct {
-        base: Node = Node{ .tag = .GroupedExpression },
-        lparen: TokenIndex,
-        expr: *Node,
-        rparen: TokenIndex,
-
-        pub fn iterate(self: *const GroupedExpression, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const GroupedExpression) TokenIndex {
-            return self.lparen;
-        }
-
-        pub fn lastToken(self: *const GroupedExpression) TokenIndex {
-            return self.rparen;
-        }
+    pub const SliceSentinel = struct {
+        start: Index,
+        end: Index,
+        sentinel: Index,
     };
 
-    /// Trailed in memory by possibly many things, with each optional thing
-    /// determined by a bit in `trailer_flags`.
-    /// Can be: return, break, continue
-    pub const ControlFlowExpression = struct {
-        base: Node,
-        trailer_flags: TrailerFlags,
-        ltoken: TokenIndex,
-
-        pub const TrailerFlags = std.meta.TrailerFlags(struct {
-            rhs: *Node,
-            label: TokenIndex,
-        });
-
-        pub const RequiredFields = struct {
-            tag: Tag,
-            ltoken: TokenIndex,
-        };
-
-        pub fn getRHS(self: *const ControlFlowExpression) ?*Node {
-            return self.getTrailer(.rhs);
-        }
-
-        pub fn setRHS(self: *ControlFlowExpression, value: *Node) void {
-            self.setTrailer(.rhs, value);
-        }
-
-        pub fn getLabel(self: *const ControlFlowExpression) ?TokenIndex {
-            return self.getTrailer(.label);
-        }
-
-        pub fn setLabel(self: *ControlFlowExpression, value: TokenIndex) void {
-            self.setTrailer(.label, value);
-        }
-
-        fn getTrailer(self: *const ControlFlowExpression, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
-            const trailers_start = @ptrCast([*]const u8, self) + @sizeOf(ControlFlowExpression);
-            return self.trailer_flags.get(trailers_start, field);
-        }
-
-        fn setTrailer(self: *ControlFlowExpression, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
-            const trailers_start = @ptrCast([*]u8, self) + @sizeOf(ControlFlowExpression);
-            self.trailer_flags.set(trailers_start, field, value);
-        }
-
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*ControlFlowExpression {
-            const trailer_flags = TrailerFlags.init(trailers);
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(ControlFlowExpression), sizeInBytes(trailer_flags));
-            const ctrl_flow_expr = @ptrCast(*ControlFlowExpression, bytes.ptr);
-            ctrl_flow_expr.* = .{
-                .base = .{ .tag = required.tag },
-                .trailer_flags = trailer_flags,
-                .ltoken = required.ltoken,
-            };
-            const trailers_start = bytes.ptr + @sizeOf(ControlFlowExpression);
-            trailer_flags.setMany(trailers_start, trailers);
-            return ctrl_flow_expr;
-        }
-
-        pub fn destroy(self: *ControlFlowExpression, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.trailer_flags)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const ControlFlowExpression, index: usize) ?*Node {
-            var i = index;
-
-            if (self.getRHS()) |rhs| {
-                if (i < 1) return rhs;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const ControlFlowExpression) TokenIndex {
-            return self.ltoken;
-        }
-
-        pub fn lastToken(self: *const ControlFlowExpression) TokenIndex {
-            if (self.getRHS()) |rhs| {
-                return rhs.lastToken();
-            }
-
-            if (self.getLabel()) |label| {
-                return label;
-            }
-
-            return self.ltoken;
-        }
-
-        fn sizeInBytes(trailer_flags: TrailerFlags) usize {
-            return @sizeOf(ControlFlowExpression) + trailer_flags.sizeInBytes();
-        }
+    pub const While = struct {
+        cont_expr: Index,
+        then_expr: Index,
+        else_expr: Index,
     };
 
-    pub const Suspend = struct {
-        base: Node = Node{ .tag = .Suspend },
-        suspend_token: TokenIndex,
-        body: ?*Node,
-
-        pub fn iterate(self: *const Suspend, index: usize) ?*Node {
-            var i = index;
-
-            if (self.body) |body| {
-                if (i < 1) return body;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Suspend) TokenIndex {
-            return self.suspend_token;
-        }
-
-        pub fn lastToken(self: *const Suspend) TokenIndex {
-            if (self.body) |body| {
-                return body.lastToken();
-            }
-
-            return self.suspend_token;
-        }
+    pub const WhileCont = struct {
+        cont_expr: Index,
+        then_expr: Index,
     };
 
-    pub const EnumLiteral = struct {
-        base: Node = Node{ .tag = .EnumLiteral },
-        dot: TokenIndex,
-        name: TokenIndex,
-
-        pub fn iterate(self: *const EnumLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const EnumLiteral) TokenIndex {
-            return self.dot;
-        }
-
-        pub fn lastToken(self: *const EnumLiteral) TokenIndex {
-            return self.name;
-        }
+    pub const FnProtoOne = struct {
+        /// Populated if there is exactly 1 parameter. Otherwise there are 0 parameters.
+        param: Index,
+        /// Populated if align(A) is present.
+        align_expr: Index,
+        /// Populated if linksection(A) is present.
+        section_expr: Index,
+        /// Populated if callconv(A) is present.
+        callconv_expr: Index,
     };
 
-    /// Parameters are in memory following BuiltinCall.
-    pub const BuiltinCall = struct {
-        base: Node = Node{ .tag = .BuiltinCall },
-        params_len: NodeIndex,
-        builtin_token: TokenIndex,
-        rparen_token: TokenIndex,
-
-        /// After this the caller must initialize the fields_and_decls list.
-        pub fn alloc(allocator: *mem.Allocator, params_len: NodeIndex) !*BuiltinCall {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(BuiltinCall), sizeInBytes(params_len));
-            return @ptrCast(*BuiltinCall, bytes.ptr);
-        }
-
-        pub fn free(self: *BuiltinCall, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.params_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const BuiltinCall, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.params_len) return self.paramsConst()[i];
-            i -= self.params_len;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const BuiltinCall) TokenIndex {
-            return self.builtin_token;
-        }
-
-        pub fn lastToken(self: *const BuiltinCall) TokenIndex {
-            return self.rparen_token;
-        }
-
-        pub fn params(self: *BuiltinCall) []*Node {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(BuiltinCall);
-            return @ptrCast([*]*Node, decls_start)[0..self.params_len];
-        }
-
-        pub fn paramsConst(self: *const BuiltinCall) []const *Node {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(BuiltinCall);
-            return @ptrCast([*]const *Node, decls_start)[0..self.params_len];
-        }
-
-        fn sizeInBytes(params_len: NodeIndex) usize {
-            return @sizeOf(BuiltinCall) + @sizeOf(*Node) * @as(usize, params_len);
-        }
-    };
-
-    /// The string literal tokens appear directly in memory after MultilineStringLiteral.
-    pub const MultilineStringLiteral = struct {
-        base: Node = Node{ .tag = .MultilineStringLiteral },
-        lines_len: TokenIndex,
-
-        /// After this the caller must initialize the lines list.
-        pub fn alloc(allocator: *mem.Allocator, lines_len: NodeIndex) !*MultilineStringLiteral {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(MultilineStringLiteral), sizeInBytes(lines_len));
-            return @ptrCast(*MultilineStringLiteral, bytes.ptr);
-        }
-
-        pub fn free(self: *MultilineStringLiteral, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.lines_len)];
-            allocator.free(bytes);
-        }
-
-        pub fn iterate(self: *const MultilineStringLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const MultilineStringLiteral) TokenIndex {
-            return self.linesConst()[0];
-        }
-
-        pub fn lastToken(self: *const MultilineStringLiteral) TokenIndex {
-            return self.linesConst()[self.lines_len - 1];
-        }
-
-        pub fn lines(self: *MultilineStringLiteral) []TokenIndex {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(MultilineStringLiteral);
-            return @ptrCast([*]TokenIndex, decls_start)[0..self.lines_len];
-        }
-
-        pub fn linesConst(self: *const MultilineStringLiteral) []const TokenIndex {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(MultilineStringLiteral);
-            return @ptrCast([*]const TokenIndex, decls_start)[0..self.lines_len];
-        }
-
-        fn sizeInBytes(lines_len: NodeIndex) usize {
-            return @sizeOf(MultilineStringLiteral) + @sizeOf(TokenIndex) * @as(usize, lines_len);
-        }
+    pub const FnProto = struct {
+        params_start: Index,
+        params_end: Index,
+        /// Populated if align(A) is present.
+        align_expr: Index,
+        /// Populated if linksection(A) is present.
+        section_expr: Index,
+        /// Populated if callconv(A) is present.
+        callconv_expr: Index,
     };
 
     pub const Asm = struct {
-        base: Node = Node{ .tag = .Asm },
-        asm_token: TokenIndex,
+        items_start: Index,
+        items_end: Index,
+        /// Needed to make lastToken() work.
         rparen: TokenIndex,
-        volatile_token: ?TokenIndex,
-        template: *Node,
-        outputs: []Output,
-        inputs: []Input,
-        /// A clobber node must be a StringLiteral or MultilineStringLiteral.
-        clobbers: []*Node,
-
-        pub const Output = struct {
-            lbracket: TokenIndex,
-            symbolic_name: *Node,
-            constraint: *Node,
-            kind: Kind,
-            rparen: TokenIndex,
-
-            pub const Kind = union(enum) {
-                Variable: *OneToken,
-                Return: *Node,
-            };
-
-            pub fn iterate(self: *const Output, index: usize) ?*Node {
-                var i = index;
-
-                if (i < 1) return self.symbolic_name;
-                i -= 1;
-
-                if (i < 1) return self.constraint;
-                i -= 1;
-
-                switch (self.kind) {
-                    .Variable => |variable_name| {
-                        if (i < 1) return &variable_name.base;
-                        i -= 1;
-                    },
-                    .Return => |return_type| {
-                        if (i < 1) return return_type;
-                        i -= 1;
-                    },
-                }
-
-                return null;
-            }
-
-            pub fn firstToken(self: *const Output) TokenIndex {
-                return self.lbracket;
-            }
-
-            pub fn lastToken(self: *const Output) TokenIndex {
-                return self.rparen;
-            }
-        };
-
-        pub const Input = struct {
-            lbracket: TokenIndex,
-            symbolic_name: *Node,
-            constraint: *Node,
-            expr: *Node,
-            rparen: TokenIndex,
-
-            pub fn iterate(self: *const Input, index: usize) ?*Node {
-                var i = index;
-
-                if (i < 1) return self.symbolic_name;
-                i -= 1;
-
-                if (i < 1) return self.constraint;
-                i -= 1;
-
-                if (i < 1) return self.expr;
-                i -= 1;
-
-                return null;
-            }
-
-            pub fn firstToken(self: *const Input) TokenIndex {
-                return self.lbracket;
-            }
-
-            pub fn lastToken(self: *const Input) TokenIndex {
-                return self.rparen;
-            }
-        };
-
-        pub fn iterate(self: *const Asm, index: usize) ?*Node {
-            var i = index;
-
-            if (i < self.outputs.len * 3) switch (i % 3) {
-                0 => return self.outputs[i / 3].symbolic_name,
-                1 => return self.outputs[i / 3].constraint,
-                2 => switch (self.outputs[i / 3].kind) {
-                    .Variable => |variable_name| return &variable_name.base,
-                    .Return => |return_type| return return_type,
-                },
-                else => unreachable,
-            };
-            i -= self.outputs.len * 3;
-
-            if (i < self.inputs.len * 3) switch (i % 3) {
-                0 => return self.inputs[i / 3].symbolic_name,
-                1 => return self.inputs[i / 3].constraint,
-                2 => return self.inputs[i / 3].expr,
-                else => unreachable,
-            };
-            i -= self.inputs.len * 3;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const Asm) TokenIndex {
-            return self.asm_token;
-        }
-
-        pub fn lastToken(self: *const Asm) TokenIndex {
-            return self.rparen;
-        }
-    };
-
-    /// TODO remove from the Node base struct
-    /// TODO actually maybe remove entirely in favor of iterating backward from Node.firstToken()
-    /// and forwards to find same-line doc comments.
-    pub const DocComment = struct {
-        base: Node = Node{ .tag = .DocComment },
-        /// Points to the first doc comment token. API users are expected to iterate over the
-        /// tokens array, looking for more doc comments, ignoring line comments, and stopping
-        /// at the first other token.
-        first_line: TokenIndex,
-
-        pub fn iterate(self: *const DocComment, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const DocComment) TokenIndex {
-            return self.first_line;
-        }
-
-        /// Returns the first doc comment line. Be careful, this may not be the desired behavior,
-        /// which would require the tokens array.
-        pub fn lastToken(self: *const DocComment) TokenIndex {
-            return self.first_line;
-        }
-    };
-
-    pub const TestDecl = struct {
-        base: Node = Node{ .tag = .TestDecl },
-        doc_comments: ?*DocComment,
-        test_token: TokenIndex,
-        name: ?*Node,
-        body_node: *Node,
-
-        pub fn iterate(self: *const TestDecl, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.body_node;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const TestDecl) TokenIndex {
-            return self.test_token;
-        }
-
-        pub fn lastToken(self: *const TestDecl) TokenIndex {
-            return self.body_node.lastToken();
-        }
     };
 };
-
-pub const PtrInfo = struct {
-    allowzero_token: ?TokenIndex = null,
-    align_info: ?Align = null,
-    const_token: ?TokenIndex = null,
-    volatile_token: ?TokenIndex = null,
-    sentinel: ?*Node = null,
-
-    pub const Align = struct {
-        node: *Node,
-        bit_range: ?BitRange = null,
-
-        pub const BitRange = struct {
-            start: *Node,
-            end: *Node,
-        };
-    };
-};
-
-test "iterate" {
-    var root = Node.Root{
-        .base = Node{ .tag = Node.Tag.Root },
-        .decls_len = 0,
-        .eof_token = 0,
-    };
-    var base = &root.base;
-    testing.expect(base.iterate(0) == null);
-}

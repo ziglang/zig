@@ -155,7 +155,7 @@ pub const TestContext = struct {
             self.updates.append(.{
                 .src = src,
                 .case = .{ .Header = result },
-            }) catch unreachable;
+            }) catch @panic("out of memory");
         }
 
         /// Adds a subcase in which the module is updated with `src`, compiled,
@@ -164,7 +164,7 @@ pub const TestContext = struct {
             self.updates.append(.{
                 .src = src,
                 .case = .{ .Execution = result },
-            }) catch unreachable;
+            }) catch @panic("out of memory");
         }
 
         /// Adds a subcase in which the module is updated with `src`, compiled,
@@ -173,7 +173,7 @@ pub const TestContext = struct {
             self.updates.append(.{
                 .src = src,
                 .case = .{ .CompareObjectFile = result },
-            }) catch unreachable;
+            }) catch @panic("out of memory");
         }
 
         /// Adds a subcase in which the module is updated with `src`, which
@@ -181,7 +181,7 @@ pub const TestContext = struct {
         /// for the expected reasons, given in sequential order in `errors` in
         /// the form `:line:column: error: message`.
         pub fn addError(self: *Case, src: [:0]const u8, errors: []const []const u8) void {
-            var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch unreachable;
+            var array = self.updates.allocator.alloc(ErrorMsg, errors.len) catch @panic("out of memory");
             for (errors) |err_msg_line, i| {
                 if (std.mem.startsWith(u8, err_msg_line, "error: ")) {
                     array[i] = .{
@@ -224,7 +224,7 @@ pub const TestContext = struct {
                     },
                 };
             }
-            self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch unreachable;
+            self.updates.append(.{ .src = src, .case = .{ .Error = array } }) catch @panic("out of memory");
         }
 
         /// Adds a subcase in which the module is updated with `src`, and
@@ -247,7 +247,7 @@ pub const TestContext = struct {
             .output_mode = .Exe,
             .extension = extension,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
-        }) catch unreachable;
+        }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
@@ -262,15 +262,17 @@ pub const TestContext = struct {
     }
 
     pub fn exeFromCompiledC(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
+        const prefixed_name = std.fmt.allocPrint(ctx.cases.allocator, "CBE: {s}", .{name}) catch
+            @panic("out of memory");
         ctx.cases.append(Case{
-            .name = name,
+            .name = prefixed_name,
             .target = target,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .extension = .Zig,
             .object_format = .c,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
-        }) catch unreachable;
+        }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
@@ -285,7 +287,7 @@ pub const TestContext = struct {
             .extension = .Zig,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
             .llvm_backend = true,
-        }) catch unreachable;
+        }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
@@ -302,7 +304,7 @@ pub const TestContext = struct {
             .output_mode = .Obj,
             .extension = extension,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
-        }) catch unreachable;
+        }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
@@ -326,7 +328,7 @@ pub const TestContext = struct {
             .extension = ext,
             .object_format = .c,
             .files = std.ArrayList(File).init(ctx.cases.allocator),
-        }) catch unreachable;
+        }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
 
