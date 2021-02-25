@@ -215,6 +215,8 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --build-file [file]         Override path to build.zig
         \\  --cache-dir [path]          Override path to zig cache directory
         \\  --override-lib-dir [arg]    Override path to Zig lib directory
+        \\  --pkg-begin [name] [path]   Make pkg available to import in build.zig and push current pkg
+        \\  --pkg-end                   Pop current pkg
         \\  --verbose-tokenize          Enable compiler debug output for tokenization
         \\  --verbose-ast               Enable compiler debug output for parsing into an AST
         \\  --verbose-link              Enable compiler debug output for linking

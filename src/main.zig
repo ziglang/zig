@@ -2410,6 +2410,11 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const argv_index_global_cache_dir = child_argv.items.len;
         _ = try child_argv.addOne();
 
+        var build_pkg: Package = .{
+            .root_src_directory = undefined,
+            .root_src_path = undefined,
+        };
+        var cur_pkg = &build_pkg;
         {
             var i: usize = 0;
             while (i < args.len) : (i += 1) {
@@ -2435,6 +2440,28 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                         i += 1;
                         override_global_cache_dir = args[i];
+                        continue;
+                    } else if (mem.eql(u8, arg, "--pkg-begin")) {
+                        if (i + 2 >= args.len) fatal("Expected 2 arguments after {s}", .{arg});
+                        i += 1;
+                        const pkg_name = args[i];
+                        i += 1;
+                        const pkg_path = args[i];
+
+                        const new_cur_pkg = Package.create(
+                            gpa,
+                            fs.path.dirname(pkg_path),
+                            fs.path.basename(pkg_path),
+                        ) catch |err| {
+                            fatal("Failed to add package at path {s}: {s}", .{ pkg_path, @errorName(err) });
+                        };
+                        new_cur_pkg.parent = cur_pkg;
+                        try cur_pkg.add(gpa, pkg_name, new_cur_pkg);
+                        cur_pkg = new_cur_pkg;
+                        continue;
+                    } else if (mem.eql(u8, arg, "--pkg-end")) {
+                        cur_pkg = cur_pkg.parent orelse
+                            fatal("encountered --pkg-end with no matching --pkg-begin", .{});
                         continue;
                     }
                 }
@@ -2504,10 +2531,8 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         };
         child_argv.items[argv_index_build_file] = build_directory.path orelse cwd_path;
 
-        var build_pkg: Package = .{
-            .root_src_directory = build_directory,
-            .root_src_path = build_zig_basename,
-        };
+        build_pkg.root_src_directory = build_directory;
+        build_pkg.root_src_path = build_zig_basename;
         try root_pkg.table.put(arena, "@build", &build_pkg);
 
         var global_cache_directory: Compilation.Directory = l: {
@@ -2539,6 +2564,14 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
 
         gimmeMoreOfThoseSweetSweetFileDescriptors();
+
+        var buildpkgs_dir = try generateBuildPkgs(arena, local_cache_directory, build_pkg.table);
+        defer buildpkgs_dir.handle.close();
+        var buildpkgs_pkg: Package = .{
+            .root_src_directory = buildpkgs_dir,
+            .root_src_path = "buildpkgs.zig",
+        };
+        try build_pkg.table.put(arena, "buildpkgs", &buildpkgs_pkg);
 
         const cross_target: std.zig.CrossTarget = .{};
         const target_info = try detectNativeTargetInfo(gpa, cross_target);
@@ -2605,6 +2638,57 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             fatal("the following build command crashed:\n{s}", .{cmd});
         },
     }
+}
+
+fn generateBuildPkgs(arena: *Allocator, local_cache_directory: Compilation.Directory, pkg_table: Package.Table) !Compilation.Directory {
+    var zig_cache_tmp_dir = try local_cache_directory.handle.makeOpenPath("tmp", .{});
+    defer zig_cache_tmp_dir.close();
+    var zig_cache_tmp_buildpkgs_dir = try zig_cache_tmp_dir.makeOpenPath("buildpkgs", .{});
+    defer zig_cache_tmp_buildpkgs_dir.close();
+
+    const hex_digest = blk: {
+        var hash = Cache.HashHelper { };
+        var pkg_it = pkg_table.iterator();
+        while (pkg_it.next()) |pkg| {
+            hash.addBytes(pkg.key);
+            hash.addBytes(&[_]u8 {'/'});
+        }
+        break :blk hash.final();
+    };
+    const pkg_dir_name: []const u8 = &hex_digest;
+
+    var buildpkgs_dir = try zig_cache_tmp_buildpkgs_dir.makeOpenPath(pkg_dir_name, .{});
+    errdefer buildpkgs_dir.close();
+
+    if (buildpkgs_dir.access("buildpkgs.zig", .{ .read = true })) { } else |_| {
+        const buildpkgs = try buildpkgs_dir.createFile("buildpkgs.zig.tmp", .{});
+        defer buildpkgs.close();
+        const writer = buildpkgs.writer();
+        try writer.writeAll(
+            \\pub const names = &[_][]const u8 {
+            \\
+        );
+        var pkg_it = pkg_table.iterator();
+        while (pkg_it.next()) |pkg| {
+            try writer.print("    \"{s}\",\n", .{pkg.key});
+        }
+        try writer.writeAll(
+            \\};
+            \\
+            \\pub fn has(comptime name: []const u8) bool {
+            \\    inline for (names) |has_name| {
+            \\        if (@import("std").mem.eql(u8, name, has_name)) return true;
+            \\    }
+            \\    return false;
+            \\}
+            \\
+        );
+        try buildpkgs_dir.rename("buildpkgs.zig.tmp", "buildpkgs.zig");
+    }
+    return Compilation.Directory {
+        .path = try local_cache_directory.join(arena, &[_][]const u8 { "tmp", "buildpkgs", pkg_dir_name }),
+        .handle = buildpkgs_dir,
+    };
 }
 
 fn argvCmd(allocator: *Allocator, argv: []const []const u8) ![]u8 {
