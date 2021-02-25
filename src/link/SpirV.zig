@@ -1,17 +1,3 @@
-const SpirV = @This();
-
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-
-const Module = @import("../Module.zig");
-const Compilation = @import("../Compilation.zig");
-const link = @import("../link.zig");
-const codegen = @import("../codegen/spirv.zig");
-const trace = @import("../tracy.zig").trace;
-const build_options = @import("build_options");
-const spec = @import("../codegen/spirv/spec.zig");
-
 //! SPIR-V Spec documentation: https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html
 //! According to above documentation, a SPIR-V module has the following logical layout:
 //! Header.
@@ -29,6 +15,20 @@ const spec = @import("../codegen/spirv/spec.zig");
 //! All type declaration instructions, constant instructions, global variable declarations, (preferrably) OpUndef instructions.
 //! All function declarations without a body (extern functions presumably).
 //! All regular functions.
+
+const SpirV = @This();
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+
+const Module = @import("../Module.zig");
+const Compilation = @import("../Compilation.zig");
+const link = @import("../link.zig");
+const codegen = @import("../codegen/spirv.zig");
+const trace = @import("../tracy.zig").trace;
+const build_options = @import("build_options");
+const spec = @import("../codegen/spirv/spec.zig");
 
 pub const FnData = struct {
     id: ?u32 = null,
@@ -199,7 +199,7 @@ fn writeCapabilities(binary: *std.ArrayList(u32), target: std.Target) !void {
         else => unreachable, // TODO
     };
 
-    try codegen.writeInstruction(binary, .OpCapability, &[_]u32{ @enumToInt(cap) });
+    try codegen.writeInstruction(binary, .OpCapability, &[_]u32{@enumToInt(cap)});
 }
 
 fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
@@ -221,7 +221,7 @@ fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
     };
 
     try codegen.writeInstruction(binary, .OpMemoryModel, &[_]u32{
-        @enumToInt(addressing_model), @enumToInt(memory_model)
+        @enumToInt(addressing_model), @enumToInt(memory_model),
     });
 }
 

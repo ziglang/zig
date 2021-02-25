@@ -626,8 +626,7 @@ fn genBlock(o: *Object, inst: *Inst.Block) !CValue {
         const local = try o.allocLocal(inst.base.ty, .Mut);
         try writer.writeAll(";\n");
         break :blk local;
-    } else
-        CValue{ .none = {} };
+    } else CValue{ .none = {} };
 
     inst.codegen.mcv = @bitCast(@import("../codegen.zig").AnyMCValue, result);
     try genBody(o, inst.body);

@@ -312,7 +312,7 @@ pub const Node = extern union {
                 => Payload.Value,
                 .@"if" => Payload.If,
                 .@"while" => Payload.While,
-                .@"switch", .array_init,.switch_prong => Payload.Switch,
+                .@"switch", .array_init, .switch_prong => Payload.Switch,
                 .break_val => Payload.BreakVal,
                 .call => Payload.Call,
                 .var_decl => Payload.VarDecl,
@@ -394,7 +394,8 @@ pub const Node = extern union {
                         some.data
                     else if (case.castTag(.switch_prong)) |some|
                         some.data.cond
-                    else unreachable;
+                    else
+                        unreachable;
 
                     if (!body.isNoreturn(break_counts)) return false;
                 }
@@ -406,7 +407,6 @@ pub const Node = extern union {
         }
         return false;
     }
-
 };
 
 pub const Payload = struct {

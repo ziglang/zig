@@ -45,7 +45,5 @@ pub const SPIRVModule = struct {
         return self.next_id;
     }
 
-    pub fn genDecl(self: SPIRVModule, id: u32, code: *std.ArrayList(u32), decl: *Decl) !void {
-
-    }
+    pub fn genDecl(self: SPIRVModule, id: u32, code: *std.ArrayList(u32), decl: *Decl) !void {}
 };

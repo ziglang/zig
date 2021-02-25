@@ -2143,11 +2143,10 @@ fn ifExpr(
             .src = token_starts[tree.lastToken(else_node)],
             .result = try expr(mod, sub_scope, block_scope.break_result_loc, else_node),
         };
-    } else
-        .{
-            .src = token_starts[tree.lastToken(if_full.ast.then_expr)],
-            .result = null,
-        };
+    } else .{
+        .src = token_starts[tree.lastToken(if_full.ast.then_expr)],
+        .result = null,
+    };
 
     return finishThenElseBlock(
         mod,
@@ -2316,11 +2315,10 @@ fn whileExpr(
             .src = token_starts[tree.lastToken(else_node)],
             .result = try expr(mod, sub_scope, loop_scope.break_result_loc, else_node),
         };
-    } else
-        .{
-            .src = token_starts[tree.lastToken(while_full.ast.then_expr)],
-            .result = null,
-        };
+    } else .{
+        .src = token_starts[tree.lastToken(while_full.ast.then_expr)],
+        .result = null,
+    };
 
     if (loop_scope.label) |some| {
         if (!some.used) {
@@ -2514,11 +2512,10 @@ fn forExpr(
             .src = token_starts[tree.lastToken(else_node)],
             .result = try expr(mod, sub_scope, loop_scope.break_result_loc, else_node),
         };
-    } else
-        .{
-            .src = token_starts[tree.lastToken(for_full.ast.then_expr)],
-            .result = null,
-        };
+    } else .{
+        .src = token_starts[tree.lastToken(for_full.ast.then_expr)],
+        .result = null,
+    };
 
     if (loop_scope.label) |some| {
         if (!some.used) {

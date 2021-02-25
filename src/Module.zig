@@ -1251,11 +1251,10 @@ fn astgenAndSemaFn(
             .param_types = param_types,
             .cc = cc,
         });
-    } else
-        try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type, .{
-            .return_type = return_type_inst,
-            .param_types = param_types,
-        });
+    } else try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type, .{
+        .return_type = return_type_inst,
+        .param_types = param_types,
+    });
 
     if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
         zir.dumpZir(mod.gpa, "fn_type", decl.name, fn_type_scope.instructions.items) catch {};

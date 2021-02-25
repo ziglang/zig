@@ -2950,8 +2950,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             4, 8 => {
                                 const offset = if (math.cast(i9, adj_off)) |imm|
                                     Instruction.LoadStoreOffset.imm_post_index(-imm)
-                                else |_|
-                                    Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u64), MCValue{ .immediate = adj_off }));
+                                else |_| Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u64), MCValue{ .immediate = adj_off }));
                                 const rn: Register = switch (arch) {
                                     .aarch64, .aarch64_be => .x29,
                                     .aarch64_32 => .w29,

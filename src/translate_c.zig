@@ -2313,8 +2313,7 @@ fn transCaseStmt(c: *Context, scope: *Scope, stmt: *const clang.Stmt, items: *st
                     const rhs_node = try transExprCoercing(c, scope, rhs, .used);
 
                     break :blk try Tag.ellipsis3.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
-                } else
-                    try transExprCoercing(c, scope, case_stmt.getLHS(), .used);
+                } else try transExprCoercing(c, scope, case_stmt.getLHS(), .used);
 
                 try items.append(expr);
                 sub = case_stmt.getSubStmt();
@@ -2551,8 +2550,7 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
         // check if long long first so that signed long long doesn't just become unsigned long long
         var typeid_node = if (is_longlong) try Tag.identifier.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, qt, false);
         break :blk try Tag.int_cast.create(c.arena, .{ .lhs = typeid_node, .rhs = try transExpr(c, scope, subscr_expr, .used) });
-    } else
-        try transExpr(c, scope, subscr_expr, .used);
+    } else try transExpr(c, scope, subscr_expr, .used);
 
     const node = try Tag.array_access.create(c.arena, .{
         .lhs = container_node,
@@ -2752,8 +2750,7 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
             } else if (cIsUnsignedInteger(op_expr.getType())) {
                 // use -% x for unsigned integers
                 return Tag.negate_wrap.create(c.arena, try transExpr(c, scope, op_expr, .used));
-            } else
-                return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "C negation with non float non integer", .{});
+            } else return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "C negation with non float non integer", .{});
         },
         .Not => {
             return Tag.bit_not.create(c.arena, try transExpr(c, scope, op_expr, .used));
@@ -4593,7 +4590,8 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
                 // (type)alignof(x)
                 .Keyword_alignof,
                 // (type)identifier
-                .Identifier => {},
+                .Identifier,
+                => {},
                 // (type)integer
                 .IntegerLiteral => {
                     saw_integer_literal = true;
@@ -5068,8 +5066,7 @@ fn getContainerTypeOf(c: *Context, ref: Node) ?Node {
                         return getContainer(c, field.type);
                     }
                 }
-            } else
-                return ty_node;
+            } else return ty_node;
         }
     }
     return null;
