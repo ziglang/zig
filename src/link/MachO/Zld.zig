@@ -16,6 +16,7 @@ const CodeSignature = @import("CodeSignature.zig");
 const Archive = @import("Archive.zig");
 const Object = @import("Object.zig");
 const Trie = @import("Trie.zig");
+const aarch64 = @import("../../codegen/aarch64.zig");
 
 usingnamespace @import("commands.zig");
 usingnamespace @import("bind.zig");
@@ -299,6 +300,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
 fn parseObjectFile(self: *Zld, object: *const Object) !void {
     const seg_cmd = object.load_commands.items[object.segment_cmd_index.?].Segment;
     for (seg_cmd.sections.items) |sect| {
+        const segname = parseName(&sect.segname);
         const sectname = parseName(&sect.sectname);
 
         const seg_index = self.segments_directory.get(sect.segname) orelse {
@@ -384,7 +386,7 @@ fn resolveImports(self: *Zld) !void {
             mem.eql(u8, sym_name, "___stack_chk_guard") or
             mem.eql(u8, sym_name, "_environ"))
         {
-            log.debug("writing nonlazy symbol '{s}'", .{sym_name});
+            log.warn("writing nonlazy symbol '{s}'", .{sym_name});
             const index = @intCast(u32, self.nonlazy_imports.items().len);
             try self.nonlazy_imports.putNoClobber(self.allocator, key, .{
                 .symbol = new_sym,
@@ -392,7 +394,7 @@ fn resolveImports(self: *Zld) !void {
                 .index = index,
             });
         } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
-            log.debug("writing threadlocal symbol '{s}'", .{sym_name});
+            log.warn("writing threadlocal symbol '{s}'", .{sym_name});
             const index = @intCast(u32, self.threadlocal_imports.items().len);
             try self.threadlocal_imports.putNoClobber(self.allocator, key, .{
                 .symbol = new_sym,
@@ -400,7 +402,7 @@ fn resolveImports(self: *Zld) !void {
                 .index = index,
             });
         } else {
-            log.debug("writing lazy symbol '{s}'", .{sym_name});
+            log.warn("writing lazy symbol '{s}'", .{sym_name});
             const index = @intCast(u32, self.lazy_imports.items().len);
             try self.lazy_imports.putNoClobber(self.allocator, key, .{
                 .symbol = new_sym,
@@ -412,7 +414,7 @@ fn resolveImports(self: *Zld) !void {
 
     const n_strx = try self.makeString("dyld_stub_binder");
     const name = try self.allocator.dupe(u8, "dyld_stub_binder");
-    log.debug("writing nonlazy symbol 'dyld_stub_binder'", .{});
+    log.warn("writing nonlazy symbol 'dyld_stub_binder'", .{});
     const index = @intCast(u32, self.nonlazy_imports.items().len);
     try self.nonlazy_imports.putNoClobber(self.allocator, name, .{
         .symbol = .{
@@ -606,7 +608,7 @@ fn writeLazySymbolPointer(self: *Zld, index: u32) !void {
     var buf: [@sizeOf(u64)]u8 = undefined;
     mem.writeIntLittle(u64, &buf, end);
     const off = la_symbol_ptr.offset + index * @sizeOf(u64);
-    log.debug("writing lazy symbol pointer entry 0x{x} at 0x{x}", .{ end, off });
+    log.warn("writing lazy symbol pointer entry 0x{x} at 0x{x}", .{ end, off });
     try self.file.?.pwriteAll(&buf, off);
 }
 
@@ -619,7 +621,7 @@ fn writeStub(self: *Zld, index: u32) !void {
     const stub_off = stubs.offset + index * stubs.reserved2;
     const stub_addr = stubs.addr + index * stubs.reserved2;
     const la_ptr_addr = la_symbol_ptr.addr + index * @sizeOf(u64);
-    log.debug("writing stub at 0x{x}", .{stub_off});
+    log.warn("writing stub at 0x{x}", .{stub_off});
     var code = try self.allocator.alloc(u8, stubs.reserved2);
     defer self.allocator.free(code);
     switch (self.arch.?) {
@@ -720,7 +722,7 @@ fn resolveSymbols(self: *Zld) !void {
             const sym_name = object.getString(sym.n_strx);
 
             if (isLocal(&sym) and self.locals.get(sym_name) != null) {
-                log.debug("symbol '{s}' already exists; skipping", .{sym_name});
+                log.warn("symbol '{s}' already exists; skipping", .{sym_name});
                 continue;
             }
 
@@ -734,7 +736,7 @@ fn resolveSymbols(self: *Zld) !void {
             const n_strx = try self.makeString(sym_name);
             const n_value = sym.n_value - sect.addr + next_address.get(key).?.addr;
 
-            log.debug("resolving '{s}' as local symbol at 0x{x}", .{ sym_name, n_value });
+            log.warn("resolving '{s}' as local symbol at 0x{x}", .{ sym_name, n_value });
 
             var n_sect = res.sect_index + 1;
             for (self.load_commands.items) |sseg, i| {
@@ -766,8 +768,8 @@ fn doRelocs(self: *Zld) !void {
     defer next_space.deinit();
 
     for (self.objects.items) |object| {
-        log.debug("\n\n", .{});
-        log.debug("relocating object {s}", .{object.name});
+        log.warn("\n\n", .{});
+        log.warn("relocating object {s}", .{object.name});
 
         const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
 
@@ -802,9 +804,12 @@ fn doRelocs(self: *Zld) !void {
             };
             const next = next_space.get(key) orelse continue;
 
-            var code = try self.allocator.alloc(u8, sect.size);
-            defer self.allocator.free(code);
-            _ = try object.file.preadAll(code, sect.offset);
+            var code = blk: {
+                var buf = try self.allocator.alloc(u8, sect.size);
+                _ = try object.file.preadAll(buf, sect.offset);
+                break :blk std.ArrayList(u8).fromOwnedSlice(self.allocator, buf);
+            };
+            defer code.deinit();
 
             // Parse relocs (if any)
             var raw_relocs = try self.allocator.alloc(u8, @sizeOf(macho.relocation_info) * sect.nreloc);
@@ -822,34 +827,34 @@ fn doRelocs(self: *Zld) !void {
                 switch (self.arch.?) {
                     .aarch64 => {
                         const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
-                        log.debug("{s}", .{rel_type});
-                        log.debug("    | source address 0x{x}", .{this_addr});
-                        log.debug("    | offset 0x{x}", .{off});
+                        log.warn("{s}", .{rel_type});
+                        log.warn("    | source address 0x{x}", .{this_addr});
+                        log.warn("    | offset 0x{x}", .{off});
 
                         if (rel_type == .ARM64_RELOC_ADDEND) {
                             addend = rel.r_symbolnum;
-                            log.debug("    | calculated addend = 0x{x}", .{addend});
+                            log.warn("    | calculated addend = 0x{x}", .{addend});
                             // TODO followed by either PAGE21 or PAGEOFF12 only.
                             continue;
                         }
                     },
                     .x86_64 => {
                         const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-                        log.debug("{s}", .{rel_type});
-                        log.debug("    | source address 0x{x}", .{this_addr});
-                        log.debug("    | offset 0x{x}", .{off});
+                        log.warn("{s}", .{rel_type});
+                        log.warn("    | source address 0x{x}", .{this_addr});
+                        log.warn("    | offset 0x{x}", .{off});
                     },
                     else => {},
                 }
 
                 const target_addr = try self.relocTargetAddr(object, rel, next_space);
-                log.debug("    | target address 0x{x}", .{target_addr});
+                log.warn("    | target address 0x{x}", .{target_addr});
                 if (rel.r_extern == 1) {
                     const target_symname = object.getString(object.symtab.items[rel.r_symbolnum].n_strx);
-                    log.debug("    | target symbol '{s}'", .{target_symname});
+                    log.warn("    | target symbol '{s}'", .{target_symname});
                 } else {
                     const target_sectname = seg.sections.items[rel.r_symbolnum - 1].sectname;
-                    log.debug("    | target section '{s}'", .{parseName(&target_sectname)});
+                    log.warn("    | target section '{s}'", .{parseName(&target_sectname)});
                 }
 
                 switch (self.arch.?) {
@@ -862,16 +867,16 @@ fn doRelocs(self: *Zld) !void {
                             .X86_64_RELOC_GOT,
                             => {
                                 assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
+                                const inst = code.items[off..][0..4];
                                 const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4));
                                 mem.writeIntLittle(u32, inst, displacement);
                             },
                             .X86_64_RELOC_TLV => {
                                 assert(rel.r_length == 2);
                                 // We need to rewrite the opcode from movq to leaq.
-                                code[off - 2] = 0x8d;
+                                code.items[off - 2] = 0x8d;
                                 // Add displacement.
-                                const inst = code[off..][0..4];
+                                const inst = code.items[off..][0..4];
                                 const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4));
                                 mem.writeIntLittle(u32, inst, displacement);
                             },
@@ -881,7 +886,7 @@ fn doRelocs(self: *Zld) !void {
                             .X86_64_RELOC_SIGNED_4,
                             => {
                                 assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
+                                const inst = code.items[off..][0..4];
                                 const offset: i32 = blk: {
                                     if (rel.r_extern == 1) {
                                         break :blk mem.readIntLittle(i32, inst);
@@ -899,7 +904,7 @@ fn doRelocs(self: *Zld) !void {
                                         break :blk correction;
                                     }
                                 };
-                                log.debug("    | calculated addend 0x{x}", .{offset});
+                                log.warn("    | calculated addend 0x{x}", .{offset});
                                 const result = @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4 + offset;
                                 const displacement = @bitCast(u32, @intCast(i32, result));
                                 mem.writeIntLittle(u32, inst, displacement);
@@ -910,9 +915,9 @@ fn doRelocs(self: *Zld) !void {
                             .X86_64_RELOC_UNSIGNED => {
                                 switch (rel.r_length) {
                                     3 => {
-                                        const inst = code[off..][0..8];
+                                        const inst = code.items[off..][0..8];
                                         const offset = mem.readIntLittle(i64, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
+                                        log.warn("    | calculated addend 0x{x}", .{offset});
                                         const result = if (sub) |s|
                                             @intCast(i64, target_addr) - s + offset
                                         else
@@ -934,9 +939,9 @@ fn doRelocs(self: *Zld) !void {
                                         }
                                     },
                                     2 => {
-                                        const inst = code[off..][0..4];
+                                        const inst = code.items[off..][0..4];
                                         const offset = mem.readIntLittle(i32, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
+                                        log.warn("    | calculated addend 0x{x}", .{offset});
                                         const result = if (sub) |s|
                                             @intCast(i64, target_addr) - s + offset
                                         else
@@ -958,7 +963,7 @@ fn doRelocs(self: *Zld) !void {
                         switch (rel_type) {
                             .ARM64_RELOC_BRANCH26 => {
                                 assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
+                                const inst = code.items[off..][0..4];
                                 const displacement = @intCast(i28, @intCast(i64, target_addr) - @intCast(i64, this_addr));
                                 var parsed = mem.bytesAsValue(meta.TagPayload(Arm64, Arm64.Branch), inst);
                                 parsed.disp = @truncate(u26, @bitCast(u28, displacement) >> 2);
@@ -968,12 +973,18 @@ fn doRelocs(self: *Zld) !void {
                             .ARM64_RELOC_TLVP_LOAD_PAGE21,
                             => {
                                 assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
+                                const inst = code.items[off..][0..4];
                                 const ta = if (addend) |a| target_addr + a else target_addr;
                                 const this_page = @intCast(i32, this_addr >> 12);
                                 const target_page = @intCast(i32, ta >> 12);
                                 const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
-                                log.debug("    | moving by {} pages", .{pages});
+                                if (pages == 0) {
+                                    // No need to execute adrp. Instead, replace with a nop.
+                                    log.warn("    | replacing ADRP with NOP", .{});
+                                    mem.writeIntLittle(u32, inst, aarch64.Instruction.nop().toU32());
+                                    continue;
+                                }
+                                log.warn("    | moving by {} pages", .{pages});
                                 var parsed = mem.bytesAsValue(meta.TagPayload(Arm64, Arm64.Address), inst);
                                 parsed.immhi = @truncate(u19, pages >> 2);
                                 parsed.immlo = @truncate(u2, pages);
@@ -982,22 +993,42 @@ fn doRelocs(self: *Zld) !void {
                             .ARM64_RELOC_PAGEOFF12,
                             .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
                             => {
-                                const inst = code[off..][0..4];
+                                const inst = code.items[off..][0..4];
                                 if (Arm64.isArithmetic(inst)) {
-                                    log.debug("    | detected ADD opcode", .{});
+                                    log.warn("    | detected ADD opcode", .{});
                                     // add
                                     var parsed = mem.bytesAsValue(meta.TagPayload(Arm64, Arm64.Add), inst);
                                     const ta = if (addend) |a| target_addr + a else target_addr;
                                     const narrowed = @truncate(u12, ta);
+                                    if (narrowed == 0) {
+                                        // No need to execute add. Instead, replace with a nop.
+                                        log.warn("    | replacing ADD with NOP", .{});
+                                        mem.writeIntLittle(u32, inst, aarch64.Instruction.nop().toU32());
+                                        continue;
+                                    }
                                     parsed.offset = narrowed;
                                 } else {
-                                    log.debug("    | detected LDR/STR opcode", .{});
+                                    log.warn("    | detected LDR/STR opcode", .{});
                                     // ldr/str
                                     var parsed = mem.bytesAsValue(meta.TagPayload(Arm64, Arm64.LoadRegister), inst);
                                     const ta = if (addend) |a| target_addr + a else target_addr;
                                     const narrowed = @truncate(u12, ta);
-                                    const offset = if (parsed.size == 1) @divExact(narrowed, 8) else @divExact(narrowed, 4);
-                                    parsed.offset = @truncate(u12, offset);
+                                    if (narrowed == 0) {
+                                        // No need to execute ldr/str. Instead, replace with a nop.
+                                        log.warn("    | replacing LDR/STR with NOP", .{});
+                                        mem.writeIntLittle(u32, inst, aarch64.Instruction.nop().toU32());
+                                        continue;
+                                    }
+                                    const denom: u12 = if (parsed.size == 1) 8 else 4;
+                                    const offset = math.divExact(u12, narrowed, denom) catch |_| {
+                                        // If we are here, then this means we are not able to divide the offset
+                                        // exactly by the required denominator. Therefore, we will use add instead of
+                                        // ldr as we expect ldr to follow this instruction nonetheless.
+                                        // TODO I believe ldr/str can only occur for GOT_LOAD_PAGEOFF12.
+                                        mem.writeIntLittle(u32, inst, Arm64.add(parsed.rn, parsed.rn, narrowed, parsed.size).toU32());
+                                        continue;
+                                    };
+                                    parsed.offset = offset;
                                 }
                                 addend = null;
                             },
@@ -1008,7 +1039,7 @@ fn doRelocs(self: *Zld) !void {
                                     rn: u5,
                                     size: u1,
                                 };
-                                const inst = code[off..][0..4];
+                                const inst = code.items[off..][0..4];
                                 const parsed: RegInfo = blk: {
                                     if (Arm64.isArithmetic(inst)) {
                                         const curr = mem.bytesAsValue(meta.TagPayload(Arm64, Arm64.Add), inst);
@@ -1020,7 +1051,7 @@ fn doRelocs(self: *Zld) !void {
                                 };
                                 const ta = if (addend) |a| target_addr + a else target_addr;
                                 const narrowed = @truncate(u12, ta);
-                                log.debug("    | rewriting TLV access to ADD opcode", .{});
+                                log.warn("    | rewriting TLV access to ADD opcode", .{});
                                 // For TLV, we always generate an add instruction.
                                 mem.writeIntLittle(u32, inst, Arm64.add(parsed.rt, parsed.rn, narrowed, parsed.size).toU32());
                             },
@@ -1030,9 +1061,9 @@ fn doRelocs(self: *Zld) !void {
                             .ARM64_RELOC_UNSIGNED => {
                                 switch (rel.r_length) {
                                     3 => {
-                                        const inst = code[off..][0..8];
+                                        const inst = code.items[off..][0..8];
                                         const offset = mem.readIntLittle(i64, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
+                                        log.warn("    | calculated addend 0x{x}", .{offset});
                                         const result = if (sub) |s|
                                             @intCast(i64, target_addr) - s + offset
                                         else
@@ -1054,9 +1085,9 @@ fn doRelocs(self: *Zld) !void {
                                         }
                                     },
                                     2 => {
-                                        const inst = code[off..][0..4];
+                                        const inst = code.items[off..][0..4];
                                         const offset = mem.readIntLittle(i32, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
+                                        log.warn("    | calculated addend 0x{x}", .{offset});
                                         const result = if (sub) |s|
                                             @intCast(i64, target_addr) - s + offset
                                         else
@@ -1078,7 +1109,7 @@ fn doRelocs(self: *Zld) !void {
                 }
             }
 
-            log.debug("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
+            log.warn("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
                 segname,
                 sectname,
                 object.name,
@@ -1096,7 +1127,7 @@ fn doRelocs(self: *Zld) !void {
                 mem.set(u8, zeroes, 0);
                 try self.file.?.pwriteAll(zeroes, next.offset);
             } else {
-                try self.file.?.pwriteAll(code, next.offset);
+                try self.file.?.pwriteAll(code.items, next.offset);
             }
         }
     }
@@ -1672,7 +1703,7 @@ fn writeRebaseInfoTable(self: *Zld) !void {
     dyld_info.rebase_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @sizeOf(u64)));
     seg.inner.filesize += dyld_info.rebase_size;
 
-    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
+    log.warn("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.rebase_off);
 }
@@ -1725,7 +1756,7 @@ fn writeBindInfoTable(self: *Zld) !void {
     dyld_info.bind_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.bind_size;
 
-    log.debug("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
+    log.warn("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.bind_off);
 }
@@ -1764,7 +1795,7 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
     dyld_info.lazy_bind_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.lazy_bind_size;
 
-    log.debug("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
+    log.warn("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
     try self.populateLazyBindOffsetsInStubHelper(buffer);
@@ -1866,7 +1897,7 @@ fn writeExportInfo(self: *Zld) !void {
     dyld_info.export_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.export_size;
 
-    log.debug("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
+    log.warn("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.export_off);
 }
@@ -1995,7 +2026,7 @@ fn writeDebugInfo(self: *Zld) !void {
 
     const stabs_off = symtab.symoff;
     const stabs_size = symtab.nsyms * @sizeOf(macho.nlist_64);
-    log.debug("writing symbol stabs from 0x{x} to 0x{x}", .{ stabs_off, stabs_size + stabs_off });
+    log.warn("writing symbol stabs from 0x{x} to 0x{x}", .{ stabs_off, stabs_size + stabs_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(stabs.items), stabs_off);
 
     linkedit.inner.filesize += stabs_size;
@@ -2044,17 +2075,17 @@ fn writeSymbolTable(self: *Zld) !void {
 
     const locals_off = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
-    log.debug("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
+    log.warn("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(locals.items), locals_off);
 
     const exports_off = locals_off + locals_size;
     const exports_size = nexports * @sizeOf(macho.nlist_64);
-    log.debug("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
+    log.warn("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(exports.items), exports_off);
 
     const undefs_off = exports_off + exports_size;
     const undefs_size = nundefs * @sizeOf(macho.nlist_64);
-    log.debug("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
+    log.warn("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(undefs.items), undefs_off);
 
     symtab.nsyms += @intCast(u32, nlocals + nexports + nundefs);
@@ -2085,7 +2116,7 @@ fn writeDynamicSymbolTable(self: *Zld) !void {
     const needed_size = dysymtab.nindirectsyms * @sizeOf(u32);
     seg.inner.filesize += needed_size;
 
-    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{
+    log.warn("writing indirect symbol table from 0x{x} to 0x{x}", .{
         dysymtab.indirectsymoff,
         dysymtab.indirectsymoff + needed_size,
     });
@@ -2124,7 +2155,7 @@ fn writeStringTable(self: *Zld) !void {
     symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.strtab.items.len, @alignOf(u64)));
     seg.inner.filesize += symtab.strsize;
 
-    log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
+    log.warn("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
     try self.file.?.pwriteAll(self.strtab.items, symtab.stroff);
 
@@ -2150,7 +2181,7 @@ fn writeCodeSignaturePadding(self: *Zld) !void {
     seg.inner.filesize += needed_size;
     seg.inner.vmsize = mem.alignForwardGeneric(u64, seg.inner.filesize, self.page_size.?);
 
-    log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
+    log.warn("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
 
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
@@ -2176,7 +2207,7 @@ fn writeCodeSignature(self: *Zld) !void {
     var stream = std.io.fixedBufferStream(buffer);
     try code_sig.write(stream.writer());
 
-    log.debug("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
+    log.warn("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
 
     try self.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
 }
@@ -2195,7 +2226,7 @@ fn writeLoadCommands(self: *Zld) !void {
     }
 
     const off = @sizeOf(macho.mach_header_64);
-    log.debug("writing {} load commands from 0x{x} to 0x{x}", .{ self.load_commands.items.len, off, off + sizeofcmds });
+    log.warn("writing {} load commands from 0x{x} to 0x{x}", .{ self.load_commands.items.len, off, off + sizeofcmds });
     try self.file.?.pwriteAll(buffer, off);
 }
 
@@ -2233,7 +2264,7 @@ fn writeHeader(self: *Zld) !void {
     for (self.load_commands.items) |cmd| {
         header.sizeofcmds += cmd.cmdsize();
     }
-    log.debug("writing Mach-O header {}", .{header});
+    log.warn("writing Mach-O header {}", .{header});
     try self.file.?.pwriteAll(mem.asBytes(&header), 0);
 }
 
@@ -2247,7 +2278,7 @@ pub fn makeStaticString(bytes: []const u8) [16]u8 {
 fn makeString(self: *Zld, bytes: []const u8) !u32 {
     try self.strtab.ensureCapacity(self.allocator, self.strtab.items.len + bytes.len + 1);
     const offset = @intCast(u32, self.strtab.items.len);
-    log.debug("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
+    log.warn("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
     self.strtab.appendSliceAssumeCapacity(bytes);
     self.strtab.appendAssumeCapacity(0);
     return offset;
