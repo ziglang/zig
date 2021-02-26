@@ -19,6 +19,12 @@
 #include <linux/futex.h>
 #include <sys/syscall.h>
 
+// libc++ uses SYS_futex as a universal syscall name. However, on 32 bit architectures
+// with a 64 bit time_t, we need to specify SYS_futex_time64.
+#if !defined(SYS_futex) && defined(SYS_futex_time64)
+# define SYS_futex SYS_futex_time64
+#endif
+
 #else // <- Add other operating systems here
 
 // Baseline needs no new headers

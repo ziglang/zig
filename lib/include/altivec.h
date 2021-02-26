@@ -8281,6 +8281,46 @@ vec_sel(vector double __a, vector double __b, vector unsigned long long __c) {
                            ((vector long long)__b & (vector long long)__c);
   return (vector double)__res;
 }
+
+static __inline__ vector bool long long __ATTRS_o_ai
+vec_sel(vector bool long long __a, vector bool long long __b,
+        vector bool long long __c) {
+  return (__a & ~__c) | (__b & __c);
+}
+
+static __inline__ vector bool long long __ATTRS_o_ai
+vec_sel(vector bool long long __a, vector bool long long __b,
+        vector unsigned long long __c) {
+  return (__a & ~(vector bool long long)__c) |
+         (__b & (vector bool long long)__c);
+}
+
+static __inline__ vector signed long long __ATTRS_o_ai
+vec_sel(vector signed long long __a, vector signed long long __b,
+        vector bool long long __c) {
+  return (__a & ~(vector signed long long)__c) |
+         (__b & (vector signed long long)__c);
+}
+
+static __inline__ vector signed long long __ATTRS_o_ai
+vec_sel(vector signed long long __a, vector signed long long __b,
+        vector unsigned long long __c) {
+  return (__a & ~(vector signed long long)__c) |
+         (__b & (vector signed long long)__c);
+}
+
+static __inline__ vector unsigned long long __ATTRS_o_ai
+vec_sel(vector unsigned long long __a, vector unsigned long long __b,
+        vector bool long long __c) {
+  return (__a & ~(vector unsigned long long)__c) |
+         (__b & (vector unsigned long long)__c);
+}
+
+static __inline__ vector unsigned long long __ATTRS_o_ai
+vec_sel(vector unsigned long long __a, vector unsigned long long __b,
+        vector unsigned long long __c) {
+  return (__a & ~__c) | (__b & __c);
+}
 #endif
 
 /* vec_vsel */

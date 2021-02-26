@@ -49,8 +49,10 @@
 #    define _LIBCPP_STD_VER 14
 #  elif __cplusplus <= 201703L
 #    define _LIBCPP_STD_VER 17
+#  elif __cplusplus <= 202002L
+#    define _LIBCPP_STD_VER 20
 #  else
-#    define _LIBCPP_STD_VER 18  // current year, or date of c++2a ratification
+#    define _LIBCPP_STD_VER 21  // current year, or date of c++2b ratification
 #  endif
 #endif  // _LIBCPP_STD_VER
 
@@ -262,14 +264,14 @@
 #  endif  // __LONG_LONG_SUPPORTED
 #endif  // __FreeBSD__
 
-#ifdef __NetBSD__
+#if defined(__NetBSD__) || defined(__OpenBSD__)
 #  include <sys/endian.h>
 #  if _BYTE_ORDER == _LITTLE_ENDIAN
 #    define _LIBCPP_LITTLE_ENDIAN
 #  else  // _BYTE_ORDER == _LITTLE_ENDIAN
 #    define _LIBCPP_BIG_ENDIAN
 #  endif  // _BYTE_ORDER == _LITTLE_ENDIAN
-#endif  // __NetBSD__
+#endif  // defined(__NetBSD__) || defined(__OpenBSD__)
 
 #if defined(_WIN32)
 #  define _LIBCPP_WIN32API
@@ -310,7 +312,7 @@
 #  endif
 #endif // __sun__
 
-#if defined(__CloudABI__)
+#if defined(__OpenBSD__) || defined(__CloudABI__)
    // Certain architectures provide arc4random(). Prefer using
    // arc4random() over /dev/{u,}random to make it possible to obtain
    // random data even when using sandboxing mechanisms such as chroots,
@@ -367,6 +369,9 @@
 #  elif defined(__Fuchsia__) || defined(__wasi__) || defined(__NetBSD__)
 #    define _LIBCPP_HAS_ALIGNED_ALLOC
 #    define _LIBCPP_HAS_QUICK_EXIT
+#    define _LIBCPP_HAS_TIMESPEC_GET
+#  elif defined(__OpenBSD__)
+#    define _LIBCPP_HAS_ALIGNED_ALLOC
 #    define _LIBCPP_HAS_TIMESPEC_GET
 #  elif defined(__linux__)
 #    if !defined(_LIBCPP_HAS_MUSL_LIBC)
@@ -713,7 +718,7 @@ typedef __char32_t char32_t;
 #endif
 
 #ifndef _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS
-#  if !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS) && __has_attribute(__type_visibility__)
+#  if !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS)
 #    define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __attribute__ ((__visibility__("default")))
 #  else
 #    define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS
@@ -880,16 +885,28 @@ typedef unsigned int   char32_t;
 #endif
 
 // _LIBCPP_DEBUG_LEVEL is always defined to one of [0, 1, 2] at this point
-#if _LIBCPP_DEBUG_LEVEL >= 1
-# define _LIBCPP_DISABLE_EXTERN_TEMPLATE
+#if _LIBCPP_DEBUG_LEVEL >= 1 && !defined(_LIBCPP_DISABLE_EXTERN_TEMPLATE)
+# define _LIBCPP_EXTERN_TEMPLATE(...)
 #endif
 
 #ifdef _LIBCPP_DISABLE_EXTERN_TEMPLATE
-#define _LIBCPP_EXTERN_TEMPLATE(...)
+# define _LIBCPP_EXTERN_TEMPLATE(...)
+# define _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(...)
 #endif
 
 #ifndef _LIBCPP_EXTERN_TEMPLATE
 #define _LIBCPP_EXTERN_TEMPLATE(...) extern template __VA_ARGS__;
+#endif
+
+// When the Debug mode is enabled, we disable extern declarations because we
+// don't want to use the functions compiled in the library, which might not
+// have had the debug mode enabled when built. However, some extern declarations
+// need to be used, because code correctness depends on it (several instances
+// in the <locale>). Those special declarations are declared with
+// _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE, which is enabled even
+// when the debug mode is enabled.
+#ifndef _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE
+# define _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(...) extern template __VA_ARGS__;
 #endif
 
 #ifndef _LIBCPP_EXTERN_TEMPLATE_DEFINE
@@ -1082,7 +1099,7 @@ typedef unsigned int   char32_t;
 #endif
 
 #ifndef _LIBCPP_HAS_NO_ASAN
-_LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
+extern "C" _LIBCPP_FUNC_VIS void __sanitizer_annotate_contiguous_container(
   const void *, const void *, const void *, const void *);
 #endif
 
@@ -1107,6 +1124,7 @@ _LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
 #  if defined(__FreeBSD__) || \
       defined(__wasi__) || \
       defined(__NetBSD__) || \
+      defined(__OpenBSD__) || \
       defined(__NuttX__) || \
       defined(__linux__) || \
       defined(__GNU__) || \
@@ -1202,14 +1220,15 @@ _LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
 // Some systems do not provide gets() in their C library, for security reasons.
 #ifndef _LIBCPP_C_HAS_NO_GETS
 #  if defined(_LIBCPP_MSVCRT) || \
-      (defined(__FreeBSD_version) && __FreeBSD_version >= 1300043)
+      (defined(__FreeBSD_version) && __FreeBSD_version >= 1300043) || \
+      defined(__OpenBSD__)
 #    define _LIBCPP_C_HAS_NO_GETS
 #  endif
 #endif
 
 #if defined(__BIONIC__) || defined(__CloudABI__) || defined(__NuttX__) ||      \
     defined(__Fuchsia__) || defined(__wasi__) || defined(_LIBCPP_HAS_MUSL_LIBC) || \
-    defined(__MVS__)
+    defined(__MVS__) || defined(__OpenBSD__)
 #define _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE
 #endif
 

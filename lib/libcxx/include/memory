@@ -1286,9 +1286,7 @@ struct __compressed_pair_elem<_Tp, _Idx, true> : private _Tp {
 template <class _T1, class _T2>
 class __compressed_pair : private __compressed_pair_elem<_T1, 0>,
                           private __compressed_pair_elem<_T2, 1> {
-  typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T1, 0> _Base1;
-  typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T2, 1> _Base2;
-
+public:
   // NOTE: This static assert should never fire because __compressed_pair
   // is *almost never* used in a scenario where it's possible for T1 == T2.
   // (The exception is std::function where it is possible that the function
@@ -1298,7 +1296,9 @@ class __compressed_pair : private __compressed_pair_elem<_T1, 0>,
     "The current implementation is NOT ABI-compatible with the previous "
     "implementation for this configuration");
 
-public:
+    typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T1, 0> _Base1;
+    typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T2, 1> _Base2;
+
     template <bool _Dummy = true,
       class = typename enable_if<
           __dependent_type<is_default_constructible<_T1>, _Dummy>::value &&
@@ -1342,6 +1342,15 @@ public:
   _LIBCPP_INLINE_VISIBILITY
   typename _Base2::const_reference second() const _NOEXCEPT {
     return static_cast<_Base2 const&>(*this).__get();
+  }
+
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+  static _Base1* __get_first_base(__compressed_pair* __pair) _NOEXCEPT {
+    return static_cast<_Base1*>(__pair);
+  }
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+  static _Base2* __get_second_base(__compressed_pair* __pair) _NOEXCEPT {
+    return static_cast<_Base2*>(__pair);
   }
 
   _LIBCPP_INLINE_VISIBILITY
@@ -1453,7 +1462,7 @@ class _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS unique_ptr {
 public:
   typedef _Tp element_type;
   typedef _Dp deleter_type;
-  typedef _LIBCPP_NODEBUG_TYPE typename __pointer_type<_Tp, deleter_type>::type pointer;
+  typedef _LIBCPP_NODEBUG_TYPE typename __pointer<_Tp, deleter_type>::type pointer;
 
   static_assert(!is_rvalue_reference<deleter_type>::value,
                 "the specified deleter type cannot be an rvalue reference");
@@ -1661,7 +1670,7 @@ class _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS unique_ptr<_Tp[], _Dp>
 public:
   typedef _Tp element_type;
   typedef _Dp deleter_type;
-  typedef typename __pointer_type<_Tp, deleter_type>::type pointer;
+  typedef typename __pointer<_Tp, deleter_type>::type pointer;
 
 private:
   __compressed_pair<pointer, deleter_type> __ptr_;
@@ -2574,43 +2583,81 @@ template <class _Tp, class _Alloc>
 struct __shared_ptr_emplace
     : __shared_weak_count
 {
-    _LIBCPP_HIDE_FROM_ABI
-    explicit __shared_ptr_emplace(_Alloc __a)
-        :  __data_(_VSTD::move(__a), __value_init_tag())
-    { }
-
-    template <class ..._Args>
+    template<class ..._Args>
     _LIBCPP_HIDE_FROM_ABI
     explicit __shared_ptr_emplace(_Alloc __a, _Args&& ...__args)
-#ifndef _LIBCPP_CXX03_LANG
-        : __data_(piecewise_construct, _VSTD::forward_as_tuple(__a),
-                  _VSTD::forward_as_tuple(_VSTD::forward<_Args>(__args)...))
+        : __storage_(_VSTD::move(__a))
+    {
+#if _LIBCPP_STD_VER > 17
+        using _TpAlloc = typename __allocator_traits_rebind<_Alloc, _Tp>::type;
+        _TpAlloc __tmp(*__get_alloc());
+        allocator_traits<_TpAlloc>::construct(__tmp, __get_elem(), _VSTD::forward<_Args>(__args)...);
 #else
-        : __data_(__a, _Tp(_VSTD::forward<_Args>(__args)...))
+        ::new ((void*)__get_elem()) _Tp(_VSTD::forward<_Args>(__args)...);
 #endif
-    { }
+    }
 
     _LIBCPP_HIDE_FROM_ABI
-    _Tp* __get_elem() _NOEXCEPT { return _VSTD::addressof(__data_.second()); }
+    _Alloc* __get_alloc() _NOEXCEPT { return __storage_.__get_alloc(); }
 
     _LIBCPP_HIDE_FROM_ABI
-    _Alloc* __get_alloc() _NOEXCEPT { return _VSTD::addressof(__data_.first()); }
+    _Tp* __get_elem() _NOEXCEPT { return __storage_.__get_elem(); }
 
 private:
     virtual void __on_zero_shared() _NOEXCEPT {
+#if _LIBCPP_STD_VER > 17
+        using _TpAlloc = typename __allocator_traits_rebind<_Alloc, _Tp>::type;
+        _TpAlloc __tmp(*__get_alloc());
+        allocator_traits<_TpAlloc>::destroy(__tmp, __get_elem());
+#else
         __get_elem()->~_Tp();
+#endif
     }
 
     virtual void __on_zero_shared_weak() _NOEXCEPT {
         using _ControlBlockAlloc = typename __allocator_traits_rebind<_Alloc, __shared_ptr_emplace>::type;
         using _ControlBlockPointer = typename allocator_traits<_ControlBlockAlloc>::pointer;
         _ControlBlockAlloc __tmp(*__get_alloc());
-        __get_alloc()->~_Alloc();
+        __storage_.~_Storage();
         allocator_traits<_ControlBlockAlloc>::deallocate(__tmp,
             pointer_traits<_ControlBlockPointer>::pointer_to(*this), 1);
     }
 
-    __compressed_pair<_Alloc, _Tp> __data_;
+    // This class implements the control block for non-array shared pointers created
+    // through `std::allocate_shared` and `std::make_shared`.
+    //
+    // In previous versions of the library, we used a compressed pair to store
+    // both the _Alloc and the _Tp. This implies using EBO, which is incompatible
+    // with Allocator construction for _Tp. To allow implementing P0674 in C++20,
+    // we now use a properly aligned char buffer while making sure that we maintain
+    // the same layout that we had when we used a compressed pair.
+    using _CompressedPair = __compressed_pair<_Alloc, _Tp>;
+    struct _ALIGNAS_TYPE(_CompressedPair) _Storage {
+        char __blob_[sizeof(_CompressedPair)];
+
+        _LIBCPP_HIDE_FROM_ABI explicit _Storage(_Alloc&& __a) {
+            ::new ((void*)__get_alloc()) _Alloc(_VSTD::move(__a));
+        }
+        _LIBCPP_HIDE_FROM_ABI ~_Storage() {
+            __get_alloc()->~_Alloc();
+        }
+        _Alloc* __get_alloc() _NOEXCEPT {
+            _CompressedPair *__as_pair = reinterpret_cast<_CompressedPair*>(__blob_);
+            typename _CompressedPair::_Base1* __first = _CompressedPair::__get_first_base(__as_pair);
+            _Alloc *__alloc = reinterpret_cast<_Alloc*>(__first);
+            return __alloc;
+        }
+        _LIBCPP_NO_CFI _Tp* __get_elem() _NOEXCEPT {
+            _CompressedPair *__as_pair = reinterpret_cast<_CompressedPair*>(__blob_);
+            typename _CompressedPair::_Base2* __second = _CompressedPair::__get_second_base(__as_pair);
+            _Tp *__elem = reinterpret_cast<_Tp*>(__second);
+            return __elem;
+        }
+    };
+
+    static_assert(_LIBCPP_ALIGNOF(_Storage) == _LIBCPP_ALIGNOF(_CompressedPair), "");
+    static_assert(sizeof(_Storage) == sizeof(_CompressedPair), "");
+    _Storage __storage_;
 };
 
 struct __shared_ptr_dummy_rebind_allocator_type;

@@ -17,7 +17,7 @@
 #include <errno.h>
 
 #ifdef __MVS__
-# include <support/ibm/nanosleep.h>
+# include <__support/ibm/nanosleep.h>
 #endif
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER

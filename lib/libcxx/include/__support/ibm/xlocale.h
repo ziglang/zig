@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------- support/ibm/xlocale.h -------------------===//
+//===-----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,7 +9,8 @@
 
 #ifndef _LIBCPP_SUPPORT_IBM_XLOCALE_H
 #define _LIBCPP_SUPPORT_IBM_XLOCALE_H
-#include <support/ibm/locale_mgmt_aix.h>
+
+#include <__support/ibm/locale_mgmt_aix.h>
 
 #include "cstdlib"
 
@@ -218,7 +219,7 @@ size_t strftime_l(char *__s, size_t __size, const char *__fmt,
 #elif defined(__MVS__)
 #include <wctype.h>
 // POSIX routines
-#include <support/xlocale/__posix_l_fallback.h>
+#include <__support/xlocale/__posix_l_fallback.h>
 #endif // defined(__MVS__)
 
 // The following are not POSIX routines.  These are quick-and-dirty hacks

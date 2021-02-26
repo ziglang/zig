@@ -455,7 +455,9 @@ public:
     typedef basic_string<char_type>                           string_type;
 
     // construct/copy/destroy:
-    explicit match_results(const Allocator& a = Allocator());
+    explicit match_results(const Allocator& a = Allocator()); // before C++20
+    match_results() : match_results(Allocator()) {}           // C++20
+    explicit match_results(const Allocator& a);               // C++20
     match_results(const match_results& m);
     match_results(match_results&& m) noexcept;
     match_results& operator=(const match_results& m);
@@ -5357,7 +5359,13 @@ public:
     typedef basic_string<char_type>                           string_type;
 
     // construct/copy/destroy:
+#ifndef _LIBCPP_CXX03_LANG
+    match_results() : match_results(allocator_type()) {}
+    explicit match_results(const allocator_type& __a);
+#else
     explicit match_results(const allocator_type& __a = allocator_type());
+#endif
+
 //    match_results(const match_results&) = default;
 //    match_results& operator=(const match_results&) = default;
 //    match_results(match_results&& __m) = default;

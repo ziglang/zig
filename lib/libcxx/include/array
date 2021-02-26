@@ -500,7 +500,7 @@ to_array(_Tp (&__arr)[_Size]) noexcept(is_nothrow_constructible_v<_Tp, _Tp&>) {
   static_assert(
       is_constructible_v<_Tp, _Tp&>,
       "[array.creation]/1: to_array requires copy constructible elements.");
-  return __to_array_lvalue_impl(__arr, make_index_sequence<_Size>());
+  return _VSTD::__to_array_lvalue_impl(__arr, make_index_sequence<_Size>());
 }
 
 template <typename _Tp, size_t _Size>
@@ -512,8 +512,8 @@ to_array(_Tp(&&__arr)[_Size]) noexcept(is_nothrow_move_constructible_v<_Tp>) {
   static_assert(
       is_move_constructible_v<_Tp>,
       "[array.creation]/4: to_array requires move constructible elements.");
-  return __to_array_rvalue_impl(_VSTD::move(__arr),
-                                make_index_sequence<_Size>());
+  return _VSTD::__to_array_rvalue_impl(_VSTD::move(__arr),
+                                       make_index_sequence<_Size>());
 }
 
 #endif // _LIBCPP_STD_VER > 17

@@ -51,6 +51,7 @@ namespace std
     template <class T> struct is_arithmetic;
     template <class T> struct is_fundamental;
     template <class T> struct is_member_pointer;
+    template <class T> struct is_scoped_enum; // C++2b
     template <class T> struct is_scalar;
     template <class T> struct is_object;
     template <class T> struct is_compound;
@@ -284,6 +285,8 @@ namespace std
         = is_compound<T>::value;                                         // C++17
       template <class T> inline constexpr bool is_member_pointer_v
         = is_member_pointer<T>::value;                                   // C++17
+      template <class T> inline constexpr bool is_scoped_enum_v
+        = is_scoped_enum<T>::value;                                      // C++2b
 
       // See C++14 20.10.4.3, type properties
       template <class T> inline constexpr bool is_const_v
@@ -1661,6 +1664,21 @@ template <class _Bp, class _Dp>
 _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_base_of_v
     = is_base_of<_Bp, _Dp>::value;
 #endif
+
+// __is_core_convertible
+
+// [conv.general]/3 says "E is convertible to T" whenever "T t=E;" is well-formed.
+// We can't test for that, but we can test implicit convertibility by passing it
+// to a function. Notice that __is_core_convertible<void,void> is false,
+// and __is_core_convertible<immovable-type,immovable-type> is true in C++17 and later.
+
+template <class _Tp, class _Up, class = void>
+struct __is_core_convertible : public false_type {};
+
+template <class _Tp, class _Up>
+struct __is_core_convertible<_Tp, _Up, decltype(
+    static_cast<void(*)(_Up)>(0) ( static_cast<_Tp(*)()>(0)() )
+)> : public true_type {};
 
 // is_convertible
 
@@ -3584,7 +3602,7 @@ auto __invoke_constexpr(__any, _Args&& ...__args) -> __nat;
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet1<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
 _LIBCPP_INVOKE_RETURN((_VSTD::forward<_A0>(__a0).*__f)(_VSTD::forward<_Args>(__args)...))
 
@@ -3598,7 +3616,7 @@ _LIBCPP_INVOKE_RETURN((_VSTD::forward<_A0>(__a0).*__f)(_VSTD::forward<_Args>(__a
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet2<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
 _LIBCPP_INVOKE_RETURN((__a0.get().*__f)(_VSTD::forward<_Args>(__args)...))
 
@@ -3612,7 +3630,7 @@ _LIBCPP_INVOKE_RETURN((__a0.get().*__f)(_VSTD::forward<_Args>(__args)...))
 template <class _Fp, class _A0, class ..._Args,
           class = __enable_if_bullet3<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0, _Args&& ...__args)
 _LIBCPP_INVOKE_RETURN(((*_VSTD::forward<_A0>(__a0)).*__f)(_VSTD::forward<_Args>(__args)...))
 
@@ -3628,7 +3646,7 @@ _LIBCPP_INVOKE_RETURN(((*_VSTD::forward<_A0>(__a0)).*__f)(_VSTD::forward<_Args>(
 template <class _Fp, class _A0,
           class = __enable_if_bullet4<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0)
 _LIBCPP_INVOKE_RETURN(_VSTD::forward<_A0>(__a0).*__f)
 
@@ -3642,7 +3660,7 @@ _LIBCPP_INVOKE_RETURN(_VSTD::forward<_A0>(__a0).*__f)
 template <class _Fp, class _A0,
           class = __enable_if_bullet5<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0)
 _LIBCPP_INVOKE_RETURN(__a0.get().*__f)
 
@@ -3656,7 +3674,7 @@ _LIBCPP_INVOKE_RETURN(__a0.get().*__f)
 template <class _Fp, class _A0,
           class = __enable_if_bullet6<_Fp, _A0>>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _A0&& __a0)
 _LIBCPP_INVOKE_RETURN((*_VSTD::forward<_A0>(__a0)).*__f)
 
@@ -3671,7 +3689,7 @@ _LIBCPP_INVOKE_RETURN((*_VSTD::forward<_A0>(__a0)).*__f)
 
 template <class _Fp, class ..._Args>
 inline _LIBCPP_INLINE_VISIBILITY
-auto
+_LIBCPP_CONSTEXPR_AFTER_CXX17 auto
 __invoke(_Fp&& __f, _Args&& ...__args)
 _LIBCPP_INVOKE_RETURN(_VSTD::forward<_Fp>(__f)(_VSTD::forward<_Args>(__args)...))
 
@@ -4176,6 +4194,25 @@ struct __has_operator_addressof
 {};
 
 #endif  // _LIBCPP_CXX03_LANG
+
+// is_scoped_enum [meta.unary.prop]
+
+#if _LIBCPP_STD_VER > 20
+template <class _Tp, bool = is_enum_v<_Tp> >
+struct __is_scoped_enum_helper : false_type {};
+
+template <class _Tp>
+struct __is_scoped_enum_helper<_Tp, true>
+    : public bool_constant<!is_convertible_v<_Tp, underlying_type_t<_Tp> > > {};
+
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_scoped_enum
+    : public __is_scoped_enum_helper<_Tp> {};
+
+template <class _Tp>
+_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_scoped_enum_v =
+    is_scoped_enum<_Tp>::value;
+#endif
 
 #if _LIBCPP_STD_VER > 14
 

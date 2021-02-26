@@ -990,7 +990,7 @@ inline
 size_t
 bitset<_Size>::count() const _NOEXCEPT
 {
-    return static_cast<size_t>(__count_bool_true(base::__make_iter(0), _Size));
+    return static_cast<size_t>(_VSTD::__count_bool_true(base::__make_iter(0), _Size));
 }
 
 template <size_t _Size>

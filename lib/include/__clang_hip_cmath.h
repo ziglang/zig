@@ -624,6 +624,41 @@ _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 #endif
 
+// Define device-side math functions from <ymath.h> on MSVC.
+#if defined(_MSC_VER)
+
+// Before VS2019, `<ymath.h>` is also included in `<limits>` and other headers.
+// But, from VS2019, it's only included in `<complex>`. Need to include
+// `<ymath.h>` here to ensure C functions declared there won't be markded as
+// `__host__` and `__device__` through `<complex>` wrapper.
+#include <ymath.h>
+
+#if defined(__cplusplus)
+extern "C" {
+#endif // defined(__cplusplus)
+__DEVICE__ __attribute__((overloadable)) double _Cosh(double x, double y) {
+  return cosh(x) * y;
+}
+__DEVICE__ __attribute__((overloadable)) float _FCosh(float x, float y) {
+  return coshf(x) * y;
+}
+__DEVICE__ __attribute__((overloadable)) short _Dtest(double *p) {
+  return fpclassify(*p);
+}
+__DEVICE__ __attribute__((overloadable)) short _FDtest(float *p) {
+  return fpclassify(*p);
+}
+__DEVICE__ __attribute__((overloadable)) double _Sinh(double x, double y) {
+  return sinh(x) * y;
+}
+__DEVICE__ __attribute__((overloadable)) float _FSinh(float x, float y) {
+  return sinhf(x) * y;
+}
+#if defined(__cplusplus)
+}
+#endif // defined(__cplusplus)
+#endif // defined(_MSC_VER)
+
 #pragma pop_macro("__DEVICE__")
 
 #endif // __CLANG_HIP_CMATH_H__

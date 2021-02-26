@@ -157,6 +157,11 @@ concept __same_as_impl = _VSTD::_IsSame<_Tp, _Up>::value;
 template<class _Tp, class _Up>
 concept same_as = __same_as_impl<_Tp, _Up> && __same_as_impl<_Up, _Tp>;
 
+// [concept.destructible]
+
+template<class _Tp>
+concept destructible = _VSTD::is_nothrow_destructible_v<_Tp>;
+
 #endif //_LIBCPP_STD_VER > 17 && defined(__cpp_concepts) && __cpp_concepts >= 201811L
 
 _LIBCPP_END_NAMESPACE_STD

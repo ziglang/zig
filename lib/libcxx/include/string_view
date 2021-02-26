@@ -142,12 +142,16 @@ namespace std {
       constexpr size_type find_last_not_of(const charT* s, size_type pos, size_type n) const;
       constexpr size_type find_last_not_of(const charT* s, size_type pos = npos) const;
 
-      constexpr bool starts_with(basic_string_view s) const noexcept; // C++2a
-      constexpr bool starts_with(charT c) const noexcept;             // C++2a
-      constexpr bool starts_with(const charT* s) const;               // C++2a
-      constexpr bool ends_with(basic_string_view s) const noexcept;   // C++2a
-      constexpr bool ends_with(charT c) const noexcept;               // C++2a
-      constexpr bool ends_with(const charT* s) const;                 // C++2a
+      constexpr bool starts_with(basic_string_view s) const noexcept; // C++20
+      constexpr bool starts_with(charT c) const noexcept;             // C++20
+      constexpr bool starts_with(const charT* s) const;               // C++20
+      constexpr bool ends_with(basic_string_view s) const noexcept;   // C++20
+      constexpr bool ends_with(charT c) const noexcept;               // C++20
+      constexpr bool ends_with(const charT* s) const;                 // C++20
+
+      constexpr bool contains(basic_string_view s) const noexcept; // C++2b
+      constexpr bool contains(charT c) const noexcept;             // C++2b
+      constexpr bool contains(const charT* s) const;               // C++2b
 
      private:
       const_pointer data_;  // exposition only
@@ -620,6 +624,20 @@ public:
     _LIBCPP_CONSTEXPR_AFTER_CXX11 _LIBCPP_INLINE_VISIBILITY
     bool ends_with(const value_type* __s) const _NOEXCEPT
     { return ends_with(basic_string_view(__s)); }
+#endif
+
+#if _LIBCPP_STD_VER > 20
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(basic_string_view __sv) const noexcept
+    { return find(__sv) != npos; }
+
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(value_type __c) const noexcept
+    { return find(__c) != npos; }
+
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(const value_type* __s) const
+    { return find(__s) != npos; }
 #endif
 
 private:

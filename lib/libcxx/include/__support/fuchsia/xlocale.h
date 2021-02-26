@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------- support/fuchsia/xlocale.h ------------------------===//
+//===-----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -14,8 +14,8 @@
 
 #include <cstdlib>
 #include <cwchar>
-#include <support/xlocale/__posix_l_fallback.h>
-#include <support/xlocale/__strtonum_fallback.h>
+#include <__support/xlocale/__posix_l_fallback.h>
+#include <__support/xlocale/__strtonum_fallback.h>
 
 #endif // defined(__Fuchsia__)
 

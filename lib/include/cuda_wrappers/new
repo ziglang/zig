@@ -1,4 +1,4 @@
-/*===---- complex - CUDA wrapper for <new> ------------------------------===
+/*===---- new - CUDA wrapper for <new> -------------------------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
