@@ -1,117 +1,104 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
+const Builder = std.build.Builder;
+const RunStep = @import("RunStep.zig");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *Builder) !void {
     const test_step = b.step("test", "Resolve android and test the zig build files");
 
-    {
-        const exe = b.addExecutable("no-android", "run.zig");
-        exe.setBuildMode(b.standardReleaseOptions());
-        const run = exe.run();
-        run.addArg("pass");
-        run.addArg("android not enabled, 'androidbuild' package not needed");
-        run.addArg(b.zig_exe);
-        run.addArg("build");
-        run.addArg("--build-file");
-        run.addArg("app-that-might-use-android/build.zig");
-        test_step.dependOn(&run.step);
-    }
+    try addRunStep(b, test_step, .{
+        .expect = .pass,
+        .output = "android not enabled, 'androidbuild' package not needed",
+        .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
+            b.zig_exe,
+            "build",
+            "--build-file",
+            "app-that-might-use-android/build.zig",
+        }),
+    });
+    try addRunStep(b, test_step, .{
+        .expect = .fail,
+        .output = "missing package 'androidbuild'",
+        .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
+            b.zig_exe,
+            "build",
+            "--build-file",
+            "app-that-might-use-android/build.zig",
+            "-Dandroid",
+        }),
+    });
+    try addRunStep(b, test_step, .{
+        .expect = .pass,
+        .output = "we have and need the 'androidbuild' package",
+        .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
+            b.zig_exe,
+            "build",
+            "--build-file",
+            "app-that-might-use-android/build.zig",
+            "--pkg-begin",
+            "androidbuild",
+            "android/build.zig",
+            "--pkg-end",
+            "-Dandroid",
+        }),
+    });
+    try addRunStep(b, test_step, .{
+        .expect = .fail,
+        .output = "-Dfastcompress requires the 'fastcompressor' package",
+        .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
+            b.zig_exe,
+            "build",
+            "--build-file",
+            "app-that-might-use-android/build.zig",
+            "--pkg-begin",
+            "androidbuild",
+            "android/build.zig",
+            "--pkg-end",
+            "-Dandroid",
+            "-Dfastcompress",
+        }),
+    });
+    try addRunStep(b, test_step, .{
+        .expect = .fail,
+        .output = "-Dfastcompress requires the 'fastcompressor' package",
+        .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
+            b.zig_exe,
+            "build",
+            "--build-file",
+            "app-that-might-use-android/build.zig",
+            "--pkg-begin",
+            "androidbuild",
+            "android/build.zig",
+            "--pkg-begin",
+            "fastcompress",
+            "fastcompress/build.zig",
+            "--pkg-end",
+            "--pkg-end",
+            "-Dandroid",
+            "-Dfastcompress",
+        }),
+    });
+    try addRunStep(b, test_step, .{
+        .expect = .fail,
+        .output = "builtin.hasPkg MUST be called with comptime",
+        .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
+            b.zig_exe,
+            "build",
+            "--build-file", "missing-comptime/build.zig",
+        }),
+    });
+    try addRunStep(b, test_step, .{
+        .expect = .fail,
+        .output = "builtin.hasPkg is only available in build.zig",
+        .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
+            b.zig_exe,
+            "build-exe",
+            "calling-haspkg-outside-build.zig"
+        }),
+    });
+}
 
-    {
-        const exe = b.addExecutable("missing-android", "run.zig");
-        exe.setBuildMode(b.standardReleaseOptions());
-        const run = exe.run();
-        run.addArg("fail");
-        run.addArg("missing package 'androidbuild'");
-        run.addArg(b.zig_exe);
-        run.addArg("build");
-        run.addArg("--build-file");
-        run.addArg("app-that-might-use-android/build.zig");
-        run.addArg("-Dandroid");
-        test_step.dependOn(&run.step);
-    }
-
-    {
-        const exe = b.addExecutable("with-android-no-fastcompress", "run.zig");
-        exe.setBuildMode(b.standardReleaseOptions());
-        const run = exe.run();
-        run.addArg("pass");
-        run.addArg("we have and need the 'androidbuild' package");
-        run.addArg(b.zig_exe);
-        run.addArg("build");
-        run.addArg("--build-file");
-        run.addArg("app-that-might-use-android/build.zig");
-        run.addArg("--pkg-begin");
-        run.addArg("androidbuild");
-        run.addArg("android/build.zig");
-        run.addArg("--pkg-end");
-        run.addArg("-Dandroid");
-        test_step.dependOn(&run.step);
-    }
-
-    {
-        const exe = b.addExecutable("with-android-missing-fastcompress", "run.zig");
-        exe.setBuildMode(b.standardReleaseOptions());
-        const run = exe.run();
-        run.addArg("fail");
-        run.addArg("-Dfastcompress requires the 'fastcompressor' package");
-        run.addArg(b.zig_exe);
-        run.addArg("build");
-        run.addArg("--build-file");
-        run.addArg("app-that-might-use-android/build.zig");
-        run.addArg("--pkg-begin");
-        run.addArg("androidbuild");
-        run.addArg("android/build.zig");
-        run.addArg("--pkg-end");
-        run.addArg("-Dandroid");
-        run.addArg("-Dfastcompress");
-        test_step.dependOn(&run.step);
-    }
-
-    {
-        const exe = b.addExecutable("with-android-and-fastcompress", "run.zig");
-        exe.setBuildMode(b.standardReleaseOptions());
-        const run = exe.run();
-        run.addArg("fail");
-        run.addArg("-Dfastcompress requires the 'fastcompressor' package");
-        run.addArg(b.zig_exe);
-        run.addArg("build");
-        run.addArg("--build-file");
-        run.addArg("app-that-might-use-android/build.zig");
-        run.addArg("--pkg-begin");
-        run.addArg("androidbuild");
-        run.addArg("android/build.zig");
-        run.addArg("--pkg-begin");
-        run.addArg("fastcompress");
-        run.addArg("fastcompress/build.zig");
-        run.addArg("--pkg-end");
-        run.addArg("--pkg-end");
-        run.addArg("-Dandroid");
-        run.addArg("-Dfastcompress");
-        test_step.dependOn(&run.step);
-    }
-
-    {
-        const exe = b.addExecutable("missing-comptime", "run.zig");
-        exe.setBuildMode(b.standardReleaseOptions());
-        const run = exe.run();
-        run.addArg("fail");
-        run.addArg("builtin.hasPkg MUST be called with comptime");
-        run.addArg(b.zig_exe);
-        run.addArg("build");
-        run.addArg("--build-file");
-        run.addArg("missing-comptime/build.zig");
-        test_step.dependOn(&run.step);
-    }
-
-    {
-        const exe = b.addExecutable("calling-haspkg-outside-build", "run.zig");
-        exe.setBuildMode(b.standardReleaseOptions());
-        const run = exe.run();
-        run.addArg("fail");
-        run.addArg("builtin.hasPkg is only available in build.zig");
-        run.addArg(b.zig_exe);
-        run.addArg("build-exe");
-        run.addArg("calling-haspkg-outside-build.zig");
-        test_step.dependOn(&run.step);
-    }
+fn addRunStep(b: *Builder, test_step: *std.build.Step, opt: RunStep.Options) !void {
+    const run = try b.allocator.create(RunStep);
+    run.* = RunStep.init(b, opt);
+    test_step.dependOn(&run.step);
 }
