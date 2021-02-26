@@ -2449,8 +2449,8 @@ fn transSwitchProngStmtInline(
 
 fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
     var result: clang.ExprEvalResult = undefined;
-    if (!expr.evaluateAsConstantExpr(&result, .Normal, rp.c.clang_context))
-        return revertAndWarn(rp, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid constant expression", .{});
+    if (!expr.evaluateAsConstantExpr(&result, .Normal, c.clang_context))
+        return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid constant expression", .{});
 
     switch (result.Val.getKind()) {
         .Int => {
