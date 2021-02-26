@@ -1900,7 +1900,7 @@ fn buildOutputType(
     defer if (!comp_destroyed) comp.destroy();
 
     if (show_builtin) {
-        return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
+        return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena, null));
     }
     if (arg_mode == .translate_c) {
         return cmdTranslateC(comp, arena, have_enable_cache);
@@ -2565,14 +2565,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
 
         gimmeMoreOfThoseSweetSweetFileDescriptors();
 
-        var buildpkgs_dir = try generateBuildPkgs(arena, local_cache_directory, build_pkg.table);
-        defer buildpkgs_dir.handle.close();
-        var buildpkgs_pkg: Package = .{
-            .root_src_directory = buildpkgs_dir,
-            .root_src_path = "buildpkgs.zig",
-        };
-        try build_pkg.table.put(arena, "buildpkgs", &buildpkgs_pkg);
-
         const cross_target: std.zig.CrossTarget = .{};
         const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
@@ -2604,6 +2596,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
+            .enable_builtin_pkg_names = true,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };
@@ -2638,76 +2631,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             fatal("the following build command crashed:\n{s}", .{cmd});
         },
     }
-}
-
-fn generateBuildPkgs(arena: *Allocator, local_cache_directory: Compilation.Directory, pkg_table: Package.Table) !Compilation.Directory {
-    const src = blk: {
-        var src_array = std.ArrayList(u8).init(arena);
-        defer src_array.deinit();
-        const writer = src_array.writer();
-        try writer.writeAll(
-            \\pub const names = &[_][]const u8 {
-            \\
-        );
-        var pkg_it = pkg_table.iterator();
-        while (pkg_it.next()) |pkg| {
-            try writer.print("    \"{s}\",\n", .{pkg.key});
-        }
-        try writer.writeAll(
-            \\};
-            \\
-            \\// using .Inline to force this to be comptime
-            \\pub fn has(comptime name: []const u8) callconv(.Inline) bool {
-            \\    if (!isComptime()) {
-            \\        @compileError("buildpkgs.has must be called with comptime");
-            \\    }
-            \\    inline for (names) |has_name| {
-            \\        if (@import("std").mem.eql(u8, name, has_name)) return true;
-            \\    }
-            \\    return false;
-            \\}
-            \\
-            \\// A temporary workaround until https://github.com/ziglang/zig/issues/425
-            \\// is implemented and the callconv(.Inline) on the `has` function forces
-            \\// it to be comptime
-            \\fn isComptime() bool {
-            \\    var t: bool = true;
-            \\    const x = if (t) @as(u7, 0) else @as(u8, 0);
-            \\    return @TypeOf(x) == u7;
-            \\}
-            \\
-        );
-        break :blk src_array.toOwnedSlice();
-    };
-    defer arena.free(src);
-
-    var zig_cache_tmp_dir = try local_cache_directory.handle.makeOpenPath("tmp", .{});
-    defer zig_cache_tmp_dir.close();
-    var zig_cache_tmp_buildpkgs_dir = try zig_cache_tmp_dir.makeOpenPath("buildpkgs", .{});
-    defer zig_cache_tmp_buildpkgs_dir.close();
-
-    const hex_digest = blk: {
-        var hash = Cache.HashHelper { };
-        hash.addBytes(src);
-        break :blk hash.final();
-    };
-    const pkg_dir_name: []const u8 = &hex_digest;
-
-    var buildpkgs_dir = try zig_cache_tmp_buildpkgs_dir.makeOpenPath(pkg_dir_name, .{});
-    errdefer buildpkgs_dir.close();
-
-    if (buildpkgs_dir.access("buildpkgs.zig", .{ .read = true })) { } else |_| {
-        {
-            const buildpkgs = try buildpkgs_dir.createFile("buildpkgs.zig.tmp", .{});
-            defer buildpkgs.close();
-            try buildpkgs.writer().writeAll(src);
-        }
-        try buildpkgs_dir.rename("buildpkgs.zig.tmp", "buildpkgs.zig");
-    }
-    return Compilation.Directory {
-        .path = try local_cache_directory.join(arena, &[_][]const u8 { "tmp", "buildpkgs", pkg_dir_name }),
-        .handle = buildpkgs_dir,
-    };
 }
 
 fn argvCmd(allocator: *Allocator, argv: []const []const u8) ![]u8 {

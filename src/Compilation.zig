@@ -137,6 +137,10 @@ emit_llvm_ir: ?EmitLoc,
 emit_analysis: ?EmitLoc,
 emit_docs: ?EmitLoc,
 
+// true to generate the pkg_names array and hasPkg function in builtin.zig
+// should only be true when compiling build.zig
+enable_builtin_pkg_names: bool,
+
 work_queue_wait_group: WaitGroup,
 
 pub const InnerError = Module.InnerError;
@@ -503,6 +507,7 @@ pub const InitOptions = struct {
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
+    enable_builtin_pkg_names: ?bool = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1120,6 +1125,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .work_queue_wait_group = undefined,
+            .enable_builtin_pkg_names = options.enable_builtin_pkg_names orelse false,
         };
         break :comp comp;
     };
@@ -2785,7 +2791,7 @@ fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const source = try comp.generateBuiltinZigSource(comp.gpa);
+    const source = try comp.generateBuiltinZigSource(comp.gpa, mod);
     defer comp.gpa.free(source);
     try mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source);
 }
@@ -2797,7 +2803,7 @@ pub fn dump_argv(argv: []const []const u8) void {
     std.debug.print("{s}\n", .{argv[argv.len - 1]});
 }
 
-pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
+pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator, optional_mod: ?*Module) ![]u8 {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2985,6 +2991,59 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
                 \\
             );
         }
+    }
+
+    if (comp.enable_builtin_pkg_names) {
+        try buffer.writer().writeAll(
+            \\
+            \\pub const pkg_names = &[_][]const u8 {
+            \\
+        );
+        if (optional_mod) |mod| {
+            {
+                var pkg_it = mod.root_pkg.table.iterator();
+                while (pkg_it.next()) |pkg| {
+                    try buffer.writer().print("    \"{s}\",\n", .{pkg.key});
+                }
+            }
+            if (mod.root_pkg.table.get("@build")) |build_pkg| {
+                var pkg_it = build_pkg.table.iterator();
+                while (pkg_it.next()) |pkg| {
+                    try buffer.writer().print("    \"{s}\",\n", .{pkg.key});
+                }
+            }
+        }
+        try buffer.writer().writeAll(
+            \\};
+            \\
+            \\// using .Inline to force this to be comptime
+            \\pub fn hasPkg(comptime name: []const u8) callconv(.Inline) bool {
+            \\    if (!isComptime()) {
+            \\        @compileError("builtin.hasPkg MUST be called with comptime");
+            \\    }
+            \\    inline for (pkg_names) |has_name| {
+            \\        if (@import("std").mem.eql(u8, name, has_name)) return true;
+            \\    }
+            \\    return false;
+            \\}
+            \\
+            \\// A temporary workaround until https://github.com/ziglang/zig/issues/425
+            \\// is implemented and the callconv(.Inline) on the `hasPkg` function forces
+            \\// it to be comptime
+            \\fn isComptime() bool {
+            \\    var t: bool = true;
+            \\    const x = if (t) @as(u7, 0) else @as(u8, 0);
+            \\    return @TypeOf(x) == u7;
+            \\}
+            \\
+        );
+    } else {
+        try buffer.writer().writeAll(
+            \\
+            \\pub const pkg_names = @compileError("builtin.pkg_names is only available in build.zig");
+            \\pub const hasPkg = @compileError("builtin.hasPkg is only available in build.zig");
+            \\
+        );
     }
 
     return buffer.toOwnedSlice();
