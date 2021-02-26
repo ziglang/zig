@@ -31,6 +31,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_mips64el,       // MIPS64EL: mips64el, mips64r6el, mipsn32el, mipsn32r6el
     ZigLLVM_msp430,         // MSP430: msp430
     ZigLLVM_ppc,            // PPC: powerpc
+    ZigLLVM_ppcle,          // PPCLE: powerpc (little endian)
     ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
     ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
     ZigLLVM_r600,           // R600: AMD GPUs HD2XXX - HD6XXX
@@ -134,6 +135,7 @@ static const ZigLLVM_EnvironmentType abi_list[] = {
     ZigLLVM_GNUEABI,
     ZigLLVM_GNUEABIHF,
     ZigLLVM_GNUX32,
+    ZigLLVM_GNUILP32,
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
@@ -484,6 +486,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_mipsel:
         case ZigLLVM_nvptx:
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_r600:
         case ZigLLVM_riscv32:
         case ZigLLVM_sparc:
@@ -550,6 +553,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_mipsel:
         case ZigLLVM_nvptx:
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_r600:
         case ZigLLVM_riscv32:
         case ZigLLVM_sparc:
@@ -800,6 +804,7 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_riscv64:
         case ZigLLVM_mipsel:
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_ppc64:
         case ZigLLVM_ppc64le:
             return "sp";
@@ -904,6 +909,7 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_wasm64:
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
         case ZigLLVM_ppc64:
         case ZigLLVM_ve:
             return false;
@@ -1097,6 +1103,7 @@ const char *target_libc_generic_name(const ZigTarget *target) {
         case ZigLLVM_GNUEABI:
         case ZigLLVM_GNUEABIHF:
         case ZigLLVM_GNUX32:
+        case ZigLLVM_GNUILP32:
             return "glibc";
         case ZigLLVM_Musl:
         case ZigLLVM_MuslEABI:

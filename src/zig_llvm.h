@@ -296,6 +296,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_mips64el,       // MIPS64EL: mips64el, mips64r6el, mipsn32el, mipsn32r6el
     ZigLLVM_msp430,         // MSP430: msp430
     ZigLLVM_ppc,            // PPC: powerpc
+    ZigLLVM_ppcle,          // PPCLE: powerpc (little endian)
     ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
     ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
     ZigLLVM_r600,           // R600: AMD GPUs HD2XXX - HD6XXX
@@ -408,6 +409,7 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_GNUEABI,
     ZigLLVM_GNUEABIHF,
     ZigLLVM_GNUX32,
+    ZigLLVM_GNUILP32,
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
