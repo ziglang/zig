@@ -2138,13 +2138,13 @@ pub const Value = extern union {
             data: f128,
         };
 
-        // TODO move to type.zig
+        /// TODO move to type.zig
         pub const ErrorSet = struct {
             pub const base_tag = Tag.error_set;
 
             base: Payload = .{ .tag = base_tag },
             data: struct {
-                // TODO revisit this when we have the concept of the error tag type
+                /// TODO revisit this when we have the concept of the error tag type
                 fields: std.StringHashMapUnmanaged(u16),
                 decl: *Module.Decl,
             },
@@ -2153,9 +2153,9 @@ pub const Value = extern union {
         pub const Error = struct {
             base: Payload = .{ .tag = .@"error" },
             data: struct {
-                // TODO revisit this when we have the concept of the error tag type
                 /// `name` is owned by `Module` and will be valid for the entire
                 /// duration of the compilation.
+                /// TODO revisit this when we have the concept of the error tag type
                 name: []const u8,
                 value: u16,
             },

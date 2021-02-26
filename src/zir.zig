@@ -154,6 +154,8 @@ pub const Inst = struct {
         error_union_type,
         /// Create an error set.
         error_set,
+        /// `error.Foo` syntax.
+        error_value,
         /// Export the provided Decl as the provided name in the compilation's output object file.
         @"export",
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
@@ -487,6 +489,7 @@ pub const Inst = struct {
                 .ptr_type => PtrType,
                 .enum_literal => EnumLiteral,
                 .error_set => ErrorSet,
+                .error_value => ErrorValue,
                 .slice => Slice,
                 .typeof_peer => TypeOfPeer,
                 .container_field_named => ContainerFieldNamed,
@@ -612,6 +615,7 @@ pub const Inst = struct {
                 .error_union_type,
                 .bit_not,
                 .error_set,
+                .error_value,
                 .slice,
                 .slice_start,
                 .import,
@@ -1095,6 +1099,16 @@ pub const Inst = struct {
 
         positionals: struct {
             fields: [][]const u8,
+        },
+        kw_args: struct {},
+    };
+
+    pub const ErrorValue = struct {
+        pub const base_tag = Tag.error_value;
+        base: Inst,
+
+        positionals: struct {
+            name: []const u8,
         },
         kw_args: struct {},
     };

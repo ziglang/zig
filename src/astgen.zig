@@ -482,6 +482,13 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             const result = try addZIRInst(mod, scope, src, zir.Inst.EnumLiteral, .{ .name = name }, .{});
             return rvalue(mod, scope, rl, result);
         },
+        .error_value => {
+            const ident_token = node_datas[node].rhs;
+            const name = try mod.identifierTokenString(scope, ident_token);
+            const src = token_starts[ident_token];
+            const result = try addZirInstTag(mod, scope, src, .error_value, .{ .name = name });
+            return rvalue(mod, scope, rl, result);
+        },
         .error_union => {
             const error_set = try typeExpr(mod, scope, node_datas[node].lhs);
             const payload = try typeExpr(mod, scope, node_datas[node].rhs);
@@ -644,7 +651,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         => return mod.failNode(scope, node, "TODO implement astgen.expr for function prototypes", .{}),
 
         .@"nosuspend" => return mod.failNode(scope, node, "TODO implement astgen.expr for .nosuspend", .{}),
-        .error_value => return mod.failNode(scope, node, "TODO implement astgen.expr for .error_value", .{}),
     }
 }
 

@@ -149,6 +149,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .error_union_type => return zirErrorUnionType(mod, scope, old_inst.castTag(.error_union_type).?),
         .anyframe_type => return zirAnyframeType(mod, scope, old_inst.castTag(.anyframe_type).?),
         .error_set => return zirErrorSet(mod, scope, old_inst.castTag(.error_set).?),
+        .error_value => return zirErrorValue(mod, scope, old_inst.castTag(.error_value).?),
         .slice => return zirSlice(mod, scope, old_inst.castTag(.slice).?),
         .slice_start => return zirSliceStart(mod, scope, old_inst.castTag(.slice_start).?),
         .import => return zirImport(mod, scope, old_inst.castTag(.import).?),
@@ -1164,6 +1165,22 @@ fn zirErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) InnerError
     });
     payload.data.decl = new_decl;
     return mod.analyzeDeclVal(scope, inst.base.src, new_decl);
+}
+
+fn zirErrorValue(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorValue) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    // Create an anonymous error set type with only this error value, and return the value.
+    const entry = try mod.getErrorValue(inst.positionals.name);
+    const result_type = try Type.Tag.error_set_single.create(scope.arena(), entry.key);
+    return mod.constInst(scope, inst.base.src, .{
+        .ty = result_type,
+        .val = try Value.Tag.@"error".create(scope.arena(), .{
+            .name = entry.key,
+            .value = entry.value,
+        }),
+    });
 }
 
 fn zirMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
