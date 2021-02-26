@@ -2641,29 +2641,10 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
 }
 
 fn generateBuildPkgs(arena: *Allocator, local_cache_directory: Compilation.Directory, pkg_table: Package.Table) !Compilation.Directory {
-    var zig_cache_tmp_dir = try local_cache_directory.handle.makeOpenPath("tmp", .{});
-    defer zig_cache_tmp_dir.close();
-    var zig_cache_tmp_buildpkgs_dir = try zig_cache_tmp_dir.makeOpenPath("buildpkgs", .{});
-    defer zig_cache_tmp_buildpkgs_dir.close();
-
-    const hex_digest = blk: {
-        var hash = Cache.HashHelper { };
-        var pkg_it = pkg_table.iterator();
-        while (pkg_it.next()) |pkg| {
-            hash.addBytes(pkg.key);
-            hash.addBytes(&[_]u8 {'/'});
-        }
-        break :blk hash.final();
-    };
-    const pkg_dir_name: []const u8 = &hex_digest;
-
-    var buildpkgs_dir = try zig_cache_tmp_buildpkgs_dir.makeOpenPath(pkg_dir_name, .{});
-    errdefer buildpkgs_dir.close();
-
-    if (buildpkgs_dir.access("buildpkgs.zig", .{ .read = true })) { } else |_| {
-        const buildpkgs = try buildpkgs_dir.createFile("buildpkgs.zig.tmp", .{});
-        defer buildpkgs.close();
-        const writer = buildpkgs.writer();
+    const src = blk: {
+        var src_array = std.ArrayList(u8).init(arena);
+        defer src_array.deinit();
+        const writer = src_array.writer();
         try writer.writeAll(
             \\pub const names = &[_][]const u8 {
             \\
@@ -2696,6 +2677,31 @@ fn generateBuildPkgs(arena: *Allocator, local_cache_directory: Compilation.Direc
             \\}
             \\
         );
+        break :blk src_array.toOwnedSlice();
+    };
+    defer arena.free(src);
+
+    var zig_cache_tmp_dir = try local_cache_directory.handle.makeOpenPath("tmp", .{});
+    defer zig_cache_tmp_dir.close();
+    var zig_cache_tmp_buildpkgs_dir = try zig_cache_tmp_dir.makeOpenPath("buildpkgs", .{});
+    defer zig_cache_tmp_buildpkgs_dir.close();
+
+    const hex_digest = blk: {
+        var hash = Cache.HashHelper { };
+        hash.addBytes(src);
+        break :blk hash.final();
+    };
+    const pkg_dir_name: []const u8 = &hex_digest;
+
+    var buildpkgs_dir = try zig_cache_tmp_buildpkgs_dir.makeOpenPath(pkg_dir_name, .{});
+    errdefer buildpkgs_dir.close();
+
+    if (buildpkgs_dir.access("buildpkgs.zig", .{ .read = true })) { } else |_| {
+        {
+            const buildpkgs = try buildpkgs_dir.createFile("buildpkgs.zig.tmp", .{});
+            defer buildpkgs.close();
+            try buildpkgs.writer().writeAll(src);
+        }
         try buildpkgs_dir.rename("buildpkgs.zig.tmp", "buildpkgs.zig");
     }
     return Compilation.Directory {
