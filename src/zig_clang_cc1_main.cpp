@@ -251,8 +251,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     if (auto profilerOutput =
             Clang->createOutputFile(Path.str(),
                                     /*Binary=*/false,
-                                    /*RemoveFileOnSignal=*/false, "",
-                                    /*Extension=*/"json",
+                                    /*RemoveFileOnSignal=*/false,
                                     /*useTemporary=*/false)) {
 
       llvm::timeTraceProfilerWrite(*profilerOutput);

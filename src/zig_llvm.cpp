@@ -1190,6 +1190,7 @@ static_assert((Triple::ArchType)ZigLLVM_mips64 == Triple::mips64, "");
 static_assert((Triple::ArchType)ZigLLVM_mips64el == Triple::mips64el, "");
 static_assert((Triple::ArchType)ZigLLVM_msp430 == Triple::msp430, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc == Triple::ppc, "");
+static_assert((Triple::ArchType)ZigLLVM_ppcle == Triple::ppcle, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc64 == Triple::ppc64, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc64le == Triple::ppc64le, "");
 static_assert((Triple::ArchType)ZigLLVM_r600 == Triple::r600, "");
@@ -1291,6 +1292,7 @@ static_assert((Triple::EnvironmentType)ZigLLVM_GNUABI64 == Triple::GNUABI64, "")
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUEABI == Triple::GNUEABI, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUEABIHF == Triple::GNUEABIHF, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUX32 == Triple::GNUX32, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUILP32 == Triple::GNUILP32, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_CODE16 == Triple::CODE16, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_EABI == Triple::EABI, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_EABIHF == Triple::EABIHF, "");
