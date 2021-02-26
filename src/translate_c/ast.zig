@@ -148,6 +148,8 @@ pub const Node = extern union {
         ptr_cast,
         /// @divExact(lhs, rhs)
         div_exact,
+        /// @byteOffsetOf(lhs, rhs)
+        byte_offset_of,
 
         negate,
         negate_wrap,
@@ -303,6 +305,7 @@ pub const Node = extern union {
                 .std_mem_zeroinit,
                 .ptr_cast,
                 .div_exact,
+                .byte_offset_of,
                 => Payload.BinOp,
 
                 .integer_literal,
@@ -1134,6 +1137,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .div_exact => {
             const payload = node.castTag(.div_exact).?.data;
             return renderBuiltinCall(c, "@divExact", &.{ payload.lhs, payload.rhs });
+        },
+        .byte_offset_of => {
+            const payload = node.castTag(.byte_offset_of).?.data;
+            return renderBuiltinCall(c, "@byteOffsetOf", &.{ payload.lhs, payload.rhs });
         },
         .sizeof => {
             const payload = node.castTag(.sizeof).?.data;
@@ -2001,6 +2008,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .array_type,
         .bool_to_int,
         .div_exact,
+        .byte_offset_of,
         => {
             // no grouping needed
             return renderNode(c, node);

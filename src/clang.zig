@@ -432,6 +432,9 @@ pub const FieldDecl = opaque {
 
     pub const getLocation = ZigClangFieldDecl_getLocation;
     extern fn ZigClangFieldDecl_getLocation(*const FieldDecl) SourceLocation;
+
+    pub const getParent = ZigClangFieldDecl_getParent;
+    extern fn ZigClangFieldDecl_getParent(*const FieldDecl) ?*const RecordDecl;
 };
 
 pub const FileID = opaque {};
@@ -591,6 +594,34 @@ pub const TypeOfType = opaque {
 pub const TypeOfExprType = opaque {
     pub const getUnderlyingExpr = ZigClangTypeOfExprType_getUnderlyingExpr;
     extern fn ZigClangTypeOfExprType_getUnderlyingExpr(*const TypeOfExprType) *const Expr;
+};
+
+pub const OffsetOfNode = opaque {
+    pub const getKind = ZigClangOffsetOfNode_getKind;
+    extern fn ZigClangOffsetOfNode_getKind(*const OffsetOfNode) OffsetOfNode_Kind;
+
+    pub const getArrayExprIndex = ZigClangOffsetOfNode_getArrayExprIndex;
+    extern fn ZigClangOffsetOfNode_getArrayExprIndex(*const OffsetOfNode) c_uint;
+
+    pub const getField = ZigClangOffsetOfNode_getField;
+    extern fn ZigClangOffsetOfNode_getField(*const OffsetOfNode) *FieldDecl;
+};
+
+pub const OffsetOfExpr = opaque {
+    pub const getNumComponents = ZigClangOffsetOfExpr_getNumComponents;
+    extern fn ZigClangOffsetOfExpr_getNumComponents(*const OffsetOfExpr) c_uint;
+
+    pub const getNumExpressions = ZigClangOffsetOfExpr_getNumExpressions;
+    extern fn ZigClangOffsetOfExpr_getNumExpressions(*const OffsetOfExpr) c_uint;
+
+    pub const getIndexExpr = ZigClangOffsetOfExpr_getIndexExpr;
+    extern fn ZigClangOffsetOfExpr_getIndexExpr(*const OffsetOfExpr, idx: c_uint) *const Expr;
+
+    pub const getComponent = ZigClangOffsetOfExpr_getComponent;
+    extern fn ZigClangOffsetOfExpr_getComponent(*const OffsetOfExpr, idx: c_uint) *const OffsetOfNode;
+
+    pub const getBeginLoc = ZigClangOffsetOfExpr_getBeginLoc;
+    extern fn ZigClangOffsetOfExpr_getBeginLoc(*const OffsetOfExpr) SourceLocation;
 };
 
 pub const MemberExpr = opaque {
@@ -1653,6 +1684,13 @@ pub const UnaryExprOrTypeTrait_Kind = extern enum {
     VecStep,
     OpenMPRequiredSimdAlign,
     PreferredAlignOf,
+};
+
+pub const OffsetOfNode_Kind = extern enum {
+    Array,
+    Field,
+    Identifier,
+    Base,
 };
 
 pub const Stage2ErrorMsg = extern struct {

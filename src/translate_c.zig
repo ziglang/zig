@@ -1069,10 +1069,62 @@ fn transStmt(
             const expr = try transExpr(c, scope, source_expr, .used);
             return maybeSuppressResult(c, scope, result_used, expr);
         },
+        .OffsetOfExprClass => return transOffsetOfExpr(c, scope, @ptrCast(*const clang.OffsetOfExpr, stmt), result_used),
         else => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
     }
+}
+
+/// Translate a "simple" offsetof expression containing exactly one component,
+/// when that component is of kind .Field - e.g. offsetof(mytype, myfield)
+fn transSimpleOffsetOfExpr(
+    c: *Context,
+    scope: *Scope,
+    expr: *const clang.OffsetOfExpr,
+) TransError!Node {
+    assert(expr.getNumComponents() == 1);
+    const component = expr.getComponent(0);
+    if (component.getKind() == .Field) {
+        const field_decl = component.getField();
+        if (field_decl.getParent()) |record_decl| {
+            if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |type_name| {
+                const type_node = try Tag.type.create(c.arena, type_name);
+
+                var raw_field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
+                const quoted_field_name = try std.fmt.allocPrint(c.arena, "\"{s}\"", .{raw_field_name});
+                const field_name_node = try Tag.string_literal.create(c.arena, quoted_field_name);
+
+                return Tag.byte_offset_of.create(c.arena, .{
+                    .lhs = type_node,
+                    .rhs = field_name_node,
+                });
+            }
+        }
+    }
+    return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "Failed to translate simple OffsetOfExpr", .{});
+}
+
+fn transOffsetOfExpr(
+    c: *Context,
+    scope: *Scope,
+    expr: *const clang.OffsetOfExpr,
+    result_used: ResultUsed,
+) TransError!Node {
+    if (expr.getNumComponents() == 1) {
+        const offsetof_expr = try transSimpleOffsetOfExpr(c, scope, expr);
+        return maybeSuppressResult(c, scope, result_used, offsetof_expr);
+    }
+
+    // TODO implement OffsetOfExpr with more than 1 component
+    // OffsetOfExpr API:
+    //     call expr.getComponent(idx) while idx < expr.getNumComponents()
+    //     component.getKind() will be either .Array or .Field (other kinds are C++-only)
+    //     if .Field, use component.getField() to retrieve *clang.FieldDecl
+    //     if .Array, use component.getArrayExprIndex() to get a c_uint which
+    //         can be passed to expr.getIndexExpr(expr_index) to get the *clang.Expr for the array index
+
+    return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO: implement complex OffsetOfExpr translation", .{});
 }
 
 fn transBinaryOperator(
