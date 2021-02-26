@@ -549,7 +549,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
             // Sret pointers must not be address 0
             addLLVMArgAttr(llvm_fn, 0, "nonnull");
-            addLLVMArgAttr(llvm_fn, 0, "sret");
+            ZigLLVMAddSretAttr(llvm_fn, 0, get_llvm_type(g, return_type));
             if (cc_want_sret_attr(cc)) {
                 addLLVMArgAttr(llvm_fn, 0, "noalias");
             }
@@ -1972,7 +1972,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             switch (fn_walk->id) {
                 case FnWalkIdAttrs:
                     if (abi_class != X64CABIClass_MEMORY_nobyval) {
-                        ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i + 1, get_llvm_type(g, ty));
+                        ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i, get_llvm_type(g, ty));
                         addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
                     } else if (g->zig_target->arch == ZigLLVM_aarch64 ||
                             g->zig_target->arch == ZigLLVM_aarch64_be)
