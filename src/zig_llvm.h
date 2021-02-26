@@ -269,6 +269,7 @@ ZIG_EXTERN_C void ZigLLVMFunctionSetCallingConv(LLVMValueRef function, enum ZigL
 
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 ZIG_EXTERN_C void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val);
+ZIG_EXTERN_C void ZigLLVMAddSRetAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val);
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);
 
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
