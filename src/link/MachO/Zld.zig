@@ -460,8 +460,7 @@ fn allocateTextSegment(self: *Zld) !void {
     try self.allocateSegment(
         self.text_segment_cmd_index.?,
         0,
-        // sizeofcmds + 10 * 4 * @sizeOf(u32),
-        3140,
+        sizeofcmds,
         true,
     );
 }
@@ -508,27 +507,23 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64, start: u64, reverse: boo
     seg.inner.filesize = aligned_size;
 
     // Allocate section offsets
-    // if (reverse) {
-    //     var end_off: u64 = seg.inner.fileoff + seg.inner.filesize;
-    //     var count: usize = seg.sections.items.len;
-    //     while (count > 0) : (count -= 1) {
-    //         const sec = &seg.sections.items[count - 1];
-    //         const alignment = math.max(@alignOf(u32), try std.math.powi(u32, 2, sec.@"align"));
-    //         log.warn("{s} 0x{x} alignment = 0x{x}", .{ parseName(&sec.sectname), sec.@"align", alignment });
-    //         end_off -= mem.alignForwardGeneric(u64, sec.size, alignment);
-    //         sec.offset = @intCast(u32, end_off);
-    //         sec.addr = base_vmaddr + end_off;
-    //     }
-    // } else {
-    var next_off: u64 = seg.inner.fileoff + start;
-    for (seg.sections.items) |*sect| {
-        const alignment = math.max(@alignOf(u32), try std.math.powi(u32, 2, sect.@"align"));
-        log.warn("{s} 0x{x} alignment = 0x{x}", .{ parseName(&sect.sectname), sect.@"align", alignment });
-        sect.offset = @intCast(u32, next_off);
-        sect.addr = base_vmaddr + next_off;
-        next_off += mem.alignForwardGeneric(u64, sect.size, alignment);
+    if (reverse) {
+        var end_off: u64 = seg.inner.fileoff + seg.inner.filesize;
+        var count: usize = seg.sections.items.len;
+        while (count > 0) : (count -= 1) {
+            const sec = &seg.sections.items[count - 1];
+            end_off -= mem.alignForwardGeneric(u64, sec.size, @alignOf(u64)); // TODO is 8-byte aligned correct?
+            sec.offset = @intCast(u32, end_off);
+            sec.addr = base_vmaddr + end_off;
+        }
+    } else {
+        var next_off: u64 = seg.inner.fileoff + start;
+        for (seg.sections.items) |*sect| {
+            sect.offset = @intCast(u32, next_off);
+            sect.addr = base_vmaddr + next_off;
+            next_off += mem.alignForwardGeneric(u64, sect.size, @alignOf(u64)); // TODO is 8-byte aligned correct?
+        }
     }
-    // }
 }
 
 fn writeStubHelperCommon(self: *Zld) !void {
@@ -1041,12 +1036,7 @@ fn doRelocs(self: *Zld) !void {
                                             break :blk narrowed;
                                         } else {
                                             const denom: u4 = try math.powi(u4, 2, parsed.size);
-                                            const offf = math.divExact(u12, narrowed, denom) catch |_| {
-                                                log.warn("    | narrowed 0x{x}", .{narrowed});
-                                                log.warn("    | denom 0x{x}", .{denom});
-                                                continue;
-                                            };
-                                            break :blk offf;
+                                            break :blk try math.divExact(u12, narrowed, denom);
                                         }
                                     };
                                     parsed.offset = offset;
