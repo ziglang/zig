@@ -11040,7 +11040,11 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Grammar#}
-      <pre><code>Root &lt;- skip ContainerMembers eof
+      <p>
+      This content is sourced from the <a href="https://github.com/ziglang/zig-spec">zig-spec</a> project.
+      It is not necessarily up to date. Please make contributions if you find a problem.
+      </p>
+      <!-- $$BEGIN GENERATED GRAMMAR$$ --><pre><code>Root &lt;- skip ContainerMembers eof
 
 # *** Top level ***
 ContainerMembers
@@ -11541,7 +11545,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_allowzero / KEYWORD_and / KEYWORD_anyframe
          / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
          / KEYWORD_undefined / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while
-</code></pre>
+</code></pre><!-- $$END GENERATED GRAMMAR$$ -->
       {#header_close#}
       {#header_open|Zen#}
       <ul>
