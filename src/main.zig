@@ -2675,11 +2675,24 @@ fn generateBuildPkgs(arena: *Allocator, local_cache_directory: Compilation.Direc
         try writer.writeAll(
             \\};
             \\
-            \\pub fn has(comptime name: []const u8) bool {
+            \\// using .Inline to force this to be comptime
+            \\pub fn has(comptime name: []const u8) callconv(.Inline) bool {
+            \\    if (!isComptime()) {
+            \\        @compileError("buildpkgs.has must be called with comptime");
+            \\    }
             \\    inline for (names) |has_name| {
             \\        if (@import("std").mem.eql(u8, name, has_name)) return true;
             \\    }
             \\    return false;
+            \\}
+            \\
+            \\// A temporary workaround until https://github.com/ziglang/zig/issues/425
+            \\// is implemented and the callconv(.Inline) on the `has` function forces
+            \\// it to be comptime
+            \\fn isComptime() bool {
+            \\    var t: bool = true;
+            \\    const x = if (t) @as(u7, 0) else @as(u8, 0);
+            \\    return @TypeOf(x) == u7;
             \\}
             \\
         );
