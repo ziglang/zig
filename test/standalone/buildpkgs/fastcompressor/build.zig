@@ -1,3 +1,2 @@
-
 pub fn doTheThing() void {
 }

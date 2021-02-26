@@ -1,5 +1,6 @@
 const std = @import("std");
 const Builder = std.build.Builder;
+const buildpkgs = @import("buildpkgs");
 
 pub const Options = struct {
     fastcompress: bool,
@@ -14,7 +15,7 @@ pub fn getApkOptions(b: *Builder) Options {
 pub fn makeApk(b: *Builder, options: Options) !void {
     // android has its own optional dependency
     if (options.fastcompress) {
-        if (comptime std.builtin.hasPkg("fastcompressor")) {
+        if (comptime buildpkgs.has("fastcompressor")) {
             const fastcompressor = @import("fastcompressor");
             std.log.info("we have and need the 'fastcompressor' package", .{});
             fastcompressor.doTheThing();

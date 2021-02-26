@@ -85,7 +85,7 @@ pub fn build(b: *Builder) !void {
     });
     try addRunStep(b, test_step, .{
         .expect = .fail,
-        .outputs = &[_][]const u8 { "builtin.hasPkg MUST be called with comptime" },
+        .outputs = &[_][]const u8 { "buildpkgs.has MUST be called with comptime" },
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build",
@@ -94,11 +94,11 @@ pub fn build(b: *Builder) !void {
     });
     try addRunStep(b, test_step, .{
         .expect = .fail,
-        .outputs = &[_][]const u8 { "builtin.hasPkg is only available in build.zig" },
+        .outputs = &[_][]const u8 { "unable to find 'buildpkgs'" },
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build-exe",
-            "calling-haspkg-outside-build.zig"
+            "import-buildpkgs-outside-build.zig",
         }),
     });
 }
@@ -106,5 +106,6 @@ pub fn build(b: *Builder) !void {
 fn addRunStep(b: *Builder, test_step: *std.build.Step, opt: RunStep.Options) !void {
     const run = try b.allocator.create(RunStep);
     run.* = RunStep.init(b, opt);
+    run.opt.cwd = b.build_root;
     test_step.dependOn(&run.step);
 }

@@ -8,6 +8,7 @@ pub const Options = struct {
     expect: enum { fail, pass },
     outputs: []const []const u8,
     args: []const []const u8,
+    cwd: ?[]const u8 = null,
 };
 
 step: Step,
@@ -26,6 +27,7 @@ fn make(step: *Step) !void {
     const self = @fieldParentPtr(RunStep, "step", step);
     const child = try std.ChildProcess.init(self.opt.args, std.heap.page_allocator);
     defer child.deinit();
+    child.cwd = self.opt.cwd;
     child.stderr_behavior = .Pipe;
     try child.spawn();
     const stderr = try child.stderr.?.reader().readAllAlloc(self.builder.allocator, std.math.maxInt(usize));

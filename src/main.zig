@@ -1900,7 +1900,7 @@ fn buildOutputType(
     defer if (!comp_destroyed) comp.destroy();
 
     if (show_builtin) {
-        return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena, null));
+        return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
     }
     if (arg_mode == .translate_c) {
         return cmdTranslateC(comp, arena, have_enable_cache);
@@ -2596,7 +2596,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
-            .enable_builtin_pkg_names = true,
+            .enable_buildpkgs = true,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };
