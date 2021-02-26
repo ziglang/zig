@@ -93,8 +93,7 @@ _LIBCXXABI_WEAK
 void
 operator delete(void* ptr) _NOEXCEPT
 {
-    if (ptr)
-        ::free(ptr);
+    ::free(ptr);
 }
 
 _LIBCXXABI_WEAK
@@ -215,9 +214,7 @@ _LIBCXXABI_WEAK
 void
 operator delete(void* ptr, std::align_val_t) _NOEXCEPT
 {
-    if (ptr) {
-        std::__libcpp_aligned_free(ptr);
-    }
+    std::__libcpp_aligned_free(ptr);
 }
 
 _LIBCXXABI_WEAK

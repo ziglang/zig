@@ -25,8 +25,10 @@ public:
     typedef typename traits_type::off_type off_type;
     typedef Allocator                      allocator_type;
 
-    // 27.8.1.1 Constructors:
-    explicit basic_stringbuf(ios_base::openmode which = ios_base::in | ios_base::out);
+    // 27.8.1.1 [stringbuf.cons], constructors:
+    explicit basic_stringbuf(ios_base::openmode which = ios_base::in | ios_base::out); // before C++20
+    basic_stringbuf() : basic_stringbuf(ios_base::in | ios_base::out) {}               // C++20
+    explicit basic_stringbuf(ios_base::openmode which);                                // C++20
     explicit basic_stringbuf(const basic_string<char_type, traits_type, allocator_type>& str,
                              ios_base::openmode which = ios_base::in | ios_base::out);
     basic_stringbuf(basic_stringbuf&& rhs);
@@ -71,7 +73,10 @@ public:
     typedef Allocator                      allocator_type;
 
     // 27.8.2.1 Constructors:
-    explicit basic_istringstream(ios_base::openmode which = ios_base::in);
+    explicit basic_istringstream(ios_base::openmode which = ios_base::in); // before C++20
+    basic_istringstream() : basic_istringstream(ios_base::in) {}           // C++20
+    explicit basic_istringstream(ios_base::openmode which);                // C++20
+
     explicit basic_istringstream(const basic_string<char_type, traits_type,allocator_type>& str,
                                  ios_base::openmode which = ios_base::in);
     basic_istringstream(basic_istringstream&& rhs);
@@ -107,7 +112,10 @@ public:
     typedef Allocator                      allocator_type;
 
     // 27.8.3.1 Constructors/destructor:
-    explicit basic_ostringstream(ios_base::openmode which = ios_base::out);
+    explicit basic_ostringstream(ios_base::openmode which = ios_base::out); // before C++20
+    basic_ostringstream() : basic_ostringstream(ios_base::out) {}           // C++20
+    explicit basic_ostringstream(ios_base::openmode which);                 // C++20
+
     explicit basic_ostringstream(const basic_string<char_type, traits_type, allocator_type>& str,
                                  ios_base::openmode which = ios_base::out);
     basic_ostringstream(basic_ostringstream&& rhs);
@@ -143,7 +151,10 @@ public:
     typedef Allocator                      allocator_type;
 
     // constructors/destructor
-    explicit basic_stringstream(ios_base::openmode which = ios_base::out|ios_base::in);
+    explicit basic_stringstream(ios_base::openmode which = ios_base::out | ios_base::in); // before C++20
+    basic_stringstream() : basic_stringstream(ios_base::out | ios_base::in) {}            // C++20
+    explicit basic_stringstream(ios_base::openmode which);                                // C++20
+
     explicit basic_stringstream(const basic_string<char_type, traits_type, allocator_type>& str,
                                 ios_base::openmode which = ios_base::out|ios_base::in);
     basic_stringstream(basic_stringstream&& rhs);
@@ -207,11 +218,20 @@ private:
     ios_base::openmode __mode_;
 
 public:
-    // 27.8.1.1 Constructors:
+    // 30.8.2.1 [stringbuf.cons], constructors
+#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    explicit basic_stringbuf(ios_base::openmode __wch = ios_base::in | ios_base::out)
-        : __hm_(nullptr), __mode_(__wch)
-    { }
+    basic_stringbuf() : basic_stringbuf(ios_base::in | ios_base::out) {}
+
+    _LIBCPP_INLINE_VISIBILITY
+    explicit basic_stringbuf(ios_base::openmode __wch)
+        : __hm_(nullptr), __mode_(__wch) {}
+#else
+    _LIBCPP_INLINE_VISIBILITY
+    explicit basic_stringbuf(ios_base::openmode __wch = ios_base::in |
+                                                        ios_base::out)
+        : __hm_(nullptr), __mode_(__wch) {}
+#endif
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_stringbuf(const string_type& __s,
@@ -622,12 +642,20 @@ private:
     basic_stringbuf<char_type, traits_type, allocator_type> __sb_;
 
 public:
-    // 27.8.2.1 Constructors:
+    // 30.8.3.1 [istringstream.cons], constructors
+#ifndef _LIBCPP_CXX03_LANG
+    _LIBCPP_INLINE_VISIBILITY
+    basic_istringstream() : basic_istringstream(ios_base::in) {}
+
+    _LIBCPP_INLINE_VISIBILITY
+    explicit basic_istringstream(ios_base::openmode __wch)
+        : basic_istream<_CharT, _Traits>(&__sb_), __sb_(__wch | ios_base::in) {}
+#else
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_istringstream(ios_base::openmode __wch = ios_base::in)
-        : basic_istream<_CharT, _Traits>(&__sb_)
-        , __sb_(__wch | ios_base::in)
-    { }
+        : basic_istream<_CharT, _Traits>(&__sb_), __sb_(__wch | ios_base::in) {}
+#endif
+
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_istringstream(const string_type& __s,
                                  ios_base::openmode __wch = ios_base::in)
@@ -699,12 +727,21 @@ private:
     basic_stringbuf<char_type, traits_type, allocator_type> __sb_;
 
 public:
-    // 27.8.2.1 Constructors:
+    // 30.8.4.1 [ostringstream.cons], constructors
+#ifndef _LIBCPP_CXX03_LANG
+    _LIBCPP_INLINE_VISIBILITY
+    basic_ostringstream() : basic_ostringstream(ios_base::out) {}
+
+    _LIBCPP_INLINE_VISIBILITY
+    explicit basic_ostringstream(ios_base::openmode __wch)
+        : basic_ostream<_CharT, _Traits>(&__sb_),
+          __sb_(__wch | ios_base::out) {}
+#else
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_ostringstream(ios_base::openmode __wch = ios_base::out)
-        : basic_ostream<_CharT, _Traits>(&__sb_)
-        , __sb_(__wch | ios_base::out)
-    { }
+        : basic_ostream<_CharT, _Traits>(&__sb_),
+          __sb_(__wch | ios_base::out) {}
+#endif
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_ostringstream(const string_type& __s,
@@ -778,12 +815,20 @@ private:
     basic_stringbuf<char_type, traits_type, allocator_type> __sb_;
 
 public:
-    // 27.8.2.1 Constructors:
+    // 30.8.5.1 [stringstream.cons], constructors
+#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    explicit basic_stringstream(ios_base::openmode __wch = ios_base::in | ios_base::out)
-        : basic_iostream<_CharT, _Traits>(&__sb_)
-        , __sb_(__wch)
-    { }
+    basic_stringstream() : basic_stringstream(ios_base::in | ios_base::out) {}
+
+    _LIBCPP_INLINE_VISIBILITY
+    explicit basic_stringstream(ios_base::openmode __wch)
+        : basic_iostream<_CharT, _Traits>(&__sb_), __sb_(__wch) {}
+#else
+    _LIBCPP_INLINE_VISIBILITY
+    explicit basic_stringstream(ios_base::openmode __wch = ios_base::in |
+                                                           ios_base::out)
+        : basic_iostream<_CharT, _Traits>(&__sb_), __sb_(__wch) {}
+#endif
 
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_stringstream(const string_type& __s,

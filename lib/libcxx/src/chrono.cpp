@@ -33,6 +33,10 @@
 #  endif
 #endif // defined(_LIBCPP_WIN32API)
 
+#if __has_include(<mach/mach_time.h>)
+# include <mach/mach_time.h>
+#endif
+
 #if defined(__ELF__) && defined(_LIBCPP_LINK_RT_LIB)
 #  pragma comment(lib, "rt")
 #endif
@@ -121,6 +125,59 @@ system_clock::from_time_t(time_t t) _NOEXCEPT
 
 #if defined(__APPLE__)
 
+// TODO(ldionne):
+// This old implementation of steady_clock is retained until Chrome drops supports
+// for macOS < 10.12. The issue is that they link libc++ statically into their
+// application, which means that libc++ must support being built for such deployment
+// targets. See https://llvm.org/D74489 for details.
+#if (defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 101200) || \
+    (defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 100000) || \
+    (defined(__ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ < 100000) || \
+    (defined(__ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ < 30000)
+# define _LIBCPP_USE_OLD_MACH_ABSOLUTE_TIME
+#endif
+
+#if defined(_LIBCPP_USE_OLD_MACH_ABSOLUTE_TIME)
+
+//   mach_absolute_time() * MachInfo.numer / MachInfo.denom is the number of
+//   nanoseconds since the computer booted up.  MachInfo.numer and MachInfo.denom
+//   are run time constants supplied by the OS.  This clock has no relationship
+//   to the Gregorian calendar.  It's main use is as a high resolution timer.
+
+// MachInfo.numer / MachInfo.denom is often 1 on the latest equipment.  Specialize
+//   for that case as an optimization.
+
+static steady_clock::rep steady_simplified() {
+    return static_cast<steady_clock::rep>(mach_absolute_time());
+}
+static double compute_steady_factor() {
+    mach_timebase_info_data_t MachInfo;
+    mach_timebase_info(&MachInfo);
+    return static_cast<double>(MachInfo.numer) / MachInfo.denom;
+}
+
+static steady_clock::rep steady_full() {
+    static const double factor = compute_steady_factor();
+    return static_cast<steady_clock::rep>(mach_absolute_time() * factor);
+}
+
+typedef steady_clock::rep (*FP)();
+
+static FP init_steady_clock() {
+    mach_timebase_info_data_t MachInfo;
+    mach_timebase_info(&MachInfo);
+    if (MachInfo.numer == MachInfo.denom)
+        return &steady_simplified;
+    return &steady_full;
+}
+
+static steady_clock::time_point __libcpp_steady_clock_now() {
+    static FP fp = init_steady_clock();
+    return steady_clock::time_point(steady_clock::duration(fp()));
+}
+
+#else // vvvvv default behavior for Apple platforms  vvvvv
+
 // On Apple platforms, only CLOCK_UPTIME_RAW, CLOCK_MONOTONIC_RAW or
 // mach_absolute_time are able to time functions in the nanosecond range.
 // Furthermore, only CLOCK_MONOTONIC_RAW is truly monotonic, because it
@@ -132,6 +189,8 @@ static steady_clock::time_point __libcpp_steady_clock_now() {
         __throw_system_error(errno, "clock_gettime(CLOCK_MONOTONIC_RAW) failed");
     return steady_clock::time_point(seconds(tp.tv_sec) + nanoseconds(tp.tv_nsec));
 }
+
+#endif
 
 #elif defined(_LIBCPP_WIN32API)
 
@@ -153,7 +212,10 @@ static steady_clock::time_point __libcpp_steady_clock_now() {
 
   LARGE_INTEGER counter;
   (void) QueryPerformanceCounter(&counter);
-  return steady_clock::time_point(steady_clock::duration(counter.QuadPart * nano::den / freq.QuadPart));
+  auto seconds = counter.QuadPart / freq.QuadPart;
+  auto fractions = counter.QuadPart % freq.QuadPart;
+  auto dur = seconds * nano::den + fractions * nano::den / freq.QuadPart;
+  return steady_clock::time_point(steady_clock::duration(dur));
 }
 
 #elif defined(CLOCK_MONOTONIC)

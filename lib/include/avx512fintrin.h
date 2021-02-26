@@ -9297,8 +9297,11 @@ _mm512_mask_abs_pd(__m512d __W, __mmask8 __K, __m512d __A)
 
 /* Vector-reduction arithmetic accepts vectors as inputs and produces scalars as
  * outputs. This class of vector operation forms the basis of many scientific
- * computations. In vector-reduction arithmetic, the evaluation off is
+ * computations. In vector-reduction arithmetic, the evaluation order is
  * independent of the order of the input elements of V.
+
+ * For floating point types, we always assume the elements are reassociable even
+ * if -fast-math is off.
 
  * Used bisection method. At each step, we partition the vector with previous
  * step in half, and the operation is performed on its two halves.
@@ -9345,8 +9348,11 @@ _mm512_mask_reduce_or_epi64(__mmask8 __M, __m512i __W) {
   return __builtin_ia32_reduce_or_q512(__W);
 }
 
+// -0.0 is used to ignore the start value since it is the neutral value of
+// floating point addition. For more information, please refer to
+// https://llvm.org/docs/LangRef.html#llvm-vector-reduce-fadd-intrinsic
 static __inline__ double __DEFAULT_FN_ATTRS512 _mm512_reduce_add_pd(__m512d __W) {
-  return __builtin_ia32_reduce_fadd_pd512(0.0, __W);
+  return __builtin_ia32_reduce_fadd_pd512(-0.0, __W);
 }
 
 static __inline__ double __DEFAULT_FN_ATTRS512 _mm512_reduce_mul_pd(__m512d __W) {
@@ -9356,7 +9362,7 @@ static __inline__ double __DEFAULT_FN_ATTRS512 _mm512_reduce_mul_pd(__m512d __W)
 static __inline__ double __DEFAULT_FN_ATTRS512
 _mm512_mask_reduce_add_pd(__mmask8 __M, __m512d __W) {
   __W = _mm512_maskz_mov_pd(__M, __W);
-  return __builtin_ia32_reduce_fadd_pd512(0.0, __W);
+  return __builtin_ia32_reduce_fadd_pd512(-0.0, __W);
 }
 
 static __inline__ double __DEFAULT_FN_ATTRS512
@@ -9411,7 +9417,7 @@ _mm512_mask_reduce_or_epi32(__mmask16 __M, __m512i __W) {
 
 static __inline__ float __DEFAULT_FN_ATTRS512
 _mm512_reduce_add_ps(__m512 __W) {
-  return __builtin_ia32_reduce_fadd_ps512(0.0f, __W);
+  return __builtin_ia32_reduce_fadd_ps512(-0.0f, __W);
 }
 
 static __inline__ float __DEFAULT_FN_ATTRS512
@@ -9422,7 +9428,7 @@ _mm512_reduce_mul_ps(__m512 __W) {
 static __inline__ float __DEFAULT_FN_ATTRS512
 _mm512_mask_reduce_add_ps(__mmask16 __M, __m512 __W) {
   __W = _mm512_maskz_mov_ps(__M, __W);
-  return __builtin_ia32_reduce_fadd_ps512(0.0f, __W);
+  return __builtin_ia32_reduce_fadd_ps512(-0.0f, __W);
 }
 
 static __inline__ float __DEFAULT_FN_ATTRS512

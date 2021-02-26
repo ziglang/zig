@@ -267,7 +267,7 @@ template <class InputIterator, class OutputIterator, class BinaryPredicate>
     unique_copy(InputIterator first, InputIterator last, OutputIterator result, BinaryPredicate pred);
 
 template <class BidirectionalIterator>
-    void
+    constexpr void               // constexpr in C++20
     reverse(BidirectionalIterator first, BidirectionalIterator last);
 
 template <class BidirectionalIterator, class OutputIterator>
@@ -301,12 +301,22 @@ template<class RandomAccessIterator, class UniformRandomNumberGenerator>
     void shuffle(RandomAccessIterator first, RandomAccessIterator last,
                  UniformRandomNumberGenerator&& g);
 
+template<class ForwardIterator>
+  constexpr ForwardIterator
+    shift_left(ForwardIterator first, ForwardIterator last,
+               typename iterator_traits<ForwardIterator>::difference_type n); // C++20
+
+template<class ForwardIterator>
+  constexpr ForwardIterator
+    shift_right(ForwardIterator first, ForwardIterator last,
+                typename iterator_traits<ForwardIterator>::difference_type n); // C++20
+
 template <class InputIterator, class Predicate>
     constexpr bool  // constexpr in C++20
     is_partitioned(InputIterator first, InputIterator last, Predicate pred);
 
 template <class ForwardIterator, class Predicate>
-    ForwardIterator
+    constexpr ForwardIterator  // constexpr in C++20
     partition(ForwardIterator first, ForwardIterator last, Predicate pred);
 
 template <class InputIterator, class OutputIterator1,
@@ -616,19 +626,19 @@ template <class InputIterator1, class InputIterator2, class Compare>
                             InputIterator2 first2, InputIterator2 last2, Compare comp);
 
 template <class BidirectionalIterator>
-    bool
+    constexpr bool     // constexpr in C++20
     next_permutation(BidirectionalIterator first, BidirectionalIterator last);
 
 template <class BidirectionalIterator, class Compare>
-    bool
+    constexpr bool     // constexpr in C++20
     next_permutation(BidirectionalIterator first, BidirectionalIterator last, Compare comp);
 
 template <class BidirectionalIterator>
-    bool
+    constexpr bool     // constexpr in C++20
     prev_permutation(BidirectionalIterator first, BidirectionalIterator last);
 
 template <class BidirectionalIterator, class Compare>
-    bool
+    constexpr bool     // constexpr in C++20
     prev_permutation(BidirectionalIterator first, BidirectionalIterator last, Compare comp);
 
 }  // std
@@ -2311,7 +2321,7 @@ unique_copy(_InputIterator __first, _InputIterator __last, _OutputIterator __res
 // reverse
 
 template <class _BidirectionalIterator>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void
 __reverse(_BidirectionalIterator __first, _BidirectionalIterator __last, bidirectional_iterator_tag)
 {
@@ -2325,7 +2335,7 @@ __reverse(_BidirectionalIterator __first, _BidirectionalIterator __last, bidirec
 }
 
 template <class _RandomAccessIterator>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void
 __reverse(_RandomAccessIterator __first, _RandomAccessIterator __last, random_access_iterator_tag)
 {
@@ -2335,7 +2345,7 @@ __reverse(_RandomAccessIterator __first, _RandomAccessIterator __last, random_ac
 }
 
 template <class _BidirectionalIterator>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void
 reverse(_BidirectionalIterator __first, _BidirectionalIterator __last)
 {
@@ -3029,9 +3039,17 @@ private:
 
 public:
     // constructors and reset functions
-    explicit uniform_int_distribution(result_type __a = 0,
-                                      result_type __b = numeric_limits<result_type>::max())
+#ifndef _LIBCPP_CXX03_LANG
+    uniform_int_distribution() : uniform_int_distribution(0) {}
+    explicit uniform_int_distribution(
+        result_type __a, result_type __b = numeric_limits<result_type>::max())
         : __p_(param_type(__a, __b)) {}
+#else
+    explicit uniform_int_distribution(
+        result_type __a = 0,
+        result_type __b = numeric_limits<result_type>::max())
+        : __p_(param_type(__a, __b)) {}
+#endif
     explicit uniform_int_distribution(const param_type& __p) : __p_(__p) {}
     void reset() {}
 
@@ -3251,6 +3269,111 @@ template<class _RandomAccessIterator, class _UniformRandomNumberGenerator>
     }
 }
 
+#if _LIBCPP_STD_VER > 17
+
+// shift_left, shift_right
+
+template <class _ForwardIterator>
+inline _LIBCPP_INLINE_VISIBILITY constexpr
+_ForwardIterator
+shift_left(_ForwardIterator __first, _ForwardIterator __last,
+           typename iterator_traits<_ForwardIterator>::difference_type __n)
+{
+    if (__n == 0) {
+        return __last;
+    }
+
+    _ForwardIterator __m = __first;
+    if constexpr (__is_cpp17_random_access_iterator<_ForwardIterator>::value) {
+        if (__n >= __last - __first) {
+            return __first;
+        }
+        __m += __n;
+    } else {
+        for (; __n > 0; --__n) {
+            if (__m == __last) {
+                return __first;
+            }
+            ++__m;
+        }
+    }
+    return _VSTD::move(__m, __last, __first);
+}
+
+template <class _ForwardIterator>
+inline _LIBCPP_INLINE_VISIBILITY constexpr
+_ForwardIterator
+shift_right(_ForwardIterator __first, _ForwardIterator __last,
+            typename iterator_traits<_ForwardIterator>::difference_type __n)
+{
+    if (__n == 0) {
+        return __first;
+    }
+
+    if constexpr (__is_cpp17_random_access_iterator<_ForwardIterator>::value) {
+        decltype(__n) __d = __last - __first;
+        if (__n >= __d) {
+            return __last;
+        }
+        _ForwardIterator __m = __first + (__d - __n);
+        return _VSTD::move_backward(__first, __m, __last);
+    } else if constexpr (__is_cpp17_bidirectional_iterator<_ForwardIterator>::value) {
+        _ForwardIterator __m = __last;
+        for (; __n > 0; --__n) {
+            if (__m == __first) {
+                return __last;
+            }
+            --__m;
+        }
+        return _VSTD::move_backward(__first, __m, __last);
+    } else {
+        _ForwardIterator __ret = __first;
+        for (; __n > 0; --__n) {
+            if (__ret == __last) {
+                return __last;
+            }
+            ++__ret;
+        }
+
+        // We have an __n-element scratch space from __first to __ret.
+        // Slide an __n-element window [__trail, __lead) from left to right.
+        // We're essentially doing swap_ranges(__first, __ret, __trail, __lead)
+        // over and over; but once __lead reaches __last we needn't bother
+        // to save the values of elements [__trail, __last).
+
+        auto __trail = __first;
+        auto __lead = __ret;
+        while (__trail != __ret) {
+            if (__lead == __last) {
+                _VSTD::move(__first, __trail, __ret);
+                return __ret;
+            }
+            ++__trail;
+            ++__lead;
+        }
+
+        _ForwardIterator __mid = __first;
+        while (true) {
+            if (__lead == __last) {
+                __trail = _VSTD::move(__mid, __ret, __trail);
+                _VSTD::move(__first, __mid, __trail);
+                return __ret;
+            }
+            swap(*__mid, *__trail);
+            ++__mid;
+            ++__trail;
+            ++__lead;
+            if (__mid == __ret) {
+                __mid = __first;
+            }
+        }
+    }
+}
+
+#endif // _LIBCPP_STD_VER > 17
+
+// is_partitioned
+
 template <class _InputIterator, class _Predicate>
 _LIBCPP_NODISCARD_EXT _LIBCPP_CONSTEXPR_AFTER_CXX17 bool
 is_partitioned(_InputIterator __first, _InputIterator __last, _Predicate __pred)
@@ -3270,7 +3393,7 @@ is_partitioned(_InputIterator __first, _InputIterator __last, _Predicate __pred)
 // partition
 
 template <class _Predicate, class _ForwardIterator>
-_ForwardIterator
+_LIBCPP_CONSTEXPR_AFTER_CXX17 _ForwardIterator
 __partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred, forward_iterator_tag)
 {
     while (true)
@@ -3293,7 +3416,7 @@ __partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred
 }
 
 template <class _Predicate, class _BidirectionalIterator>
-_BidirectionalIterator
+_LIBCPP_CONSTEXPR_AFTER_CXX17 _BidirectionalIterator
 __partition(_BidirectionalIterator __first, _BidirectionalIterator __last, _Predicate __pred,
             bidirectional_iterator_tag)
 {
@@ -3318,7 +3441,7 @@ __partition(_BidirectionalIterator __first, _BidirectionalIterator __last, _Pred
 }
 
 template <class _ForwardIterator, class _Predicate>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 _ForwardIterator
 partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred)
 {
@@ -4483,7 +4606,7 @@ __buffered_inplace_merge(_BidirectionalIterator __first, _BidirectionalIterator 
         value_type* __p = __buff;
         for (_BidirectionalIterator __i = __first; __i != __middle; __d.template __incr<value_type>(), (void) ++__i, (void) ++__p)
             ::new ((void*)__p) value_type(_VSTD::move(*__i));
-        _VSTD::__half_inplace_merge(__buff, __p, __middle, __last, __first, __comp);
+        _VSTD::__half_inplace_merge<_Compare>(__buff, __p, __middle, __last, __first, __comp);
     }
     else
     {
@@ -4492,9 +4615,10 @@ __buffered_inplace_merge(_BidirectionalIterator __first, _BidirectionalIterator 
             ::new ((void*)__p) value_type(_VSTD::move(*__i));
         typedef reverse_iterator<_BidirectionalIterator> _RBi;
         typedef reverse_iterator<value_type*> _Rv;
-        _VSTD::__half_inplace_merge(_Rv(__p), _Rv(__buff),
+        typedef __invert<_Compare> _Inverted;
+        _VSTD::__half_inplace_merge<_Inverted>(_Rv(__p), _Rv(__buff),
                                     _RBi(__middle), _RBi(__first),
-                                    _RBi(__last), _VSTD::__invert<_Compare>(__comp));
+                                    _RBi(__last), _Inverted(__comp));
     }
 }
 
@@ -5636,7 +5760,7 @@ lexicographical_compare(_InputIterator1 __first1, _InputIterator1 __last1,
 // next_permutation
 
 template <class _Compare, class _BidirectionalIterator>
-bool
+_LIBCPP_CONSTEXPR_AFTER_CXX17 bool
 __next_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last, _Compare __comp)
 {
     _BidirectionalIterator __i = __last;
@@ -5663,7 +5787,7 @@ __next_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last
 }
 
 template <class _BidirectionalIterator, class _Compare>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 bool
 next_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last, _Compare __comp)
 {
@@ -5672,7 +5796,7 @@ next_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last, 
 }
 
 template <class _BidirectionalIterator>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 bool
 next_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last)
 {
@@ -5683,7 +5807,7 @@ next_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last)
 // prev_permutation
 
 template <class _Compare, class _BidirectionalIterator>
-bool
+_LIBCPP_CONSTEXPR_AFTER_CXX17 bool
 __prev_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last, _Compare __comp)
 {
     _BidirectionalIterator __i = __last;
@@ -5710,7 +5834,7 @@ __prev_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last
 }
 
 template <class _BidirectionalIterator, class _Compare>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 bool
 prev_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last, _Compare __comp)
 {
@@ -5719,7 +5843,7 @@ prev_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last, 
 }
 
 template <class _BidirectionalIterator>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 bool
 prev_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last)
 {

@@ -108,10 +108,10 @@ __tree_sub_invariant(_NodePtr __x)
         if (__x->__right_ && !__x->__right_->__is_black_)
             return 0;
     }
-    unsigned __h = __tree_sub_invariant(__x->__left_);
+    unsigned __h = _VSTD::__tree_sub_invariant(__x->__left_);
     if (__h == 0)
         return 0;  // invalid left subtree
-    if (__h != __tree_sub_invariant(__x->__right_))
+    if (__h != _VSTD::__tree_sub_invariant(__x->__right_))
         return 0;  // invalid or different height right subtree
     return __h + __x->__is_black_;  // return black height of this node
 }
@@ -128,13 +128,13 @@ __tree_invariant(_NodePtr __root)
     // check __x->__parent_ consistency
     if (__root->__parent_ == nullptr)
         return false;
-    if (!__tree_is_left_child(__root))
+    if (!_VSTD::__tree_is_left_child(__root))
         return false;
     // root must be black
     if (!__root->__is_black_)
         return false;
     // do normal node checks
-    return __tree_sub_invariant(__root) != 0;
+    return _VSTD::__tree_sub_invariant(__root) != 0;
 }
 
 // Returns:  pointer to the left-most node under __x.
@@ -168,8 +168,8 @@ _NodePtr
 __tree_next(_NodePtr __x) _NOEXCEPT
 {
     if (__x->__right_ != nullptr)
-        return __tree_min(__x->__right_);
-    while (!__tree_is_left_child(__x))
+        return _VSTD::__tree_min(__x->__right_);
+    while (!_VSTD::__tree_is_left_child(__x))
         __x = __x->__parent_unsafe();
     return __x->__parent_unsafe();
 }
@@ -180,8 +180,8 @@ _EndNodePtr
 __tree_next_iter(_NodePtr __x) _NOEXCEPT
 {
     if (__x->__right_ != nullptr)
-        return static_cast<_EndNodePtr>(__tree_min(__x->__right_));
-    while (!__tree_is_left_child(__x))
+        return static_cast<_EndNodePtr>(_VSTD::__tree_min(__x->__right_));
+    while (!_VSTD::__tree_is_left_child(__x))
         __x = __x->__parent_unsafe();
     return static_cast<_EndNodePtr>(__x->__parent_);
 }
@@ -195,9 +195,9 @@ _NodePtr
 __tree_prev_iter(_EndNodePtr __x) _NOEXCEPT
 {
     if (__x->__left_ != nullptr)
-        return __tree_max(__x->__left_);
+        return _VSTD::__tree_max(__x->__left_);
     _NodePtr __xx = static_cast<_NodePtr>(__x);
-    while (__tree_is_left_child(__xx))
+    while (_VSTD::__tree_is_left_child(__xx))
         __xx = __xx->__parent_unsafe();
     return __xx->__parent_unsafe();
 }
@@ -237,7 +237,7 @@ __tree_left_rotate(_NodePtr __x) _NOEXCEPT
     if (__x->__right_ != nullptr)
         __x->__right_->__set_parent(__x);
     __y->__parent_ = __x->__parent_;
-    if (__tree_is_left_child(__x))
+    if (_VSTD::__tree_is_left_child(__x))
         __x->__parent_->__left_ = __y;
     else
         __x->__parent_unsafe()->__right_ = __y;
@@ -257,7 +257,7 @@ __tree_right_rotate(_NodePtr __x) _NOEXCEPT
     if (__x->__left_ != nullptr)
         __x->__left_->__set_parent(__x);
     __y->__parent_ = __x->__parent_;
-    if (__tree_is_left_child(__x))
+    if (_VSTD::__tree_is_left_child(__x))
         __x->__parent_->__left_ = __y;
     else
         __x->__parent_unsafe()->__right_ = __y;
@@ -281,7 +281,7 @@ __tree_balance_after_insert(_NodePtr __root, _NodePtr __x) _NOEXCEPT
     while (__x != __root && !__x->__parent_unsafe()->__is_black_)
     {
         // __x->__parent_ != __root because __x->__parent_->__is_black == false
-        if (__tree_is_left_child(__x->__parent_unsafe()))
+        if (_VSTD::__tree_is_left_child(__x->__parent_unsafe()))
         {
             _NodePtr __y = __x->__parent_unsafe()->__parent_unsafe()->__right_;
             if (__y != nullptr && !__y->__is_black_)
@@ -294,16 +294,16 @@ __tree_balance_after_insert(_NodePtr __root, _NodePtr __x) _NOEXCEPT
             }
             else
             {
-                if (!__tree_is_left_child(__x))
+                if (!_VSTD::__tree_is_left_child(__x))
                 {
                     __x = __x->__parent_unsafe();
-                    __tree_left_rotate(__x);
+                    _VSTD::__tree_left_rotate(__x);
                 }
                 __x = __x->__parent_unsafe();
                 __x->__is_black_ = true;
                 __x = __x->__parent_unsafe();
                 __x->__is_black_ = false;
-                __tree_right_rotate(__x);
+                _VSTD::__tree_right_rotate(__x);
                 break;
             }
         }
@@ -320,16 +320,16 @@ __tree_balance_after_insert(_NodePtr __root, _NodePtr __x) _NOEXCEPT
             }
             else
             {
-                if (__tree_is_left_child(__x))
+                if (_VSTD::__tree_is_left_child(__x))
                 {
                     __x = __x->__parent_unsafe();
-                    __tree_right_rotate(__x);
+                    _VSTD::__tree_right_rotate(__x);
                 }
                 __x = __x->__parent_unsafe();
                 __x->__is_black_ = true;
                 __x = __x->__parent_unsafe();
                 __x->__is_black_ = false;
-                __tree_left_rotate(__x);
+                _VSTD::__tree_left_rotate(__x);
                 break;
             }
         }
@@ -352,7 +352,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
     // __y will have at most one child.
     // __y will be the initial hole in the tree (make the hole at a leaf)
     _NodePtr __y = (__z->__left_ == nullptr || __z->__right_ == nullptr) ?
-                    __z : __tree_next(__z);
+                    __z : _VSTD::__tree_next(__z);
     // __x is __y's possibly null single child
     _NodePtr __x = __y->__left_ != nullptr ? __y->__left_ : __y->__right_;
     // __w is __x's possibly null uncle (will become __x's sibling)
@@ -360,7 +360,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
     // link __x to __y's parent, and find __w
     if (__x != nullptr)
         __x->__parent_ = __y->__parent_;
-    if (__tree_is_left_child(__y))
+    if (_VSTD::__tree_is_left_child(__y))
     {
         __y->__parent_->__left_ = __x;
         if (__y != __root)
@@ -381,7 +381,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
     {
         // __z->__left_ != nulptr but __z->__right_ might == __x == nullptr
         __y->__parent_ = __z->__parent_;
-        if (__tree_is_left_child(__z))
+        if (_VSTD::__tree_is_left_child(__z))
             __y->__parent_->__left_ = __y;
         else
             __y->__parent_unsafe()->__right_ = __y;
@@ -421,13 +421,13 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
             //     with a non-null black child).
             while (true)
             {
-                if (!__tree_is_left_child(__w))  // if x is left child
+                if (!_VSTD::__tree_is_left_child(__w))  // if x is left child
                 {
                     if (!__w->__is_black_)
                     {
                         __w->__is_black_ = true;
                         __w->__parent_unsafe()->__is_black_ = false;
-                        __tree_left_rotate(__w->__parent_unsafe());
+                        _VSTD::__tree_left_rotate(__w->__parent_unsafe());
                         // __x is still valid
                         // reset __root only if necessary
                         if (__root == __w->__left_)
@@ -448,7 +448,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
                             break;
                         }
                         // reset sibling, and it still can't be null
-                        __w = __tree_is_left_child(__x) ?
+                        __w = _VSTD::__tree_is_left_child(__x) ?
                                     __x->__parent_unsafe()->__right_ :
                                     __x->__parent_->__left_;
                         // continue;
@@ -460,7 +460,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
                             // __w left child is non-null and red
                             __w->__left_->__is_black_ = true;
                             __w->__is_black_ = false;
-                            __tree_right_rotate(__w);
+                            _VSTD::__tree_right_rotate(__w);
                             // __w is known not to be root, so root hasn't changed
                             // reset sibling, and it still can't be null
                             __w = __w->__parent_unsafe();
@@ -469,7 +469,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
                         __w->__is_black_ = __w->__parent_unsafe()->__is_black_;
                         __w->__parent_unsafe()->__is_black_ = true;
                         __w->__right_->__is_black_ = true;
-                        __tree_left_rotate(__w->__parent_unsafe());
+                        _VSTD::__tree_left_rotate(__w->__parent_unsafe());
                         break;
                     }
                 }
@@ -479,7 +479,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
                     {
                         __w->__is_black_ = true;
                         __w->__parent_unsafe()->__is_black_ = false;
-                        __tree_right_rotate(__w->__parent_unsafe());
+                        _VSTD::__tree_right_rotate(__w->__parent_unsafe());
                         // __x is still valid
                         // reset __root only if necessary
                         if (__root == __w->__right_)
@@ -500,7 +500,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
                             break;
                         }
                         // reset sibling, and it still can't be null
-                        __w = __tree_is_left_child(__x) ?
+                        __w = _VSTD::__tree_is_left_child(__x) ?
                                     __x->__parent_unsafe()->__right_ :
                                     __x->__parent_->__left_;
                         // continue;
@@ -512,7 +512,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
                             // __w right child is non-null and red
                             __w->__right_->__is_black_ = true;
                             __w->__is_black_ = false;
-                            __tree_left_rotate(__w);
+                            _VSTD::__tree_left_rotate(__w);
                             // __w is known not to be root, so root hasn't changed
                             // reset sibling, and it still can't be null
                             __w = __w->__parent_unsafe();
@@ -521,7 +521,7 @@ __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
                         __w->__is_black_ = __w->__parent_unsafe()->__is_black_;
                         __w->__parent_unsafe()->__is_black_ = true;
                         __w->__left_->__is_black_ = true;
-                        __tree_right_rotate(__w->__parent_unsafe());
+                        _VSTD::__tree_right_rotate(__w->__parent_unsafe());
                         break;
                     }
                 }
@@ -839,7 +839,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     __tree_iterator& operator++() {
       __ptr_ = static_cast<__iter_pointer>(
-          __tree_next_iter<__end_node_pointer>(static_cast<__node_base_pointer>(__ptr_)));
+          _VSTD::__tree_next_iter<__end_node_pointer>(static_cast<__node_base_pointer>(__ptr_)));
       return *this;
     }
     _LIBCPP_INLINE_VISIBILITY
@@ -848,7 +848,7 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     __tree_iterator& operator--() {
-      __ptr_ = static_cast<__iter_pointer>(__tree_prev_iter<__node_base_pointer>(
+      __ptr_ = static_cast<__iter_pointer>(_VSTD::__tree_prev_iter<__node_base_pointer>(
           static_cast<__end_node_pointer>(__ptr_)));
       return *this;
     }
@@ -920,7 +920,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     __tree_const_iterator& operator++() {
       __ptr_ = static_cast<__iter_pointer>(
-          __tree_next_iter<__end_node_pointer>(static_cast<__node_base_pointer>(__ptr_)));
+          _VSTD::__tree_next_iter<__end_node_pointer>(static_cast<__node_base_pointer>(__ptr_)));
       return *this;
     }
 
@@ -930,7 +930,7 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     __tree_const_iterator& operator--() {
-      __ptr_ = static_cast<__iter_pointer>(__tree_prev_iter<__node_base_pointer>(
+      __ptr_ = static_cast<__iter_pointer>(_VSTD::__tree_prev_iter<__node_base_pointer>(
           static_cast<__end_node_pointer>(__ptr_)));
       return *this;
     }
@@ -1590,20 +1590,20 @@ __tree<_Tp, _Compare, _Allocator>::_DetachedTreeCache::__detach_next(__node_poin
 {
     if (__cache->__parent_ == nullptr)
         return nullptr;
-    if (__tree_is_left_child(static_cast<__node_base_pointer>(__cache)))
+    if (_VSTD::__tree_is_left_child(static_cast<__node_base_pointer>(__cache)))
     {
         __cache->__parent_->__left_ = nullptr;
         __cache = static_cast<__node_pointer>(__cache->__parent_);
         if (__cache->__right_ == nullptr)
             return __cache;
-        return static_cast<__node_pointer>(__tree_leaf(__cache->__right_));
+        return static_cast<__node_pointer>(_VSTD::__tree_leaf(__cache->__right_));
     }
     // __cache is right child
     __cache->__parent_unsafe()->__right_ = nullptr;
     __cache = static_cast<__node_pointer>(__cache->__parent_);
     if (__cache->__left_ == nullptr)
         return __cache;
-    return static_cast<__node_pointer>(__tree_leaf(__cache->__left_));
+    return static_cast<__node_pointer>(_VSTD::__tree_leaf(__cache->__left_));
 }
 
 template <class _Tp, class _Compare, class _Allocator>
@@ -2078,7 +2078,7 @@ void __tree<_Tp, _Compare, _Allocator>::__insert_node_at(
     __child = __new_node;
     if (__begin_node()->__left_ != nullptr)
         __begin_node() = static_cast<__iter_pointer>(__begin_node()->__left_);
-    __tree_balance_after_insert(__end_node()->__left_, __child);
+    _VSTD::__tree_balance_after_insert(__end_node()->__left_, __child);
     ++size();
 }
 
@@ -2248,8 +2248,8 @@ __tree<_Tp, _Compare, _Allocator>::__remove_node_pointer(__node_pointer __ptr) _
     if (__begin_node() == __ptr)
         __begin_node() = __r.__ptr_;
     --size();
-    __tree_remove(__end_node()->__left_,
-                  static_cast<__node_base_pointer>(__ptr));
+    _VSTD::__tree_remove(__end_node()->__left_,
+                         static_cast<__node_base_pointer>(__ptr));
     return __r;
 }
 
@@ -2627,7 +2627,7 @@ __tree<_Tp, _Compare, _Allocator>::__equal_range_unique(const _Key& __k)
             return _Pp(iterator(__rt),
                       iterator(
                           __rt->__right_ != nullptr ?
-                              static_cast<__iter_pointer>(__tree_min(__rt->__right_))
+                              static_cast<__iter_pointer>(_VSTD::__tree_min(__rt->__right_))
                             : __result));
     }
     return _Pp(iterator(__result), iterator(__result));
@@ -2655,7 +2655,7 @@ __tree<_Tp, _Compare, _Allocator>::__equal_range_unique(const _Key& __k) const
             return _Pp(const_iterator(__rt),
                       const_iterator(
                           __rt->__right_ != nullptr ?
-                              static_cast<__iter_pointer>(__tree_min(__rt->__right_))
+                              static_cast<__iter_pointer>(_VSTD::__tree_min(__rt->__right_))
                             : __result));
     }
     return _Pp(const_iterator(__result), const_iterator(__result));
@@ -2724,8 +2724,8 @@ __tree<_Tp, _Compare, _Allocator>::remove(const_iterator __p) _NOEXCEPT
             __begin_node() = static_cast<__iter_pointer>(__np->__parent_);
     }
     --size();
-    __tree_remove(__end_node()->__left_,
-                  static_cast<__node_base_pointer>(__np));
+    _VSTD::__tree_remove(__end_node()->__left_,
+                         static_cast<__node_base_pointer>(__np));
     return __node_holder(__np, _Dp(__node_alloc(), true));
 }
 

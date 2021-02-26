@@ -112,18 +112,11 @@ protected:
     Compare comp;
 
 public:
-    priority_queue() = default;
-    ~priority_queue() = default;
-
-    priority_queue(const priority_queue& q) = default;
-    priority_queue(priority_queue&& q) = default;
-
-    priority_queue& operator=(const priority_queue& q) = default;
-    priority_queue& operator=(priority_queue&& q) = default;
-
-    explicit priority_queue(const Compare& comp);
-    priority_queue(const Compare& comp, const container_type& c);
-    explicit priority_queue(const Compare& comp, container_type&& c);
+    priority_queue() : priority_queue(Compare()) {} // C++20
+    explicit priority_queue(const Compare& x) : priority_queue(x, Container()) {}
+    priority_queue(const Compare& x, const Container&);
+    explicit priority_queue(const Compare& x = Compare(), Container&&= Container()); // before C++20
+    priority_queue(const Compare& x, Container&&); // C++20
     template <class InputIterator>
         priority_queue(InputIterator first, InputIterator last,
                        const Compare& comp = Compare());
@@ -474,7 +467,7 @@ public:
     priority_queue(const value_compare& __comp, const container_type& __c);
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    explicit priority_queue(const value_compare& __comp, container_type&& __c);
+    priority_queue(const value_compare& __comp, container_type&& __c);
 #endif
     template <class _InputIter>
         _LIBCPP_INLINE_VISIBILITY

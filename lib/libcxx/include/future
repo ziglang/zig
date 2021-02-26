@@ -1681,7 +1681,7 @@ template<class _Fp, class _Alloc, class _Rp, class ..._ArgTypes>
 _Rp
 __packaged_task_func<_Fp, _Alloc, _Rp(_ArgTypes...)>::operator()(_ArgTypes&& ... __arg)
 {
-    return __invoke(__f_.first(), _VSTD::forward<_ArgTypes>(__arg)...);
+    return _VSTD::__invoke(__f_.first(), _VSTD::forward<_ArgTypes>(__arg)...);
 }
 
 template <class _Callable> class __packaged_task_function;
@@ -2184,7 +2184,7 @@ private:
     _Rp
     __execute(__tuple_indices<_Indices...>)
     {
-        return __invoke(_VSTD::move(_VSTD::get<0>(__f_)), _VSTD::move(_VSTD::get<_Indices>(__f_))...);
+        return _VSTD::__invoke(_VSTD::move(_VSTD::get<0>(__f_)), _VSTD::move(_VSTD::get<_Indices>(__f_))...);
     }
 };
 
@@ -2204,16 +2204,16 @@ async(launch __policy, _Fp&& __f, _Args&&... __args)
     {
 #endif
         if (__does_policy_contain(__policy, launch::async))
-        return _VSTD::__make_async_assoc_state<_Rp>(_BF(__decay_copy(_VSTD::forward<_Fp>(__f)),
-                                                     __decay_copy(_VSTD::forward<_Args>(__args))...));
+        return _VSTD::__make_async_assoc_state<_Rp>(_BF(_VSTD::__decay_copy(_VSTD::forward<_Fp>(__f)),
+                                                     _VSTD::__decay_copy(_VSTD::forward<_Args>(__args))...));
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
     catch ( ... ) { if (__policy == launch::async) throw ; }
 #endif
 
     if (__does_policy_contain(__policy, launch::deferred))
-        return _VSTD::__make_deferred_assoc_state<_Rp>(_BF(__decay_copy(_VSTD::forward<_Fp>(__f)),
-                                                        __decay_copy(_VSTD::forward<_Args>(__args))...));
+        return _VSTD::__make_deferred_assoc_state<_Rp>(_BF(_VSTD::__decay_copy(_VSTD::forward<_Fp>(__f)),
+                                                        _VSTD::__decay_copy(_VSTD::forward<_Args>(__args))...));
     return future<_Rp>{};
 }
 

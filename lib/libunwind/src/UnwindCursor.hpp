@@ -925,6 +925,25 @@ private:
   }
 #endif
 
+#if defined(_LIBUNWIND_TARGET_LINUX) && defined(_LIBUNWIND_TARGET_AARCH64)
+  bool setInfoForSigReturn() {
+    R dummy;
+    return setInfoForSigReturn(dummy);
+  }
+  int stepThroughSigReturn() {
+    R dummy;
+    return stepThroughSigReturn(dummy);
+  }
+  bool setInfoForSigReturn(Registers_arm64 &);
+  int stepThroughSigReturn(Registers_arm64 &);
+  template <typename Registers> bool setInfoForSigReturn(Registers &) {
+    return false;
+  }
+  template <typename Registers> int stepThroughSigReturn(Registers &) {
+    return UNW_STEP_END;
+  }
+#endif
+
 #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
   bool getInfoFromFdeCie(const typename CFI_Parser<A>::FDE_Info &fdeInfo,
                          const typename CFI_Parser<A>::CIE_Info &cieInfo,
@@ -1179,6 +1198,9 @@ private:
   unw_proc_info_t  _info;
   bool             _unwindInfoMissing;
   bool             _isSignalFrame;
+#if defined(_LIBUNWIND_TARGET_LINUX) && defined(_LIBUNWIND_TARGET_AARCH64)
+  bool             _isSigReturn = false;
+#endif
 };
 
 
@@ -1873,7 +1895,11 @@ bool UnwindCursor<A, R>::getInfoFromSEH(pint_t pc) {
 
 template <typename A, typename R>
 void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
-  pint_t pc = (pint_t)this->getReg(UNW_REG_IP);
+#if defined(_LIBUNWIND_TARGET_LINUX) && defined(_LIBUNWIND_TARGET_AARCH64)
+  _isSigReturn = false;
+#endif
+
+  pint_t pc = static_cast<pint_t>(this->getReg(UNW_REG_IP));
 #if defined(_LIBUNWIND_ARM_EHABI)
   // Remove the thumb bit so the IP represents the actual instruction address.
   // This matches the behaviour of _Unwind_GetIP on arm.
@@ -1971,9 +1997,76 @@ void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
   }
 #endif // #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
 
+#if defined(_LIBUNWIND_TARGET_LINUX) && defined(_LIBUNWIND_TARGET_AARCH64)
+  if (setInfoForSigReturn())
+    return;
+#endif
+
   // no unwind info, flag that we can't reliably unwind
   _unwindInfoMissing = true;
 }
+
+#if defined(_LIBUNWIND_TARGET_LINUX) && defined(_LIBUNWIND_TARGET_AARCH64)
+template <typename A, typename R>
+bool UnwindCursor<A, R>::setInfoForSigReturn(Registers_arm64 &) {
+  // Look for the sigreturn trampoline. The trampoline's body is two
+  // specific instructions (see below). Typically the trampoline comes from the
+  // vDSO[1] (i.e. the __kernel_rt_sigreturn function). A libc might provide its
+  // own restorer function, though, or user-mode QEMU might write a trampoline
+  // onto the stack.
+  //
+  // This special code path is a fallback that is only used if the trampoline
+  // lacks proper (e.g. DWARF) unwind info. On AArch64, a new DWARF register
+  // constant for the PC needs to be defined before DWARF can handle a signal
+  // trampoline. This code may segfault if the target PC is unreadable, e.g.:
+  //  - The PC points at a function compiled without unwind info, and which is
+  //    part of an execute-only mapping (e.g. using -Wl,--execute-only).
+  //  - The PC is invalid and happens to point to unreadable or unmapped memory.
+  //
+  // [1] https://github.com/torvalds/linux/blob/master/arch/arm64/kernel/vdso/sigreturn.S
+  const pint_t pc = static_cast<pint_t>(this->getReg(UNW_REG_IP));
+  // Look for instructions: mov x8, #0x8b; svc #0x0
+  if (_addressSpace.get32(pc) == 0xd2801168 &&
+      _addressSpace.get32(pc + 4) == 0xd4000001) {
+    _info = {};
+    _isSigReturn = true;
+    return true;
+  }
+  return false;
+}
+
+template <typename A, typename R>
+int UnwindCursor<A, R>::stepThroughSigReturn(Registers_arm64 &) {
+  // In the signal trampoline frame, sp points to an rt_sigframe[1], which is:
+  //  - 128-byte siginfo struct
+  //  - ucontext struct:
+  //     - 8-byte long (uc_flags)
+  //     - 8-byte pointer (uc_link)
+  //     - 24-byte stack_t
+  //     - 128-byte signal set
+  //     - 8 bytes of padding because sigcontext has 16-byte alignment
+  //     - sigcontext/mcontext_t
+  // [1] https://github.com/torvalds/linux/blob/master/arch/arm64/kernel/signal.c
+  const pint_t kOffsetSpToSigcontext = (128 + 8 + 8 + 24 + 128 + 8); // 304
+
+  // Offsets from sigcontext to each register.
+  const pint_t kOffsetGprs = 8; // offset to "__u64 regs[31]" field
+  const pint_t kOffsetSp = 256; // offset to "__u64 sp" field
+  const pint_t kOffsetPc = 264; // offset to "__u64 pc" field
+
+  pint_t sigctx = _registers.getSP() + kOffsetSpToSigcontext;
+
+  for (int i = 0; i <= 30; ++i) {
+    uint64_t value = _addressSpace.get64(sigctx + kOffsetGprs +
+                                         static_cast<pint_t>(i * 8));
+    _registers.setRegister(UNW_ARM64_X0 + i, value);
+  }
+  _registers.setSP(_addressSpace.get64(sigctx + kOffsetSp));
+  _registers.setIP(_addressSpace.get64(sigctx + kOffsetPc));
+  _isSignalFrame = true;
+  return UNW_STEP_SUCCESS;
+}
+#endif // defined(_LIBUNWIND_TARGET_LINUX) && defined(_LIBUNWIND_TARGET_AARCH64)
 
 template <typename A, typename R>
 int UnwindCursor<A, R>::step() {
@@ -1983,20 +2076,27 @@ int UnwindCursor<A, R>::step() {
 
   // Use unwinding info to modify register set as if function returned.
   int result;
+#if defined(_LIBUNWIND_TARGET_LINUX) && defined(_LIBUNWIND_TARGET_AARCH64)
+  if (_isSigReturn) {
+    result = this->stepThroughSigReturn();
+  } else
+#endif
+  {
 #if defined(_LIBUNWIND_SUPPORT_COMPACT_UNWIND)
-  result = this->stepWithCompactEncoding();
+    result = this->stepWithCompactEncoding();
 #elif defined(_LIBUNWIND_SUPPORT_SEH_UNWIND)
-  result = this->stepWithSEHData();
+    result = this->stepWithSEHData();
 #elif defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
-  result = this->stepWithDwarfFDE();
+    result = this->stepWithDwarfFDE();
 #elif defined(_LIBUNWIND_ARM_EHABI)
-  result = this->stepWithEHABI();
+    result = this->stepWithEHABI();
 #else
   #error Need _LIBUNWIND_SUPPORT_COMPACT_UNWIND or \
               _LIBUNWIND_SUPPORT_SEH_UNWIND or \
               _LIBUNWIND_SUPPORT_DWARF_UNWIND or \
               _LIBUNWIND_ARM_EHABI
 #endif
+  }
 
   // update info based on new PC
   if (result == UNW_STEP_SUCCESS) {

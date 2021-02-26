@@ -169,6 +169,9 @@ namespace std {
   template <class Visitor, class... Variants>
   constexpr see below visit(Visitor&&, Variants&&...);
 
+  template <class R, class Visitor, class... Variants>
+  constexpr R visit(Visitor&&, Variants&&...); // since C++20
+
   // 20.7.7, class monostate
   struct monostate;
 
@@ -583,6 +586,16 @@ struct __variant {
         __make_value_visitor(_VSTD::forward<_Visitor>(__visitor)),
         _VSTD::forward<_Vs>(__vs)...);
   }
+#if _LIBCPP_STD_VER > 17
+  template <class _Rp, class _Visitor, class... _Vs>
+  inline _LIBCPP_INLINE_VISIBILITY
+  static constexpr _Rp __visit_value(_Visitor&& __visitor,
+                                     _Vs&&... __vs) {
+    return __visit_alt(
+        __make_value_visitor<_Rp>(_VSTD::forward<_Visitor>(__visitor)),
+        _VSTD::forward<_Vs>(__vs)...);
+  }
+#endif
 
 private:
   template <class _Visitor, class... _Values>
@@ -605,11 +618,42 @@ private:
     _Visitor&& __visitor;
   };
 
+#if _LIBCPP_STD_VER > 17
+  template <class _Rp, class _Visitor>
+  struct __value_visitor_return_type {
+    template <class... _Alts>
+    inline _LIBCPP_INLINE_VISIBILITY
+    constexpr _Rp operator()(_Alts&&... __alts) const {
+      __std_visit_exhaustive_visitor_check<
+          _Visitor,
+          decltype((_VSTD::forward<_Alts>(__alts).__value))...>();
+      if constexpr (is_void_v<_Rp>) {
+        _VSTD::__invoke_constexpr(_VSTD::forward<_Visitor>(__visitor),
+                                  _VSTD::forward<_Alts>(__alts).__value...);
+      }
+      else {
+        return _VSTD::__invoke_constexpr(_VSTD::forward<_Visitor>(__visitor),
+                                         _VSTD::forward<_Alts>(__alts).__value...);
+      }
+    }
+
+    _Visitor&& __visitor;
+  };
+#endif
+
   template <class _Visitor>
   inline _LIBCPP_INLINE_VISIBILITY
   static constexpr auto __make_value_visitor(_Visitor&& __visitor) {
     return __value_visitor<_Visitor>{_VSTD::forward<_Visitor>(__visitor)};
   }
+
+#if _LIBCPP_STD_VER > 17
+  template <class _Rp, class _Visitor>
+  inline _LIBCPP_INLINE_VISIBILITY
+  static constexpr auto __make_value_visitor(_Visitor&& __visitor) {
+    return __value_visitor_return_type<_Rp, _Visitor>{_VSTD::forward<_Visitor>(__visitor)};
+  }
+#endif
 };
 
 } // namespace __visitation
@@ -1591,20 +1635,37 @@ constexpr bool operator>=(const variant<_Types...>& __lhs,
       __lhs.index(), __convert_to_bool<greater_equal<>>{}, __lhs, __rhs);
 }
 
+template <class... _Vs>
+inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS
+constexpr void __throw_if_valueless(_Vs&&... __vs) {
+  const bool __valueless = (... || __vs.valueless_by_exception());
+  if (__valueless) {
+      __throw_bad_variant_access();
+  }
+}
+
 template <class _Visitor, class... _Vs>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS
 constexpr decltype(auto) visit(_Visitor&& __visitor, _Vs&&... __vs) {
   using __variant_detail::__visitation::__variant;
-  bool __results[] = {__vs.valueless_by_exception()...};
-  for (bool __result : __results) {
-    if (__result) {
-      __throw_bad_variant_access();
-    }
-  }
+  _VSTD::__throw_if_valueless(_VSTD::forward<_Vs>(__vs)...);
   return __variant::__visit_value(_VSTD::forward<_Visitor>(__visitor),
                                   _VSTD::forward<_Vs>(__vs)...);
 }
+
+#if _LIBCPP_STD_VER > 17
+template <class _Rp, class _Visitor, class... _Vs>
+inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS
+constexpr _Rp visit(_Visitor&& __visitor, _Vs&&... __vs) {
+  using __variant_detail::__visitation::__variant;
+  _VSTD::__throw_if_valueless(_VSTD::forward<_Vs>(__vs)...);
+  return __variant::__visit_value<_Rp>(_VSTD::forward<_Visitor>(__visitor),
+                                       _VSTD::forward<_Vs>(__vs)...);
+}
+#endif
 
 struct _LIBCPP_TEMPLATE_VIS monostate {};
 

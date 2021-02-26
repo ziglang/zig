@@ -308,7 +308,7 @@ struct __invoke_return
 #endif  // !defined(_LIBCPP_CXX03_LANG)
 
 
-template <class _Ret>
+template <class _Ret, bool = is_void<_Ret>::value>
 struct __invoke_void_return_wrapper
 {
 #ifndef _LIBCPP_CXX03_LANG
@@ -339,8 +339,8 @@ struct __invoke_void_return_wrapper
 #endif
 };
 
-template <>
-struct __invoke_void_return_wrapper<void>
+template <class _Ret>
+struct __invoke_void_return_wrapper<_Ret, true>
 {
 #ifndef _LIBCPP_CXX03_LANG
     template <class ..._Args>
@@ -382,20 +382,23 @@ private:
 
 public:
     // construct/copy/destroy
-    _LIBCPP_INLINE_VISIBILITY reference_wrapper(type& __f) _NOEXCEPT
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    reference_wrapper(type& __f) _NOEXCEPT
         : __f_(_VSTD::addressof(__f)) {}
 #ifndef _LIBCPP_CXX03_LANG
     private: reference_wrapper(type&&); public: // = delete; // do not bind to temps
 #endif
 
     // access
-    _LIBCPP_INLINE_VISIBILITY operator type&    () const _NOEXCEPT {return *__f_;}
-    _LIBCPP_INLINE_VISIBILITY          type& get() const _NOEXCEPT {return *__f_;}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    operator type&() const _NOEXCEPT {return *__f_;}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    type& get() const _NOEXCEPT {return *__f_;}
 
 #ifndef _LIBCPP_CXX03_LANG
     // invoke
     template <class... _ArgTypes>
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
     typename __invoke_of<type&, _ArgTypes...>::type
     operator() (_ArgTypes&&... __args) const {
         return _VSTD::__invoke(get(), _VSTD::forward<_ArgTypes>(__args)...);
@@ -510,7 +513,7 @@ public:
 
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 reference_wrapper<_Tp>
 ref(_Tp& __t) _NOEXCEPT
 {
@@ -518,7 +521,7 @@ ref(_Tp& __t) _NOEXCEPT
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 reference_wrapper<_Tp>
 ref(reference_wrapper<_Tp> __t) _NOEXCEPT
 {
@@ -526,7 +529,7 @@ ref(reference_wrapper<_Tp> __t) _NOEXCEPT
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 reference_wrapper<const _Tp>
 cref(const _Tp& __t) _NOEXCEPT
 {
@@ -534,7 +537,7 @@ cref(const _Tp& __t) _NOEXCEPT
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 reference_wrapper<const _Tp>
 cref(reference_wrapper<_Tp> __t) _NOEXCEPT
 {

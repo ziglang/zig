@@ -317,12 +317,16 @@ public:
     int compare(size_type pos1, size_type n1, const value_type* s) const;
     int compare(size_type pos1, size_type n1, const value_type* s, size_type n2) const;
 
-    bool starts_with(basic_string_view<charT, traits> sv) const noexcept; // C++2a
-    bool starts_with(charT c) const noexcept;                             // C++2a
-    bool starts_with(const charT* s) const;                               // C++2a
-    bool ends_with(basic_string_view<charT, traits> sv) const noexcept;   // C++2a
-    bool ends_with(charT c) const noexcept;                               // C++2a
-    bool ends_with(const charT* s) const;                                 // C++2a
+    bool starts_with(basic_string_view<charT, traits> sv) const noexcept; // C++20
+    bool starts_with(charT c) const noexcept;                             // C++20
+    bool starts_with(const charT* s) const;                               // C++20
+    bool ends_with(basic_string_view<charT, traits> sv) const noexcept;   // C++20
+    bool ends_with(charT c) const noexcept;                               // C++20
+    bool ends_with(const charT* s) const;                                 // C++20
+
+    constexpr bool contains(basic_string_view<charT, traits> sv) const noexcept; // C++2b
+    constexpr bool contains(charT c) const noexcept;                             // C++2b
+    constexpr bool contains(const charT* s) const;                               // C++2b
 
     bool __invariants() const;
 };
@@ -1431,6 +1435,20 @@ public:
     _LIBCPP_CONSTEXPR_AFTER_CXX11 _LIBCPP_INLINE_VISIBILITY
     bool ends_with(const value_type* __s) const _NOEXCEPT
     { return ends_with(__self_view(__s)); }
+#endif
+
+#if _LIBCPP_STD_VER > 20
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(__self_view __sv) const noexcept
+    { return __self_view(data(), size()).contains(__sv); }
+
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(value_type __c) const noexcept
+    { return __self_view(data(), size()).contains(__c); }
+
+    constexpr _LIBCPP_INLINE_VISIBILITY
+    bool contains(const value_type* __s) const
+    { return __self_view(data(), size()).contains(__s); }
 #endif
 
     _LIBCPP_INLINE_VISIBILITY bool __invariants() const;

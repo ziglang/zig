@@ -17,11 +17,13 @@
 #include "cstdlib"
 #include "ctime"
 
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/statvfs.h>
-#include <sys/time.h> // for ::utimes as used in __last_write_time
-#include <fcntl.h>    /* values for fchmodat */
+#if !defined(_LIBCPP_WIN32API)
+# include <unistd.h>
+# include <sys/stat.h>
+# include <sys/statvfs.h>
+# include <sys/time.h> // for ::utimes as used in __last_write_time
+# include <fcntl.h>    /* values for fchmodat */
+#endif
 
 #include "../include/apple_availability.h"
 
@@ -38,9 +40,21 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 
+#if defined(_LIBCPP_WIN32API)
+#define PS(x) (L##x)
+#else
+#define PS(x) (x)
+#endif
+
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
 namespace detail {
+
+#if defined(_LIBCPP_WIN32API)
+// Non anonymous, to allow access from two translation units.
+errc __win_err_to_errc(int err);
+#endif
+
 namespace {
 
 static string format_string_imp(const char* msg, ...) {
@@ -94,8 +108,8 @@ static string format_string_imp(const char* msg, ...) {
   return result;
 }
 
-const char* unwrap(string const& s) { return s.c_str(); }
-const char* unwrap(path const& p) { return p.native().c_str(); }
+const path::value_type* unwrap(path::string_type const& s) { return s.c_str(); }
+const path::value_type* unwrap(path const& p) { return p.native().c_str(); }
 template <class Arg>
 Arg const& unwrap(Arg const& a) {
   static_assert(!is_class<Arg>::value, "cannot pass class here");
@@ -112,6 +126,12 @@ error_code capture_errno() {
   return error_code(errno, generic_category());
 }
 
+#if defined(_LIBCPP_WIN32API)
+error_code make_windows_error(int err) {
+  return make_error_code(__win_err_to_errc(err));
+}
+#endif
+
 template <class T>
 T error_value();
 template <>
@@ -120,6 +140,12 @@ template <>
 bool error_value<bool>() {
   return false;
 }
+#if __SIZEOF_SIZE_T__ != __SIZEOF_LONG_LONG__
+template <>
+size_t error_value<size_t>() {
+  return size_t(-1);
+}
+#endif
 template <>
 uintmax_t error_value<uintmax_t>() {
   return uintmax_t(-1);

@@ -418,7 +418,7 @@ condition_variable::wait_until(unique_lock<mutex>& __lk,
     if (__t <= __now)
         return cv_status::timeout;
 
-    __clock_tp_ns __t_ns = __clock_tp_ns(__safe_nanosecond_cast(__t.time_since_epoch()));
+    __clock_tp_ns __t_ns = __clock_tp_ns(_VSTD::__safe_nanosecond_cast(__t.time_since_epoch()));
 
     __do_timed_wait(__lk, __t_ns);
     return _Clock::now() < __t ? cv_status::no_timeout : cv_status::timeout;
@@ -451,13 +451,13 @@ condition_variable::wait_for(unique_lock<mutex>& __lk,
 
 #if defined(_LIBCPP_HAS_COND_CLOCKWAIT)
     using __clock_tp_ns = time_point<steady_clock, nanoseconds>;
-    __ns_rep __now_count_ns = __safe_nanosecond_cast(__c_now.time_since_epoch()).count();
+    __ns_rep __now_count_ns = _VSTD::__safe_nanosecond_cast(__c_now.time_since_epoch()).count();
 #else
     using __clock_tp_ns = time_point<system_clock, nanoseconds>;
-    __ns_rep __now_count_ns = __safe_nanosecond_cast(system_clock::now().time_since_epoch()).count();
+    __ns_rep __now_count_ns = _VSTD::__safe_nanosecond_cast(system_clock::now().time_since_epoch()).count();
 #endif
 
-    __ns_rep __d_ns_count = __safe_nanosecond_cast(__d).count();
+    __ns_rep __d_ns_count = _VSTD::__safe_nanosecond_cast(__d).count();
 
     if (__now_count_ns > numeric_limits<__ns_rep>::max() - __d_ns_count) {
         __do_timed_wait(__lk, __clock_tp_ns::max());

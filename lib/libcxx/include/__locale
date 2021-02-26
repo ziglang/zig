@@ -21,28 +21,30 @@
 #include <locale.h>
 #if defined(_LIBCPP_MSVCRT_LIKE)
 # include <cstring>
-# include <support/win32/locale_win32.h>
+# include <__support/win32/locale_win32.h>
 #elif defined(__NuttX__)
-# include <support/nuttx/xlocale.h>
+# include <__support/nuttx/xlocale.h>
 #elif defined(_AIX) || defined(__MVS__)
-# include <support/ibm/xlocale.h>
+# include <__support/ibm/xlocale.h>
 #elif defined(__ANDROID__)
-# include <support/android/locale_bionic.h>
+# include <__support/android/locale_bionic.h>
 #elif defined(__sun__)
 # include <xlocale.h>
-# include <support/solaris/xlocale.h>
+# include <__support/solaris/xlocale.h>
 #elif defined(_NEWLIB_VERSION)
-# include <support/newlib/xlocale.h>
+# include <__support/newlib/xlocale.h>
+#elif defined(__OpenBSD__)
+# include <__support/openbsd/xlocale.h>
 #elif (defined(__APPLE__)      || defined(__FreeBSD__) \
     || defined(__EMSCRIPTEN__) || defined(__IBMCPP__))
 # include <xlocale.h>
 #elif defined(__Fuchsia__)
-# include <support/fuchsia/xlocale.h>
+# include <__support/fuchsia/xlocale.h>
 #elif defined(__wasi__)
 // WASI libc uses musl's locales support.
-# include <support/musl/xlocale.h>
+# include <__support/musl/xlocale.h>
 #elif defined(_LIBCPP_HAS_MUSL_LIBC)
-# include <support/musl/xlocale.h>
+# include <__support/musl/xlocale.h>
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -337,8 +339,8 @@ collate<_CharT>::do_hash(const char_type* __lo, const char_type* __hi) const
     return static_cast<long>(__h);
 }
 
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<wchar_t>)
+_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<char>)
+_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<wchar_t>)
 
 // template <class CharT> class collate_byname;
 
@@ -1076,7 +1078,7 @@ protected:
 // template <> class codecvt<char16_t, char, mbstate_t> // deprecated in C++20
 
 template <>
-class _LIBCPP_TYPE_VIS _LIBCPP_DEPRECATED_IN_CXX20 codecvt<char16_t, char, mbstate_t>
+class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_TYPE_VIS codecvt<char16_t, char, mbstate_t>
     : public locale::facet,
       public codecvt_base
 {
@@ -1252,7 +1254,7 @@ protected:
 // template <> class codecvt<char32_t, char, mbstate_t> // deprecated in C++20
 
 template <>
-class _LIBCPP_TYPE_VIS _LIBCPP_DEPRECATED_IN_CXX20 codecvt<char32_t, char, mbstate_t>
+class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_TYPE_VIS codecvt<char32_t, char, mbstate_t>
     : public locale::facet,
       public codecvt_base
 {
@@ -1449,13 +1451,13 @@ codecvt_byname<_InternT, _ExternT, _StateT>::~codecvt_byname()
 }
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char, char, mbstate_t>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<wchar_t, char, mbstate_t>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS _LIBCPP_DEPRECATED_IN_CXX20 codecvt_byname<char16_t, char, mbstate_t>) // deprecated in C++20
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS _LIBCPP_DEPRECATED_IN_CXX20 codecvt_byname<char32_t, char, mbstate_t>) // deprecated in C++20
+_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char, char, mbstate_t>)
+_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<wchar_t, char, mbstate_t>)
+_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char, mbstate_t>) // deprecated in C++20
+_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char, mbstate_t>) // deprecated in C++20
 #ifndef _LIBCPP_NO_HAS_CHAR8_T
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char8_t, mbstate_t>) // C++20
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char8_t, mbstate_t>) // C++20
+_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char8_t, mbstate_t>) // C++20
+_LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char8_t, mbstate_t>) // C++20
 #endif
 
 template <size_t _Np>
