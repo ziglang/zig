@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectEqualStrings = std.testing.expectEqualStrings;
 const expectError = std.testing.expectError;
 
 var global_x: i32 = 1;
@@ -541,7 +542,7 @@ test "pass string literal to async function" {
         fn hello(msg: []const u8) void {
             frame = @frame();
             suspend;
-            expectEqual(@as([]const u8, "hello"), msg);
+            expectEqualStrings("hello", msg);
             ok = true;
         }
     };

@@ -37,14 +37,14 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
     defer arena_instance.deinit();
     const arena = &arena_instance.allocator;
 
-    const args = arena.alloc([]const u8, @intCast(usize, argc)) catch fatal("{}", .{"OutOfMemory"});
+    const args = arena.alloc([]const u8, @intCast(usize, argc)) catch fatal("{s}", .{"OutOfMemory"});
     for (args) |*arg, i| {
         arg.* = mem.spanZ(argv[i]);
     }
     if (std.builtin.mode == .Debug) {
         stage2.mainArgs(gpa, arena, args) catch unreachable;
     } else {
-        stage2.mainArgs(gpa, arena, args) catch |err| fatal("{}", .{@errorName(err)});
+        stage2.mainArgs(gpa, arena, args) catch |err| fatal("{s}", .{@errorName(err)});
     }
     return 0;
 }
@@ -109,6 +109,7 @@ pub const Module = extern struct {
     err_color: ErrColor,
     pic: bool,
     pie: bool,
+    lto: bool,
     link_libc: bool,
     link_libcpp: bool,
     strip: bool,
@@ -116,8 +117,10 @@ pub const Module = extern struct {
     dll_export_fns: bool,
     link_mode_dynamic: bool,
     valgrind_enabled: bool,
+    tsan_enabled: bool,
     function_sections: bool,
     enable_stack_probing: bool,
+    red_zone: bool,
     enable_time_report: bool,
     enable_stack_report: bool,
     test_is_evented: bool,
@@ -275,7 +278,9 @@ export fn stage2_attach_segfault_handler() void {
 // ABI warning
 export fn stage2_progress_create() *std.Progress {
     const ptr = std.heap.c_allocator.create(std.Progress) catch @panic("out of memory");
-    ptr.* = std.Progress{};
+    // If the terminal is dumb, we dont want to show the user all the
+    // output.
+    ptr.* = std.Progress{ .dont_print_on_dumb = true };
     return ptr;
 }
 
@@ -293,7 +298,7 @@ export fn stage2_progress_start_root(
 ) *std.Progress.Node {
     return progress.start(
         name_ptr[0..name_len],
-        if (estimated_total_items == 0) null else estimated_total_items,
+        estimated_total_items,
     ) catch @panic("timer unsupported");
 }
 
@@ -312,7 +317,7 @@ export fn stage2_progress_start(
     const child_node = std.heap.c_allocator.create(std.Progress.Node) catch @panic("out of memory");
     child_node.* = node.start(
         name_ptr[0..name_len],
-        if (estimated_total_items == 0) null else estimated_total_items,
+        estimated_total_items,
     );
     child_node.activate();
     return child_node;
@@ -333,8 +338,8 @@ export fn stage2_progress_complete_one(node: *std.Progress.Node) void {
 
 // ABI warning
 export fn stage2_progress_update_node(node: *std.Progress.Node, done_count: usize, total_count: usize) void {
-    node.completed_items = done_count;
-    node.estimated_total_items = total_count;
+    node.setCompletedItems(done_count);
+    node.setEstimatedTotalItems(total_count);
     node.activate();
     node.context.maybeRefresh();
 }

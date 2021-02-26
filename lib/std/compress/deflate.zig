@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -209,7 +209,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
 
             // Insert a single byte into the window.
             // Assumes there's enough space.
-            inline fn appendUnsafe(self: *WSelf, value: u8) void {
+            fn appendUnsafe(self: *WSelf, value: u8) callconv(.Inline) void {
                 self.buf[self.wi] = value;
                 self.wi = (self.wi + 1) & (self.buf.len - 1);
                 self.el += 1;

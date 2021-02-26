@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -14,21 +14,24 @@ const process = std.process;
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
 const macos = @import("system/macos.zig");
-
-const is_windows = Target.current.os.tag == .windows;
+pub const windows = @import("system/windows.zig");
 
 pub const getSDKPath = macos.getSDKPath;
 
 pub const NativePaths = struct {
     include_dirs: ArrayList([:0]u8),
     lib_dirs: ArrayList([:0]u8),
+    framework_dirs: ArrayList([:0]u8),
     rpaths: ArrayList([:0]u8),
     warnings: ArrayList([:0]u8),
 
-    pub fn detect(allocator: *Allocator) !NativePaths {
+    pub fn detect(allocator: *Allocator, native_info: NativeTargetInfo) !NativePaths {
+        const native_target = native_info.target;
+
         var self: NativePaths = .{
             .include_dirs = ArrayList([:0]u8).init(allocator),
             .lib_dirs = ArrayList([:0]u8).init(allocator),
+            .framework_dirs = ArrayList([:0]u8).init(allocator),
             .rpaths = ArrayList([:0]u8).init(allocator),
             .warnings = ArrayList([:0]u8).init(allocator),
         };
@@ -49,7 +52,7 @@ pub const NativePaths = struct {
                     };
                     try self.addIncludeDir(include_path);
                 } else {
-                    try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}", .{word});
+                    try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {s}", .{word});
                     break;
                 }
             }
@@ -75,7 +78,7 @@ pub const NativePaths = struct {
                     const lib_path = word[2..];
                     try self.addLibDir(lib_path);
                 } else {
-                    try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {}", .{word});
+                    try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {s}", .{word});
                     break;
                 }
             }
@@ -88,9 +91,22 @@ pub const NativePaths = struct {
             return self;
         }
 
-        if (!is_windows) {
-            const triple = try Target.current.linuxTriple(allocator);
-            const qual = Target.current.cpu.arch.ptrBitWidth();
+        if (comptime Target.current.isDarwin()) {
+            try self.addIncludeDir("/usr/include");
+            try self.addIncludeDir("/usr/local/include");
+
+            try self.addLibDir("/usr/lib");
+            try self.addLibDir("/usr/local/lib");
+
+            try self.addFrameworkDir("/Library/Frameworks");
+            try self.addFrameworkDir("/System/Library/Frameworks");
+
+            return self;
+        }
+
+        if (native_target.os.tag != .windows) {
+            const triple = try native_target.linuxTriple(allocator);
+            const qual = native_target.cpu.arch.ptrBitWidth();
 
             // TODO: $ ld --verbose | grep SEARCH_DIR
             // the output contains some paths that end with lib64, maybe include them too?
@@ -98,22 +114,22 @@ pub const NativePaths = struct {
             // TODO: some of these are suspect and should only be added on some systems. audit needed.
 
             try self.addIncludeDir("/usr/local/include");
-            try self.addLibDirFmt("/usr/local/lib{}", .{qual});
+            try self.addLibDirFmt("/usr/local/lib{d}", .{qual});
             try self.addLibDir("/usr/local/lib");
 
-            try self.addIncludeDirFmt("/usr/include/{}", .{triple});
-            try self.addLibDirFmt("/usr/lib/{}", .{triple});
+            try self.addIncludeDirFmt("/usr/include/{s}", .{triple});
+            try self.addLibDirFmt("/usr/lib/{s}", .{triple});
 
             try self.addIncludeDir("/usr/include");
-            try self.addLibDirFmt("/lib{}", .{qual});
+            try self.addLibDirFmt("/lib{d}", .{qual});
             try self.addLibDir("/lib");
-            try self.addLibDirFmt("/usr/lib{}", .{qual});
+            try self.addLibDirFmt("/usr/lib{d}", .{qual});
             try self.addLibDir("/usr/lib");
 
             // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
             // zlib.h is in /usr/include (added above)
             // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
-            try self.addLibDirFmt("/lib/{}", .{triple});
+            try self.addLibDirFmt("/lib/{s}", .{triple});
         }
 
         return self;
@@ -122,6 +138,7 @@ pub const NativePaths = struct {
     pub fn deinit(self: *NativePaths) void {
         deinitArray(&self.include_dirs);
         deinitArray(&self.lib_dirs);
+        deinitArray(&self.framework_dirs);
         deinitArray(&self.rpaths);
         deinitArray(&self.warnings);
         self.* = undefined;
@@ -156,6 +173,16 @@ pub const NativePaths = struct {
 
     pub fn addWarning(self: *NativePaths, s: []const u8) !void {
         return self.appendArray(&self.warnings, s);
+    }
+
+    pub fn addFrameworkDir(self: *NativePaths, s: []const u8) !void {
+        return self.appendArray(&self.framework_dirs, s);
+    }
+
+    pub fn addFrameworkDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
+        const item = try std.fmt.allocPrint0(self.framework_dirs.allocator, fmt, args);
+        errdefer self.framework_dirs.allocator.free(item);
+        try self.framework_dirs.append(item);
     }
 
     pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
@@ -195,6 +222,7 @@ pub const NativeTargetInfo = struct {
         ProcessFdQuotaExceeded,
         SystemFdQuotaExceeded,
         DeviceBusy,
+        OSVersionDetectionFail,
     };
 
     /// Given a `CrossTarget`, which specifies in detail which parts of the target should be detected
@@ -223,77 +251,11 @@ pub const NativeTargetInfo = struct {
                     }
                 },
                 .windows => {
-                    var version_info: std.os.windows.RTL_OSVERSIONINFOW = undefined;
-                    version_info.dwOSVersionInfoSize = @sizeOf(@TypeOf(version_info));
-
-                    switch (std.os.windows.ntdll.RtlGetVersion(&version_info)) {
-                        .SUCCESS => {},
-                        else => unreachable,
-                    }
-
-                    // Starting from the system infos build a NTDDI-like version
-                    // constant whose format is:
-                    //   B0 B1 B2 B3
-                    //   `---` `` ``--> Sub-version (Starting from Windows 10 onwards)
-                    //     \    `--> Service pack (Always zero in the constants defined)
-                    //      `--> OS version (Major & minor)
-                    const os_ver: u16 =
-                        @intCast(u16, version_info.dwMajorVersion & 0xff) << 8 |
-                        @intCast(u16, version_info.dwMinorVersion & 0xff);
-                    const sp_ver: u8 = 0;
-                    const sub_ver: u8 = if (os_ver >= 0x0A00) subver: {
-                        // There's no other way to obtain this info beside
-                        // checking the build number against a known set of
-                        // values
-                        const known_build_numbers = [_]u32{
-                            10240, 10586, 14393, 15063, 16299, 17134, 17763,
-                            18362, 19041,
-                        };
-                        var last_idx: usize = 0;
-                        for (known_build_numbers) |build, i| {
-                            if (version_info.dwBuildNumber >= build)
-                                last_idx = i;
-                        }
-                        break :subver @truncate(u8, last_idx);
-                    } else 0;
-
-                    const version: u32 = @as(u32, os_ver) << 16 | @as(u32, sp_ver) << 8 | sub_ver;
-
-                    os.version_range.windows.max = @intToEnum(Target.Os.WindowsVersion, version);
-                    os.version_range.windows.min = @intToEnum(Target.Os.WindowsVersion, version);
+                    const detected_version = windows.detectRuntimeVersion();
+                    os.version_range.windows.min = detected_version;
+                    os.version_range.windows.max = detected_version;
                 },
-                .macos => {
-                    var scbuf: [32]u8 = undefined;
-                    var size: usize = undefined;
-
-                    // The osproductversion sysctl was introduced first with 10.13.4 High Sierra.
-                    const key_osproductversion = "kern.osproductversion"; // eg. "10.15.4"
-                    size = scbuf.len;
-                    if (std.os.sysctlbynameZ(key_osproductversion, &scbuf, &size, null, 0)) |_| {
-                        const string_version = scbuf[0 .. size - 1];
-                        if (std.builtin.Version.parse(string_version)) |ver| {
-                            os.version_range.semver.min = ver;
-                            os.version_range.semver.max = ver;
-                        } else |err| switch (err) {
-                            error.Overflow => {},
-                            error.InvalidCharacter => {},
-                            error.InvalidVersion => {},
-                        }
-                    } else |err| switch (err) {
-                        error.UnknownName => {
-                            const key_osversion = "kern.osversion"; // eg. "19E287"
-                            size = scbuf.len;
-                            std.os.sysctlbynameZ(key_osversion, &scbuf, &size, null, 0) catch {
-                                @panic("unable to detect macOS version: " ++ key_osversion);
-                            };
-                            if (macos.version_from_build(scbuf[0 .. size - 1])) |ver| {
-                                os.version_range.semver.min = ver;
-                                os.version_range.semver.max = ver;
-                            } else |_| {}
-                        },
-                        else => @panic("unable to detect macOS version: " ++ key_osproductversion),
-                    }
-                },
+                .macos => try macos.detect(&os),
                 .freebsd => {
                     var osreldate: u32 = undefined;
                     var len: usize = undefined;
@@ -936,6 +898,6 @@ pub const NativeTargetInfo = struct {
     }
 };
 
-test "" {
+test {
     _ = @import("system/macos.zig");
 }

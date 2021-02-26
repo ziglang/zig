@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -27,8 +27,8 @@ pub const CheckFileStep = struct {
         self.* = CheckFileStep{
             .builder = builder,
             .step = Step.init(.CheckFile, "CheckFile", builder.allocator, make),
-            .source = source,
-            .expected_matches = expected_matches,
+            .source = source.dupe(builder),
+            .expected_matches = builder.dupeStrings(expected_matches),
         };
         self.source.addStepDependencies(&self.step);
         return self;
@@ -45,9 +45,9 @@ pub const CheckFileStep = struct {
                 warn(
                     \\
                     \\========= Expected to find: ===================
-                    \\{}
+                    \\{s}
                     \\========= But file does not contain it: =======
-                    \\{}
+                    \\{s}
                     \\
                 , .{ expected_match, contents });
                 return error.TestFailed;

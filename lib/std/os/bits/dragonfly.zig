@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -20,6 +20,7 @@ pub const off_t = c_long;
 pub const mode_t = c_uint;
 pub const uid_t = u32;
 pub const gid_t = u32;
+pub const suseconds_t = c_long;
 
 pub const ENOTSUP = EOPNOTSUPP;
 pub const EWOULDBLOCK = EAGAIN;
@@ -188,6 +189,13 @@ pub const libc_stat = extern struct {
 pub const timespec = extern struct {
     tv_sec: c_long,
     tv_nsec: c_long,
+};
+
+pub const timeval = extern struct {
+    /// seconds
+    tv_sec: time_t,
+    /// microseconds
+    tv_usec: suseconds_t,
 };
 
 pub const CTL_UNSPEC = 0;

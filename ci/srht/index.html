@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Releases ⚡ The Zig Programming Language</title>
+    <link rel="icon" href="/favicon.png">
+    <style>
+      body{
+        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+        line-height: 1.45;
+        margin-left: 0;
+        margin-right: 0;
+      }
+      p {
+        margin: 0.8em 0;
+      }
+      
+      h1, h2, h3, h4 {
+        margin: 0.5em 0 0.5em;
+        line-height: 1.2;
+        font-weight: bold;
+        color: #666;
+      }
+
+      h1 a, h2 a, h3 a, h4 a {
+        text-decoration: none;
+        color: #666;
+      }
+      
+      a.hdr {
+        visibility: hidden;
+      }
+      h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
+        visibility: visible;
+      }
+
+      h1 { font-size: 2.0em; }
+      
+      h2 { font-size: 1.5em; }
+      
+      h3 { font-size: 1.25em; }
+
+      h4 { font-size: 1.0em; }
+
+      a {
+        color: #2A6286;
+      }
+      
+      a:not(:hover) {
+        text-decoration: none;
+      }
+      
+      th, td {
+        padding: 0.6em;
+        text-align: left;
+        white-space: nowrap;
+      }
+      
+      td {
+        font-size: 0.96em;
+      }
+      
+      th {
+        border-bottom: 2px solid #f2f3f3;
+      }
+      
+      tr:nth-child(even) {
+        background: #f2f3f3;
+      }
+      
+      .container {
+        margin: 0 auto;
+        position: relative;
+        max-width: 1000px;
+      }
+      
+      #navbar {
+        background-color: #737475;
+        padding: 5px 0;
+        border-top: 4px solid #f7a41d;
+        margin-bottom: 30px;
+      }
+      
+      #navbar .navbar-item, #navbar .navbar-item:visited {
+        color: white;
+        padding-right: 5px;
+        padding-left: 5px;
+      }
+
+      .code {
+        font-family: monospace;
+        font-size: 0.8em;
+      }
+
+      #header-image {
+          background-image: url(https://ziglang.org/img/zig-logo-dark.svg);
+          background-repeat: no-repeat;
+          width: 340px;
+          height: 90px;
+          display: block;
+          padding: 0;
+          margin: 0;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body{
+          background-color:#111;
+          color: #bbb;
+        }
+        a {
+          color: #88f;
+        }
+        table, th, td {
+          border-color: grey;
+        }
+        tr:nth-child(even) {
+          background: #1e1e1e;
+        }
+        h1 a, h2 a, h3 a, h4 a, h5 a {
+          color: #aaa;
+        }
+        #header-image {
+            background-image: url(https://ziglang.org/img/zig-logo-light.svg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <a href="/"><span id="header-image"></span></a>
+    </div>
+    <nav id="navbar">
+      <div class="container">
+        <a href="/download/" class="navbar-item">Download &amp; Documentation</a>
+        <a href="https://github.com/ziglang/zig" class="navbar-item">Source Code</a>
+        <a href="/news/" class="navbar-item">News</a>
+        <a href="https://github.com/ziglang/zig/wiki/Community" class="navbar-item">Join a Community</a>
+        <a href="/zsf/" class="navbar-item">
+          <svg style="color: #ea4aaa; vertical-align: middle;fill: currentColor; margin-right: 5px" viewBox="0 0 12 16" version="1.1" width="12" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M9 2c-.97 0-1.69.42-2.2 1-.51.58-.78.92-.8 1-.02-.08-.28-.42-.8-1-.52-.58-1.17-1-2.2-1-1.632.086-2.954 1.333-3 3 0 .52.09 1.52.67 2.67C1.25 8.82 3.01 10.61 6 13c2.98-2.39 4.77-4.17 5.34-5.33C11.91 6.51 12 5.5 12 5c-.047-1.69-1.342-2.913-3-3z"></path></svg>Sponsor the Zig Software Foundation</a>
+      </div>
+    </nav>
+    <div class="container">
+      <h1>Releases</h1>
+      <p>You can also
+      <a href="https://github.com/ziglang/zig/wiki/Install-Zig-from-a-Package-Manager">install Zig from a package manager</a>.
+      </p>
+      <p>
+      There is a <a href="index.json">JSON version of this page</a>.
+      </p>
+
+      <h2 id="release-master">master</h2>
+      <ul>
+        <li>{{MASTER_DATE}}</li>
+        <li><a href="/documentation/master/">Language Reference</a></li>
+        <li><a href="/documentation/master/std/">Standard Library Documentation</a> (experimental)</li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/builds/{{SRC_TARBALL}}">{{SRC_TARBALL}}</a></td>
+            <td>Source</td>
+            <td>{{SRC_BYTESIZE}}</td>
+            <td class="code">{{SRC_SHASUM}}</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/builds/{{X86_64_LINUX_TARBALL}}">{{X86_64_LINUX_TARBALL}}</a></td>
+            <td>Binary</td>
+            <td>{{X86_64_LINUX_BYTESIZE}}</td>
+            <td class="code">{{X86_64_LINUX_SHASUM}}</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/builds/{{AARCH64_LINUX_TARBALL}}">{{AARCH64_LINUX_TARBALL}}</a></td>
+            <td>Binary</td>
+            <td>{{AARCH64_LINUX_BYTESIZE}}</td>
+            <td class="code">{{AARCH64_LINUX_SHASUM}}</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/builds/{{X86_64_WINDOWS_TARBALL}}">{{X86_64_WINDOWS_TARBALL}}</a></td>
+            <td>Binary</td>
+            <td>{{X86_64_WINDOWS_BYTESIZE}}</td>
+            <td class="code">{{X86_64_WINDOWS_SHASUM}}</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/builds/{{X86_64_MACOS_TARBALL}}">{{X86_64_MACOS_TARBALL}}</a></td>
+            <td>Binary</td>
+            <td>{{X86_64_MACOS_BYTESIZE}}</td>
+            <td class="code">{{X86_64_MACOS_SHASUM}}</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/builds/{{X86_64_FREEBSD_TARBALL}}">{{X86_64_FREEBSD_TARBALL}}</a></td>
+            <td>Binary</td>
+            <td>{{X86_64_FREEBSD_BYTESIZE}}</td>
+            <td class="code">{{X86_64_FREEBSD_SHASUM}}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="release-0.7.1">0.7.1</h2>
+      <ul>
+        <li>2020-12-13</li>
+        <li><a href="0.7.1/release-notes.html">Release Notes</a></li>
+        <li><a href="/documentation/0.7.1/">Language Reference</a></li>
+        <li><a href="/documentation/0.7.1/std">Standard Library Documentation</a> (experimental)</li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-0.7.1.tar.xz">zig-0.7.1.tar.xz</a></td>
+            <td>Source</td>
+            <td>11MiB</td>
+            <td class="code">2db3b944ab368d955b48743d9f7c963b8f96de1a441ba5a35e197237cc6dae44</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-bootstrap-0.7.1.tar.xz">zig-bootstrap-0.7.1.tar.xz</a></td>
+            <td>Source</td>
+            <td>39MiB</td>
+            <td class="code">040f27c1fae4b0cac0a2782aecdb691f6a2f8e89db6a6ed35024c31c304fd9b2</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-freebsd-x86_64-0.7.1.tar.xz">zig-freebsd-x86_64-0.7.1.tar.xz</a></td>
+            <td>Binary</td>
+            <td>38MiB</td>
+            <td class="code">e73c1dca35791a3183fdd5ecde0443ebbe180942efceafe651886034fb8def09</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-linux-aarch64-0.7.1.tar.xz">zig-linux-aarch64-0.7.1.tar.xz</a></td>
+            <td>Binary</td>
+            <td>33MiB</td>
+            <td class="code">48ec90eba407e4587ddef7eecef25fec7e13587eb98e3b83c5f2f5fff2a5cbe7</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-linux-armv7a-0.7.1.tar.xz">zig-linux-armv7a-0.7.1.tar.xz</a></td>
+            <td>Binary</td>
+            <td>35MiB</td>
+            <td class="code">5a0662e07b4c4968665e1f97558f8591f6facec45d2e0ff5715e661743107ceb</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-linux-i386-0.7.1.tar.xz">zig-linux-i386-0.7.1.tar.xz</a></td>
+            <td>Binary</td>
+            <td>38MiB</td>
+            <td class="code">4882e052e5f83690bd0334bb4fc1702b5403cb3a3d2aa63fd7d6043d8afecba3</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-linux-riscv64-0.7.1.tar.xz">zig-linux-riscv64-0.7.1.tar.xz</a></td>
+            <td>Binary</td>
+            <td>36MiB</td>
+            <td class="code">187294bfd35983348c3fe042901b42e67e7e36ab7f77a5f969d21c0051f4d21f</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-linux-x86_64-0.7.1.tar.xz">zig-linux-x86_64-0.7.1.tar.xz</a></td>
+            <td>Binary</td>
+            <td>37MiB</td>
+            <td class="code">18c7b9b200600f8bcde1cd8d7f1f578cbc3676241ce36d771937ce19a8159b8d</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-macos-x86_64-0.7.1.tar.xz">zig-macos-x86_64-0.7.1.tar.xz</a></td>
+            <td>Binary</td>
+            <td>35MiB</td>
+            <td class="code">845cb17562978af0cf67e3993f4e33330525eaf01ead9386df9105111e3bc519</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-windows-i386-0.7.1.zip">zig-windows-i386-0.7.1.zip</a></td>
+            <td>Binary</td>
+            <td>52MiB</td>
+            <td class="code">a1b9a7421e13153e07fd2e2c93ff29aad64d83105b8fcdafa633dbe689caf1c0</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.1/zig-windows-x86_64-0.7.1.zip">zig-windows-x86_64-0.7.1.zip</a></td>
+            <td>Binary</td>
+            <td>53MiB</td>
+            <td class="code">4818a8a65b4672bc52c0ae7f14d014e0eb8caf10f12c0745176820384cea296a</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="release-0.7.0">0.7.0</h2>
+      <ul>
+        <li>2020-11-08</li>
+        <li><a href="0.7.0/release-notes.html">Release Notes</a></li>
+        <li><a href="/documentation/0.7.0/">Language Reference</a></li>
+        <li><a href="/documentation/0.7.0/std">Standard Library Documentation</a> (experimental)</li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-0.7.0.tar.xz">zig-0.7.0.tar.xz</a></td>
+            <td>Source</td>
+            <td>11MiB</td>
+            <td class="code">0efd2cf6c3b05723db80e9cf193bc55150bba84ca41f855a90f53fc756445f83</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-bootstrap-0.7.0.tar.xz">zig-bootstrap-0.7.0.tar.xz</a></td>
+            <td>Source</td>
+            <td>39MiB</td>
+            <td class="code">f073beaf5c53c8c57c0d374cbfcb332ef92ad703173edba0d9e0f2ed28401b72</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-freebsd-x86_64-0.7.0.tar.xz">zig-freebsd-x86_64-0.7.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>34MiB</td>
+            <td class="code">a0c926272ee4ae720034b4a6a1dc98399d76156dd84182554740f0ca8a41fc99</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-linux-aarch64-0.7.0.tar.xz">zig-linux-aarch64-0.7.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>32MiB</td>
+            <td class="code">f89933bac87d44be82325754ff88423020c81c7032a6fc41cfeb81e982eeab9b</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-linux-armv7a-0.7.0.tar.xz">zig-linux-armv7a-0.7.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>34MiB</td>
+            <td class="code">011c267e25a96ee160505a560c441daa045359a9d50e13ab1bada9d75c95db2d</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-linux-i386-0.7.0.tar.xz">zig-linux-i386-0.7.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>37MiB</td>
+            <td class="code">4bb2072cd363bcb1cbeb4872ff5cbc1f683b02d0cc1f90c46e3ea7422ce53222</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-linux-riscv64-0.7.0.tar.xz">zig-linux-riscv64-0.7.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>36MiB</td>
+            <td class="code">40dff81faa6f232ac40abbf88b9371f3cc932b6e09c423b94387c9ea580cb7be</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-linux-x86_64-0.7.0.tar.xz">zig-linux-x86_64-0.7.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>36MiB</td>
+            <td class="code">e619b1c6094c095b932767f527aee2507f847ea981513ff8a08aab0fd730e0ac</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-macos-aarch64-0.7.0.tar.xz">zig-macos-aarch64-0.7.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>33MiB</td>
+            <td class="code">338238035734db74ea4f30e500a4893bf741d38305c10952d5e39fa05bdb057d</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-macos-x86_64-0.7.0.tar.xz">zig-macos-x86_64-0.7.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>35MiB</td>
+            <td class="code">94063f9a311cbbf7a2e0a12295e09437182cf950f18cb0eb30ea9893f3677f24</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-windows-i386-0.7.0.zip">zig-windows-i386-0.7.0.zip</a></td>
+            <td>Binary</td>
+            <td>51MiB</td>
+            <td class="code">b1e520aacbfbd645ff3521b3eb4d44166d9a0288b8725e4b001f8b50a425eb2e</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.7.0/zig-windows-x86_64-0.7.0.zip">zig-windows-x86_64-0.7.0.zip</a></td>
+            <td>Binary</td>
+            <td>52MiB</td>
+            <td class="code">965f56c0a36f9cda2125e3a348bc654f7f155e2804c3667d231775ec228f8553</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="release-0.6.0">0.6.0</h2>
+      <ul>
+        <li>2020-04-13</li>
+        <li><a href="0.6.0/release-notes.html">Release Notes</a></li>
+        <li><a href="/documentation/0.6.0">Language Reference</a></li>
+        <li><a href="/documentation/0.6.0/std">Standard Library Documentation</a> (experimental)</li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-0.6.0.tar.xz">zig-0.6.0.tar.xz</a></td>
+            <td>Source</td>
+            <td>9.9MiB</td>
+            <td class="code">5d167dc19354282dd35dd17b38e99e1763713b9be8a4ba9e9e69284e059e7204</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-bootstrap-0.6.0.tar.xz">zig-bootstrap-0.6.0.tar.xz</a></td>
+            <td>Source</td>
+            <td>36.7MiB</td>
+            <td class="code">5e0e4dc878b3dd0c1852a442b174f0732e8c07869a8fcd226b71a93b89b381ab</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-freebsd-x86_64-0.6.0.tar.xz">zig-freebsd-x86_64-0.6.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>36MiB</td>
+            <td class="code">190ff79c1eb56805a315d7c7a51082e32f62926250c0702b36760c225e1634a3</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-linux-aarch64-0.6.0.tar.xz">zig-linux-aarch64-0.6.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>36MiB</td>
+            <td class="code">e7520efd42cfa02be48c2e430d08fe1f3cbb999d21d9f0d3ffd0febb976b2f41</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-linux-armv6kz-0.6.0.tar.xz">zig-linux-armv6kz-0.6.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>38MiB</td>
+            <td class="code">36b6493b3fed43eb1f0000e765798ad31a6bb7d7fd3f553ac1c3761dbc919b82</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-linux-armv7a-0.6.0.tar.xz">zig-linux-armv7a-0.6.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>38MiB</td>
+            <td class="code">946969abe357def95ca9cbbfcebfcf2d90cf967bcd3f48ee87662e32d91d8f35</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-linux-i386-0.6.0.tar.xz">zig-linux-i386-0.6.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>43MiB</td>
+            <td class="code">a97a2f9ae21575743cdd763c1917d49400d83fc562ef64582b18bade43eb24ce</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-linux-riscv64-0.6.0.tar.xz">zig-linux-riscv64-0.6.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>41MiB</td>
+            <td class="code">68ddee43f7503c8ae5f26a921f3602c34719a02ed2241f528c0b8b888cc14b38</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-linux-x86_64-0.6.0.tar.xz">zig-linux-x86_64-0.6.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>43MiB</td>
+            <td class="code">08fd3c757963630645441c2772362e9c2294020c44f14fce1b89f45de0dc1253</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-macos-x86_64-0.6.0.tar.xz">zig-macos-x86_64-0.6.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>41MiB</td>
+            <td class="code">17270360e87ddc49f737e760047b2fac49f1570a824a306119b1194ac4093895</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-windows-i386-0.6.0.zip">zig-windows-i386-0.6.0.zip</a></td>
+            <td>Binary</td>
+            <td>58MiB</td>
+            <td class="code">3b0a02618743e92175990dc6d1a787bb95ff62c4cda016f1c14c7786f575f8ca</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.6.0/zig-windows-x86_64-0.6.0.zip">zig-windows-x86_64-0.6.0.zip</a></td>
+            <td>Binary</td>
+            <td>47MiB</td>
+            <td class="code">c3b897832523e1026e10b2d8d55d7f895185c0a27a63681f3a23219c3f1c38f4</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="release-0.5.0">0.5.0</h2>
+      <ul>
+        <li>2019-09-30</li>
+        <li><a href="0.5.0/release-notes.html">Release Notes</a></li>
+        <li><a href="/documentation/0.5.0">Documentation</a></li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.5.0/zig-0.5.0.tar.xz">zig-0.5.0.tar.xz</a></td>
+            <td>Source</td>
+            <td>10.4MiB</td>
+            <td class="code">55ae16960f152bcb9cf98b4f8570902d0e559a141abf927f0d3555b7cc838a31</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.5.0/zig-linux-x86_64-0.5.0.tar.xz">zig-linux-x86_64-0.5.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>39.0MiB</td>
+            <td class="code">43e8f8a8b8556edd373ddf9c1ef3ca6cf852d4d09fe07d5736d12fefedd2b4f7</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.5.0/zig-windows-x86_64-0.5.0.zip">zig-windows-x86_64-0.5.0.zip</a></td>
+            <td>Binary</td>
+            <td>42.8MiB</td>
+            <td class="code">58141323db8d84a5af62746be5f9140bc161ee760ef33dc91a887bf9ac021976</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.5.0/zig-macos-x86_64-0.5.0.tar.xz">zig-macos-x86_64-0.5.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>36.1MiB</td>
+            <td class="code">28702cc05745c7c0bd450487d5f4091bf0a1ad279b35eb9a640ce3e3a15b300d</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.5.0/zig-freebsd-x86_64-0.5.0.tar.xz">zig-freebsd-x86_64-0.5.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>32.1MiB</td>
+            <td class="code">9e1f4d36c3d584c0aa01f20eb4cd0a0eef3eee5af23e483b8414de55feab6ab6</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="release-0.4.0">0.4.0</h2>
+      <ul>
+        <li>2019-04-08</li>
+        <li><a href="0.4.0/release-notes.html">Release Notes</a></li>
+        <li><a href="/documentation/0.4.0">Documentation</a></li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.4.0/zig-0.4.0.tar.xz">zig-0.4.0.tar.xz</a></td>
+            <td>Source</td>
+            <td>5.1MiB</td>
+            <td class="code">fec1f3f6b359a3d942e0a7f9157b3b30cde83927627a0e1ea95c54de3c526cfc</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.4.0/zig-linux-x86_64-0.4.0.tar.xz">zig-linux-x86_64-0.4.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>31.4MiB</td>
+            <td class="code">fb1954e2fb556a01f8079a08130e88f70084e08978ff853bb2b1986d8c39d84e</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.4.0/zig-windows-x86_64-0.4.0.zip">zig-windows-x86_64-0.4.0.zip</a></td>
+            <td>Binary</td>
+            <td>34.1MiB</td>
+            <td class="code">fbc3dd205e064c263063f69f600bedb18e3d0aa2efa747a63ef6cafb6d73f127</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.4.0/zig-macos-x86_64-0.4.0.tar.xz">zig-macos-x86_64-0.4.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>29.4MiB</td>
+            <td class="code">67c932982484d017c5111e54af9f33f15e8e05c6bc5346a55e04052159c964a8</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.4.0/zig-freebsd-x86_64-0.4.0.tar.xz">zig-freebsd-x86_64-0.4.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>26.0MiB</td>
+            <td class="code">3d557c91ac36d8262eb1733bb5f261c95944f9b635e43386e3d00a3272818c30</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="release-0.3.0">0.3.0</h2>
+      <ul>
+        <li>2018-09-28</li>
+        <li><a href="0.3.0/release-notes.html">Release Notes</a></li>
+        <li><a href="/documentation/0.3.0">Documentation</a></li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.3.0/zig-0.3.0.tar.xz">zig-0.3.0.tar.xz</a></td>
+            <td>Source</td>
+            <td>2.2MiB</td>
+            <td class="code">d70af604f3a8622f3393d93abb3e056bf60351e32d121e6fa4fe03d8d41e1f5a</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.3.0/zig-linux-x86_64-0.3.0.tar.xz">zig-linux-x86_64-0.3.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>24.0MiB</td>
+            <td class="code">b378d0aae30cb54f28494e7bc4efbc9bfb6326f47bfb302e8b5287af777b2f3c</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.3.0/zig-windows-x86_64-0.3.0.zip">zig-windows-x86_64-0.3.0.zip</a></td>
+            <td>Binary</td>
+            <td>21.5MiB</td>
+            <td class="code">bb568c03950958f8bb3472139c3ab5ed74547c8c694ab50f404c202faf51baf4</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.3.0/zig-macos-x86_64-0.3.0.tar.xz">zig-macos-x86_64-0.3.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>22.6MiB</td>
+            <td class="code">19dec1f1943ab7be26823376d466f7e456143deb34e17502778a949034dc2e7e</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="release-0.2.0">0.2.0</h2>
+      <ul>
+        <li>2018-03-15</li>
+        <li><a href="0.2.0/release-notes.html">Release Notes</a></li>
+        <li><a href="/documentation/0.2.0">Documentation</a></li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.2.0/zig-0.2.0.tar.xz">zig-0.2.0.tar.xz</a></td>
+            <td>Source</td>
+            <td>1.9MiB</td>
+            <td class="code">29c9beb172737f4d5019b88ceae829ae8bc6512fb4386cfbf895ae2b42aa6965</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.2.0/zig-linux-x86_64-0.2.0.tar.xz">zig-linux-x86_64-0.2.0.tar.xz</a></td>
+            <td>Binary</td>
+            <td>23.5MiB</td>
+            <td class="code">209c6fb745d42474c0a73d6f291c7ae3a38b6a1b6b641eea285a7f840cc1a890</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.2.0/zig-win64-0.2.0.zip">zig-win64-0.2.0.zip</a></td>
+            <td>Binary</td>
+            <td>20.6MiB</td>
+            <td class="code">4f8a2979941a1f081ec8e545cca0b72608c0db1c5a3fd377a94db40649dcd3d4</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="release-0.1.1">0.1.1</h2>
+      <ul>
+        <li>2017-10-17</li>
+        <li><a href="0.1.1/release-notes.html">Release Notes</a></li>
+        <li><a href="/documentation/0.1.1">Documentation</a></li>
+      </ul>
+      <table>
+        <colgroup>
+          <col width="40%">
+          <col width="10%">
+          <col width="10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Sha256</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.1.1/zig-0.1.1.tar.xz">zig-0.1.1.tar.xz</a></td>
+            <td>Source</td>
+            <td>1.62MiB</td>
+            <td class="code">ffca0cfb263485287e19cc997b08701fcd5f24b700345bcdc3dd8074f5a104e0</td>
+          </tr>
+          <tr>
+            <td><a href="https://ziglang.org/download/0.1.1/zig-win64-0.1.1.zip">zig-win64-0.1.1.zip</a></td>
+            <td>Binary</td>
+            <td>19.3MiB</td>
+            <td class="code">6fc88bef531af7e567fe30bf60da1487b86833cbee84c7a2f3e317030aa5b660</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>

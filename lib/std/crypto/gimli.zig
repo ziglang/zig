@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -48,7 +48,7 @@ pub const State = struct {
         return mem.asBytes(&self.data);
     }
 
-    inline fn endianSwap(self: *Self) void {
+    fn endianSwap(self: *Self) callconv(.Inline) void {
         for (self.data) |*w| {
             w.* = mem.littleToNative(u32, w.*);
         }
@@ -116,7 +116,7 @@ pub const State = struct {
 
     const Lane = Vector(4, u32);
 
-    inline fn shift(x: Lane, comptime n: comptime_int) Lane {
+    fn shift(x: Lane, comptime n: comptime_int) callconv(.Inline) Lane {
         return x << @splat(4, @as(u5, n));
     }
 
@@ -229,18 +229,17 @@ pub const Hash = struct {
         const buf = self.state.toSlice();
         var in = data;
         while (in.len > 0) {
-            var left = State.RATE - self.buf_off;
-            if (left == 0) {
-                self.state.permute();
-                self.buf_off = 0;
-                left = State.RATE;
-            }
+            const left = State.RATE - self.buf_off;
             const ps = math.min(in.len, left);
             for (buf[self.buf_off .. self.buf_off + ps]) |*p, i| {
                 p.* ^= in[i];
             }
             self.buf_off += ps;
             in = in[ps..];
+            if (self.buf_off == State.RATE) {
+                self.state.permute();
+                self.buf_off = 0;
+            }
         }
     }
 
@@ -271,10 +270,26 @@ pub fn hash(out: []u8, in: []const u8, options: Hash.Options) void {
 test "hash" {
     // a test vector (30) from NIST KAT submission.
     var msg: [58 / 2]u8 = undefined;
-    try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C");
+    _ = try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C");
     var md: [32]u8 = undefined;
     hash(&md, &msg, .{});
     htest.assertEqual("1C9A03DC6A5DDC5444CFC6F4B154CFF5CF081633B2CEA4D7D0AE7CCFED5AAA44", &md);
+}
+
+test "hash test vector 17" {
+    var msg: [32 / 2]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F");
+    var md: [32]u8 = undefined;
+    hash(&md, &msg, .{});
+    htest.assertEqual("404C130AF1B9023A7908200919F690FFBB756D5176E056FFDE320016A37C7282", &md);
+}
+
+test "hash test vector 33" {
+    var msg: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
+    var md: [32]u8 = undefined;
+    hash(&md, &msg, .{});
+    htest.assertEqual("A8F4FA28708BDA7EFB4C1914CA4AFA9E475B82D588D36504F87DBB0ED9AB3C4B", &md);
 }
 
 pub const Aead = struct {
@@ -421,9 +436,9 @@ pub const Aead = struct {
 
 test "cipher" {
     var key: [32]u8 = undefined;
-    try std.fmt.hexToBytes(&key, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
+    _ = try std.fmt.hexToBytes(&key, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
     var nonce: [16]u8 = undefined;
-    try std.fmt.hexToBytes(&nonce, "000102030405060708090A0B0C0D0E0F");
+    _ = try std.fmt.hexToBytes(&nonce, "000102030405060708090A0B0C0D0E0F");
     { // test vector (1) from NIST KAT submission.
         const ad: [0]u8 = undefined;
         const pt: [0]u8 = undefined;
@@ -441,7 +456,7 @@ test "cipher" {
     { // test vector (34) from NIST KAT submission.
         const ad: [0]u8 = undefined;
         var pt: [2 / 2]u8 = undefined;
-        try std.fmt.hexToBytes(&pt, "00");
+        _ = try std.fmt.hexToBytes(&pt, "00");
 
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;
@@ -455,9 +470,9 @@ test "cipher" {
     }
     { // test vector (106) from NIST KAT submission.
         var ad: [12 / 2]u8 = undefined;
-        try std.fmt.hexToBytes(&ad, "000102030405");
+        _ = try std.fmt.hexToBytes(&ad, "000102030405");
         var pt: [6 / 2]u8 = undefined;
-        try std.fmt.hexToBytes(&pt, "000102");
+        _ = try std.fmt.hexToBytes(&pt, "000102");
 
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;
@@ -471,9 +486,9 @@ test "cipher" {
     }
     { // test vector (790) from NIST KAT submission.
         var ad: [60 / 2]u8 = undefined;
-        try std.fmt.hexToBytes(&ad, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D");
+        _ = try std.fmt.hexToBytes(&ad, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D");
         var pt: [46 / 2]u8 = undefined;
-        try std.fmt.hexToBytes(&pt, "000102030405060708090A0B0C0D0E0F10111213141516");
+        _ = try std.fmt.hexToBytes(&pt, "000102030405060708090A0B0C0D0E0F10111213141516");
 
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;
@@ -488,7 +503,7 @@ test "cipher" {
     { // test vector (1057) from NIST KAT submission.
         const ad: [0]u8 = undefined;
         var pt: [64 / 2]u8 = undefined;
-        try std.fmt.hexToBytes(&pt, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
+        _ = try std.fmt.hexToBytes(&pt, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
 
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;

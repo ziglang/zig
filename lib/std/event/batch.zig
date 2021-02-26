@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -98,15 +98,16 @@ pub fn Batch(
         /// This function is *not* thread-safe. It must be called from one thread at
         /// a time, however, it need not be the same thread.
         pub fn wait(self: *Self) CollectedResult {
-            for (self.jobs) |*job| if (job.frame) |f| {
-                job.result = if (async_ok) await f else nosuspend await f;
-                if (CollectedResult != void) {
-                    job.result catch |err| {
-                        self.collected_result = err;
-                    };
-                }
-                job.frame = null;
-            };
+            for (self.jobs) |*job|
+                if (job.frame) |f| {
+                    job.result = if (async_ok) await f else nosuspend await f;
+                    if (CollectedResult != void) {
+                        job.result catch |err| {
+                            self.collected_result = err;
+                        };
+                    }
+                    job.frame = null;
+                };
             return self.collected_result;
         }
     };

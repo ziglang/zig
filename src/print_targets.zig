@@ -18,7 +18,7 @@ pub fn cmdTargets(
     native_target: Target,
 ) !void {
     var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {
-        fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
+        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
     defer zig_lib_directory.handle.close();
     defer allocator.free(zig_lib_directory.path.?);
@@ -26,9 +26,9 @@ pub fn cmdTargets(
     const glibc_abi = try glibc.loadMetaData(allocator, zig_lib_directory.handle);
     defer glibc_abi.destroy(allocator);
 
-    var bos = io.bufferedOutStream(stdout);
-    const bos_stream = bos.outStream();
-    var jws = std.json.WriteStream(@TypeOf(bos_stream), 6).init(bos_stream);
+    var bw = io.bufferedWriter(stdout);
+    const w = bw.writer();
+    var jws = std.json.WriteStream(@TypeOf(w), 6).init(w);
 
     try jws.beginObject();
 
@@ -61,7 +61,7 @@ pub fn cmdTargets(
     try jws.objectField("libc");
     try jws.beginArray();
     for (target.available_libcs) |libc| {
-        const tmp = try std.fmt.allocPrint(allocator, "{}-{}-{}", .{
+        const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
             @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
         });
         defer allocator.free(tmp);
@@ -156,6 +156,6 @@ pub fn cmdTargets(
 
     try jws.endObject();
 
-    try bos_stream.writeByte('\n');
-    return bos.flush();
+    try w.writeByte('\n');
+    return bw.flush();
 }

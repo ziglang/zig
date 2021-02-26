@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -243,6 +243,7 @@ pub const IPPROTO_UDP = ws2_32.IPPROTO_UDP;
 pub const IPPROTO_ICMPV6 = ws2_32.IPPROTO_ICMPV6;
 pub const IPPROTO_RM = ws2_32.IPPROTO_RM;
 
+pub const nfds_t = c_ulong;
 pub const pollfd = ws2_32.pollfd;
 
 pub const POLLRDNORM = ws2_32.POLLRDNORM;

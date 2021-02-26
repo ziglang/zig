@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -203,6 +203,14 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
             return self;
         }
 
+        ///Initialize all entries of a packed array to the same value
+        pub fn initAllTo(int: Int) Self {
+            // TODO: use `var self = @as(Self, undefined);` https://github.com/ziglang/zig/issues/7635
+            var self = Self{ .bytes = [_]u8{0} ** total_bytes };
+            self.setAll(int);
+            return self;
+        }
+
         ///Return the Int stored at index
         pub fn get(self: Self, index: usize) Int {
             debug.assert(index < int_count);
@@ -213,6 +221,14 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
         pub fn set(self: *Self, index: usize, int: Int) void {
             debug.assert(index < int_count);
             return Io.set(&self.bytes, index, 0, int);
+        }
+
+        ///Set all entries of a packed array to the same value
+        pub fn setAll(self: *Self, int: Int) void {
+            var i: usize = 0;
+            while (i < int_count) : (i += 1) {
+                self.set(i, int);
+            }
         }
 
         ///Create a PackedIntSlice of the array from given start to given end
@@ -365,7 +381,15 @@ test "PackedIntArray init" {
     const PackedArray = PackedIntArray(u3, 8);
     var packed_array = PackedArray.init([_]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
     var i = @as(usize, 0);
-    while (i < packed_array.len()) : (i += 1) testing.expect(packed_array.get(i) == i);
+    while (i < packed_array.len()) : (i += 1) testing.expectEqual(@intCast(u3, i), packed_array.get(i));
+}
+
+test "PackedIntArray initAllTo" {
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+    const PackedArray = PackedIntArray(u3, 8);
+    var packed_array = PackedArray.initAllTo(5);
+    var i = @as(usize, 0);
+    while (i < packed_array.len()) : (i += 1) testing.expectEqual(@as(u3, 5), packed_array.get(i));
 }
 
 test "PackedIntSlice" {

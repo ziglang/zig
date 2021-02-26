@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -30,7 +30,7 @@ pub fn WaitGroupGeneric(comptime counter_size: u16) type {
     return struct {
         counter: CounterType = 0,
         max_counter: CounterType = std.math.maxInt(CounterType),
-        mutex: std.Mutex = .{},
+        mutex: std.Thread.Mutex = .{},
         waiters: ?*Waiter = null,
         const Waiter = struct {
             next: ?*Waiter,

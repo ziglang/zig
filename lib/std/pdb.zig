@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -662,6 +662,7 @@ const MsfStream = struct {
 
     fn read(self: *MsfStream, buffer: []u8) !usize {
         var block_id = @intCast(usize, self.pos / self.block_size);
+        if (block_id >= self.blocks.len) return 0; // End of Stream
         var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
 
@@ -680,6 +681,7 @@ const MsfStream = struct {
             if (offset == self.block_size) {
                 offset = 0;
                 block_id += 1;
+                if (block_id >= self.blocks.len) break; // End of Stream
                 block = self.blocks[block_id];
                 try self.in_file.seekTo(block * self.block_size);
             }
@@ -714,10 +716,6 @@ const MsfStream = struct {
     }
 
     pub fn reader(self: *MsfStream) std.io.Reader(*MsfStream, Error, read) {
-        return .{ .context = self };
-    }
-    /// Deprecated: use `reader`
-    pub fn inStream(self: *MsfStream) std.io.InStream(*MsfStream, Error, read) {
         return .{ .context = self };
     }
 };

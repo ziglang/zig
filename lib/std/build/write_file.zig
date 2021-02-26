@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -32,7 +32,10 @@ pub const WriteFileStep = struct {
     }
 
     pub fn add(self: *WriteFileStep, basename: []const u8, bytes: []const u8) void {
-        self.files.append(.{ .basename = basename, .bytes = bytes }) catch unreachable;
+        self.files.append(.{
+            .basename = self.builder.dupePath(basename),
+            .bytes = self.builder.dupe(bytes),
+        }) catch unreachable;
     }
 
     /// Unless setOutputDir was called, this function must be called only in
@@ -72,7 +75,7 @@ pub const WriteFileStep = struct {
         var digest: [48]u8 = undefined;
         hash.final(&digest);
         var hash_basename: [64]u8 = undefined;
-        fs.base64_encoder.encode(&hash_basename, &digest);
+        _ = fs.base64_encoder.encode(&hash_basename, &digest);
         self.output_dir = try fs.path.join(self.builder.allocator, &[_][]const u8{
             self.builder.cache_root,
             "o",
@@ -80,14 +83,14 @@ pub const WriteFileStep = struct {
         });
         // TODO replace with something like fs.makePathAndOpenDir
         fs.cwd().makePath(self.output_dir) catch |err| {
-            warn("unable to make path {}: {}\n", .{ self.output_dir, @errorName(err) });
+            warn("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });
             return err;
         };
         var dir = try fs.cwd().openDir(self.output_dir, .{});
         defer dir.close();
         for (self.files.items) |file| {
             dir.writeFile(file.basename, file.bytes) catch |err| {
-                warn("unable to write {} into {}: {}\n", .{
+                warn("unable to write {s} into {s}: {s}\n", .{
                     file.basename,
                     self.output_dir,
                     @errorName(err),

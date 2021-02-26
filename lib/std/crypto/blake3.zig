@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -66,7 +66,7 @@ const CompressVectorized = struct {
     const Lane = Vector(4, u32);
     const Rows = [4]Lane;
 
-    inline fn g(comptime even: bool, rows: *Rows, m: Lane) void {
+    fn g(comptime even: bool, rows: *Rows, m: Lane) callconv(.Inline) void {
         rows[0] +%= rows[1] +% m;
         rows[3] ^= rows[0];
         rows[3] = math.rotr(Lane, rows[3], if (even) 8 else 16);
@@ -75,13 +75,13 @@ const CompressVectorized = struct {
         rows[1] = math.rotr(Lane, rows[1], if (even) 7 else 12);
     }
 
-    inline fn diagonalize(rows: *Rows) void {
+    fn diagonalize(rows: *Rows) callconv(.Inline) void {
         rows[0] = @shuffle(u32, rows[0], undefined, [_]i32{ 3, 0, 1, 2 });
         rows[3] = @shuffle(u32, rows[3], undefined, [_]i32{ 2, 3, 0, 1 });
         rows[2] = @shuffle(u32, rows[2], undefined, [_]i32{ 1, 2, 3, 0 });
     }
 
-    inline fn undiagonalize(rows: *Rows) void {
+    fn undiagonalize(rows: *Rows) callconv(.Inline) void {
         rows[0] = @shuffle(u32, rows[0], undefined, [_]i32{ 1, 2, 3, 0 });
         rows[3] = @shuffle(u32, rows[3], undefined, [_]i32{ 2, 3, 0, 1 });
         rows[2] = @shuffle(u32, rows[2], undefined, [_]i32{ 3, 0, 1, 2 });
@@ -663,7 +663,7 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
 
     // Compare to expected value
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
-    fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
+    _ = fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
     testing.expectEqual(actual_bytes, expected_bytes);
 
     // Restore initial state

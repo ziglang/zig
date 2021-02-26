@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -42,7 +42,7 @@ pub const Ristretto255 = struct {
     }
 
     /// Reject the neutral element.
-    pub inline fn rejectIdentity(p: Ristretto255) !void {
+    pub fn rejectIdentity(p: Ristretto255) callconv(.Inline) !void {
         return p.p.rejectIdentity();
     }
 
@@ -141,19 +141,19 @@ pub const Ristretto255 = struct {
     }
 
     /// Double a Ristretto255 element.
-    pub inline fn dbl(p: Ristretto255) Ristretto255 {
+    pub fn dbl(p: Ristretto255) callconv(.Inline) Ristretto255 {
         return .{ .p = p.p.dbl() };
     }
 
     /// Add two Ristretto255 elements.
-    pub inline fn add(p: Ristretto255, q: Ristretto255) Ristretto255 {
+    pub fn add(p: Ristretto255, q: Ristretto255) callconv(.Inline) Ristretto255 {
         return .{ .p = p.p.add(q.p) };
     }
 
     /// Multiply a Ristretto255 element with a scalar.
     /// Return error.WeakPublicKey if the resulting element is
     /// the identity element.
-    pub inline fn mul(p: Ristretto255, s: [encoded_length]u8) !Ristretto255 {
+    pub fn mul(p: Ristretto255, s: [encoded_length]u8) callconv(.Inline) !Ristretto255 {
         return Ristretto255{ .p = try p.p.mul(s) };
     }
 
@@ -173,7 +173,7 @@ test "ristretto255" {
     std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{p.toBytes()}), "E2F2AE0A6ABC4E71A884A961C500515F58E30B6AA582DD8DB6A65945E08D2D76");
 
     var r: [Ristretto255.encoded_length]u8 = undefined;
-    try fmt.hexToBytes(r[0..], "6a493210f7499cd17fecb510ae0cea23a110e8d5b901f8acadd3095c73a3b919");
+    _ = try fmt.hexToBytes(r[0..], "6a493210f7499cd17fecb510ae0cea23a110e8d5b901f8acadd3095c73a3b919");
     var q = try Ristretto255.fromBytes(r);
     q = q.dbl().add(p);
     std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{q.toBytes()}), "E882B131016B52C1D3337080187CF768423EFCCBB517BB495AB812C4160FF44E");

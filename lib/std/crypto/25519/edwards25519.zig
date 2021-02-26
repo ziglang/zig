@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -92,7 +92,7 @@ pub const Edwards25519 = struct {
     }
 
     /// Flip the sign of the X coordinate.
-    pub inline fn neg(p: Edwards25519) Edwards25519 {
+    pub fn neg(p: Edwards25519) callconv(.Inline) Edwards25519 {
         return .{ .x = p.x.neg(), .y = p.y, .z = p.z, .t = p.t.neg() };
     }
 
@@ -137,14 +137,14 @@ pub const Edwards25519 = struct {
         return p.add(q.neg());
     }
 
-    inline fn cMov(p: *Edwards25519, a: Edwards25519, c: u64) void {
+    fn cMov(p: *Edwards25519, a: Edwards25519, c: u64) callconv(.Inline) void {
         p.x.cMov(a.x, c);
         p.y.cMov(a.y, c);
         p.z.cMov(a.z, c);
         p.t.cMov(a.t, c);
     }
 
-    inline fn pcSelect(comptime n: usize, pc: [n]Edwards25519, b: u8) Edwards25519 {
+    fn pcSelect(comptime n: usize, pc: [n]Edwards25519, b: u8) callconv(.Inline) Edwards25519 {
         var t = Edwards25519.identityElement;
         comptime var i: u8 = 1;
         inline while (i < pc.len) : (i += 1) {
@@ -484,8 +484,8 @@ test "edwards25519 packing/unpacking" {
 test "edwards25519 point addition/substraction" {
     var s1: [32]u8 = undefined;
     var s2: [32]u8 = undefined;
-    try std.crypto.randomBytes(&s1);
-    try std.crypto.randomBytes(&s2);
+    std.crypto.random.bytes(&s1);
+    std.crypto.random.bytes(&s2);
     const p = try Edwards25519.basePoint.clampedMul(s1);
     const q = try Edwards25519.basePoint.clampedMul(s2);
     const r = p.add(q).add(q).sub(q).sub(q);

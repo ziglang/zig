@@ -52,7 +52,7 @@ pub const Node = struct {
     } = null,
 
     /// Offset of this node in the trie output byte stream.
-    trie_offset: ?usize = null,
+    trie_offset: ?u64 = null,
 
     /// List of all edges originating from this node.
     edges: std.ArrayListUnmanaged(Edge) = .{},
@@ -199,7 +199,6 @@ pub const Node = struct {
         assert(!self.node_dirty);
         if (self.terminal_info) |info| {
             // Terminal node info: encode export flags and vmaddr offset of this symbol.
-            var info_buf_len: usize = 0;
             var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
             var info_stream = std.io.fixedBufferStream(&info_buf);
             // TODO Implement for special flags.
@@ -233,7 +232,7 @@ pub const Node = struct {
 
     const FinalizeResult = struct {
         /// Current size of this node in bytes.
-        node_size: usize,
+        node_size: u64,
 
         /// True if the trie offset of this node in the output byte stream
         /// would need updating; false otherwise.
@@ -241,12 +240,15 @@ pub const Node = struct {
     };
 
     /// Updates offset of this node in the output byte stream.
-    fn finalize(self: *Node, offset_in_trie: usize) FinalizeResult {
-        var node_size: usize = 0;
+    fn finalize(self: *Node, offset_in_trie: u64) !FinalizeResult {
+        var stream = std.io.countingWriter(std.io.null_writer);
+        var writer = stream.writer();
+
+        var node_size: u64 = 0;
         if (self.terminal_info) |info| {
-            node_size += sizeULEB128Mem(info.export_flags);
-            node_size += sizeULEB128Mem(info.vmaddr_offset);
-            node_size += sizeULEB128Mem(node_size);
+            try leb.writeULEB128(writer, info.export_flags);
+            try leb.writeULEB128(writer, info.vmaddr_offset);
+            try leb.writeULEB128(writer, stream.bytes_written);
         } else {
             node_size += 1; // 0x0 for non-terminal nodes
         }
@@ -254,27 +256,17 @@ pub const Node = struct {
 
         for (self.edges.items) |edge| {
             const next_node_offset = edge.to.trie_offset orelse 0;
-            node_size += edge.label.len + 1 + sizeULEB128Mem(next_node_offset);
+            node_size += edge.label.len + 1;
+            try leb.writeULEB128(writer, next_node_offset);
         }
 
         const trie_offset = self.trie_offset orelse 0;
         const updated = offset_in_trie != trie_offset;
         self.trie_offset = offset_in_trie;
         self.node_dirty = false;
+        node_size += stream.bytes_written;
 
-        return .{ .node_size = node_size, .updated = updated };
-    }
-
-    /// Calculates number of bytes in ULEB128 encoding of value.
-    fn sizeULEB128Mem(value: u64) usize {
-        var res: usize = 0;
-        var v = value;
-        while (true) {
-            v = v >> 7;
-            res += 1;
-            if (v == 0) break;
-        }
-        return res;
+        return FinalizeResult{ .node_size = node_size, .updated = updated };
     }
 };
 
@@ -295,7 +287,7 @@ ordered_nodes: std.ArrayListUnmanaged(*Node) = .{},
 /// insertions performed after `finalize` was called.
 /// Call `finalize` before accessing this value to ensure
 /// it is up-to-date.
-size: usize = 0,
+size: u64 = 0,
 
 /// Number of nodes currently in the trie.
 node_count: usize = 0,
@@ -358,7 +350,7 @@ pub fn finalize(self: *Trie) !void {
         self.size = 0;
         more = false;
         for (self.ordered_nodes.items) |node| {
-            const res = node.finalize(self.size);
+            const res = try node.finalize(self.size);
             self.size += res.node_size;
             if (res.updated) more = true;
         }
@@ -380,10 +372,8 @@ pub fn read(self: *Trie, reader: anytype) ReadError!usize {
 }
 
 /// Write the trie to a byte stream.
-/// Caller owns the memory and needs to free it.
-/// Panics if the trie was not finalized using `finalize`
-/// before calling this method.
-pub fn write(self: Trie, writer: anytype) !usize {
+/// Panics if the trie was not finalized using `finalize` before calling this method.
+pub fn write(self: Trie, writer: anytype) !u64 {
     assert(!self.trie_dirty);
     var counting_writer = std.io.countingWriter(writer);
     for (self.ordered_nodes.items) |node| {
@@ -540,14 +530,14 @@ test "write Trie to a byte stream" {
     {
         const nwritten = try trie.write(stream.writer());
         testing.expect(nwritten == trie.size);
-        testing.expect(mem.eql(u8, buffer, exp_buffer[0..]));
+        testing.expect(mem.eql(u8, buffer, &exp_buffer));
     }
     {
         // Writing finalized trie again should yield the same result.
         try stream.seekTo(0);
         const nwritten = try trie.write(stream.writer());
         testing.expect(nwritten == trie.size);
-        testing.expect(mem.eql(u8, buffer, exp_buffer[0..]));
+        testing.expect(mem.eql(u8, buffer, &exp_buffer));
     }
 }
 
@@ -565,7 +555,7 @@ test "parse Trie from byte stream" {
         0x3, 0x0, 0x80, 0x20, 0x0, // terminal node
     };
 
-    var in_stream = std.io.fixedBufferStream(in_buffer[0..]);
+    var in_stream = std.io.fixedBufferStream(&in_buffer);
     var trie = Trie.init(gpa);
     defer trie.deinit();
     const nread = try trie.read(in_stream.reader());
@@ -580,5 +570,5 @@ test "parse Trie from byte stream" {
     const nwritten = try trie.write(out_stream.writer());
 
     testing.expect(nwritten == trie.size);
-    testing.expect(mem.eql(u8, in_buffer[0..], out_buffer));
+    testing.expect(mem.eql(u8, &in_buffer, out_buffer));
 }

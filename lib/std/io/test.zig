@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -30,8 +30,8 @@ test "write a file, read it, then delete it" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var buf_stream = io.bufferedOutStream(file.outStream());
-        const st = buf_stream.outStream();
+        var buf_stream = io.bufferedWriter(file.writer());
+        const st = buf_stream.writer();
         try st.print("begin", .{});
         try st.writeAll(data[0..]);
         try st.print("end", .{});
@@ -72,7 +72,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitOutStream(builtin.endian, file.outStream());
+        var bit_stream = io.bitWriter(builtin.endian, file.writer());
 
         try bit_stream.writeBits(@as(u2, 1), 1);
         try bit_stream.writeBits(@as(u5, 2), 2);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -781,11 +781,17 @@ pub const siginfo_t = extern struct {
     data: extern union {
         proc: extern struct {
             pid: pid_t,
-            uid: uid_t,
-            value: sigval,
-            utime: clock_t,
-            stime: clock_t,
-            status: c_int,
+            pdata: extern union {
+                kill: extern struct {
+                    uid: uid_t,
+                    value: sigval,
+                },
+                cld: extern struct {
+                    utime: clock_t,
+                    stime: clock_t,
+                    status: c_int,
+                },
+            },
         },
         fault: extern struct {
             addr: ?*c_void,
@@ -802,6 +808,60 @@ comptime {
     // Take into account the padding between errno and data fields.
         std.debug.assert(@sizeOf(siginfo_t) == 136);
 }
+
+pub usingnamespace switch (builtin.arch) {
+    .x86_64 => struct {
+        pub const ucontext_t = extern struct {
+            sc_rdi: c_long,
+            sc_rsi: c_long,
+            sc_rdx: c_long,
+            sc_rcx: c_long,
+            sc_r8: c_long,
+            sc_r9: c_long,
+            sc_r10: c_long,
+            sc_r11: c_long,
+            sc_r12: c_long,
+            sc_r13: c_long,
+            sc_r14: c_long,
+            sc_r15: c_long,
+            sc_rbp: c_long,
+            sc_rbx: c_long,
+            sc_rax: c_long,
+            sc_gs: c_long,
+            sc_fs: c_long,
+            sc_es: c_long,
+            sc_ds: c_long,
+            sc_trapno: c_long,
+            sc_err: c_long,
+            sc_rip: c_long,
+            sc_cs: c_long,
+            sc_rflags: c_long,
+            sc_rsp: c_long,
+            sc_ss: c_long,
+
+            sc_fpstate: fxsave64,
+            __sc_unused: c_int,
+            sc_mask: c_int,
+            sc_cookie: c_long,
+        };
+
+        pub const fxsave64 = packed struct {
+            fx_fcw: u16,
+            fx_fsw: u16,
+            fx_ftw: u8,
+            fx_unused1: u8,
+            fx_fop: u16,
+            fx_rip: u64,
+            fx_rdp: u64,
+            fx_mxcsr: u32,
+            fx_mxcsr_mask: u32,
+            fx_st: [8][2]u64,
+            fx_xmm: [16][2]u64,
+            fx_unused3: [96]u8,
+        };
+    },
+    else => struct {},
+};
 
 pub const sigset_t = c_uint;
 pub const empty_sigset: sigset_t = 0;
@@ -1149,3 +1209,23 @@ pub const rlimit = extern struct {
 pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
 pub const SHUT_RDWR = 2;
+
+pub const nfds_t = c_uint;
+
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: c_short,
+    revents: c_short,
+};
+
+pub const POLLIN = 0x0001;
+pub const POLLPRI = 0x0002;
+pub const POLLOUT = 0x0004;
+pub const POLLERR = 0x0008;
+pub const POLLHUP = 0x0010;
+pub const POLLNVAL = 0x0020;
+pub const POLLRDNORM = 0x0040;
+pub const POLLNORM = POLLRDNORM;
+pub const POLLWRNORM = POLLOUT;
+pub const POLLRDBAND = 0x0080;
+pub const POLLWRBAND = 0x0100;

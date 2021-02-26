@@ -1,4 +1,5 @@
 #include "stdio_impl.h"
+#include "aio_impl.h"
 
 static int dummy(int fd)
 {

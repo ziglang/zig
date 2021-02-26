@@ -24,6 +24,7 @@ const build_options = @import("build_options");
 const target_util = @import("../target.zig");
 const glibc = @import("../glibc.zig");
 const Cache = @import("../Cache.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
 
 const default_entry_addr = 0x8000000;
 
@@ -32,6 +33,9 @@ pub const base_tag: File.Tag = .elf;
 base: File,
 
 ptr_width: PtrWidth,
+
+/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+llvm_ir_module: ?*llvm_backend.LLVMIRModule = null,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
@@ -98,11 +102,11 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 /// or removed from the freelist.
 ///
 /// A text block has surplus capacity when its overcapacity value is greater than
-/// minimum_text_block_size * alloc_num / alloc_den. That is, when it has so
+/// padToIdeal(minimum_text_block_size). That is, when it has so
 /// much extra capacity, that we could fit a small new symbol in it, itself with
 /// ideal_capacity or more.
 ///
-/// Ideal capacity is defined by size * alloc_num / alloc_den.
+/// Ideal capacity is defined by size + (size / ideal_factor)
 ///
 /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
 /// overcapacity can be negative. A simple way to have negative overcapacity is to
@@ -123,15 +127,15 @@ dbg_info_decl_free_list: std.AutoHashMapUnmanaged(*TextBlock, void) = .{},
 dbg_info_decl_first: ?*TextBlock = null,
 dbg_info_decl_last: ?*TextBlock = null,
 
-/// `alloc_num / alloc_den` is the factor of padding when allocating.
-const alloc_num = 4;
-const alloc_den = 3;
+/// When allocating, the ideal_capacity is calculated by
+/// actual_capacity + (actual_capacity / ideal_factor)
+const ideal_factor = 3;
 
 /// In order for a slice of bytes to be considered eligible to keep metadata pointing at
 /// it as a possible place to put new symbols, it must have enough room for this many bytes
 /// (plus extra for reserved capacity).
 const minimum_text_block_size = 64;
-const min_text_capacity = minimum_text_block_size * alloc_num / alloc_den;
+const min_text_capacity = padToIdeal(minimum_text_block_size);
 
 pub const PtrWidth = enum { p32, p64 };
 
@@ -150,7 +154,7 @@ pub const TextBlock = struct {
     prev: ?*TextBlock,
     next: ?*TextBlock,
 
-    /// Previous/next linked list pointers. This value is `next ^ prev`.
+    /// Previous/next linked list pointers.
     /// This is the linked list node for this Decl's corresponding .debug_info tag.
     dbg_info_prev: ?*TextBlock,
     dbg_info_next: ?*TextBlock,
@@ -190,7 +194,7 @@ pub const TextBlock = struct {
         const self_sym = elf_file.local_symbols.items[self.local_sym_index];
         const next_sym = elf_file.local_symbols.items[next.local_sym_index];
         const cap = next_sym.st_value - self_sym.st_value;
-        const ideal_cap = self_sym.st_size * alloc_num / alloc_den;
+        const ideal_cap = padToIdeal(self_sym.st_size);
         if (cap <= ideal_cap) return false;
         const surplus = cap - ideal_cap;
         return surplus >= min_text_capacity;
@@ -224,7 +228,13 @@ pub const SrcFn = struct {
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Elf {
     assert(options.object_format == .elf);
 
-    if (options.use_llvm) return error.LLVMBackendUnimplementedForELF; // TODO
+    if (build_options.have_llvm and options.use_llvm) {
+        const self = try createEmpty(allocator, options);
+        errdefer self.base.destroy();
+
+        self.llvm_ir_module = try llvm_backend.LLVMIRModule.create(allocator, sub_path, options);
+        return self;
+    }
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
@@ -288,6 +298,10 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Elf {
 }
 
 pub fn deinit(self: *Elf) void {
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |ir_module|
+            ir_module.deinit(self.base.allocator);
+
     self.sections.deinit(self.base.allocator);
     self.program_headers.deinit(self.base.allocator);
     self.shstrtab.deinit(self.base.allocator);
@@ -304,6 +318,7 @@ pub fn deinit(self: *Elf) void {
 }
 
 pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl) u64 {
+    assert(self.llvm_ir_module == null);
     assert(decl.link.elf.local_sym_index != 0);
     return self.local_symbols.items[decl.link.elf.local_sym_index].st_value;
 }
@@ -323,12 +338,12 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     if (start < ehdr_size)
         return ehdr_size;
 
-    const end = start + satMul(size, alloc_num) / alloc_den;
+    const end = start + padToIdeal(size);
 
     if (self.shdr_table_offset) |off| {
         const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
         const tight_size = self.sections.items.len * shdr_size;
-        const increased_size = satMul(tight_size, alloc_num) / alloc_den;
+        const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
             return test_end;
@@ -338,7 +353,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     if (self.phdr_table_offset) |off| {
         const phdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Phdr) else @sizeOf(elf.Elf64_Phdr);
         const tight_size = self.sections.items.len * phdr_size;
-        const increased_size = satMul(tight_size, alloc_num) / alloc_den;
+        const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
             return test_end;
@@ -346,14 +361,14 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     }
 
     for (self.sections.items) |section| {
-        const increased_size = satMul(section.sh_size, alloc_num) / alloc_den;
+        const increased_size = padToIdeal(section.sh_size);
         const test_end = section.sh_offset + increased_size;
         if (end > section.sh_offset and start < test_end) {
             return test_end;
         }
     }
     for (self.program_headers.items) |program_header| {
-        const increased_size = satMul(program_header.p_filesz, alloc_num) / alloc_den;
+        const increased_size = padToIdeal(program_header.p_filesz);
         const test_end = program_header.p_offset + increased_size;
         if (end > program_header.p_offset and start < test_end) {
             return test_end;
@@ -423,6 +438,8 @@ fn updateString(self: *Elf, old_str_off: u32, new_name: []const u8) !u32 {
 }
 
 pub fn populateMissingMetadata(self: *Elf) !void {
+    assert(self.llvm_ir_module == null);
+
     const small_ptr = switch (self.ptr_width) {
         .p32 => true,
         .p64 => false,
@@ -726,6 +743,9 @@ pub fn flush(self: *Elf, comp: *Compilation) !void {
 pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.flushModule(comp);
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
     // Zig source code.
@@ -1231,8 +1251,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        const use_stage1 = build_options.is_stage1 and self.base.options.use_llvm;
-        if (use_stage1) {
+        // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
+        if (self.base.options.use_llvm) {
+            // Stage2 has to call flushModule since that outputs the LLVM object file.
+            if (!build_options.is_stage1) try self.flushModule(comp);
+
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
                 .target = self.base.options.target,
@@ -1261,6 +1284,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const stack_size = self.base.options.stack_size_override orelse 16777216;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
     const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt) blk: {
+        // TODO: remove when stage2 can build compiler_rt.zig
+        if (!build_options.is_stage1) break :blk null;
+
         if (is_exe_or_dyn_lib) {
             break :blk comp.compiler_rt_static_lib.?.full_object_path;
         } else {
@@ -1310,7 +1336,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         man.hash.add(self.base.options.each_lib_rpath);
-        man.hash.add(self.base.options.is_compiler_rt_or_libc);
+        man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
         man.hash.add(self.base.options.z_defs);
         if (self.base.options.link_libc) {
@@ -1327,6 +1353,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.addStringSet(self.base.options.system_libs);
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
+        man.hash.add(self.base.options.tsan);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -1338,17 +1365,17 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("ELF LLD new_digest={} error: {}", .{ digest, @errorName(err) });
+            log.debug("ELF LLD new_digest={x} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("ELF LLD digest={} match - skipping invocation", .{digest});
+            log.debug("ELF LLD digest={x} match - skipping invocation", .{digest});
             // Hot diggity dog! The output binary is already there.
             self.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("ELF LLD prev_digest={} new_digest={}", .{ prev_digest, digest });
+        log.debug("ELF LLD prev_digest={x} new_digest={x}", .{ prev_digest, digest });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
@@ -1357,343 +1384,385 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         };
     }
 
-    // Create an LLD command line and invoke it.
-    var argv = std.ArrayList([]const u8).init(self.base.allocator);
-    defer argv.deinit();
-    // We will invoke ourselves as a child process to gain access to LLD.
-    // This is necessary because LLD does not behave properly as a library -
-    // it calls exit() and does not reset all global data between invocations.
-    try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "ld.lld" });
-    if (is_obj) {
-        try argv.append("-r");
-    }
-
-    try argv.append("-error-limit=0");
-
-    if (self.base.options.output_mode == .Exe) {
-        try argv.append("-z");
-        try argv.append(try std.fmt.allocPrint(arena, "stack-size={}", .{stack_size}));
-    }
-
-    if (self.base.options.image_base_override) |image_base| {
-        try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
-    }
-
-    if (self.base.options.linker_script) |linker_script| {
-        try argv.append("-T");
-        try argv.append(linker_script);
-    }
-
-    if (gc_sections) {
-        try argv.append("--gc-sections");
-    }
-
-    if (self.base.options.eh_frame_hdr) {
-        try argv.append("--eh-frame-hdr");
-    }
-
-    if (self.base.options.emit_relocs) {
-        try argv.append("--emit-relocs");
-    }
-
-    if (self.base.options.rdynamic) {
-        try argv.append("--export-dynamic");
-    }
-
-    try argv.appendSlice(self.base.options.extra_lld_args);
-
-    if (self.base.options.z_nodelete) {
-        try argv.append("-z");
-        try argv.append("nodelete");
-    }
-    if (self.base.options.z_defs) {
-        try argv.append("-z");
-        try argv.append("defs");
-    }
-
-    if (getLDMOption(target)) |ldm| {
-        // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
-        const arg = if (target.os.tag == .freebsd)
-            try std.fmt.allocPrint(arena, "{}_fbsd", .{ldm})
-        else
-            ldm;
-        try argv.append("-m");
-        try argv.append(arg);
-    }
-
-    if (self.base.options.link_mode == .Static) {
-        if (target.cpu.arch.isARM() or target.cpu.arch.isThumb()) {
-            try argv.append("-Bstatic");
-        } else {
-            try argv.append("-static");
-        }
-    } else if (is_dyn_lib) {
-        try argv.append("-shared");
-    }
-
-    if (self.base.options.pie and self.base.options.output_mode == .Exe) {
-        try argv.append("-pie");
-    }
-
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-    try argv.append("-o");
-    try argv.append(full_out_path);
+    if (self.base.options.output_mode == .Obj and self.base.options.lto) {
+        // In this case we must do a simple file copy
+        // here. TODO: think carefully about how we can avoid this redundant operation when doing
+        // build-obj. See also the corresponding TODO in linkAsArchive.
+        const the_object_path = blk: {
+            if (self.base.options.objects.len != 0)
+                break :blk self.base.options.objects[0];
 
-    if (link_in_crt) {
-        const crt1o: []const u8 = o: {
-            if (target.os.tag == .netbsd) {
-                break :o "crt0.o";
-            } else if (target.os.tag == .openbsd) {
-                if (self.base.options.link_mode == .Static) {
-                    break :o "rcrt0.o";
-                } else {
-                    break :o "crt0.o";
-                }
-            } else if (target.isAndroid()) {
-                if (self.base.options.link_mode == .Dynamic) {
-                    break :o "crtbegin_dynamic.o";
-                } else {
-                    break :o "crtbegin_static.o";
-                }
-            } else if (self.base.options.link_mode == .Static) {
-                if (self.base.options.pie) {
-                    break :o "rcrt1.o";
-                } else {
-                    break :o "crt1.o";
-                }
-            } else {
-                break :o "Scrt1.o";
-            }
+            if (comp.c_object_table.count() != 0)
+                break :blk comp.c_object_table.items()[0].key.status.success.object_path;
+
+            if (module_obj_path) |p|
+                break :blk p;
+
+            // TODO I think this is unreachable. Audit this situation when solving the above TODO
+            // regarding eliding redundant object -> object transformations.
+            return error.NoObjectsToLink;
         };
-        try argv.append(try comp.get_libc_crt_file(arena, crt1o));
-        if (target_util.libc_needs_crti_crtn(target)) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crti.o"));
-        }
-        if (target.os.tag == .openbsd) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crtbegin.o"));
-        }
-    }
-
-    // rpaths
-    var rpath_table = std.StringHashMap(void).init(self.base.allocator);
-    defer rpath_table.deinit();
-    for (self.base.options.rpath_list) |rpath| {
-        if ((try rpath_table.fetchPut(rpath, {})) == null) {
-            try argv.append("-rpath");
-            try argv.append(rpath);
-        }
-    }
-    if (self.base.options.each_lib_rpath) {
-        var test_path = std.ArrayList(u8).init(self.base.allocator);
-        defer test_path.deinit();
-        for (self.base.options.lib_dirs) |lib_dir_path| {
-            for (self.base.options.system_libs.items()) |entry| {
-                const link_lib = entry.key;
-                test_path.shrinkRetainingCapacity(0);
-                const sep = fs.path.sep_str;
-                try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, link_lib });
-                fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-                    error.FileNotFound => continue,
-                    else => |e| return e,
-                };
-                if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
-                    try argv.append("-rpath");
-                    try argv.append(lib_dir_path);
-                }
-            }
-        }
-    }
-
-    for (self.base.options.lib_dirs) |lib_dir| {
-        try argv.append("-L");
-        try argv.append(lib_dir);
-    }
-
-    if (self.base.options.link_libc) {
-        if (self.base.options.libc_installation) |libc_installation| {
-            try argv.append("-L");
-            try argv.append(libc_installation.crt_dir.?);
-        }
-
-        if (have_dynamic_linker) {
-            if (self.base.options.dynamic_linker) |dynamic_linker| {
-                try argv.append("-dynamic-linker");
-                try argv.append(dynamic_linker);
-            }
-        }
-    }
-
-    if (is_dyn_lib) {
-        if (self.base.options.soname) |soname| {
-            try argv.append("-soname");
-            try argv.append(soname);
-        }
-        if (self.base.options.version_script) |version_script| {
-            try argv.append("-version-script");
-            try argv.append(version_script);
-        }
-    }
-
-    // Positional arguments to the linker such as object files.
-    try argv.appendSlice(self.base.options.objects);
-
-    for (comp.c_object_table.items()) |entry| {
-        try argv.append(entry.key.status.success.object_path);
-    }
-
-    if (module_obj_path) |p| {
-        try argv.append(p);
-    }
-
-    // libc
-    if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc and !self.base.options.link_libc) {
-        try argv.append(comp.libc_static_lib.?.full_object_path);
-    }
-
-    // compiler-rt
-    if (compiler_rt_path) |p| {
-        try argv.append(p);
-    }
-
-    // Shared libraries.
-    if (is_exe_or_dyn_lib) {
-        const system_libs = self.base.options.system_libs.items();
-        try argv.ensureCapacity(argv.items.len + system_libs.len);
-        for (system_libs) |entry| {
-            const link_lib = entry.key;
-            // By this time, we depend on these libs being dynamically linked libraries and not static libraries
-            // (the check for that needs to be earlier), but they could be full paths to .so files, in which
-            // case we want to avoid prepending "-l".
-            const ext = Compilation.classifyFileExt(link_lib);
-            const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
-            argv.appendAssumeCapacity(arg);
-        }
-    }
-
-    if (!is_obj) {
-        // libc++ dep
-        if (self.base.options.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
-        }
-
-        // libc dep
-        if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation != null) {
-                if (self.base.options.link_mode == .Static) {
-                    try argv.append("--start-group");
-                    try argv.append("-lc");
-                    try argv.append("-lm");
-                    try argv.append("--end-group");
-                } else {
-                    try argv.append("-lc");
-                    try argv.append("-lm");
-                }
-
-                if (target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
-                    try argv.append("-lpthread");
-                }
-            } else if (target.isGnuLibC()) {
-                try argv.append(comp.libunwind_static_lib.?.full_object_path);
-                for (glibc.libs) |lib| {
-                    const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
-                        comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
-                    });
-                    try argv.append(lib_path);
-                }
-                try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
-            } else if (target.isMusl()) {
-                try argv.append(comp.libunwind_static_lib.?.full_object_path);
-                try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
-                    .Static => "libc.a",
-                    .Dynamic => "libc.so",
-                }));
-            } else if (self.base.options.link_libcpp) {
-                try argv.append(comp.libunwind_static_lib.?.full_object_path);
-            } else {
-                unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
-            }
-        }
-    }
-
-    // crt end
-    if (link_in_crt) {
-        if (target.isAndroid()) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crtend_android.o"));
-        } else if (target.os.tag == .openbsd) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crtend.o"));
-        } else if (target_util.libc_needs_crti_crtn(target)) {
-            try argv.append(try comp.get_libc_crt_file(arena, "crtn.o"));
-        }
-    }
-
-    if (allow_shlib_undefined) {
-        try argv.append("--allow-shlib-undefined");
-    }
-
-    if (self.base.options.bind_global_refs_locally) {
-        try argv.append("-Bsymbolic");
-    }
-
-    if (self.base.options.verbose_link) {
-        // Skip over our own name so that the LLD linker name is the first argv item.
-        Compilation.dump_argv(argv.items[1..]);
-    }
-
-    // Sadly, we must run LLD as a child process because it does not behave
-    // properly as a library.
-    const child = try std.ChildProcess.init(argv.items, arena);
-    defer child.deinit();
-
-    if (comp.clang_passthrough_mode) {
-        child.stdin_behavior = .Inherit;
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
-
-        const term = child.spawnAndWait() catch |err| {
-            log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-            return error.UnableToSpawnSelf;
-        };
-        switch (term) {
-            .Exited => |code| {
-                if (code != 0) {
-                    // TODO https://github.com/ziglang/zig/issues/6342
-                    std.process.exit(1);
-                }
-            },
-            else => std.process.abort(),
+        // This can happen when using --enable-cache and using the stage1 backend. In this case
+        // we can skip the file copy.
+        if (!mem.eql(u8, the_object_path, full_out_path)) {
+            try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Ignore;
-        child.stderr_behavior = .Pipe;
 
-        try child.spawn();
-
-        const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
-
-        const term = child.wait() catch |err| {
-            log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-            return error.UnableToSpawnSelf;
-        };
-
-        switch (term) {
-            .Exited => |code| {
-                if (code != 0) {
-                    // TODO parse this output and surface with the Compilation API rather than
-                    // directly outputting to stderr here.
-                    std.debug.print("{s}", .{stderr});
-                    return error.LLDReportedFailure;
-                }
-            },
-            else => {
-                log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
-                return error.LLDCrashed;
-            },
+        // Create an LLD command line and invoke it.
+        var argv = std.ArrayList([]const u8).init(self.base.allocator);
+        defer argv.deinit();
+        // We will invoke ourselves as a child process to gain access to LLD.
+        // This is necessary because LLD does not behave properly as a library -
+        // it calls exit() and does not reset all global data between invocations.
+        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "ld.lld" });
+        if (is_obj) {
+            try argv.append("-r");
         }
 
-        if (stderr.len != 0) {
-            log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+        try argv.append("-error-limit=0");
+
+        if (self.base.options.lto) {
+            switch (self.base.options.optimize_mode) {
+                .Debug => {},
+                .ReleaseSmall => try argv.append("-O2"),
+                .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
+            }
+        }
+
+        if (self.base.options.output_mode == .Exe) {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
+        }
+
+        if (self.base.options.image_base_override) |image_base| {
+            try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
+        }
+
+        if (self.base.options.linker_script) |linker_script| {
+            try argv.append("-T");
+            try argv.append(linker_script);
+        }
+
+        if (gc_sections) {
+            try argv.append("--gc-sections");
+        }
+
+        if (self.base.options.eh_frame_hdr) {
+            try argv.append("--eh-frame-hdr");
+        }
+
+        if (self.base.options.emit_relocs) {
+            try argv.append("--emit-relocs");
+        }
+
+        if (self.base.options.rdynamic) {
+            try argv.append("--export-dynamic");
+        }
+
+        try argv.appendSlice(self.base.options.extra_lld_args);
+
+        if (self.base.options.z_nodelete) {
+            try argv.append("-z");
+            try argv.append("nodelete");
+        }
+        if (self.base.options.z_defs) {
+            try argv.append("-z");
+            try argv.append("defs");
+        }
+
+        if (getLDMOption(target)) |ldm| {
+            // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
+            const arg = if (target.os.tag == .freebsd)
+                try std.fmt.allocPrint(arena, "{s}_fbsd", .{ldm})
+            else
+                ldm;
+            try argv.append("-m");
+            try argv.append(arg);
+        }
+
+        if (self.base.options.link_mode == .Static) {
+            if (target.cpu.arch.isARM() or target.cpu.arch.isThumb()) {
+                try argv.append("-Bstatic");
+            } else {
+                try argv.append("-static");
+            }
+        } else if (is_dyn_lib) {
+            try argv.append("-shared");
+        }
+
+        if (self.base.options.pie and self.base.options.output_mode == .Exe) {
+            try argv.append("-pie");
+        }
+
+        try argv.append("-o");
+        try argv.append(full_out_path);
+
+        if (link_in_crt) {
+            const crt1o: []const u8 = o: {
+                if (target.os.tag == .netbsd) {
+                    break :o "crt0.o";
+                } else if (target.os.tag == .openbsd) {
+                    if (self.base.options.link_mode == .Static) {
+                        break :o "rcrt0.o";
+                    } else {
+                        break :o "crt0.o";
+                    }
+                } else if (target.isAndroid()) {
+                    if (self.base.options.link_mode == .Dynamic) {
+                        break :o "crtbegin_dynamic.o";
+                    } else {
+                        break :o "crtbegin_static.o";
+                    }
+                } else if (self.base.options.link_mode == .Static) {
+                    if (self.base.options.pie) {
+                        break :o "rcrt1.o";
+                    } else {
+                        break :o "crt1.o";
+                    }
+                } else {
+                    break :o "Scrt1.o";
+                }
+            };
+            try argv.append(try comp.get_libc_crt_file(arena, crt1o));
+            if (target_util.libc_needs_crti_crtn(target)) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crti.o"));
+            }
+            if (target.os.tag == .openbsd) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crtbegin.o"));
+            }
+        }
+
+        // rpaths
+        var rpath_table = std.StringHashMap(void).init(self.base.allocator);
+        defer rpath_table.deinit();
+        for (self.base.options.rpath_list) |rpath| {
+            if ((try rpath_table.fetchPut(rpath, {})) == null) {
+                try argv.append("-rpath");
+                try argv.append(rpath);
+            }
+        }
+        if (self.base.options.each_lib_rpath) {
+            var test_path = std.ArrayList(u8).init(self.base.allocator);
+            defer test_path.deinit();
+            for (self.base.options.lib_dirs) |lib_dir_path| {
+                for (self.base.options.system_libs.items()) |entry| {
+                    const link_lib = entry.key;
+                    test_path.shrinkRetainingCapacity(0);
+                    const sep = fs.path.sep_str;
+                    try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, link_lib });
+                    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+                        error.FileNotFound => continue,
+                        else => |e| return e,
+                    };
+                    if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
+                        try argv.append("-rpath");
+                        try argv.append(lib_dir_path);
+                    }
+                }
+            }
+        }
+
+        for (self.base.options.lib_dirs) |lib_dir| {
+            try argv.append("-L");
+            try argv.append(lib_dir);
+        }
+
+        if (self.base.options.link_libc) {
+            if (self.base.options.libc_installation) |libc_installation| {
+                try argv.append("-L");
+                try argv.append(libc_installation.crt_dir.?);
+            }
+
+            if (have_dynamic_linker) {
+                if (self.base.options.dynamic_linker) |dynamic_linker| {
+                    try argv.append("-dynamic-linker");
+                    try argv.append(dynamic_linker);
+                }
+            }
+        }
+
+        if (is_dyn_lib) {
+            if (self.base.options.soname) |soname| {
+                try argv.append("-soname");
+                try argv.append(soname);
+            }
+            if (self.base.options.version_script) |version_script| {
+                try argv.append("-version-script");
+                try argv.append(version_script);
+            }
+        }
+
+        // Positional arguments to the linker such as object files.
+        try argv.appendSlice(self.base.options.objects);
+
+        for (comp.c_object_table.items()) |entry| {
+            try argv.append(entry.key.status.success.object_path);
+        }
+
+        if (module_obj_path) |p| {
+            try argv.append(p);
+        }
+
+        // TSAN
+        if (self.base.options.tsan) {
+            try argv.append(comp.tsan_static_lib.?.full_object_path);
+        }
+
+        // libc
+        // TODO: enable when stage2 can build c.zig
+        if (is_exe_or_dyn_lib and
+            !self.base.options.skip_linker_dependencies and
+            !self.base.options.link_libc and
+            build_options.is_stage1)
+        {
+            try argv.append(comp.libc_static_lib.?.full_object_path);
+        }
+
+        // compiler-rt
+        if (compiler_rt_path) |p| {
+            try argv.append(p);
+        }
+
+        // Shared libraries.
+        if (is_exe_or_dyn_lib) {
+            const system_libs = self.base.options.system_libs.items();
+            try argv.ensureCapacity(argv.items.len + system_libs.len);
+            for (system_libs) |entry| {
+                const link_lib = entry.key;
+                // By this time, we depend on these libs being dynamically linked libraries and not static libraries
+                // (the check for that needs to be earlier), but they could be full paths to .so files, in which
+                // case we want to avoid prepending "-l".
+                const ext = Compilation.classifyFileExt(link_lib);
+                const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
+                argv.appendAssumeCapacity(arg);
+            }
+
+            // libc++ dep
+            if (self.base.options.link_libcpp) {
+                try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+                try argv.append(comp.libcxx_static_lib.?.full_object_path);
+            }
+
+            // libc dep
+            if (self.base.options.link_libc) {
+                if (self.base.options.libc_installation != null) {
+                    if (self.base.options.link_mode == .Static) {
+                        try argv.append("--start-group");
+                        try argv.append("-lc");
+                        try argv.append("-lm");
+                        try argv.append("--end-group");
+                    } else {
+                        try argv.append("-lc");
+                        try argv.append("-lm");
+                    }
+
+                    if (target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
+                        try argv.append("-lpthread");
+                    }
+                } else if (target.isGnuLibC()) {
+                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                    for (glibc.libs) |lib| {
+                        const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
+                            comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                        });
+                        try argv.append(lib_path);
+                    }
+                    try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
+                } else if (target.isMusl()) {
+                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                    try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                        .Static => "libc.a",
+                        .Dynamic => "libc.so",
+                    }));
+                } else if (self.base.options.link_libcpp) {
+                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                } else {
+                    unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
+                }
+            }
+        }
+
+        // crt end
+        if (link_in_crt) {
+            if (target.isAndroid()) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crtend_android.o"));
+            } else if (target.os.tag == .openbsd) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crtend.o"));
+            } else if (target_util.libc_needs_crti_crtn(target)) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crtn.o"));
+            }
+        }
+
+        if (allow_shlib_undefined) {
+            try argv.append("--allow-shlib-undefined");
+        }
+
+        if (self.base.options.bind_global_refs_locally) {
+            try argv.append("-Bsymbolic");
+        }
+
+        if (self.base.options.verbose_link) {
+            // Skip over our own name so that the LLD linker name is the first argv item.
+            Compilation.dump_argv(argv.items[1..]);
+        }
+
+        // Sadly, we must run LLD as a child process because it does not behave
+        // properly as a library.
+        const child = try std.ChildProcess.init(argv.items, arena);
+        defer child.deinit();
+
+        if (comp.clang_passthrough_mode) {
+            child.stdin_behavior = .Inherit;
+            child.stdout_behavior = .Inherit;
+            child.stderr_behavior = .Inherit;
+
+            const term = child.spawnAndWait() catch |err| {
+                log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                return error.UnableToSpawnSelf;
+            };
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        // TODO https://github.com/ziglang/zig/issues/6342
+                        std.process.exit(1);
+                    }
+                },
+                else => std.process.abort(),
+            }
+        } else {
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Ignore;
+            child.stderr_behavior = .Pipe;
+
+            try child.spawn();
+
+            const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
+
+            const term = child.wait() catch |err| {
+                log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                return error.UnableToSpawnSelf;
+            };
+
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        // TODO parse this output and surface with the Compilation API rather than
+                        // directly outputting to stderr here.
+                        std.debug.print("{s}", .{stderr});
+                        return error.LLDReportedFailure;
+                    }
+                },
+                else => {
+                    log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
+                    return error.LLDCrashed;
+                },
+            }
+
+            if (stderr.len != 0) {
+                log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+            }
         }
     }
 
@@ -1701,11 +1770,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
@@ -1921,7 +1990,7 @@ fn growTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignm
 fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
     const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
     const shdr = &self.sections.items[self.text_section_index.?];
-    const new_block_ideal_capacity = new_block_size * alloc_num / alloc_den;
+    const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
     // and possibly removing a free list node.
@@ -1941,7 +2010,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             // Is it enough that we could fit this new text block?
             const sym = self.local_symbols.items[big_block.local_sym_index];
             const capacity = big_block.capacity(self.*);
-            const ideal_capacity = capacity * alloc_num / alloc_den;
+            const ideal_capacity = padToIdeal(capacity);
             const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
             const capacity_end_vaddr = sym.st_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
@@ -1971,7 +2040,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
             break :blk new_start_vaddr;
         } else if (self.last_text_block) |last| {
             const sym = self.local_symbols.items[last.local_sym_index];
-            const ideal_capacity = sym.st_size * alloc_num / alloc_den;
+            const ideal_capacity = padToIdeal(sym.st_size);
             const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
             const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
             // Set up the metadata to be updated, after errors are no longer possible.
@@ -2042,16 +2111,18 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
 }
 
 pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
+    if (self.llvm_ir_module) |_| return;
+
     if (decl.link.elf.local_sym_index != 0) return;
 
     try self.local_symbols.ensureCapacity(self.base.allocator, self.local_symbols.items.len + 1);
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     if (self.local_symbol_free_list.popOrNull()) |i| {
-        log.debug("reusing symbol index {} for {}\n", .{ i, decl.name });
+        log.debug("reusing symbol index {d} for {s}\n", .{ i, decl.name });
         decl.link.elf.local_sym_index = i;
     } else {
-        log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
+        log.debug("allocating symbol index {d} for {s}\n", .{ self.local_symbols.items.len, decl.name });
         decl.link.elf.local_sym_index = @intCast(u32, self.local_symbols.items.len);
         _ = self.local_symbols.addOneAssumeCapacity();
     }
@@ -2078,6 +2149,8 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
 }
 
 pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
+    if (self.llvm_ir_module) |_| return;
+
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.elf);
     if (decl.link.elf.local_sym_index != 0) {
@@ -2115,6 +2188,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.updateDecl(module, decl);
+
+    const typed_value = decl.typed_value.most_recent.typed_value;
+    if (typed_value.val.tag() == .extern_fn) {
+        return; // TODO Should we do more when front-end analyzed extern decl?
+    }
+
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
@@ -2133,42 +2214,29 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         dbg_info_type_relocs.deinit(self.base.allocator);
     }
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
     const is_fn: bool = switch (typed_value.ty.zigTypeTag()) {
         .Fn => true,
         else => false,
     };
     if (is_fn) {
-        const zir_dumps = if (std.builtin.is_test) &[0][]const u8{} else build_options.zir_dumps;
-        if (zir_dumps.len != 0) {
-            for (zir_dumps) |fn_name| {
-                if (mem.eql(u8, mem.spanZ(decl.name), fn_name)) {
-                    std.debug.print("\n{}\n", .{decl.name});
-                    typed_value.val.cast(Value.Payload.Function).?.func.dump(module.*);
-                }
-            }
-        }
-
         // For functions we need to add a prologue to the debug line program.
         try dbg_line_buffer.ensureCapacity(26);
 
         const line_off: u28 = blk: {
-            if (decl.scope.cast(Module.Scope.Container)) |container_scope| {
-                const tree = container_scope.file_scope.contents.tree;
-                const file_ast_decls = tree.root_node.decls();
-                // TODO Look into improving the performance here by adding a token-index-to-line
-                // lookup table. Currently this involves scanning over the source code for newlines.
-                const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-                const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-                const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
-                break :blk @intCast(u28, line_delta);
-            } else if (decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
-                const byte_off = zir_module.contents.module.decls[decl.src_index].inst.src;
-                const line_delta = std.zig.lineDelta(zir_module.source.bytes, 0, byte_off);
-                break :blk @intCast(u28, line_delta);
-            } else {
-                unreachable;
-            }
+            const tree = decl.container.file_scope.tree;
+            const node_tags = tree.nodes.items(.tag);
+            const node_datas = tree.nodes.items(.data);
+            const token_starts = tree.tokens.items(.start);
+
+            const file_ast_decls = tree.rootDecls();
+            // TODO Look into improving the performance here by adding a token-index-to-line
+            // lookup table. Currently this involves scanning over the source code for newlines.
+            const fn_decl = file_ast_decls[decl.src_index];
+            assert(node_tags[fn_decl] == .fn_decl);
+            const block = node_datas[fn_decl].rhs;
+            const lbrace = tree.firstToken(block);
+            const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
+            break :blk @intCast(u28, line_delta);
         };
 
         const ptr_width_bytes = self.ptrWidthBytes();
@@ -2232,7 +2300,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     } else {
         // TODO implement .debug_info for global variables
     }
-    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
         .dwarf = .{
             .dbg_line = &dbg_line_buffer,
             .dbg_info = &dbg_info_buffer,
@@ -2261,7 +2329,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growTextBlock(&decl.link.elf, code.len, required_alignment);
-            log.debug("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
+            log.debug("growing {s} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
             if (vaddr != local_sym.st_value) {
                 local_sym.st_value = vaddr;
 
@@ -2283,7 +2351,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         const decl_name = mem.spanZ(decl.name);
         const name_str_index = try self.makeString(decl_name);
         const vaddr = try self.allocateTextBlock(&decl.link.elf, code.len, required_alignment);
-        log.debug("allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
+        log.debug("allocated text block for {s} at 0x{x}\n", .{ decl_name, vaddr });
         errdefer self.freeTextBlock(&decl.link.elf);
 
         local_sym.* = .{
@@ -2342,14 +2410,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 
         // Now we have the full contents and may allocate a region to store it.
 
-        // This logic is nearly identical to the logic below in `updateDeclDebugInfo` for
+        // This logic is nearly identical to the logic below in `updateDeclDebugInfoAllocation` for
         // `TextBlock` and the .debug_info. If you are editing this logic, you
         // probably need to edit that logic too.
 
         const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
         const src_fn = &decl.fn_link.elf;
         src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
-        if (self.dbg_line_fn_last) |last| {
+        if (self.dbg_line_fn_last) |last| not_first: {
             if (src_fn.next) |next| {
                 // Update existing function - non-last item.
                 if (src_fn.off + src_fn.len + min_nop_size > next.off) {
@@ -2358,6 +2426,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
                         _ = self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
                         prev.next = src_fn.next;
                     }
+                    assert(src_fn.prev != next);
                     next.prev = src_fn.prev;
                     src_fn.next = null;
                     // Populate where it used to be with NOPs.
@@ -2368,23 +2437,30 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
                     last.next = src_fn;
                     self.dbg_line_fn_last = src_fn;
 
-                    src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+                    src_fn.off = last.off + padToIdeal(last.len);
                 }
             } else if (src_fn.prev == null) {
+                if (src_fn == last) {
+                    // Special case: there is only 1 function and it is being updated.
+                    // In this case there is nothing to do. The function's length has
+                    // already been updated, and the logic below takes care of
+                    // resizing the .debug_line section.
+                    break :not_first;
+                }
                 // Append new function.
                 // TODO Look at the free list before appending at the end.
                 src_fn.prev = last;
                 last.next = src_fn;
                 self.dbg_line_fn_last = src_fn;
 
-                src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+                src_fn.off = last.off + padToIdeal(last.len);
             }
         } else {
             // This is the first function of the Line Number Program.
             self.dbg_line_fn_first = src_fn;
             self.dbg_line_fn_last = src_fn;
 
-            src_fn.off = self.dbgLineNeededHeaderBytes() * alloc_num / alloc_den;
+            src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes());
         }
 
         const last_src_fn = self.dbg_line_fn_last.?;
@@ -2393,7 +2469,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             if (needed_size > self.allocatedSize(debug_line_sect.sh_offset)) {
                 const new_offset = self.findFreeSpace(needed_size, 1);
                 const existing_size = last_src_fn.off;
-                log.debug("moving .debug_line section: {} bytes from 0x{x} to 0x{x}\n", .{
+                log.debug("moving .debug_line section: {d} bytes from 0x{x} to 0x{x}\n", .{
                     existing_size,
                     debug_line_sect.sh_offset,
                     new_offset,
@@ -2497,7 +2573,7 @@ fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !
 
     const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
     text_block.dbg_info_len = len;
-    if (self.dbg_info_decl_last) |last| {
+    if (self.dbg_info_decl_last) |last| not_first: {
         if (text_block.dbg_info_next) |next| {
             // Update existing Decl - non-last item.
             if (text_block.dbg_info_off + text_block.dbg_info_len + min_nop_size > next.dbg_info_off) {
@@ -2516,23 +2592,30 @@ fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !
                 last.dbg_info_next = text_block;
                 self.dbg_info_decl_last = text_block;
 
-                text_block.dbg_info_off = last.dbg_info_off + (last.dbg_info_len * alloc_num / alloc_den);
+                text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
             }
         } else if (text_block.dbg_info_prev == null) {
+            if (text_block == last) {
+                // Special case: there is only 1 .debug_info block and it is being updated.
+                // In this case there is nothing to do. The block's length has
+                // already been updated, and logic in writeDeclDebugInfo takes care of
+                // resizing the .debug_info section.
+                break :not_first;
+            }
             // Append new Decl.
             // TODO Look at the free list before appending at the end.
             text_block.dbg_info_prev = last;
             last.dbg_info_next = text_block;
             self.dbg_info_decl_last = text_block;
 
-            text_block.dbg_info_off = last.dbg_info_off + (last.dbg_info_len * alloc_num / alloc_den);
+            text_block.dbg_info_off = last.dbg_info_off + padToIdeal(last.dbg_info_len);
         }
     } else {
         // This is the first Decl of the .debug_info
         self.dbg_info_decl_first = text_block;
         self.dbg_info_decl_last = text_block;
 
-        text_block.dbg_info_off = self.dbgInfoNeededHeaderBytes() * alloc_num / alloc_den;
+        text_block.dbg_info_off = padToIdeal(self.dbgInfoNeededHeaderBytes());
     }
 }
 
@@ -2590,6 +2673,8 @@ pub fn updateDeclExports(
     decl: *const Module.Decl,
     exports: []const *Module.Export,
 ) !void {
+    if (self.llvm_ir_module) |_| return;
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2604,7 +2689,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -2622,7 +2707,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                 );
                 continue;
             },
@@ -2663,14 +2748,21 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
     const tracy = trace(@src());
     defer tracy.end();
 
-    const container_scope = decl.scope.cast(Module.Scope.Container).?;
-    const tree = container_scope.file_scope.contents.tree;
-    const file_ast_decls = tree.root_node.decls();
+    if (self.llvm_ir_module) |_| return;
+
+    const tree = decl.container.file_scope.tree;
+    const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+    const token_starts = tree.tokens.items(.start);
+
+    const file_ast_decls = tree.rootDecls();
     // TODO Look into improving the performance here by adding a token-index-to-line
     // lookup table. Currently this involves scanning over the source code for newlines.
-    const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-    const block = fn_proto.getBodyNode().?.castTag(.Block).?;
-    const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+    const fn_decl = file_ast_decls[decl.src_index];
+    assert(node_tags[fn_decl] == .fn_decl);
+    const block = node_datas[fn_decl].rhs;
+    const lbrace = tree.firstToken(block);
+    const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
     const casted_line_off = @intCast(u28, line_delta);
 
     const shdr = &self.sections.items[self.debug_line_section_index.?];
@@ -2681,6 +2773,8 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
 }
 
 pub fn deleteExport(self: *Elf, exp: Export) void {
+    if (self.llvm_ir_module) |_| return;
+
     const sym_index = exp.sym_index orelse return;
     self.global_symbol_free_list.append(self.base.allocator, sym_index) catch {};
     self.global_symbols.items[sym_index].st_info = 0;
@@ -2943,7 +3037,7 @@ const min_nop_size = 2;
 
 /// Writes to the file a buffer, prefixed and suffixed by the specified number of
 /// bytes of NOPs. Asserts each padding size is at least `min_nop_size` and total padding bytes
-/// are less than 126,976 bytes (if this limit is ever reached, this function can be
+/// are less than 1044480 bytes (if this limit is ever reached, this function can be
 /// improved to make more than one pwritev call, or the limit can be raised by a fixed
 /// amount by increasing the length of `vecs`).
 fn pwriteDbgLineNops(
@@ -2958,7 +3052,7 @@ fn pwriteDbgLineNops(
 
     const page_of_nops = [1]u8{DW.LNS_negate_stmt} ** 4096;
     const three_byte_nop = [3]u8{ DW.LNS_advance_pc, 0b1000_0000, 0 };
-    var vecs: [32]std.os.iovec_const = undefined;
+    var vecs: [256]std.os.iovec_const = undefined;
     var vec_index: usize = 0;
     {
         var padding_left = prev_padding_size;
@@ -3094,12 +3188,6 @@ fn pwriteDbgInfoNops(
     try self.base.file.?.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
 }
 
-/// Saturating multiplication
-fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
-    const T = @TypeOf(a, b);
-    return std.math.mul(T, a, b) catch std.math.maxInt(T);
-}
-
 fn bswapAllFields(comptime S: type, ptr: *S) void {
     @panic("TODO implement bswapAllFields");
 }
@@ -3160,4 +3248,10 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .riscv64 => return "elf64lriscv",
         else => return null,
     }
+}
+
+fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
+    // TODO https://github.com/ziglang/zig/issues/1284
+    return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
+        std.math.maxInt(@TypeOf(actual_size));
 }

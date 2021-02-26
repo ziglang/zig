@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -15,8 +15,6 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
 
         pub const Error = ReaderType.Error;
         pub const Reader = io.Reader(*Self, Error, read);
-        /// Deprecated: use `Reader`
-        pub const InStream = Reader;
 
         const Self = @This();
         const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
@@ -43,11 +41,6 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         }
 
         pub fn reader(self: *Self) Reader {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use `reader`
-        pub fn inStream(self: *Self) InStream {
             return .{ .context = self };
         }
     };

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -34,7 +34,7 @@ pub const X25519 = struct {
         pub fn create(seed: ?[seed_length]u8) !KeyPair {
             const sk = seed orelse sk: {
                 var random_seed: [seed_length]u8 = undefined;
-                try crypto.randomBytes(&random_seed);
+                crypto.random.bytes(&random_seed);
                 break :sk random_seed;
             };
             var kp: KeyPair = undefined;
@@ -85,8 +85,8 @@ const htest = @import("../test.zig");
 test "x25519 public key calculation from secret key" {
     var sk: [32]u8 = undefined;
     var pk_expected: [32]u8 = undefined;
-    try fmt.hexToBytes(sk[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
-    try fmt.hexToBytes(pk_expected[0..], "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50");
+    _ = try fmt.hexToBytes(sk[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
+    _ = try fmt.hexToBytes(pk_expected[0..], "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50");
     const pk_calculated = try X25519.recoverPublicKey(sk);
     std.testing.expectEqual(pk_calculated, pk_expected);
 }

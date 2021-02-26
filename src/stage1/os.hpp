@@ -31,6 +31,8 @@
 #define ZIG_OS_DRAGONFLY
 #elif defined(__OpenBSD__)
 #define ZIG_OS_OPENBSD
+#elif defined(__HAIKU__)
+#define ZIG_OS_HAIKU
 #else
 #define ZIG_OS_UNKNOWN
 #endif
@@ -46,7 +48,7 @@
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-#define ZIG_PRI_usize "I64u"
+#define ZIG_PRI_usize "Iu"
 #define ZIG_PRI_i64 "I64d"
 #define ZIG_PRI_u64 "I64u"
 #define ZIG_PRI_llu "I64u"

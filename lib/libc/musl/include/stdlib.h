@@ -145,6 +145,7 @@ int getloadavg(double *, int);
 int clearenv(void);
 #define WCOREDUMP(s) ((s) & 0x80)
 #define WIFCONTINUED(s) ((s) == 0xffff)
+void *reallocarray (void *, size_t, size_t);
 #endif
 
 #ifdef _GNU_SOURCE

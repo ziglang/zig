@@ -885,6 +885,39 @@ test "type coercion of anon struct literal to struct" {
     comptime S.doTheTest();
 }
 
+test "type coercion of pointer to anon struct literal to pointer to struct" {
+    const S = struct {
+        const S2 = struct {
+            A: u32,
+            B: []const u8,
+            C: void,
+            D: Foo = .{},
+        };
+
+        const Foo = struct {
+            field: i32 = 1234,
+        };
+
+        fn doTheTest() void {
+            var y: u32 = 42;
+            const t0 = &.{ .A = 123, .B = "foo", .C = {} };
+            const t1 = &.{ .A = y, .B = "foo", .C = {} };
+            const y0: *const S2 = t0;
+            var y1: *const S2 = t1;
+            expect(y0.A == 123);
+            expect(std.mem.eql(u8, y0.B, "foo"));
+            expect(y0.C == {});
+            expect(y0.D.field == 1234);
+            expect(y1.A == y);
+            expect(std.mem.eql(u8, y1.B, "foo"));
+            expect(y1.C == {});
+            expect(y1.D.field == 1234);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
 test "packed struct with undefined initializers" {
     const S = struct {
         const P = packed struct {

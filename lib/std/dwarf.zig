@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -213,13 +213,11 @@ const LineNumberProgram = struct {
                 return error.MissingDebugInfo;
             } else if (self.prev_file - 1 >= self.file_entries.items.len) {
                 return error.InvalidDebugInfo;
-            } else
-                &self.file_entries.items[self.prev_file - 1];
+            } else &self.file_entries.items[self.prev_file - 1];
 
             const dir_name = if (file_entry.dir_index >= self.include_dirs.len) {
                 return error.InvalidDebugInfo;
-            } else
-                self.include_dirs[file_entry.dir_index];
+            } else self.include_dirs[file_entry.dir_index];
             const file_name = try fs.path.join(self.file_entries.allocator, &[_][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return debug.LineInfo{
@@ -408,15 +406,12 @@ pub const DwarfInfo = struct {
 
     fn scanAllFunctions(di: *DwarfInfo) !void {
         var stream = io.fixedBufferStream(di.debug_info);
-        const in = &stream.inStream();
+        const in = &stream.reader();
         const seekable = &stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
         while (this_unit_offset < try seekable.getEndPos()) {
-            seekable.seekTo(this_unit_offset) catch |err| switch (err) {
-                error.EndOfStream => unreachable,
-                else => return err,
-            };
+            try seekable.seekTo(this_unit_offset);
 
             var is_64: bool = undefined;
             const unit_length = try readUnitLength(in, di.endian, &is_64);
@@ -515,15 +510,12 @@ pub const DwarfInfo = struct {
 
     fn scanAllCompileUnits(di: *DwarfInfo) !void {
         var stream = io.fixedBufferStream(di.debug_info);
-        const in = &stream.inStream();
+        const in = &stream.reader();
         const seekable = &stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
         while (this_unit_offset < try seekable.getEndPos()) {
-            seekable.seekTo(this_unit_offset) catch |err| switch (err) {
-                error.EndOfStream => unreachable,
-                else => return err,
-            };
+            try seekable.seekTo(this_unit_offset);
 
             var is_64: bool = undefined;
             const unit_length = try readUnitLength(in, di.endian, &is_64);
@@ -591,7 +583,7 @@ pub const DwarfInfo = struct {
             if (di.debug_ranges) |debug_ranges| {
                 if (compile_unit.die.getAttrSecOffset(AT_ranges)) |ranges_offset| {
                     var stream = io.fixedBufferStream(debug_ranges);
-                    const in = &stream.inStream();
+                    const in = &stream.reader();
                     const seekable = &stream.seekableStream();
 
                     // All the addresses in the list are relative to the value
@@ -646,7 +638,7 @@ pub const DwarfInfo = struct {
 
     fn parseAbbrevTable(di: *DwarfInfo, offset: u64) !AbbrevTable {
         var stream = io.fixedBufferStream(di.debug_abbrev);
-        const in = &stream.inStream();
+        const in = &stream.reader();
         const seekable = &stream.seekableStream();
 
         try seekable.seekTo(offset);
@@ -697,7 +689,7 @@ pub const DwarfInfo = struct {
 
     pub fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !debug.LineInfo {
         var stream = io.fixedBufferStream(di.debug_line);
-        const in = &stream.inStream();
+        const in = &stream.reader();
         const seekable = &stream.seekableStream();
 
         const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT_comp_dir);

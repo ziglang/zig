@@ -42,7 +42,9 @@
 #include <fcntl.h>
 #include <ntsecapi.h>
 
-#if defined(_MSC_VER)
+// Workaround an upstream LLVM issue.
+// See https://github.com/ziglang/zig/issues/7614#issuecomment-752939981
+#if defined(_MSC_VER) && defined(_WIN64)
 typedef SSIZE_T ssize_t;
 #endif
 #else
@@ -59,7 +61,7 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY) || defined(ZIG_OS_OPENBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY) || defined(ZIG_OS_OPENBSD) || defined(ZIG_OS_HAIKU)
 #include <link.h>
 #endif
 

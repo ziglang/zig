@@ -1,0 +1,15 @@
+LIBRARY api-ms-win-core-file-fromapp-l1-1-0
+
+EXPORTS
+
+CopyFileFromAppW@
+CreateDirectoryFromAppW@
+CreateFile2FromAppW@
+CreateFileFromAppW@
+DeleteFileFromAppW@
+FindFirstFileExFromAppW@
+GetFileAttributesExFromAppW@
+MoveFileFromAppW@
+RemoveDirectoryFromAppW@
+ReplaceFileFromAppW@
+SetFileAttributesFromAppW@

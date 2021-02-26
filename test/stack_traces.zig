@@ -282,10 +282,10 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\source.zig:10:8: [address] in main (test)
                     \\    foo();
                     \\       ^
-                    \\start.zig:341:29: [address] in std.start.posixCallMainAndExit (test)
+                    \\start.zig:342:29: [address] in std.start.posixCallMainAndExit (test)
                     \\            return root.main();
                     \\                            ^
-                    \\start.zig:162:5: [address] in std.start._start (test)
+                    \\start.zig:163:5: [address] in std.start._start (test)
                     \\    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
                     \\    ^
                     \\
@@ -294,7 +294,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 switch (std.Target.current.cpu.arch) {
                     .aarch64 => "", // TODO disabled; results in segfault
                     else => 
-                \\start.zig:162:5: [address] in std.start._start (test)
+                \\start.zig:163:5: [address] in std.start._start (test)
                     \\    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
                     \\    ^
                     \\

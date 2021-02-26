@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -38,8 +38,8 @@ pub const Base64Encoder = struct {
     }
 
     /// dest.len must be what you get from ::calcSize.
-    pub fn encode(encoder: *const Base64Encoder, dest: []u8, source: []const u8) void {
-        assert(dest.len == Base64Encoder.calcSize(source.len));
+    pub fn encode(encoder: *const Base64Encoder, dest: []u8, source: []const u8) []const u8 {
+        assert(dest.len >= Base64Encoder.calcSize(source.len));
 
         var i: usize = 0;
         var out_index: usize = 0;
@@ -78,6 +78,7 @@ pub const Base64Encoder = struct {
             dest[out_index] = encoder.pad_char;
             out_index += 1;
         }
+        return dest[0..out_index];
     }
 };
 
@@ -221,12 +222,10 @@ pub const Base64DecoderWithIgnore = struct {
                         } else if (decoder_with_ignore.char_is_ignored[c]) {
                             // we can even ignore chars during the padding
                             continue;
-                        } else
-                            return error.InvalidCharacter;
+                        } else return error.InvalidCharacter;
                     }
                     break;
-                } else
-                    return error.InvalidCharacter;
+                } else return error.InvalidCharacter;
             }
 
             switch (available_chars) {
@@ -398,8 +397,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void
     // Base64Encoder
     {
         var buffer: [0x100]u8 = undefined;
-        var encoded = buffer[0..Base64Encoder.calcSize(expected_decoded.len)];
-        standard_encoder.encode(encoded, expected_decoded);
+        const encoded = standard_encoder.encode(&buffer, expected_decoded);
         testing.expectEqualSlices(u8, expected_encoded, encoded);
     }
 

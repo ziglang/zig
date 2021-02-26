@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("lazy pointer with undefined element type",
+        \\export fn foo() void {
+        \\    comptime var T: type = undefined;
+        \\    const S = struct { x: *T };
+        \\    const I = @typeInfo(S);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:28: error: use of undefined value here causes undefined behavior",
+    });
+
     cases.add("pointer arithmetic on pointer-to-array",
         \\export fn foo() void {
         \\    var x: [10]u8 = undefined;
@@ -10,6 +20,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:4:17: error: integer value 1 cannot be coerced to type '*[10]u8'",
+    });
+
+    cases.add("pointer attributes checked when coercing pointer to anon literal",
+        \\comptime {
+        \\    const c: [][]const u8 = &.{"hello", "world" };
+        \\}
+        \\comptime {
+        \\    const c: *[2][]const u8 = &.{"hello", "world" };
+        \\}
+        \\const S = struct {a: u8 = 1, b: u32 = 2};
+        \\comptime {
+        \\    const c: *S = &.{};
+        \\}
+    , &[_][]const u8{
+        "mp.zig:2:31: error: expected type '[][]const u8', found '*const struct:2:31'",
+        "mp.zig:5:33: error: expected type '*[2][]const u8', found '*const struct:5:33'",
+        "mp.zig:9:21: error: expected type '*S', found '*const struct:9:21'",
     });
 
     cases.add("@Type() union payload is undefined",
@@ -296,7 +323,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    e: E,
         \\};
         \\export fn entry() void {
-        \\    if (@TagType(E) != u8) @compileError("did not infer u8 tag type");
+        \\    if (@typeInfo(E).Enum.tag_type != u8) @compileError("did not infer u8 tag type");
         \\    const s: S = undefined;
         \\}
     , &[_][]const u8{
@@ -1621,7 +1648,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @call(.{ .modifier = .compile_time }, baz, .{});
         \\}
         \\fn foo() void {}
-        \\inline fn bar() void {}
+        \\fn bar() callconv(.Inline) void {}
         \\fn baz1() void {}
         \\fn baz2() void {}
     , &[_][]const u8{
@@ -2376,8 +2403,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    const x = [_]u8;
         \\}
+        \\export fn entry2() void {
+        \\    const S = struct { a: *const [_]u8 };
+        \\    var a = .{ S{} };
+        \\}
     , &[_][]const u8{
         "tmp.zig:2:15: error: inferred array size invalid here",
+        "tmp.zig:5:34: error: inferred array size invalid here",
     });
 
     cases.add("initializing array with struct syntax",
@@ -2696,7 +2728,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const InvalidToken = struct {};
         \\const ExpectedVarDeclOrFn = struct {};
     , &[_][]const u8{
-        "tmp.zig:4:9: error: expected type '@TagType(Error)', found 'type'",
+        "tmp.zig:4:9: error: expected type '@typeInfo(Error).Union.tag_type.?', found 'type'",
     });
 
     cases.addTest("binary OR operator on error sets",
@@ -3912,7 +3944,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var a = b;
         \\}
-        \\inline fn b() void { }
+        \\fn b() callconv(.Inline) void { }
     , &[_][]const u8{
         "tmp.zig:2:5: error: functions marked inline must be stored in const or comptime var",
         "tmp.zig:4:1: note: declared here",
@@ -6750,11 +6782,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     //    \\export fn foo() void {
     //    \\    bar();
     //    \\}
-    //    \\inline fn bar() void {
+    //    \\fn bar() callconv(.Inline) void {
     //    \\    baz();
     //    \\    quux();
     //    \\}
-    //    \\inline fn baz() void {
+    //    \\fn baz() callconv(.Inline) void {
     //    \\    bar();
     //    \\    quux();
     //    \\}
@@ -6767,7 +6799,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     //    \\export fn foo() void {
     //    \\    quux(@ptrToInt(bar));
     //    \\}
-    //    \\inline fn bar() void { }
+    //    \\fn bar() callconv(.Inline) void { }
     //    \\extern fn quux(usize) void;
     //, &[_][]const u8{
     //    "tmp.zig:4:1: error: unable to inline function",
@@ -7175,7 +7207,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    foo();
         \\}
-        \\inline fn foo() void {
+        \\fn foo() callconv(.Inline) void {
         \\    @setAlignStack(16);
         \\}
     , &[_][]const u8{
@@ -7430,24 +7462,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:4:5: note: declared here",
     });
 
-    cases.add("@TagType when union has no attached enum",
-        \\const Foo = union {
-        \\    A: i32,
-        \\};
-        \\export fn entry() void {
-        \\    const x = @TagType(Foo);
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:5:24: error: union 'Foo' has no tag",
-        "tmp.zig:1:13: note: consider 'union(enum)' here",
-    });
-
     cases.add("non-integer tag type to automatic union enum",
         \\const Foo = union(enum(f32)) {
         \\    A: i32,
         \\};
         \\export fn entry() void {
-        \\    const x = @TagType(Foo);
+        \\    const x = @typeInfo(Foo).Union.tag_type.?;
         \\}
     , &[_][]const u8{
         "tmp.zig:1:24: error: expected integer tag type, found 'f32'",
@@ -7458,7 +7478,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    A: i32,
         \\};
         \\export fn entry() void {
-        \\    const x = @TagType(Foo);
+        \\    const x = @typeInfo(Foo).Union.tag_type.?;
         \\}
     , &[_][]const u8{
         "tmp.zig:1:19: error: expected enum tag type, found 'u32'",
@@ -7947,6 +7967,20 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:42: error: unable to @bitCast from pointer type '*[2]u8'",
         "tmp.zig:7:32: error: destination type 'u16' has size 2 but source type '[]const u8' has size 16",
         "tmp.zig:7:37: note: referenced here",
+    });
+
+    // issue #7810
+    cases.add("comptime slice-len increment beyond bounds",
+        \\export fn foo_slice_len_increment_beyond_bounds() void {
+        \\    comptime {
+        \\        var buf_storage: [8]u8 = undefined;
+        \\        var buf: []const u8 = buf_storage[0..];
+        \\        buf.len += 1;
+        \\        buf[8] = 42;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        ":6:12: error: out of bounds slice",
     });
 
     cases.add("comptime slice-sentinel is out of bounds (unterminated)",

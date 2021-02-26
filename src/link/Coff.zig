@@ -16,6 +16,7 @@ const link = @import("../link.zig");
 const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
 const mingw = @import("../mingw.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
 
 const allocation_padding = 4 / 3;
 const minimum_text_block_size = 64 * allocation_padding;
@@ -31,6 +32,9 @@ comptime {
 pub const base_tag: link.File.Tag = .coff;
 
 const msdos_stub = @embedFile("msdos-stub.bin");
+
+/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+llvm_ir_module: ?*llvm_backend.LLVMIRModule = null,
 
 base: link.File,
 ptr_width: PtrWidth,
@@ -121,8 +125,13 @@ pub const SrcFn = void;
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Coff {
     assert(options.object_format == .coff);
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForCoff; // TODO
-    if (options.use_lld) return error.LLD_LinkingIsTODO_ForCoff; // TODO
+    if (build_options.have_llvm and options.use_llvm) {
+        const self = try createEmpty(allocator, options);
+        errdefer self.base.destroy();
+
+        self.llvm_ir_module = try llvm_backend.LLVMIRModule.create(allocator, sub_path, options);
+        return self;
+    }
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
@@ -404,6 +413,8 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Coff {
 }
 
 pub fn allocateDeclIndexes(self: *Coff, decl: *Module.Decl) !void {
+    if (self.llvm_ir_module) |_| return;
+
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     if (self.offset_table_free_list.popOrNull()) |i| {
@@ -648,11 +659,18 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.updateDecl(module, decl);
+
+    const typed_value = decl.typed_value.most_recent.typed_value;
+    if (typed_value.val.tag() == .extern_fn) {
+        return; // TODO Should we do more when front-end analyzed extern decl?
+    }
+
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .none);
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none);
     const code = switch (res) {
         .externally_managed => |x| x,
         .appended => code_buffer.items,
@@ -672,7 +690,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         if (need_realloc) {
             const curr_vaddr = self.getDeclVAddr(decl);
             const vaddr = try self.growTextBlock(&decl.link.coff, code.len, required_alignment);
-            log.debug("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, curr_vaddr, vaddr });
+            log.debug("growing {s} from 0x{x} to 0x{x}\n", .{ decl.name, curr_vaddr, vaddr });
             if (vaddr != curr_vaddr) {
                 log.debug("  (writing new offset table entry)\n", .{});
                 self.offset_table.items[decl.link.coff.offset_table_index] = vaddr;
@@ -683,7 +701,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         }
     } else {
         const vaddr = try self.allocateTextBlock(&decl.link.coff, code.len, required_alignment);
-        log.debug("allocated text block for {} at 0x{x} (size: {Bi})\n", .{ mem.spanZ(decl.name), vaddr, code.len });
+        log.debug("allocated text block for {s} at 0x{x} (size: {Bi})\n", .{ mem.spanZ(decl.name), vaddr, code.len });
         errdefer self.freeTextBlock(&decl.link.coff);
         self.offset_table.items[decl.link.coff.offset_table_index] = vaddr;
         try self.writeOffsetTableEntry(decl.link.coff.offset_table_index);
@@ -698,19 +716,23 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
 }
 
 pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
+    if (self.llvm_ir_module) |_| return;
+
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.coff);
     self.offset_table_free_list.append(self.base.allocator, decl.link.coff.offset_table_index) catch {};
 }
 
 pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl, exports: []const *Module.Export) !void {
+    if (self.llvm_ir_module) |_| return;
+
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -721,7 +743,7 @@ pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl,
             try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
             module.failed_exports.putAssumeCapacityNoClobber(
                 exp,
-                try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: Exports other than '_start'", .{}),
+                try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: Exports other than '_start'", .{}),
             );
             continue;
         }
@@ -743,6 +765,9 @@ pub fn flush(self: *Coff, comp: *Compilation) !void {
 pub fn flushModule(self: *Coff, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.flushModule(comp);
 
     if (self.text_section_size_dirty) {
         // Write the new raw size in the .text header
@@ -790,8 +815,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        const use_stage1 = build_options.is_stage1 and self.base.options.use_llvm;
-        if (use_stage1) {
+        // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
+        if (self.base.options.use_llvm) {
+            // Stage2 has to call flushModule since that outputs the LLVM object file.
+            if (!build_options.is_stage1) try self.flushModule(comp);
+
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
                 .target = self.base.options.target,
@@ -835,7 +863,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
-        man.hash.add(self.base.options.is_compiler_rt_or_libc);
+        man.hash.add(self.base.options.skip_linker_dependencies);
         if (self.base.options.link_libc) {
             man.hash.add(self.base.options.libc_installation != null);
             if (self.base.options.libc_installation) |libc_installation| {
@@ -849,6 +877,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man.hash.addStringSet(self.base.options.system_libs);
         man.hash.addOptional(self.base.options.subsystem);
         man.hash.add(self.base.options.is_test);
+        man.hash.add(self.base.options.tsaware);
+        man.hash.add(self.base.options.nxcompat);
+        man.hash.add(self.base.options.dynamicbase);
+        man.hash.addOptional(self.base.options.major_subsystem_version);
+        man.hash.addOptional(self.base.options.minor_subsystem_version);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -859,17 +892,17 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("COFF LLD new_digest={} error: {}", .{ digest, @errorName(err) });
+            log.debug("COFF LLD new_digest={x} error: {s}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("COFF LLD digest={} match - skipping invocation", .{digest});
+            log.debug("COFF LLD digest={x} match - skipping invocation", .{digest});
             // Hot diggity dog! The output binary is already there.
             self.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("COFF LLD prev_digest={} new_digest={}", .{ prev_digest, digest });
+        log.debug("COFF LLD prev_digest={x} new_digest={x}", .{ prev_digest, digest });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
@@ -917,6 +950,13 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         if (!self.base.options.strip) {
             try argv.append("-DEBUG");
         }
+        if (self.base.options.lto) {
+            switch (self.base.options.optimize_mode) {
+                .Debug => {},
+                .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
+                .ReleaseFast, .ReleaseSafe => try argv.append("-OPT:lldlto=3"),
+            }
+        }
         if (self.base.options.output_mode == .Exe) {
             const stack_size = self.base.options.stack_size_override orelse 16777216;
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{stack_size}));
@@ -940,6 +980,26 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         if (is_dyn_lib) {
             try argv.append("-DLL");
         }
+
+        if (self.base.options.tsaware) {
+            try argv.append("-tsaware");
+        }
+        if (self.base.options.nxcompat) {
+            try argv.append("-nxcompat");
+        }
+        if (self.base.options.dynamicbase) {
+            try argv.append("-dynamicbase");
+        }
+        const subsystem_suffix = ss: {
+            if (self.base.options.major_subsystem_version) |major| {
+                if (self.base.options.minor_subsystem_version) |minor| {
+                    break :ss try allocPrint(arena, ",{d}.{d}", .{ major, minor });
+                } else {
+                    break :ss try allocPrint(arena, ",{d}", .{major});
+                }
+            }
+            break :ss "";
+        };
 
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
@@ -994,35 +1054,51 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         const mode: Mode = mode: {
             if (resolved_subsystem) |subsystem| switch (subsystem) {
                 .Console => {
-                    try argv.append("-SUBSYSTEM:console");
+                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:console{s}", .{
+                        subsystem_suffix,
+                    }));
                     break :mode .win32;
                 },
                 .EfiApplication => {
-                    try argv.append("-SUBSYSTEM:efi_application");
+                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_application{s}", .{
+                        subsystem_suffix,
+                    }));
                     break :mode .uefi;
                 },
                 .EfiBootServiceDriver => {
-                    try argv.append("-SUBSYSTEM:efi_boot_service_driver");
+                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_boot_service_driver{s}", .{
+                        subsystem_suffix,
+                    }));
                     break :mode .uefi;
                 },
                 .EfiRom => {
-                    try argv.append("-SUBSYSTEM:efi_rom");
+                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_rom{s}", .{
+                        subsystem_suffix,
+                    }));
                     break :mode .uefi;
                 },
                 .EfiRuntimeDriver => {
-                    try argv.append("-SUBSYSTEM:efi_runtime_driver");
+                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_runtime_driver{s}", .{
+                        subsystem_suffix,
+                    }));
                     break :mode .uefi;
                 },
                 .Native => {
-                    try argv.append("-SUBSYSTEM:native");
+                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:native{s}", .{
+                        subsystem_suffix,
+                    }));
                     break :mode .win32;
                 },
                 .Posix => {
-                    try argv.append("-SUBSYSTEM:posix");
+                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:posix{s}", .{
+                        subsystem_suffix,
+                    }));
                     break :mode .win32;
                 },
                 .Windows => {
-                    try argv.append("-SUBSYSTEM:windows");
+                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:windows{s}", .{
+                        subsystem_suffix,
+                    }));
                     break :mode .win32;
                 },
             } else if (target.os.tag == .uefi) {
@@ -1124,8 +1200,9 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
+        // TODO: remove when stage2 can build compiler_rt.zig, c.zig and ssp.zig
         // compiler-rt, libc and libssp
-        if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
+        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies and build_options.is_stage1) {
             if (!self.base.options.link_libc) {
                 try argv.append(comp.libc_static_lib.?.full_object_path);
             }
@@ -1214,11 +1291,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
+            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
@@ -1227,6 +1304,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 }
 
 pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl) u64 {
+    assert(self.llvm_ir_module == null);
     return self.text_section_virtual_address + decl.link.coff.text_offset;
 }
 
@@ -1235,6 +1313,9 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
 }
 
 pub fn deinit(self: *Coff) void {
+    if (build_options.have_llvm)
+        if (self.llvm_ir_module) |ir_module| ir_module.deinit(self.base.allocator);
+
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);

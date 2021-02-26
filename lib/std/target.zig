@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -57,6 +57,9 @@ pub const Target = struct {
             wasi,
             emscripten,
             uefi,
+            opencl,
+            glsl450,
+            vulkan,
             other,
 
             pub fn isDarwin(tag: Tag) bool {
@@ -95,7 +98,7 @@ pub const Target = struct {
             win7 = 0x06010000,
             win8 = 0x06020000,
             win8_1 = 0x06030000,
-            win10 = 0x0A000000,
+            win10 = 0x0A000000, //aka win10_th1
             win10_th2 = 0x0A000001,
             win10_rs1 = 0x0A000002,
             win10_rs2 = 0x0A000003,
@@ -103,11 +106,34 @@ pub const Target = struct {
             win10_rs4 = 0x0A000005,
             win10_rs5 = 0x0A000006,
             win10_19h1 = 0x0A000007,
-            win10_20h1 = 0x0A000008,
+            win10_vb = 0x0A000008, //aka win10_19h2
+            win10_mn = 0x0A000009, //aka win10_20h1
+            win10_fe = 0x0A00000A, //aka win10_20h2
             _,
 
             /// Latest Windows version that the Zig Standard Library is aware of
-            pub const latest = WindowsVersion.win10_20h1;
+            pub const latest = WindowsVersion.win10_fe;
+
+            /// Compared against build numbers reported by the runtime to distinguish win10 versions,
+            /// where 0x0A000000 + index corresponds to the WindowsVersion u32 value.
+            pub const known_win10_build_numbers = [_]u32{
+                10240, //win10 aka win10_th1
+                10586, //win10_th2
+                14393, //win10_rs1
+                15063, //win10_rs2
+                16299, //win10_rs3
+                17134, //win10_rs4
+                17763, //win10_rs5
+                18362, //win10_19h1
+                18363, //win10_vb aka win10_19h2
+                19041, //win10_mn aka win10_20h1
+                19042, //win10_fe aka win10_20h2
+            };
+
+            /// Returns whether the first version `self` is newer (greater) than or equal to the second version `ver`.
+            pub fn isAtLeast(self: WindowsVersion, ver: WindowsVersion) bool {
+                return @enumToInt(self) >= @enumToInt(ver);
+            }
 
             pub const Range = struct {
                 min: WindowsVersion,
@@ -136,14 +162,14 @@ pub const Target = struct {
             ) !void {
                 if (fmt.len > 0 and fmt[0] == 's') {
                     if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
-                        try std.fmt.format(out_stream, ".{}", .{@tagName(self)});
+                        try std.fmt.format(out_stream, ".{s}", .{@tagName(self)});
                     } else {
                         // TODO this code path breaks zig triples, but it is used in `builtin`
                         try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, 0x{X:0>8})", .{@enumToInt(self)});
                     }
                 } else {
                     if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
-                        try std.fmt.format(out_stream, "WindowsVersion.{}", .{@tagName(self)});
+                        try std.fmt.format(out_stream, "WindowsVersion.{s}", .{@tagName(self)});
                     } else {
                         try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@enumToInt(self)});
                     }
@@ -225,6 +251,9 @@ pub const Target = struct {
                     .wasi,
                     .emscripten,
                     .uefi,
+                    .opencl, // TODO: OpenCL versions
+                    .glsl450, // TODO: GLSL versions
+                    .vulkan,
                     .other,
                     => return .{ .none = {} },
 
@@ -237,7 +266,7 @@ pub const Target = struct {
                     .macos => return .{
                         .semver = .{
                             .min = .{ .major = 10, .minor = 13 },
-                            .max = .{ .major = 10, .minor = 15, .patch = 7 },
+                            .max = .{ .major = 11, .minor = 1 },
                         },
                     },
                     .ios => return .{
@@ -337,6 +366,9 @@ pub const Target = struct {
             };
         }
 
+        /// On Darwin, we always link libSystem which contains libc.
+        /// Similarly on FreeBSD and NetBSD we always link system libc
+        /// since this is the stable syscall interface.
         pub fn requiresLibC(os: Os) bool {
             return switch (os.tag) {
                 .freebsd,
@@ -347,6 +379,7 @@ pub const Target = struct {
                 .watchos,
                 .dragonfly,
                 .openbsd,
+                .haiku,
                 => true,
 
                 .linux,
@@ -359,7 +392,6 @@ pub const Target = struct {
                 .lv2,
                 .solaris,
                 .zos,
-                .haiku,
                 .minix,
                 .rtems,
                 .nacl,
@@ -377,6 +409,9 @@ pub const Target = struct {
                 .wasi,
                 .emscripten,
                 .uefi,
+                .opencl,
+                .glsl450,
+                .vulkan,
                 .other,
                 => false,
             };
@@ -395,6 +430,7 @@ pub const Target = struct {
     pub const powerpc = @import("target/powerpc.zig");
     pub const riscv = @import("target/riscv.zig");
     pub const sparc = @import("target/sparc.zig");
+    pub const spirv = @import("target/spirv.zig");
     pub const systemz = @import("target/systemz.zig");
     pub const wasm = @import("target/wasm.zig");
     pub const x86 = @import("target/x86.zig");
@@ -433,7 +469,6 @@ pub const Target = struct {
                 .lv2,
                 .solaris,
                 .zos,
-                .haiku,
                 .minix,
                 .rtems,
                 .nacl,
@@ -459,6 +494,7 @@ pub const Target = struct {
                 .kfreebsd,
                 .netbsd,
                 .hurd,
+                .haiku,
                 => return .gnu,
                 .windows,
                 .uefi,
@@ -467,6 +503,10 @@ pub const Target = struct {
                 .wasi,
                 .emscripten,
                 => return .musl,
+                .opencl, // TODO: SPIR-V ABIs with Linkage capability
+                .glsl450,
+                .vulkan,
+                => return .none,
             }
         }
 
@@ -502,6 +542,7 @@ pub const Target = struct {
         macho,
         wasm,
         c,
+        spirv,
         hex,
         raw,
     };
@@ -719,6 +760,8 @@ pub const Target = struct {
             // Stage1 currently assumes that architectures above this comment
             // map one-to-one with the ZigLLVM_ArchType enum.
             spu_2,
+            spirv32,
+            spirv64,
 
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
@@ -833,6 +876,8 @@ pub const Target = struct {
                     .s390x => ._S390,
                     .ve => ._NONE,
                     .spu_2 => ._SPU_2,
+                    .spirv32 => ._NONE,
+                    .spirv64 => ._NONE,
                 };
             }
 
@@ -891,6 +936,8 @@ pub const Target = struct {
                     .s390x => .Unknown,
                     .ve => .Unknown,
                     .spu_2 => .Unknown,
+                    .spirv32 => .Unknown,
+                    .spirv64 => .Unknown,
                 };
             }
 
@@ -935,6 +982,9 @@ pub const Target = struct {
                     .shave,
                     .ve,
                     .spu_2,
+                    // GPU bitness is opaque. For now, assume little endian.
+                    .spirv32,
+                    .spirv64,
                     => .Little,
 
                     .arc,
@@ -991,6 +1041,7 @@ pub const Target = struct {
                     .wasm32,
                     .renderscript32,
                     .aarch64_32,
+                    .spirv32,
                     => return 32,
 
                     .aarch64,
@@ -1014,6 +1065,7 @@ pub const Target = struct {
                     .sparcv9,
                     .s390x,
                     .ve,
+                    .spirv64,
                     => return 64,
                 }
             }
@@ -1037,6 +1089,7 @@ pub const Target = struct {
                     .i386, .x86_64 => "x86",
                     .nvptx, .nvptx64 => "nvptx",
                     .wasm32, .wasm64 => "wasm",
+                    .spirv32, .spirv64 => "spir-v",
                     else => @tagName(arch),
                 };
             }
@@ -1180,7 +1233,7 @@ pub const Target = struct {
     }
 
     pub fn linuxTripleSimple(allocator: *mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
+        return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
     }
 
     pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
@@ -1327,6 +1380,9 @@ pub const Target = struct {
             .uefi,
             .windows,
             .emscripten,
+            .opencl,
+            .glsl450,
+            .vulkan,
             .other,
             => return false,
             else => return true,
@@ -1384,7 +1440,7 @@ pub const Target = struct {
 
         if (self.abi == .android) {
             const suffix = if (self.cpu.arch.ptrBitWidth() == 64) "64" else "";
-            return print(&result, "/system/bin/linker{}", .{suffix});
+            return print(&result, "/system/bin/linker{s}", .{suffix});
         }
 
         if (self.abi.isMusl()) {
@@ -1398,7 +1454,7 @@ pub const Target = struct {
                 else => |arch| @tagName(arch),
             };
             const arch_suffix = if (is_arm and self.abi.floatAbi() == .hard) "hf" else "";
-            return print(&result, "/lib/ld-musl-{}{}.so.1", .{ arch_part, arch_suffix });
+            return print(&result, "/lib/ld-musl-{s}{s}.so.1", .{ arch_part, arch_suffix });
         }
 
         switch (self.os.tag) {
@@ -1437,7 +1493,7 @@ pub const Target = struct {
                     };
                     const is_nan_2008 = mips.featureSetHas(self.cpu.features, .nan2008);
                     const loader = if (is_nan_2008) "ld-linux-mipsn8.so.1" else "ld.so.1";
-                    return print(&result, "/lib{}/{}", .{ lib_suffix, loader });
+                    return print(&result, "/lib{s}/{s}", .{ lib_suffix, loader });
                 },
 
                 .powerpc => return copy(&result, "/lib/ld.so.1"),
@@ -1462,6 +1518,8 @@ pub const Target = struct {
                 .nvptx64,
                 .spu_2,
                 .avr,
+                .spirv32,
+                .spirv64,
                 => return result,
 
                 // TODO go over each item in this list and either move it to the above list, or
@@ -1505,8 +1563,14 @@ pub const Target = struct {
             .windows,
             .emscripten,
             .wasi,
+            .opencl,
+            .glsl450,
+            .vulkan,
             .other,
             => return result,
+
+            // TODO revisit when multi-arch for Haiku is available
+            .haiku => return copy(&result, "/system/runtime_loader"),
 
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.
@@ -1517,7 +1581,6 @@ pub const Target = struct {
             .lv2,
             .solaris,
             .zos,
-            .haiku,
             .minix,
             .rtems,
             .nacl,
@@ -1558,6 +1621,6 @@ pub const Target = struct {
     }
 };
 
-test "" {
+test {
     std.testing.refAllDecls(Target.Cpu.Arch);
 }

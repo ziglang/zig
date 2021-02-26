@@ -357,6 +357,12 @@ struct iovec { void *iov_base; size_t iov_len; };
 #endif
 
 
+#if defined(__NEED_struct_winsize) && !defined(__DEFINED_struct_winsize)
+struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; };
+#define __DEFINED_struct_winsize
+#endif
+
+
 #if defined(__NEED_socklen_t) && !defined(__DEFINED_socklen_t)
 typedef unsigned socklen_t;
 #define __DEFINED_socklen_t

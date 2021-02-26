@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -298,6 +298,20 @@ pub fn isNumber(comptime T: type) bool {
     };
 }
 
+pub fn isIntegerNumber(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .Int, .ComptimeInt => true,
+        else => false,
+    };
+}
+
+pub fn isFloatingNumber(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat => true,
+        else => false,
+    };
+}
+
 test "std.meta.trait.isNumber" {
     const NotANumber = struct {
         number: u8,
@@ -476,14 +490,19 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         else => return false, // TODO can we know if it's true for some of these types ?
 
         .AnyFrame,
-        .Bool,
         .BoundFn,
         .Enum,
         .ErrorSet,
         .Fn,
-        .Int, // TODO check that it is still true
-        .Pointer,
         => return true,
+
+        .Bool => return false,
+
+        // The padding bits are undefined.
+        .Int => |info| return (info.bits % 8) == 0 and
+            (info.bits == 0 or std.math.isPowerOfTwo(info.bits)),
+
+        .Pointer => |info| return info.size != .Slice,
 
         .Array => |info| return comptime hasUniqueRepresentation(info.child),
 
@@ -525,14 +544,49 @@ test "std.meta.trait.hasUniqueRepresentation" {
 
     testing.expect(hasUniqueRepresentation(TestStruct3));
 
-    testing.expect(hasUniqueRepresentation(i1));
-    testing.expect(hasUniqueRepresentation(u2));
-    testing.expect(hasUniqueRepresentation(i3));
-    testing.expect(hasUniqueRepresentation(u4));
-    testing.expect(hasUniqueRepresentation(i5));
-    testing.expect(hasUniqueRepresentation(u6));
-    testing.expect(hasUniqueRepresentation(i7));
-    testing.expect(hasUniqueRepresentation(u8));
-    testing.expect(hasUniqueRepresentation(i9));
-    testing.expect(hasUniqueRepresentation(u10));
+    const TestStruct4 = struct { a: []const u8 };
+
+    testing.expect(!hasUniqueRepresentation(TestStruct4));
+
+    const TestStruct5 = struct { a: TestStruct4 };
+
+    testing.expect(!hasUniqueRepresentation(TestStruct5));
+
+    const TestUnion1 = packed union {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestUnion1));
+
+    const TestUnion2 = extern union {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestUnion2));
+
+    const TestUnion3 = union {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestUnion3));
+
+    const TestUnion4 = union(enum) {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestUnion4));
+
+    inline for ([_]type{ i0, u8, i16, u32, i64 }) |T| {
+        testing.expect(hasUniqueRepresentation(T));
+    }
+    inline for ([_]type{ i1, u9, i17, u33, i24 }) |T| {
+        testing.expect(!hasUniqueRepresentation(T));
+    }
+
+    testing.expect(!hasUniqueRepresentation([]u8));
+    testing.expect(!hasUniqueRepresentation([]const u8));
 }

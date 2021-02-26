@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -16,13 +16,11 @@ pub fn PeekStream(
     comptime ReaderType: type,
 ) type {
     return struct {
-        unbuffered_in_stream: ReaderType,
+        unbuffered_reader: ReaderType,
         fifo: FifoType,
 
         pub const Error = ReaderType.Error;
         pub const Reader = io.Reader(*Self, Error, read);
-        /// Deprecated: use `Reader`
-        pub const InStream = Reader;
 
         const Self = @This();
         const FifoType = std.fifo.LinearFifo(u8, buffer_type);
@@ -31,7 +29,7 @@ pub fn PeekStream(
             .Static => struct {
                 pub fn init(base: ReaderType) Self {
                     return .{
-                        .unbuffered_in_stream = base,
+                        .unbuffered_reader = base,
                         .fifo = FifoType.init(),
                     };
                 }
@@ -39,7 +37,7 @@ pub fn PeekStream(
             .Slice => struct {
                 pub fn init(base: ReaderType, buf: []u8) Self {
                     return .{
-                        .unbuffered_in_stream = base,
+                        .unbuffered_reader = base,
                         .fifo = FifoType.init(buf),
                     };
                 }
@@ -47,7 +45,7 @@ pub fn PeekStream(
             .Dynamic => struct {
                 pub fn init(base: ReaderType, allocator: *mem.Allocator) Self {
                     return .{
-                        .unbuffered_in_stream = base,
+                        .unbuffered_reader = base,
                         .fifo = FifoType.init(allocator),
                     };
                 }
@@ -68,16 +66,11 @@ pub fn PeekStream(
             if (dest_index == dest.len) return dest_index;
 
             // ask the backing stream for more
-            dest_index += try self.unbuffered_in_stream.read(dest[dest_index..]);
+            dest_index += try self.unbuffered_reader.read(dest[dest_index..]);
             return dest_index;
         }
 
         pub fn reader(self: *Self) Reader {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use `reader`
-        pub fn inStream(self: *Self) InStream {
             return .{ .context = self };
         }
     };

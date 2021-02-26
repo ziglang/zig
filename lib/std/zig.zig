@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -8,9 +8,10 @@ const tokenizer = @import("zig/tokenizer.zig");
 
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
+pub const fmtId = @import("zig/fmt.zig").fmtId;
+pub const fmtEscapes = @import("zig/fmt.zig").fmtEscapes;
 pub const parse = @import("zig/parse.zig").parse;
 pub const parseStringLiteral = @import("zig/string_literal.zig").parse;
-pub const render = @import("zig/render.zig").render;
 pub const ast = @import("zig/ast.zig");
 pub const system = @import("zig/system.zig");
 pub const CrossTarget = @import("zig/cross_target.zig").CrossTarget;
@@ -139,6 +140,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
             .Lib => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
         },
         .c => return std.fmt.allocPrint(allocator, "{s}.c", .{root_name}),
+        .spirv => return std.fmt.allocPrint(allocator, "{s}.spv", .{root_name}),
         .hex => return std.fmt.allocPrint(allocator, "{s}.ihex", .{root_name}),
         .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),
     }
@@ -253,6 +255,6 @@ test "parseCharLiteral" {
     std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFF}x'", &bad_index));
 }
 
-test "" {
+test {
     @import("std").testing.refAllDecls(@This());
 }

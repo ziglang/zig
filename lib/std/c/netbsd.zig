@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -14,6 +14,9 @@ pub const _errno = __errno;
 pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
 
+pub extern "c" fn _lwp_self() lwpid_t;
+
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 pub extern "c" fn __fstat50(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
@@ -50,6 +53,22 @@ pub const pthread_cond_t = extern struct {
     ptc_waiters_last: ?*u8 = null,
     ptc_mutex: ?*pthread_mutex_t = null,
     ptc_private: ?*c_void = null,
+};
+
+pub const pthread_rwlock_t = extern struct {
+    ptr_magic: c_uint = 0x99990009,
+    ptr_interlock: switch (std.builtin.arch) {
+        .aarch64, .sparc, .x86_64, .i386 => u8,
+        .arm, .powerpc => c_int,
+        else => unreachable,
+    } = 0,
+    ptr_rblocked_first: ?*u8 = null,
+    ptr_rblocked_last: ?*u8 = null,
+    ptr_wblocked_first: ?*u8 = null,
+    ptr_wblocked_last: ?*u8 = null,
+    ptr_nreaders: c_uint = 0,
+    ptr_owner: std.c.pthread_t = null,
+    ptr_private: ?*c_void = null,
 };
 
 const pthread_spin_t = switch (builtin.arch) {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -1287,6 +1287,12 @@ test "big.int shift-right multi" {
     try a.shiftRight(a, 67);
 
     testing.expect((try a.to(u64)) == 0x1fffe0001dddc222);
+
+    try a.set(0xffff0000eeee1111dddd2222cccc3333);
+    try a.shiftRight(a, 63);
+    try a.shiftRight(a, 63);
+    try a.shiftRight(a, 2);
+    testing.expect(a.eqZero());
 }
 
 test "big.int shift-left single" {

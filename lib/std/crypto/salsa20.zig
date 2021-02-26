@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -37,7 +37,7 @@ const Salsa20VecImpl = struct {
         };
     }
 
-    inline fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
+    fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) callconv(.Inline) void {
         const n1n2n3n0 = Lane{ input[3][1], input[3][2], input[3][3], input[3][0] };
         const n1n2 = Half{ n1n2n3n0[0], n1n2n3n0[1] };
         const n3n0 = Half{ n1n2n3n0[2], n1n2n3n0[3] };
@@ -146,9 +146,9 @@ const Salsa20VecImpl = struct {
             while (j < 64) : (j += 1) {
                 xout[j] ^= buf[j];
             }
-            ctx[2][0] +%= 1;
-            if (ctx[2][0] == 0) {
-                ctx[2][1] += 1;
+            ctx[3][2] +%= 1;
+            if (ctx[3][2] == 0) {
+                ctx[3][3] += 1;
             }
         }
         if (i < in.len) {
@@ -211,7 +211,7 @@ const Salsa20NonVecImpl = struct {
         d: u6,
     };
 
-    inline fn Rp(a: usize, b: usize, c: usize, d: u6) QuarterRound {
+    fn Rp(a: usize, b: usize, c: usize, d: u6) callconv(.Inline) QuarterRound {
         return QuarterRound{
             .a = a,
             .b = b,
@@ -220,7 +220,7 @@ const Salsa20NonVecImpl = struct {
         };
     }
 
-    inline fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
+    fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) callconv(.Inline) void {
         const arx_steps = comptime [_]QuarterRound{
             Rp(4, 0, 12, 7),   Rp(8, 4, 0, 9),    Rp(12, 8, 4, 13),   Rp(0, 12, 8, 18),
             Rp(9, 5, 1, 7),    Rp(13, 9, 5, 9),   Rp(1, 13, 9, 13),   Rp(5, 1, 13, 18),
@@ -571,9 +571,9 @@ test "xsalsa20poly1305" {
     var key: [XSalsa20Poly1305.key_length]u8 = undefined;
     var nonce: [XSalsa20Poly1305.nonce_length]u8 = undefined;
     var tag: [XSalsa20Poly1305.tag_length]u8 = undefined;
-    try crypto.randomBytes(&msg);
-    try crypto.randomBytes(&key);
-    try crypto.randomBytes(&nonce);
+    crypto.random.bytes(&msg);
+    crypto.random.bytes(&key);
+    crypto.random.bytes(&nonce);
 
     XSalsa20Poly1305.encrypt(c[0..], &tag, msg[0..], "ad", nonce, key);
     try XSalsa20Poly1305.decrypt(msg2[0..], c[0..], tag, "ad", nonce, key);
@@ -585,9 +585,9 @@ test "xsalsa20poly1305 secretbox" {
     var key: [XSalsa20Poly1305.key_length]u8 = undefined;
     var nonce: [Box.nonce_length]u8 = undefined;
     var boxed: [msg.len + Box.tag_length]u8 = undefined;
-    try crypto.randomBytes(&msg);
-    try crypto.randomBytes(&key);
-    try crypto.randomBytes(&nonce);
+    crypto.random.bytes(&msg);
+    crypto.random.bytes(&key);
+    crypto.random.bytes(&nonce);
 
     SecretBox.seal(boxed[0..], msg[0..], nonce, key);
     try SecretBox.open(msg2[0..], boxed[0..], nonce, key);
@@ -598,8 +598,8 @@ test "xsalsa20poly1305 box" {
     var msg2: [msg.len]u8 = undefined;
     var nonce: [Box.nonce_length]u8 = undefined;
     var boxed: [msg.len + Box.tag_length]u8 = undefined;
-    try crypto.randomBytes(&msg);
-    try crypto.randomBytes(&nonce);
+    crypto.random.bytes(&msg);
+    crypto.random.bytes(&nonce);
 
     var kp1 = try Box.KeyPair.create(null);
     var kp2 = try Box.KeyPair.create(null);
@@ -611,9 +611,18 @@ test "xsalsa20poly1305 sealedbox" {
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;
-    try crypto.randomBytes(&msg);
+    crypto.random.bytes(&msg);
 
     var kp = try Box.KeyPair.create(null);
     try SealedBox.seal(boxed[0..], msg[0..], kp.public_key);
     try SealedBox.open(msg2[0..], boxed[0..], kp);
+}
+
+test "secretbox twoblocks" {
+    const key = [_]u8{ 0xc9, 0xc9, 0x4d, 0xcf, 0x68, 0xbe, 0x00, 0xe4, 0x7f, 0xe6, 0x13, 0x26, 0xfc, 0xc4, 0x2f, 0xd0, 0xdb, 0x93, 0x91, 0x1c, 0x09, 0x94, 0x89, 0xe1, 0x1b, 0x88, 0x63, 0x18, 0x86, 0x64, 0x8b, 0x7b };
+    const nonce = [_]u8{ 0xa4, 0x33, 0xe9, 0x0a, 0x07, 0x68, 0x6e, 0x9a, 0x2b, 0x6d, 0xd4, 0x59, 0x04, 0x72, 0x3e, 0xd3, 0x8a, 0x67, 0x55, 0xc7, 0x9e, 0x3e, 0x77, 0xdc };
+    const msg = [_]u8{'a'} ** 97;
+    var ciphertext: [msg.len + SecretBox.tag_length]u8 = undefined;
+    SecretBox.seal(&ciphertext, &msg, nonce, key);
+    htest.assertEqual("b05760e217288ba079caa2fd57fd3701784974ffcfda20fe523b89211ad8af065a6eb37cdb29d51aca5bd75dafdd21d18b044c54bb7c526cf576c94ee8900f911ceab0147e82b667a28c52d58ceb29554ff45471224d37b03256b01c119b89ff6d36855de8138d103386dbc9d971f52261", &ciphertext);
 }

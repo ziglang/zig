@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -62,7 +62,7 @@ pub fn SinglyLinkedList(comptime T: type) type {
             /// This operation is O(N).
             pub fn countChildren(node: *const Node) usize {
                 var count: usize = 0;
-                var it: ?*const Node = node;
+                var it: ?*const Node = node.next;
                 while (it) |n| : (it = n.next) {
                     count += 1;
                 }
@@ -123,6 +123,8 @@ test "basic SinglyLinkedList test" {
     const L = SinglyLinkedList(u32);
     var list = L{};
 
+    testing.expect(list.len() == 0);
+
     var one = L.Node{ .data = 1 };
     var two = L.Node{ .data = 2 };
     var three = L.Node{ .data = 3 };
@@ -134,6 +136,8 @@ test "basic SinglyLinkedList test" {
     list.prepend(&one); // {1, 2, 5}
     two.insertAfter(&three); // {1, 2, 3, 5}
     three.insertAfter(&four); // {1, 2, 3, 4, 5}
+
+    testing.expect(list.len() == 5);
 
     // Traverse forwards.
     {

@@ -63,7 +63,8 @@ void __synccall(void (*func)(void *), void *ctx)
 	sem_init(&target_sem, 0, 0);
 	sem_init(&caller_sem, 0, 0);
 
-	if (!libc.threads_minus_1) goto single_threaded;
+	if (!libc.threads_minus_1 || __syscall(SYS_gettid) != self->tid)
+		goto single_threaded;
 
 	callback = func;
 	context = ctx;

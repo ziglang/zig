@@ -18,14 +18,17 @@ call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliar
 REM Make the `zig version` number consistent.
 REM This will affect the cmake command below.
 git.exe config core.abbrev 9
+git.exe fetch --unshallow
+git.exe fetch --tags
 
 mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%
-cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
+cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release -DZIG_OMIT_STAGE2=ON || exit /b
 msbuild /maxcpucount /p:Configuration=Release INSTALL.vcxproj || exit /b
 
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-behavior -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-stage2 -Dskip-non-native || exit /b
+REM Disabled to prevent OOM
+REM "%ZIGINSTALLDIR%\bin\zig.exe" build test-stage2 -Dskip-non-native || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-fmt -Dskip-non-native || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-std -Dskip-non-native || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-compiler-rt -Dskip-non-native || exit /b

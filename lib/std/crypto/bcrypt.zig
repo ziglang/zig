@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -109,9 +109,7 @@ const State = struct {
         }
     }
 
-    const Halves = struct {
-        l: u32, r: u32
-    };
+    const Halves = struct { l: u32, r: u32 };
 
     fn feistelF(state: State, x: u32) u32 {
         var r = state.sboxes[0][@truncate(u8, x >> 24)];
@@ -247,7 +245,7 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
     Codec.encode(ct_str[0..], ct[0 .. ct.len - 1]);
 
     var s_buf: [hash_length]u8 = undefined;
-    const s = fmt.bufPrint(s_buf[0..], "$2b${}{}${}{}", .{ rounds_log / 10, rounds_log % 10, salt_str, ct_str }) catch unreachable;
+    const s = fmt.bufPrint(s_buf[0..], "$2b${d}{d}${s}{s}", .{ rounds_log / 10, rounds_log % 10, salt_str, ct_str }) catch unreachable;
     debug.assert(s.len == s_buf.len);
     return s_buf;
 }
@@ -262,7 +260,7 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
 /// and then use the resulting hash as the password parameter for bcrypt.
 pub fn strHash(password: []const u8, rounds_log: u6) ![hash_length]u8 {
     var salt: [salt_length]u8 = undefined;
-    try crypto.randomBytes(&salt);
+    crypto.random.bytes(&salt);
     return strHashInternal(password, rounds_log, salt);
 }
 
@@ -283,7 +281,7 @@ pub fn strVerify(h: [hash_length]u8, password: []const u8) BcryptError!void {
 
 test "bcrypt codec" {
     var salt: [salt_length]u8 = undefined;
-    try crypto.randomBytes(&salt);
+    crypto.random.bytes(&salt);
     var salt_str: [salt_str_length]u8 = undefined;
     Codec.encode(salt_str[0..], salt[0..]);
     var salt2: [salt_length]u8 = undefined;

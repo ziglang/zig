@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -189,7 +189,7 @@ pub const InstallRawStep = struct {
     pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *Self {
         const self = builder.allocator.create(Self) catch unreachable;
         self.* = Self{
-            .step = Step.init(.InstallRaw, builder.fmt("install raw binary {}", .{artifact.step.name}), builder.allocator, make),
+            .step = Step.init(.InstallRaw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
             .builder = builder,
             .artifact = artifact,
             .dest_dir = switch (artifact.kind) {
@@ -223,6 +223,6 @@ pub const InstallRawStep = struct {
     }
 };
 
-test "" {
+test {
     std.testing.refAllDecls(InstallRawStep);
 }

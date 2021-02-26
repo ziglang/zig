@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -15,7 +15,7 @@ pub fn once(comptime f: fn () void) Once(f) {
 pub fn Once(comptime f: fn () void) type {
     return struct {
         done: bool = false,
-        mutex: std.Mutex = std.Mutex{},
+        mutex: std.Thread.Mutex = std.Thread.Mutex{},
 
         /// Call the function `f`.
         /// If `call` is invoked multiple times `f` will be executed only the

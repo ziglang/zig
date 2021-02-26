@@ -28,14 +28,23 @@ curl --fail -I "$X86_64_FREEBSD_JSON_URL" >/dev/null || exit 0
 pip3 install s3cmd --user
 S3CMD="$HOME/.local/bin/s3cmd"
 
+# This is the user when pushing to the website repo.
+git config --global user.email "ziggy@ziglang.org"
+git config --global user.name "Ziggy"
+
+# Refresh this with `ssh-keyscan github.com` from a trusted Internet connection.
+# We hard code the public key here to detect man-in-the-middle attacks.
+echo "github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==" >> ~/.ssh/known_hosts
+
+# We don't want the .git folder inside the tarball.
 rm -rf .git
 
 cd "$HOME"
 wget "https://ziglang.org/builds/$NATIVE_TARBALL"
 tar xf "$NATIVE_TARBALL"
-ZIGDIR=$(basename $NATIVE_TARBALL .tar.xz)
+ZIGDIR="$(pwd)/$(basename $NATIVE_TARBALL .tar.xz)"
 ZIG="$ZIGDIR/zig"
-LANGREF="$ZIGDIR/langref.html"
+LANGREF="$ZIGDIR/docs/langref.html"
 SRCTARBALLDIR="zig-$VERSION"
 export SRC_TARBALL="$SRCTARBALLDIR.tar.xz"
 mv "$SRCDIR" "$SRCTARBALLDIR"
@@ -68,13 +77,29 @@ export X86_64_FREEBSD_TARBALL="$(echo "$X86_64_FREEBSD_JSON" | jq .tarball -r)"
 export X86_64_FREEBSD_BYTESIZE="$(echo "$X86_64_FREEBSD_JSON" | jq .size -r)"
 export X86_64_FREEBSD_SHASUM="$(echo "$X86_64_FREEBSD_JSON" | jq .shasum -r)"
 
-git clone https://github.com/ziglang/www.ziglang.org --depth 1
-cd www.ziglang.org
 export MASTER_DATE="$(date +%Y-%m-%d)"
 export MASTER_VERSION="$VERSION"
-"../$ZIG" run update-download-page.zig
 
-$S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "../$SRC_TARBALL" s3://ziglang.org/builds/
-$S3CMD put -P --no-mime-magic "../$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P --no-mime-magic www/download/index.html s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P --no-mime-magic www/download/index.json s3://ziglang.org/download/index.json --add-header="Cache-Control: max-age=0, must-revalidate"
+cd "$SRCTARBALLDIR/ci/srht"
+"$ZIG" run update-download-page.zig
+CIDIR="$(pwd)"
+
+# Create index.json and index.html and update the website repo.
+cd "$HOME"
+git clone git@github.com:ziglang/www.ziglang.org.git
+cd www.ziglang.org
+WWWDIR="$(pwd)"
+
+$S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "$HOME/$SRC_TARBALL" s3://ziglang.org/builds/
+
+cd "$WWWDIR"
+cp "$CIDIR/out/index.json" data/releases.json
+mkdir -p content/documentation/master/std
+cp "$LANGREF" content/documentation/master/index.html
+cp "$ZIGDIR/docs/std/index.html" content/documentation/master/std/index.html
+cp "$ZIGDIR/docs/std/data.js" content/documentation/master/std/data.js
+cp "$ZIGDIR/docs/std/main.js" content/documentation/master/std/main.js
+git add data/releases.json
+git add content/
+git commit -m "CI: update releases and docs"
+git push origin master

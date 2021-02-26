@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -16,7 +16,7 @@ pub fn Queue(comptime T: type) type {
     return struct {
         head: ?*Node,
         tail: ?*Node,
-        mutex: std.Mutex,
+        mutex: std.Thread.Mutex,
 
         pub const Self = @This();
         pub const Node = std.TailQueue(T).Node;
@@ -27,7 +27,7 @@ pub fn Queue(comptime T: type) type {
             return Self{
                 .head = null,
                 .tail = null,
-                .mutex = std.Mutex{},
+                .mutex = std.Thread.Mutex{},
             };
         }
 
@@ -122,7 +122,7 @@ pub fn Queue(comptime T: type) type {
 
         /// Dumps the contents of the queue to `stderr`.
         pub fn dump(self: *Self) void {
-            self.dumpToStream(std.io.getStdErr().outStream()) catch return;
+            self.dumpToStream(std.io.getStdErr().writer()) catch return;
         }
 
         /// Dumps the contents of the queue to `stream`.
@@ -351,7 +351,7 @@ test "std.atomic.Queue dump" {
 
     // Test empty stream
     fbs.reset();
-    try queue.dumpToStream(fbs.outStream());
+    try queue.dumpToStream(fbs.writer());
     expect(mem.eql(u8, buffer[0..fbs.pos],
         \\head: (null)
         \\tail: (null)
@@ -367,7 +367,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_0);
 
     fbs.reset();
-    try queue.dumpToStream(fbs.outStream());
+    try queue.dumpToStream(fbs.writer());
 
     var expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
@@ -387,7 +387,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_1);
 
     fbs.reset();
-    try queue.dumpToStream(fbs.outStream());
+    try queue.dumpToStream(fbs.writer());
 
     expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1

@@ -22,7 +22,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn main() void {
             \\    privateFunction();
-            \\    const stdout = getStdOut().outStream();
+            \\    const stdout = getStdOut().writer();
             \\    stdout.print("OK 2\n", .{}) catch unreachable;
             \\}
             \\
@@ -37,7 +37,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\// purposefully conflicting function with main.zig
             \\// but it's private so it should be OK
             \\fn privateFunction() void {
-            \\    const stdout = getStdOut().outStream();
+            \\    const stdout = getStdOut().writer();
             \\    stdout.print("OK 1\n", .{}) catch unreachable;
             \\}
             \\
@@ -63,7 +63,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         tc.addSourceFile("foo.zig",
             \\usingnamespace @import("std").io;
             \\pub fn foo_function() void {
-            \\    const stdout = getStdOut().outStream();
+            \\    const stdout = getStdOut().writer();
             \\    stdout.print("OK\n", .{}) catch unreachable;
             \\}
         );
@@ -74,7 +74,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn bar_function() void {
             \\    if (foo_function()) {
-            \\        const stdout = getStdOut().outStream();
+            \\        const stdout = getStdOut().writer();
             \\        stdout.print("OK\n", .{}) catch unreachable;
             \\    }
             \\}
@@ -106,7 +106,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub const a_text = "OK\n";
             \\
             \\pub fn ok() void {
-            \\    const stdout = io.getStdOut().outStream();
+            \\    const stdout = io.getStdOut().writer();
             \\    stdout.print(b_text, .{}) catch unreachable;
             \\}
         );
@@ -124,7 +124,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const io = @import("std").io;
         \\
         \\pub fn main() void {
-        \\    const stdout = io.getStdOut().outStream();
+        \\    const stdout = io.getStdOut().writer();
         \\    stdout.print("Hello, world!\n{d:4} {x:3} {c}\n", .{@as(u32, 12), @as(u16, 0x12), @as(u8, 'a')}) catch unreachable;
         \\}
     , "Hello, world!\n  12  12 a\n");
@@ -267,7 +267,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    var x_local : i32 = print_ok(x);
         \\}
         \\fn print_ok(val: @TypeOf(x)) @TypeOf(foo) {
-        \\    const stdout = io.getStdOut().outStream();
+        \\    const stdout = io.getStdOut().writer();
         \\    stdout.print("OK\n", .{}) catch unreachable;
         \\    return 0;
         \\}
@@ -349,7 +349,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    const bar = Bar {.field2 = 13,};
         \\    const foo = Foo {.field1 = bar,};
-        \\    const stdout = io.getStdOut().outStream();
+        \\    const stdout = io.getStdOut().writer();
         \\    if (!foo.method()) {
         \\        stdout.print("BAD\n", .{}) catch unreachable;
         \\    }
@@ -363,7 +363,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("defer with only fallthrough",
         \\const io = @import("std").io;
         \\pub fn main() void {
-        \\    const stdout = io.getStdOut().outStream();
+        \\    const stdout = io.getStdOut().writer();
         \\    stdout.print("before\n", .{}) catch unreachable;
         \\    defer stdout.print("defer1\n", .{}) catch unreachable;
         \\    defer stdout.print("defer2\n", .{}) catch unreachable;
@@ -376,7 +376,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const io = @import("std").io;
         \\const os = @import("std").os;
         \\pub fn main() void {
-        \\    const stdout = io.getStdOut().outStream();
+        \\    const stdout = io.getStdOut().writer();
         \\    stdout.print("before\n", .{}) catch unreachable;
         \\    defer stdout.print("defer1\n", .{}) catch unreachable;
         \\    defer stdout.print("defer2\n", .{}) catch unreachable;
@@ -393,7 +393,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    do_test() catch return;
         \\}
         \\fn do_test() !void {
-        \\    const stdout = io.getStdOut().outStream();
+        \\    const stdout = io.getStdOut().writer();
         \\    stdout.print("before\n", .{}) catch unreachable;
         \\    defer stdout.print("defer1\n", .{}) catch unreachable;
         \\    errdefer stdout.print("deferErr\n", .{}) catch unreachable;
@@ -412,7 +412,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    do_test() catch return;
         \\}
         \\fn do_test() !void {
-        \\    const stdout = io.getStdOut().outStream();
+        \\    const stdout = io.getStdOut().writer();
         \\    stdout.print("before\n", .{}) catch unreachable;
         \\    defer stdout.print("defer1\n", .{}) catch unreachable;
         \\    errdefer stdout.print("deferErr\n", .{}) catch unreachable;
@@ -429,7 +429,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const io = @import("std").io;
             \\
             \\pub fn main() void {
-            \\    const stdout = io.getStdOut().outStream();
+            \\    const stdout = io.getStdOut().writer();
             \\    stdout.print(foo_txt, .{}) catch unreachable;
             \\}
         , "1234\nabcd\n");
@@ -448,12 +448,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn main() !void {
             \\    var args_it = std.process.args();
-            \\    const stdout = io.getStdOut().outStream();
+            \\    const stdout = io.getStdOut().writer();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
             \\        const arg = try arg_or_err;
-            \\        try stdout.print("{}: {}\n", .{index, arg});
+            \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}
         ,
@@ -487,12 +487,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn main() !void {
             \\    var args_it = std.process.args();
-            \\    const stdout = io.getStdOut().outStream();
+            \\    const stdout = io.getStdOut().writer();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
             \\        const arg = try arg_or_err;
-            \\        try stdout.print("{}: {}\n", .{index, arg});
+            \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}
         ,

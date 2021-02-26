@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -131,7 +131,11 @@ fn norm_zero_case(random: *Random, u: f64) f64 {
     }
 }
 
-test "ziggurant normal dist sanity" {
+const please_windows_dont_oom = std.Target.current.os.tag == .windows;
+
+test "normal dist sanity" {
+    if (please_windows_dont_oom) return error.SkipZigTest;
+
     var prng = std.rand.DefaultPrng.init(0);
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
@@ -158,7 +162,9 @@ fn exp_zero_case(random: *Random, _: f64) f64 {
     return exp_r - math.ln(random.float(f64));
 }
 
-test "ziggurant exp dist sanity" {
+test "exp dist sanity" {
+    if (please_windows_dont_oom) return error.SkipZigTest;
+
     var prng = std.rand.DefaultPrng.init(0);
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
@@ -166,6 +172,8 @@ test "ziggurant exp dist sanity" {
     }
 }
 
-test "ziggurat table gen" {
+test "table gen" {
+    if (please_windows_dont_oom) return error.SkipZigTest;
+
     const table = NormDist;
 }

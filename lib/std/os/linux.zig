@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -126,7 +126,7 @@ pub fn fork() usize {
 /// It is advised to avoid this function and use clone instead, because
 /// the compiler is not aware of how vfork affects control flow and you may
 /// see different results in optimized builds.
-pub inline fn vfork() usize {
+pub fn vfork() callconv(.Inline) usize {
     return @call(.{ .modifier = .always_inline }, syscall0, .{.vfork});
 }
 
@@ -634,6 +634,37 @@ pub fn tgkill(tgid: pid_t, tid: pid_t, sig: i32) usize {
     return syscall2(.tgkill, @bitCast(usize, @as(isize, tgid)), @bitCast(usize, @as(isize, tid)), @bitCast(usize, @as(isize, sig)));
 }
 
+pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
+    if (@hasField(SYS, "link")) {
+        return syscall3(
+            .link,
+            @ptrToInt(oldpath),
+            @ptrToInt(newpath),
+            @bitCast(usize, @as(isize, flags)),
+        );
+    } else {
+        return syscall5(
+            .linkat,
+            @bitCast(usize, @as(isize, AT_FDCWD)),
+            @ptrToInt(oldpath),
+            @bitCast(usize, @as(isize, AT_FDCWD)),
+            @ptrToInt(newpath),
+            @bitCast(usize, @as(isize, flags)),
+        );
+    }
+}
+
+pub fn linkat(oldfd: fd_t, oldpath: [*:0]const u8, newfd: fd_t, newpath: [*:0]const u8, flags: i32) usize {
+    return syscall5(
+        .linkat,
+        @bitCast(usize, @as(isize, oldfd)),
+        @ptrToInt(oldpath),
+        @bitCast(usize, @as(isize, newfd)),
+        @ptrToInt(newpath),
+        @bitCast(usize, @as(isize, flags)),
+    );
+}
+
 pub fn unlink(path: [*:0]const u8) usize {
     if (@hasField(SYS, "unlink")) {
         return syscall1(.unlink, @ptrToInt(path));
@@ -745,33 +776,33 @@ pub fn setregid(rgid: gid_t, egid: gid_t) usize {
 
 pub fn getuid() uid_t {
     if (@hasField(SYS, "getuid32")) {
-        return @as(uid_t, syscall0(.getuid32));
+        return @intCast(uid_t, syscall0(.getuid32));
     } else {
-        return @as(uid_t, syscall0(.getuid));
+        return @intCast(uid_t, syscall0(.getuid));
     }
 }
 
 pub fn getgid() gid_t {
     if (@hasField(SYS, "getgid32")) {
-        return @as(gid_t, syscall0(.getgid32));
+        return @intCast(gid_t, syscall0(.getgid32));
     } else {
-        return @as(gid_t, syscall0(.getgid));
+        return @intCast(gid_t, syscall0(.getgid));
     }
 }
 
 pub fn geteuid() uid_t {
     if (@hasField(SYS, "geteuid32")) {
-        return @as(uid_t, syscall0(.geteuid32));
+        return @intCast(uid_t, syscall0(.geteuid32));
     } else {
-        return @as(uid_t, syscall0(.geteuid));
+        return @intCast(uid_t, syscall0(.geteuid));
     }
 }
 
 pub fn getegid() gid_t {
     if (@hasField(SYS, "getegid32")) {
-        return @as(gid_t, syscall0(.getegid32));
+        return @intCast(gid_t, syscall0(.getegid32));
     } else {
-        return @as(gid_t, syscall0(.getegid));
+        return @intCast(gid_t, syscall0(.getegid));
     }
 }
 
@@ -1351,7 +1382,11 @@ pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit,
     );
 }
 
-test "" {
+pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
+    return syscall3(.madvise, @ptrToInt(address), len, advice);
+}
+
+test {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
     }

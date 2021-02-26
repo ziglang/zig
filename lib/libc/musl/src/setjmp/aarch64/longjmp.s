@@ -18,7 +18,6 @@ longjmp:
 	ldp d12, d13, [x0,#144]
 	ldp d14, d15, [x0,#160]
 
-	mov x0, x1
-	cbnz x1, 1f
-	mov x0, #1
-1:	br x30
+	cmp w1, 0
+	csinc w0, w1, wzr, ne
+	br x30

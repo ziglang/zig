@@ -67,7 +67,7 @@ void *__copy_tls(unsigned char *mem)
 	}
 #endif
 	dtv[0] = libc.tls_cnt;
-	td->dtv = td->dtv_copy = dtv;
+	td->dtv = dtv;
 	return td;
 }
 

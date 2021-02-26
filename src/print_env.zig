@@ -4,12 +4,12 @@ const introspect = @import("introspect.zig");
 const Allocator = std.mem.Allocator;
 const fatal = @import("main.zig").fatal;
 
-pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: anytype) !void {
+pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
     const self_exe_path = try std.fs.selfExePathAlloc(gpa);
     defer gpa.free(self_exe_path);
 
     var zig_lib_directory = introspect.findZigLibDirFromSelfExe(gpa, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
+        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
     defer gpa.free(zig_lib_directory.path.?);
     defer zig_lib_directory.handle.close();
@@ -20,10 +20,10 @@ pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: anytype) !void 
     const global_cache_dir = try introspect.resolveGlobalCacheDir(gpa);
     defer gpa.free(global_cache_dir);
 
-    var bos = std.io.bufferedOutStream(stdout);
-    const bos_stream = bos.outStream();
+    var bw = std.io.bufferedWriter(stdout);
+    const w = bw.writer();
 
-    var jws = std.json.WriteStream(@TypeOf(bos_stream), 6).init(bos_stream);
+    var jws = std.json.WriteStream(@TypeOf(w), 6).init(w);
     try jws.beginObject();
 
     try jws.objectField("zig_exe");
@@ -42,6 +42,6 @@ pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: anytype) !void 
     try jws.emitString(build_options.version);
 
     try jws.endObject();
-    try bos_stream.writeByte('\n');
-    try bos.flush();
+    try w.writeByte('\n');
+    try bw.flush();
 }

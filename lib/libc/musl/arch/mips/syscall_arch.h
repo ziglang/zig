@@ -149,3 +149,5 @@ static inline long __syscall7(long n, long a, long b, long c, long d, long e, lo
 
 #define SO_SNDTIMEO_OLD 0x1005
 #define SO_RCVTIMEO_OLD 0x1006
+
+#undef SYS_socketcall

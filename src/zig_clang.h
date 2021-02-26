@@ -8,13 +8,31 @@
 #ifndef ZIG_ZIG_CLANG_H
 #define ZIG_ZIG_CLANG_H
 
-#include "stage1/stage2.h"
 #include <inttypes.h>
 #include <stdbool.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+#define ZIG_EXTERN_C extern "C"
+#else
+#define ZIG_EXTERN_C
+#endif
 
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler file
 // src/clang.zig.
+
+// ABI warning
+struct Stage2ErrorMsg {
+    const char *filename_ptr; // can be null
+    size_t filename_len;
+    const char *msg_ptr;
+    size_t msg_len;
+    const char *source; // valid until the ASTUnit is freed. can be null
+    unsigned line; // 0 based
+    unsigned column; // 0 based
+    unsigned offset; // byte offset into source
+};
 
 struct ZigClangSourceLocation {
     unsigned ID;
@@ -1086,6 +1104,7 @@ ZIG_EXTERN_C const struct ZigClangAPSInt *ZigClangAPSInt_negate(const struct Zig
 ZIG_EXTERN_C void ZigClangAPSInt_free(const struct ZigClangAPSInt *self);
 ZIG_EXTERN_C const uint64_t *ZigClangAPSInt_getRawData(const struct ZigClangAPSInt *self);
 ZIG_EXTERN_C unsigned ZigClangAPSInt_getNumWords(const struct ZigClangAPSInt *self);
+ZIG_EXTERN_C bool ZigClangAPSInt_lessThanEqual(const struct ZigClangAPSInt *self, uint64_t rhs);
 
 ZIG_EXTERN_C uint64_t ZigClangAPInt_getLimitedValue(const struct ZigClangAPInt *self, uint64_t limit);
 
@@ -1115,6 +1134,10 @@ ZIG_EXTERN_C unsigned ZigClangAPFloat_convertToHexString(const struct ZigClangAP
 ZIG_EXTERN_C double ZigClangFloatingLiteral_getValueAsApproximateDouble(const ZigClangFloatingLiteral *self);
 
 ZIG_EXTERN_C enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self);
+ZIG_EXTERN_C uint32_t ZigClangStringLiteral_getCodeUnit(const struct ZigClangStringLiteral *self, size_t i);
+ZIG_EXTERN_C unsigned ZigClangStringLiteral_getLength(const struct ZigClangStringLiteral *self);
+ZIG_EXTERN_C unsigned ZigClangStringLiteral_getCharByteWidth(const struct ZigClangStringLiteral *self);
+
 ZIG_EXTERN_C const char *ZigClangStringLiteral_getString_bytes_begin_size(const struct ZigClangStringLiteral *self,
         size_t *len);
 
@@ -1184,6 +1207,8 @@ ZIG_EXTERN_C enum ZigClangUO ZigClangUnaryOperator_getOpcode(const struct ZigCla
 ZIG_EXTERN_C struct ZigClangQualType ZigClangUnaryOperator_getType(const struct ZigClangUnaryOperator *);
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangUnaryOperator_getSubExpr(const struct ZigClangUnaryOperator *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangUnaryOperator_getBeginLoc(const struct ZigClangUnaryOperator *);
+
+ZIG_EXTERN_C struct ZigClangQualType ZigClangValueDecl_getType(const struct ZigClangValueDecl *);
 
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangWhileStmt_getCond(const struct ZigClangWhileStmt *);
 ZIG_EXTERN_C const struct ZigClangStmt *ZigClangWhileStmt_getBody(const struct ZigClangWhileStmt *);

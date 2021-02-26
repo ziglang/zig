@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -9,7 +9,7 @@ const testing = std.testing;
 
 /// Provides `io.Reader`, `io.Writer`, and `io.SeekableStream` for in-memory buffers as
 /// well as files.
-/// For memory sources, if the supplied byte buffer is const, then `io.OutStream` is not available.
+/// For memory sources, if the supplied byte buffer is const, then `io.Writer` is not available.
 /// The error set of the stream functions is the error set of the corresponding file functions.
 pub const StreamSource = union(enum) {
     buffer: io.FixedBufferStream([]u8),
@@ -22,11 +22,7 @@ pub const StreamSource = union(enum) {
     pub const GetSeekPosError = std.fs.File.GetPosError;
 
     pub const Reader = io.Reader(*StreamSource, ReadError, read);
-    /// Deprecated: use `Reader`
-    pub const InStream = Reader;
     pub const Writer = io.Writer(*StreamSource, WriteError, write);
-    /// Deprecated: use `Writer`
-    pub const OutStream = Writer;
     pub const SeekableStream = io.SeekableStream(
         *StreamSource,
         SeekError,
@@ -89,17 +85,7 @@ pub const StreamSource = union(enum) {
         return .{ .context = self };
     }
 
-    /// Deprecated: use `reader`
-    pub fn inStream(self: *StreamSource) InStream {
-        return .{ .context = self };
-    }
-
     pub fn writer(self: *StreamSource) Writer {
-        return .{ .context = self };
-    }
-
-    /// Deprecated: use `writer`
-    pub fn outStream(self: *StreamSource) OutStream {
         return .{ .context = self };
     }
 

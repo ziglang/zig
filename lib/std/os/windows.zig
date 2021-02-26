@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -109,7 +109,12 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             0,
         );
         switch (rc) {
-            .SUCCESS => return result,
+            .SUCCESS => {
+                if (std.io.is_async and options.io_mode == .evented) {
+                    _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
+                }
+                return result;
+            },
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
@@ -418,8 +423,6 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 },
             },
         };
-        // TODO only call create io completion port once per fd
-        _ = CreateIoCompletionPort(in_hFile, loop.os_data.io_port, undefined, undefined) catch undefined;
         loop.beginOneEvent();
         suspend {
             // TODO handle buffer bigger than DWORD can hold
@@ -500,8 +503,6 @@ pub fn WriteFile(
                 },
             },
         };
-        // TODO only call create io completion port once per fd
-        _ = CreateIoCompletionPort(handle, loop.os_data.io_port, undefined, undefined) catch undefined;
         loop.beginOneEvent();
         suspend {
             const adjusted_len = math.cast(DWORD, bytes.len) catch maxInt(DWORD);
@@ -857,6 +858,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .SUCCESS => return CloseHandle(tmp_handle),
         .OBJECT_NAME_INVALID => unreachable,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .INVALID_PARAMETER => unreachable,
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
@@ -952,7 +954,56 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     return @bitCast(u64, result);
 }
 
+pub fn QueryObjectName(
+    handle: HANDLE,
+    out_buffer: []u16,
+) ![]u16 {
+    const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
+
+    const info = @ptrCast(*OBJECT_NAME_INFORMATION, out_buffer_aligned);
+    //buffer size is specified in bytes
+    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) catch |e| switch (e) {
+        error.Overflow => std.math.maxInt(ULONG),
+    };
+    //last argument would return the length required for full_buffer, not exposed here
+    const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null);
+    switch (rc) {
+        .SUCCESS => {
+            // info.Name.Buffer from ObQueryNameString is documented to be null (and MaximumLength == 0)
+            // if the object was "unnamed", not sure if this can happen for file handles
+            if (info.Name.MaximumLength == 0) return error.Unexpected;
+            // resulting string length is specified in bytes
+            const path_length_unterminated = @divExact(info.Name.Length, 2);
+            return info.Name.Buffer[0..path_length_unterminated];
+        },
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_HANDLE => return error.InvalidHandle,
+        // triggered when the buffer is too small for the OBJECT_NAME_INFORMATION object (.INFO_LENGTH_MISMATCH),
+        // or if the buffer is too small for the file path returned (.BUFFER_OVERFLOW, .BUFFER_TOO_SMALL)
+        .INFO_LENGTH_MISMATCH, .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => return error.NameTooLong,
+        else => |e| return unexpectedStatus(e),
+    }
+}
+test "QueryObjectName" {
+    if (comptime builtin.os.tag != .windows)
+        return;
+
+    //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const handle = tmp.dir.fd;
+    var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
+
+    var result_path = try QueryObjectName(handle, &out_buffer);
+    const required_len_in_u16 = result_path.len + @divExact(@ptrToInt(result_path.ptr) - @ptrToInt(&out_buffer), 2) + 1;
+    //insufficient size
+    std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
+    //exactly-sufficient size
+    _ = try QueryObjectName(handle, out_buffer[0..required_len_in_u16]);
+}
+
 pub const GetFinalPathNameByHandleError = error{
+    AccessDenied,
     BadPathName,
     FileNotFound,
     NameTooLong,
@@ -980,32 +1031,31 @@ pub fn GetFinalPathNameByHandle(
     fmt: GetFinalPathNameByHandleFormat,
     out_buffer: []u16,
 ) GetFinalPathNameByHandleError![]u16 {
-    // Get normalized path; doesn't include volume name though.
-    var path_buffer: [@sizeOf(FILE_NAME_INFORMATION) + PATH_MAX_WIDE * 2]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined;
-    try QueryInformationFile(hFile, .FileNormalizedNameInformation, path_buffer[0..]);
-
-    // Get NT volume name.
-    var volume_buffer: [@sizeOf(FILE_NAME_INFORMATION) + MAX_PATH]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined; // MAX_PATH bytes should be enough since it's Windows-defined name
-    try QueryInformationFile(hFile, .FileVolumeNameInformation, volume_buffer[0..]);
-
-    const file_name = @ptrCast(*const FILE_NAME_INFORMATION, &path_buffer[0]);
-    const file_name_u16 = @ptrCast([*]const u16, &file_name.FileName[0])[0 .. file_name.FileNameLength / 2];
-
-    const volume_name = @ptrCast(*const FILE_NAME_INFORMATION, &volume_buffer[0]);
+    const final_path = QueryObjectName(hFile, out_buffer) catch |err| switch (err) {
+        // we assume InvalidHandle is close enough to FileNotFound in semantics
+        // to not further complicate the error set
+        error.InvalidHandle => return error.FileNotFound,
+        else => |e| return e,
+    };
 
     switch (fmt.volume_name) {
         .Nt => {
-            // Nothing to do, we simply copy the bytes to the user-provided buffer.
-            const volume_name_u16 = @ptrCast([*]const u16, &volume_name.FileName[0])[0 .. volume_name.FileNameLength / 2];
-
-            if (out_buffer.len < volume_name_u16.len + file_name_u16.len) return error.NameTooLong;
-
-            std.mem.copy(u16, out_buffer[0..], volume_name_u16);
-            std.mem.copy(u16, out_buffer[volume_name_u16.len..], file_name_u16);
-
-            return out_buffer[0 .. volume_name_u16.len + file_name_u16.len];
+            // the returned path is already in .Nt format
+            return final_path;
         },
         .Dos => {
+            // parse the string to separate volume path from file path
+            const expected_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
+
+            // TODO find out if a path can start with something besides `\Device\<volume name>`,
+            // and if we need to handle it differently
+            // (i.e. how to determine the start and end of the volume name in that case)
+            if (!mem.eql(u16, expected_prefix, final_path[0..expected_prefix.len])) return error.Unexpected;
+
+            const file_path_begin_index = mem.indexOfPos(u16, final_path, expected_prefix.len, &[_]u16{'\\'}) orelse unreachable;
+            const volume_name_u16 = final_path[0..file_path_begin_index];
+            const file_name_u16 = final_path[file_path_begin_index..];
+
             // Get DOS volume name. DOS volume names are actually symbolic link objects to the
             // actual NT volume. For example:
             // (NT) \Device\HarddiskVolume4 => (DOS) \DosDevices\C: == (DOS) C:
@@ -1038,10 +1088,10 @@ pub fn GetFinalPathNameByHandle(
 
             var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, &input_buf[0]);
             input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
-            input_struct.DeviceNameLength = @intCast(USHORT, volume_name.FileNameLength);
-            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..], @ptrCast([*]const u8, &volume_name.FileName[0]), volume_name.FileNameLength);
+            input_struct.DeviceNameLength = @intCast(USHORT, volume_name_u16.len * 2);
+            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..], @ptrCast([*]const u8, volume_name_u16.ptr), volume_name_u16.len * 2);
 
-            DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, input_buf[0..], output_buf[0..]) catch |err| switch (err) {
+            DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, &input_buf, &output_buf) catch |err| switch (err) {
                 error.AccessDenied => unreachable,
                 else => |e| return e,
             };
@@ -1061,22 +1111,20 @@ pub fn GetFinalPathNameByHandle(
 
                 // Look for `\DosDevices\` prefix. We don't really care if there are more than one symlinks
                 // with traditional DOS drive letters, so pick the first one available.
-                const prefix_u8 = "\\DosDevices\\";
-                var prefix_buf_u16: [prefix_u8.len]u16 = undefined;
-                const prefix_len_u16 = std.unicode.utf8ToUtf16Le(prefix_buf_u16[0..], prefix_u8[0..]) catch unreachable;
-                const prefix = prefix_buf_u16[0..prefix_len_u16];
+                var prefix_buf = std.unicode.utf8ToUtf16LeStringLiteral("\\DosDevices\\");
+                const prefix = prefix_buf[0..prefix_buf.len];
 
-                if (std.mem.startsWith(u16, symlink, prefix)) {
+                if (mem.startsWith(u16, symlink, prefix)) {
                     const drive_letter = symlink[prefix.len..];
 
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
-                    std.mem.copy(u16, out_buffer[0..], drive_letter);
-                    std.mem.copy(u16, out_buffer[drive_letter.len..], file_name_u16);
+                    mem.copy(u16, out_buffer, drive_letter);
+                    mem.copy(u16, out_buffer[drive_letter.len..], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
-                    if (std.mem.indexOfScalar(u16, out_buffer[0..total_len], 0)) |_| {
+                    if (mem.indexOfScalar(u16, out_buffer[0..total_len], 0)) |_| {
                         return error.BadPathName;
                     }
 
@@ -1089,6 +1137,30 @@ pub fn GetFinalPathNameByHandle(
             return error.FileNotFound;
         },
     }
+}
+
+test "GetFinalPathNameByHandle" {
+    if (comptime builtin.os.tag != .windows)
+        return;
+
+    //any file will do
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const handle = tmp.dir.fd;
+    var buffer: [PATH_MAX_WIDE]u16 = undefined;
+
+    //check with sufficient size
+    const nt_path = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, &buffer);
+    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, &buffer);
+
+    const required_len_in_u16 = nt_path.len + @divExact(@ptrToInt(nt_path.ptr) - @ptrToInt(&buffer), 2) + 1;
+    //check with insufficient size
+    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
+    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
+
+    //check with exactly-sufficient size
+    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..required_len_in_u16]);
+    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..required_len_in_u16]);
 }
 
 pub const QueryInformationFileError = error{Unexpected};
@@ -1240,8 +1312,8 @@ pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws
     }
 }
 
-pub fn poll(fds: [*]ws2_32.pollfd, n: usize, timeout: i32) i32 {
-    return ws2_32.WSAPoll(fds, @intCast(u32, n), timeout);
+pub fn poll(fds: [*]ws2_32.pollfd, n: c_ulong, timeout: i32) i32 {
+    return ws2_32.WSAPoll(fds, n, timeout);
 }
 
 pub fn WSAIoctl(
@@ -1597,7 +1669,7 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
     return path_space;
 }
 
-inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
+fn MAKELANGID(p: c_ushort, s: c_ushort) callconv(.Inline) LANGID {
     return (s << 10) | p;
 }
 
@@ -1618,7 +1690,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
             null,
         );
         _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
-        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", .{ @enumToInt(err), buf_u8[0..len] });
+        std.debug.warn("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_u8[0..len] });
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

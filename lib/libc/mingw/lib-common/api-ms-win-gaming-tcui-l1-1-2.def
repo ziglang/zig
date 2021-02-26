@@ -1,0 +1,20 @@
+LIBRARY api-ms-win-gaming-tcui-l1-1-2
+
+EXPORTS
+
+CheckGamingPrivilegeSilently
+CheckGamingPrivilegeSilentlyForUser
+CheckGamingPrivilegeWithUI
+CheckGamingPrivilegeWithUIForUser
+ProcessPendingGameUI
+ShowChangeFriendRelationshipUI
+ShowChangeFriendRelationshipUIForUser
+ShowGameInviteUI
+ShowGameInviteUIForUser
+ShowPlayerPickerUI
+ShowPlayerPickerUIForUser
+ShowProfileCardUI
+ShowProfileCardUIForUser
+ShowTitleAchievementsUI
+ShowTitleAchievementsUIForUser
+TryCancelPendingGameUI

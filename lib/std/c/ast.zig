@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -110,15 +110,15 @@ pub const Error = union(enum) {
 
     pub const ExpectedToken = struct {
         token: TokenIndex,
-        expected_id: @TagType(Token.Id),
+        expected_id: std.meta.Tag(Token.Id),
 
         pub fn render(self: *const ExpectedToken, tree: *Tree, stream: anytype) !void {
             const found_token = tree.tokens.at(self.token);
             if (found_token.id == .Invalid) {
-                return stream.print("expected '{}', found invalid bytes", .{self.expected_id.symbol()});
+                return stream.print("expected '{s}', found invalid bytes", .{self.expected_id.symbol()});
             } else {
                 const token_name = found_token.id.symbol();
-                return stream.print("expected '{}', found '{}'", .{ self.expected_id.symbol(), token_name });
+                return stream.print("expected '{s}', found '{s}'", .{ self.expected_id.symbol(), token_name });
             }
         }
     };
@@ -131,7 +131,7 @@ pub const Error = union(enum) {
             try stream.write("invalid type specifier '");
             try type_spec.spec.print(tree, stream);
             const token_name = tree.tokens.at(self.token).id.symbol();
-            return stream.print("{}'", .{token_name});
+            return stream.print("{s}'", .{token_name});
         }
     };
 
@@ -140,7 +140,7 @@ pub const Error = union(enum) {
         name: TokenIndex,
 
         pub fn render(self: *const ExpectedToken, tree: *Tree, stream: anytype) !void {
-            return stream.print("must use '{}' tag to refer to type '{}'", .{ tree.slice(kw), tree.slice(name) });
+            return stream.print("must use '{s}' tag to refer to type '{s}'", .{ tree.slice(kw), tree.slice(name) });
         }
     };
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -46,7 +46,7 @@ pub fn reduce64(s: [64]u8) [32]u8 {
 
 /// Perform the X25519 "clamping" operation.
 /// The scalar is then guaranteed to be a multiple of the cofactor.
-pub inline fn clamp(s: *[32]u8) void {
+pub fn clamp(s: *[32]u8) callconv(.Inline) void {
     s[0] &= 248;
     s[31] = (s[31] & 127) | 64;
 }

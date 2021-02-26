@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -16,7 +16,7 @@ pub const FileProtocol = extern struct {
     _read: fn (*const FileProtocol, *usize, [*]u8) callconv(.C) Status,
     _write: fn (*const FileProtocol, *usize, [*]const u8) callconv(.C) Status,
     _get_position: fn (*const FileProtocol, *u64) callconv(.C) Status,
-    _set_position: fn (*const FileProtocol, *const u64) callconv(.C) Status,
+    _set_position: fn (*const FileProtocol, u64) callconv(.C) Status,
     _get_info: fn (*const FileProtocol, *align(8) const Guid, *const usize, [*]u8) callconv(.C) Status,
     _set_info: fn (*const FileProtocol, *align(8) const Guid, usize, [*]const u8) callconv(.C) Status,
     _flush: fn (*const FileProtocol) callconv(.C) Status,
@@ -41,11 +41,19 @@ pub const FileProtocol = extern struct {
         return self._write(self, buffer_size, buffer);
     }
 
-    pub fn get_info(self: *const FileProtocol, information_type: *align(8) Guid, buffer_size: *usize, buffer: [*]u8) Status {
+    pub fn getPosition(self: *const FileProtocol, position: *u64) Status {
+        return self._get_position(self, position);
+    }
+
+    pub fn setPosition(self: *const FileProtocol, position: u64) Status {
+        return self._set_position(self, position);
+    }
+
+    pub fn getInfo(self: *const FileProtocol, information_type: *align(8) Guid, buffer_size: *usize, buffer: [*]u8) Status {
         return self._get_info(self, information_type, buffer_size, buffer);
     }
 
-    pub fn set_info(self: *const FileProtocol, information_type: *align(8) Guid, buffer_size: usize, buffer: [*]const u8) Status {
+    pub fn setInfo(self: *const FileProtocol, information_type: *align(8) Guid, buffer_size: usize, buffer: [*]const u8) Status {
         return self._set_info(self, information_type, buffer_size, buffer);
     }
 
@@ -73,6 +81,8 @@ pub const FileProtocol = extern struct {
     pub const efi_file_directory: u64 = 0x0000000000000010;
     pub const efi_file_archive: u64 = 0x0000000000000020;
     pub const efi_file_valid_attr: u64 = 0x0000000000000037;
+
+    pub const efi_file_position_end_of_file: u64 = 0xffffffffffffffff;
 };
 
 pub const FileInfo = extern struct {

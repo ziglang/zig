@@ -69,22 +69,30 @@ pub const Options = struct {
     rdynamic: bool,
     z_nodelete: bool,
     z_defs: bool,
+    tsaware: bool,
+    nxcompat: bool,
+    dynamicbase: bool,
     bind_global_refs_locally: bool,
     is_native_os: bool,
     is_native_abi: bool,
     pic: bool,
     pie: bool,
+    lto: bool,
     valgrind: bool,
+    tsan: bool,
     stack_check: bool,
+    red_zone: bool,
     single_threaded: bool,
     verbose_link: bool,
     dll_export_fns: bool,
     error_return_tracing: bool,
-    is_compiler_rt_or_libc: bool,
+    skip_linker_dependencies: bool,
     parent_compilation_link_libc: bool,
     each_lib_rpath: bool,
     disable_lld_caching: bool,
     is_test: bool,
+    major_subsystem_version: ?u32,
+    minor_subsystem_version: ?u32,
     gc_sections: ?bool = null,
     allow_shlib_undefined: ?bool,
     subsystem: ?std.Target.SubSystem,
@@ -129,16 +137,18 @@ pub const File = struct {
         elf: Elf.TextBlock,
         coff: Coff.TextBlock,
         macho: MachO.TextBlock,
-        c: void,
+        c: C.DeclBlock,
         wasm: void,
+        spirv: void,
     };
 
     pub const LinkFn = union {
         elf: Elf.SrcFn,
         coff: Coff.SrcFn,
         macho: MachO.SrcFn,
-        c: void,
+        c: C.FnBlock,
         wasm: ?Wasm.FnData,
+        spirv: SpirV.FnData,
     };
 
     pub const Export = union {
@@ -147,6 +157,7 @@ pub const File = struct {
         macho: MachO.Export,
         c: void,
         wasm: void,
+        spirv: void,
     };
 
     /// For DWARF .debug_info.
@@ -175,6 +186,7 @@ pub const File = struct {
                 .macho => &(try MachO.createEmpty(allocator, options)).base,
                 .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                 .c => unreachable, // Reported error earlier.
+                .spirv => &(try SpirV.createEmpty(allocator, options)).base,
                 .hex => return error.HexObjectFormatUnimplemented,
                 .raw => return error.RawObjectFormatUnimplemented,
             };
@@ -190,6 +202,7 @@ pub const File = struct {
                     .macho => &(try MachO.createEmpty(allocator, options)).base,
                     .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                     .c => unreachable, // Reported error earlier.
+                    .spirv => &(try SpirV.createEmpty(allocator, options)).base,
                     .hex => return error.HexObjectFormatUnimplemented,
                     .raw => return error.RawObjectFormatUnimplemented,
                 };
@@ -205,6 +218,7 @@ pub const File = struct {
             .macho => &(try MachO.openPath(allocator, sub_path, options)).base,
             .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
             .c => &(try C.openPath(allocator, sub_path, options)).base,
+            .spirv => &(try SpirV.openPath(allocator, sub_path, options)).base,
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
         };
@@ -234,7 +248,7 @@ pub const File = struct {
                     .mode = determineMode(base.options),
                 });
             },
-            .c, .wasm => {},
+            .c, .wasm, .spirv => {},
         }
     }
 
@@ -279,7 +293,7 @@ pub const File = struct {
                 f.close();
                 base.file = null;
             },
-            .c, .wasm => {},
+            .c, .wasm, .spirv => {},
         }
     }
 
@@ -292,6 +306,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDecl(module, decl),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDecl(module, decl),
         }
     }
 
@@ -300,7 +315,8 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
-            .c, .wasm => {},
+            .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl),
+            .wasm, .spirv => {},
         }
     }
 
@@ -311,7 +327,8 @@ pub const File = struct {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
-            .c, .wasm => {},
+            .c => return @fieldParentPtr(C, "base", base).allocateDeclIndexes(decl),
+            .wasm, .spirv => {},
         }
     }
 
@@ -358,6 +375,11 @@ pub const File = struct {
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
+            .spirv => {
+                const parent = @fieldParentPtr(SpirV, "base", base);
+                parent.deinit();
+                base.allocator.destroy(parent);
+            },
         }
     }
 
@@ -391,6 +413,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).flush(comp),
             .c => return @fieldParentPtr(C, "base", base).flush(comp),
             .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).flush(comp),
         }
     }
 
@@ -403,16 +426,19 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).flushModule(comp),
             .c => return @fieldParentPtr(C, "base", base).flushModule(comp),
             .wasm => return @fieldParentPtr(Wasm, "base", base).flushModule(comp),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).flushModule(comp),
         }
     }
 
+    /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
             .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
-            .c => unreachable,
+            .c => @fieldParentPtr(C, "base", base).freeDecl(decl),
             .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
+            .spirv => @fieldParentPtr(SpirV, "base", base).freeDecl(decl),
         }
     }
 
@@ -422,7 +448,7 @@ pub const File = struct {
             .elf => return @fieldParentPtr(Elf, "base", base).error_flags,
             .macho => return @fieldParentPtr(MachO, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
-            .wasm => return ErrorFlags{},
+            .wasm, .spirv => return ErrorFlags{},
         }
     }
 
@@ -431,15 +457,16 @@ pub const File = struct {
     pub fn updateDeclExports(
         base: *File,
         module: *Module,
-        decl: *const Module.Decl,
+        decl: *Module.Decl,
         exports: []const *Module.Export,
     ) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
-            .c => return {},
+            .c => return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl, exports),
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl, exports),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDeclExports(module, decl, exports),
         }
     }
 
@@ -450,6 +477,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl),
             .c => unreachable,
             .wasm => unreachable,
+            .spirv => unreachable,
         }
     }
 
@@ -522,11 +550,11 @@ pub const File = struct {
                 id_symlink_basename,
                 &prev_digest_buf,
             ) catch |err| b: {
-                log.debug("archive new_digest={} readFile error: {}", .{ digest, @errorName(err) });
+                log.debug("archive new_digest={x} readFile error: {s}", .{ digest, @errorName(err) });
                 break :b prev_digest_buf[0..0];
             };
             if (mem.eql(u8, prev_digest, &digest)) {
-                log.debug("archive digest={} match - skipping invocation", .{digest});
+                log.debug("archive digest={x} match - skipping invocation", .{digest});
                 base.lock = man.toOwnedLock();
                 return;
             }
@@ -559,25 +587,25 @@ pub const File = struct {
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
         if (base.options.verbose_link) {
-            std.debug.print("ar rcs {}", .{full_out_path_z});
+            std.debug.print("ar rcs {s}", .{full_out_path_z});
             for (object_files.items) |arg| {
-                std.debug.print(" {}", .{arg});
+                std.debug.print(" {s}", .{arg});
             }
             std.debug.print("\n", .{});
         }
 
-        const llvm = @import("llvm.zig");
+        const llvm = @import("codegen/llvm/bindings.zig");
         const os_type = @import("target.zig").osToLLVM(base.options.target.os.tag);
         const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
         if (bad) return error.UnableToWriteArchive;
 
         if (!base.options.disable_lld_caching) {
             Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-                log.warn("failed to save archive hash digest file: {}", .{@errorName(err)});
+                log.warn("failed to save archive hash digest file: {s}", .{@errorName(err)});
             };
 
             man.writeManifest() catch |err| {
-                log.warn("failed to write cache manifest when archiving: {}", .{@errorName(err)});
+                log.warn("failed to write cache manifest when archiving: {s}", .{@errorName(err)});
             };
 
             base.lock = man.toOwnedLock();
@@ -590,6 +618,7 @@ pub const File = struct {
         macho,
         c,
         wasm,
+        spirv,
     };
 
     pub const ErrorFlags = struct {
@@ -600,6 +629,7 @@ pub const File = struct {
     pub const Coff = @import("link/Coff.zig");
     pub const Elf = @import("link/Elf.zig");
     pub const MachO = @import("link/MachO.zig");
+    pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
 };
 

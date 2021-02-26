@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -43,7 +43,7 @@ pub const Ed25519 = struct {
         pub fn create(seed: ?[seed_length]u8) !KeyPair {
             const ss = seed orelse ss: {
                 var random_seed: [seed_length]u8 = undefined;
-                try crypto.randomBytes(&random_seed);
+                crypto.random.bytes(&random_seed);
                 break :ss random_seed;
             };
             var az: [Sha512.digest_length]u8 = undefined;
@@ -179,7 +179,7 @@ pub const Ed25519 = struct {
 
         var z_batch: [count]Curve.scalar.CompressedScalar = undefined;
         for (z_batch) |*z| {
-            try std.crypto.randomBytes(z[0..16]);
+            std.crypto.random.bytes(z[0..16]);
             mem.set(u8, z[16..], 0);
         }
 
@@ -207,7 +207,7 @@ pub const Ed25519 = struct {
 
 test "ed25519 key pair creation" {
     var seed: [32]u8 = undefined;
-    try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
+    _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.create(seed);
     var buf: [256]u8 = undefined;
     std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{key_pair.secret_key}), "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
@@ -216,7 +216,7 @@ test "ed25519 key pair creation" {
 
 test "ed25519 signature" {
     var seed: [32]u8 = undefined;
-    try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
+    _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.create(seed);
 
     const sig = try Ed25519.sign("test", key_pair, null);
@@ -232,8 +232,8 @@ test "ed25519 batch verification" {
         const key_pair = try Ed25519.KeyPair.create(null);
         var msg1: [32]u8 = undefined;
         var msg2: [32]u8 = undefined;
-        try std.crypto.randomBytes(&msg1);
-        try std.crypto.randomBytes(&msg2);
+        std.crypto.random.bytes(&msg1);
+        std.crypto.random.bytes(&msg2);
         const sig1 = try Ed25519.sign(&msg1, key_pair, null);
         const sig2 = try Ed25519.sign(&msg2, key_pair, null);
         var signature_batch = [_]Ed25519.BatchElement{
@@ -339,11 +339,11 @@ test "ed25519 test vectors" {
     };
     for (entries) |entry, i| {
         var msg: [entry.msg_hex.len / 2]u8 = undefined;
-        try fmt.hexToBytes(&msg, entry.msg_hex);
+        _ = try fmt.hexToBytes(&msg, entry.msg_hex);
         var public_key: [32]u8 = undefined;
-        try fmt.hexToBytes(&public_key, entry.public_key_hex);
+        _ = try fmt.hexToBytes(&public_key, entry.public_key_hex);
         var sig: [64]u8 = undefined;
-        try fmt.hexToBytes(&sig, entry.sig_hex);
+        _ = try fmt.hexToBytes(&sig, entry.sig_hex);
         if (entry.expected) |error_type| {
             std.testing.expectError(error_type, Ed25519.verify(sig, &msg, public_key));
         } else {

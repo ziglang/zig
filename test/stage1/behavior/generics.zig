@@ -1,4 +1,7 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 
 test "simple generic fn" {
     expect(max(i32, 3, -1) == 3);
@@ -148,4 +151,19 @@ fn foo2(arg: anytype) bool {
 test "array of generic fns" {
     expect(foos[0](true));
     expect(!foos[1](true));
+}
+
+test "generic fn keeps non-generic parameter types" {
+    const A = 128;
+
+    const S = struct {
+        fn f(comptime T: type, s: []T) void {
+            expect(A != @typeInfo(@TypeOf(s)).Pointer.alignment);
+        }
+    };
+
+    // The compiler monomorphizes `S.f` for `T=u8` on its first use, check that
+    // `x` type not affect `s` parameter type.
+    var x: [16]u8 align(A) = undefined;
+    S.f(u8, &x);
 }

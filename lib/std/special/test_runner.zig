@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -11,7 +11,15 @@ pub const io_mode: io.Mode = builtin.test_io_mode;
 
 var log_err_count: usize = 0;
 
+var args_buffer: [std.fs.MAX_PATH_BYTES + std.mem.page_size]u8 = undefined;
+var args_allocator = std.heap.FixedBufferAllocator.init(&args_buffer);
+
 pub fn main() anyerror!void {
+    const args = std.process.argsAlloc(&args_allocator.allocator) catch {
+        @panic("Too many bytes passed over the CLI to the test runner");
+    };
+    std.testing.zig_exe_path = args[1];
+
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
@@ -36,11 +44,11 @@ pub fn main() anyerror!void {
         }
         std.testing.log_level = .warn;
 
-        var test_node = root_node.start(test_fn.name, null);
+        var test_node = root_node.start(test_fn.name, 0);
         test_node.activate();
         progress.refresh();
         if (progress.terminal == null) {
-            std.debug.print("{}/{} {}... ", .{ i + 1, test_fn_list.len, test_fn.name });
+            std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
         }
         const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
             .evented => blk: {
@@ -54,7 +62,7 @@ pub fn main() anyerror!void {
             .blocking => {
                 skip_count += 1;
                 test_node.end();
-                progress.log("{}...SKIP (async test)\n", .{test_fn.name});
+                progress.log("{s}...SKIP (async test)\n", .{test_fn.name});
                 if (progress.terminal == null) std.debug.print("SKIP (async test)\n", .{});
                 continue;
             },
@@ -67,7 +75,7 @@ pub fn main() anyerror!void {
             error.SkipZigTest => {
                 skip_count += 1;
                 test_node.end();
-                progress.log("{}...SKIP\n", .{test_fn.name});
+                progress.log("{s}...SKIP\n", .{test_fn.name});
                 if (progress.terminal == null) std.debug.print("SKIP\n", .{});
             },
             else => {
@@ -78,15 +86,15 @@ pub fn main() anyerror!void {
     }
     root_node.end();
     if (ok_count == test_fn_list.len) {
-        std.debug.print("All {} tests passed.\n", .{ok_count});
+        std.debug.print("All {d} tests passed.\n", .{ok_count});
     } else {
-        std.debug.print("{} passed; {} skipped.\n", .{ ok_count, skip_count });
+        std.debug.print("{d} passed; {d} skipped.\n", .{ ok_count, skip_count });
     }
     if (log_err_count != 0) {
-        std.debug.print("{} errors were logged.\n", .{log_err_count});
+        std.debug.print("{d} errors were logged.\n", .{log_err_count});
     }
     if (leaks != 0) {
-        std.debug.print("{} tests leaked memory.\n", .{leaks});
+        std.debug.print("{d} tests leaked memory.\n", .{leaks});
     }
     if (leaks != 0 or log_err_count != 0) {
         std.process.exit(1);
@@ -103,6 +111,6 @@ pub fn log(
         log_err_count += 1;
     }
     if (@enumToInt(message_level) <= @enumToInt(std.testing.log_level)) {
-        std.debug.print("[{}] ({}): " ++ format ++ "\n", .{ @tagName(scope), @tagName(message_level) } ++ args);
+        std.debug.print("[{s}] ({s}): " ++ format ++ "\n", .{ @tagName(scope), @tagName(message_level) } ++ args);
     }
 }

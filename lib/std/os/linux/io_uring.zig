@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -28,7 +28,7 @@ pub const IO_Uring = struct {
     /// call on how many entries the submission and completion queues will ultimately have,
     /// see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L8027-L8050.
     /// Matches the interface of io_uring_queue_init() in liburing.
-    pub fn init(entries: u12, flags: u32) !IO_Uring {
+    pub fn init(entries: u13, flags: u32) !IO_Uring {
         var params = mem.zeroInit(io_uring_params, .{
             .flags = flags,
             .sq_thread_idle = 1000,
@@ -39,17 +39,15 @@ pub const IO_Uring = struct {
     /// A powerful way to setup an io_uring, if you want to tweak io_uring_params such as submission
     /// queue thread cpu affinity or thread idle timeout (the kernel and our default is 1 second).
     /// `params` is passed by reference because the kernel needs to modify the parameters.
-    /// You may only set the `flags`, `sq_thread_cpu` and `sq_thread_idle` parameters.
-    /// Every other parameter belongs to the kernel and must be zeroed.
     /// Matches the interface of io_uring_queue_init_params() in liburing.
-    pub fn init_params(entries: u12, p: *io_uring_params) !IO_Uring {
+    pub fn init_params(entries: u13, p: *io_uring_params) !IO_Uring {
         if (entries == 0) return error.EntriesZero;
         if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
         assert(p.sq_entries == 0);
-        assert(p.cq_entries == 0);
+        assert(p.cq_entries == 0 or p.flags & linux.IORING_SETUP_CQSIZE != 0);
         assert(p.features == 0);
-        assert(p.wq_fd == 0);
+        assert(p.wq_fd == 0 or p.flags & linux.IORING_SETUP_ATTACH_WQ != 0);
         assert(p.resv[0] == 0);
         assert(p.resv[1] == 0);
         assert(p.resv[2] == 0);
@@ -558,6 +556,22 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform an `fallocate(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn fallocate(
+        self: *IO_Uring,
+        user_data: u64,
+        fd: os.fd_t,
+        mode: i32,
+        offset: u64,
+        len: u64,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_fallocate(sqe, fd, mode, offset, len);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -888,6 +902,30 @@ pub fn io_uring_prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, 
         .addr = timeout_user_data,
         .len = 0,
         .rw_flags = flags,
+        .user_data = 0,
+        .buf_index = 0,
+        .personality = 0,
+        .splice_fd_in = 0,
+        .__pad2 = [2]u64{ 0, 0 },
+    };
+}
+
+pub fn io_uring_prep_fallocate(
+    sqe: *io_uring_sqe,
+    fd: os.fd_t,
+    mode: i32,
+    offset: u64,
+    len: u64,
+) void {
+    sqe.* = .{
+        .opcode = .FALLOCATE,
+        .flags = 0,
+        .ioprio = 0,
+        .fd = fd,
+        .off = offset,
+        .addr = len,
+        .len = @intCast(u32, mode),
+        .rw_flags = 0,
         .user_data = 0,
         .buf_index = 0,
         .personality = 0,
@@ -1378,11 +1416,10 @@ test "timeout_remove" {
     // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
     // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
     // We don't want to skip this test for newer kernels.
-    if (
-        cqe_timeout.user_data == 0x99999999 and
+    if (cqe_timeout.user_data == 0x99999999 and
         cqe_timeout.res == -linux.EBADF and
-        (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0
-    ) {
+        (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
+    {
         return error.SkipZigTest;
     }
     testing.expectEqual(linux.io_uring_cqe{
@@ -1397,4 +1434,48 @@ test "timeout_remove" {
         .res = 0,
         .flags = 0,
     }, cqe_timeout_remove);
+}
+
+test "fallocate" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const path = "test_io_uring_fallocate";
+    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    defer file.close();
+    defer std.fs.cwd().deleteFile(path) catch {};
+
+    testing.expectEqual(@as(u64, 0), (try file.stat()).size);
+
+    const len: u64 = 65536;
+    const sqe = try ring.fallocate(0xaaaaaaaa, file.handle, 0, 0, len);
+    testing.expectEqual(linux.IORING_OP.FALLOCATE, sqe.opcode);
+    testing.expectEqual(file.handle, sqe.fd);
+    testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe = try ring.copy_cqe();
+    switch (-cqe.res) {
+        0 => {},
+        // This kernel's io_uring does not yet implement fallocate():
+        linux.EINVAL => return error.SkipZigTest,
+        // This kernel does not implement fallocate():
+        linux.ENOSYS => return error.SkipZigTest,
+        // The filesystem containing the file referred to by fd does not support this operation;
+        // or the mode is not supported by the filesystem containing the file referred to by fd:
+        linux.EOPNOTSUPP => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    }
+    testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0xaaaaaaaa,
+        .res = 0,
+        .flags = 0,
+    }, cqe);
+
+    testing.expectEqual(len, (try file.stat()).size);
 }

@@ -77,7 +77,7 @@ pub const RunTranslatedCContext = struct {
     pub fn addCase(self: *RunTranslatedCContext, case: *const TestCase) void {
         const b = self.b;
 
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "run-translated-c {}", .{case.name}) catch unreachable;
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "run-translated-c {s}", .{case.name}) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
@@ -92,13 +92,13 @@ pub const RunTranslatedCContext = struct {
                 .basename = case.sources.items[0].filename,
             },
         });
-        translate_c.step.name = b.fmt("{} translate-c", .{annotated_case_name});
+        translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
         const exe = translate_c.addExecutable();
         exe.setTarget(self.target);
-        exe.step.name = b.fmt("{} build-exe", .{annotated_case_name});
+        exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
         exe.linkLibC();
         const run = exe.run();
-        run.step.name = b.fmt("{} run", .{annotated_case_name});
+        run.step.name = b.fmt("{s} run", .{annotated_case_name});
         if (!case.allow_warnings) {
             run.expectStdErrEqual("");
         }

@@ -436,6 +436,26 @@ test "switch with disjoint range" {
     }
 }
 
+test "switch variable for range and multiple prongs" {
+    const S = struct {
+        fn doTheTest() void {
+            var u: u8 = 16;
+            doTheSwitch(u);
+            comptime doTheSwitch(u);
+            var v: u8 = 42;
+            doTheSwitch(v);
+            comptime doTheSwitch(v);
+        }
+        fn doTheSwitch(q: u8) void {
+            switch (q) {
+                0...40 => |x| expect(x == 16),
+                41, 42, 43 => |x| expect(x == 42),
+                else => expect(false),
+            }
+        }
+    };
+}
+
 var state: u32 = 0;
 fn poll() void {
     switch (state) {

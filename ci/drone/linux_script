@@ -14,13 +14,15 @@ pip3 install s3cmd
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git config core.abbrev 9
+git fetch --unshallow || true
+git fetch --tags
 
 mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local -GNinja
 
 samu install
-./zig build test -Dskip-release -Dskip-non-native
+./zig build test -Dskip-release -Dskip-non-native -Dskip-compile-errors
 
 if [ -z "$DRONE_PULL_REQUEST" ]; then
   mv ../LICENSE "$DISTDIR/"

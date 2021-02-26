@@ -1,458 +1,408 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
+const testing = std.testing;
 
-pub fn version_from_build(build: []const u8) !std.builtin.Version {
-    // build format:
-    //   19E287 (example)
-    //   xxyzzz
+/// Detect macOS version.
+/// `os` is not modified in case of error.
+pub fn detect(os: *std.Target.Os) !void {
+    // Drop use of osproductversion sysctl because:
+    //   1. only available 10.13.4 High Sierra and later
+    //   2. when used from a binary built against < SDK 11.0 it returns 10.16 and masks Big Sur 11.x version
     //
-    // major = 10
-    // minor = x - 4 = 19 - 4 = 15
-    // patch = ascii(y) - 'A' = 'E' - 'A' = 69 - 65 = 4
-    // answer: 10.15.4
+    // NEW APPROACH, STEP 1, parse file:
     //
-    // note: patch is typical but with some older releases (before 10.8) zzz is considered
+    //   /System/Library/CoreServices/SystemVersion.plist
+    //
+    // NOTE: Historically `SystemVersion.plist` first appeared circa '2003
+    // with the release of Mac OS X 10.3.0 Panther.
+    //
+    // and if it contains a `10.16` value where the `16` is `>= 16` then it is non-canonical,
+    // discarded, and we move on to next step. Otherwise we accept the version.
+    //
+    // BACKGROUND: `10.(16+)` is not a proper version and does not have enough fidelity to
+    // indicate minor/point version of Big Sur and later. It is a context-sensitive result
+    // issued by the kernel for backwards compatibility purposes. Likely the kernel checks
+    // if the executable was linked against an SDK older than Big Sur.
+    //
+    // STEP 2, parse next file:
+    //
+    //   /System/Library/CoreServices/.SystemVersionPlatform.plist
+    //
+    // NOTE: Historically `SystemVersionPlatform.plist` first appeared circa '2020
+    // with the release of macOS 11.0 Big Sur.
+    //
+    // Accessing the content via this path circumvents a context-sensitive result and
+    // yields a canonical Big Sur version.
+    //
+    // At this time there is no other known way for a < SDK 11.0 executable to obtain a
+    // canonical Big Sur version.
+    //
+    // This implementation uses a reasonably simplified approach to parse .plist file
+    // that while it is an xml document, we have good history on the file and its format
+    // such that I am comfortable with implementing a minimalistic parser.
+    // Things like string and general escapes are not supported.
+    const prefixSlash = "/System/Library/CoreServices/";
+    const paths = [_][]const u8{
+        prefixSlash ++ "SystemVersion.plist",
+        prefixSlash ++ ".SystemVersionPlatform.plist",
+    };
+    for (paths) |path| {
+        // approx. 4 times historical file size
+        var buf: [2048]u8 = undefined;
 
-    // never return anything below 10.0.0
-    var result = std.builtin.Version{ .major = 10, .minor = 0, .patch = 0 };
-
-    // parse format-x
-    var yindex: usize = 0;
-    {
-        while (yindex < build.len) : (yindex += 1) {
-            if (build[yindex] < '0' or build[yindex] > '9') break;
+        if (std.fs.cwd().readFile(path, &buf)) |bytes| {
+            if (parseSystemVersion(bytes)) |ver| {
+                // never return non-canonical `10.(16+)`
+                if (!(ver.major == 10 and ver.minor >= 16)) {
+                    os.version_range.semver.min = ver;
+                    os.version_range.semver.max = ver;
+                    return;
+                }
+                continue;
+            } else |err| {
+                return error.OSVersionDetectionFail;
+            }
+        } else |err| {
+            return error.OSVersionDetectionFail;
         }
-        if (yindex == 0) return result;
-        const x = std.fmt.parseUnsigned(u16, build[0..yindex], 10) catch return error.InvalidVersion;
-        if (x < 4) return result;
-        result.minor = x - 4;
     }
-
-    // parse format-y, format-z
-    {
-        // expect two more
-        if (build.len < yindex + 2) return error.InvalidVersion;
-        const y = build[yindex];
-        if (y < 'A') return error.InvalidVersion;
-        var zend = yindex + 1;
-        while (zend < build.len) {
-            if (build[zend] < '0' or build[zend] > '9') break;
-            zend += 1;
-        }
-        if (zend == yindex + 1) return error.InvalidVersion;
-        const z = std.fmt.parseUnsigned(u16, build[yindex + 1 .. zend], 10) catch return error.InvalidVersion;
-
-        result.patch = switch (result.minor) {
-            // TODO: compiler complains without explicit @as() coercion
-            0 => @as(u32, switch (y) { // Cheetah: 10.0
-                'K' => 0,
-                'L' => 1,
-                'P' => @as(u32, block: {
-                    if (z < 13) break :block 2;
-                    break :block 3;
-                }),
-                'Q' => 4,
-                else => return error.InvalidVersion,
-            }),
-            1 => @as(u32, switch (y) { // Puma: 10.1
-                'G' => 0,
-                'M' => 1,
-                'P' => 2,
-                'Q' => @as(u32, block: {
-                    if (z < 125) break :block 3;
-                    break :block 4;
-                }),
-                'S' => 5,
-                else => return error.InvalidVersion,
-            }),
-            2 => @as(u32, switch (y) { // Jaguar: 10.2
-                'C' => 0,
-                'D' => 1,
-                'F' => 2,
-                'G' => 3,
-                'I' => 4,
-                'L' => @as(u32, block: {
-                    if (z < 60) break :block 5;
-                    break :block 6;
-                }),
-                'R' => @as(u32, block: {
-                    if (z < 73) break :block 7;
-                    break :block 8;
-                }),
-                'S' => 8,
-                else => return error.InvalidVersion,
-            }),
-            3 => @as(u32, switch (y) { // Panther: 10.3
-                'B' => 0,
-                'C' => 1,
-                'D' => 2,
-                'F' => 3,
-                'H' => 4,
-                'M' => 5,
-                'R' => 6,
-                'S' => 7,
-                'U' => 8,
-                'W' => 9,
-                else => return error.InvalidVersion,
-            }),
-            4 => @as(u32, switch (y) { // Tiger: 10.4
-                'A' => 0,
-                'B' => 1,
-                'C',
-                'E',
-                => 2,
-                'F' => 3,
-                'G' => @as(u32, block: {
-                    if (z >= 1454) break :block 5;
-                    break :block 4;
-                }),
-                'H' => 5,
-                'I' => 6,
-                'J',
-                'K',
-                'N',
-                => 7,
-                'L' => 8,
-                'P' => 9,
-                'R' => 10,
-                'S' => 11,
-                else => return error.InvalidVersion,
-            }),
-            5 => @as(u32, switch (y) { // Leopard: 10.5
-                'A' => 0,
-                'B' => 1,
-                'C' => 2,
-                'D' => 3,
-                'E' => 4,
-                'F' => 5,
-                'G' => 6,
-                'J' => 7,
-                'L' => 8,
-                else => return error.InvalidVersion,
-            }),
-            6 => @as(u32, switch (y) { // Snow Leopard: 10.6
-                'A' => 0,
-                'B' => 1,
-                'C' => 2,
-                'D' => 3,
-                'F' => 4,
-                'H' => 5,
-                'J' => @as(u32, block: {
-                    if (z < 869) break :block 6;
-                    break :block 7;
-                }),
-                'K' => 8,
-                else => return error.InvalidVersion,
-            }),
-            7 => @as(u32, switch (y) { // Snow Leopard: 10.6
-                'A' => 0,
-                'B' => 1,
-                'C' => 2,
-                'D' => 3,
-                'E' => 4,
-                'G' => 5,
-                else => return error.InvalidVersion,
-            }),
-            else => y - 'A',
-        };
-    }
-    return result;
+    return error.OSVersionDetectionFail;
 }
 
-test "version_from_build" {
-    // see https://en.wikipedia.org/wiki/MacOS_version_history#Releases
-    const known = [_][2][]const u8{
-        .{ "4K78", "10.0.0" },
-        .{ "4L13", "10.0.1" },
-        .{ "4P12", "10.0.2" },
-        .{ "4P13", "10.0.3" },
-        .{ "4Q12", "10.0.4" },
-
-        .{ "5G64", "10.1.0" },
-        .{ "5M28", "10.1.1" },
-        .{ "5P48", "10.1.2" },
-        .{ "5Q45", "10.1.3" },
-        .{ "5Q125", "10.1.4" },
-        .{ "5S60", "10.1.5" },
-
-        .{ "6C115", "10.2.0" },
-        .{ "6C115a", "10.2.0" },
-        .{ "6D52", "10.2.1" },
-        .{ "6F21", "10.2.2" },
-        .{ "6G30", "10.2.3" },
-        .{ "6G37", "10.2.3" },
-        .{ "6G50", "10.2.3" },
-        .{ "6I32", "10.2.4" },
-        .{ "6L29", "10.2.5" },
-        .{ "6L60", "10.2.6" },
-        .{ "6R65", "10.2.7" },
-        .{ "6R73", "10.2.8" },
-        .{ "6S90", "10.2.8" },
-
-        .{ "7B85", "10.3.0" },
-        .{ "7B86", "10.3.0" },
-        .{ "7C107", "10.3.1" },
-        .{ "7D24", "10.3.2" },
-        .{ "7D28", "10.3.2" },
-        .{ "7F44", "10.3.3" },
-        .{ "7H63", "10.3.4" },
-        .{ "7M34", "10.3.5" },
-        .{ "7R28", "10.3.6" },
-        .{ "7S215", "10.3.7" },
-        .{ "7U16", "10.3.8" },
-        .{ "7W98", "10.3.9" },
-
-        .{ "8A428", "10.4.0" },
-        .{ "8A432", "10.4.0" },
-        .{ "8B15", "10.4.1" },
-        .{ "8B17", "10.4.1" },
-        .{ "8C46", "10.4.2" },
-        .{ "8C47", "10.4.2" },
-        .{ "8E102", "10.4.2" },
-        .{ "8E45", "10.4.2" },
-        .{ "8E90", "10.4.2" },
-        .{ "8F46", "10.4.3" },
-        .{ "8G32", "10.4.4" },
-        .{ "8G1165", "10.4.4" },
-        .{ "8H14", "10.4.5" },
-        .{ "8G1454", "10.4.5" },
-        .{ "8I127", "10.4.6" },
-        .{ "8I1119", "10.4.6" },
-        .{ "8J135", "10.4.7" },
-        .{ "8J2135a", "10.4.7" },
-        .{ "8K1079", "10.4.7" },
-        .{ "8N5107", "10.4.7" },
-        .{ "8L127", "10.4.8" },
-        .{ "8L2127", "10.4.8" },
-        .{ "8P135", "10.4.9" },
-        .{ "8P2137", "10.4.9" },
-        .{ "8R218", "10.4.10" },
-        .{ "8R2218", "10.4.10" },
-        .{ "8R2232", "10.4.10" },
-        .{ "8S165", "10.4.11" },
-        .{ "8S2167", "10.4.11" },
-
-        .{ "9A581", "10.5.0" },
-        .{ "9B18", "10.5.1" },
-        .{ "9C31", "10.5.2" },
-        .{ "9C7010", "10.5.2" },
-        .{ "9D34", "10.5.3" },
-        .{ "9E17", "10.5.4" },
-        .{ "9F33", "10.5.5" },
-        .{ "9G55", "10.5.6" },
-        .{ "9G66", "10.5.6" },
-        .{ "9J61", "10.5.7" },
-        .{ "9L30", "10.5.8" },
-
-        .{ "10A432", "10.6.0" },
-        .{ "10A433", "10.6.0" },
-        .{ "10B504", "10.6.1" },
-        .{ "10C540", "10.6.2" },
-        .{ "10D573", "10.6.3" },
-        .{ "10D575", "10.6.3" },
-        .{ "10D578", "10.6.3" },
-        .{ "10F569", "10.6.4" },
-        .{ "10H574", "10.6.5" },
-        .{ "10J567", "10.6.6" },
-        .{ "10J869", "10.6.7" },
-        .{ "10J3250", "10.6.7" },
-        .{ "10J4138", "10.6.7" },
-        .{ "10K540", "10.6.8" },
-        .{ "10K549", "10.6.8" },
-
-        .{ "11A511", "10.7.0" },
-        .{ "11A511s", "10.7.0" },
-        .{ "11A2061", "10.7.0" },
-        .{ "11A2063", "10.7.0" },
-        .{ "11B26", "10.7.1" },
-        .{ "11B2118", "10.7.1" },
-        .{ "11C74", "10.7.2" },
-        .{ "11D50", "10.7.3" },
-        .{ "11E53", "10.7.4" },
-        .{ "11G56", "10.7.5" },
-        .{ "11G63", "10.7.5" },
-
-        .{ "12A269", "10.8.0" },
-        .{ "12B19", "10.8.1" },
-        .{ "12C54", "10.8.2" },
-        .{ "12C60", "10.8.2" },
-        .{ "12C2034", "10.8.2" },
-        .{ "12C3104", "10.8.2" },
-        .{ "12D78", "10.8.3" },
-        .{ "12E55", "10.8.4" },
-        .{ "12E3067", "10.8.4" },
-        .{ "12E4022", "10.8.4" },
-        .{ "12F37", "10.8.5" },
-        .{ "12F45", "10.8.5" },
-        .{ "12F2501", "10.8.5" },
-        .{ "12F2518", "10.8.5" },
-        .{ "12F2542", "10.8.5" },
-        .{ "12F2560", "10.8.5" },
-
-        .{ "13A603", "10.9.0" },
-        .{ "13B42", "10.9.1" },
-        .{ "13C64", "10.9.2" },
-        .{ "13C1021", "10.9.2" },
-        .{ "13D65", "10.9.3" },
-        .{ "13E28", "10.9.4" },
-        .{ "13F34", "10.9.5" },
-        .{ "13F1066", "10.9.5" },
-        .{ "13F1077", "10.9.5" },
-        .{ "13F1096", "10.9.5" },
-        .{ "13F1112", "10.9.5" },
-        .{ "13F1134", "10.9.5" },
-        .{ "13F1507", "10.9.5" },
-        .{ "13F1603", "10.9.5" },
-        .{ "13F1712", "10.9.5" },
-        .{ "13F1808", "10.9.5" },
-        .{ "13F1911", "10.9.5" },
-
-        .{ "14A389", "10.10.0" },
-        .{ "14B25", "10.10.1" },
-        .{ "14C109", "10.10.2" },
-        .{ "14C1510", "10.10.2" },
-        .{ "14C1514", "10.10.2" },
-        .{ "14C2043", "10.10.2" },
-        .{ "14C2513", "10.10.2" },
-        .{ "14D131", "10.10.3" },
-        .{ "14D136", "10.10.3" },
-        .{ "14E46", "10.10.4" },
-        .{ "14F27", "10.10.5" },
-        .{ "14F1021", "10.10.5" },
-        .{ "14F1505", "10.10.5" },
-        .{ "14F1509", "10.10.5" },
-        .{ "14F1605", "10.10.5" },
-        .{ "14F1713", "10.10.5" },
-        .{ "14F1808", "10.10.5" },
-        .{ "14F1909", "10.10.5" },
-        .{ "14F1912", "10.10.5" },
-        .{ "14F2009", "10.10.5" },
-        .{ "14F2109", "10.10.5" },
-        .{ "14F2315", "10.10.5" },
-        .{ "14F2411", "10.10.5" },
-        .{ "14F2511", "10.10.5" },
-
-        .{ "15A284", "10.11.0" },
-        .{ "15B42", "10.11.1" },
-        .{ "15C50", "10.11.2" },
-        .{ "15D21", "10.11.3" },
-        .{ "15E65", "10.11.4" },
-        .{ "15F34", "10.11.5" },
-        .{ "15G31", "10.11.6" },
-        .{ "15G1004", "10.11.6" },
-        .{ "15G1011", "10.11.6" },
-        .{ "15G1108", "10.11.6" },
-        .{ "15G1212", "10.11.6" },
-        .{ "15G1217", "10.11.6" },
-        .{ "15G1421", "10.11.6" },
-        .{ "15G1510", "10.11.6" },
-        .{ "15G1611", "10.11.6" },
-        .{ "15G17023", "10.11.6" },
-        .{ "15G18013", "10.11.6" },
-        .{ "15G19009", "10.11.6" },
-        .{ "15G20015", "10.11.6" },
-        .{ "15G21013", "10.11.6" },
-        .{ "15G22010", "10.11.6" },
-
-        .{ "16A323", "10.12.0" },
-        .{ "16B2555", "10.12.1" },
-        .{ "16B2657", "10.12.1" },
-        .{ "16C67", "10.12.2" },
-        .{ "16C68", "10.12.2" },
-        .{ "16D32", "10.12.3" },
-        .{ "16E195", "10.12.4" },
-        .{ "16F73", "10.12.5" },
-        .{ "16F2073", "10.12.5" },
-        .{ "16G29", "10.12.6" },
-        .{ "16G1036", "10.12.6" },
-        .{ "16G1114", "10.12.6" },
-        .{ "16G1212", "10.12.6" },
-        .{ "16G1314", "10.12.6" },
-        .{ "16G1408", "10.12.6" },
-        .{ "16G1510", "10.12.6" },
-        .{ "16G1618", "10.12.6" },
-        .{ "16G1710", "10.12.6" },
-        .{ "16G1815", "10.12.6" },
-        .{ "16G1917", "10.12.6" },
-        .{ "16G1918", "10.12.6" },
-        .{ "16G2016", "10.12.6" },
-        .{ "16G2127", "10.12.6" },
-        .{ "16G2128", "10.12.6" },
-        .{ "16G2136", "10.12.6" },
-
-        .{ "17A365", "10.13.0" },
-        .{ "17A405", "10.13.0" },
-        .{ "17B48", "10.13.1" },
-        .{ "17B1002", "10.13.1" },
-        .{ "17B1003", "10.13.1" },
-        .{ "17C88", "10.13.2" },
-        .{ "17C89", "10.13.2" },
-        .{ "17C205", "10.13.2" },
-        .{ "17C2205", "10.13.2" },
-        .{ "17D47", "10.13.3" },
-        .{ "17D2047", "10.13.3" },
-        .{ "17D102", "10.13.3" },
-        .{ "17D2102", "10.13.3" },
-        .{ "17E199", "10.13.4" },
-        .{ "17E202", "10.13.4" },
-        .{ "17F77", "10.13.5" },
-        .{ "17G65", "10.13.6" },
-        .{ "17G2208", "10.13.6" },
-        .{ "17G3025", "10.13.6" },
-        .{ "17G4015", "10.13.6" },
-        .{ "17G5019", "10.13.6" },
-        .{ "17G6029", "10.13.6" },
-        .{ "17G6030", "10.13.6" },
-        .{ "17G7024", "10.13.6" },
-        .{ "17G8029", "10.13.6" },
-        .{ "17G8030", "10.13.6" },
-        .{ "17G8037", "10.13.6" },
-        .{ "17G9016", "10.13.6" },
-        .{ "17G10021", "10.13.6" },
-        .{ "17G11023", "10.13.6" },
-        .{ "17G12034", "10.13.6" },
-
-        .{ "18A391", "10.14.0" },
-        .{ "18B75", "10.14.1" },
-        .{ "18B2107", "10.14.1" },
-        .{ "18B3094", "10.14.1" },
-        .{ "18C54", "10.14.2" },
-        .{ "18D42", "10.14.3" },
-        .{ "18D43", "10.14.3" },
-        .{ "18D109", "10.14.3" },
-        .{ "18E226", "10.14.4" },
-        .{ "18E227", "10.14.4" },
-        .{ "18F132", "10.14.5" },
-        .{ "18G84", "10.14.6" },
-        .{ "18G87", "10.14.6" },
-        .{ "18G95", "10.14.6" },
-        .{ "18G103", "10.14.6" },
-        .{ "18G1012", "10.14.6" },
-        .{ "18G2022", "10.14.6" },
-        .{ "18G3020", "10.14.6" },
-        .{ "18G4032", "10.14.6" },
-
-        .{ "19A583", "10.15.0" },
-        .{ "19A602", "10.15.0" },
-        .{ "19A603", "10.15.0" },
-        .{ "19B88", "10.15.1" },
-        .{ "19C57", "10.15.2" },
-        .{ "19D76", "10.15.3" },
-        .{ "19E266", "10.15.4" },
-        .{ "19E287", "10.15.4" },
-    };
-    for (known) |pair| {
-        var buf: [32]u8 = undefined;
-        const ver = try version_from_build(pair[0]);
-        const sver = try std.fmt.bufPrint(buf[0..], "{}.{}.{}", .{ ver.major, ver.minor, ver.patch });
-        std.testing.expect(std.mem.eql(u8, sver, pair[1]));
+fn parseSystemVersion(buf: []const u8) !std.builtin.Version {
+    var svt = SystemVersionTokenizer{ .bytes = buf };
+    try svt.skipUntilTag(.start, "dict");
+    while (true) {
+        try svt.skipUntilTag(.start, "key");
+        const content = try svt.expectContent();
+        try svt.skipUntilTag(.end, "key");
+        if (std.mem.eql(u8, content, "ProductVersion")) break;
     }
+    try svt.skipUntilTag(.start, "string");
+    const ver = try svt.expectContent();
+    try svt.skipUntilTag(.end, "string");
+
+    return std.builtin.Version.parse(ver);
+}
+
+const SystemVersionTokenizer = struct {
+    bytes: []const u8,
+    index: usize = 0,
+    state: State = .begin,
+
+    fn next(self: *@This()) !?Token {
+        var mark: usize = self.index;
+        var tag = Tag{};
+        var content: []const u8 = "";
+
+        while (self.index < self.bytes.len) {
+            const char = self.bytes[self.index];
+            switch (self.state) {
+                .begin => switch (char) {
+                    '<' => {
+                        self.state = .tag0;
+                        self.index += 1;
+                        tag = Tag{};
+                        mark = self.index;
+                    },
+                    '>' => {
+                        return error.BadToken;
+                    },
+                    else => {
+                        self.state = .content;
+                        content = "";
+                        mark = self.index;
+                    },
+                },
+                .tag0 => switch (char) {
+                    '<' => {
+                        return error.BadToken;
+                    },
+                    '>' => {
+                        self.state = .begin;
+                        self.index += 1;
+                        tag.name = self.bytes[mark..self.index];
+                        return Token{ .tag = tag };
+                    },
+                    '"' => {
+                        self.state = .tag_string;
+                        self.index += 1;
+                    },
+                    '/' => {
+                        self.state = .tag0_end_or_empty;
+                        self.index += 1;
+                    },
+                    'A'...'Z', 'a'...'z' => {
+                        self.state = .tagN;
+                        tag.kind = .start;
+                        self.index += 1;
+                    },
+                    else => {
+                        self.state = .tagN;
+                        self.index += 1;
+                    },
+                },
+                .tag0_end_or_empty => switch (char) {
+                    '<' => {
+                        return error.BadToken;
+                    },
+                    '>' => {
+                        self.state = .begin;
+                        tag.kind = .empty;
+                        tag.name = self.bytes[self.index..self.index];
+                        self.index += 1;
+                        return Token{ .tag = tag };
+                    },
+                    else => {
+                        self.state = .tagN;
+                        tag.kind = .end;
+                        mark = self.index;
+                        self.index += 1;
+                    },
+                },
+                .tagN => switch (char) {
+                    '<' => {
+                        return error.BadToken;
+                    },
+                    '>' => {
+                        self.state = .begin;
+                        tag.name = self.bytes[mark..self.index];
+                        self.index += 1;
+                        return Token{ .tag = tag };
+                    },
+                    '"' => {
+                        self.state = .tag_string;
+                        self.index += 1;
+                    },
+                    '/' => {
+                        self.state = .tagN_end;
+                        tag.kind = .end;
+                        self.index += 1;
+                    },
+                    else => {
+                        self.index += 1;
+                    },
+                },
+                .tagN_end => switch (char) {
+                    '>' => {
+                        self.state = .begin;
+                        tag.name = self.bytes[mark..self.index];
+                        self.index += 1;
+                        return Token{ .tag = tag };
+                    },
+                    else => {
+                        return error.BadToken;
+                    },
+                },
+                .tag_string => switch (char) {
+                    '"' => {
+                        self.state = .tagN;
+                        self.index += 1;
+                    },
+                    else => {
+                        self.index += 1;
+                    },
+                },
+                .content => switch (char) {
+                    '<' => {
+                        self.state = .tag0;
+                        content = self.bytes[mark..self.index];
+                        self.index += 1;
+                        tag = Tag{};
+                        mark = self.index;
+                        return Token{ .content = content };
+                    },
+                    '>' => {
+                        return error.BadToken;
+                    },
+                    else => {
+                        self.index += 1;
+                    },
+                },
+            }
+        }
+
+        return null;
+    }
+
+    fn expectContent(self: *@This()) ![]const u8 {
+        if (try self.next()) |tok| {
+            switch (tok) {
+                .content => |content| {
+                    return content;
+                },
+                else => {},
+            }
+        }
+        return error.UnexpectedToken;
+    }
+
+    fn skipUntilTag(self: *@This(), kind: Tag.Kind, name: []const u8) !void {
+        while (try self.next()) |tok| {
+            switch (tok) {
+                .tag => |tag| {
+                    if (tag.kind == kind and std.mem.eql(u8, tag.name, name)) return;
+                },
+                else => {},
+            }
+        }
+        return error.TagNotFound;
+    }
+
+    const State = enum {
+        begin,
+        tag0,
+        tag0_end_or_empty,
+        tagN,
+        tagN_end,
+        tag_string,
+        content,
+    };
+
+    const Token = union(enum) {
+        tag: Tag,
+        content: []const u8,
+    };
+
+    const Tag = struct {
+        kind: Kind = .unknown,
+        name: []const u8 = "",
+
+        const Kind = enum { unknown, start, end, empty };
+    };
+};
+
+test "detect" {
+    const cases = .{
+        .{
+            \\<?xml version="1.0" encoding="UTF-8"?>
+            \\<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            \\<plist version="1.0">
+            \\<dict>
+            \\    <key>ProductBuildVersion</key>
+            \\    <string>7B85</string>
+            \\    <key>ProductCopyright</key>
+            \\    <string>Apple Computer, Inc. 1983-2003</string>
+            \\    <key>ProductName</key>
+            \\    <string>Mac OS X</string>
+            \\    <key>ProductUserVisibleVersion</key>
+            \\    <string>10.3</string>
+            \\    <key>ProductVersion</key>
+            \\    <string>10.3</string>
+            \\</dict>
+            \\</plist>
+            ,
+            .{ .major = 10, .minor = 3 },
+        },
+        .{
+            \\<?xml version="1.0" encoding="UTF-8"?>
+            \\<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            \\<plist version="1.0">
+            \\<dict>
+            \\	<key>ProductBuildVersion</key>
+            \\	<string>7W98</string>
+            \\	<key>ProductCopyright</key>
+            \\	<string>Apple Computer, Inc. 1983-2004</string>
+            \\	<key>ProductName</key>
+            \\	<string>Mac OS X</string>
+            \\	<key>ProductUserVisibleVersion</key>
+            \\	<string>10.3.9</string>
+            \\	<key>ProductVersion</key>
+            \\	<string>10.3.9</string>
+            \\</dict>
+            \\</plist>
+            ,
+            .{ .major = 10, .minor = 3, .patch = 9 },
+        },
+        .{
+            \\<?xml version="1.0" encoding="UTF-8"?>
+            \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            \\<plist version="1.0">
+            \\<dict>
+            \\	<key>ProductBuildVersion</key>
+            \\	<string>19G68</string>
+            \\	<key>ProductCopyright</key>
+            \\	<string>1983-2020 Apple Inc.</string>
+            \\	<key>ProductName</key>
+            \\	<string>Mac OS X</string>
+            \\	<key>ProductUserVisibleVersion</key>
+            \\	<string>10.15.6</string>
+            \\	<key>ProductVersion</key>
+            \\	<string>10.15.6</string>
+            \\	<key>iOSSupportVersion</key>
+            \\	<string>13.6</string>
+            \\</dict>
+            \\</plist>
+            ,
+            .{ .major = 10, .minor = 15, .patch = 6 },
+        },
+        .{
+            \\<?xml version="1.0" encoding="UTF-8"?>
+            \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            \\<plist version="1.0">
+            \\<dict>
+            \\	<key>ProductBuildVersion</key>
+            \\	<string>20A2408</string>
+            \\	<key>ProductCopyright</key>
+            \\	<string>1983-2020 Apple Inc.</string>
+            \\	<key>ProductName</key>
+            \\	<string>macOS</string>
+            \\	<key>ProductUserVisibleVersion</key>
+            \\	<string>11.0</string>
+            \\	<key>ProductVersion</key>
+            \\	<string>11.0</string>
+            \\	<key>iOSSupportVersion</key>
+            \\	<string>14.2</string>
+            \\</dict>
+            \\</plist>
+            ,
+            .{ .major = 11, .minor = 0 },
+        },
+        .{
+            \\<?xml version="1.0" encoding="UTF-8"?>
+            \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            \\<plist version="1.0">
+            \\<dict>
+            \\	<key>ProductBuildVersion</key>
+            \\	<string>20C63</string>
+            \\	<key>ProductCopyright</key>
+            \\	<string>1983-2020 Apple Inc.</string>
+            \\	<key>ProductName</key>
+            \\	<string>macOS</string>
+            \\	<key>ProductUserVisibleVersion</key>
+            \\	<string>11.1</string>
+            \\	<key>ProductVersion</key>
+            \\	<string>11.1</string>
+            \\	<key>iOSSupportVersion</key>
+            \\	<string>14.3</string>
+            \\</dict>
+            \\</plist>
+            ,
+            .{ .major = 11, .minor = 1 },
+        },
+    };
+
+    inline for (cases) |case| {
+        const ver0 = try parseSystemVersion(case[0]);
+        const ver1: std.builtin.Version = case[1];
+        try testVersionEquality(ver1, ver0);
+    }
+}
+
+fn testVersionEquality(expected: std.builtin.Version, got: std.builtin.Version) !void {
+    var b_expected: [64]u8 = undefined;
+    const s_expected: []const u8 = try std.fmt.bufPrint(b_expected[0..], "{}", .{expected});
+
+    var b_got: [64]u8 = undefined;
+    const s_got: []const u8 = try std.fmt.bufPrint(b_got[0..], "{}", .{got});
+
+    testing.expectEqualStrings(s_expected, s_got);
 }
 
 /// Detect SDK path on Darwin.
@@ -468,7 +418,7 @@ pub fn getSDKPath(allocator: *mem.Allocator) ![]u8 {
         allocator.free(result.stdout);
     }
     if (result.stderr.len != 0) {
-        std.log.err("unexpected 'xcrun --show-sdk-path' stderr: {}", .{result.stderr});
+        std.log.err("unexpected 'xcrun --show-sdk-path' stderr: {s}", .{result.stderr});
     }
     if (result.term.Exited != 0) {
         return error.ProcessTerminated;

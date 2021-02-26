@@ -28,6 +28,7 @@ __set_thread_area:
 	ret
 2:
 	mov %ebx,%ecx
+	xor %eax,%eax
 	xor %ebx,%ebx
 	xor %edx,%edx
 	mov %ebx,(%esp)

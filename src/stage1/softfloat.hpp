@@ -12,6 +12,8 @@ extern "C" {
 #include "softfloat.h"
 }
 
+#include "zigendian.h"
+
 static inline float16_t zig_double_to_f16(double x) {
     float64_t y;
     static_assert(sizeof(x) == sizeof(y), "");
@@ -36,10 +38,22 @@ static inline bool zig_f16_isNaN(float16_t a) {
 }
 
 static inline bool zig_f128_isNaN(float128_t *aPtr) {
-    uint64_t absA64 = aPtr->v[1] & UINT64_C(0x7FFFFFFFFFFFFFFF);
+    uint64_t hi, lo;
+
+    #if defined(ZIG_BYTE_ORDER) && ZIG_BYTE_ORDER == ZIG_LITTLE_ENDIAN
+        hi = aPtr->v[1];
+        lo = aPtr->v[0];
+    #elif defined(ZIG_BYTE_ORDER) && ZIG_BYTE_ORDER == ZIG_BIG_ENDIAN
+        hi = aPtr->v[0];
+        lo = aPtr->v[1];
+    #else
+        #error Unsupported endian
+    #endif
+
+    uint64_t absA64 = hi & UINT64_C(0x7FFFFFFFFFFFFFFF);
     return
         (UINT64_C(0x7FFF000000000000) < absA64)
-            || ((absA64 == UINT64_C(0x7FFF000000000000)) && aPtr->v[0]);
+            || ((absA64 == UINT64_C(0x7FFF000000000000)) && lo);
 }
 
 #endif

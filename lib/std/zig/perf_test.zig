@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -29,7 +29,7 @@ pub fn main() !void {
     const mb_per_sec = bytes_per_sec / (1024 * 1024);
 
     var stdout_file = std.io.getStdOut();
-    const stdout = stdout_file.outStream();
+    const stdout = stdout_file.writer();
     try stdout.print("{:.3} MiB/s, {} KiB used \n", .{ mb_per_sec, memory_used / 1024 });
 }
 

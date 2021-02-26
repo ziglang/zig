@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -23,11 +23,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const GetSeekPosError = error{};
 
         pub const Reader = io.Reader(*Self, ReadError, read);
-        /// Deprecated: use `Reader`
-        pub const InStream = io.InStream(*Self, ReadError, read);
         pub const Writer = io.Writer(*Self, WriteError, write);
-        /// Deprecated: use `Writer`
-        pub const OutStream = Writer;
 
         pub const SeekableStream = io.SeekableStream(
             *Self,
@@ -45,17 +41,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return .{ .context = self };
         }
 
-        /// Deprecated: use `inStream`
-        pub fn inStream(self: *Self) InStream {
-            return .{ .context = self };
-        }
-
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        /// Deprecated: use `writer`
-        pub fn outStream(self: *Self) OutStream {
             return .{ .context = self };
         }
 
@@ -147,7 +133,7 @@ test "FixedBufferStream output" {
     var fbs = fixedBufferStream(&buf);
     const stream = fbs.writer();
 
-    try stream.print("{}{}!", .{ "Hello", "World" });
+    try stream.print("{s}{s}!", .{ "Hello", "World" });
     testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
 }
 

@@ -5,9 +5,12 @@ const mem = std.mem;
 const meta = std.meta;
 const macho = std.macho;
 const testing = std.testing;
+const assert = std.debug.assert;
 
 const Allocator = std.mem.Allocator;
-const makeName = @import("../MachO.zig").makeStaticString;
+const MachO = @import("../MachO.zig");
+const makeStaticString = MachO.makeStaticString;
+const padToIdeal = MachO.padToIdeal;
 
 pub const LoadCommand = union(enum) {
     Segment: SegmentCommand,
@@ -19,6 +22,7 @@ pub const LoadCommand = union(enum) {
     Main: macho.entry_point_command,
     VersionMin: macho.version_min_command,
     SourceVersion: macho.source_version_command,
+    Uuid: macho.uuid_command,
     LinkeditData: macho.linkedit_data_command,
     Unknown: GenericCommandWithData(macho.load_command),
 
@@ -26,9 +30,9 @@ pub const LoadCommand = union(enum) {
         const header = try reader.readStruct(macho.load_command);
         var buffer = try allocator.alloc(u8, header.cmdsize);
         defer allocator.free(buffer);
-        mem.copy(u8, buffer[0..], mem.asBytes(&header));
+        mem.copy(u8, buffer, mem.asBytes(&header));
         try reader.readNoEof(buffer[@sizeOf(macho.load_command)..]);
-        var stream = io.fixedBufferStream(buffer[0..]);
+        var stream = io.fixedBufferStream(buffer);
 
         return switch (header.cmd) {
             macho.LC_SEGMENT_64 => LoadCommand{
@@ -58,6 +62,9 @@ pub const LoadCommand = union(enum) {
             macho.LC_SOURCE_VERSION => LoadCommand{
                 .SourceVersion = try stream.reader().readStruct(macho.source_version_command),
             },
+            macho.LC_UUID => LoadCommand{
+                .Uuid = try stream.reader().readStruct(macho.uuid_command),
+            },
             macho.LC_FUNCTION_STARTS, macho.LC_DATA_IN_CODE, macho.LC_CODE_SIGNATURE => LoadCommand{
                 .LinkeditData = try stream.reader().readStruct(macho.linkedit_data_command),
             },
@@ -75,6 +82,7 @@ pub const LoadCommand = union(enum) {
             .Main => |x| writeStruct(x, writer),
             .VersionMin => |x| writeStruct(x, writer),
             .SourceVersion => |x| writeStruct(x, writer),
+            .Uuid => |x| writeStruct(x, writer),
             .LinkeditData => |x| writeStruct(x, writer),
             .Segment => |x| x.write(writer),
             .Dylinker => |x| x.write(writer),
@@ -91,6 +99,7 @@ pub const LoadCommand = union(enum) {
             .Main => |x| x.cmd,
             .VersionMin => |x| x.cmd,
             .SourceVersion => |x| x.cmd,
+            .Uuid => |x| x.cmd,
             .LinkeditData => |x| x.cmd,
             .Segment => |x| x.inner.cmd,
             .Dylinker => |x| x.inner.cmd,
@@ -108,6 +117,7 @@ pub const LoadCommand = union(enum) {
             .VersionMin => |x| x.cmdsize,
             .SourceVersion => |x| x.cmdsize,
             .LinkeditData => |x| x.cmdsize,
+            .Uuid => |x| x.cmdsize,
             .Segment => |x| x.inner.cmdsize,
             .Dylinker => |x| x.inner.cmdsize,
             .Dylib => |x| x.inner.cmdsize,
@@ -130,7 +140,7 @@ pub const LoadCommand = union(enum) {
     }
 
     fn eql(self: LoadCommand, other: LoadCommand) bool {
-        if (@as(@TagType(LoadCommand), self) != @as(@TagType(LoadCommand), other)) return false;
+        if (@as(meta.Tag(LoadCommand), self) != @as(meta.Tag(LoadCommand), other)) return false;
         return switch (self) {
             .DyldInfoOnly => |x| meta.eql(x, other.DyldInfoOnly),
             .Symtab => |x| meta.eql(x, other.Symtab),
@@ -138,6 +148,7 @@ pub const LoadCommand = union(enum) {
             .Main => |x| meta.eql(x, other.Main),
             .VersionMin => |x| meta.eql(x, other.VersionMin),
             .SourceVersion => |x| meta.eql(x, other.SourceVersion),
+            .Uuid => |x| meta.eql(x, other.Uuid),
             .LinkeditData => |x| meta.eql(x, other.LinkeditData),
             .Segment => |x| x.eql(other.Segment),
             .Dylinker => |x| x.eql(other.Dylinker),
@@ -153,6 +164,12 @@ pub const SegmentCommand = struct {
 
     pub fn empty(inner: macho.segment_command_64) SegmentCommand {
         return .{ .inner = inner };
+    }
+
+    pub fn addSection(self: *SegmentCommand, alloc: *Allocator, section: macho.section_64) !void {
+        try self.sections.append(alloc, section);
+        self.inner.cmdsize += @sizeOf(macho.section_64);
+        self.inner.nsects += 1;
     }
 
     pub fn read(alloc: *Allocator, reader: anytype) !SegmentCommand {
@@ -180,6 +197,38 @@ pub const SegmentCommand = struct {
 
     pub fn deinit(self: *SegmentCommand, alloc: *Allocator) void {
         self.sections.deinit(alloc);
+    }
+
+    pub fn allocatedSize(self: SegmentCommand, start: u64) u64 {
+        assert(start > 0);
+        if (start == self.inner.fileoff)
+            return 0;
+        var min_pos: u64 = std.math.maxInt(u64);
+        for (self.sections.items) |section| {
+            if (section.offset <= start) continue;
+            if (section.offset < min_pos) min_pos = section.offset;
+        }
+        return min_pos - start;
+    }
+
+    fn detectAllocCollision(self: SegmentCommand, start: u64, size: u64) ?u64 {
+        const end = start + padToIdeal(size);
+        for (self.sections.items) |section| {
+            const increased_size = padToIdeal(section.size);
+            const test_end = section.offset + increased_size;
+            if (end > section.offset and start < test_end) {
+                return test_end;
+            }
+        }
+        return null;
+    }
+
+    pub fn findFreeSpace(self: SegmentCommand, object_size: u64, min_alignment: u16, start: ?u64) u64 {
+        var st: u64 = if (start) |v| v else self.inner.fileoff;
+        while (self.detectAllocCollision(st, object_size)) |item_end| {
+            st = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        }
+        return st;
     }
 
     fn eql(self: SegmentCommand, other: SegmentCommand) bool {
@@ -210,7 +259,7 @@ pub fn GenericCommandWithData(comptime Cmd: type) type {
             const inner = try reader.readStruct(Cmd);
             var data = try allocator.alloc(u8, inner.cmdsize - @sizeOf(Cmd));
             errdefer allocator.free(data);
-            try reader.readNoEof(data[0..]);
+            try reader.readNoEof(data);
             return Self{
                 .inner = inner,
                 .data = data,
@@ -277,7 +326,7 @@ test "read-write segment command" {
         .inner = .{
             .cmd = macho.LC_SEGMENT_64,
             .cmdsize = 152,
-            .segname = makeName("__TEXT"),
+            .segname = makeStaticString("__TEXT"),
             .vmaddr = 4294967296,
             .vmsize = 294912,
             .fileoff = 0,
@@ -289,8 +338,8 @@ test "read-write segment command" {
         },
     };
     try cmd.sections.append(gpa, .{
-        .sectname = makeName("__text"),
-        .segname = makeName("__TEXT"),
+        .sectname = makeStaticString("__text"),
+        .segname = makeStaticString("__TEXT"),
         .addr = 4294983680,
         .size = 448,
         .offset = 16384,
@@ -303,10 +352,10 @@ test "read-write segment command" {
         .reserved3 = 0,
     });
     defer cmd.deinit(gpa);
-    try testRead(gpa, in_buffer[0..], LoadCommand{ .Segment = cmd });
+    try testRead(gpa, in_buffer, LoadCommand{ .Segment = cmd });
 
     var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(out_buffer[0..], LoadCommand{ .Segment = cmd }, in_buffer[0..]);
+    try testWrite(&out_buffer, LoadCommand{ .Segment = cmd }, in_buffer);
 }
 
 test "read-write generic command with data" {
@@ -342,10 +391,10 @@ test "read-write generic command with data" {
     cmd.data[5] = 0x0;
     cmd.data[6] = 0x0;
     cmd.data[7] = 0x0;
-    try testRead(gpa, in_buffer[0..], LoadCommand{ .Dylib = cmd });
+    try testRead(gpa, in_buffer, LoadCommand{ .Dylib = cmd });
 
     var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(out_buffer[0..], LoadCommand{ .Dylib = cmd }, in_buffer[0..]);
+    try testWrite(&out_buffer, LoadCommand{ .Dylib = cmd }, in_buffer);
 }
 
 test "read-write C struct command" {
@@ -362,8 +411,8 @@ test "read-write C struct command" {
         .entryoff = 16644,
         .stacksize = 0,
     };
-    try testRead(gpa, in_buffer[0..], LoadCommand{ .Main = cmd });
+    try testRead(gpa, in_buffer, LoadCommand{ .Main = cmd });
 
     var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(out_buffer[0..], LoadCommand{ .Main = cmd }, in_buffer[0..]);
+    try testWrite(&out_buffer, LoadCommand{ .Main = cmd }, in_buffer);
 }

@@ -31,7 +31,7 @@ class BufPrinter:
     def display_hint(self):
         return 'string'
 
-pp = gdb.printing.RegexpCollectionPrettyPrinter('zig')
+pp = gdb.printing.RegexpCollectionPrettyPrinter('Zig stage1 compiler')
 pp.add_printer('Buf', '^Buf$', BufPrinter)
 pp.add_printer('ZigList<char>', '^ZigList<char>$', BufPrinter)
 pp.add_printer('ZigList', '^ZigList<.*>$', ZigListPrinter)

@@ -1,6 +1,7 @@
 const std = @import("std");
 const ir = @import("ir.zig");
 const trace = @import("tracy.zig").trace;
+const log = std.log.scoped(.liveness);
 
 /// Perform Liveness Analysis over the `Body`. Each `Inst` will have its `deaths` field populated.
 pub fn analyze(
@@ -248,5 +249,5 @@ fn analyzeInst(
         @panic("Handle liveness analysis for instructions with many parameters");
     }
 
-    std.log.scoped(.liveness).debug("analyze {}: 0b{b}\n", .{ base.tag, base.deaths });
+    log.debug("analyze {}: 0b{b}\n", .{ base.tag, base.deaths });
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -21,14 +21,18 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
+/// This is available to any test that wants to execute Zig in a child process.
+/// It will be the same executable that is running `zig test`.
+pub var zig_exe_path: []const u8 = undefined;
+
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) void {
     if (actual_error_union) |actual_payload| {
-        std.debug.panic("expected error.{}, found {}", .{ @errorName(expected_error), actual_payload });
+        std.debug.panic("expected error.{s}, found {any}", .{ @errorName(expected_error), actual_payload });
     } else |actual_error| {
         if (expected_error != actual_error) {
-            std.debug.panic("expected error.{}, found error.{}", .{
+            std.debug.panic("expected error.{s}, found error.{s}", .{
                 @errorName(expected_error),
                 @errorName(actual_error),
             });
@@ -56,7 +60,7 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
 
         .Type => {
             if (actual != expected) {
-                std.debug.panic("expected type {}, found type {}", .{ @typeName(expected), @typeName(actual) });
+                std.debug.panic("expected type {s}, found type {s}", .{ @typeName(expected), @typeName(actual) });
             }
         },
 
@@ -84,7 +88,7 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
                 },
                 .Slice => {
                     if (actual.ptr != expected.ptr) {
-                        std.debug.panic("expected slice ptr {}, found {}", .{ expected.ptr, actual.ptr });
+                        std.debug.panic("expected slice ptr {*}, found {*}", .{ expected.ptr, actual.ptr });
                     }
                     if (actual.len != expected.len) {
                         std.debug.panic("expected slice len {}, found {}", .{ expected.len, actual.len });
@@ -115,10 +119,10 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
                 @compileError("Unable to compare untagged union values");
             }
 
-            const TagType = @TagType(@TypeOf(expected));
+            const Tag = std.meta.Tag(@TypeOf(expected));
 
-            const expectedTag = @as(TagType, expected);
-            const actualTag = @as(TagType, actual);
+            const expectedTag = @as(Tag, expected);
+            const actualTag = @as(Tag, actual);
 
             expectEqual(expectedTag, actualTag);
 
@@ -141,11 +145,11 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
                 if (actual) |actual_payload| {
                     expectEqual(expected_payload, actual_payload);
                 } else {
-                    std.debug.panic("expected {}, found null", .{expected_payload});
+                    std.debug.panic("expected {any}, found null", .{expected_payload});
                 }
             } else {
                 if (actual) |actual_payload| {
-                    std.debug.panic("expected null, found {}", .{actual_payload});
+                    std.debug.panic("expected null, found {any}", .{actual_payload});
                 }
             }
         },
@@ -155,11 +159,11 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
                 if (actual) |actual_payload| {
                     expectEqual(expected_payload, actual_payload);
                 } else |actual_err| {
-                    std.debug.panic("expected {}, found {}", .{ expected_payload, actual_err });
+                    std.debug.panic("expected {any}, found {}", .{ expected_payload, actual_err });
                 }
             } else |expected_err| {
                 if (actual) |actual_payload| {
-                    std.debug.panic("expected {}, found {}", .{ expected_err, actual_payload });
+                    std.debug.panic("expected {}, found {any}", .{ expected_err, actual_payload });
                 } else |actual_err| {
                     expectEqual(expected_err, actual_err);
                 }
@@ -178,6 +182,22 @@ test "expectEqual.union(enum)" {
     const a20 = T{ .a = 20 };
 
     expectEqual(a10, a10);
+}
+
+/// This function is intended to be used only in tests. When the formatted result of the template
+/// and its arguments does not equal the expected text, it prints diagnostics to stderr to show how
+/// they are not equal, then returns an error.
+pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
+    const result = try std.fmt.allocPrint(allocator, template, args);
+    defer allocator.free(result);
+    if (std.mem.eql(u8, result, expected)) return;
+
+    print("\n====== expected this output: =========\n", .{});
+    print("{s}", .{expected});
+    print("\n======== instead found this: =========\n", .{});
+    print("{s}", .{result});
+    print("\n======================================\n", .{});
+    return error.TestFailed;
 }
 
 /// This function is intended to be used only in tests. When the actual value is not
@@ -254,12 +274,12 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     // If the child type is u8 and no weird bytes, we could print it as strings
     // Even for the length difference, it would be useful to see the values of the slices probably.
     if (expected.len != actual.len) {
-        std.debug.panic("slice lengths differ. expected {}, found {}", .{ expected.len, actual.len });
+        std.debug.panic("slice lengths differ. expected {d}, found {d}", .{ expected.len, actual.len });
     }
     var i: usize = 0;
     while (i < expected.len) : (i += 1) {
         if (!std.meta.eql(expected[i], actual[i])) {
-            std.debug.panic("index {} incorrect. expected {}, found {}", .{ i, expected[i], actual[i] });
+            std.debug.panic("index {} incorrect. expected {any}, found {any}", .{ i, expected[i], actual[i] });
         }
     }
 }
@@ -303,10 +323,9 @@ fn getCwdOrWasiPreopen() std.fs.Dir {
 
 pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
-    std.crypto.randomBytes(&random_bytes) catch
-        @panic("unable to make tmp dir for testing: unable to get random bytes");
+    std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
-    std.fs.base64_encoder.encode(&sub_path, &random_bytes);
+    _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
     var cwd = getCwdOrWasiPreopen();
     var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
@@ -357,7 +376,7 @@ pub fn expectEqualStrings(expected: []const u8, actual: []const u8) void {
         for (expected[0..diff_index]) |value| {
             if (value == '\n') diff_line_number += 1;
         }
-        print("First difference occurs on line {}:\n", .{diff_line_number});
+        print("First difference occurs on line {d}:\n", .{diff_line_number});
 
         print("expected:\n", .{});
         printIndicatorLine(expected, diff_index);
@@ -413,18 +432,18 @@ fn printWithVisibleNewlines(source: []const u8) void {
     while (std.mem.indexOf(u8, source[i..], "\n")) |nl| : (i += nl + 1) {
         printLine(source[i .. i + nl]);
     }
-    print("{}␃\n", .{source[i..]}); // End of Text symbol (ETX)
+    print("{s}␃\n", .{source[i..]}); // End of Text symbol (ETX)
 }
 
 fn printLine(line: []const u8) void {
     if (line.len != 0) switch (line[line.len - 1]) {
-        ' ', '\t' => print("{}⏎\n", .{line}), // Carriage return symbol,
+        ' ', '\t' => print("{s}⏎\n", .{line}), // Carriage return symbol,
         else => {},
     };
-    print("{}\n", .{line});
+    print("{s}\n", .{line});
 }
 
-test "" {
+test {
     expectEqualStrings("foo", "foo");
 }
 

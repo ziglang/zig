@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -76,12 +76,12 @@ pub fn Reader(
                 start_index += bytes_read;
 
                 if (start_index - original_len > max_append_size) {
-                    array_list.shrink(original_len + max_append_size);
+                    array_list.shrinkAndFree(original_len + max_append_size);
                     return error.StreamTooLong;
                 }
 
                 if (bytes_read != dest_slice.len) {
-                    array_list.shrink(start_index);
+                    array_list.shrinkAndFree(start_index);
                     return;
                 }
 
@@ -101,35 +101,6 @@ pub fn Reader(
             return array_list.toOwnedSlice();
         }
 
-        /// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` or end-of-stream is found.
-        /// Does not include the delimiter in the result.
-        /// If the `std.ArrayList` length would exceed `max_size`, `error.StreamTooLong` is returned and the
-        /// `std.ArrayList` is populated with `max_size` bytes from the stream.
-        pub fn readUntilDelimiterOrEofArrayList(
-            self: Self,
-            array_list: *std.ArrayList(u8),
-            delimiter: u8,
-            max_size: usize,
-        ) !void {
-            array_list.shrink(0);
-            while (true) {
-                var byte: u8 = self.readByte() catch |err| switch (err) {
-                    error.EndOfStream => return,
-                    else => |e| return e,
-                };
-
-                if (byte == delimiter) {
-                    return;
-                }
-
-                if (array_list.items.len == max_size) {
-                    return error.StreamTooLong;
-                }
-
-                try array_list.append(byte);
-            }
-        }
-
         /// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` is found.
         /// Does not include the delimiter in the result.
         /// If the `std.ArrayList` length would exceed `max_size`, `error.StreamTooLong` is returned and the
@@ -140,7 +111,7 @@ pub fn Reader(
             delimiter: u8,
             max_size: usize,
         ) !void {
-            array_list.shrink(0);
+            array_list.shrinkRetainingCapacity(0);
             while (true) {
                 var byte: u8 = try self.readByte();
 
@@ -173,7 +144,10 @@ pub fn Reader(
         }
 
         /// Allocates enough memory to read until `delimiter` or end-of-stream.
-        /// If the allocated memory would be greater than `max_size`, returns `error.StreamTooLong`.
+        /// If the allocated memory would be greater than `max_size`, returns
+        /// `error.StreamTooLong`. If end-of-stream is found, returns the rest
+        /// of the stream. If this function is called again after that, returns
+        /// null.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
         pub fn readUntilDelimiterOrEofAlloc(
@@ -181,10 +155,17 @@ pub fn Reader(
             allocator: *mem.Allocator,
             delimiter: u8,
             max_size: usize,
-        ) ![]u8 {
+        ) !?[]u8 {
             var array_list = std.ArrayList(u8).init(allocator);
             defer array_list.deinit();
-            try self.readUntilDelimiterOrEofArrayList(&array_list, delimiter, max_size);
+            self.readUntilDelimiterArrayList(&array_list, delimiter, max_size) catch |err| switch (err) {
+                error.EndOfStream => if (array_list.items.len == 0) {
+                    return null;
+                } else {
+                    return array_list.toOwnedSlice();
+                },
+                else => |e| return e,
+            };
             return array_list.toOwnedSlice();
         }
 
@@ -290,8 +271,9 @@ pub fn Reader(
             buf_size: usize = 512,
         };
 
+        // `num_bytes` is a `u64` to match `off_t`
         /// Reads `num_bytes` bytes from the stream and discards them
-        pub fn skipBytes(self: Self, num_bytes: usize, comptime options: SkipBytesOptions) !void {
+        pub fn skipBytes(self: Self, num_bytes: u64, comptime options: SkipBytesOptions) !void {
             var buf: [options.buf_size]u8 = undefined;
             var remaining = num_bytes;
 

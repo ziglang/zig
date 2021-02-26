@@ -2660,4 +2660,4 @@ xpc_set_event_stream_handler(const char *stream,
 __END_DECLS
 XPC_ASSUME_NONNULL_END
 
-#endif // __XPC_H__ 
+#endif // __XPC_H__

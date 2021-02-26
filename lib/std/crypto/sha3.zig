@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -13,6 +13,8 @@ pub const Sha3_224 = Keccak(224, 0x06);
 pub const Sha3_256 = Keccak(256, 0x06);
 pub const Sha3_384 = Keccak(384, 0x06);
 pub const Sha3_512 = Keccak(512, 0x06);
+pub const Keccak_256 = Keccak(256, 0x01);
+pub const Keccak_512 = Keccak(512, 0x01);
 
 fn Keccak(comptime bits: usize, comptime delim: u8) type {
     return struct {
@@ -296,4 +298,16 @@ test "sha3-512 aligned final" {
     var h = Sha3_512.init(.{});
     h.update(&block);
     h.final(out[0..]);
+}
+
+test "keccak-256 single" {
+    htest.assertEqualHash(Keccak_256, "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470", "");
+    htest.assertEqualHash(Keccak_256, "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45", "abc");
+    htest.assertEqualHash(Keccak_256, "f519747ed599024f3882238e5ab43960132572b7345fbeb9a90769dafd21ad67", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+}
+
+test "keccak-512 single" {
+    htest.assertEqualHash(Keccak_512, "0eab42de4c3ceb9235fc91acffe746b29c29a8c366b7c60e4e67c466f36a4304c00fa9caf9d87976ba469bcbe06713b435f091ef2769fb160cdab33d3670680e", "");
+    htest.assertEqualHash(Keccak_512, "18587dc2ea106b9a1563e32b3312421ca164c7f1f07bc922a9c83d77cea3a1e5d0c69910739025372dc14ac9642629379540c17e2a65b19d77aa511a9d00bb96", "abc");
+    htest.assertEqualHash(Keccak_512, "ac2fb35251825d3aa48468a9948c0a91b8256f6d97d8fa4160faff2dd9dfcc24f3f1db7a983dad13d53439ccac0b37e24037e7b95f80f59f37a2f683c4ba4682", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }

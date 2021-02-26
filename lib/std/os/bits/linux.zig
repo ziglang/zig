@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -532,6 +532,59 @@ pub const SOL_KCM = 281;
 pub const SOL_TLS = 282;
 
 pub const SOMAXCONN = 128;
+
+pub const IP_TOS = 1;
+pub const IP_TTL = 2;
+pub const IP_HDRINCL = 3;
+pub const IP_OPTIONS = 4;
+pub const IP_ROUTER_ALERT = 5;
+pub const IP_RECVOPTS = 6;
+pub const IP_RETOPTS = 7;
+pub const IP_PKTINFO = 8;
+pub const IP_PKTOPTIONS = 9;
+pub const IP_PMTUDISC = 10;
+pub const IP_MTU_DISCOVER = 10;
+pub const IP_RECVERR = 11;
+pub const IP_RECVTTL = 12;
+pub const IP_RECVTOS = 13;
+pub const IP_MTU = 14;
+pub const IP_FREEBIND = 15;
+pub const IP_IPSEC_POLICY = 16;
+pub const IP_XFRM_POLICY = 17;
+pub const IP_PASSSEC = 18;
+pub const IP_TRANSPARENT = 19;
+pub const IP_ORIGDSTADDR = 20;
+pub const IP_RECVORIGDSTADDR = IP_ORIGDSTADDR;
+pub const IP_MINTTL = 21;
+pub const IP_NODEFRAG = 22;
+pub const IP_CHECKSUM = 23;
+pub const IP_BIND_ADDRESS_NO_PORT = 24;
+pub const IP_RECVFRAGSIZE = 25;
+pub const IP_MULTICAST_IF = 32;
+pub const IP_MULTICAST_TTL = 33;
+pub const IP_MULTICAST_LOOP = 34;
+pub const IP_ADD_MEMBERSHIP = 35;
+pub const IP_DROP_MEMBERSHIP = 36;
+pub const IP_UNBLOCK_SOURCE = 37;
+pub const IP_BLOCK_SOURCE = 38;
+pub const IP_ADD_SOURCE_MEMBERSHIP = 39;
+pub const IP_DROP_SOURCE_MEMBERSHIP = 40;
+pub const IP_MSFILTER = 41;
+pub const IP_MULTICAST_ALL = 49;
+pub const IP_UNICAST_IF = 50;
+
+pub const IP_RECVRETOPTS = IP_RETOPTS;
+
+pub const IP_PMTUDISC_DONT = 0;
+pub const IP_PMTUDISC_WANT = 1;
+pub const IP_PMTUDISC_DO = 2;
+pub const IP_PMTUDISC_PROBE = 3;
+pub const IP_PMTUDISC_INTERFACE = 4;
+pub const IP_PMTUDISC_OMIT = 5;
+
+pub const IP_DEFAULT_MULTICAST_TTL = 1;
+pub const IP_DEFAULT_MULTICAST_LOOP = 1;
+pub const IP_MAX_MEMBERSHIPS = 20;
 
 pub const MSG_OOB = 0x0001;
 pub const MSG_PEEK = 0x0002;
@@ -1284,6 +1337,9 @@ pub const IORING_SETUP_CLAMP = 1 << 4;
 /// attach to existing wq
 pub const IORING_SETUP_ATTACH_WQ = 1 << 5;
 
+/// start with ring disabled
+pub const IORING_SETUP_R_DISABLED = 1 << 6;
+
 pub const io_sqring_offsets = extern struct {
     /// offset of ring head
     head: u32,
@@ -1430,6 +1486,11 @@ pub const io_uring_cqe = extern struct {
     flags: u32,
 };
 
+// io_uring_cqe.flags
+
+/// If set, the upper 16 bits are the buffer ID
+pub const IORING_CQE_F_BUFFER = 1 << 0;
+
 pub const IORING_OFF_SQ_RING = 0;
 pub const IORING_OFF_CQ_RING = 0x8000000;
 pub const IORING_OFF_SQES = 0x10000000;
@@ -1439,7 +1500,7 @@ pub const IORING_ENTER_GETEVENTS = 1 << 0;
 pub const IORING_ENTER_SQ_WAKEUP = 1 << 1;
 
 // io_uring_register opcodes and arguments
-pub const IORING_REGISTER = extern enum(u32) {
+pub const IORING_REGISTER = extern enum(u8) {
     REGISTER_BUFFERS,
     UNREGISTER_BUFFERS,
     REGISTER_FILES,
@@ -1451,11 +1512,13 @@ pub const IORING_REGISTER = extern enum(u32) {
     REGISTER_PROBE,
     REGISTER_PERSONALITY,
     UNREGISTER_PERSONALITY,
+    REGISTER_RESTRICTIONS,
+    REGISTER_ENABLE_RINGS,
 
     _,
 };
 
-pub const io_uring_files_update = struct {
+pub const io_uring_files_update = extern struct {
     offset: u32,
     resv: u32,
     fds: u64,
@@ -1463,7 +1526,7 @@ pub const io_uring_files_update = struct {
 
 pub const IO_URING_OP_SUPPORTED = 1 << 0;
 
-pub const io_uring_probe_op = struct {
+pub const io_uring_probe_op = extern struct {
     op: IORING_OP,
 
     resv: u8,
@@ -1474,7 +1537,7 @@ pub const io_uring_probe_op = struct {
     resv2: u32,
 };
 
-pub const io_uring_probe = struct {
+pub const io_uring_probe = extern struct {
     /// last opcode supported
     last_op: IORING_OP,
 
@@ -1485,6 +1548,39 @@ pub const io_uring_probe = struct {
     resv2: u32[3],
 
     // Followed by up to `ops_len` io_uring_probe_op structures
+};
+
+pub const io_uring_restriction = extern struct {
+    opcode: u16,
+    arg: extern union {
+        /// IORING_RESTRICTION_REGISTER_OP
+        register_op: IORING_REGISTER,
+
+        /// IORING_RESTRICTION_SQE_OP
+        sqe_op: IORING_OP,
+
+        /// IORING_RESTRICTION_SQE_FLAGS_*
+        sqe_flags: u8,
+    },
+    resv: u8,
+    resv2: u32[3],
+};
+
+/// io_uring_restriction->opcode values
+pub const IORING_RESTRICTION = extern enum(u8) {
+    /// Allow an io_uring_register(2) opcode
+    REGISTER_OP = 0,
+
+    /// Allow an sqe opcode
+    SQE_OP = 1,
+
+    /// Allow sqe flags
+    SQE_FLAGS_ALLOWED = 2,
+
+    /// Require sqe flags (these flags must be set on each submission)
+    SQE_FLAGS_REQUIRED = 3,
+
+    _,
 };
 
 pub const utsname = extern struct {
@@ -1837,6 +1933,120 @@ pub const tcflag_t = u32;
 
 pub const NCCS = 32;
 
+pub const B0 = 0o0000000;
+pub const B50 = 0o0000001;
+pub const B75 = 0o0000002;
+pub const B110 = 0o0000003;
+pub const B134 = 0o0000004;
+pub const B150 = 0o0000005;
+pub const B200 = 0o0000006;
+pub const B300 = 0o0000007;
+pub const B600 = 0o0000010;
+pub const B1200 = 0o0000011;
+pub const B1800 = 0o0000012;
+pub const B2400 = 0o0000013;
+pub const B4800 = 0o0000014;
+pub const B9600 = 0o0000015;
+pub const B19200 = 0o0000016;
+pub const B38400 = 0o0000017;
+pub const BOTHER = 0o0010000;
+pub const B57600 = 0o0010001;
+pub const B115200 = 0o0010002;
+pub const B230400 = 0o0010003;
+pub const B460800 = 0o0010004;
+pub const B500000 = 0o0010005;
+pub const B576000 = 0o0010006;
+pub const B921600 = 0o0010007;
+pub const B1000000 = 0o0010010;
+pub const B1152000 = 0o0010011;
+pub const B1500000 = 0o0010012;
+pub const B2000000 = 0o0010013;
+pub const B2500000 = 0o0010014;
+pub const B3000000 = 0o0010015;
+pub const B3500000 = 0o0010016;
+pub const B4000000 = 0o0010017;
+
+pub usingnamespace switch (builtin.arch) {
+    .powerpc, .powerpc64, .powerpc64le => struct {
+        pub const VINTR = 0;
+        pub const VQUIT = 1;
+        pub const VERASE = 2;
+        pub const VKILL = 3;
+        pub const VEOF = 4;
+        pub const VMIN = 5;
+        pub const VEOL = 6;
+        pub const VTIME = 7;
+        pub const VEOL2 = 8;
+        pub const VSWTC = 9;
+        pub const VWERASE = 10;
+        pub const VREPRINT = 11;
+        pub const VSUSP = 12;
+        pub const VSTART = 13;
+        pub const VSTOP = 14;
+        pub const VLNEXT = 15;
+        pub const VDISCARD = 16;
+    },
+    .sparc, .sparcv9 => struct {
+        pub const VINTR = 0;
+        pub const VQUIT = 1;
+        pub const VERASE = 2;
+        pub const VKILL = 3;
+        pub const VEOF = 4;
+        pub const VEOL = 5;
+        pub const VEOL2 = 6;
+        pub const VSWTC = 7;
+        pub const VSTART = 8;
+        pub const VSTOP = 9;
+        pub const VSUSP = 10;
+        pub const VDSUSP = 11;
+        pub const VREPRINT = 12;
+        pub const VDISCARD = 13;
+        pub const VWERASE = 14;
+        pub const VLNEXT = 15;
+        pub const VMIN = VEOF;
+        pub const VTIME = VEOL;
+    },
+    .mips, .mipsel, .mips64, .mips64el => struct {
+        pub const VINTR = 0;
+        pub const VQUIT = 1;
+        pub const VERASE = 2;
+        pub const VKILL = 3;
+        pub const VMIN = 4;
+        pub const VTIME = 5;
+        pub const VEOL2 = 6;
+        pub const VSWTC = 7;
+        pub const VSWTCH = 7;
+        pub const VSTART = 8;
+        pub const VSTOP = 9;
+        pub const VSUSP = 10;
+        pub const VREPRINT = 12;
+        pub const VDISCARD = 13;
+        pub const VWERASE = 14;
+        pub const VLNEXT = 15;
+        pub const VEOF = 16;
+        pub const VEOL = 17;
+    },
+    else => struct {
+        pub const VINTR = 0;
+        pub const VQUIT = 1;
+        pub const VERASE = 2;
+        pub const VKILL = 3;
+        pub const VEOF = 4;
+        pub const VTIME = 5;
+        pub const VMIN = 6;
+        pub const VSWTC = 7;
+        pub const VSTART = 8;
+        pub const VSTOP = 9;
+        pub const VSUSP = 10;
+        pub const VEOL = 11;
+        pub const VREPRINT = 12;
+        pub const VDISCARD = 13;
+        pub const VWERASE = 14;
+        pub const VLNEXT = 15;
+        pub const VEOL2 = 16;
+    },
+};
+
 pub const IGNBRK = 1;
 pub const BRKINT = 2;
 pub const IGNPAR = 4;
@@ -2012,3 +2222,25 @@ pub const rlimit = extern struct {
     /// Hard limit
     max: rlim_t,
 };
+
+pub const MADV_NORMAL = 0;
+pub const MADV_RANDOM = 1;
+pub const MADV_SEQUENTIAL = 2;
+pub const MADV_WILLNEED = 3;
+pub const MADV_DONTNEED = 4;
+pub const MADV_FREE = 8;
+pub const MADV_REMOVE = 9;
+pub const MADV_DONTFORK = 10;
+pub const MADV_DOFORK = 11;
+pub const MADV_MERGEABLE = 12;
+pub const MADV_UNMERGEABLE = 13;
+pub const MADV_HUGEPAGE = 14;
+pub const MADV_NOHUGEPAGE = 15;
+pub const MADV_DONTDUMP = 16;
+pub const MADV_DODUMP = 17;
+pub const MADV_WIPEONFORK = 18;
+pub const MADV_KEEPONFORK = 19;
+pub const MADV_COLD = 20;
+pub const MADV_PAGEOUT = 21;
+pub const MADV_HWPOISON = 100;
+pub const MADV_SOFT_OFFLINE = 101;

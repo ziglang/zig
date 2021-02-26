@@ -431,3 +431,59 @@ test "zero-sized array with recursive type definition" {
     var t: S = .{ .list = .{ .s = undefined } };
     expectEqual(@as(usize, 0), t.list.x);
 }
+
+test "type coercion of anon struct literal to array" {
+    const S = struct {
+        const U = union{
+            a: u32,
+            b: bool,
+            c: []const u8,
+        };
+
+        fn doTheTest() void {
+            var x1: u8 = 42;
+            const t1 = .{ x1, 56, 54 };
+            var arr1: [3]u8 = t1;
+            expect(arr1[0] == 42);
+            expect(arr1[1] == 56);
+            expect(arr1[2] == 54);
+            
+            var x2: U = .{ .a = 42 };
+            const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
+            var arr2: [3]U = t2;
+            expect(arr2[0].a == 42);
+            expect(arr2[1].b == true);
+            expect(mem.eql(u8, arr2[2].c, "hello"));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "type coercion of pointer to anon struct literal to pointer to array" {
+    const S = struct {
+        const U = union{
+            a: u32,
+            b: bool,
+            c: []const u8,
+        };
+
+        fn doTheTest() void {
+            var x1: u8 = 42;
+            const t1 = &.{ x1, 56, 54 };
+            var arr1: *const[3]u8 = t1;
+            expect(arr1[0] == 42);
+            expect(arr1[1] == 56);
+            expect(arr1[2] == 54);
+            
+            var x2: U = .{ .a = 42 };
+            const t2 = &.{ x2, .{ .b = true }, .{ .c = "hello" } };
+            var arr2: *const [3]U = t2;
+            expect(arr2[0].a == 42);
+            expect(arr2[1].b == true);
+            expect(mem.eql(u8, arr2[2].c, "hello"));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

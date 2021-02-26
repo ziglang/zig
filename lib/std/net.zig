@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -10,8 +10,13 @@ const net = @This();
 const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
+const io = std.io;
 
-pub const has_unix_sockets = @hasDecl(os, "sockaddr_un");
+// Windows 10 added support for unix sockets in build 17063, redstone 4 is the
+// first release to support them.
+pub const has_unix_sockets = @hasDecl(os, "sockaddr_un") and
+    (builtin.os.tag != .windows or
+    std.Target.current.os.version_range.windows.isAtLeast(.win10_rs4) orelse false);
 
 pub const Address = extern union {
     any: os.sockaddr,
@@ -154,7 +159,7 @@ pub const Address = extern union {
                     unreachable;
                 }
 
-                try std.fmt.format(out_stream, "{}", .{&self.un.path});
+                try std.fmt.format(out_stream, "{s}", .{&self.un.path});
             },
             else => unreachable,
         }
@@ -596,7 +601,7 @@ pub const Ip6Address = extern struct {
     }
 };
 
-pub fn connectUnixSocket(path: []const u8) !fs.File {
+pub fn connectUnixSocket(path: []const u8) !Stream {
     const opt_non_block = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
     const sockfd = try os.socket(
         os.AF_UNIX,
@@ -614,7 +619,7 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
         try os.connect(sockfd, &addr.any, addr.getOsSockLen());
     }
 
-    return fs.File{
+    return Stream{
         .handle = sockfd,
     };
 }
@@ -648,7 +653,7 @@ pub const AddressList = struct {
 };
 
 /// All memory allocated with `allocator` will be freed before this function returns.
-pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) !fs.File {
+pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) !Stream {
     const list = try getAddressList(allocator, name, port);
     defer list.deinit();
 
@@ -665,7 +670,7 @@ pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) 
     return std.os.ConnectError.ConnectionRefused;
 }
 
-pub fn tcpConnectToAddress(address: Address) !fs.File {
+pub fn tcpConnectToAddress(address: Address) !Stream {
     const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
     const sock_flags = os.SOCK_STREAM | nonblock |
         (if (builtin.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
@@ -679,7 +684,7 @@ pub fn tcpConnectToAddress(address: Address) !fs.File {
         try os.connect(sockfd, &address.any, address.getOsSockLen());
     }
 
-    return fs.File{ .handle = sockfd };
+    return Stream{ .handle = sockfd };
 }
 
 /// Call `AddressList.deinit` on the result.
@@ -783,13 +788,13 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
         defer lookup_addrs.deinit();
 
-        var canon = std.ArrayListSentineled(u8, 0).initNull(arena);
+        var canon = std.ArrayList(u8).init(arena);
         defer canon.deinit();
 
         try linuxLookupName(&lookup_addrs, &canon, name, family, flags, port);
 
         result.addrs = try arena.alloc(Address, lookup_addrs.items.len);
-        if (!canon.isNull()) {
+        if (canon.items.len != 0) {
             result.canon_name = canon.toOwnedSlice();
         }
 
@@ -818,7 +823,7 @@ const DAS_ORDER_SHIFT = 0;
 
 fn linuxLookupName(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     opt_name: ?[]const u8,
     family: os.sa_family_t,
     flags: u32,
@@ -826,7 +831,8 @@ fn linuxLookupName(
 ) !void {
     if (opt_name) |name| {
         // reject empty name and check len so it fits into temp bufs
-        try canon.replaceContents(name);
+        canon.items.len = 0;
+        try canon.appendSlice(name);
         if (Address.parseExpectingFamily(name, family, port)) |addr| {
             try addrs.append(LookupAddr{ .addr = addr });
         } else |name_err| if ((flags & std.c.AI_NUMERICHOST) != 0) {
@@ -1091,7 +1097,7 @@ fn linuxLookupNameFromNull(
 
 fn linuxLookupNameFromHosts(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     name: []const u8,
     family: os.sa_family_t,
     port: u16,
@@ -1105,7 +1111,7 @@ fn linuxLookupNameFromHosts(
     };
     defer file.close();
 
-    const stream = std.io.bufferedInStream(file.inStream()).inStream();
+    const stream = std.io.bufferedReader(file.reader()).reader();
     var line_buf: [512]u8 = undefined;
     while (stream.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
         error.StreamTooLong => blk: {
@@ -1142,7 +1148,8 @@ fn linuxLookupNameFromHosts(
         // first name is canonical name
         const name_text = first_name_text.?;
         if (isValidHostName(name_text)) {
-            try canon.replaceContents(name_text);
+            canon.items.len = 0;
+            try canon.appendSlice(name_text);
         }
     }
 }
@@ -1161,7 +1168,7 @@ pub fn isValidHostName(hostname: []const u8) bool {
 
 fn linuxLookupNameFromDnsSearch(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     name: []const u8,
     family: os.sa_family_t,
     port: u16,
@@ -1177,10 +1184,10 @@ fn linuxLookupNameFromDnsSearch(
         if (byte == '.') dots += 1;
     }
 
-    const search = if (rc.search.isNull() or dots >= rc.ndots or mem.endsWith(u8, name, "."))
+    const search = if (dots >= rc.ndots or mem.endsWith(u8, name, "."))
         ""
     else
-        rc.search.span();
+        rc.search.items;
 
     var canon_name = name;
 
@@ -1193,30 +1200,30 @@ fn linuxLookupNameFromDnsSearch(
     // name is not a CNAME record) and serves as a buffer for passing
     // the full requested name to name_from_dns.
     try canon.resize(canon_name.len);
-    mem.copy(u8, canon.span(), canon_name);
+    mem.copy(u8, canon.items, canon_name);
     try canon.append('.');
 
     var tok_it = mem.tokenize(search, " \t");
     while (tok_it.next()) |tok| {
-        canon.shrink(canon_name.len + 1);
+        canon.shrinkRetainingCapacity(canon_name.len + 1);
         try canon.appendSlice(tok);
-        try linuxLookupNameFromDns(addrs, canon, canon.span(), family, rc, port);
+        try linuxLookupNameFromDns(addrs, canon, canon.items, family, rc, port);
         if (addrs.items.len != 0) return;
     }
 
-    canon.shrink(canon_name.len);
+    canon.shrinkRetainingCapacity(canon_name.len);
     return linuxLookupNameFromDns(addrs, canon, name, family, rc, port);
 }
 
 const dpc_ctx = struct {
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     port: u16,
 };
 
 fn linuxLookupNameFromDns(
     addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayListSentineled(u8, 0),
+    canon: *std.ArrayList(u8),
     name: []const u8,
     family: os.sa_family_t,
     rc: ResolvConf,
@@ -1271,7 +1278,7 @@ const ResolvConf = struct {
     attempts: u32,
     ndots: u32,
     timeout: u32,
-    search: std.ArrayListSentineled(u8, 0),
+    search: std.ArrayList(u8),
     ns: std.ArrayList(LookupAddr),
 
     fn deinit(rc: *ResolvConf) void {
@@ -1286,7 +1293,7 @@ const ResolvConf = struct {
 fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
     rc.* = ResolvConf{
         .ns = std.ArrayList(LookupAddr).init(allocator),
-        .search = std.ArrayListSentineled(u8, 0).initNull(allocator),
+        .search = std.ArrayList(u8).init(allocator),
         .ndots = 1,
         .timeout = 5,
         .attempts = 2,
@@ -1302,7 +1309,7 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
     };
     defer file.close();
 
-    const stream = std.io.bufferedInStream(file.inStream()).inStream();
+    const stream = std.io.bufferedReader(file.reader()).reader();
     var line_buf: [512]u8 = undefined;
     while (stream.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
         error.StreamTooLong => blk: {
@@ -1338,7 +1345,8 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
             const ip_txt = line_it.next() orelse continue;
             try linuxLookupNameFromNumericUnspec(&rc.ns, ip_txt, 53);
         } else if (mem.eql(u8, token, "domain") or mem.eql(u8, token, "search")) {
-            try rc.search.replaceContents(line_it.rest());
+            rc.search.items.len = 0;
+            try rc.search.appendSlice(line_it.rest());
         }
     }
 
@@ -1569,12 +1577,99 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             _ = try os.dn_expand(packet, data, &tmp);
             const canon_name = mem.spanZ(std.meta.assumeSentinel(&tmp, 0));
             if (isValidHostName(canon_name)) {
-                try ctx.canon.replaceContents(canon_name);
+                ctx.canon.items.len = 0;
+                try ctx.canon.appendSlice(canon_name);
             }
         },
         else => return,
     }
 }
+
+pub const Stream = struct {
+    // Underlying socket descriptor.
+    // Note that on some platforms this may not be interchangeable with a
+    // regular files descriptor.
+    handle: os.socket_t,
+
+    pub fn close(self: Stream) void {
+        os.closeSocket(self.handle);
+    }
+
+    pub const ReadError = os.ReadError;
+    pub const WriteError = os.WriteError;
+
+    pub const Reader = io.Reader(Stream, ReadError, read);
+    pub const Writer = io.Writer(Stream, WriteError, write);
+
+    pub fn reader(self: Stream) Reader {
+        return .{ .context = self };
+    }
+
+    pub fn writer(self: Stream) Writer {
+        return .{ .context = self };
+    }
+
+    pub fn read(self: Stream, buffer: []u8) ReadError!usize {
+        if (std.Target.current.os.tag == .windows) {
+            return os.windows.ReadFile(self.handle, buffer, null, io.default_mode);
+        }
+
+        if (std.io.is_async) {
+            return std.event.Loop.instance.?.read(self.handle, buffer, false);
+        } else {
+            return os.read(self.handle, buffer);
+        }
+    }
+
+    /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
+    /// file system thread instead of non-blocking. It needs to be reworked to properly
+    /// use non-blocking I/O.
+    pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
+        if (std.Target.current.os.tag == .windows) {
+            return os.windows.WriteFile(self.handle, buffer, null, io.default_mode);
+        }
+
+        if (std.io.is_async) {
+            return std.event.Loop.instance.?.write(self.handle, buffer, false);
+        } else {
+            return os.write(self.handle, buffer);
+        }
+    }
+
+    /// See https://github.com/ziglang/zig/issues/7699
+    /// See equivalent function: `std.fs.File.writev`.
+    pub fn writev(self: Stream, iovecs: []const os.iovec_const) WriteError!usize {
+        if (std.io.is_async) {
+            // TODO improve to actually take advantage of writev syscall, if available.
+            if (iovecs.len == 0) return 0;
+            const first_buffer = iovecs[0].iov_base[0..iovecs[0].iov_len];
+            try self.write(first_buffer);
+            return first_buffer.len;
+        } else {
+            return os.writev(self.handle, iovecs);
+        }
+    }
+
+    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
+    /// order to handle partial writes from the underlying OS layer.
+    /// See https://github.com/ziglang/zig/issues/7699
+    /// See equivalent function: `std.fs.File.writevAll`.
+    pub fn writevAll(self: Stream, iovecs: []os.iovec_const) WriteError!void {
+        if (iovecs.len == 0) return;
+
+        var i: usize = 0;
+        while (true) {
+            var amt = try self.writev(iovecs[i..]);
+            while (amt >= iovecs[i].iov_len) {
+                amt -= iovecs[i].iov_len;
+                i += 1;
+                if (i >= iovecs.len) return;
+            }
+            iovecs[i].iov_base += amt;
+            iovecs[i].iov_len -= amt;
+        }
+    }
+};
 
 pub const StreamServer = struct {
     /// Copied from `Options` on `init`.
@@ -1682,7 +1777,7 @@ pub const StreamServer = struct {
     } || os.UnexpectedError;
 
     pub const Connection = struct {
-        file: fs.File,
+        stream: Stream,
         address: Address,
     };
 
@@ -1701,7 +1796,7 @@ pub const StreamServer = struct {
 
         if (accept_result) |fd| {
             return Connection{
-                .file = fs.File{ .handle = fd },
+                .stream = Stream{ .handle = fd },
                 .address = accepted_addr,
             };
         } else |err| switch (err) {
@@ -1711,6 +1806,6 @@ pub const StreamServer = struct {
     }
 };
 
-test "" {
+test {
     _ = @import("net/test.zig");
 }

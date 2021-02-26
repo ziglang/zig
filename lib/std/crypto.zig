@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -134,10 +134,15 @@ pub const nacl = struct {
 
 pub const utils = @import("crypto/utils.zig");
 
+/// This is a thread-local, cryptographically secure pseudo random number generator.
+pub const random = &@import("crypto/tlcsprng.zig").interface;
+
 const std = @import("std.zig");
-pub const randomBytes = std.os.getrandom;
 
 test "crypto" {
+    const please_windows_dont_oom = std.Target.current.os.tag == .windows;
+    if (please_windows_dont_oom) return error.SkipZigTest;
+
     inline for (std.meta.declarations(@This())) |decl| {
         switch (decl.data) {
             .Type => |t| {
@@ -176,6 +181,13 @@ test "crypto" {
     _ = @import("crypto/25519/scalar.zig");
     _ = @import("crypto/25519/x25519.zig");
     _ = @import("crypto/25519/ristretto255.zig");
+}
+
+test "CSPRNG" {
+    const a = random.int(u64);
+    const b = random.int(u64);
+    const c = random.int(u64);
+    std.testing.expect(a ^ b ^ c != 0);
 }
 
 test "issue #4532: no index out of bounds" {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -1129,7 +1129,7 @@ fn swap(
     }
 }
 
-/// Use to generate a comparator function for a given type. e.g. `sort(u8, slice, asc(u8))`.
+/// Use to generate a comparator function for a given type. e.g. `sort(u8, slice, {}, comptime asc(u8))`.
 pub fn asc(comptime T: type) fn (void, T, T) bool {
     const impl = struct {
         fn inner(context: void, a: T, b: T) bool {
@@ -1140,7 +1140,7 @@ pub fn asc(comptime T: type) fn (void, T, T) bool {
     return impl.inner;
 }
 
-/// Use to generate a comparator function for a given type. e.g. `sort(u8, slice, asc(u8))`.
+/// Use to generate a comparator function for a given type. e.g. `sort(u8, slice, {}, comptime desc(u8))`.
 pub fn desc(comptime T: type) fn (void, T, T) bool {
     const impl = struct {
         fn inner(context: void, a: T, b: T) bool {

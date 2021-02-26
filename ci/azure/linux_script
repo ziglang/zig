@@ -3,76 +3,104 @@
 set -x
 set -e
 
-# This parameters we wait at most 2mins, it should be enough to sort out any
-# transient error.
-CMD_MAX_RETRY=12
-CMD_WAIT_TIME=10s
+sudo apt-get update -q
+sudo apt-get install -y cmake s3cmd tidy
 
-# Execute the given command and, in case of failure, try to execute it again
-# after sleeping for CMD_WAIT_TIME.
-# We give up after retrying CMD_MAX_RETRY times.
-retry() {
-  for i in $(seq 1 "$CMD_MAX_RETRY"); do
-    eval "$@" && return
-    echo "command \"$@\" failed, retrying..."
-    sleep ${CMD_WAIT_TIME}
-  done
+ZIGDIR="$(pwd)"
+ARCH="$(uname -m)"
+TARGET="$ARCH-linux-musl"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.859+f1ef0a80f"
+PREFIX="$HOME/$CACHE_BASENAME"
+MCPU="baseline"
+JOBS="-j$(nproc)"
 
-  echo "command \"$@\" failed, giving up..."
-  exit 1
-}
+rm -rf $PREFIX
+cd $HOME
 
-BUILDDIR="$(pwd)"
-
-sudo sh -c 'echo "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-11 main" >> /etc/apt/sources.list'
-retry 'wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -'
-retry sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-
-sudo apt-get remove -y llvm-*
-sudo rm -rf /usr/local/*
-
-retry sudo apt-get update -q
-retry sudo apt-get install -y \
-    libxml2-dev libclang-11-dev llvm-11 llvm-11-dev liblld-11-dev cmake s3cmd \
-    gcc-7 g++-7 ninja-build tidy \
+wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
+tar xf "$CACHE_BASENAME.tar.xz"
 
 QEMUBASE="qemu-linux-x86_64-5.2.0"
-wget -nv https://ziglang.org/deps/$QEMUBASE.tar.xz
-tar xf $QEMUBASE.tar.xz
-PATH=$PWD/$QEMUBASE/bin:$PATH
+wget -nv "https://ziglang.org/deps/$QEMUBASE.tar.xz"
+tar xf "$QEMUBASE.tar.xz"
+export PATH="$(pwd)/$QEMUBASE/bin:$PATH"
 
 WASMTIME="wasmtime-v0.20.0-x86_64-linux"
-wget -nv https://github.com/bytecodealliance/wasmtime/releases/download/v0.20.0/$WASMTIME.tar.xz
-tar xf $WASMTIME.tar.xz
-PATH=$PWD/$WASMTIME:$PATH
+wget -nv "https://github.com/bytecodealliance/wasmtime/releases/download/v0.20.0/$WASMTIME.tar.xz"
+tar xf "$WASMTIME.tar.xz"
+export PATH="$(pwd)/$WASMTIME:$PATH"
+
+ZIG="$PREFIX/bin/zig"
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+
+cd $ZIGDIR
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git config core.abbrev 9
+git fetch --unshallow || true
+git fetch --tags
 
-export CC=gcc-7
-export CXX=g++-7
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
-ninja install
-./zig build test -Denable-qemu -Denable-wasmtime
+cmake .. \
+  -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
+  -DZIG_STATIC=ON
 
-# look for HTML errors
+# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+# so that installation and testing do not get affected by them.
+unset CC
+unset CXX
+
+make $JOBS install
+
+# Here we rebuild zig but this time using the Zig binary we just now produced to
+# build zig1.o rather than relying on the one built with stage0. See
+# https://github.com/ziglang/zig/issues/6830 for more details.
+cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
+make $JOBS install
+
+release/bin/zig build test -Denable-qemu -Denable-wasmtime
+
+# Look for HTML errors.
 tidy -qe ../zig-cache/langref.html
 
-VERSION="$(./zig version)"
-
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
-  ARTIFACTSDIR="$BUILDDIR/artifacts"
-  mkdir "$ARTIFACTSDIR"
-  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm11-x86_64-1 -j2 $BUILD_SOURCEVERSION
-  TARBALL="$(ls $ARTIFACTSDIR)"
-  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-  s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$ARTIFACTSDIR/$TARBALL" s3://ziglang.org/builds/
+  # Produce the experimental std lib documentation.
+  mkdir -p release/docs/std
+  release/bin/zig test ../lib/std/std.zig \
+    --override-lib-dir ../lib \
+    -femit-docs=release/docs/std \
+    -fno-emit-bin
 
-  SHASUM=$(sha256sum $ARTIFACTSDIR/$TARBALL | cut '-d ' -f1)
-  BYTESIZE=$(wc -c < $ARTIFACTSDIR/$TARBALL)
+  mv ../LICENSE release/
+  mv ../zig-cache/langref.html release/docs/
+
+  # Remove the unnecessary bin dir in $prefix/bin/zig
+  mv release/bin/zig release/
+  rmdir release/bin
+
+  # Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
+  mv release/lib/zig release/lib2
+  rmdir release/lib
+  mv release/lib2 release/lib
+
+  VERSION=$(release/zig version)
+  DIRNAME="zig-linux-$ARCH-$VERSION"
+  TARBALL="$DIRNAME.tar.xz"
+  mv release "$DIRNAME"
+  tar cfJ "$TARBALL" "$DIRNAME"
+
+  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
+  s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
+
+  SHASUM=$(sha256sum $TARBALL | cut '-d ' -f1)
+  BYTESIZE=$(wc -c < $TARBALL)
 
   JSONFILE="linux-$GITBRANCH.json"
   touch $JSONFILE
@@ -81,7 +109,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
 
   s3cmd put -P --add-header="Cache-Control: max-age=0, must-revalidate" "$JSONFILE" "s3://ziglang.org/builds/$JSONFILE"
-  s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/x86_64-linux-$VERSION.json"
+  s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/$ARCH-linux-$VERSION.json"
 
   # `set -x` causes these variables to be mangled.
   # See https://developercommunity.visualstudio.com/content/problem/375679/pipeline-variable-incorrectly-inserts-single-quote.html

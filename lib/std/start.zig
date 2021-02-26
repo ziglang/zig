@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -10,6 +10,7 @@ const std = @import("std.zig");
 const builtin = std.builtin;
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
+const tlcsprng = @import("crypto/tlcsprng.zig");
 
 var argc_argv_ptr: [*]usize = undefined;
 
@@ -261,11 +262,11 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
-inline fn initEventLoopAndCallMain() u8 {
+fn initEventLoopAndCallMain() callconv(.Inline) u8 {
     if (std.event.Loop.instance) |loop| {
         if (!@hasDecl(root, "event_loop")) {
             loop.init() catch |err| {
-                std.log.err("{}", .{@errorName(err)});
+                std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -290,11 +291,11 @@ inline fn initEventLoopAndCallMain() u8 {
 // and we want fewer call frames in stack traces.
 // TODO This function is duplicated from initEventLoopAndCallMain instead of using generics
 // because it is working around stage1 compiler bugs.
-inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
+fn initEventLoopAndCallWinMain() callconv(.Inline) std.os.windows.INT {
     if (std.event.Loop.instance) |loop| {
         if (!@hasDecl(root, "event_loop")) {
             loop.init() catch |err| {
-                std.log.err("{}", .{@errorName(err)});
+                std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -342,7 +343,7 @@ pub fn callMain() u8 {
         },
         .ErrorUnion => {
             const result = root.main() catch |err| {
-                std.log.err("{}", .{@errorName(err)});
+                std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }

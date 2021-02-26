@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -35,7 +35,7 @@ const State128L = struct {
         return state;
     }
 
-    inline fn update(state: *State128L, d1: AesBlock, d2: AesBlock) void {
+    fn update(state: *State128L, d1: AesBlock, d2: AesBlock) callconv(.Inline) void {
         const blocks = &state.blocks;
         const tmp = blocks[7];
         comptime var i: usize = 7;
@@ -81,8 +81,8 @@ const State128L = struct {
         while (i < 7) : (i += 1) {
             state.update(tmp, tmp);
         }
-        return blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4]).
-            xorBlocks(blocks[5]).xorBlocks(blocks[6]).toBytes();
+        return blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4])
+            .xorBlocks(blocks[5]).xorBlocks(blocks[6]).toBytes();
     }
 };
 
@@ -207,7 +207,7 @@ const State256 = struct {
         return state;
     }
 
-    inline fn update(state: *State256, d: AesBlock) void {
+    fn update(state: *State256, d: AesBlock) callconv(.Inline) void {
         const blocks = &state.blocks;
         const tmp = blocks[5].encrypt(blocks[0]);
         comptime var i: usize = 5;
@@ -244,8 +244,8 @@ const State256 = struct {
         while (i < 7) : (i += 1) {
             state.update(tmp);
         }
-        return blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4]).
-            xorBlocks(blocks[5]).toBytes();
+        return blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4])
+            .xorBlocks(blocks[5]).toBytes();
     }
 };
 

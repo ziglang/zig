@@ -11,7 +11,7 @@ typedef unsigned long greg_t;
 typedef unsigned long gregset_t[34];
 
 typedef struct {
-	long double vregs[32];
+	__uint128_t vregs[32];
 	unsigned int fpsr;
 	unsigned int fpcr;
 } fpregset_t;
@@ -34,7 +34,7 @@ struct fpsimd_context {
 	struct _aarch64_ctx head;
 	unsigned int fpsr;
 	unsigned int fpcr;
-	long double vregs[32];
+	__uint128_t vregs[32];
 };
 struct esr_context {
 	struct _aarch64_ctx head;

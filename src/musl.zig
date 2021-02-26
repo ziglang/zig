@@ -155,21 +155,21 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 if (!is_arch_specific) {
                     // Look for an arch specific override.
                     override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{}" ++ s ++ "{}" ++ s ++ "{}.s", .{
+                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.s", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.items))
                         continue;
 
                     override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{}" ++ s ++ "{}" ++ s ++ "{}.S", .{
+                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.S", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.items))
                         continue;
 
                     override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{}" ++ s ++ "{}" ++ s ++ "{}.c", .{
+                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.c", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.items))
@@ -200,15 +200,17 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .root_pkg = null,
                 .output_mode = .Lib,
                 .link_mode = .Dynamic,
-                .rand = comp.rand,
+                .thread_pool = comp.thread_pool,
                 .libc_installation = comp.bin_file.options.libc_installation,
                 .emit_bin = Compilation.EmitLoc{ .directory = null, .basename = "libc.so" },
-                .optimize_mode = comp.bin_file.options.optimize_mode,
+                .optimize_mode = comp.compilerRtOptMode(),
                 .want_sanitize_c = false,
                 .want_stack_check = false,
+                .want_red_zone = comp.bin_file.options.red_zone,
                 .want_valgrind = false,
+                .want_tsan = false,
                 .emit_h = null,
-                .strip = comp.bin_file.options.strip,
+                .strip = comp.compilerRtStrip(),
                 .is_native_os = false,
                 .is_native_abi = false,
                 .self_exe_path = comp.self_exe_path,
@@ -224,7 +226,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .c_source_files = &[_]Compilation.CSourceFile{
                     .{ .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "libc.s" }) },
                 },
-                .is_compiler_rt_or_libc = true,
+                .skip_linker_dependencies = true,
                 .soname = "libc.so",
             });
             defer sub_compilation.destroy();
@@ -321,7 +323,7 @@ fn add_cc_args(
     const target = comp.getTarget();
     const arch_name = target_util.archMuslName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
-    const triple = try std.fmt.allocPrint(arena, "{}-{}-musl", .{ arch_name, os_name });
+    const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{ arch_name, os_name });
     const o_arg = if (want_O3) "-O3" else "-Os";
 
     try args.appendSlice(&[_][]const u8{
@@ -520,6 +522,7 @@ const src_files = [_][]const u8{
     "musl/src/errno/strerror.c",
     "musl/src/exit/_Exit.c",
     "musl/src/exit/abort.c",
+    "musl/src/exit/abort_lock.c",
     "musl/src/exit/arm/__aeabi_atexit.c",
     "musl/src/exit/assert.c",
     "musl/src/exit/at_quick_exit.c",
@@ -656,6 +659,7 @@ const src_files = [_][]const u8{
     "musl/src/linux/flock.c",
     "musl/src/linux/getdents.c",
     "musl/src/linux/getrandom.c",
+    "musl/src/linux/gettid.c",
     "musl/src/linux/inotify.c",
     "musl/src/linux/ioperm.c",
     "musl/src/linux/iopl.c",
@@ -729,6 +733,8 @@ const src_files = [_][]const u8{
     "musl/src/locale/wcscoll.c",
     "musl/src/locale/wcsxfrm.c",
     "musl/src/malloc/calloc.c",
+    "musl/src/malloc/free.c",
+    "musl/src/malloc/libc_calloc.c",
     "musl/src/malloc/lite_malloc.c",
     "musl/src/malloc/mallocng/aligned_alloc.c",
     "musl/src/malloc/mallocng/donate.c",
@@ -737,7 +743,12 @@ const src_files = [_][]const u8{
     "musl/src/malloc/mallocng/malloc_usable_size.c",
     "musl/src/malloc/mallocng/realloc.c",
     "musl/src/malloc/memalign.c",
+    "musl/src/malloc/oldmalloc/aligned_alloc.c",
+    "musl/src/malloc/oldmalloc/malloc.c",
+    "musl/src/malloc/oldmalloc/malloc_usable_size.c",
     "musl/src/malloc/posix_memalign.c",
+    "musl/src/malloc/realloc.c",
+    "musl/src/malloc/reallocarray.c",
     "musl/src/malloc/replaced.c",
     "musl/src/math/__cos.c",
     "musl/src/math/__cosdf.c",
@@ -752,6 +763,7 @@ const src_files = [_][]const u8{
     "musl/src/math/__math_divzerof.c",
     "musl/src/math/__math_invalid.c",
     "musl/src/math/__math_invalidf.c",
+    "musl/src/math/__math_invalidl.c",
     "musl/src/math/__math_oflow.c",
     "musl/src/math/__math_oflowf.c",
     "musl/src/math/__math_uflow.c",
@@ -1135,6 +1147,7 @@ const src_files = [_][]const u8{
     "musl/src/math/sinhl.c",
     "musl/src/math/sinl.c",
     "musl/src/math/sqrt.c",
+    "musl/src/math/sqrt_data.c",
     "musl/src/math/sqrtf.c",
     "musl/src/math/sqrtl.c",
     "musl/src/math/tan.c",
@@ -1404,6 +1417,7 @@ const src_files = [_][]const u8{
     "musl/src/prng/random.c",
     "musl/src/prng/seed48.c",
     "musl/src/prng/srand48.c",
+    "musl/src/process/_Fork.c",
     "musl/src/process/arm/vfork.s",
     "musl/src/process/execl.c",
     "musl/src/process/execle.c",
@@ -1831,8 +1845,10 @@ const src_files = [_][]const u8{
     "musl/src/termios/tcflush.c",
     "musl/src/termios/tcgetattr.c",
     "musl/src/termios/tcgetsid.c",
+    "musl/src/termios/tcgetwinsize.c",
     "musl/src/termios/tcsendbreak.c",
     "musl/src/termios/tcsetattr.c",
+    "musl/src/termios/tcsetwinsize.c",
     "musl/src/thread/__lock.c",
     "musl/src/thread/__set_thread_area.c",
     "musl/src/thread/__syscall_cp.c",

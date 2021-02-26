@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -67,12 +67,12 @@ pub const StackTrace = struct {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            return writer.print("\nUnable to print stack trace: Unable to open debug info: {}\n", .{@errorName(err)});
+            return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
         const tty_config = std.debug.detectTTYConfig();
         try writer.writeAll("\n");
         std.debug.writeStackTrace(self, writer, &arena.allocator, debug_info, tty_config) catch |err| {
-            try writer.print("Unable to print stack trace: {}\n", .{@errorName(err)});
+            try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
         try writer.writeAll("\n");
     }
@@ -155,6 +155,7 @@ pub const CallingConvention = enum {
     C,
     Naked,
     Async,
+    Inline,
     Interrupt,
     Signal,
     Stdcall,
@@ -175,7 +176,7 @@ pub const SourceLocation = struct {
     column: u32,
 };
 
-pub const TypeId = @TagType(TypeInfo);
+pub const TypeId = std.meta.Tag(TypeInfo);
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
@@ -404,21 +405,13 @@ pub const TypeInfo = union(enum) {
             /// therefore must be kept in sync with the compiler implementation.
             pub const FnDecl = struct {
                 fn_type: type,
-                inline_type: Inline,
+                is_noinline: bool,
                 is_var_args: bool,
                 is_extern: bool,
                 is_export: bool,
                 lib_name: ?[]const u8,
                 return_type: type,
                 arg_names: []const []const u8,
-
-                /// This data structure is used by the Zig language code generation and
-                /// therefore must be kept in sync with the compiler implementation.
-                pub const Inline = enum {
-                    Auto,
-                    Always,
-                    Never,
-                };
             };
         };
     };
@@ -529,12 +522,12 @@ pub const Version = struct {
         if (fmt.len == 0) {
             if (self.patch == 0) {
                 if (self.minor == 0) {
-                    return std.fmt.format(out_stream, "{}", .{self.major});
+                    return std.fmt.format(out_stream, "{d}", .{self.major});
                 } else {
-                    return std.fmt.format(out_stream, "{}.{}", .{ self.major, self.minor });
+                    return std.fmt.format(out_stream, "{d}.{d}", .{ self.major, self.minor });
                 }
             } else {
-                return std.fmt.format(out_stream, "{}.{}.{}", .{ self.major, self.minor, self.patch });
+                return std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
             }
         } else {
             @compileError("Unknown format string: '" ++ fmt ++ "'");
@@ -683,7 +676,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
             }
         },
         .wasi => {
-            std.debug.warn("{}", .{msg});
+            std.debug.warn("{s}", .{msg});
             std.os.abort();
         },
         .uefi => {
@@ -692,7 +685,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         },
         else => {
             const first_trace_addr = @returnAddress();
-            std.debug.panicExtra(error_return_trace, first_trace_addr, "{}", .{msg});
+            std.debug.panicExtra(error_return_trace, first_trace_addr, "{s}", .{msg});
         },
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -549,8 +549,8 @@ pub const Mutable = struct {
             return;
         }
 
-        const r_len = llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
-        r.len = a.limbs.len - (shift / limb_bits);
+        llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        r.normalize(a.limbs.len - (shift / limb_bits));
         r.positive = a.positive;
     }
 
@@ -607,7 +607,7 @@ pub const Mutable = struct {
     /// it will have the same length as it had when the function was called.
     pub fn gcd(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.ArrayList(Limb)) !void {
         const prev_len = limbs_buffer.items.len;
-        defer limbs_buffer.shrink(prev_len);
+        defer limbs_buffer.shrinkRetainingCapacity(prev_len);
         const x_copy = if (rma.limbs.ptr == x.limbs.ptr) blk: {
             const start = limbs_buffer.items.len;
             try limbs_buffer.appendSlice(x.limbs);
@@ -1348,7 +1348,9 @@ pub const Const = struct {
 
     /// Returns true if `a == 0`.
     pub fn eqZero(a: Const) bool {
-        return a.limbs.len == 1 and a.limbs[0] == 0;
+        var d: Limb = 0;
+        for (a.limbs) |limb| d |= limb;
+        return d == 0;
     }
 
     /// Returns true if `|a| == |b|`.
@@ -2344,6 +2346,6 @@ fn fixedIntFromSignedDoubleLimb(A: SignedDoubleLimb, storage: []Limb) Mutable {
     };
 }
 
-test "" {
+test {
     _ = @import("int_test.zig");
 }

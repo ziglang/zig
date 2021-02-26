@@ -28,6 +28,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -49,7 +51,7 @@ pub const Type = extern union {
             .c_longdouble,
             => return .Float,
 
-            .c_void => return .Opaque,
+            .c_void, .@"opaque" => return .Opaque,
             .bool => return .Bool,
             .void => return .Void,
             .type => return .Type,
@@ -78,6 +80,8 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .pointer,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
             => return .Pointer,
 
             .optional,
@@ -90,7 +94,9 @@ pub const Type = extern union {
 
             .anyframe_T, .@"anyframe" => return .AnyFrame,
 
-            .empty_struct => return .Struct,
+            .@"struct", .empty_struct => return .Struct,
+            .@"enum" => return .Enum,
+            .@"union" => return .Union,
         }
     }
 
@@ -106,24 +112,45 @@ pub const Type = extern union {
 
     pub fn tag(self: Type) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(Tag, @intCast(@TagType(Tag), self.tag_if_small_enough));
+            return @intToEnum(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
         } else {
             return self.ptr_otherwise.tag;
         }
     }
 
+    /// Prefer `castTag` to this.
     pub fn cast(self: Type, comptime T: type) ?*T {
+        if (@hasField(T, "base_tag")) {
+            return base.castTag(T.base_tag);
+        }
+        if (self.tag_if_small_enough < Tag.no_payload_count) {
+            return null;
+        }
+        inline for (@typeInfo(Tag).Enum.fields) |field| {
+            if (field.value < Tag.no_payload_count)
+                continue;
+            const t = @intToEnum(Tag, field.value);
+            if (self.ptr_otherwise.tag == t) {
+                if (T == t.Type()) {
+                    return @fieldParentPtr(T, "base", self.ptr_otherwise);
+                }
+                return null;
+            }
+        }
+        unreachable;
+    }
+
+    pub fn castTag(self: Type, comptime t: Tag) ?*t.Type() {
         if (self.tag_if_small_enough < Tag.no_payload_count)
             return null;
 
-        const expected_tag = std.meta.fieldInfo(T, "base").default_value.?.tag;
-        if (self.ptr_otherwise.tag != expected_tag)
-            return null;
+        if (self.ptr_otherwise.tag == t)
+            return @fieldParentPtr(t.Type(), "base", self.ptr_otherwise);
 
-        return @fieldParentPtr(T, "base", self.ptr_otherwise);
+        return null;
     }
 
-    pub fn castPointer(self: Type) ?*Payload.PointerSimple {
+    pub fn castPointer(self: Type) ?*Payload.ElemType {
         return switch (self.tag()) {
             .single_const_pointer,
             .single_mut_pointer,
@@ -135,7 +162,11 @@ pub const Type = extern union {
             .mut_slice,
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
-            => @fieldParentPtr(Payload.PointerSimple, "base", self.ptr_otherwise),
+            => self.cast(Payload.ElemType),
+
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
+
             else => null,
         };
     }
@@ -165,14 +196,22 @@ pub const Type = extern union {
                 // Hot path for common case:
                 if (a.castPointer()) |a_payload| {
                     if (b.castPointer()) |b_payload| {
-                        return a.tag() == b.tag() and eql(a_payload.pointee_type, b_payload.pointee_type);
+                        return a.tag() == b.tag() and eql(a_payload.data, b_payload.data);
                     }
                 }
                 const is_slice_a = isSlice(a);
                 const is_slice_b = isSlice(b);
                 if (is_slice_a != is_slice_b)
                     return false;
-                @panic("TODO implement more pointer Type equality comparison");
+
+                const ptr_size_a = ptrSize(a);
+                const ptr_size_b = ptrSize(b);
+                if (ptr_size_a != ptr_size_b)
+                    return false;
+
+                std.debug.panic("TODO implement more pointer Type equality comparison: {} and {}", .{
+                    a, b,
+                });
             },
             .Int => {
                 // Detect that e.g. u64 != usize, even if the bits match on a particular target.
@@ -222,8 +261,8 @@ pub const Type = extern union {
                 return true;
             },
             .Optional => {
-                var buf_a: Payload.PointerSimple = undefined;
-                var buf_b: Payload.PointerSimple = undefined;
+                var buf_a: Payload.ElemType = undefined;
+                var buf_b: Payload.ElemType = undefined;
                 return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b));
             },
             .Float,
@@ -286,7 +325,7 @@ pub const Type = extern union {
                 }
             },
             .Optional => {
-                var buf: Payload.PointerSimple = undefined;
+                var buf: Payload.ElemType = undefined;
                 std.hash.autoHash(&hasher, self.optionalChild(&buf).hash());
             },
             .Float,
@@ -320,6 +359,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -354,49 +395,14 @@ pub const Type = extern union {
             .enum_literal,
             .anyerror_void_error_union,
             .@"anyframe",
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
             => unreachable,
 
-            .array_u8_sentinel_0 => return self.copyPayloadShallow(allocator, Payload.Array_u8_Sentinel0),
-            .array_u8 => return self.copyPayloadShallow(allocator, Payload.Array_u8),
-            .array => {
-                const payload = @fieldParentPtr(Payload.Array, "base", self.ptr_otherwise);
-                const new_payload = try allocator.create(Payload.Array);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .len = payload.len,
-                    .elem_type = try payload.elem_type.copy(allocator),
-                };
-                return Type{ .ptr_otherwise = &new_payload.base };
-            },
-            .array_sentinel => {
-                const payload = @fieldParentPtr(Payload.ArraySentinel, "base", self.ptr_otherwise);
-                const new_payload = try allocator.create(Payload.ArraySentinel);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .len = payload.len,
-                    .sentinel = try payload.sentinel.copy(allocator),
-                    .elem_type = try payload.elem_type.copy(allocator),
-                };
-                return Type{ .ptr_otherwise = &new_payload.base };
-            },
-            .int_signed => return self.copyPayloadShallow(allocator, Payload.IntSigned),
-            .int_unsigned => return self.copyPayloadShallow(allocator, Payload.IntUnsigned),
-            .function => {
-                const payload = @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise);
-                const new_payload = try allocator.create(Payload.Function);
-                const param_types = try allocator.alloc(Type, payload.param_types.len);
-                for (payload.param_types) |param_type, i| {
-                    param_types[i] = try param_type.copy(allocator);
-                }
-                new_payload.* = .{
-                    .base = payload.base,
-                    .return_type = try payload.return_type.copy(allocator),
-                    .param_types = param_types,
-                    .cc = payload.cc,
-                };
-                return Type{ .ptr_otherwise = &new_payload.base };
-            },
-            .optional => return self.copyPayloadSingleField(allocator, Payload.Optional, "child_type"),
+            .array_u8,
+            .array_u8_sentinel_0,
+            => return self.copyPayloadShallow(allocator, Payload.Len),
+
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,
@@ -405,19 +411,52 @@ pub const Type = extern union {
             .c_mut_pointer,
             .const_slice,
             .mut_slice,
+            .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
-            => return self.copyPayloadSingleField(allocator, Payload.PointerSimple, "pointee_type"),
-            .anyframe_T => return self.copyPayloadSingleField(allocator, Payload.AnyFrame, "return_type"),
+            .anyframe_T,
+            => return self.copyPayloadShallow(allocator, Payload.ElemType),
 
+            .int_signed,
+            .int_unsigned,
+            => return self.copyPayloadShallow(allocator, Payload.Bits),
+
+            .array => {
+                const payload = self.castTag(.array).?.data;
+                return Tag.array.create(allocator, .{
+                    .len = payload.len,
+                    .elem_type = try payload.elem_type.copy(allocator),
+                });
+            },
+            .array_sentinel => {
+                const payload = self.castTag(.array_sentinel).?.data;
+                return Tag.array_sentinel.create(allocator, .{
+                    .len = payload.len,
+                    .sentinel = try payload.sentinel.copy(allocator),
+                    .elem_type = try payload.elem_type.copy(allocator),
+                });
+            },
+            .function => {
+                const payload = self.castTag(.function).?.data;
+                const param_types = try allocator.alloc(Type, payload.param_types.len);
+                for (payload.param_types) |param_type, i| {
+                    param_types[i] = try param_type.copy(allocator);
+                }
+                return Tag.function.create(allocator, .{
+                    .return_type = try payload.return_type.copy(allocator),
+                    .param_types = param_types,
+                    .cc = payload.cc,
+                });
+            },
             .pointer => {
-                const payload = @fieldParentPtr(Payload.Pointer, "base", self.ptr_otherwise);
-                const new_payload = try allocator.create(Payload.Pointer);
-                new_payload.* = .{
-                    .base = payload.base,
-
+                const payload = self.castTag(.pointer).?.data;
+                const sent: ?Value = if (payload.sentinel) |some|
+                    try some.copy(allocator)
+                else
+                    null;
+                return Tag.pointer.create(allocator, .{
                     .pointee_type = try payload.pointee_type.copy(allocator),
-                    .sentinel = if (payload.sentinel) |some| try some.copy(allocator) else null,
+                    .sentinel = sent,
                     .@"align" = payload.@"align",
                     .bit_offset = payload.bit_offset,
                     .host_size = payload.host_size,
@@ -425,38 +464,30 @@ pub const Type = extern union {
                     .mutable = payload.mutable,
                     .@"volatile" = payload.@"volatile",
                     .size = payload.size,
-                };
-                return Type{ .ptr_otherwise = &new_payload.base };
+                });
             },
             .error_union => {
-                const payload = @fieldParentPtr(Payload.ErrorUnion, "base", self.ptr_otherwise);
-                const new_payload = try allocator.create(Payload.ErrorUnion);
-                new_payload.* = .{
-                    .base = payload.base,
-
+                const payload = self.castTag(.error_union).?.data;
+                return Tag.error_union.create(allocator, .{
                     .error_set = try payload.error_set.copy(allocator),
                     .payload = try payload.payload.copy(allocator),
-                };
-                return Type{ .ptr_otherwise = &new_payload.base };
+                });
             },
-            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
-            .error_set_single => return self.copyPayloadShallow(allocator, Payload.ErrorSetSingle),
-            .empty_struct => return self.copyPayloadShallow(allocator, Payload.EmptyStruct),
+            .error_set => return self.copyPayloadShallow(allocator, Payload.Decl),
+            .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
+            .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
+
+            .@"enum" => return self.copyPayloadShallow(allocator, Payload.Enum),
+            .@"struct" => return self.copyPayloadShallow(allocator, Payload.Struct),
+            .@"union" => return self.copyPayloadShallow(allocator, Payload.Union),
+            .@"opaque" => return self.copyPayloadShallow(allocator, Payload.Opaque),
         }
     }
 
     fn copyPayloadShallow(self: Type, allocator: *Allocator, comptime T: type) error{OutOfMemory}!Type {
-        const payload = @fieldParentPtr(T, "base", self.ptr_otherwise);
+        const payload = self.cast(T).?;
         const new_payload = try allocator.create(T);
         new_payload.* = payload.*;
-        return Type{ .ptr_otherwise = &new_payload.base };
-    }
-
-    fn copyPayloadSingleField(self: Type, allocator: *Allocator, comptime T: type, comptime field_name: []const u8) error{OutOfMemory}!Type {
-        const payload = @fieldParentPtr(T, "base", self.ptr_otherwise);
-        const new_payload = try allocator.create(T);
-        new_payload.base = payload.base;
-        @field(new_payload, field_name) = try @field(payload, field_name).copy(allocator);
         return Type{ .ptr_otherwise = &new_payload.base };
     }
 
@@ -479,6 +510,8 @@ pub const Type = extern union {
                 .i32,
                 .u64,
                 .i64,
+                .u128,
+                .i128,
                 .usize,
                 .isize,
                 .c_short,
@@ -519,120 +552,122 @@ pub const Type = extern union {
                 .fn_ccc_void_no_args => return out_stream.writeAll("fn() callconv(.C) void"),
                 .single_const_pointer_to_comptime_int => return out_stream.writeAll("*const comptime_int"),
                 .function => {
-                    const payload = @fieldParentPtr(Payload.Function, "base", ty.ptr_otherwise);
+                    const payload = ty.castTag(.function).?.data;
                     try out_stream.writeAll("fn(");
                     for (payload.param_types) |param_type, i| {
                         if (i != 0) try out_stream.writeAll(", ");
                         try param_type.format("", .{}, out_stream);
                     }
-                    try out_stream.writeAll(") ");
+                    try out_stream.writeAll(") callconv(.");
+                    try out_stream.writeAll(@tagName(payload.cc));
+                    try out_stream.writeAll(")");
                     ty = payload.return_type;
                     continue;
                 },
 
                 .anyframe_T => {
-                    const payload = @fieldParentPtr(Payload.AnyFrame, "base", ty.ptr_otherwise);
+                    const return_type = ty.castTag(.anyframe_T).?.data;
                     try out_stream.print("anyframe->", .{});
-                    ty = payload.return_type;
+                    ty = return_type;
                     continue;
                 },
                 .array_u8 => {
-                    const payload = @fieldParentPtr(Payload.Array_u8, "base", ty.ptr_otherwise);
-                    return out_stream.print("[{}]u8", .{payload.len});
+                    const len = ty.castTag(.array_u8).?.data;
+                    return out_stream.print("[{d}]u8", .{len});
                 },
                 .array_u8_sentinel_0 => {
-                    const payload = @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", ty.ptr_otherwise);
-                    return out_stream.print("[{}:0]u8", .{payload.len});
+                    const len = ty.castTag(.array_u8_sentinel_0).?.data;
+                    return out_stream.print("[{d}:0]u8", .{len});
                 },
                 .array => {
-                    const payload = @fieldParentPtr(Payload.Array, "base", ty.ptr_otherwise);
-                    try out_stream.print("[{}]", .{payload.len});
+                    const payload = ty.castTag(.array).?.data;
+                    try out_stream.print("[{d}]", .{payload.len});
                     ty = payload.elem_type;
                     continue;
                 },
                 .array_sentinel => {
-                    const payload = @fieldParentPtr(Payload.ArraySentinel, "base", ty.ptr_otherwise);
-                    try out_stream.print("[{}:{}]", .{ payload.len, payload.sentinel });
+                    const payload = ty.castTag(.array_sentinel).?.data;
+                    try out_stream.print("[{d}:{}]", .{ payload.len, payload.sentinel });
                     ty = payload.elem_type;
                     continue;
                 },
                 .single_const_pointer => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.single_const_pointer).?.data;
                     try out_stream.writeAll("*const ");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .single_mut_pointer => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.single_mut_pointer).?.data;
                     try out_stream.writeAll("*");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .many_const_pointer => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.many_const_pointer).?.data;
                     try out_stream.writeAll("[*]const ");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .many_mut_pointer => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.many_mut_pointer).?.data;
                     try out_stream.writeAll("[*]");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .c_const_pointer => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.c_const_pointer).?.data;
                     try out_stream.writeAll("[*c]const ");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .c_mut_pointer => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.c_mut_pointer).?.data;
                     try out_stream.writeAll("[*c]");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .const_slice => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.const_slice).?.data;
                     try out_stream.writeAll("[]const ");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .mut_slice => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.mut_slice).?.data;
                     try out_stream.writeAll("[]");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .int_signed => {
-                    const payload = @fieldParentPtr(Payload.IntSigned, "base", ty.ptr_otherwise);
-                    return out_stream.print("i{}", .{payload.bits});
+                    const bits = ty.castTag(.int_signed).?.data;
+                    return out_stream.print("i{d}", .{bits});
                 },
                 .int_unsigned => {
-                    const payload = @fieldParentPtr(Payload.IntUnsigned, "base", ty.ptr_otherwise);
-                    return out_stream.print("u{}", .{payload.bits});
+                    const bits = ty.castTag(.int_unsigned).?.data;
+                    return out_stream.print("u{d}", .{bits});
                 },
                 .optional => {
-                    const payload = @fieldParentPtr(Payload.Optional, "base", ty.ptr_otherwise);
+                    const child_type = ty.castTag(.optional).?.data;
                     try out_stream.writeByte('?');
-                    ty = payload.child_type;
+                    ty = child_type;
                     continue;
                 },
                 .optional_single_const_pointer => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.optional_single_const_pointer).?.data;
                     try out_stream.writeAll("?*const ");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
                 .optional_single_mut_pointer => {
-                    const payload = @fieldParentPtr(Payload.PointerSimple, "base", ty.ptr_otherwise);
+                    const pointee_type = ty.castTag(.optional_single_mut_pointer).?.data;
                     try out_stream.writeAll("?*");
-                    ty = payload.pointee_type;
+                    ty = pointee_type;
                     continue;
                 },
 
                 .pointer => {
-                    const payload = @fieldParentPtr(Payload.Pointer, "base", ty.ptr_otherwise);
+                    const payload = ty.castTag(.pointer).?.data;
                     if (payload.sentinel) |some| switch (payload.size) {
                         .One, .C => unreachable,
                         .Many => try out_stream.print("[*:{}]", .{some}),
@@ -644,10 +679,10 @@ pub const Type = extern union {
                         .Slice => try out_stream.writeAll("[]"),
                     }
                     if (payload.@"align" != 0) {
-                        try out_stream.print("align({}", .{payload.@"align"});
+                        try out_stream.print("align({d}", .{payload.@"align"});
 
                         if (payload.bit_offset != 0) {
-                            try out_stream.print(":{}:{}", .{ payload.bit_offset, payload.host_size });
+                            try out_stream.print(":{d}:{d}", .{ payload.bit_offset, payload.host_size });
                         }
                         try out_stream.writeAll(") ");
                     }
@@ -659,20 +694,27 @@ pub const Type = extern union {
                     continue;
                 },
                 .error_union => {
-                    const payload = @fieldParentPtr(Payload.ErrorUnion, "base", ty.ptr_otherwise);
+                    const payload = ty.castTag(.error_union).?.data;
                     try payload.error_set.format("", .{}, out_stream);
                     try out_stream.writeAll("!");
                     ty = payload.payload;
                     continue;
                 },
                 .error_set => {
-                    const payload = @fieldParentPtr(Payload.ErrorSet, "base", ty.ptr_otherwise);
-                    return out_stream.writeAll(std.mem.spanZ(payload.decl.name));
+                    const decl = ty.castTag(.error_set).?.data;
+                    return out_stream.writeAll(std.mem.spanZ(decl.name));
                 },
                 .error_set_single => {
-                    const payload = @fieldParentPtr(Payload.ErrorSetSingle, "base", ty.ptr_otherwise);
-                    return out_stream.print("error{{{}}}", .{payload.name});
+                    const name = ty.castTag(.error_set_single).?.data;
+                    return out_stream.print("error{{{s}}}", .{name});
                 },
+                .inferred_alloc_const => return out_stream.writeAll("(inferred_alloc_const)"),
+                .inferred_alloc_mut => return out_stream.writeAll("(inferred_alloc_mut)"),
+                // TODO use declaration name
+                .@"enum" => return out_stream.writeAll("enum {}"),
+                .@"struct" => return out_stream.writeAll("struct {}"),
+                .@"union" => return out_stream.writeAll("union {}"),
+                .@"opaque" => return out_stream.writeAll("opaque {}"),
             }
             unreachable;
         }
@@ -720,11 +762,9 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
             .enum_literal => return Value.initTag(.enum_literal_type),
-            else => {
-                const ty_payload = try allocator.create(Value.Payload.Ty);
-                ty_payload.* = .{ .ty = self };
-                return Value.initPayload(&ty_payload.base);
-            },
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
+            else => return Value.Tag.ty.create(allocator, self),
         }
     }
 
@@ -738,6 +778,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -776,13 +818,16 @@ pub const Type = extern union {
             .array => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
             .array_sentinel, .single_const_pointer, .single_mut_pointer, .many_const_pointer, .many_mut_pointer, .c_const_pointer, .c_mut_pointer, .const_slice, .mut_slice, .pointer => self.elemType().hasCodeGenBits(),
-            .int_signed => self.cast(Payload.IntSigned).?.bits != 0,
-            .int_unsigned => self.cast(Payload.IntUnsigned).?.bits != 0,
+            .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data != 0,
 
             .error_union => {
-                const payload = self.cast(Payload.ErrorUnion).?;
+                const payload = self.castTag(.error_union).?.data;
                 return payload.error_set.hasCodeGenBits() or payload.payload.hasCodeGenBits();
             },
+
+            .@"enum" => @panic("TODO"),
+            .@"struct" => @panic("TODO"),
+            .@"union" => @panic("TODO"),
 
             .c_void,
             .void,
@@ -794,7 +839,11 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .empty_struct,
+            .@"opaque",
             => false,
+
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
         };
     }
 
@@ -827,6 +876,7 @@ pub const Type = extern union {
             .i16, .u16 => return 2,
             .i32, .u32 => return 4,
             .i64, .u64 => return 8,
+            .u128, .i128 => return 16,
 
             .isize,
             .usize,
@@ -847,7 +897,7 @@ pub const Type = extern union {
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .pointer => {
-                const payload = @fieldParentPtr(Payload.Pointer, "base", self.ptr_otherwise);
+                const payload = self.castTag(.pointer).?.data;
 
                 if (payload.@"align" != 0) return payload.@"align";
                 return @divExact(target.cpu.arch.ptrBitWidth(), 8);
@@ -877,18 +927,12 @@ pub const Type = extern union {
             .array, .array_sentinel => return self.elemType().abiAlignment(target),
 
             .int_signed, .int_unsigned => {
-                const bits: u16 = if (self.cast(Payload.IntSigned)) |pl|
-                    pl.bits
-                else if (self.cast(Payload.IntUnsigned)) |pl|
-                    pl.bits
-                else
-                    unreachable;
-
+                const bits: u16 = self.cast(Payload.Bits).?.data;
                 return std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8);
             },
 
             .optional => {
-                var buf: Payload.PointerSimple = undefined;
+                var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
                 if (!child_type.hasCodeGenBits()) return 1;
 
@@ -899,7 +943,7 @@ pub const Type = extern union {
             },
 
             .error_union => {
-                const payload = self.cast(Payload.ErrorUnion).?;
+                const payload = self.castTag(.error_union).?.data;
                 if (!payload.error_set.hasCodeGenBits()) {
                     return payload.payload.abiAlignment(target);
                 } else if (!payload.payload.hasCodeGenBits()) {
@@ -907,6 +951,10 @@ pub const Type = extern union {
                 }
                 @panic("TODO abiAlignment error union");
             },
+
+            .@"enum" => self.cast(Payload.Enum).?.abiAlignment(target),
+            .@"struct" => @panic("TODO"),
+            .@"union" => @panic("TODO"),
 
             .c_void,
             .void,
@@ -918,6 +966,9 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"opaque",
             => unreachable,
         };
     }
@@ -941,27 +992,34 @@ pub const Type = extern union {
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
             .empty_struct => unreachable,
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .@"opaque" => unreachable,
 
             .u8,
             .i8,
             .bool,
             => return 1,
 
-            .array_u8 => @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", self.ptr_otherwise).len,
-            .array_u8_sentinel_0 => @fieldParentPtr(Payload.Array_u8_Sentinel0, "base", self.ptr_otherwise).len + 1,
+            .array_u8 => self.castTag(.array_u8).?.data,
+            .array_u8_sentinel_0 => self.castTag(.array_u8_sentinel_0).?.data + 1,
             .array => {
-                const payload = @fieldParentPtr(Payload.Array, "base", self.ptr_otherwise);
+                const payload = self.castTag(.array).?.data;
                 const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
                 return payload.len * elem_size;
             },
             .array_sentinel => {
-                const payload = @fieldParentPtr(Payload.ArraySentinel, "base", self.ptr_otherwise);
-                const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
+                const payload = self.castTag(.array_sentinel).?.data;
+                const elem_size = std.math.max(
+                    payload.elem_type.abiAlignment(target),
+                    payload.elem_type.abiSize(target),
+                );
                 return (payload.len + 1) * elem_size;
             },
             .i16, .u16 => return 2,
             .i32, .u32 => return 4,
             .i64, .u64 => return 8,
+            .u128, .i128 => return 16,
 
             .@"anyframe", .anyframe_T, .isize, .usize => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
@@ -1014,18 +1072,12 @@ pub const Type = extern union {
             => return 2, // TODO revisit this when we have the concept of the error tag type
 
             .int_signed, .int_unsigned => {
-                const bits: u16 = if (self.cast(Payload.IntSigned)) |pl|
-                    pl.bits
-                else if (self.cast(Payload.IntUnsigned)) |pl|
-                    pl.bits
-                else
-                    unreachable;
-
+                const bits: u16 = self.cast(Payload.Bits).?.data;
                 return std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8);
             },
 
             .optional => {
-                var buf: Payload.PointerSimple = undefined;
+                var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
                 if (!child_type.hasCodeGenBits()) return 1;
 
@@ -1040,7 +1092,7 @@ pub const Type = extern union {
             },
 
             .error_union => {
-                const payload = self.cast(Payload.ErrorUnion).?;
+                const payload = self.castTag(.error_union).?.data;
                 if (!payload.error_set.hasCodeGenBits() and !payload.payload.hasCodeGenBits()) {
                     return 0;
                 } else if (!payload.error_set.hasCodeGenBits()) {
@@ -1050,6 +1102,10 @@ pub const Type = extern union {
                 }
                 @panic("TODO abiSize error union");
             },
+
+            .@"enum" => @panic("TODO"),
+            .@"struct" => @panic("TODO"),
+            .@"union" => @panic("TODO"),
         };
     }
 
@@ -1063,6 +1119,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -1117,14 +1175,110 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
 
             .single_const_pointer,
             .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
             => true,
 
-            .pointer => self.cast(Payload.Pointer).?.size == .One,
+            .pointer => self.castTag(.pointer).?.data.size == .One,
+        };
+    }
+
+    /// Asserts the `Type` is a pointer.
+    pub fn ptrSize(self: Type) std.builtin.TypeInfo.Pointer.Size {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .array,
+            .array_sentinel,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .int_unsigned,
+            .int_signed,
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .enum_literal,
+            .error_union,
+            .@"anyframe",
+            .anyframe_T,
+            .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
+            .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
+            => unreachable,
+
+            .const_slice,
+            .mut_slice,
+            .const_slice_u8,
+            => .Slice,
+
+            .many_const_pointer,
+            .many_mut_pointer,
+            => .Many,
+
+            .c_const_pointer,
+            .c_mut_pointer,
+            => .C,
+
+            .single_const_pointer,
+            .single_mut_pointer,
+            .single_const_pointer_to_comptime_int,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            => .One,
+
+            .pointer => self.castTag(.pointer).?.data.size,
         };
     }
 
@@ -1138,6 +1292,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -1192,6 +1348,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
 
             .const_slice,
@@ -1199,7 +1361,7 @@ pub const Type = extern union {
             .const_slice_u8,
             => true,
 
-            .pointer => self.cast(Payload.Pointer).?.size == .Slice,
+            .pointer => self.castTag(.pointer).?.data.size == .Slice,
         };
     }
 
@@ -1213,6 +1375,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -1264,6 +1428,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
 
             .single_const_pointer,
@@ -1274,7 +1444,7 @@ pub const Type = extern union {
             .const_slice,
             => true,
 
-            .pointer => !self.cast(Payload.Pointer).?.mutable,
+            .pointer => !self.castTag(.pointer).?.data.mutable,
         };
     }
 
@@ -1288,6 +1458,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -1345,10 +1517,16 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
 
             .pointer => {
-                const payload = @fieldParentPtr(Payload.Pointer, "base", self.ptr_otherwise);
+                const payload = self.castTag(.pointer).?.data;
                 return payload.@"volatile";
             },
         };
@@ -1364,6 +1542,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -1421,10 +1601,16 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
 
             .pointer => {
-                const payload = @fieldParentPtr(Payload.Pointer, "base", self.ptr_otherwise);
+                const payload = self.castTag(.pointer).?.data;
                 return payload.@"allowzero";
             },
         };
@@ -1435,7 +1621,7 @@ pub const Type = extern union {
         switch (self.tag()) {
             .optional_single_const_pointer, .optional_single_mut_pointer => return true,
             .optional => {
-                var buf: Payload.PointerSimple = undefined;
+                var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
                 // optionals of zero sized pointers behave like bools
                 if (!child_type.hasCodeGenBits()) return false;
@@ -1473,7 +1659,7 @@ pub const Type = extern union {
             => return false,
 
             .Optional => {
-                var buf: Payload.PointerSimple = undefined;
+                var buf: Payload.ElemType = undefined;
                 return ty.optionalChild(&buf).isValidVarType(is_extern);
             },
             .Pointer, .Array => ty = ty.elemType(),
@@ -1488,61 +1674,68 @@ pub const Type = extern union {
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .usize,
-            .isize,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
-            .c_longdouble,
-            .f16,
-            .f32,
-            .f64,
-            .f128,
-            .c_void,
-            .bool,
-            .void,
-            .type,
-            .anyerror,
-            .comptime_int,
-            .comptime_float,
-            .noreturn,
-            .@"null",
-            .@"undefined",
-            .fn_noreturn_no_args,
-            .fn_void_no_args,
-            .fn_naked_noreturn_no_args,
-            .fn_ccc_void_no_args,
-            .function,
-            .int_unsigned,
-            .int_signed,
-            .optional,
-            .optional_single_const_pointer,
-            .optional_single_mut_pointer,
-            .enum_literal,
-            .error_union,
-            .@"anyframe",
-            .anyframe_T,
-            .anyerror_void_error_union,
-            .error_set,
-            .error_set_single,
-            .empty_struct,
-            => unreachable,
+            .u8 => unreachable,
+            .i8 => unreachable,
+            .u16 => unreachable,
+            .i16 => unreachable,
+            .u32 => unreachable,
+            .i32 => unreachable,
+            .u64 => unreachable,
+            .i64 => unreachable,
+            .u128 => unreachable,
+            .i128 => unreachable,
+            .usize => unreachable,
+            .isize => unreachable,
+            .c_short => unreachable,
+            .c_ushort => unreachable,
+            .c_int => unreachable,
+            .c_uint => unreachable,
+            .c_long => unreachable,
+            .c_ulong => unreachable,
+            .c_longlong => unreachable,
+            .c_ulonglong => unreachable,
+            .c_longdouble => unreachable,
+            .f16 => unreachable,
+            .f32 => unreachable,
+            .f64 => unreachable,
+            .f128 => unreachable,
+            .c_void => unreachable,
+            .bool => unreachable,
+            .void => unreachable,
+            .type => unreachable,
+            .anyerror => unreachable,
+            .comptime_int => unreachable,
+            .comptime_float => unreachable,
+            .noreturn => unreachable,
+            .@"null" => unreachable,
+            .@"undefined" => unreachable,
+            .fn_noreturn_no_args => unreachable,
+            .fn_void_no_args => unreachable,
+            .fn_naked_noreturn_no_args => unreachable,
+            .fn_ccc_void_no_args => unreachable,
+            .function => unreachable,
+            .int_unsigned => unreachable,
+            .int_signed => unreachable,
+            .optional => unreachable,
+            .optional_single_const_pointer => unreachable,
+            .optional_single_mut_pointer => unreachable,
+            .enum_literal => unreachable,
+            .error_union => unreachable,
+            .@"anyframe" => unreachable,
+            .anyframe_T => unreachable,
+            .anyerror_void_error_union => unreachable,
+            .error_set => unreachable,
+            .error_set_single => unreachable,
+            .empty_struct => unreachable,
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .@"enum" => unreachable,
+            .@"struct" => unreachable,
+            .@"union" => unreachable,
+            .@"opaque" => unreachable,
 
-            .array => self.cast(Payload.Array).?.elem_type,
-            .array_sentinel => self.cast(Payload.ArraySentinel).?.elem_type,
+            .array => self.castTag(.array).?.data.elem_type,
+            .array_sentinel => self.castTag(.array_sentinel).?.data.elem_type,
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,
@@ -1551,28 +1744,29 @@ pub const Type = extern union {
             .c_mut_pointer,
             .const_slice,
             .mut_slice,
-            => self.castPointer().?.pointee_type,
+            => self.castPointer().?.data,
             .array_u8, .array_u8_sentinel_0, .const_slice_u8 => Type.initTag(.u8),
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
-            .pointer => self.cast(Payload.Pointer).?.pointee_type,
+            .pointer => self.castTag(.pointer).?.data.pointee_type,
         };
     }
 
     /// Asserts that the type is an optional.
-    pub fn optionalChild(self: Type, buf: *Payload.PointerSimple) Type {
+    /// Resulting `Type` will have inner memory referencing `buf`.
+    pub fn optionalChild(self: Type, buf: *Payload.ElemType) Type {
         return switch (self.tag()) {
-            .optional => self.cast(Payload.Optional).?.child_type,
+            .optional => self.castTag(.optional).?.data,
             .optional_single_mut_pointer => {
                 buf.* = .{
                     .base = .{ .tag = .single_mut_pointer },
-                    .pointee_type = self.castPointer().?.pointee_type,
+                    .data = self.castPointer().?.data,
                 };
                 return Type.initPayload(&buf.base);
             },
             .optional_single_const_pointer => {
                 buf.* = .{
                     .base = .{ .tag = .single_const_pointer },
-                    .pointee_type = self.castPointer().?.pointee_type,
+                    .data = self.castPointer().?.data,
                 };
                 return Type.initPayload(&buf.base);
             },
@@ -1583,23 +1777,16 @@ pub const Type = extern union {
     /// Asserts that the type is an optional.
     /// Same as `optionalChild` but allocates the buffer if needed.
     pub fn optionalChildAlloc(self: Type, allocator: *Allocator) !Type {
-        return switch (self.tag()) {
-            .optional => self.cast(Payload.Optional).?.child_type,
-            .optional_single_mut_pointer, .optional_single_const_pointer => {
-                const payload = try allocator.create(Payload.PointerSimple);
-                payload.* = .{
-                    .base = .{
-                        .tag = if (self.tag() == .optional_single_const_pointer)
-                            .single_const_pointer
-                        else
-                            .single_mut_pointer,
-                    },
-                    .pointee_type = self.castPointer().?.pointee_type,
-                };
-                return Type.initPayload(&payload.base);
+        switch (self.tag()) {
+            .optional => return self.castTag(.optional).?.data,
+            .optional_single_mut_pointer => {
+                return Tag.single_mut_pointer.create(allocator, self.castPointer().?.data);
+            },
+            .optional_single_const_pointer => {
+                return Tag.single_const_pointer.create(allocator, self.castPointer().?.data);
             },
             else => unreachable,
-        };
+        }
     }
 
     /// Asserts the type is an array or vector.
@@ -1613,6 +1800,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -1667,12 +1856,18 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
 
-            .array => self.cast(Payload.Array).?.len,
-            .array_sentinel => self.cast(Payload.ArraySentinel).?.len,
-            .array_u8 => self.cast(Payload.Array_u8).?.len,
-            .array_u8_sentinel_0 => self.cast(Payload.Array_u8_Sentinel0).?.len,
+            .array => self.castTag(.array).?.data.len,
+            .array_sentinel => self.castTag(.array_sentinel).?.data.len,
+            .array_u8 => self.castTag(.array_u8).?.data,
+            .array_u8_sentinel_0 => self.castTag(.array_u8_sentinel_0).?.data,
         };
     }
 
@@ -1687,6 +1882,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -1733,6 +1930,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
 
             .single_const_pointer,
@@ -1746,8 +1949,8 @@ pub const Type = extern union {
             .array_u8,
             => return null,
 
-            .pointer => return self.cast(Payload.Pointer).?.sentinel,
-            .array_sentinel => return self.cast(Payload.ArraySentinel).?.sentinel,
+            .pointer => return self.castTag(.pointer).?.data.sentinel,
+            .array_sentinel => return self.castTag(.array_sentinel).?.data.sentinel,
             .array_u8_sentinel_0 => return Value.initTag(.zero),
         };
     }
@@ -1816,6 +2019,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
 
             .int_signed,
@@ -1828,6 +2037,8 @@ pub const Type = extern union {
             .i16,
             .i32,
             .i64,
+            .u128,
+            .i128,
             => true,
         };
     }
@@ -1880,6 +2091,8 @@ pub const Type = extern union {
             .i16,
             .i32,
             .i64,
+            .u128,
+            .i128,
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
@@ -1891,6 +2104,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
 
             .int_unsigned,
@@ -1956,10 +2175,22 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
 
-            .int_unsigned => .{ .signedness = .unsigned, .bits = self.cast(Payload.IntUnsigned).?.bits },
-            .int_signed => .{ .signedness = .signed, .bits = self.cast(Payload.IntSigned).?.bits },
+            .int_unsigned => .{
+                .signedness = .unsigned,
+                .bits = self.castTag(.int_unsigned).?.data,
+            },
+            .int_signed => .{
+                .signedness = .signed,
+                .bits = self.castTag(.int_signed).?.data,
+            },
             .u8 => .{ .signedness = .unsigned, .bits = 8 },
             .i8 => .{ .signedness = .signed, .bits = 8 },
             .u16 => .{ .signedness = .unsigned, .bits = 16 },
@@ -1968,6 +2199,8 @@ pub const Type = extern union {
             .i32 => .{ .signedness = .signed, .bits = 32 },
             .u64 => .{ .signedness = .unsigned, .bits = 64 },
             .i64 => .{ .signedness = .signed, .bits = 64 },
+            .u128 => .{ .signedness = .unsigned, .bits = 128 },
+            .i128 => .{ .signedness = .signed, .bits = 128 },
             .usize => .{ .signedness = .unsigned, .bits = target.cpu.arch.ptrBitWidth() },
             .isize => .{ .signedness = .signed, .bits = target.cpu.arch.ptrBitWidth() },
             .c_short => .{ .signedness = .signed, .bits = CType.short.sizeInBits(target) },
@@ -2028,6 +2261,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
@@ -2039,6 +2274,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
 
             .usize,
@@ -2088,7 +2329,7 @@ pub const Type = extern union {
             .fn_void_no_args => 0,
             .fn_naked_noreturn_no_args => 0,
             .fn_ccc_void_no_args => 0,
-            .function => @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise).param_types.len,
+            .function => self.castTag(.function).?.data.param_types.len,
 
             .f16,
             .f32,
@@ -2128,6 +2369,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2151,6 +2394,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
         };
     }
@@ -2164,7 +2413,7 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args => return,
             .fn_ccc_void_no_args => return,
             .function => {
-                const payload = @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise);
+                const payload = self.castTag(.function).?.data;
                 std.mem.copy(Type, types, payload.param_types);
             },
 
@@ -2206,6 +2455,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2229,6 +2480,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
         }
     }
@@ -2237,7 +2494,7 @@ pub const Type = extern union {
     pub fn fnParamType(self: Type, index: usize) Type {
         switch (self.tag()) {
             .function => {
-                const payload = @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise);
+                const payload = self.castTag(.function).?.data;
                 return payload.param_types[index];
             },
 
@@ -2283,6 +2540,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2306,6 +2565,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
         }
     }
@@ -2320,7 +2585,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args,
             => Type.initTag(.void),
 
-            .function => @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise).return_type,
+            .function => self.castTag(.function).?.data.return_type,
 
             .f16,
             .f32,
@@ -2360,6 +2625,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2383,6 +2650,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
         };
     }
@@ -2394,7 +2667,7 @@ pub const Type = extern union {
             .fn_void_no_args => .Unspecified,
             .fn_naked_noreturn_no_args => .Naked,
             .fn_ccc_void_no_args => .C,
-            .function => @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise).cc,
+            .function => self.castTag(.function).?.data.cc,
 
             .f16,
             .f32,
@@ -2434,6 +2707,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2457,6 +2732,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
         };
     }
@@ -2508,6 +2789,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2531,6 +2814,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => unreachable,
         };
     }
@@ -2552,6 +2841,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2605,6 +2896,12 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => false,
         };
     }
@@ -2627,6 +2924,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2662,7 +2961,12 @@ pub const Type = extern union {
             .error_union,
             .error_set,
             .error_set_single,
+            .@"opaque",
             => return null,
+
+            .@"enum" => @panic("TODO onePossibleValue enum"),
+            .@"struct" => @panic("TODO onePossibleValue struct"),
+            .@"union" => @panic("TODO onePossibleValue union"),
 
             .empty_struct => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
@@ -2670,15 +2974,8 @@ pub const Type = extern union {
             .@"null" => return Value.initTag(.null_value),
             .@"undefined" => return Value.initTag(.undef),
 
-            .int_unsigned => {
-                if (ty.cast(Payload.IntUnsigned).?.bits == 0) {
-                    return Value.initTag(.zero);
-                } else {
-                    return null;
-                }
-            },
-            .int_signed => {
-                if (ty.cast(Payload.IntSigned).?.bits == 0) {
+            .int_unsigned, .int_signed => {
+                if (ty.cast(Payload.Bits).?.data == 0) {
                     return Value.initTag(.zero);
                 } else {
                     return null;
@@ -2697,14 +2994,15 @@ pub const Type = extern union {
             .single_const_pointer,
             .single_mut_pointer,
             => {
-                const ptr = ty.castPointer().?;
-                ty = ptr.pointee_type;
+                ty = ty.castPointer().?.data;
                 continue;
             },
             .pointer => {
-                ty = ty.cast(Payload.Pointer).?.pointee_type;
+                ty = ty.castTag(.pointer).?.data.pointee_type;
                 continue;
             },
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
         };
     }
 
@@ -2725,6 +3023,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2773,13 +3073,19 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
+            .@"enum",
+            .@"struct",
+            .@"union",
+            .@"opaque",
             => return false,
 
             .c_const_pointer,
             .c_mut_pointer,
             => return true,
 
-            .pointer => self.cast(Payload.Pointer).?.size == .C,
+            .pointer => self.castTag(.pointer).?.data.size == .C,
         };
     }
 
@@ -2808,6 +3114,8 @@ pub const Type = extern union {
             .i32,
             .u64,
             .i64,
+            .u128,
+            .i128,
             .usize,
             .isize,
             .c_short,
@@ -2858,9 +3166,15 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             .pointer,
+            .inferred_alloc_const,
+            .inferred_alloc_mut,
             => unreachable,
 
-            .empty_struct => self.cast(Type.Payload.EmptyStruct).?.scope,
+            .empty_struct => self.castTag(.empty_struct).?.data,
+            .@"enum" => &self.castTag(.@"enum").?.scope,
+            .@"struct" => &self.castTag(.@"struct").?.scope,
+            .@"union" => &self.castTag(.@"union").?.scope,
+            .@"opaque" => &self.castTag(.@"opaque").?.scope,
         };
     }
 
@@ -2874,11 +3188,8 @@ pub const Type = extern union {
         }
 
         if ((info.bits - 1) <= std.math.maxInt(u6)) {
-            const payload = try arena.allocator.create(Value.Payload.Int_i64);
-            payload.* = .{
-                .int = -(@as(i64, 1) << @truncate(u6, info.bits - 1)),
-            };
-            return Value.initPayload(&payload.base);
+            const n: i64 = -(@as(i64, 1) << @truncate(u6, info.bits - 1));
+            return Value.Tag.int_i64.create(&arena.allocator, n);
         }
 
         var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
@@ -2887,13 +3198,9 @@ pub const Type = extern union {
 
         const res_const = res.toConst();
         if (res_const.positive) {
-            const val_payload = try arena.allocator.create(Value.Payload.IntBigPositive);
-            val_payload.* = .{ .limbs = res_const.limbs };
-            return Value.initPayload(&val_payload.base);
+            return Value.Tag.int_big_positive.create(&arena.allocator, res_const.limbs);
         } else {
-            const val_payload = try arena.allocator.create(Value.Payload.IntBigNegative);
-            val_payload.* = .{ .limbs = res_const.limbs };
-            return Value.initPayload(&val_payload.base);
+            return Value.Tag.int_big_negative.create(&arena.allocator, res_const.limbs);
         }
     }
 
@@ -2903,17 +3210,11 @@ pub const Type = extern union {
         const info = self.intInfo(target);
 
         if (info.signedness == .signed and (info.bits - 1) <= std.math.maxInt(u6)) {
-            const payload = try arena.allocator.create(Value.Payload.Int_i64);
-            payload.* = .{
-                .int = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1,
-            };
-            return Value.initPayload(&payload.base);
+            const n: i64 = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1;
+            return Value.Tag.int_i64.create(&arena.allocator, n);
         } else if (info.signedness == .signed and info.bits <= std.math.maxInt(u6)) {
-            const payload = try arena.allocator.create(Value.Payload.Int_u64);
-            payload.* = .{
-                .int = (@as(u64, 1) << @truncate(u6, info.bits)) - 1,
-            };
-            return Value.initPayload(&payload.base);
+            const n: u64 = (@as(u64, 1) << @truncate(u6, info.bits)) - 1;
+            return Value.Tag.int_u64.create(&arena.allocator, n);
         }
 
         var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
@@ -2926,13 +3227,9 @@ pub const Type = extern union {
 
         const res_const = res.toConst();
         if (res_const.positive) {
-            const val_payload = try arena.allocator.create(Value.Payload.IntBigPositive);
-            val_payload.* = .{ .limbs = res_const.limbs };
-            return Value.initPayload(&val_payload.base);
+            return Value.Tag.int_big_positive.create(&arena.allocator, res_const.limbs);
         } else {
-            const val_payload = try arena.allocator.create(Value.Payload.IntBigNegative);
-            val_payload.* = .{ .limbs = res_const.limbs };
-            return Value.initPayload(&val_payload.base);
+            return Value.Tag.int_big_negative.create(&arena.allocator, res_const.limbs);
         }
     }
 
@@ -2952,6 +3249,8 @@ pub const Type = extern union {
         i32,
         u64,
         i64,
+        u128,
+        i128,
         usize,
         isize,
         c_short,
@@ -2985,7 +3284,13 @@ pub const Type = extern union {
         single_const_pointer_to_comptime_int,
         anyerror_void_error_union,
         @"anyframe",
-        const_slice_u8, // See last_no_payload_tag below.
+        const_slice_u8,
+        /// This is a special value that tracks a set of types that have been stored
+        /// to an inferred allocation. It does not support most of the normal type queries.
+        /// However it does respond to `isConstPtr`, `ptrSize`, `zigTypeTag`, etc.
+        inferred_alloc_mut,
+        /// Same as `inferred_alloc_mut` but the local is `var` not `const`.
+        inferred_alloc_const, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         array_u8,
@@ -3012,121 +3317,226 @@ pub const Type = extern union {
         error_set,
         error_set_single,
         empty_struct,
+        @"enum",
+        @"struct",
+        @"union",
+        @"opaque",
 
-        pub const last_no_payload_tag = Tag.const_slice_u8;
+        pub const last_no_payload_tag = Tag.inferred_alloc_const;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
+
+        pub fn Type(comptime t: Tag) type {
+            return switch (t) {
+                .u8,
+                .i8,
+                .u16,
+                .i16,
+                .u32,
+                .i32,
+                .u64,
+                .i64,
+                .u128,
+                .i128,
+                .usize,
+                .isize,
+                .c_short,
+                .c_ushort,
+                .c_int,
+                .c_uint,
+                .c_long,
+                .c_ulong,
+                .c_longlong,
+                .c_ulonglong,
+                .c_longdouble,
+                .f16,
+                .f32,
+                .f64,
+                .f128,
+                .c_void,
+                .bool,
+                .void,
+                .type,
+                .anyerror,
+                .comptime_int,
+                .comptime_float,
+                .noreturn,
+                .enum_literal,
+                .@"null",
+                .@"undefined",
+                .fn_noreturn_no_args,
+                .fn_void_no_args,
+                .fn_naked_noreturn_no_args,
+                .fn_ccc_void_no_args,
+                .single_const_pointer_to_comptime_int,
+                .anyerror_void_error_union,
+                .@"anyframe",
+                .const_slice_u8,
+                .inferred_alloc_const,
+                .inferred_alloc_mut,
+                => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
+
+                .array_u8,
+                .array_u8_sentinel_0,
+                => Payload.Len,
+
+                .single_const_pointer,
+                .single_mut_pointer,
+                .many_const_pointer,
+                .many_mut_pointer,
+                .c_const_pointer,
+                .c_mut_pointer,
+                .const_slice,
+                .mut_slice,
+                .optional,
+                .optional_single_mut_pointer,
+                .optional_single_const_pointer,
+                .anyframe_T,
+                => Payload.ElemType,
+
+                .int_signed,
+                .int_unsigned,
+                => Payload.Bits,
+
+                .array => Payload.Array,
+                .array_sentinel => Payload.ArraySentinel,
+                .pointer => Payload.Pointer,
+                .function => Payload.Function,
+                .error_union => Payload.ErrorUnion,
+                .error_set => Payload.Decl,
+                .error_set_single => Payload.Name,
+                .empty_struct => Payload.ContainerScope,
+                .@"enum" => Payload.Enum,
+                .@"struct" => Payload.Struct,
+                .@"union" => Payload.Union,
+                .@"opaque" => Payload.Opaque,
+            };
+        }
+
+        pub fn init(comptime t: Tag) Type {
+            comptime std.debug.assert(@enumToInt(t) < Tag.no_payload_count);
+            return .{ .tag_if_small_enough = @enumToInt(t) };
+        }
+
+        pub fn create(comptime t: Tag, ally: *Allocator, data: Data(t)) error{OutOfMemory}!Type {
+            const ptr = try ally.create(t.Type());
+            ptr.* = .{
+                .base = .{ .tag = t },
+                .data = data,
+            };
+            return Type{ .ptr_otherwise = &ptr.base };
+        }
+
+        pub fn Data(comptime t: Tag) type {
+            return std.meta.fieldInfo(t.Type(), .data).field_type;
+        }
     };
 
+    /// The sub-types are named after what fields they contain.
     pub const Payload = struct {
         tag: Tag,
 
-        pub const Array_u8_Sentinel0 = struct {
-            base: Payload = Payload{ .tag = .array_u8_sentinel_0 },
-
-            len: u64,
-        };
-
-        pub const Array_u8 = struct {
-            base: Payload = Payload{ .tag = .array_u8 },
-
-            len: u64,
+        pub const Len = struct {
+            base: Payload,
+            data: u64,
         };
 
         pub const Array = struct {
-            base: Payload = Payload{ .tag = .array },
+            pub const base_tag = Tag.array;
 
-            len: u64,
-            elem_type: Type,
+            base: Payload = Payload{ .tag = base_tag },
+            data: struct {
+                len: u64,
+                elem_type: Type,
+            },
         };
 
         pub const ArraySentinel = struct {
-            base: Payload = Payload{ .tag = .array_sentinel },
+            pub const base_tag = Tag.array_sentinel;
 
-            len: u64,
-            sentinel: Value,
-            elem_type: Type,
+            base: Payload = Payload{ .tag = base_tag },
+            data: struct {
+                len: u64,
+                sentinel: Value,
+                elem_type: Type,
+            },
         };
 
-        pub const PointerSimple = struct {
+        pub const ElemType = struct {
             base: Payload,
-
-            pointee_type: Type,
+            data: Type,
         };
 
-        pub const IntSigned = struct {
-            base: Payload = Payload{ .tag = .int_signed },
-
-            bits: u16,
-        };
-
-        pub const IntUnsigned = struct {
-            base: Payload = Payload{ .tag = .int_unsigned },
-
-            bits: u16,
+        pub const Bits = struct {
+            base: Payload,
+            data: u16,
         };
 
         pub const Function = struct {
-            base: Payload = Payload{ .tag = .function },
+            pub const base_tag = Tag.function;
 
-            param_types: []Type,
-            return_type: Type,
-            cc: std.builtin.CallingConvention,
-        };
-
-        pub const Optional = struct {
-            base: Payload = Payload{ .tag = .optional },
-
-            child_type: Type,
+            base: Payload = Payload{ .tag = base_tag },
+            data: struct {
+                param_types: []Type,
+                return_type: Type,
+                cc: std.builtin.CallingConvention,
+            },
         };
 
         pub const Pointer = struct {
-            base: Payload = .{ .tag = .pointer },
+            pub const base_tag = Tag.pointer;
 
-            pointee_type: Type,
-            sentinel: ?Value,
-            /// If zero use pointee_type.AbiAlign()
-            @"align": u32,
-            bit_offset: u16,
-            host_size: u16,
-            @"allowzero": bool,
-            mutable: bool,
-            @"volatile": bool,
-            size: std.builtin.TypeInfo.Pointer.Size,
+            base: Payload = Payload{ .tag = base_tag },
+            data: struct {
+                pointee_type: Type,
+                sentinel: ?Value,
+                /// If zero use pointee_type.AbiAlign()
+                @"align": u32,
+                bit_offset: u16,
+                host_size: u16,
+                @"allowzero": bool,
+                mutable: bool,
+                @"volatile": bool,
+                size: std.builtin.TypeInfo.Pointer.Size,
+            },
         };
 
         pub const ErrorUnion = struct {
-            base: Payload = .{ .tag = .error_union },
+            pub const base_tag = Tag.error_union;
 
-            error_set: Type,
-            payload: Type,
+            base: Payload = Payload{ .tag = base_tag },
+            data: struct {
+                error_set: Type,
+                payload: Type,
+            },
         };
 
-        pub const AnyFrame = struct {
-            base: Payload = .{ .tag = .anyframe_T },
-
-            return_type: Type,
+        pub const Decl = struct {
+            base: Payload,
+            data: *Module.Decl,
         };
 
-        pub const ErrorSet = struct {
-            base: Payload = .{ .tag = .error_set },
-
-            decl: *Module.Decl,
-        };
-
-        pub const ErrorSetSingle = struct {
-            base: Payload = .{ .tag = .error_set_single },
-
+        pub const Name = struct {
+            base: Payload,
             /// memory is owned by `Module`
-            name: []const u8,
+            data: []const u8,
         };
 
         /// Mostly used for namespace like structs with zero fields.
         /// Most commonly used for files.
-        pub const EmptyStruct = struct {
-            base: Payload = .{ .tag = .empty_struct },
-
-            scope: *Module.Scope.Container,
+        pub const ContainerScope = struct {
+            base: Payload,
+            data: *Module.Scope.Container,
         };
+
+        pub const Opaque = struct {
+            base: Payload = .{ .tag = .@"opaque" },
+
+            scope: Module.Scope.Container,
+        };
+
+        pub const Enum = @import("type/Enum.zig");
+        pub const Struct = @import("type/Struct.zig");
+        pub const Union = @import("type/Union.zig");
     };
 };
 
@@ -3254,6 +3664,9 @@ pub const CType = enum {
             .amdpal,
             .hermit,
             .hurd,
+            .opencl,
+            .glsl450,
+            .vulkan,
             => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }

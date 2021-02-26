@@ -69,12 +69,25 @@ _Noreturn void __pthread_exit(void *result)
 
 	__pthread_tsd_run_dtors();
 
+	__block_app_sigs(&set);
+
+	/* This atomic potentially competes with a concurrent pthread_detach
+	 * call; the loser is responsible for freeing thread resources. */
+	int state = a_cas(&self->detach_state, DT_JOINABLE, DT_EXITING);
+
+	if (state==DT_DETACHED && self->map_base) {
+		/* Since __unmapself bypasses the normal munmap code path,
+		 * explicitly wait for vmlock holders first. This must be
+		 * done before any locks are taken, to avoid lock ordering
+		 * issues that could lead to deadlock. */
+		__vm_wait();
+	}
+
 	/* Access to target the exiting thread with syscalls that use
 	 * its kernel tid is controlled by killlock. For detached threads,
 	 * any use past this point would have undefined behavior, but for
 	 * joinable threads it's a valid usage that must be handled.
 	 * Signals must be blocked since pthread_kill must be AS-safe. */
-	__block_app_sigs(&set);
 	LOCK(self->killlock);
 
 	/* The thread list lock must be AS-safe, and thus depends on
@@ -87,6 +100,7 @@ _Noreturn void __pthread_exit(void *result)
 	if (self->next == self) {
 		__tl_unlock();
 		UNLOCK(self->killlock);
+		self->detach_state = state;
 		__restore_sigs(&set);
 		exit(0);
 	}
@@ -125,10 +139,6 @@ _Noreturn void __pthread_exit(void *result)
 	self->prev->next = self->next;
 	self->prev = self->next = self;
 
-	/* This atomic potentially competes with a concurrent pthread_detach
-	 * call; the loser is responsible for freeing thread resources. */
-	int state = a_cas(&self->detach_state, DT_JOINABLE, DT_EXITING);
-
 	if (state==DT_DETACHED && self->map_base) {
 		/* Detached threads must block even implementation-internal
 		 * signals, since they will not have a stack in their last
@@ -140,16 +150,13 @@ _Noreturn void __pthread_exit(void *result)
 		if (self->robust_list.off)
 			__syscall(SYS_set_robust_list, 0, 3*sizeof(long));
 
-		/* Since __unmapself bypasses the normal munmap code path,
-		 * explicitly wait for vmlock holders first. */
-		__vm_wait();
-
 		/* The following call unmaps the thread's stack mapping
 		 * and then exits without touching the stack. */
 		__unmapself(self->map_base, self->map_size);
 	}
 
 	/* Wake any joiner. */
+	a_store(&self->detach_state, DT_EXITED);
 	__wake(&self->detach_state, 1, 1);
 
 	/* After the kernel thread exits, its tid may be reused. Clear it
@@ -314,7 +321,7 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 		new->detach_state = DT_JOINABLE;
 	}
 	new->robust_list.head = &new->robust_list.head;
-	new->CANARY = self->CANARY;
+	new->canary = self->canary;
 	new->sysinfo = self->sysinfo;
 
 	/* Setup argument structure for the new thread on its stack.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -32,6 +32,7 @@ const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 pub const darwin = @import("os/darwin.zig");
 pub const dragonfly = @import("os/dragonfly.zig");
 pub const freebsd = @import("os/freebsd.zig");
+pub const haiku = @import("os/haiku.zig");
 pub const netbsd = @import("os/netbsd.zig");
 pub const openbsd = @import("os/openbsd.zig");
 pub const linux = @import("os/linux.zig");
@@ -43,7 +44,7 @@ comptime {
     assert(@import("std") == std); // std lib tests require --override-lib-dir
 }
 
-test "" {
+test {
     _ = darwin;
     _ = freebsd;
     _ = linux;
@@ -52,6 +53,7 @@ test "" {
     _ = uefi;
     _ = wasi;
     _ = windows;
+    _ = haiku;
 
     _ = @import("os/test.zig");
 }
@@ -66,6 +68,7 @@ else if (builtin.link_libc)
 else switch (builtin.os.tag) {
     .macos, .ios, .watchos, .tvos => darwin,
     .freebsd => freebsd,
+    .haiku => haiku,
     .linux => linux,
     .netbsd => netbsd,
     .openbsd => openbsd,
@@ -191,7 +194,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    const stream = file.inStream();
+    const stream = file.reader();
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 
@@ -324,7 +327,7 @@ pub const ReadError = error{
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
 /// well as stuffing the errno codes into the last `4096` values. This is noted on the `read` man page.
 /// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
-/// For POSIX the limit is `math.maxInt(isize)`.
+/// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, null, std.io.default_mode);
@@ -447,6 +450,12 @@ pub const PReadError = ReadError || error{Unseekable};
 /// return error.WouldBlock when EAGAIN is received.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
+///
+/// Linux has a limit on how many bytes may be transferred in one `pread` call, which is `0x7ffff000`
+/// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
+/// well as stuffing the errno codes into the last `4096` values. This is noted on the `read` man page.
+/// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
+/// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     if (builtin.os.tag == .windows) {
         return windows.ReadFile(fd, buf, offset, std.io.default_mode);
@@ -478,8 +487,16 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
         }
     }
 
+    // Prevent EINVAL.
+    const max_count = switch (std.Target.current.os.tag) {
+        .linux => 0x7ffff000,
+        .macos, .ios, .watchos, .tvos => math.maxInt(i32),
+        else => math.maxInt(isize),
+    };
+    const adjusted_len = math.min(max_count, buf.len);
+
     while (true) {
-        const rc = system.pread(fd, buf.ptr, buf.len, offset);
+        const rc = system.pread(fd, buf.ptr, adjusted_len, offset);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
@@ -585,7 +602,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     const have_pread_but_not_preadv = switch (std.Target.current.os.tag) {
-        .windows, .macos, .ios, .watchos, .tvos => true,
+        .windows, .macos, .ios, .watchos, .tvos, .haiku => true,
         else => false,
     };
     if (have_pread_but_not_preadv) {
@@ -918,7 +935,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
 /// If `iov.len` is larger than will fit in a `u31`, a partial write will occur.
 pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usize {
     const have_pwrite_but_not_pwritev = switch (std.Target.current.os.tag) {
-        .windows, .macos, .ios, .watchos, .tvos => true,
+        .windows, .macos, .ios, .watchos, .tvos, .haiku => true,
         else => false,
     };
 
@@ -1348,89 +1365,10 @@ pub fn execvpeZ_expandArg0(
 /// If `file` is an absolute path, this is the same as `execveZ`.
 pub fn execvpeZ(
     file: [*:0]const u8,
-    argv: [*:null]const ?[*:0]const u8,
+    argv_ptr: [*:null]const ?[*:0]const u8,
     envp: [*:null]const ?[*:0]const u8,
 ) ExecveError {
-    return execvpeZ_expandArg0(.no_expand, file, argv, envp);
-}
-
-/// This is the same as `execvpe` except if the `arg0_expand` parameter is set to `.expand`,
-/// then argv[0] will be replaced with the expanded version of it, after resolving in accordance
-/// with the PATH environment variable.
-pub fn execvpe_expandArg0(
-    allocator: *mem.Allocator,
-    arg0_expand: Arg0Expand,
-    argv_slice: []const []const u8,
-    env_map: *const std.BufMap,
-) (ExecveError || error{OutOfMemory}) {
-    const argv_buf = try allocator.alloc(?[*:0]u8, argv_slice.len + 1);
-    mem.set(?[*:0]u8, argv_buf, null);
-    defer {
-        for (argv_buf) |arg| {
-            const arg_buf = mem.spanZ(arg) orelse break;
-            allocator.free(arg_buf);
-        }
-        allocator.free(argv_buf);
-    }
-    for (argv_slice) |arg, i| {
-        const arg_buf = try allocator.alloc(u8, arg.len + 1);
-        @memcpy(arg_buf.ptr, arg.ptr, arg.len);
-        arg_buf[arg.len] = 0;
-        argv_buf[i] = arg_buf[0..arg.len :0].ptr;
-    }
-    argv_buf[argv_slice.len] = null;
-    const argv_ptr = argv_buf[0..argv_slice.len :null].ptr;
-
-    const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
-    defer freeNullDelimitedEnvMap(allocator, envp_buf);
-
-    switch (arg0_expand) {
-        .expand => return execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr),
-        .no_expand => return execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr),
-    }
-}
-
-/// This function must allocate memory to add a null terminating bytes on path and each arg.
-/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
-/// pointers after the args and after the environment variables.
-/// `argv_slice[0]` is the executable path.
-/// This function also uses the PATH environment variable to get the full path to the executable.
-pub fn execvpe(
-    allocator: *mem.Allocator,
-    argv_slice: []const []const u8,
-    env_map: *const std.BufMap,
-) (ExecveError || error{OutOfMemory}) {
-    return execvpe_expandArg0(allocator, .no_expand, argv_slice, env_map);
-}
-
-pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
-    const envp_count = env_map.count();
-    const envp_buf = try allocator.alloc(?[*:0]u8, envp_count + 1);
-    mem.set(?[*:0]u8, envp_buf, null);
-    errdefer freeNullDelimitedEnvMap(allocator, envp_buf);
-    {
-        var it = env_map.iterator();
-        var i: usize = 0;
-        while (it.next()) |pair| : (i += 1) {
-            const env_buf = try allocator.alloc(u8, pair.key.len + pair.value.len + 2);
-            @memcpy(env_buf.ptr, pair.key.ptr, pair.key.len);
-            env_buf[pair.key.len] = '=';
-            @memcpy(env_buf.ptr + pair.key.len + 1, pair.value.ptr, pair.value.len);
-            const len = env_buf.len - 1;
-            env_buf[len] = 0;
-            envp_buf[i] = env_buf[0..len :0].ptr;
-        }
-        assert(i == envp_count);
-    }
-    return envp_buf[0..envp_count :null];
-}
-
-pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) void {
-    for (envp_buf) |env| {
-        const env_buf = if (env) |ptr| ptr[0 .. mem.len(ptr) + 1] else break;
-        allocator.free(env_buf);
-    }
-    allocator.free(envp_buf);
+    return execvpeZ_expandArg0(.no_expand, file, argv_ptr, envp);
 }
 
 /// Get an environment variable.
@@ -1697,6 +1635,92 @@ pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:
         EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+pub const LinkError = UnexpectedError || error{
+    AccessDenied,
+    DiskQuota,
+    PathAlreadyExists,
+    FileSystem,
+    SymLinkLoop,
+    LinkQuotaExceeded,
+    NameTooLong,
+    FileNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    ReadOnlyFileSystem,
+    NotSameFileSystem,
+};
+
+pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkError!void {
+    switch (errno(system.link(oldpath, newpath, flags))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EDQUOT => return error.DiskQuota,
+        EEXIST => return error.PathAlreadyExists,
+        EFAULT => unreachable,
+        EIO => return error.FileSystem,
+        ELOOP => return error.SymLinkLoop,
+        EMLINK => return error.LinkQuotaExceeded,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOMEM => return error.SystemResources,
+        ENOSPC => return error.NoSpaceLeft,
+        EPERM => return error.AccessDenied,
+        EROFS => return error.ReadOnlyFileSystem,
+        EXDEV => return error.NotSameFileSystem,
+        EINVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn link(oldpath: []const u8, newpath: []const u8, flags: i32) LinkError!void {
+    const old = try toPosixPath(oldpath);
+    const new = try toPosixPath(newpath);
+    return try linkZ(&old, &new, flags);
+}
+
+pub const LinkatError = LinkError || error{NotDir};
+
+pub fn linkatZ(
+    olddir: fd_t,
+    oldpath: [*:0]const u8,
+    newdir: fd_t,
+    newpath: [*:0]const u8,
+    flags: i32,
+) LinkatError!void {
+    switch (errno(system.linkat(olddir, oldpath, newdir, newpath, flags))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EDQUOT => return error.DiskQuota,
+        EEXIST => return error.PathAlreadyExists,
+        EFAULT => unreachable,
+        EIO => return error.FileSystem,
+        ELOOP => return error.SymLinkLoop,
+        EMLINK => return error.LinkQuotaExceeded,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOMEM => return error.SystemResources,
+        ENOSPC => return error.NoSpaceLeft,
+        ENOTDIR => return error.NotDir,
+        EPERM => return error.AccessDenied,
+        EROFS => return error.ReadOnlyFileSystem,
+        EXDEV => return error.NotSameFileSystem,
+        EINVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn linkat(
+    olddir: fd_t,
+    oldpath: []const u8,
+    newdir: fd_t,
+    newpath: []const u8,
+    flags: i32,
+) LinkatError!void {
+    const old = try toPosixPath(oldpath);
+    const new = try toPosixPath(newpath);
+    return try linkatZ(olddir, &old, newdir, &new, flags);
 }
 
 pub const UnlinkError = error{
@@ -3225,6 +3249,9 @@ pub const ConnectError = error{
 
     /// The given path for the unix socket does not exist.
     FileNotFound,
+
+    /// Connection was reset by peer before connect could complete.
+    ConnectionResetByPeer,
 } || UnexpectedError;
 
 /// Initiate a connection on a socket.
@@ -3239,8 +3266,9 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
             .WSAECONNREFUSED => return error.ConnectionRefused,
             .WSAETIMEDOUT => return error.ConnectionTimedOut,
-            .WSAEHOSTUNREACH // TODO: should we return NetworkUnreachable in this case as well?
-            , .WSAENETUNREACH => return error.NetworkUnreachable,
+            .WSAEHOSTUNREACH, // TODO: should we return NetworkUnreachable in this case as well?
+            .WSAENETUNREACH,
+            => return error.NetworkUnreachable,
             .WSAEFAULT => unreachable,
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
@@ -3302,6 +3330,7 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             ETIMEDOUT => return error.ConnectionTimedOut,
+            ECONNRESET => return error.ConnectionResetByPeer,
             else => |err| return unexpectedErrno(err),
         },
         EBADF => unreachable, // The argument sockfd is not a valid file descriptor.
@@ -3830,31 +3859,54 @@ pub fn pipe() PipeError![2]fd_t {
 }
 
 pub fn pipe2(flags: u32) PipeError![2]fd_t {
-    if (comptime std.Target.current.isDarwin()) {
-        var fds: [2]fd_t = try pipe();
-        if (flags == 0) return fds;
-        errdefer {
-            close(fds[0]);
-            close(fds[1]);
-        }
-        for (fds) |fd| switch (errno(system.fcntl(fd, F_SETFL, flags))) {
-            0 => {},
+    if (@hasDecl(system, "pipe2")) {
+        var fds: [2]fd_t = undefined;
+        switch (errno(system.pipe2(&fds, flags))) {
+            0 => return fds,
             EINVAL => unreachable, // Invalid flags
-            EBADF => unreachable, // Always a race condition
+            EFAULT => unreachable, // Invalid fds pointer
+            ENFILE => return error.SystemFdQuotaExceeded,
+            EMFILE => return error.ProcessFdQuotaExceeded,
             else => |err| return unexpectedErrno(err),
-        };
-        return fds;
+        }
     }
 
-    var fds: [2]fd_t = undefined;
-    switch (errno(system.pipe2(&fds, flags))) {
-        0 => return fds,
-        EINVAL => unreachable, // Invalid flags
-        EFAULT => unreachable, // Invalid fds pointer
-        ENFILE => return error.SystemFdQuotaExceeded,
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        else => |err| return unexpectedErrno(err),
+    var fds: [2]fd_t = try pipe();
+    errdefer {
+        close(fds[0]);
+        close(fds[1]);
     }
+
+    if (flags == 0)
+        return fds;
+
+    // O_CLOEXEC is special, it's a file descriptor flag and must be set using
+    // F_SETFD.
+    if (flags & O_CLOEXEC != 0) {
+        for (fds) |fd| {
+            switch (errno(system.fcntl(fd, F_SETFD, @as(u32, FD_CLOEXEC)))) {
+                0 => {},
+                EINVAL => unreachable, // Invalid flags
+                EBADF => unreachable, // Always a race condition
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    }
+
+    const new_flags = flags & ~@as(u32, O_CLOEXEC);
+    // Set every other flag affecting the file status using F_SETFL.
+    if (new_flags != 0) {
+        for (fds) |fd| {
+            switch (errno(system.fcntl(fd, F_SETFL, new_flags))) {
+                0 => {},
+                EINVAL => unreachable, // Invalid flags
+                EBADF => unreachable, // Always a race condition
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    }
+
+    return fds;
 }
 
 pub const SysCtlError = error{
@@ -3872,7 +3924,10 @@ pub fn sysctl(
     newlen: usize,
 ) SysCtlError!void {
     if (builtin.os.tag == .wasi) {
-        @panic("unsupported");
+        @panic("unsupported"); // TODO should be compile error, not panic
+    }
+    if (builtin.os.tag == .haiku) {
+        @panic("unsupported"); // TODO should be compile error, not panic
     }
 
     const name_len = math.cast(c_uint, name.len) catch return error.NameTooLong;
@@ -3896,7 +3951,10 @@ pub fn sysctlbynameZ(
     newlen: usize,
 ) SysCtlError!void {
     if (builtin.os.tag == .wasi) {
-        @panic("unsupported");
+        @panic("unsupported"); // TODO should be compile error, not panic
+    }
+    if (builtin.os.tag == .haiku) {
+        @panic("unsupported"); // TODO should be compile error, not panic
     }
 
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {
@@ -4335,7 +4393,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
         },
         .linux => {
             var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
-            const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
+            const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{d}\x00", .{fd}) catch unreachable;
 
             const target = readlinkZ(std.meta.assumeSentinel(proc_path.ptr, 0), out_buffer) catch |err| {
                 switch (err) {
@@ -4566,7 +4624,7 @@ pub const UnexpectedError = error{
 /// and you get an unexpected error.
 pub fn unexpectedErrno(err: usize) UnexpectedError {
     if (unexpected_error_tracing) {
-        std.debug.warn("unexpected errno: {}\n", .{err});
+        std.debug.warn("unexpected errno: {d}\n", .{err});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -4774,6 +4832,12 @@ pub const SendError = error{
     BrokenPipe,
 
     FileDescriptorNotASocket,
+
+    /// Network is unreachable.
+    NetworkUnreachable,
+
+    /// The local network interface used to reach the destination is down.
+    NetworkSubsystemFailed,
 } || UnexpectedError;
 
 pub const SendToError = SendError || error{
@@ -4790,15 +4854,8 @@ pub const SendToError = SendError || error{
     FileNotFound,
     NotDir,
 
-    /// Network is unreachable.
-    NetworkUnreachable,
-
-    /// Insufficient memory was available to fulfill the request.
-    SystemResources,
-
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
-    WouldBlock,
     AddressNotAvailable,
 };
 
@@ -4853,7 +4910,7 @@ pub fn sendto(
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
                     // TODO: WSAEINPROGRESS, WSAEINTR
                     .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkUnreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENETUNREACH => return error.NetworkUnreachable,
                     .WSAENOTCONN => return error.SocketNotConnected,
@@ -4882,7 +4939,6 @@ pub fn sendto(
                 EMSGSIZE => return error.MessageTooBig,
                 ENOBUFS => return error.SystemResources,
                 ENOMEM => return error.SystemResources,
-                ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
                 ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
                 EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
                 EPIPE => return error.BrokenPipe,
@@ -4892,6 +4948,9 @@ pub fn sendto(
                 ENOENT => return error.FileNotFound,
                 ENOTDIR => return error.NotDir,
                 EHOSTUNREACH => return error.NetworkUnreachable,
+                ENETUNREACH => return error.NetworkUnreachable,
+                ENOTCONN => return error.SocketNotConnected,
+                ENETDOWN => return error.NetworkSubsystemFailed,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -4923,7 +4982,17 @@ pub fn send(
     buf: []const u8,
     flags: u32,
 ) SendError!usize {
-    return sendto(sockfd, buf, flags, null, 0);
+    return sendto(sockfd, buf, flags, null, 0) catch |err| switch (err) {
+        error.AddressFamilyNotSupported => unreachable,
+        error.SymLinkLoop => unreachable,
+        error.NameTooLong => unreachable,
+        error.FileNotFound => unreachable,
+        error.NotDir => unreachable,
+        error.NetworkUnreachable => unreachable,
+        error.AddressNotAvailable => unreachable,
+        error.SocketNotConnected => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub const SendFileError = PReadError || WriteError || SendError;
@@ -4967,7 +5036,7 @@ fn count_iovec_bytes(iovs: []const iovec_const) usize {
 ///
 /// Linux has a limit on how many bytes may be transferred in one `sendfile` call, which is `0x7ffff000`
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
-/// well as stuffing the errno codes into the last `4096` values. This is cited on the `sendfile` man page.
+/// well as stuffing the errno codes into the last `4096` values. This is noted on the `sendfile` man page.
 /// The limit on Darwin is `0x7fffffff`, trying to write more than that returns EINVAL.
 /// The corresponding POSIX limit on this is `math.maxInt(isize)`.
 pub fn sendfile(
@@ -5338,7 +5407,8 @@ pub const PollError = error{
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
-        const rc = system.poll(fds.ptr, fds.len, timeout);
+        const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
+        const rc = system.poll(fds.ptr, fds_count, timeout);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
@@ -5549,6 +5619,9 @@ pub const SetSockOptError = error{
     /// Insufficient resources are available in the system to complete the call.
     SystemResources,
 
+    // Setting the socket option requires more elevated permissions.
+    PermissionDenied,
+
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
     SocketNotBound,
@@ -5581,6 +5654,7 @@ pub fn setsockopt(fd: socket_t, level: u32, optname: u32, opt: []const u8) SetSo
             ENOPROTOOPT => return error.InvalidProtocolOption,
             ENOMEM => return error.SystemResources,
             ENOBUFS => return error.SystemResources,
+            EPERM => return error.PermissionDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -5842,6 +5916,54 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
         EFAULT => unreachable, // bogus pointer
         EINVAL => unreachable,
         EPERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const MadviseError = error{
+    /// advice is MADV_REMOVE, but the specified address range is not a shared writable mapping.
+    AccessDenied,
+    /// advice is MADV_HWPOISON, but the caller does not have the CAP_SYS_ADMIN capability.
+    PermissionDenied,
+    /// A kernel resource was temporarily unavailable.
+    SystemResources,
+    /// One of the following:
+    /// * addr is not page-aligned or length is negative
+    /// * advice is not valid
+    /// * advice is MADV_DONTNEED or MADV_REMOVE and the specified address range
+    ///   includes locked, Huge TLB pages, or VM_PFNMAP pages.
+    /// * advice is MADV_MERGEABLE or MADV_UNMERGEABLE, but the kernel was not
+    ///   configured with CONFIG_KSM.
+    /// * advice is MADV_FREE or MADV_WIPEONFORK but the specified address range
+    ///   includes file, Huge TLB, MAP_SHARED, or VM_PFNMAP ranges.
+    InvalidSyscall,
+    /// (for MADV_WILLNEED) Paging in this area would exceed the process's
+    /// maximum resident set size.
+    WouldExceedMaximumResidentSetSize,
+    /// One of the following:
+    /// * (for MADV_WILLNEED) Not enough memory: paging in failed.
+    /// * Addresses in the specified range are not currently mapped, or
+    ///   are outside the address space of the process.
+    OutOfMemory,
+    /// The madvise syscall is not available on this version and configuration
+    /// of the Linux kernel.
+    MadviseUnavailable,
+    /// The operating system returned an undocumented error code.
+    Unexpected,
+};
+
+/// Give advice about use of memory.
+/// This syscall is optional and is sometimes configured to be disabled.
+pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
+    switch (errno(system.madvise(ptr, length, advice))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EAGAIN => return error.SystemResources,
+        EBADF => unreachable, // The map exists, but the area maps something that isn't a file.
+        EINVAL => return error.InvalidSyscall,
+        EIO => return error.WouldExceedMaximumResidentSetSize,
+        ENOMEM => return error.OutOfMemory,
+        ENOSYS => return error.MadviseUnavailable,
         else => |err| return unexpectedErrno(err),
     }
 }

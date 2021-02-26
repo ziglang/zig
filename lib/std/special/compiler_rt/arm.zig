@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
+// Copyright (c) 2015-2021 Zig Contributors
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
@@ -66,10 +66,7 @@ pub fn __aeabi_uidivmod() callconv(.Naked) void {
         \\ ldr r1, [sp]
         \\ add sp, #4
         \\ pop {pc}
-        :
-        :
-        : "memory"
-    );
+        ::: "memory");
     unreachable;
 }
 
@@ -86,10 +83,7 @@ pub fn __aeabi_uldivmod() callconv(.Naked) void {
         \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
-        :
-        :
-        : "memory"
-    );
+        ::: "memory");
     unreachable;
 }
 
@@ -104,10 +98,7 @@ pub fn __aeabi_idivmod() callconv(.Naked) void {
         \\ ldr r1, [sp]
         \\ add sp, #4
         \\ pop {pc}
-        :
-        :
-        : "memory"
-    );
+        ::: "memory");
     unreachable;
 }
 
@@ -124,9 +115,6 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
         \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
-        :
-        :
-        : "memory"
-    );
+        ::: "memory");
     unreachable;
 }
