@@ -609,7 +609,7 @@ pub const UserInfo = struct {
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (builtin.os.tag) {
-        .linux, .macos, .watchos, .tvos, .ios, .freebsd, .netbsd, .openbsd => posixGetUserInfo(name),
+        .linux, .macos, .watchos, .tvos, .ios, .freebsd, .netbsd, .openbsd, .haiku => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
 }
@@ -775,6 +775,24 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
                 errdefer allocator.free(item);
                 try paths.append(item);
             }
+            return paths.toOwnedSlice();
+        },
+        // revisit if Haiku implements dl_iterat_phdr (https://dev.haiku-os.org/ticket/15743)
+        .haiku => {
+            var paths = List.init(allocator);
+            errdefer {
+                const slice = paths.toOwnedSlice();
+                for (slice) |item| {
+                    allocator.free(item);
+                }
+                allocator.free(slice);
+            }
+
+            var b = "/boot/system/runtime_loader";
+            const item = try allocator.dupeZ(u8, mem.spanZ(b));
+            errdefer allocator.free(item);
+            try paths.append(item);
+
             return paths.toOwnedSlice();
         },
         else => @compileError("getSelfExeSharedLibPaths unimplemented for this target"),

@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -427,6 +427,78 @@ pub const Dir = struct {
                 }
             }
         },
+        .haiku => struct {
+            dir: Dir,
+            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            index: usize,
+            end_index: usize,
+
+            const Self = @This();
+
+            pub const Error = IteratorError;
+
+            /// Memory such as file names referenced in this returned entry becomes invalid
+            /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
+            pub fn next(self: *Self) Error!?Entry {
+                start_over: while (true) {
+                    // TODO: find a better max
+                    const HAIKU_MAX_COUNT = 10000;
+                    if (self.index >= self.end_index) {
+                        const rc = os.system._kern_read_dir(
+                            self.dir.fd,
+                            &self.buf,
+                            self.buf.len,
+                            HAIKU_MAX_COUNT,
+                        );
+                        if (rc == 0) return null;
+                        if (rc < 0) {
+                            switch (os.errno(rc)) {
+                                os.EBADF => unreachable, // Dir is invalid or was opened without iteration ability
+                                os.EFAULT => unreachable,
+                                os.ENOTDIR => unreachable,
+                                os.EINVAL => unreachable,
+                                else => |err| return os.unexpectedErrno(err),
+                            }
+                        }
+                        self.index = 0;
+                        self.end_index = @intCast(usize, rc);
+                    }
+                    const haiku_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const next_index = self.index + haiku_entry.reclen();
+                    self.index = next_index;
+                    const name = mem.spanZ(@ptrCast([*:0]u8, &haiku_entry.d_name));
+
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.d_ino == 0)) {
+                        continue :start_over;
+                    }
+
+                    var stat_info: os.libc_stat = undefined;
+                    const rc2 = os.system._kern_read_stat(
+                        self.dir.fd,
+                        &haiku_entry.d_name,
+                        false,
+                        &stat_info,
+                        0,
+                    );
+                    const statmode = stat_info.mode & os.S_IFMT;
+
+                    const entry_kind = switch (statmode) {
+                        os.S_IFDIR => Entry.Kind.Directory,
+                        os.S_IFBLK => Entry.Kind.BlockDevice,
+                        os.S_IFCHR => Entry.Kind.CharacterDevice,
+                        os.S_IFLNK => Entry.Kind.SymLink,
+                        os.S_IFREG => Entry.Kind.File,
+                        os.S_IFIFO => Entry.Kind.NamedPipe,
+                        else => Entry.Kind.Unknown,
+                    };
+
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
+            }
+        },
         .linux => struct {
             dir: Dir,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
@@ -621,14 +693,20 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => return Iterator{
+            .macos,
+            .ios,
+            .freebsd,
+            .netbsd,
+            .dragonfly,
+            .openbsd,
+            => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
             },
-            .linux => return Iterator{
+            .linux, .haiku => return Iterator{
                 .dir = self,
                 .index = 0,
                 .end_index = 0,
@@ -2339,7 +2417,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0));
         },
-        .openbsd => {
+        .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len == 0)
                 return error.FileNotFound;
