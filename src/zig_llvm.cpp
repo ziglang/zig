@@ -802,16 +802,6 @@ void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_v
     func->setAttributes(new_attr_set);
 }
 
-void ZigLLVMAddSRetAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val) {
-    Function *func = unwrap<Function>(fn_ref);
-    const AttributeList attr_set = func->getAttributes();
-    AttrBuilder attr_builder;
-    Type *llvm_type = unwrap<Type>(type_val);
-    attr_builder.addStructRetAttr(llvm_type);
-    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(), 1, attr_builder);
-    func->setAttributes(new_attr_set);
-}
-
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
     Function *func = unwrap<Function>(fn_ref);
     const AttributeList attr_set = func->getAttributes();

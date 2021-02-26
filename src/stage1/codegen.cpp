@@ -549,7 +549,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
             // Sret pointers must not be address 0
             addLLVMArgAttr(llvm_fn, 0, "nonnull");
-            ZigLLVMAddSRetAttr(llvm_fn, get_llvm_type(g, fn_type->data.fn.fn_type_id.return_type));
+            addLLVMArgAttr(llvm_fn, 0, "sret");
             if (cc_want_sret_attr(cc)) {
                 addLLVMArgAttr(llvm_fn, 0, "noalias");
             }
