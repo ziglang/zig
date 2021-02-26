@@ -3000,18 +3000,9 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator, optio
             \\
         );
         if (optional_mod) |mod| {
-            {
-                var pkg_it = mod.root_pkg.table.iterator();
-                while (pkg_it.next()) |pkg| {
-                    try buffer.writer().print("    \"{s}\",\n", .{pkg.key});
-                }
-            }
-            if (mod.root_pkg.table.get("@build")) |build_pkg| {
-                var pkg_it = build_pkg.table.iterator();
-                while (pkg_it.next()) |pkg| {
-                    try buffer.writer().print("    \"{s}\",\n", .{pkg.key});
-                }
-            }
+            // TODO: this isn't right, each package should have it's
+            //       own set of sub-packages
+            try recursiveWritePackageNames(buffer.writer(), mod.root_pkg);
         }
         try buffer.writer().writeAll(
             \\};
@@ -3047,6 +3038,14 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator, optio
     }
 
     return buffer.toOwnedSlice();
+}
+
+fn recursiveWritePackageNames(writer: anytype, pkg: *const Package) anyerror!void {
+    var pkg_it = pkg.table.iterator();
+    while (pkg_it.next()) |sub_pkg| {
+        try writer.print("    \"{s}\",\n", .{sub_pkg.key});
+        try recursiveWritePackageNames(writer, sub_pkg.value);
+    }
 }
 
 pub fn updateSubCompilation(sub_compilation: *Compilation) !void {

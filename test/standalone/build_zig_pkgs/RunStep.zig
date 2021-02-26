@@ -6,7 +6,7 @@ const RunStep = @This();
 
 pub const Options = struct {
     expect: enum { fail, pass },
-    output: []const u8,
+    outputs: []const []const u8,
     args: []const []const u8,
 };
 
@@ -44,8 +44,10 @@ fn make(step: *Step) !void {
     } else {
         if (self.opt.expect == .pass) return error.ZigBuildFailed;
     }
-    _ = std.mem.indexOf(u8, stderr, self.opt.output) orelse {
-        std.debug.print("Error: did not get expected output '{s}':\n", .{self.opt.output});
-        return error.UnexpectedOutput;
-    };
+    for (self.opt.outputs) |output| {
+        _ = std.mem.indexOf(u8, stderr, output) orelse {
+            std.debug.print("Error: did not get expected output '{s}':\n", .{output});
+            return error.UnexpectedOutput;
+        };
+    }
 }

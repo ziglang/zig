@@ -7,7 +7,7 @@ pub fn build(b: *Builder) !void {
 
     try addRunStep(b, test_step, .{
         .expect = .pass,
-        .output = "android not enabled, 'androidbuild' package not needed",
+        .outputs = &[_][]const u8 {"android not enabled, 'androidbuild' package not needed"},
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build",
@@ -17,7 +17,7 @@ pub fn build(b: *Builder) !void {
     });
     try addRunStep(b, test_step, .{
         .expect = .fail,
-        .output = "missing package 'androidbuild'",
+        .outputs = &[_][]const u8 { "missing package 'androidbuild'" },
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build",
@@ -28,7 +28,7 @@ pub fn build(b: *Builder) !void {
     });
     try addRunStep(b, test_step, .{
         .expect = .pass,
-        .output = "we have and need the 'androidbuild' package",
+        .outputs = &[_][]const u8 { "we have and need the 'androidbuild' package" },
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build",
@@ -43,7 +43,10 @@ pub fn build(b: *Builder) !void {
     });
     try addRunStep(b, test_step, .{
         .expect = .fail,
-        .output = "-Dfastcompress requires the 'fastcompressor' package",
+        .outputs = &[_][]const u8 {
+            "we have and need the 'androidbuild' package",
+            "-Dfastcompress requires the 'fastcompressor' package"
+        },
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build",
@@ -58,8 +61,11 @@ pub fn build(b: *Builder) !void {
         }),
     });
     try addRunStep(b, test_step, .{
-        .expect = .fail,
-        .output = "-Dfastcompress requires the 'fastcompressor' package",
+        .expect = .pass,
+        .outputs = &[_][]const u8 {
+            "we have and need the 'androidbuild' package",
+            "we have and need the 'fastcompressor' package",
+         },
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build",
@@ -69,8 +75,8 @@ pub fn build(b: *Builder) !void {
             "androidbuild",
             "android/build.zig",
             "--pkg-begin",
-            "fastcompress",
-            "fastcompress/build.zig",
+            "fastcompressor",
+            "fastcompressor/build.zig",
             "--pkg-end",
             "--pkg-end",
             "-Dandroid",
@@ -79,7 +85,7 @@ pub fn build(b: *Builder) !void {
     });
     try addRunStep(b, test_step, .{
         .expect = .fail,
-        .output = "builtin.hasPkg MUST be called with comptime",
+        .outputs = &[_][]const u8 { "builtin.hasPkg MUST be called with comptime" },
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build",
@@ -88,7 +94,7 @@ pub fn build(b: *Builder) !void {
     });
     try addRunStep(b, test_step, .{
         .expect = .fail,
-        .output = "builtin.hasPkg is only available in build.zig",
+        .outputs = &[_][]const u8 { "builtin.hasPkg is only available in build.zig" },
         .args = try std.mem.dupe(b.allocator, []const u8, &[_][]const u8 {
             b.zig_exe,
             "build-exe",

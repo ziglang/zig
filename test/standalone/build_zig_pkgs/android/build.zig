@@ -12,10 +12,11 @@ pub fn getApkOptions(b: *Builder) Options {
 }
 
 pub fn makeApk(b: *Builder, options: Options) !void {
-    // let's imagine android as an optional
+    // android has its own optional dependency
     if (options.fastcompress) {
         if (comptime std.builtin.hasPkg("fastcompressor")) {
             const fastcompressor = @import("fastcompressor");
+            std.log.info("we have and need the 'fastcompressor' package", .{});
             fastcompressor.doTheThing();
         } else {
             std.log.err("-Dfastcompress requires the 'fastcompressor' package", .{});
