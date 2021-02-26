@@ -3036,13 +3036,8 @@ pub fn generateBuildpkgsZigSource(allocator: *Allocator, pkg: *const Package) ![
         \\pub const names = &[_][]const u8 {
         \\
     );
-    //std.log.info("writePackageNames: begin (path={s}, dir={s})", .{
-    //    pkg.root_src_path,
-    //    if (pkg.root_src_directory.path) |p| p else "<none>",
-    //});
     var pkg_it = pkg.table.iterator();
     while (pkg_it.next()) |sub_pkg| {
-        //std.log.info("writePackageNames: name={s}", .{sub_pkg.key});
         try buffer.writer().print("    \"{s}\",\n", .{sub_pkg.key});
     }
     try buffer.writer().writeAll(
