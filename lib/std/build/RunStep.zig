@@ -166,7 +166,7 @@ fn make(step: *Step) !void {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     self.addPathForDynLibs(artifact);
                 }
-                const executable_path = artifact.installed_path orelse artifact.getOutputPath();
+                const executable_path = artifact.installed_path orelse artifact.getOutputSource().getPath(self.builder);
                 try argv_list.append(executable_path);
             },
         }
@@ -312,7 +312,7 @@ fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
         switch (link_object) {
             .other_step => |other| {
                 if (other.target.isWindows() and other.isDynamicLibrary()) {
-                    self.addPathDir(fs.path.dirname(other.getOutputPath()).?);
+                    self.addPathDir(fs.path.dirname(other.getOutputSource().getPath(self.builder)).?);
                     self.addPathForDynLibs(other);
                 }
             },

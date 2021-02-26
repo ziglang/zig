@@ -707,7 +707,7 @@ pub const StackTracesContext = struct {
             const self = @fieldParentPtr(RunAndCompareStep, "step", step);
             const b = self.context.b;
 
-            const full_exe_path = self.exe.getOutputPath();
+            const full_exe_path = self.exe.getOutputSource().getPath(b);
             var args = ArrayList([]const u8).init(b.allocator);
             defer args.deinit();
             args.append(full_exe_path) catch unreachable;

@@ -33,28 +33,10 @@ pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         .include_dirs = std.ArrayList([]const u8).init(builder.allocator),
         .output_dir = null,
         .out_basename = undefined,
-        .output_file = build.GeneratedFile{
-            .step = &self.step,
-            .getPathFn = getGeneratedFilePath,
-        },
+        .output_file = build.GeneratedFile{ .step = &self.step },
     };
     source.addStepDependencies(&self.step);
     return self;
-}
-
-fn getGeneratedFilePath(file: *const build.GeneratedFile) []const u8 {
-    const self = @fieldParentPtr(TranslateCStep, "step", file.step);
-    return self.getOutputPath();
-}
-
-/// Unless setOutputDir was called, this function must be called only in
-/// the make step, from a step that has declared a dependency on this one.
-/// To run an executable built with zig build, use `run`, or create an install step and invoke it.
-pub fn getOutputPath(self: *TranslateCStep) []const u8 {
-    return fs.path.join(
-        self.builder.allocator,
-        &[_][]const u8{ self.output_dir.?, self.out_basename },
-    ) catch unreachable;
 }
 
 pub fn setTarget(self: *TranslateCStep, target: CrossTarget) void {
@@ -106,4 +88,9 @@ fn make(step: *Step) !void {
     } else {
         self.output_dir = fs.path.dirname(output_path).?;
     }
+
+    self.source.path = fs.path.join(
+        self.builder.allocator,
+        &[_][]const u8{ self.output_dir.?, self.out_basename },
+    ) catch unreachable;
 }

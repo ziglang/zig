@@ -214,7 +214,7 @@ fn make(step: *Step) !void {
         return error.InvalidObjectFormat;
     }
 
-    const full_src_path = self.artifact.getOutputPath();
+    const full_src_path = self.artifact.getOutputSource().getPath(builder);
     const full_dest_path = builder.getInstallPath(self.dest_dir, self.dest_filename);
 
     fs.cwd().makePath(builder.getInstallPath(self.dest_dir, "")) catch unreachable;

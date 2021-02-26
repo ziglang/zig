@@ -37,10 +37,7 @@ pub fn add(self: *WriteFileStep, basename: []const u8, bytes: []const u8) void {
     const node = self.builder.allocator.create(std.TailQueue(File).Node) catch unreachable;
     node.* = .{
         .data = .{
-            .source = build.GeneratedFile{
-                .step = &self.step,
-                .getPathFn = getFilePath,
-            },
+            .source = build.GeneratedFile{ .step = &self.step },
             .basename = self.builder.dupePath(basename),
             .bytes = self.builder.dupe(bytes),
         },
@@ -57,17 +54,6 @@ pub fn getFileSource(step: *WriteFileStep, basename: []const u8) ?build.FileSour
             return build.FileSource{ .generated = &node.data.source };
     }
     return null;
-}
-
-/// Returns the
-fn getFilePath(source: *const build.GeneratedFile) []const u8 {
-    const file = @fieldParentPtr(File, "source", source);
-    const step = @fieldParentPtr(WriteFileStep, "step", source.step);
-
-    return fs.path.join(
-        step.builder.allocator,
-        &[_][]const u8{ step.output_dir, file.basename },
-    ) catch unreachable;
 }
 
 fn make(step: *Step) !void {
@@ -124,6 +110,10 @@ fn make(step: *Step) !void {
                 });
                 return err;
             };
+            node.data.source.path = fs.path.join(
+                self.builder.allocator,
+                &[_][]const u8{ self.output_dir, node.data.basename },
+            ) catch unreachable;
         }
     }
 }

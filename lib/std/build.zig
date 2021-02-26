@@ -1228,11 +1228,12 @@ pub const GeneratedFile = struct {
     /// The step that generates the file
     step: *Step,
 
-    /// A function that returns the absolute path to the generated file.
-    getPathFn: fn (self: *const GeneratedFile) []const u8,
+    /// The path to the generated file. Must be either absolute or relative to the build root.
+    /// This value must be set in the `fn make()` of the `step` and must not be `null` afterwards.
+    path: ?[]const u8 = null,
 
     pub fn getPath(self: *const GeneratedFile) []const u8 {
-        return self.getPathFn(self);
+        return self.path orelse @panic("getPath() was called on a GeneratedFile that wasn't build yet. Is there a missing Step dependency?");
     }
 };
 
@@ -1414,6 +1415,11 @@ pub const LibExeObjStep = struct {
 
     want_lto: ?bool = null,
 
+    output_path_source: GeneratedFile,
+    output_lib_path_source: GeneratedFile,
+    output_h_path_source: GeneratedFile,
+    output_pdb_path_source: GeneratedFile,
+
     const LinkObject = union(enum) {
         static_path: FileSource,
         other_step: *LibExeObjStep,
@@ -1444,36 +1450,26 @@ pub const LibExeObjStep = struct {
     pub const Linkage = enum { dynamic, static };
 
     pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource, kind: SharedLibKind) *LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Lib, .dynamic, switch (kind) {
+        return initExtraArgs(builder, name, root_src, Kind.Lib, .dynamic, switch (kind) {
             .versioned => |ver| ver,
             .unversioned => null,
         });
-        return self;
     }
 
     pub fn createStaticLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Lib, .static, null);
-        return self;
+        return initExtraArgs(builder, name, root_src, Kind.Lib, .static, null);
     }
 
     pub fn createObject(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Obj, .static, null);
-        return self;
+        return initExtraArgs(builder, name, root_src, Kind.Obj, .static, null);
     }
 
     pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?FileSource, linkage: Linkage) *LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Exe, linkage, null);
-        return self;
+        return initExtraArgs(builder, name, root_src, Kind.Exe, linkage, null);
     }
 
     pub fn createTest(builder: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Test, .static, null);
-        return self;
+        return initExtraArgs(builder, name, root_src, Kind.Test, .static, null);
     }
 
     fn initExtraArgs(
@@ -1483,13 +1479,15 @@ pub const LibExeObjStep = struct {
         kind: Kind,
         linkage: Linkage,
         ver: ?Version,
-    ) LibExeObjStep {
+    ) *LibExeObjStep {
         const name = builder.dupe(name_raw);
         const root_src: ?FileSource = if (root_src_raw) |rsrc| rsrc.dupe(builder) else null;
         if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
             panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
         }
-        var self = LibExeObjStep{
+
+        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
+        self.* = LibExeObjStep{
             .strip = false,
             .builder = builder,
             .verbose_link = false,
@@ -1534,6 +1532,11 @@ pub const LibExeObjStep = struct {
             .override_dest_dir = null,
             .installed_path = null,
             .install_step = null,
+
+            .output_path_source = GeneratedFile{ .step = &self.step },
+            .output_lib_path_source = GeneratedFile{ .step = &self.step },
+            .output_h_path_source = GeneratedFile{ .step = &self.step },
+            .output_pdb_path_source = GeneratedFile{ .step = &self.step },
         };
         self.computeOutFileNames();
         if (root_src) |rs| rs.addStepDependencies(&self.step);
@@ -1871,45 +1874,31 @@ pub const LibExeObjStep = struct {
         self.libc_file = if (libc_file) |f| f.dupe(self.builder) else null;
     }
 
-    /// Unless setOutputDir was called, this function must be called only in
-    /// the make step, from a step that has declared a dependency on this one.
+    /// Returns the generated executable, library or object file.
     /// To run an executable built with zig build, use `run`, or create an install step and invoke it.
-    pub fn getOutputPath(self: *LibExeObjStep) []const u8 {
-        return fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.output_dir.?, self.out_filename },
-        ) catch unreachable;
+    pub fn getOutputSource(self: *LibExeObjStep) FileSource {
+        return FileSource{ .generated = &self.output_path_source };
     }
 
-    /// Unless setOutputDir was called, this function must be called only in
-    /// the make step, from a step that has declared a dependency on this one.
-    pub fn getOutputLibPath(self: *LibExeObjStep) []const u8 {
+    /// Returns the generated import library. This function can only be called for libraries.
+    pub fn getOutputLibSource(self: *LibExeObjStep) FileSource {
         assert(self.kind == Kind.Lib);
-        return fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.output_dir.?, self.out_lib_filename },
-        ) catch unreachable;
+        return FileSource{ .generated = &self.output_lib_path_source };
     }
 
-    /// Unless setOutputDir was called, this function must be called only in
-    /// the make step, from a step that has declared a dependency on this one.
-    pub fn getOutputHPath(self: *LibExeObjStep) []const u8 {
+    /// Returns the generated header file.
+    /// This function can only be called for libraries or object files which have `emit_h` set.
+    pub fn getOutputHSource(self: *LibExeObjStep) FileSource {
         assert(self.kind != Kind.Exe);
         assert(self.emit_h);
-        return fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.output_dir.?, self.out_h_filename },
-        ) catch unreachable;
+        return FileSource{ .generated = &self.output_h_path_source };
     }
 
-    /// Unless setOutputDir was called, this function must be called only in
-    /// the make step, from a step that has declared a dependency on this one.
-    pub fn getOutputPdbPath(self: *LibExeObjStep) []const u8 {
+    /// Returns the generated PDB file. This function can only be called for Windows and UEFI.
+    pub fn getOutputPdbSource(self: *LibExeObjStep) FileSource {
+        // TODO: Is this right? Isn't PDB for *any* PE/COFF file?
         assert(self.target.isWindows() or self.target.isUefi());
-        return fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.output_dir.?, self.out_pdb_filename },
-        ) catch unreachable;
+        return FileSource{ .generated = &self.output_pdb_path_source };
     }
 
     pub fn addAssemblyFile(self: *LibExeObjStep, path: []const u8) void {
@@ -2185,6 +2174,28 @@ pub const LibExeObjStep = struct {
             return error.NeedAnObject;
         }
 
+        // Update generated files
+        self.output_path_source.path =
+            fs.path.join(
+            self.builder.allocator,
+            &[_][]const u8{ self.output_dir.?, self.out_filename },
+        ) catch unreachable;
+        self.output_lib_path_source.path =
+            fs.path.join(
+            self.builder.allocator,
+            &[_][]const u8{ self.output_dir.?, self.out_lib_filename },
+        ) catch unreachable;
+        self.output_h_path_source.path =
+            fs.path.join(
+            self.builder.allocator,
+            &[_][]const u8{ self.output_dir.?, self.out_h_filename },
+        ) catch unreachable;
+        self.output_pdb_path_source.path =
+            fs.path.join(
+            self.builder.allocator,
+            &[_][]const u8{ self.output_dir.?, self.out_pdb_filename },
+        ) catch unreachable;
+
         var zig_args = ArrayList([]const u8).init(builder.allocator);
         defer zig_args.deinit();
 
@@ -2219,10 +2230,10 @@ pub const LibExeObjStep = struct {
                     .Exe => unreachable,
                     .Test => unreachable,
                     .Obj => {
-                        try zig_args.append(other.getOutputPath());
+                        try zig_args.append(other.getOutputSource().getPath(builder));
                     },
                     .Lib => {
-                        const full_path_lib = other.getOutputLibPath();
+                        const full_path_lib = other.getOutputLibSource().getPath(builder);
                         try zig_args.append(full_path_lib);
 
                         if (other.linkage == .dynamic and !self.target.isWindows()) {
@@ -2296,7 +2307,7 @@ pub const LibExeObjStep = struct {
                 self.addBuildOption(
                     []const u8,
                     item.name,
-                    self.builder.pathFromRoot(item.artifact.getOutputPath()),
+                    self.builder.pathFromRoot(item.artifact.getOutputSource().getPath(self.builder)),
                 );
             }
             for (self.build_options_file_source_args.items) |item| {
@@ -2560,7 +2571,7 @@ pub const LibExeObjStep = struct {
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
                 .other_step => |other| if (other.emit_h) {
-                    const h_path = other.getOutputHPath();
+                    const h_path = other.getOutputHSource().getPath(self.builder);
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
                 },
@@ -2701,7 +2712,7 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.kind == .Lib and self.linkage == .dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
-            try doAtomicSymLinks(builder.allocator, self.getOutputPath(), self.major_only_filename.?, self.name_only_filename.?);
+            try doAtomicSymLinks(builder.allocator, self.getOutputSource().getPath(builder), self.major_only_filename.?, self.name_only_filename.?);
         }
     }
 };
@@ -2768,17 +2779,17 @@ pub const InstallArtifactStep = struct {
         const builder = self.builder;
 
         const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
-        try builder.updateFile(self.artifact.getOutputPath(), full_dest_path);
+        try builder.updateFile(self.artifact.getOutputSource().getPath(builder), full_dest_path);
         if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
         }
         if (self.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
-            try builder.updateFile(self.artifact.getOutputPdbPath(), full_pdb_path);
+            try builder.updateFile(self.artifact.getOutputPdbSource().getPath(builder), full_pdb_path);
         }
         if (self.h_dir) |h_dir| {
             const full_pdb_path = builder.getInstallPath(h_dir, self.artifact.out_h_filename);
-            try builder.updateFile(self.artifact.getOutputHPath(), full_pdb_path);
+            try builder.updateFile(self.artifact.getOutputHSource().getPath(builder), full_pdb_path);
         }
         self.artifact.installed_path = full_dest_path;
     }
