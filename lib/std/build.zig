@@ -1591,6 +1591,13 @@ pub const LibExeObjStep = struct {
                     self.out_lib_filename = self.out_filename;
                 }
             }
+            if (self.output_dir != null) {
+                self.output_lib_path_source.path =
+                    fs.path.join(
+                    self.builder.allocator,
+                    &[_][]const u8{ self.output_dir.?, self.out_lib_filename },
+                ) catch unreachable;
+            }
         }
     }
 
@@ -2132,6 +2139,12 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(LinkObject{ .other_step = other }) catch unreachable;
         self.include_dirs.append(IncludeDir{ .other_step = other }) catch unreachable;
 
+        // BUG: The following code introduces a order-of-call dependency:
+        // var lib = addSharedLibrary(...);
+        // var exe = addExecutable(...);
+        // exe.linkLibrary(lib);
+        // lib.linkSystemLibrary("foobar"); //  this will be ignored for exe!
+
         // Inherit dependency on system libraries
         for (other.link_objects.items) |link_object| {
             switch (link_object) {
@@ -2173,28 +2186,6 @@ pub const LibExeObjStep = struct {
             warn("{s}: linker needs 1 or more objects to link\n", .{self.step.name});
             return error.NeedAnObject;
         }
-
-        // Update generated files
-        self.output_path_source.path =
-            fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.output_dir.?, self.out_filename },
-        ) catch unreachable;
-        self.output_lib_path_source.path =
-            fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.output_dir.?, self.out_lib_filename },
-        ) catch unreachable;
-        self.output_h_path_source.path =
-            fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.output_dir.?, self.out_h_filename },
-        ) catch unreachable;
-        self.output_pdb_path_source.path =
-            fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.output_dir.?, self.out_pdb_filename },
-        ) catch unreachable;
 
         var zig_args = ArrayList([]const u8).init(builder.allocator);
         defer zig_args.deinit();
@@ -2708,6 +2699,34 @@ pub const LibExeObjStep = struct {
                 }
             } else {
                 self.output_dir = build_output_dir;
+            }
+        }
+
+        // This will ensure all output filenames will now have the output_dir available!
+        self.computeOutFileNames();
+
+        // Update generated files
+        if (self.output_dir != null) {
+            self.output_path_source.path =
+                fs.path.join(
+                self.builder.allocator,
+                &[_][]const u8{ self.output_dir.?, self.out_filename },
+            ) catch unreachable;
+
+            if (self.emit_h) {
+                self.output_h_path_source.path =
+                    fs.path.join(
+                    self.builder.allocator,
+                    &[_][]const u8{ self.output_dir.?, self.out_h_filename },
+                ) catch unreachable;
+            }
+
+            if (self.target.isWindows() or self.target.isUefi()) {
+                self.output_pdb_path_source.path =
+                    fs.path.join(
+                    self.builder.allocator,
+                    &[_][]const u8{ self.output_dir.?, self.out_pdb_filename },
+                ) catch unreachable;
             }
         }
 

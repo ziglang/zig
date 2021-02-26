@@ -89,7 +89,7 @@ fn make(step: *Step) !void {
         self.output_dir = fs.path.dirname(output_path).?;
     }
 
-    self.source.path = fs.path.join(
+    self.output_file.path = fs.path.join(
         self.builder.allocator,
         &[_][]const u8{ self.output_dir.?, self.out_basename },
     ) catch unreachable;
