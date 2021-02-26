@@ -1561,7 +1561,6 @@ pub const Value = extern union {
             .@"error" => {
                 const payload = self.castTag(.@"error").?.data;
                 hasher.update(payload.name);
-                std.hash.autoHash(&hasher, payload.value);
             },
             .error_union => {
                 const payload = self.castTag(.error_union).?.data;
@@ -2157,7 +2156,6 @@ pub const Value = extern union {
                 /// duration of the compilation.
                 /// TODO revisit this when we have the concept of the error tag type
                 name: []const u8,
-                value: u16,
             },
         };
 

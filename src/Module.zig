@@ -4101,7 +4101,6 @@ pub fn namedFieldPtr(
                             scope.arena(),
                             try Value.Tag.@"error".create(scope.arena(), .{
                                 .name = entry.key,
-                                .value = entry.value,
                             }),
                         ),
                     });
