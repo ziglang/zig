@@ -11048,16 +11048,18 @@ fn readU32Be() u32 {}
 
 # *** Top level ***
 ContainerMembers
-    &lt;- TestDecl ContainerMembers
-     / TopLevelComptime ContainerMembers
-     / KEYWORD_pub? TopLevelDecl ContainerMembers
-     / ContainerField COMMA ContainerMembers
-     / ContainerField
-     /
+    &lt;- container_doc_comment? (
+         TestDecl ContainerMembers
+         / TopLevelComptime ContainerMembers
+         / doc_comment? KEYWORD_pub? TopLevelDecl ContainerMembers
+         / ContainerField COMMA ContainerMembers
+         / ContainerField
+         /
+     )
 
-TestDecl &lt;- KEYWORD_test STRINGLITERALSINGLE Block
+TestDecl &lt;- doc_comment? KEYWORD_test STRINGLITERALSINGLE? Block
 
-TopLevelComptime &lt;- KEYWORD_comptime BlockExpr
+TopLevelComptime &lt;- doc_comment? KEYWORD_comptime BlockExpr
 
 TopLevelDecl
     &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
@@ -11068,7 +11070,7 @@ FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? Link
 
 VarDecl &lt;- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 
-ContainerField &lt;- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+ContainerField &lt;- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON (KEYWORD_anytype / TypeExpr) ByteAlign?)? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
@@ -11077,7 +11079,7 @@ Statement
      / KEYWORD_nosuspend BlockExprStatement
      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
      / KEYWORD_defer BlockExprStatement
-     / KEYWORD_errdefer BlockExprStatement
+     / KEYWORD_errdefer Payload? BlockExprStatement
      / IfStatement
      / LabeledStatement
      / SwitchExpr
@@ -11233,9 +11235,10 @@ WhileContinueExpr &lt;- COLON LPAREN AssignExpr RPAREN
 
 LinkSection &lt;- KEYWORD_linksection LPAREN Expr RPAREN
 
+# Fn specific
 CallConv &lt;- KEYWORD_callconv LPAREN Expr RPAREN
 
-ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
+ParamDecl &lt;- doc_comment? (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 
 ParamType
     &lt;- KEYWORD_anytype
@@ -11333,7 +11336,7 @@ PrefixTypeOp
      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 
 SuffixOp
-    &lt;- LBRACKET Expr (DOT2 Expr?)? RBRACKET
+    &lt;- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
      / DOT IDENTIFIER
      / DOTASTERISK
      / DOTQUESTIONMARK
@@ -11361,7 +11364,7 @@ ContainerDeclType
 ByteAlign &lt;- KEYWORD_align LPAREN Expr RPAREN
 
 # Lists
-IdentifierList &lt;- (IDENTIFIER COMMA)* IDENTIFIER?
+IdentifierList &lt;- (doc_comment? IDENTIFIER COMMA)* (doc_comment? IDENTIFIER)?
 
 SwitchProngList &lt;- (SwitchProng COMMA)* SwitchProng?
 
@@ -11377,44 +11380,92 @@ ExprList &lt;- (Expr COMMA)* Expr?
 
 # *** Tokens ***
 eof &lt;- !.
+bin &lt;- [01]
+bin_ &lt;- '_'? bin
+oct &lt;- [0-7]
+oct_ &lt;- '_'? oct
 hex &lt;- [0-9a-fA-F]
-hex_ &lt;- ('_'/hex)
+hex_ &lt;- '_'? hex
 dec &lt;- [0-9]
-dec_ &lt;- ('_'/dec)
+dec_ &lt;- '_'? dec
 
-dec_int &lt;- dec (dec_* dec)?
-hex_int &lt;- hex (hex_* dec)?
+bin_int &lt;- bin bin_*
+oct_int &lt;- oct oct_*
+dec_int &lt;- dec dec_*
+hex_int &lt;- hex hex_*
+
+ox80_oxBF &lt;- [\200-\277]
+oxF4 &lt;- '\364'
+ox80_ox8F &lt;- [\200-\217]
+oxF1_oxF3 &lt;- [\361-\363]
+oxF0 &lt;- '\360'
+ox90_0xBF &lt;- [\220-\277]
+oxEE_oxEF &lt;- [\356-\357]
+oxED &lt;- '\355'
+ox80_ox9F &lt;- [\200-\237]
+oxE1_oxEC &lt;- [\341-\354]
+oxE0 &lt;- '\340'
+oxA0_oxBF &lt;- [\240-\277]
+oxC2_oxDF &lt;- [\302-\337]
+
+# From https://lemire.me/blog/2018/05/09/how-quickly-can-you-check-that-a-string-is-valid-unicode-utf-8/
+# First Byte      Second Byte     Third Byte      Fourth Byte
+# [0x00,0x7F]
+# [0xC2,0xDF]     [0x80,0xBF]
+#    0xE0         [0xA0,0xBF]     [0x80,0xBF]
+# [0xE1,0xEC]     [0x80,0xBF]     [0x80,0xBF]
+#    0xED         [0x80,0x9F]     [0x80,0xBF]
+# [0xEE,0xEF]     [0x80,0xBF]     [0x80,0xBF]
+#    0xF0         [0x90,0xBF]     [0x80,0xBF]     [0x80,0xBF]
+# [0xF1,0xF3]     [0x80,0xBF]     [0x80,0xBF]     [0x80,0xBF]
+#    0xF4         [0x80,0x8F]     [0x80,0xBF]     [0x80,0xBF]
+
+mb_utf8_literal &lt;-
+       oxF4      ox80_ox8F ox80_oxBF ox80_oxBF
+     / oxF1_oxF3 ox80_oxBF ox80_oxBF ox80_oxBF
+     / oxF0      ox90_0xBF ox80_oxBF ox80_oxBF
+     / oxEE_oxEF ox80_oxBF ox80_oxBF
+     / oxED      ox80_ox9F ox80_oxBF
+     / oxE1_oxEC ox80_oxBF ox80_oxBF
+     / oxE0      oxA0_oxBF ox80_oxBF
+     / oxC2_oxDF ox80_oxBF
+
+ascii_char_not_nl_slash_squote &lt;- [\000-\011\013-\046-\050-\133\135-\177]
 
 char_escape
     &lt;- &quot;\\x&quot; hex hex
      / &quot;\\u{&quot; hex+ &quot;}&quot;
      / &quot;\\&quot; [nr\\t'&quot;]
 char_char
-    &lt;- char_escape
-     / [^\\'\n]
+    &lt;- mb_utf8_literal
+     / char_escape
+     / ascii_char_not_nl_slash_squote
+
 string_char
     &lt;- char_escape
      / [^\\&quot;\n]
 
-line_comment &lt;- '//'[^\n]*
+container_doc_comment &lt;- ('//!' [^\n]* [ \n]*)+
+doc_comment &lt;- ('///' [^\n]* [ \n]*)+
+line_comment &lt;- '//' ![!/][^\n]* / '////' [^\n]*
 line_string &lt;- (&quot;\\\\&quot; [^\n]* [ \n]*)+
 skip &lt;- ([ \n] / line_comment)*
 
 CHAR_LITERAL &lt;- &quot;'&quot; char_char &quot;'&quot; skip
 FLOAT
-    &lt;- &quot;0x&quot; hex_* hex &quot;.&quot; hex_int ([pP] [-+]? hex_int)? skip
+    &lt;- &quot;0x&quot; hex_int &quot;.&quot; hex_int ([pP] [-+]? dec_int)? skip
      /      dec_int   &quot;.&quot; dec_int ([eE] [-+]? dec_int)? skip
-     / &quot;0x&quot; hex_* hex &quot;.&quot;? [pP] [-+]? hex_int skip
+     / &quot;0x&quot; hex_int &quot;.&quot;? [pP] [-+]? hex_int skip
      /      dec_int   &quot;.&quot;? [eE] [-+]? dec_int skip
 INTEGER
-    &lt;- &quot;0b&quot; [_01]*  [01]  skip
-     / &quot;0o&quot; [_0-7]* [0-7] skip
-     / &quot;0x&quot; hex_* hex skip
+    &lt;- &quot;0b&quot; bin_int skip
+     / &quot;0o&quot; oct_int skip
+     / &quot;0x&quot; hex_int skip
      /      dec_int   skip
 STRINGLITERALSINGLE &lt;- &quot;\&quot;&quot; string_char* &quot;\&quot;&quot; skip
 STRINGLITERAL
     &lt;- STRINGLITERALSINGLE
-     / line_string                 skip
+     / (line_string                 skip)+
 IDENTIFIER
     &lt;- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
      / &quot;@\&quot;&quot; string_char* &quot;\&quot;&quot;                            skip
