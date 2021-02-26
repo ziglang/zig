@@ -3892,21 +3892,6 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
             }
         }
     }
-    if (std.Target.current.os.tag == .haiku) {
-        var fds: [2]fd_t = try pipe();
-        if (flags == 0) return fds;
-        errdefer {
-            close(fds[0]);
-            close(fds[1]);
-        }
-        for (fds) |fd| switch (errno(system.fcntl(fd, F_SETFL, flags))) {
-            0 => {},
-            EINVAL => unreachable, // Invalid flags
-            EBADF => unreachable, // Always a race condition
-            else => |err| return unexpectedErrno(err),
-        };
-        return fds;
-    }
 
     const new_flags = flags & ~@as(u32, O_CLOEXEC);
     // Set every other flag affecting the file status using F_SETFL.
