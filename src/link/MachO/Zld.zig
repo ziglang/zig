@@ -252,9 +252,9 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.populateMetadata();
     try self.parseInputFiles(files);
     try self.resolveImports();
-    try self.allocateTextSegment();
-    try self.allocateDataSegment();
-    try self.allocateLinkeditSegment();
+    self.allocateTextSegment();
+    self.allocateDataSegment();
+    self.allocateLinkeditSegment();
     try self.writeStubHelperCommon();
     try self.resolveSymbols();
     try self.doRelocs();
@@ -317,20 +317,13 @@ fn parseObjectFile(self: *Zld, object: *const Object) !void {
             if (mem.eql(u8, sectname, "__thread_vars")) {
                 self.tlv_section_index = sect_index;
             }
-            log.warn("{s} align 0x{x}", .{ sectname, sect.@"align" });
-            const alignment = switch (sect.flags) {
-                macho.S_4BYTE_LITERALS => 2,
-                macho.S_8BYTE_LITERALS => 3,
-                macho.S_16BYTE_LITERALS => 4,
-                else => sect.@"align",
-            };
             try seg.append(self.allocator, .{
                 .sectname = makeStaticString(&sect.sectname),
                 .segname = makeStaticString(&sect.segname),
                 .addr = 0,
                 .size = 0,
                 .offset = 0,
-                .@"align" = alignment,
+                .@"align" = sect.@"align",
                 .reloff = 0,
                 .nreloc = 0,
                 .flags = sect.flags,
@@ -436,7 +429,7 @@ fn resolveImports(self: *Zld) !void {
     });
 }
 
-fn allocateTextSegment(self: *Zld) !void {
+fn allocateTextSegment(self: *Zld) void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const nexterns = @intCast(u32, self.lazy_imports.items().len);
 
@@ -457,7 +450,7 @@ fn allocateTextSegment(self: *Zld) !void {
         sizeofcmds += lc.cmdsize();
     }
 
-    try self.allocateSegment(
+    self.allocateSegment(
         self.text_segment_cmd_index.?,
         0,
         sizeofcmds,
@@ -465,7 +458,7 @@ fn allocateTextSegment(self: *Zld) !void {
     );
 }
 
-fn allocateDataSegment(self: *Zld) !void {
+fn allocateDataSegment(self: *Zld) void {
     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const nonlazy = @intCast(u32, self.nonlazy_imports.items().len);
     const lazy = @intCast(u32, self.lazy_imports.items().len);
@@ -482,16 +475,16 @@ fn allocateDataSegment(self: *Zld) !void {
 
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const offset = text_seg.inner.fileoff + text_seg.inner.filesize;
-    try self.allocateSegment(self.data_segment_cmd_index.?, offset, 0, false);
+    self.allocateSegment(self.data_segment_cmd_index.?, offset, 0, false);
 }
 
-fn allocateLinkeditSegment(self: *Zld) !void {
+fn allocateLinkeditSegment(self: *Zld) void {
     const data_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const offset = data_seg.inner.fileoff + data_seg.inner.filesize;
-    try self.allocateSegment(self.linkedit_segment_cmd_index.?, offset, 0, false);
+    self.allocateSegment(self.linkedit_segment_cmd_index.?, offset, 0, false);
 }
 
-fn allocateSegment(self: *Zld, index: u16, offset: u64, start: u64, reverse: bool) !void {
+fn allocateSegment(self: *Zld, index: u16, offset: u64, start: u64, reverse: bool) void {
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     const seg = &self.load_commands.items[index].Segment;
 
@@ -565,39 +558,72 @@ fn writeStubHelperCommon(self: *Zld) !void {
             },
             .aarch64 => {
                 var code: [6 * @sizeOf(u32)]u8 = undefined;
-                {
+                data_blk_outer: {
+                    const this_addr = stub_helper.addr;
                     const target_addr = data.addr + data.size - @sizeOf(u64);
-                    const displacement = @bitCast(u21, try math.cast(i21, target_addr - stub_helper.addr));
-                    // adr x17, disp
-                    mem.writeIntLittle(u32, code[0..4], Arm64.adr(17, displacement).toU32());
-                    // TODO check if adr is enough and expand into adrp + add if not.
-                    // nop in case we need to expand adr for adrp followed by add.
-                    mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
+                    data_blk: {
+                        const displacement = math.cast(i21, target_addr - this_addr) catch |_| break :data_blk;
+                        // adr x17, disp
+                        mem.writeIntLittle(u32, code[0..4], Arm64.adr(17, @bitCast(u21, displacement)).toU32());
+                        // nop
+                        mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
+                        break :data_blk_outer;
+                    }
+                    data_blk: {
+                        const new_this_addr = this_addr + @sizeOf(u32);
+                        const displacement = math.cast(i21, target_addr - new_this_addr) catch |_| break :data_blk;
+                        // nop
+                        mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
+                        // adr x17, disp
+                        mem.writeIntLittle(u32, code[4..8], Arm64.adr(17, @bitCast(u21, displacement)).toU32());
+                        break :data_blk_outer;
+                    }
+                    // Jump is too big, replace adr with adrp and add.
+                    const this_page = @intCast(i32, this_addr >> 12);
+                    const target_page = @intCast(i32, target_addr >> 12);
+                    const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
+                    mem.writeIntLittle(u32, code[0..4], Arm64.adrp(17, pages).toU32());
+                    const narrowed = @truncate(u12, target_addr);
+                    mem.writeIntLittle(u32, code[4..8], Arm64.add(17, 17, narrowed, 1).toU32());
                 }
                 // stp x16, x17, [sp, #-16]!
                 code[8] = 0xf0;
                 code[9] = 0x47;
                 code[10] = 0xbf;
                 code[11] = 0xa9;
-                binder: {
+                binder_blk_outer: {
                     const dyld_stub_binder = self.nonlazy_imports.get("dyld_stub_binder").?;
-                    const addr = (got.addr + dyld_stub_binder.index * @sizeOf(u64));
-                    const displacement = math.divExact(u64, addr - stub_helper.addr - 3 * @sizeOf(u32), 4) catch |_| {
-                        log.warn("0x{x}", .{addr - stub_helper.addr - 3 * @sizeOf(u32)});
+                    const this_addr = stub_helper.addr + 3 * @sizeOf(u32);
+                    const target_addr = (got.addr + dyld_stub_binder.index * @sizeOf(u64));
+                    binder_blk: {
+                        const displacement = math.divExact(u64, target_addr - this_addr, 4) catch |_| break :binder_blk;
+                        const literal = math.cast(u18, displacement) catch |_| break :binder_blk;
+                        // ldr x16, label
+                        mem.writeIntLittle(u32, code[12..16], Arm64.ldr(16, literal, 1).toU32());
+                        // nop
+                        mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.nop().toU32());
+                        break :binder_blk_outer;
+                    }
+                    binder_blk: {
+                        const new_this_addr = this_addr + @sizeOf(u32);
+                        const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch |_| break :binder_blk;
+                        const literal = math.cast(u18, displacement) catch |_| break :binder_blk;
+                        log.warn("2: disp=0x{x}, literal=0x{x}", .{ displacement, literal });
                         // Pad with nop to please division.
                         // nop
                         mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.nop().toU32());
                         // ldr x16, label
-                        const disp = try math.divExact(u64, addr - stub_helper.addr - 4 * @sizeOf(u32), 4);
-                        const literal = try math.cast(u19, disp); // TODO use adrp + add if we exceed the range.
                         mem.writeIntLittle(u32, code[16..20], Arm64.ldr(16, literal, 1).toU32());
-                        break :binder;
-                    };
-                    const literal = try math.cast(u19, displacement); // TODO use adrp + add if we exceed the range.
-                    // ldr x16, label
-                    mem.writeIntLittle(u32, code[12..16], Arm64.ldr(16, literal, 1).toU32());
-                    // nop
-                    mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.nop().toU32());
+                        break :binder_blk_outer;
+                    }
+                    // Use adrp followed by ldr(immediate).
+                    const this_page = @intCast(i32, this_addr >> 12);
+                    const target_page = @intCast(i32, target_addr >> 12);
+                    const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
+                    mem.writeIntLittle(u32, code[12..16], Arm64.adrp(16, pages).toU32());
+                    const narrowed = @truncate(u12, target_addr);
+                    const offset = try math.divExact(u12, narrowed, 8);
+                    mem.writeIntLittle(u32, code[16..20], Arm64.ldrq(16, 16, offset).toU32());
                 }
                 // br x16
                 code[20] = 0x00;
@@ -662,12 +688,37 @@ fn writeStub(self: *Zld, index: u32) !void {
         },
         .aarch64 => {
             assert(la_ptr_addr >= stub_addr);
-            const displacement = try math.divExact(u64, la_ptr_addr - stub_addr - @sizeOf(u32), 4);
-            const literal = try math.cast(u19, displacement);
-            // nop
-            mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
-            // ldr x16, literal
-            mem.writeIntLittle(u32, code[4..8], Arm64.ldr(16, literal, 1).toU32());
+            outer: {
+                const this_addr = stub_addr;
+                const target_addr = la_ptr_addr;
+                inner: {
+                    const displacement = math.divExact(u64, target_addr - this_addr, 4) catch |_| break :inner;
+                    const literal = math.cast(u18, displacement) catch |_| break :inner;
+                    // ldr x16, literal
+                    mem.writeIntLittle(u32, code[0..4], Arm64.ldr(16, literal, 1).toU32());
+                    // nop
+                    mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
+                    break :outer;
+                }
+                inner: {
+                    const new_this_addr = this_addr + @sizeOf(u32);
+                    const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch |_| break :inner;
+                    const literal = math.cast(u18, displacement) catch |_| break :inner;
+                    // nop
+                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
+                    // ldr x16, literal
+                    mem.writeIntLittle(u32, code[4..8], Arm64.ldr(16, literal, 1).toU32());
+                    break :outer;
+                }
+                // Use adrp followed by ldr(immediate).
+                const this_page = @intCast(i32, this_addr >> 12);
+                const target_page = @intCast(i32, target_addr >> 12);
+                const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
+                mem.writeIntLittle(u32, code[0..4], Arm64.adrp(16, pages).toU32());
+                const narrowed = @truncate(u12, target_addr);
+                const offset = try math.divExact(u12, narrowed, 8);
+                mem.writeIntLittle(u32, code[4..8], Arm64.ldrq(16, 16, offset).toU32());
+            }
             // br x16
             mem.writeIntLittle(u32, code[8..12], Arm64.br(16).toU32());
         },
