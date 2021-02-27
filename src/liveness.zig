@@ -119,7 +119,7 @@ fn analyzeInst(
                     if (!else_table.contains(then_death)) {
                         try else_entry_deaths.append(then_death);
                     }
-                    _ = try table.put(then_death, {});
+                    try table.put(then_death, {});
                 }
             }
             // Now we have to correctly populate new_set.
@@ -195,7 +195,7 @@ fn analyzeInst(
                         }
                     }
                     // undo resetting the table
-                    _ = try table.put(case_death, {});
+                    try table.put(case_death, {});
                 }
             }
 

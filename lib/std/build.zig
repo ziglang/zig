@@ -790,7 +790,7 @@ pub const Builder = struct {
                 var list = ArrayList([]const u8).init(self.allocator);
                 list.append(s) catch unreachable;
                 list.append(value) catch unreachable;
-                _ = self.user_input_options.put(name, UserInputOption{
+                self.user_input_options.put(name, UserInputOption{
                     .name = name,
                     .value = UserValue{ .List = list },
                     .used = false,
@@ -799,7 +799,7 @@ pub const Builder = struct {
             UserValue.List => |*list| {
                 // append to the list
                 list.append(value) catch unreachable;
-                _ = self.user_input_options.put(name, UserInputOption{
+                self.user_input_options.put(name, UserInputOption{
                     .name = name,
                     .value = UserValue{ .List = list.* },
                     .used = false,
