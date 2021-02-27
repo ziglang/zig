@@ -38,6 +38,22 @@ const llvm_targets = [_]LlvmTarget{
                 .zig_name = "contextidr_el2",
                 .desc = "Enable RW operand Context ID Register (EL2)",
             },
+            .{
+                .llvm_name = "neoversee1",
+                .zig_name = "neoverse_e1",
+            },
+            .{
+                .llvm_name = "neoversen1",
+                .zig_name = "neoverse_n1",
+            },
+            .{
+                .llvm_name = "neoversen2",
+                .zig_name = "neoverse_n2",
+            },
+            .{
+                .llvm_name = "neoversev1",
+                .zig_name = "neoverse_v1",
+            },
         },
     },
     .{
@@ -399,7 +415,14 @@ fn processOneTarget(job: Job) anyerror!void {
 
     for (all_features.items) |obj| {
         const llvm_name = obj.get("Name").?.String;
-        const description = obj.get("Desc").?.String;
+        const llvm_description = obj.get("Desc").?.String;
+        const description = for (llvm_target.feature_overrides) |feature_override| {
+            if (mem.eql(u8, llvm_name, feature_override.llvm_name)) {
+                if (feature_override.desc) |desc| {
+                    break desc;
+                }
+            }
+        } else llvm_description;
         const zig_name = try llvmNameToZigName(arena, llvm_target, llvm_name);
         try w.print(
             \\    result[@enumToInt(Feature.{})] = .{{
