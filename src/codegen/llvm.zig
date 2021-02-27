@@ -34,6 +34,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .mips64el => "mips64el",
         .msp430 => "msp430",
         .powerpc => "powerpc",
+        .powerpcle => "powerpcle",
         .powerpc64 => "powerpc64",
         .powerpc64le => "powerpc64le",
         .r600 => "r600",

@@ -246,6 +246,7 @@ pub fn archToLLVM(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .mips64el => .mips64el,
         .msp430 => .msp430,
         .powerpc => .ppc,
+        .powerpcle => .ppcle,
         .powerpc64 => .ppc64,
         .powerpc64le => .ppc64le,
         .r600 => .r600,
