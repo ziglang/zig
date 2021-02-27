@@ -313,10 +313,7 @@ pub fn AesEncryptCtx(comptime Aes: type) type {
             inline while (i < rounds) : (i += 1) {
                 ts = Block.parallel.encryptWide(count, ts, round_keys[i]);
             }
-            i = 1;
-            inline while (i < count) : (i += 1) {
-                ts = Block.parallel.encryptLastWide(count, ts, round_keys[i]);
-            }
+            ts = Block.parallel.encryptLastWide(count, ts, round_keys[i]);
             j = 0;
             inline while (j < count) : (j += 1) {
                 dst[16 * j .. 16 * j + 16].* = ts[j].toBytes();
@@ -392,10 +389,7 @@ pub fn AesDecryptCtx(comptime Aes: type) type {
             inline while (i < rounds) : (i += 1) {
                 ts = Block.parallel.decryptWide(count, ts, inv_round_keys[i]);
             }
-            i = 1;
-            inline while (i < count) : (i += 1) {
-                ts = Block.parallel.decryptLastWide(count, ts, inv_round_keys[i]);
-            }
+            ts = Block.parallel.decryptLastWide(count, ts, inv_round_keys[i]);
             j = 0;
             inline while (j < count) : (j += 1) {
                 dst[16 * j .. 16 * j + 16].* = ts[j].toBytes();
