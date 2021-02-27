@@ -443,6 +443,7 @@ pub const Target = struct {
         gnueabi,
         gnueabihf,
         gnux32,
+        gnuilp32,
         code16,
         eabi,
         eabihf,

@@ -127,6 +127,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .gnueabi => "gnueabi",
         .gnueabihf => "gnueabihf",
         .gnux32 => "gnux32",
+        .gnuilp32 => "gnuilp32",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
