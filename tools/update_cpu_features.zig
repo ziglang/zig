@@ -44,6 +44,16 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "amdgpu",
         .llvm_name = "AMDGPU",
         .td_name = "AMDGPU.td",
+        .feature_overrides = &.{
+            .{
+                .llvm_name = "DumpCode",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "dumpcode",
+                .omit = true,
+            },
+        },
     },
     .{
         .zig_name = "arc",
