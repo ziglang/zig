@@ -4840,7 +4840,7 @@ pub const SendError = error{
     NetworkSubsystemFailed,
 } || UnexpectedError;
 
-pub const SendToError = SendError || error{
+pub const SendMsgError = SendError || error{
     /// The passed address didn't have the correct address family in its sa_family field.
     AddressFamilyNotSupported,
 
@@ -4858,6 +4858,79 @@ pub const SendToError = SendError || error{
     SocketNotConnected,
     AddressNotAvailable,
 };
+
+pub fn sendmsg(
+    /// The file descriptor of the sending socket.
+    sockfd: socket_t,
+    /// Message header and iovecs
+    msg: msghdr_const,
+    flags: u32,
+) SendMsgError!usize {
+    while (true) {
+        const rc = system.sendmsg(sockfd, &msg, flags);
+        if (builtin.os.tag == .windows) {
+            if (rc == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAEACCES => return error.AccessDenied,
+                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENOBUFS => return error.SystemResources,
+                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                    // TODO: WSAEINPROGRESS, WSAEINTR
+                    .WSAEINVAL => unreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENETUNREACH => return error.NetworkUnreachable,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            } else {
+                return @intCast(usize, rc);
+            }
+        } else {
+            switch (errno(rc)) {
+                0 => return @intCast(usize, rc),
+
+                EACCES => return error.AccessDenied,
+                EAGAIN => return error.WouldBlock,
+                EALREADY => return error.FastOpenAlreadyInProgress,
+                EBADF => unreachable, // always a race condition
+                ECONNRESET => return error.ConnectionResetByPeer,
+                EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+                EFAULT => unreachable, // An invalid user space address was specified for an argument.
+                EINTR => continue,
+                EINVAL => unreachable, // Invalid argument passed.
+                EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+                EMSGSIZE => return error.MessageTooBig,
+                ENOBUFS => return error.SystemResources,
+                ENOMEM => return error.SystemResources,
+                ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+                EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+                EPIPE => return error.BrokenPipe,
+                EAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                ELOOP => return error.SymLinkLoop,
+                ENAMETOOLONG => return error.NameTooLong,
+                ENOENT => return error.FileNotFound,
+                ENOTDIR => return error.NotDir,
+                EHOSTUNREACH => return error.NetworkUnreachable,
+                ENETUNREACH => return error.NetworkUnreachable,
+                ENOTCONN => return error.SocketNotConnected,
+                ENETDOWN => return error.NetworkSubsystemFailed,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    }
+}
+
+pub const SendToError = SendMsgError;
 
 /// Transmit a message to another socket.
 ///
