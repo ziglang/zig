@@ -56,10 +56,10 @@ pub const Feature = enum {
     power8_vector,
     power9_altivec,
     power9_vector,
-    ppc_postra_sched,
-    ppc_prera_sched,
     ppc4xx,
     ppc6xx,
+    ppc_postra_sched,
+    ppc_prera_sched,
     predictable_select_expensive,
     prefix_instrs,
     recipprec,
@@ -397,16 +397,6 @@ pub const all_features = blk: {
             .power9_altivec,
         }),
     };
-    result[@enumToInt(Feature.ppc_postra_sched)] = .{
-        .llvm_name = "ppc-postra-sched",
-        .description = "Use PowerPC post-RA scheduling strategy",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.ppc_prera_sched)] = .{
-        .llvm_name = "ppc-prera-sched",
-        .description = "Use PowerPC pre-RA scheduling strategy",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@enumToInt(Feature.ppc4xx)] = .{
         .llvm_name = "ppc4xx",
         .description = "Enable PPC 4xx instructions",
@@ -415,6 +405,16 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ppc6xx)] = .{
         .llvm_name = "ppc6xx",
         .description = "Enable PPC 6xx instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ppc_postra_sched)] = .{
+        .llvm_name = "ppc-postra-sched",
+        .description = "Use PowerPC post-RA scheduling strategy",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ppc_prera_sched)] = .{
+        .llvm_name = "ppc-prera-sched",
+        .description = "Use PowerPC pre-RA scheduling strategy",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.predictable_select_expensive)] = .{

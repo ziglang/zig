@@ -41,8 +41,8 @@ pub const Feature = enum {
     get_wave_id_inst,
     gfx10,
     gfx10_3_insts,
-    gfx10_insts,
     gfx10_b_encoding,
+    gfx10_insts,
     gfx7_gfx8_gfx9_insts,
     gfx8_insts,
     gfx9,
@@ -347,14 +347,14 @@ pub const all_features = blk: {
         .description = "Additional instructions for GFX10.3",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.gfx10_insts)] = .{
-        .llvm_name = "gfx10-insts",
-        .description = "Additional instructions for GFX10+",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@enumToInt(Feature.gfx10_b_encoding)] = .{
         .llvm_name = "gfx10_b-encoding",
         .description = "Encoding format GFX10_B",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.gfx10_insts)] = .{
+        .llvm_name = "gfx10-insts",
+        .description = "Additional instructions for GFX10+",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.gfx7_gfx8_gfx9_insts)] = .{

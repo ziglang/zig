@@ -390,7 +390,6 @@ pub const cpu = struct {
             .a,
             .c,
             .d,
-            .f,
             .m,
         }),
     };
@@ -402,7 +401,6 @@ pub const cpu = struct {
             .a,
             .c,
             .d,
-            .f,
             .m,
         }),
     };
