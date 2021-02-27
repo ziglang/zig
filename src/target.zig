@@ -71,6 +71,7 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .gnueabi,
         .gnueabihf,
         .gnux32,
+        .gnuilp32,
         => return "glibc",
         .musl,
         .musleabi,
