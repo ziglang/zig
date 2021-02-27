@@ -2475,7 +2475,7 @@ fn transPredefinedExpr(c: *Context, scope: *Scope, expr: *const clang.Predefined
 
 fn transCreateCharLitNode(c: *Context, narrow: bool, val: u32) TransError!Node {
     return Tag.char_literal.create(c.arena, if (narrow)
-        try std.fmt.allocPrint(c.arena, "'{s}'", .{std.zig.fmtEscapes(&.{@intCast(u8, val)})})
+        try std.fmt.allocPrint(c.arena, "'{'}'", .{std.zig.fmtEscapes(&.{@intCast(u8, val)})})
     else
         try std.fmt.allocPrint(c.arena, "'\\u{{{x}}}'", .{val}));
 }
