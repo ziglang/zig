@@ -2227,8 +2227,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var h: u8 = '\t';
         \\    var i: u8 = '\x0b';
         \\    var j: u8 = '\x00';
-        \\    var k: u8 = '\"';
-        \\    return "\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
+        \\    var k: u8 = '"';
+        \\    return "'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
         \\}
     });
 
