@@ -1454,6 +1454,65 @@ pub fn process_vm_writev(pid: pid_t, local: [*]const iovec, local_count: usize, 
     );
 }
 
+pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
+    if (comptime std.Target.current.cpu.arch.isMIPS()) {
+        // MIPS requires a 7 argument syscall
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall7(
+            .fadvise64,
+            @bitCast(usize, @as(isize, fd)),
+            0,
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+            advice,
+        );
+    } else if (comptime std.Target.current.cpu.arch.isARM()) {
+        // ARM reorders the arguments
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall6(
+            .fadvise64_64,
+            @bitCast(usize, @as(isize, fd)),
+            advice,
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+        );
+    } else if (@hasField(SYS, "fadvise64_64") and usize_bits != 64) {
+        // The extra usize check is needed to avoid SPARC64 because it provides both
+        // fadvise64 and fadvise64_64 but the latter behaves differently than other platforms.
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall6(
+            .fadvise64_64,
+            @bitCast(usize, @as(isize, fd)),
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+            advice,
+        );
+    } else {
+        return syscall4(
+            .fadvise64,
+            @bitCast(usize, @as(isize, fd)),
+            @bitCast(usize, offset),
+            @bitCast(usize, len),
+            advice,
+        );
+    }
+}
+
 test {
     if (std.Target.current.os.tag == .linux) {
         _ = @import("linux/test.zig");

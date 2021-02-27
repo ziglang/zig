@@ -108,3 +108,23 @@ test "user and group ids" {
     try expectEqual(linux.getauxval(elf.AT_EUID), linux.geteuid());
     try expectEqual(linux.getauxval(elf.AT_EGID), linux.getegid());
 }
+
+test "fadvise" {
+    const tmp_file_name = "temp_posix_fadvise.txt";
+    var file = try fs.cwd().createFile(tmp_file_name, .{});
+    defer {
+        file.close();
+        fs.cwd().deleteFile(tmp_file_name) catch {};
+    }
+
+    var buf: [2048]u8 = undefined;
+    try file.writeAll(&buf);
+
+    const ret = linux.fadvise(
+        file.handle,
+        0,
+        0,
+        linux.POSIX_FADV_SEQUENTIAL,
+    );
+    try expectEqual(@as(usize, 0), ret);
+}
