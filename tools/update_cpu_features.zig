@@ -197,7 +197,7 @@ pub fn main() anyerror!void {
                 .llvm_tblgen_exe = llvm_tblgen_exe,
                 .llvm_src_root = llvm_src_root,
                 .zig_src_dir = zig_src_dir,
-                .root_progress = &root_progress,
+                .root_progress = root_progress,
                 .llvm_target = llvm_target,
             });
         }
@@ -385,11 +385,19 @@ fn processOneTarget(job: Job) anyerror!void {
             },
         );
         const implies = obj.get("Implies").?.Array;
-        var dependencies = std.ArrayList(*json.ObjectMap).init(arena);
+        var deps_set = std.StringHashMap(void).init(arena);
         for (implies.items) |imply| {
             const other_key = imply.Object.get("def").?.String;
-            const other_obj = &root_map.getEntry(other_key).?.value.Object;
-            try dependencies.append(other_obj);
+            try deps_set.put(other_key, {});
+        }
+        try pruneFeatures(arena, root_map, &deps_set);
+        var dependencies = std.ArrayList(*json.ObjectMap).init(arena);
+        {
+            var it = deps_set.iterator();
+            while (it.next()) |entry| {
+                const other_obj = &root_map.getEntry(entry.key).?.value.Object;
+                try dependencies.append(other_obj);
+            }
         }
         std.sort.sort(*json.ObjectMap, dependencies.items, {}, objectLessThan);
 
@@ -427,24 +435,29 @@ fn processOneTarget(job: Job) anyerror!void {
     );
 
     for (all_cpus.items) |obj| {
-        var cpu_features = std.ArrayList(*json.ObjectMap).init(arena);
-
         const llvm_name = obj.get("Name").?.String;
+        var deps_set = std.StringHashMap(void).init(arena);
+
         const features = obj.get("Features").?.Array;
         for (features.items) |feature| {
             const feature_key = feature.Object.get("def").?.String;
-            const feature_obj = &root_map.getEntry(feature_key).?.value.Object;
-            const feature_llvm_name = feature_obj.get("Name").?.String;
-            if (feature_llvm_name.len == 0) continue;
-            try cpu_features.append(feature_obj);
+            try deps_set.put(feature_key, {});
         }
         const tune_features = obj.get("TuneFeatures").?.Array;
         for (tune_features.items) |feature| {
             const feature_key = feature.Object.get("def").?.String;
-            const feature_obj = &root_map.getEntry(feature_key).?.value.Object;
-            const feature_llvm_name = feature_obj.get("Name").?.String;
-            if (feature_llvm_name.len == 0) continue;
-            try cpu_features.append(feature_obj);
+            try deps_set.put(feature_key, {});
+        }
+        try pruneFeatures(arena, root_map, &deps_set);
+        var cpu_features = std.ArrayList(*json.ObjectMap).init(arena);
+        {
+            var it = deps_set.iterator();
+            while (it.next()) |entry| {
+                const feature_obj = &root_map.getEntry(entry.key).?.value.Object;
+                const feature_llvm_name = feature_obj.get("Name").?.String;
+                if (feature_llvm_name.len == 0) continue;
+                try cpu_features.append(feature_obj);
+            }
         }
         std.sort.sort(*json.ObjectMap, cpu_features.items, {}, objectLessThan);
         const zig_cpu_name = try llvmNameToZigName(arena, llvm_target, llvm_name);
@@ -494,6 +507,8 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
         \\
         \\Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.
         \\
+        \\On a less beefy system, or when debugging, compile with --single-threaded.
+        \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);
 }
@@ -532,4 +547,42 @@ fn hasSuperclass(obj: *json.ObjectMap, class_name: []const u8) bool {
         }
     }
     return false;
+}
+
+fn pruneFeatures(
+    arena: *mem.Allocator,
+    root_map: *const json.ObjectMap,
+    deps_set: *std.StringHashMap(void),
+) !void {
+    // For each element, recursively iterate over the dependencies and add
+    // everything we find to a "deletion set".
+    // Then, iterate over the deletion set and delete all that stuff from `deps_set`.
+    var deletion_set = std.StringHashMap(void).init(arena);
+    {
+        var it = deps_set.iterator();
+        while (it.next()) |entry| {
+            const other_obj = &root_map.getEntry(entry.key).?.value.Object;
+            try walkFeatures(root_map, &deletion_set, other_obj);
+        }
+    }
+    {
+        var it = deletion_set.iterator();
+        while (it.next()) |entry| {
+            _ = deps_set.remove(entry.key);
+        }
+    }
+}
+
+fn walkFeatures(
+    root_map: *const json.ObjectMap,
+    deletion_set: *std.StringHashMap(void),
+    feature: *json.ObjectMap,
+) error{OutOfMemory}!void {
+    const implies = feature.get("Implies").?.Array;
+    for (implies.items) |imply| {
+        const other_key = imply.Object.get("def").?.String;
+        try deletion_set.put(other_key, {});
+        const other_obj = &root_map.getEntry(other_key).?.value.Object;
+        try walkFeatures(root_map, deletion_set, other_obj);
+    }
 }
