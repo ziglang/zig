@@ -517,7 +517,7 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64, start: u64, reverse: boo
         var count: usize = seg.sections.items.len;
         while (count > 0) : (count -= 1) {
             const sec = &seg.sections.items[count - 1];
-            end_off -= mem.alignForwardGeneric(u64, sec.size, @alignOf(u64)); // TODO is 8-byte aligned correct?
+            end_off -= mem.alignForwardGeneric(u64, sec.size, @alignOf(u128)); // TODO is 8-byte aligned correct?
             sec.offset = @intCast(u32, end_off);
             sec.addr = base_vmaddr + end_off;
         }
@@ -526,7 +526,7 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64, start: u64, reverse: boo
         for (seg.sections.items) |*sect| {
             sect.offset = @intCast(u32, next_off);
             sect.addr = base_vmaddr + next_off;
-            next_off += mem.alignForwardGeneric(u64, sect.size, @alignOf(u64)); // TODO is 8-byte aligned correct?
+            next_off += mem.alignForwardGeneric(u64, sect.size, @alignOf(u128)); // TODO is 8-byte aligned correct?
         }
     }
 }
@@ -1120,6 +1120,11 @@ fn doRelocs(self: *Zld) !void {
                                     const narrowed = @truncate(u12, ta);
                                     const offset: u12 = blk: {
                                         if (parsed.size == 0) {
+                                            if (parsed.v == 1) {
+                                                // 128-bit SIMD is scaled by 16.
+                                                break :blk try math.divExact(u12, narrowed, 16);
+                                            }
+                                            // Otherwise, 8-bit SIMD or ldrb.
                                             break :blk narrowed;
                                         } else {
                                             const denom: u4 = try math.powi(u4, 2, parsed.size);
@@ -2184,25 +2189,26 @@ fn writeSymbolTable(self: *Zld) !void {
 
     for (self.locals.items()) |entries| {
         log.warn("'{s}': {} entries", .{ entries.key, entries.value.items.len });
-        var symbol: ?macho.nlist_64 = null;
+        // var symbol: ?macho.nlist_64 = null;
         for (entries.value.items) |entry| {
             log.warn("    | {}", .{entry.inner});
             log.warn("    | {}", .{entry.tt});
             log.warn("    | {s}", .{entry.object.name});
-            switch (entry.tt) {
-                .Global => {
-                    symbol = entry.inner;
-                    break;
-                },
-                .WeakGlobal => {
-                    symbol = entry.inner;
-                },
-                .Local => {},
-            }
+            // switch (entry.tt) {
+            //     .Global => {
+            //         symbol = entry.inner;
+            //         break;
+            //     },
+            //     .WeakGlobal => {
+            //         symbol = entry.inner;
+            //     },
+            //     .Local => {},
+            // }
+            try locals.append(entry.inner);
         }
-        if (symbol) |s| {
-            try locals.append(s);
-        }
+        // if (symbol) |s| {
+        //     try locals.append(s);
+        // }
     }
     const nlocals = locals.items.len;
 

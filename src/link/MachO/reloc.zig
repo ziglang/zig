@@ -25,7 +25,10 @@ pub const Arm64 = union(enum) {
         rt: u5,
         rn: u5,
         offset: u12,
-        _1: u8 = 0b111_0_01_01,
+        opc: u2,
+        _2: u2 = 0b01,
+        v: u1,
+        _1: u3 = 0b111,
         size: u2,
     },
     LoadLiteral: packed struct {
@@ -144,6 +147,8 @@ pub const Arm64 = union(enum) {
                 .rt = rt,
                 .rn = rn,
                 .offset = offset,
+                .opc = 0b01,
+                .v = 0b0,
                 .size = 0b11,
             },
         };
@@ -154,6 +159,8 @@ pub const Arm64 = union(enum) {
                 .rt = rt,
                 .rn = rn,
                 .offset = offset,
+                .opc = 0b01,
+                .v = 0b0,
                 .size = 0b01,
             },
         };
@@ -164,6 +171,8 @@ pub const Arm64 = union(enum) {
                 .rt = rt,
                 .rn = rn,
                 .offset = offset,
+                .opc = 0b01,
+                .v = 0b0,
                 .size = 0b00,
             },
         };
