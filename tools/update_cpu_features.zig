@@ -24,6 +24,7 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "aarch64",
         .llvm_name = "AArch64",
         .td_name = "AArch64.td",
+        .branch_quota = 2000,
         .feature_overrides = &.{
             .{
                 .llvm_name = "CONTEXTIDREL2",
@@ -46,6 +47,7 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "arm",
         .llvm_name = "ARM",
         .td_name = "ARM.td",
+        .branch_quota = 10000,
     },
     .{
         .zig_name = "avr",
@@ -338,7 +340,7 @@ fn processOneTarget(job: Job) anyerror!void {
     for (all_features.items) |obj| {
         const llvm_name = obj.get("Name").?.String;
         const zig_name = try llvmNameToZigName(arena, llvm_target, llvm_name);
-        try w.print("    {s},\n", .{std.zig.fmtId(zig_name)});
+        try w.print("    {},\n", .{std.zig.fmtId(zig_name)});
     }
 
     try w.writeAll(
@@ -347,6 +349,7 @@ fn processOneTarget(job: Job) anyerror!void {
         \\pub usingnamespace CpuFeature.feature_set_fns(Feature);
         \\
         \\pub const all_features = blk: {
+        \\
     );
     if (llvm_target.branch_quota) |branch_quota| {
         try w.print("    @setEvalBranchQuota({d});\n", .{branch_quota});
@@ -363,9 +366,9 @@ fn processOneTarget(job: Job) anyerror!void {
         const description = obj.get("Desc").?.String;
         const zig_name = try llvmNameToZigName(arena, llvm_target, llvm_name);
         try w.print(
-            \\    result[@enumToInt(Feature.{s})] = .{{
-            \\        .llvm_name = "{s}",
-            \\        .description = "{s}",
+            \\    result[@enumToInt(Feature.{})] = .{{
+            \\        .llvm_name = "{}",
+            \\        .description = "{}",
             \\        .dependencies = featureSet(&[_]Feature{{
         ,
             .{
@@ -394,7 +397,7 @@ fn processOneTarget(job: Job) anyerror!void {
             for (dependencies.items) |dep| {
                 const other_llvm_name = dep.get("Name").?.String;
                 const other_zig_name = try llvmNameToZigName(arena, llvm_target, other_llvm_name);
-                try w.print("            .{s},\n", .{std.zig.fmtId(other_zig_name)});
+                try w.print("            .{},\n", .{std.zig.fmtId(other_zig_name)});
             }
             try w.writeAll(
                 \\        }),
@@ -439,9 +442,9 @@ fn processOneTarget(job: Job) anyerror!void {
         std.sort.sort(*json.ObjectMap, cpu_features.items, {}, objectLessThan);
         const zig_cpu_name = try llvmNameToZigName(arena, llvm_target, llvm_name);
         try w.print(
-            \\    pub const {s} = CpuModel{{
-            \\        .name = "{s}",
-            \\        .llvm_name = "{s}",
+            \\    pub const {} = CpuModel{{
+            \\        .name = "{}",
+            \\        .llvm_name = "{}",
             \\        .features = featureSet(&[_]Feature{{
         , .{
             std.zig.fmtId(zig_cpu_name),
@@ -459,7 +462,7 @@ fn processOneTarget(job: Job) anyerror!void {
             for (cpu_features.items) |feature_obj| {
                 const feature_llvm_name = feature_obj.get("Name").?.String;
                 const feature_zig_name = try llvmNameToZigName(arena, llvm_target, feature_llvm_name);
-                try w.print("            .{s},\n", .{std.zig.fmtId(feature_zig_name)});
+                try w.print("            .{},\n", .{std.zig.fmtId(feature_zig_name)});
             }
             try w.writeAll(
                 \\        }),
