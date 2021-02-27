@@ -2409,6 +2409,27 @@ pub const MADV_PAGEOUT = 21;
 pub const MADV_HWPOISON = 100;
 pub const MADV_SOFT_OFFLINE = 101;
 
+pub const POSIX_FADV_NORMAL = 0;
+pub const POSIX_FADV_RANDOM = 1;
+pub const POSIX_FADV_SEQUENTIAL = 2;
+pub const POSIX_FADV_WILLNEED = 3;
+pub usingnamespace switch (arch) {
+    .s390x => if (@typeInfo(usize).Int.bits == 64)
+        struct {
+            pub const POSIX_FADV_DONTNEED = 6;
+            pub const POSIX_FADV_NOREUSE = 7;
+        }
+    else
+        struct {
+            pub const POSIX_FADV_DONTNEED = 4;
+            pub const POSIX_FADV_NOREUSE = 5;
+        },
+    else => struct {
+        pub const POSIX_FADV_DONTNEED = 4;
+        pub const POSIX_FADV_NOREUSE = 5;
+    },
+};
+
 pub const __kernel_timespec = extern struct {
     tv_sec: i64,
     tv_nsec: i64,
