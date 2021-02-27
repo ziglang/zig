@@ -563,7 +563,6 @@ pub fn HashMapUnmanaged(
         }
 
         /// Insert an entry if the associated key is not already present, otherwise update preexisting value.
-        /// Returns true if the key was already present.
         pub fn put(self: *Self, allocator: *Allocator, key: K, value: V) !void {
             const result = try self.getOrPut(allocator, key);
             result.entry.value = value;
@@ -1116,7 +1115,7 @@ test "std.hash_map put" {
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
-        _ = try map.put(i, i);
+        try map.put(i, i);
     }
 
     i = 0;

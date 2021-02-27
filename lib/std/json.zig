@@ -2077,27 +2077,27 @@ pub const Parser = struct {
                         p.state = .ArrayValue;
                     },
                     .String => |s| {
-                        _ = try object.put(key, try p.parseString(allocator, s, input, i));
+                        try object.put(key, try p.parseString(allocator, s, input, i));
                         _ = p.stack.pop();
                         p.state = .ObjectKey;
                     },
                     .Number => |n| {
-                        _ = try object.put(key, try p.parseNumber(n, input, i));
+                        try object.put(key, try p.parseNumber(n, input, i));
                         _ = p.stack.pop();
                         p.state = .ObjectKey;
                     },
                     .True => {
-                        _ = try object.put(key, Value{ .Bool = true });
+                        try object.put(key, Value{ .Bool = true });
                         _ = p.stack.pop();
                         p.state = .ObjectKey;
                     },
                     .False => {
-                        _ = try object.put(key, Value{ .Bool = false });
+                        try object.put(key, Value{ .Bool = false });
                         _ = p.stack.pop();
                         p.state = .ObjectKey;
                     },
                     .Null => {
-                        _ = try object.put(key, Value.Null);
+                        try object.put(key, Value.Null);
                         _ = p.stack.pop();
                         p.state = .ObjectKey;
                     },
@@ -2184,7 +2184,7 @@ pub const Parser = struct {
                 _ = p.stack.pop();
 
                 var object = &p.stack.items[p.stack.items.len - 1].Object;
-                _ = try object.put(key, value.*);
+                try object.put(key, value.*);
                 p.state = .ObjectKey;
             },
             // Array Parent -> [ ..., <array>, value ]

@@ -293,7 +293,7 @@ test "json write stream" {
 
 fn getJsonObject(allocator: *std.mem.Allocator) !std.json.Value {
     var value = std.json.Value{ .Object = std.json.ObjectMap.init(allocator) };
-    _ = try value.Object.put("one", std.json.Value{ .Integer = @intCast(i64, 1) });
-    _ = try value.Object.put("two", std.json.Value{ .Float = 2.0 });
+    try value.Object.put("one", std.json.Value{ .Integer = @intCast(i64, 1) });
+    try value.Object.put("two", std.json.Value{ .Float = 2.0 });
     return value;
 }

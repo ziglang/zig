@@ -377,7 +377,7 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
                 const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
                 const raw_name = macro.getName_getNameStart();
                 const name = try c.str(raw_name);
-                _ = try c.global_names.put(c.gpa, name, {});
+                try c.global_names.put(c.gpa, name, {});
             },
             else => {},
         }
@@ -399,7 +399,7 @@ fn declVisitorC(context: ?*c_void, decl: *const clang.Decl) callconv(.C) bool {
 fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
     if (decl.castToNamedDecl()) |named_decl| {
         const decl_name = try c.str(named_decl.getName_bytes_begin());
-        _ = try c.global_names.put(c.gpa, decl_name, {});
+        try c.global_names.put(c.gpa, decl_name, {});
     }
 }
 
@@ -788,7 +788,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     const is_pub = toplevel and !is_unnamed;
     const init_node = blk: {
         const record_def = record_decl.getDefinition() orelse {
-            _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+            try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
             break :blk Tag.opaque_literal.init();
         };
 
@@ -805,13 +805,13 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             const field_qt = field_decl.getType();
 
             if (field_decl.isBitField()) {
-                _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
                 try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
                 break :blk Tag.opaque_literal.init();
             }
 
             if (qualTypeCanon(field_qt).isIncompleteOrZeroLengthArrayType(c.clang_context)) {
-                _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
                 try warn(c, scope, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
                 break :blk Tag.opaque_literal.init();
             }
@@ -826,7 +826,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             }
             const field_type = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                    try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
                     try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
                     break :blk Tag.opaque_literal.init();
                 },
@@ -972,7 +972,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
             .fields = try c.arena.dupe(ast.Payload.Enum.Field, fields.items),
         });
     } else blk: {
-        _ = try c.opaque_demotes.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), {});
+        try c.opaque_demotes.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), {});
         break :blk Tag.opaque_literal.init();
     };
 
@@ -3199,7 +3199,7 @@ fn maybeSuppressResult(
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
-    _ = try c.global_scope.sym_table.put(name, decl_node);
+    try c.global_scope.sym_table.put(name, decl_node);
     try c.global_scope.nodes.append(decl_node);
 }
 
@@ -4235,7 +4235,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
         return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
 
     const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
-    _ = try c.global_scope.macro_table.put(m.name, var_decl);
+    try c.global_scope.macro_table.put(m.name, var_decl);
 }
 
 fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
@@ -4294,7 +4294,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .return_type = return_type,
         .body = try block_scope.complete(c),
     });
-    _ = try c.global_scope.macro_table.put(m.name, fn_decl);
+    try c.global_scope.macro_table.put(m.name, fn_decl);
 }
 
 const ParseError = Error || error{ParseError};
