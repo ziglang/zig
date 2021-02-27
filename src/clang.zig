@@ -583,6 +583,16 @@ pub const MacroQualifiedType = opaque {
     extern fn ZigClangMacroQualifiedType_getModifiedType(*const MacroQualifiedType) QualType;
 };
 
+pub const TypeOfType = opaque {
+    pub const getUnderlyingType = ZigClangTypeOfType_getUnderlyingType;
+    extern fn ZigClangTypeOfType_getUnderlyingType(*const TypeOfType) QualType;
+};
+
+pub const TypeOfExprType = opaque {
+    pub const getUnderlyingExpr = ZigClangTypeOfExprType_getUnderlyingExpr;
+    extern fn ZigClangTypeOfExprType_getUnderlyingExpr(*const TypeOfExprType) *const Expr;
+};
+
 pub const MemberExpr = opaque {
     pub const getBase = ZigClangMemberExpr_getBase;
     extern fn ZigClangMemberExpr_getBase(*const MemberExpr) *const Expr;

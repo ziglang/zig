@@ -2475,7 +2475,7 @@ fn transPredefinedExpr(c: *Context, scope: *Scope, expr: *const clang.Predefined
 
 fn transCreateCharLitNode(c: *Context, narrow: bool, val: u32) TransError!Node {
     return Tag.char_literal.create(c.arena, if (narrow)
-        try std.fmt.allocPrint(c.arena, "'{s}'", .{std.zig.fmtEscapes(&.{@intCast(u8, val)})})
+        try std.fmt.allocPrint(c.arena, "'{'}'", .{std.zig.fmtEscapes(&.{@intCast(u8, val)})})
     else
         try std.fmt.allocPrint(c.arena, "'\\u{{{x}}}'", .{val}));
 }
@@ -3826,6 +3826,20 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         .MacroQualified => {
             const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, ty);
             return transQualType(c, scope, macroqualified_ty.getModifiedType(), source_loc);
+        },
+        .TypeOf => {
+            const typeof_ty = @ptrCast(*const clang.TypeOfType, ty);
+            return transQualType(c, scope, typeof_ty.getUnderlyingType(), source_loc);
+        },
+        .TypeOfExpr => {
+            const typeofexpr_ty = @ptrCast(*const clang.TypeOfExprType, ty);
+            const underlying_expr = transExpr(c, scope, typeofexpr_ty.getUnderlyingExpr(), .used) catch |err| switch (err) {
+                error.UnsupportedTranslation => {
+                    return fail(c, error.UnsupportedType, source_loc, "unsupported underlying expression for TypeOfExpr", .{});
+                },
+                else => |e| return e,
+            };
+            return Tag.typeof.create(c.arena, underlying_expr);
         },
         else => {
             const type_name = c.str(ty.getTypeClassName());

@@ -379,3 +379,23 @@ test "indexOfIgnoreCase" {
 
     std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
 }
+
+/// Compares two slices of numbers lexicographically. O(n).
+pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
+    const n = std.math.min(lhs.len, rhs.len);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        switch (std.math.order(toLower(lhs[i]), toLower(rhs[i]))) {
+            .eq => continue,
+            .lt => return .lt,
+            .gt => return .gt,
+        }
+    }
+    return std.math.order(lhs.len, rhs.len);
+}
+
+/// Returns true if lhs < rhs, false otherwise
+/// TODO rename "IgnoreCase" to "Insensitive" in this entire file.
+pub fn lessThanIgnoreCase(lhs: []const u8, rhs: []const u8) bool {
+    return orderIgnoreCase(lhs, rhs) == .lt;
+}

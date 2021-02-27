@@ -995,7 +995,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
             const compile_error_tok = try c.addToken(.builtin, "@compileError");
             _ = try c.addToken(.l_paren, "(");
-            const err_msg_tok = try c.addTokenFmt(.string_literal, "\"{s}\"", .{std.zig.fmtEscapes(payload.mangled)});
+            const err_msg_tok = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(payload.mangled)});
             const err_msg = try c.addNode(.{
                 .tag = .string_literal,
                 .main_token = err_msg_tok,
@@ -2265,7 +2265,7 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
             .tag = .string_literal,
-            .main_token = try c.addTokenFmt(.string_literal, "\"{s}\"", .{std.zig.fmtEscapes(some)}),
+            .main_token = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(some)}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
@@ -2347,7 +2347,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
             .tag = .string_literal,
-            .main_token = try c.addTokenFmt(.string_literal, "\"{s}\"", .{std.zig.fmtEscapes(some)}),
+            .main_token = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(some)}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
