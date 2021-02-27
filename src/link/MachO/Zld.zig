@@ -16,7 +16,6 @@ const CodeSignature = @import("CodeSignature.zig");
 const Archive = @import("Archive.zig");
 const Object = @import("Object.zig");
 const Trie = @import("Trie.zig");
-const aarch64 = @import("../../codegen/aarch64.zig");
 
 usingnamespace @import("commands.zig");
 usingnamespace @import("bind.zig");
@@ -566,14 +565,14 @@ fn writeStubHelperCommon(self: *Zld) !void {
                         // adr x17, disp
                         mem.writeIntLittle(u32, code[0..4], Arm64.adr(17, @bitCast(u21, displacement)).toU32());
                         // nop
-                        mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
+                        mem.writeIntLittle(u32, code[4..8], Arm64.nop().toU32());
                         break :data_blk_outer;
                     }
                     data_blk: {
                         const new_this_addr = this_addr + @sizeOf(u32);
                         const displacement = math.cast(i21, target_addr - new_this_addr) catch |_| break :data_blk;
                         // nop
-                        mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
+                        mem.writeIntLittle(u32, code[0..4], Arm64.nop().toU32());
                         // adr x17, disp
                         mem.writeIntLittle(u32, code[4..8], Arm64.adr(17, @bitCast(u21, displacement)).toU32());
                         break :data_blk_outer;
@@ -601,7 +600,7 @@ fn writeStubHelperCommon(self: *Zld) !void {
                         // ldr x16, label
                         mem.writeIntLittle(u32, code[12..16], Arm64.ldr(16, literal, 1).toU32());
                         // nop
-                        mem.writeIntLittle(u32, code[16..20], aarch64.Instruction.nop().toU32());
+                        mem.writeIntLittle(u32, code[16..20], Arm64.nop().toU32());
                         break :binder_blk_outer;
                     }
                     binder_blk: {
@@ -611,7 +610,7 @@ fn writeStubHelperCommon(self: *Zld) !void {
                         log.warn("2: disp=0x{x}, literal=0x{x}", .{ displacement, literal });
                         // Pad with nop to please division.
                         // nop
-                        mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.nop().toU32());
+                        mem.writeIntLittle(u32, code[12..16], Arm64.nop().toU32());
                         // ldr x16, label
                         mem.writeIntLittle(u32, code[16..20], Arm64.ldr(16, literal, 1).toU32());
                         break :binder_blk_outer;
@@ -697,7 +696,7 @@ fn writeStub(self: *Zld, index: u32) !void {
                     // ldr x16, literal
                     mem.writeIntLittle(u32, code[0..4], Arm64.ldr(16, literal, 1).toU32());
                     // nop
-                    mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
+                    mem.writeIntLittle(u32, code[4..8], Arm64.nop().toU32());
                     break :outer;
                 }
                 inner: {
@@ -705,7 +704,7 @@ fn writeStub(self: *Zld, index: u32) !void {
                     const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch |_| break :inner;
                     const literal = math.cast(u18, displacement) catch |_| break :inner;
                     // nop
-                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
+                    mem.writeIntLittle(u32, code[0..4], Arm64.nop().toU32());
                     // ldr x16, literal
                     mem.writeIntLittle(u32, code[4..8], Arm64.ldr(16, literal, 1).toU32());
                     break :outer;
