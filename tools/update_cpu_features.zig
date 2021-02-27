@@ -320,6 +320,13 @@ fn processOneTarget(job: Job) anyerror!void {
     defer target_dir.close();
 
     const zig_code_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{llvm_target.zig_name});
+
+    if (all_features.items.len == 0) {
+        // We represent this with an empty file.
+        try target_dir.deleteTree(zig_code_basename);
+        return;
+    }
+
     var zig_code_file = try target_dir.createFile(zig_code_basename, .{});
     defer zig_code_file.close();
 
