@@ -1070,17 +1070,13 @@ pub const Target = struct {
                 }
             }
 
-            /// Returns a name that matches the lib/std/target/* directory name.
+            /// Returns a name that matches the lib/std/target/* source file name.
             pub fn genericName(arch: Arch) []const u8 {
                 return switch (arch) {
                     .arm, .armeb, .thumb, .thumbeb => "arm",
                     .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
-                    .avr => "avr",
                     .bpfel, .bpfeb => "bpf",
-                    .csky => "csky",
-                    .hexagon => "hexagon",
                     .mips, .mipsel, .mips64, .mips64el => "mips",
-                    .msp430 => "msp430",
                     .powerpc, .powerpc64, .powerpc64le => "powerpc",
                     .amdgcn => "amdgpu",
                     .riscv32, .riscv64 => "riscv",
@@ -1111,6 +1107,7 @@ pub const Target = struct {
                     .s390x => &systemz.all_features,
                     .i386, .x86_64 => &x86.all_features,
                     .nvptx, .nvptx64 => &nvptx.all_features,
+                    .ve => &ve.all_features,
                     .wasm32, .wasm64 => &wasm.all_features,
 
                     else => &[0]Cpu.Feature{},
@@ -1134,6 +1131,7 @@ pub const Target = struct {
                     .s390x => comptime allCpusFromDecls(systemz.cpu),
                     .i386, .x86_64 => comptime allCpusFromDecls(x86.cpu),
                     .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
+                    .ve => comptime allCpusFromDecls(ve.cpu),
                     .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
 
                     else => &[0]*const Model{},
@@ -1188,12 +1186,13 @@ pub const Target = struct {
                     .amdgcn => &amdgpu.cpu.generic,
                     .riscv32 => &riscv.cpu.generic_rv32,
                     .riscv64 => &riscv.cpu.generic_rv64,
-                    .sparc, .sparcel => &sparc.cpu.v8,
+                    .sparc, .sparcel => &sparc.cpu.generic,
                     .sparcv9 => &sparc.cpu.v9,
                     .s390x => &systemz.cpu.generic,
                     .i386 => &x86.cpu._i386,
                     .x86_64 => &x86.cpu.x86_64,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+                    .ve => &ve.cpu.generic,
                     .wasm32, .wasm64 => &wasm.cpu.generic,
 
                     else => &S.generic_model,
@@ -1207,6 +1206,7 @@ pub const Target = struct {
                     .riscv64 => &riscv.cpu.baseline_rv64,
                     .i386 => &x86.cpu.pentium4,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+                    .sparc, .sparcel => &sparc.cpu.v8,
 
                     else => generic(arch),
                 };
