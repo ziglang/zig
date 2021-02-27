@@ -49,7 +49,7 @@ pub fn WaitGroup(comptime Futex: type) type {
             return self.apply(true, amount);
         }
 
-        pub inline fn done(self: *Self) void {
+        pub fn done(self: *Self) callconv(.Inline) void {
             self.end(1);
         }
 
@@ -70,7 +70,7 @@ pub fn WaitGroup(comptime Futex: type) type {
             }
         }
 
-        pub inline fn tryEnd(self: *Self, amount: usize) bool {
+        pub fn tryEnd(self: *Self, amount: usize) callconv(.Inline) bool {
             return self.apply(false, amount);
         }
 
@@ -140,15 +140,15 @@ pub fn WaitGroup(comptime Futex: type) type {
             return true;
         }
 
-        pub inline fn wait(self: *Self) void {
+        pub fn wait(self: *Self) callconv(.Inline) void {
             return self.waitInner(null) catch unreachable;
         }
 
-        pub inline fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        pub fn tryWaitFor(self: *Self, duration: u64) callconv(.Inline) error{TimedOut}!void {
             return self.tryWaitUntil(Futex.now() + duration);
         }
 
-        pub inline fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        pub fn tryWaitUntil(self: *Self, deadline: u64) callconv(.Inline) error{TimedOut}!void {
             return self.waitInner(deadline);
         }
 

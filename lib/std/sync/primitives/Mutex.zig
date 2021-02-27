@@ -51,19 +51,19 @@ pub fn Mutex(comptime Futex: anytype) type {
             return Held{ .mutex = self };
         }
 
-        pub inline fn tryAcquireFor(self: *Self, duration: u64) error{TimedOut}!Held {
+        pub fn tryAcquireFor(self: *Self, duration: u64) callconv(.Inline) error{TimedOut}!Held {
             return self.acquireInner(Futex.now() + duration);
         }
 
-        pub inline fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
+        pub fn tryAcquireUntil(self: *Self, deadline: u64) callconv(.Inline) error{TimedOut}!Held {
             return self.acquireInner(deadline);
         }
 
-        pub inline fn acquire(self: *Self) Held {
+        pub fn acquire(self: *Self) callconv(.Inline) Held {
             return self.acquireInner(null) catch unreachable;
         }
 
-        inline fn acquireInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
+        fn acquireInner(self: *Self, deadline: ?u64) callconv(.Inline) error{TimedOut}!Held {
             const state = atomic.swap(&self.state, .locked, .Acquire);
             if (state != .unlocked) {
                 try self.acquireSlow(state, deadline);
@@ -81,7 +81,6 @@ pub fn Mutex(comptime Futex: anytype) type {
 
             var new_state = current_state;
             while (true) {
-
                 var spin_iter: std.math.Log2Int(usize) = 0;
                 while (spin_iter < 10) : (spin_iter += 1) {
                     switch (atomic.load(&self.state, .Relaxed)) {

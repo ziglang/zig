@@ -67,15 +67,15 @@ pub fn Semaphore(comptime Futex: anytype) type {
             }
         }
 
-        pub inline fn wait(self: *Self) void {
+        pub fn wait(self: *Self) callconv(.Inline) void {
             return self.waitInner(null) catch unreachable;
         }
 
-        pub inline fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        pub fn tryWaitFor(self: *Self, duration: u64) callconv(.Inline) error{TimedOut}!void {
             return self.tryWaitUntil(Futex.now() + duration);
         }
 
-        pub inline fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        pub fn tryWaitUntil(self: *Self, deadline: u64) callconv(.Inline) error{TimedOut}!void {
             return self.waitInner(deadline);
         }
 
@@ -83,7 +83,7 @@ pub fn Semaphore(comptime Futex: anytype) type {
             while (true) {
                 if (self.tryWait()) {
                     return;
-                }    
+                }
 
                 var state = atomic.load(&self.state, .Relaxed);
                 if (state != .waiting) {
@@ -253,7 +253,7 @@ fn testSemaphore(
     const Cycle = struct {
         input: TestSemaphore = .{},
         output: TestSemaphore = .{},
-        
+
         const Self = @This();
         const cycles = 100;
 
@@ -277,7 +277,7 @@ fn testSemaphore(
             const allocator = testing.allocator;
             const threads = try allocator.alloc(*Thread, 10);
             defer allocator.free(threads);
-            
+
             var producers = threads.len / 2;
             for (threads) |*t| {
                 if (producers > 0) {

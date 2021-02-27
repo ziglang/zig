@@ -134,7 +134,6 @@ fn testOnce(
         }
     }
 
-    
     const Thread = TestThread orelse return;
 
     {

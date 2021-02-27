@@ -55,15 +55,15 @@ pub fn ResetEvent(comptime Futex: type) type {
             return self.isSet();
         }
 
-        pub inline fn wait(self: *Self) void {
+        pub fn wait(self: *Self) callconv(.Inline) void {
             self.waitInner(null) catch unreachable;
         }
 
-        pub inline fn tryWaitFor(self: *Self, duration: u64) error{TimedOut}!void {
+        pub fn tryWaitFor(self: *Self, duration: u64) callconv(.Inline) error{TimedOut}!void {
             return self.tryWaitUntil(Futex.now() + duration);
         }
 
-        pub inline fn tryWaitUntil(self: *Self, deadline: u64) error{TimedOut}!void {
+        pub fn tryWaitUntil(self: *Self, deadline: u64) callconv(.Inline) error{TimedOut}!void {
             return self.waitInner(deadline);
         }
 

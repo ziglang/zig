@@ -1294,10 +1294,12 @@ pub const FileSource = union(enum) {
     pub fn dupe(self: FileSource, b: *Builder) FileSource {
         return switch (self) {
             .path => |p| .{ .path = b.dupe(p) },
-            .write_file => |wf| .{ .write_file = .{
-                .step = wf.step,
-                .basename = b.dupe(wf.basename),
-            } },
+            .write_file => |wf| .{
+                .write_file = .{
+                    .step = wf.step,
+                    .basename = b.dupe(wf.basename),
+                },
+            },
             .translate_c => |tc| .{ .translate_c = tc },
         };
     }

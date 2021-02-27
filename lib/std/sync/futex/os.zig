@@ -396,7 +396,7 @@ const WindowsFutex = struct {
             }
         }
     };
-    
+
     const WaitOnAddress = struct {
         var wake_by_address_single_ptr: WakeOnAddressFn = undefined;
         var wake_by_address_all_ptr: WakeOnAddressFn = undefined;
@@ -663,7 +663,7 @@ const WindowsFutex = struct {
             const WAKING = 1 << 8;
             const WAITING = 1 << 9;
 
-            inline fn tryAcquire(self: *NtLock) bool {
+            fn tryAcquire(self: *NtLock) callconv(.Inline) bool {
                 return switch (builtin.arch) {
                     .i386, .x86_64 => atomic.bitSet(
                         &self.state,

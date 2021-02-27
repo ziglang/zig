@@ -185,7 +185,7 @@ test "fetchXor" {
     }
 }
 
-inline fn atomicRmw(comptime T: type, ptr: *T, comptime op: AtomicRmwOp, value: T, comptime ordering: Ordering) T {
+fn atomicRmw(comptime T: type, ptr: *T, comptime op: AtomicRmwOp, value: T, comptime ordering: Ordering) callconv(.Inline) T {
     return @atomicRmw(T, ptr, op, value, comptime ordering.toBuiltin());
 }
 

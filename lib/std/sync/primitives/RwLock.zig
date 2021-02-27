@@ -72,7 +72,7 @@ pub fn RwLock(comptime Futex: anytype) type {
         pub fn tryAcquireUntil(self: *Self, deadline: u64) error{TimedOut}!Held {
             return self.acquireInner(deadline);
         }
-        
+
         fn acquireInner(self: *Self, deadline: ?u64) error{TimedOut}!Held {
             // Tell the state that theres a writer waiting to acquire the mutex before doing so.
             // This causes new readers to fail and sleep on the mutex.
@@ -97,7 +97,7 @@ pub fn RwLock(comptime Futex: anytype) type {
                 };
 
                 if (self.semaphore.tryWaitUntil(deadline_ns)) {
-                    break :wait_for_readers;    
+                    break :wait_for_readers;
                 } else |timed_out| {}
 
                 // If we timeout, we need to unset the IS_WRITING bit as we no longer will be.
@@ -126,7 +126,7 @@ pub fn RwLock(comptime Futex: anytype) type {
             };
         }
 
-        inline fn tryAcquireSharedFast(self: *Self) bool {
+        fn tryAcquireSharedFast(self: *Self) callconv(.Inline) bool {
             // If there are no writers, try to add a READER to the state so announce that we're reading.
             var state = atomic.load(&self.state, .Relaxed);
             while (true) {
@@ -144,7 +144,7 @@ pub fn RwLock(comptime Futex: anytype) type {
             }
         }
 
-        inline fn tryAcquireSharedInner(self: *Self) bool {
+        fn tryAcquireSharedInner(self: *Self) callconv(.Inline) bool {
             if (self.tryAcquireSharedFast()) {
                 return true;
             }
@@ -162,7 +162,7 @@ pub fn RwLock(comptime Futex: anytype) type {
             if (!self.tryAcquireSharedInner()) {
                 return null;
             }
-            
+
             if (helgrind) |hg| {
                 hg.annotateHappensAfter(@ptrToInt(self));
             }
@@ -297,7 +297,7 @@ pub const DebugRwLock = extern struct {
             return error.TimedOut;
         };
     }
-    
+
     pub fn tryAcquireShared(self: *Self) ?Held {
         if (self.state & IS_WRITING != 0) {
             return null;

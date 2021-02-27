@@ -83,7 +83,6 @@ pub fn Condvar(comptime Futex: anytype) type {
 }
 
 pub const DebugCondvar = extern struct {
-
     const Self = @This();
 
     pub const Mutex = @import("./Mutex.zig").DebugMutex;
@@ -165,7 +164,7 @@ fn testCondvar(
         input: Queue = .{},
         output: Queue = .{},
         exit: Queue = .{},
-        
+
         const Self = @This();
         const Queue = struct {
             mutex: TestCondvar.Mutex = .{},
