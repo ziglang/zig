@@ -1386,6 +1386,31 @@ pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
     return syscall3(.madvise, @ptrToInt(address), len, advice);
 }
 
+pub fn posix_fadvise(fd: fd_t, offset: off_t, len: off_t, advice: usize) usize {
+    if (@hasField(SYS, "fadvise64_64")) {
+        const offset_halves = splitValue64(@bitCast(u64, offset));
+        const length_halves = splitValue64(@bitCast(u64, len));
+
+        return syscall6(
+            .fadvise64_64,
+            @bitCast(usize, @as(isize, fd)),
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+            advice,
+        );
+    } else {
+        return syscall4(
+            .fadvise64,
+            @bitCast(usize, @as(isize, fd)),
+            @bitCast(usize, offset),
+            @bitCast(usize, len),
+            advice,
+        );
+    }
+}
+
 test {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
