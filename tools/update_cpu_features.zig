@@ -11,11 +11,18 @@ const FeatureOverride = struct {
     desc: ?[]const u8 = null,
 };
 
+const ExtraCpu = struct {
+    llvm_name: ?[]const u8,
+    zig_name: []const u8,
+    features: []const []const u8,
+};
+
 const LlvmTarget = struct {
     zig_name: []const u8,
     llvm_name: []const u8,
     td_name: []const u8,
     feature_overrides: []const FeatureOverride = &.{},
+    extra_cpus: []const ExtraCpu = &.{},
     branch_quota: ?usize = null,
 };
 
@@ -98,6 +105,18 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "riscv",
         .llvm_name = "RISCV",
         .td_name = "RISCV.td",
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "baseline_rv32",
+                .features = &.{ "a", "c", "d", "f", "m" },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "baseline_rv64",
+                .features = &.{ "64bit", "a", "c", "d", "f", "m" },
+            },
+        },
     },
     .{
         .zig_name = "sparc",
@@ -433,7 +452,44 @@ fn processOneTarget(job: Job) anyerror!void {
         \\pub const cpu = struct {
         \\
     );
-
+    for (llvm_target.extra_cpus) |extra_cpu| {
+        try w.print(
+            \\    pub const {} = CpuModel{{
+            \\        .name = "{}",
+            \\
+        , .{
+            std.zig.fmtId(extra_cpu.zig_name),
+            std.zig.fmtEscapes(extra_cpu.zig_name),
+        });
+        if (extra_cpu.llvm_name) |llvm_name| {
+            try w.print(
+                \\        .llvm_name = "{}",
+                \\        .features = featureSet(&[_]Feature{{
+            , .{std.zig.fmtEscapes(llvm_name)});
+        } else {
+            try w.writeAll(
+                \\        .llvm_name = null,
+                \\        .features = featureSet(&[_]Feature{
+            );
+        }
+        if (extra_cpu.features.len == 0) {
+            try w.writeAll(
+                \\}),
+                \\    };
+                \\
+            );
+        } else {
+            try w.writeAll("\n");
+            for (extra_cpu.features) |feature_zig_name| {
+                try w.print("            .{},\n", .{std.zig.fmtId(feature_zig_name)});
+            }
+            try w.writeAll(
+                \\        }),
+                \\    };
+                \\
+            );
+        }
+    }
     for (all_cpus.items) |obj| {
         const llvm_name = obj.get("Name").?.String;
         var deps_set = std.StringHashMap(void).init(arena);
@@ -516,7 +572,7 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
 fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
     const a_key = a.get("Name").?.String;
     const b_key = b.get("Name").?.String;
-    return std.mem.lessThan(u8, a_key, b_key);
+    return std.ascii.lessThanIgnoreCase(a_key, b_key);
 }
 
 fn llvmNameToZigName(
