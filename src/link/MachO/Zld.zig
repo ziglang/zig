@@ -60,7 +60,7 @@ tlv_section_index: ?u16 = null,
 la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 
-locals: std.StringArrayHashMapUnmanaged(macho.nlist_64) = .{},
+locals: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Symbol)) = .{},
 exports: std.StringArrayHashMapUnmanaged(macho.nlist_64) = .{},
 nonlazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
 lazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
@@ -73,6 +73,18 @@ stub_helper_stubs_start_off: ?u64 = null,
 
 segments_directory: std.AutoHashMapUnmanaged([16]u8, u16) = .{},
 directory: std.AutoHashMapUnmanaged(DirectoryKey, DirectoryEntry) = .{},
+
+const Symbol = struct {
+    inner: macho.nlist_64,
+    tt: Type,
+    object: *Object,
+
+    const Type = enum {
+        Local,
+        WeakGlobal,
+        Global,
+    };
+};
 
 const DirectoryKey = struct {
     segname: [16]u8,
@@ -198,6 +210,7 @@ pub fn deinit(self: *Zld) void {
     self.exports.deinit(self.allocator);
     for (self.locals.items()) |*entry| {
         self.allocator.free(entry.key);
+        entry.value.deinit(self.allocator);
     }
     self.locals.deinit(self.allocator);
     for (self.objects.items) |*object| {
@@ -773,7 +786,7 @@ fn resolveSymbols(self: *Zld) !void {
     var next_address = std.AutoHashMap(DirectoryKey, Address).init(self.allocator);
     defer next_address.deinit();
 
-    for (self.objects.items) |object| {
+    for (self.objects.items) |*object| {
         const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
 
         for (seg.sections.items) |sect| {
@@ -799,11 +812,32 @@ fn resolveSymbols(self: *Zld) !void {
             if (isImport(&sym)) continue;
 
             const sym_name = object.getString(sym.n_strx);
+            const out_name = try self.allocator.dupe(u8, sym_name);
+            const locs = try self.locals.getOrPut(self.allocator, out_name);
+            defer {
+                if (locs.found_existing) self.allocator.free(out_name);
+            }
 
-            if (isLocal(&sym) and self.locals.get(sym_name) != null) {
-                log.warn("local symbol '{s}' defined multiple times; removing", .{sym_name});
-                self.locals.swapRemoveAssertDiscard(sym_name);
-                continue;
+            if (!locs.found_existing) {
+                locs.entry.value = .{};
+            }
+
+            const tt: Symbol.Type = blk: {
+                if (isLocal(&sym)) {
+                    break :blk .Local;
+                } else if (isWeakDef(&sym)) {
+                    break :blk .WeakGlobal;
+                } else {
+                    break :blk .Global;
+                }
+            };
+            if (tt == .Global) {
+                for (locs.entry.value.items) |ss| {
+                    if (ss.tt == .Global) {
+                        log.err("symbol '{s}' defined multiple times", .{sym_name});
+                        return error.MultipleSymbolDefinitions;
+                    }
+                }
             }
 
             const sect = seg.sections.items[sym.n_sect - 1];
@@ -813,10 +847,9 @@ fn resolveSymbols(self: *Zld) !void {
             };
             const res = self.directory.get(key) orelse continue;
 
-            const n_strx = try self.makeString(sym_name);
             const n_value = sym.n_value - sect.addr + next_address.get(key).?.addr;
 
-            log.warn("resolving '{s}' as local symbol at 0x{x}", .{ sym_name, n_value });
+            log.warn("resolving '{s}':{} as {s} symbol at 0x{x}", .{ sym_name, sym, tt, n_value });
 
             var n_sect = res.sect_index + 1;
             for (self.load_commands.items) |sseg, i| {
@@ -826,13 +859,17 @@ fn resolveSymbols(self: *Zld) !void {
                 n_sect += @intCast(u16, sseg.Segment.sections.items.len);
             }
 
-            var out_name = try self.allocator.dupe(u8, sym_name);
-            try self.locals.putNoClobber(self.allocator, out_name, .{
-                .n_strx = n_strx,
-                .n_value = n_value,
-                .n_type = macho.N_SECT,
-                .n_desc = sym.n_desc,
-                .n_sect = @intCast(u8, n_sect),
+            const n_strx = try self.makeString(sym_name);
+            try locs.entry.value.append(self.allocator, .{
+                .inner = .{
+                    .n_strx = n_strx,
+                    .n_value = n_value,
+                    .n_type = macho.N_SECT,
+                    .n_desc = sym.n_desc,
+                    .n_sect = @intCast(u8, n_sect),
+                },
+                .tt = tt,
+                .object = object,
             });
         }
     }
@@ -1212,8 +1249,25 @@ fn relocTargetAddr(self: *Zld, object: Object, rel: macho.relocation_info, next_
                 // Relocate to either the artifact's local symbol, or an import from
                 // shared library.
                 const sym_name = object.getString(sym.n_strx);
-                if (self.locals.get(sym_name)) |loc| {
-                    break :blk loc.n_value;
+                if (self.locals.get(sym_name)) |locs| {
+                    var n_value: ?u64 = null;
+                    for (locs.items) |loc| {
+                        switch (loc.tt) {
+                            .Global => {
+                                n_value = loc.inner.n_value;
+                                break;
+                            },
+                            .WeakGlobal => {
+                                n_value = loc.inner.n_value;
+                            },
+                            .Local => {},
+                        }
+                    }
+                    if (n_value) |v| {
+                        break :blk v;
+                    }
+                    log.err("local symbol export '{s}' not found", .{sym_name});
+                    return error.LocalSymbolExportNotFound;
                 } else if (self.lazy_imports.get(sym_name)) |ext| {
                     const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                     const stubs = segment.sections.items[self.stubs_section_index.?];
@@ -1710,19 +1764,37 @@ fn setEntryPoint(self: *Zld) !void {
     // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text = seg.sections.items[self.text_section_index.?];
-    const entry_sym = self.locals.get("_main") orelse return error.MissingMainEntrypoint;
+    const entry_syms = self.locals.get("_main") orelse return error.MissingMainEntrypoint;
+
+    var entry_sym: ?macho.nlist_64 = null;
+    for (entry_syms.items) |es| {
+        switch (es.tt) {
+            .Global => {
+                entry_sym = es.inner;
+                break;
+            },
+            .WeakGlobal => {
+                entry_sym = es.inner;
+            },
+            .Local => {},
+        }
+    }
+    if (entry_sym == null) {
+        log.err("no (weak) global definition of _main found", .{});
+        return error.MissingMainEntrypoint;
+    }
 
     const name = try self.allocator.dupe(u8, "_main");
     try self.exports.putNoClobber(self.allocator, name, .{
-        .n_strx = entry_sym.n_strx,
-        .n_value = entry_sym.n_value,
+        .n_strx = entry_sym.?.n_strx,
+        .n_value = entry_sym.?.n_value,
         .n_type = macho.N_SECT | macho.N_EXT,
-        .n_desc = entry_sym.n_desc,
-        .n_sect = entry_sym.n_sect,
+        .n_desc = entry_sym.?.n_desc,
+        .n_sect = entry_sym.?.n_sect,
     });
 
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
-    ec.entryoff = @intCast(u32, entry_sym.n_value - seg.inner.vmaddr);
+    ec.entryoff = @intCast(u32, entry_sym.?.n_value - seg.inner.vmaddr);
 }
 
 fn writeRebaseInfoTable(self: *Zld) !void {
@@ -1968,9 +2040,9 @@ fn writeDebugInfo(self: *Zld) !void {
     var stabs = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer stabs.deinit();
 
-    for (self.objects.items) |object| {
+    for (self.objects.items) |*object| {
         var debug_info = blk: {
-            var di = try DebugInfo.parseFromObject(self.allocator, object);
+            var di = try DebugInfo.parseFromObject(self.allocator, object.*);
             break :blk di orelse continue;
         };
         defer debug_info.deinit(self.allocator);
@@ -2017,7 +2089,12 @@ fn writeDebugInfo(self: *Zld) !void {
         for (object.symtab.items) |source_sym| {
             const symname = object.getString(source_sym.n_strx);
             const source_addr = source_sym.n_value;
-            const target_sym = self.locals.get(symname) orelse continue;
+            const target_syms = self.locals.get(symname) orelse continue;
+            const target_sym: Symbol = blk: {
+                for (target_syms.items) |ts| {
+                    if (ts.object == object) break :blk ts;
+                } else continue;
+            };
 
             const maybe_size = blk: for (debug_info.inner.func_list.items) |func| {
                 if (func.pc_range) |range| {
@@ -2031,16 +2108,16 @@ fn writeDebugInfo(self: *Zld) !void {
                 try stabs.append(.{
                     .n_strx = 0,
                     .n_type = macho.N_BNSYM,
-                    .n_sect = target_sym.n_sect,
+                    .n_sect = target_sym.inner.n_sect,
                     .n_desc = 0,
-                    .n_value = target_sym.n_value,
+                    .n_value = target_sym.inner.n_value,
                 });
                 try stabs.append(.{
-                    .n_strx = target_sym.n_strx,
+                    .n_strx = target_sym.inner.n_strx,
                     .n_type = macho.N_FUN,
-                    .n_sect = target_sym.n_sect,
+                    .n_sect = target_sym.inner.n_sect,
                     .n_desc = 0,
-                    .n_value = target_sym.n_value,
+                    .n_value = target_sym.inner.n_value,
                 });
                 try stabs.append(.{
                     .n_strx = 0,
@@ -2052,18 +2129,18 @@ fn writeDebugInfo(self: *Zld) !void {
                 try stabs.append(.{
                     .n_strx = 0,
                     .n_type = macho.N_ENSYM,
-                    .n_sect = target_sym.n_sect,
+                    .n_sect = target_sym.inner.n_sect,
                     .n_desc = 0,
                     .n_value = size,
                 });
             } else {
                 // TODO need a way to differentiate symbols: global, static, local, etc.
                 try stabs.append(.{
-                    .n_strx = target_sym.n_strx,
+                    .n_strx = target_sym.inner.n_strx,
                     .n_type = macho.N_STSYM,
-                    .n_sect = target_sym.n_sect,
+                    .n_sect = target_sym.inner.n_sect,
                     .n_desc = 0,
-                    .n_value = target_sym.n_value,
+                    .n_value = target_sym.inner.n_value,
                 });
             }
         }
@@ -2102,14 +2179,32 @@ fn writeSymbolTable(self: *Zld) !void {
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
 
-    const nlocals = self.locals.items().len;
     var locals = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer locals.deinit();
 
-    try locals.ensureCapacity(nlocals);
-    for (self.locals.items()) |entry| {
-        locals.appendAssumeCapacity(entry.value);
+    for (self.locals.items()) |entries| {
+        log.warn("'{s}': {} entries", .{ entries.key, entries.value.items.len });
+        var symbol: ?macho.nlist_64 = null;
+        for (entries.value.items) |entry| {
+            log.warn("    | {}", .{entry.inner});
+            log.warn("    | {}", .{entry.tt});
+            log.warn("    | {s}", .{entry.object.name});
+            switch (entry.tt) {
+                .Global => {
+                    symbol = entry.inner;
+                    break;
+                },
+                .WeakGlobal => {
+                    symbol = entry.inner;
+                },
+                .Local => {},
+            }
+        }
+        if (symbol) |s| {
+            try locals.append(s);
+        }
     }
+    const nlocals = locals.items.len;
 
     const nexports = self.exports.items().len;
     var exports = std.ArrayList(macho.nlist_64).init(self.allocator);
@@ -2391,4 +2486,8 @@ fn isImport(sym: *const macho.nlist_64) callconv(.Inline) bool {
 fn isExtern(sym: *const macho.nlist_64) callconv(.Inline) bool {
     if ((sym.n_type & macho.N_EXT) == 0) return false;
     return (sym.n_type & macho.N_PEXT) == 0;
+}
+
+fn isWeakDef(sym: *const macho.nlist_64) callconv(.Inline) bool {
+    return (sym.n_desc & macho.N_WEAK_DEF) != 0;
 }
