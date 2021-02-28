@@ -264,8 +264,8 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.populateMetadata();
     try self.parseInputFiles(files);
     try self.resolveImports();
-    self.allocateTextSegment();
-    self.allocateDataSegment();
+    try self.allocateTextSegment();
+    try self.allocateDataSegment();
     self.allocateLinkeditSegment();
     try self.writeStubHelperCommon();
     try self.resolveSymbols();
@@ -349,6 +349,7 @@ fn parseObjectFile(self: *Zld, object: *const Object) !void {
             };
         }
         const dest_sect = &seg.sections.items[res.entry.value.sect_index];
+        dest_sect.@"align" = math.max(dest_sect.@"align", sect.@"align");
         dest_sect.size += sect.size;
         seg.inner.filesize += sect.size;
     }
@@ -441,9 +442,13 @@ fn resolveImports(self: *Zld) !void {
     });
 }
 
-fn allocateTextSegment(self: *Zld) void {
+fn allocateTextSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const nexterns = @intCast(u32, self.lazy_imports.items().len);
+
+    const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
+    seg.inner.fileoff = 0;
+    seg.inner.vmaddr = base_vmaddr;
 
     // Set stubs and stub_helper sizes
     const stubs = &seg.sections.items[self.stubs_section_index.?];
@@ -462,18 +467,40 @@ fn allocateTextSegment(self: *Zld) void {
         sizeofcmds += lc.cmdsize();
     }
 
-    self.allocateSegment(
-        self.text_segment_cmd_index.?,
-        0,
-        sizeofcmds,
-        true,
-    );
+    try self.allocateSegment(self.text_segment_cmd_index.?, sizeofcmds);
+
+    // Shift all sections to the back to minimize jump size between __TEXT and __DATA segments.
+    var min_alignment: u32 = 0;
+    for (seg.sections.items) |sect| {
+        const alignment = try math.powi(u32, 2, sect.@"align");
+        min_alignment = math.max(min_alignment, alignment);
+    }
+
+    assert(min_alignment > 0);
+    const last_sect_idx = seg.sections.items.len - 1;
+    const last_sect = seg.sections.items[last_sect_idx];
+    const shift: u32 = blk: {
+        const diff = seg.inner.filesize - last_sect.offset - last_sect.size;
+        const factor = @divTrunc(diff, min_alignment);
+        break :blk @intCast(u32, factor * min_alignment);
+    };
+
+    if (shift > 0) {
+        for (seg.sections.items) |*sect| {
+            sect.offset += shift;
+            sect.addr += shift;
+        }
+    }
 }
 
-fn allocateDataSegment(self: *Zld) void {
+fn allocateDataSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const nonlazy = @intCast(u32, self.nonlazy_imports.items().len);
     const lazy = @intCast(u32, self.lazy_imports.items().len);
+
+    const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    seg.inner.fileoff = text_seg.inner.fileoff + text_seg.inner.filesize;
+    seg.inner.vmaddr = text_seg.inner.vmaddr + text_seg.inner.vmsize;
 
     // Set got size
     const got = &seg.sections.items[self.got_section_index.?];
@@ -485,50 +512,34 @@ fn allocateDataSegment(self: *Zld) void {
     la_symbol_ptr.size += lazy * @sizeOf(u64);
     data.size += @sizeOf(u64); // TODO when do we need more?
 
-    const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const offset = text_seg.inner.fileoff + text_seg.inner.filesize;
-    self.allocateSegment(self.data_segment_cmd_index.?, offset, 0, false);
+    try self.allocateSegment(self.data_segment_cmd_index.?, 0);
 }
 
 fn allocateLinkeditSegment(self: *Zld) void {
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const data_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const offset = data_seg.inner.fileoff + data_seg.inner.filesize;
-    self.allocateSegment(self.linkedit_segment_cmd_index.?, offset, 0, false);
+    seg.inner.fileoff = data_seg.inner.fileoff + data_seg.inner.filesize;
+    seg.inner.vmaddr = data_seg.inner.vmaddr + data_seg.inner.vmsize;
 }
 
-fn allocateSegment(self: *Zld, index: u16, offset: u64, start: u64, reverse: bool) void {
+fn allocateSegment(self: *Zld, index: u16, offset: u64) !void {
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     const seg = &self.load_commands.items[index].Segment;
 
-    // Calculate segment size
-    var total_size = start;
-    for (seg.sections.items) |sect| {
-        total_size += sect.size;
+    // Allocate the sections according to their alignment at the beginning of the segment.
+    var start: u64 = offset;
+    for (seg.sections.items) |*sect| {
+        const alignment = try math.powi(u32, 2, sect.@"align");
+        const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
+        const end_aligned = mem.alignForwardGeneric(u64, start_aligned + sect.size, alignment);
+        sect.offset = @intCast(u32, seg.inner.fileoff + start_aligned);
+        sect.addr = seg.inner.vmaddr + start_aligned;
+        start = end_aligned;
     }
-    const aligned_size = mem.alignForwardGeneric(u64, total_size, self.page_size.?);
-    seg.inner.vmaddr = base_vmaddr + offset;
-    seg.inner.vmsize = aligned_size;
-    seg.inner.fileoff = offset;
-    seg.inner.filesize = aligned_size;
 
-    // Allocate section offsets
-    if (reverse) {
-        var end_off: u64 = seg.inner.fileoff + seg.inner.filesize;
-        var count: usize = seg.sections.items.len;
-        while (count > 0) : (count -= 1) {
-            const sec = &seg.sections.items[count - 1];
-            end_off -= mem.alignForwardGeneric(u64, sec.size, @alignOf(u128)); // TODO is 8-byte aligned correct?
-            sec.offset = @intCast(u32, end_off);
-            sec.addr = base_vmaddr + end_off;
-        }
-    } else {
-        var next_off: u64 = seg.inner.fileoff + start;
-        for (seg.sections.items) |*sect| {
-            sect.offset = @intCast(u32, next_off);
-            sect.addr = base_vmaddr + next_off;
-            next_off += mem.alignForwardGeneric(u64, sect.size, @alignOf(u128)); // TODO is 8-byte aligned correct?
-        }
-    }
+    const seg_size_aligned = mem.alignForwardGeneric(u64, start, self.page_size.?);
+    seg.inner.filesize = seg_size_aligned;
+    seg.inner.vmsize = seg_size_aligned;
 }
 
 fn writeStubHelperCommon(self: *Zld) !void {
