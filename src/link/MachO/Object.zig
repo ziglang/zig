@@ -24,9 +24,9 @@ segment_cmd_index: ?u16 = null,
 symtab_cmd_index: ?u16 = null,
 dysymtab_cmd_index: ?u16 = null,
 build_version_cmd_index: ?u16 = null,
-
 text_section_index: ?u16 = null,
 
+// __DWARF segment sections
 dwarf_debug_info_index: ?u16 = null,
 dwarf_debug_abbrev_index: ?u16 = null,
 dwarf_debug_str_index: ?u16 = null,
@@ -36,13 +36,6 @@ dwarf_debug_ranges_index: ?u16 = null,
 symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
-directory: std.AutoHashMapUnmanaged(DirectoryKey, u16) = .{},
-
-pub const DirectoryKey = struct {
-    segname: [16]u8,
-    sectname: [16]u8,
-};
-
 pub fn deinit(self: *Object) void {
     for (self.load_commands.items) |*lc| {
         lc.deinit(self.allocator);
@@ -50,7 +43,6 @@ pub fn deinit(self: *Object) void {
     self.load_commands.deinit(self.allocator);
     self.symtab.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
-    self.directory.deinit(self.allocator);
     self.allocator.free(self.name);
     self.file.close();
 }
@@ -137,11 +129,6 @@ pub fn readLoadCommands(self: *Object, reader: anytype, offset: ReadOffset) !voi
                             self.text_section_index = index;
                         }
                     }
-
-                    try self.directory.putNoClobber(self.allocator, .{
-                        .segname = sect.segname,
-                        .sectname = sect.sectname,
-                    }, index);
 
                     sect.offset += offset_mod;
                     if (sect.reloff > 0)
