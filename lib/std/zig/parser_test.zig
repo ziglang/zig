@@ -3184,6 +3184,31 @@ test "zig fmt: for" {
     );
 }
 
+test "zig fmt: for if" {
+    try testCanonical(
+        \\test "for if" {
+        \\    for (a) |x| if (x) f(x);
+        \\
+        \\    for (a) |x| if (x)
+        \\        f(x);
+        \\
+        \\    for (a) |x| if (x) {
+        \\        f(x);
+        \\    };
+        \\
+        \\    for (a) |x|
+        \\        if (x)
+        \\            f(x);
+        \\
+        \\    for (a) |x|
+        \\        if (x) {
+        \\            f(x);
+        \\        };
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: if" {
     try testCanonical(
         \\test "if" {
