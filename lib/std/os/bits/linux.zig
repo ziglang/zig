@@ -2244,3 +2244,8 @@ pub const MADV_COLD = 20;
 pub const MADV_PAGEOUT = 21;
 pub const MADV_HWPOISON = 100;
 pub const MADV_SOFT_OFFLINE = 101;
+
+pub const __kernel_timespec = extern struct {
+    tv_sec: i64,
+    tv_nsec: i64,
+};
