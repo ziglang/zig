@@ -266,6 +266,358 @@ const llvm_targets = [_]LlvmTarget{
         .llvm_name = "ARM",
         .td_name = "ARM.td",
         .branch_quota = 10000,
+        .extra_cpus = &.{
+            .{
+                .llvm_name = "generic",
+                .zig_name = "baseline",
+                .features = &.{"v7a"},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "exynos_m1",
+                .features = &.{ "v8a", "exynos" },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "exynos_m2",
+                .features = &.{ "v8a", "exynos" },
+            },
+        },
+        .feature_overrides = &.{
+            .{
+                .llvm_name = "cortex-a78",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "r5",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "r52",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "r7",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "m7",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "krait",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "kryo",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-x1",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "neoverse-v1",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a5",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a7",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a8",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a9",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a12",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a15",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a17",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a32",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a35",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a53",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a55",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a57",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a72",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a73",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a75",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a77",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a78c",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "armv2",
+                .zig_name = "v2",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv2a",
+                .zig_name = "v2a",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv3",
+                .zig_name = "v3",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv3m",
+                .zig_name = "v3m",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv4",
+                .zig_name = "v4",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv4t",
+                .zig_name = "v4t",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv5t",
+                .zig_name = "v5t",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv5te",
+                .zig_name = "v5te",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv5tej",
+                .zig_name = "v5tej",
+                .extra_deps = &.{"strict_align"},
+            },
+            .{
+                .llvm_name = "armv6",
+                .zig_name = "v6",
+            },
+            .{
+                .llvm_name = "armv6-m",
+                .zig_name = "v6m",
+            },
+            .{
+                .llvm_name = "armv6j",
+                .zig_name = "v6j",
+            },
+            .{
+                .llvm_name = "armv6k",
+                .zig_name = "v6k",
+            },
+            .{
+                .llvm_name = "armv6kz",
+                .zig_name = "v6kz",
+            },
+            .{
+                .llvm_name = "armv6s-m",
+                .zig_name = "v6sm",
+            },
+            .{
+                .llvm_name = "armv6t2",
+                .zig_name = "v6t2",
+            },
+            .{
+                .llvm_name = "armv7-a",
+                .zig_name = "v7a",
+            },
+            .{
+                .llvm_name = "armv7-m",
+                .zig_name = "v7m",
+            },
+            .{
+                .llvm_name = "armv7-r",
+                .zig_name = "v7r",
+            },
+            .{
+                .llvm_name = "armv7e-m",
+                .zig_name = "v7em",
+            },
+            .{
+                .llvm_name = "armv7k",
+                .zig_name = "v7k",
+            },
+            .{
+                .llvm_name = "armv7s",
+                .zig_name = "v7s",
+            },
+            .{
+                .llvm_name = "armv7ve",
+                .zig_name = "v7ve",
+            },
+            .{
+                .llvm_name = "armv8.1-a",
+                .zig_name = "v8_1a",
+            },
+            .{
+                .llvm_name = "armv8.1-m.main",
+                .zig_name = "v8_1m_main",
+            },
+            .{
+                .llvm_name = "armv8.2-a",
+                .zig_name = "v8_2a",
+            },
+            .{
+                .llvm_name = "armv8.3-a",
+                .zig_name = "v8_3a",
+            },
+            .{
+                .llvm_name = "armv8.4-a",
+                .zig_name = "v8_4a",
+            },
+            .{
+                .llvm_name = "armv8.5-a",
+                .zig_name = "v8_5a",
+            },
+            .{
+                .llvm_name = "armv8.6-a",
+                .zig_name = "v8_6a",
+            },
+            .{
+                .llvm_name = "armv8.7-a",
+                .zig_name = "v8_7a",
+            },
+            .{
+                .llvm_name = "armv8-a",
+                .zig_name = "v8a",
+            },
+            .{
+                .llvm_name = "armv8-m.base",
+                .zig_name = "v8m",
+            },
+            .{
+                .llvm_name = "armv8-m.main",
+                .zig_name = "v8m_main",
+            },
+            .{
+                .llvm_name = "armv8-r",
+                .zig_name = "v8r",
+            },
+            .{
+                .llvm_name = "v4t",
+                .zig_name = "has_v4t",
+            },
+            .{
+                .llvm_name = "v5t",
+                .zig_name = "has_v5t",
+            },
+            .{
+                .llvm_name = "v5te",
+                .zig_name = "has_v5te",
+            },
+            .{
+                .llvm_name = "v6",
+                .zig_name = "has_v6",
+            },
+            .{
+                .llvm_name = "v6k",
+                .zig_name = "has_v6k",
+            },
+            .{
+                .llvm_name = "v6m",
+                .zig_name = "has_v6m",
+            },
+            .{
+                .llvm_name = "v6t2",
+                .zig_name = "has_v6t2",
+            },
+            .{
+                .llvm_name = "v7",
+                .zig_name = "has_v7",
+            },
+            .{
+                .llvm_name = "v7clrex",
+                .zig_name = "has_v7clrex",
+            },
+            .{
+                .llvm_name = "v8",
+                .zig_name = "has_v8",
+            },
+            .{
+                .llvm_name = "v8m",
+                .zig_name = "has_v8m",
+            },
+            .{
+                .llvm_name = "v8m.main",
+                .zig_name = "has_v8m_main",
+            },
+            .{
+                .llvm_name = "v8.1a",
+                .zig_name = "has_v8_1a",
+            },
+            .{
+                .llvm_name = "v8.1m.main",
+                .zig_name = "has_v8_1m_main",
+            },
+            .{
+                .llvm_name = "v8.2a",
+                .zig_name = "has_v8_2a",
+            },
+            .{
+                .llvm_name = "v8.3a",
+                .zig_name = "has_v8_3a",
+            },
+            .{
+                .llvm_name = "v8.4a",
+                .zig_name = "has_v8_4a",
+            },
+            .{
+                .llvm_name = "v8.5a",
+                .zig_name = "has_v8_5a",
+            },
+            .{
+                .llvm_name = "v8.6a",
+                .zig_name = "has_v8_6a",
+            },
+            .{
+                .llvm_name = "v8.7a",
+                .zig_name = "has_v8_7a",
+            },
+        },
     },
     .{
         .zig_name = "avr",
