@@ -8,7 +8,11 @@ const assert = std.debug.assert;
 
 const FeatureOverride = struct {
     llvm_name: []const u8,
+    /// If true, completely omit the feature; as if it does not exist.
     omit: bool = false,
+    /// If true, omit the feature, but all the dependencies of the feature
+    /// are added in its place.
+    flatten: bool = false,
     zig_name: ?[]const u8 = null,
     desc: ?[]const u8 = null,
     extra_deps: []const []const u8 = &.{},
@@ -25,6 +29,7 @@ const Feature = struct {
     zig_name: []const u8,
     desc: []const u8,
     deps: []const []const u8,
+    flatten: bool = false,
 };
 
 const LlvmTarget = struct {
@@ -68,6 +73,8 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "exynosm3",
                 .zig_name = "exynos_m3",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
             },
             .{
                 .llvm_name = "exynosm4",
@@ -77,12 +84,160 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "v8.1a",
                 .extra_deps = &.{"v8a"},
             },
+            .{
+                .llvm_name = "a35",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "a53",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "a55",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a57",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "a64fx",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a72",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "a73",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "a75",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "a77",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "apple-a10",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "apple-a11",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "apple-a14",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "carmel",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-a78",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-x1",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "falkor",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "kryo",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "saphira",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "thunderx",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "thunderx2t99",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "thunderx3t110",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "thunderxt81",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "thunderxt83",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "thunderxt88",
+                .flatten = true,
+                .extra_deps = &.{"v8a"},
+            },
+            .{
+                .llvm_name = "tsv110",
+                .flatten = true,
+            },
         },
         .extra_features = &.{
             .{
                 .zig_name = "v8a",
                 .desc = "Support ARM v8a instructions",
                 .deps = &.{ "fp_armv8", "neon" },
+            },
+        },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "exynos_m1",
+                .features = &.{
+                    "crc",
+                    "crypto",
+                    "exynos_cheap_as_move",
+                    "force_32bit_jump_tables",
+                    "fuse_aes",
+                    "perfmon",
+                    "slow_misaligned_128store",
+                    "slow_paired_128",
+                    "use_postra_scheduler",
+                    "use_reciprocal_square_root",
+                    "v8a",
+                    "zcz_fp",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "exynos_m2",
+                .features = &.{
+                    "crc",
+                    "crypto",
+                    "exynos_cheap_as_move",
+                    "force_32bit_jump_tables",
+                    "fuse_aes",
+                    "perfmon",
+                    "slow_misaligned_128store",
+                    "slow_paired_128",
+                    "use_postra_scheduler",
+                    "v8a",
+                    "zcz_fp",
+                },
             },
         },
     },
@@ -374,22 +529,32 @@ fn processOneTarget(job: Job) anyerror!void {
                 const llvm_name = kv.value.Object.get("Name").?.String;
                 if (llvm_name.len == 0) continue;
 
-                var zig_name = (try llvmNameToZigName(arena, llvm_target, llvm_name)) orelse
-                    continue :root_it;
+                var zig_name = try llvmNameToZigName(arena, llvm_name);
                 var desc = kv.value.Object.get("Desc").?.String;
                 var deps = std.ArrayList([]const u8).init(arena);
+                var omit = false;
+                var flatten = false;
                 const implies = kv.value.Object.get("Implies").?.Array;
                 for (implies.items) |imply| {
                     const other_key = imply.Object.get("def").?.String;
                     const other_obj = &root_map.getEntry(other_key).?.value.Object;
                     const other_llvm_name = other_obj.get("Name").?.String;
-                    const other_zig_name = (try llvmNameToZigName(arena, llvm_target, other_llvm_name)) orelse continue;
+                    const other_zig_name = (try llvmNameToZigNameOmit(
+                        arena,
+                        llvm_target,
+                        other_llvm_name,
+                    )) orelse continue;
                     try deps.append(other_zig_name);
                 }
                 for (llvm_target.feature_overrides) |feature_override| {
                     if (mem.eql(u8, llvm_name, feature_override.llvm_name)) {
                         if (feature_override.omit) {
-                            continue :root_it;
+                            // Still put the feature into the table so that we can
+                            // expand dependencies for the feature overrides marked `flatten`.
+                            omit = true;
+                        }
+                        if (feature_override.flatten) {
+                            flatten = true;
                         }
                         if (feature_override.zig_name) |override_name| {
                             zig_name = override_name;
@@ -408,16 +573,18 @@ fn processOneTarget(job: Job) anyerror!void {
                     .zig_name = zig_name,
                     .desc = desc,
                     .deps = deps.items,
+                    .flatten = flatten,
                 };
                 try features_table.put(zig_name, feature);
-                try all_features.append(feature);
+                if (!omit and !flatten) {
+                    try all_features.append(feature);
+                }
             }
             if (hasSuperclass(&kv.value.Object, "Processor")) {
                 const llvm_name = kv.value.Object.get("Name").?.String;
                 if (llvm_name.len == 0) continue;
 
-                var zig_name = (try llvmNameToZigName(arena, llvm_target, llvm_name)) orelse
-                    continue :root_it;
+                var zig_name = try llvmNameToZigName(arena, llvm_name);
                 var deps = std.ArrayList([]const u8).init(arena);
                 const features = kv.value.Object.get("Features").?.Array;
                 for (features.items) |feature| {
@@ -425,7 +592,11 @@ fn processOneTarget(job: Job) anyerror!void {
                     const feature_obj = &root_map.getEntry(feature_key).?.value.Object;
                     const feature_llvm_name = feature_obj.get("Name").?.String;
                     if (feature_llvm_name.len == 0) continue;
-                    const feature_zig_name = (try llvmNameToZigName(arena, llvm_target, feature_llvm_name)) orelse continue;
+                    const feature_zig_name = (try llvmNameToZigNameOmit(
+                        arena,
+                        llvm_target,
+                        feature_llvm_name,
+                    )) orelse continue;
                     try deps.append(feature_zig_name);
                 }
                 const tune_features = kv.value.Object.get("TuneFeatures").?.Array;
@@ -434,7 +605,11 @@ fn processOneTarget(job: Job) anyerror!void {
                     const feature_obj = &root_map.getEntry(feature_key).?.value.Object;
                     const feature_llvm_name = feature_obj.get("Name").?.String;
                     if (feature_llvm_name.len == 0) continue;
-                    const feature_zig_name = (try llvmNameToZigName(arena, llvm_target, feature_llvm_name)) orelse continue;
+                    const feature_zig_name = (try llvmNameToZigNameOmit(
+                        arena,
+                        llvm_target,
+                        feature_llvm_name,
+                    )) orelse continue;
                     try deps.append(feature_zig_name);
                 }
                 for (llvm_target.feature_overrides) |feature_override| {
@@ -549,7 +724,7 @@ fn processOneTarget(job: Job) anyerror!void {
         }
         var deps_set = std.StringHashMap(void).init(arena);
         for (feature.deps) |dep| {
-            try deps_set.put(dep, {});
+            try putDep(&deps_set, features_table, dep);
         }
         try pruneFeatures(arena, features_table, &deps_set);
         var dependencies = std.ArrayList([]const u8).init(arena);
@@ -594,7 +769,7 @@ fn processOneTarget(job: Job) anyerror!void {
     for (all_cpus.items) |cpu| {
         var deps_set = std.StringHashMap(void).init(arena);
         for (cpu.features) |feature_zig_name| {
-            try deps_set.put(feature_zig_name, {});
+            try putDep(&deps_set, features_table, feature_zig_name);
         }
         try pruneFeatures(arena, features_table, &deps_set);
         var cpu_features = std.ArrayList([]const u8).init(arena);
@@ -679,7 +854,16 @@ fn asciiLessThan(context: void, a: []const u8, b: []const u8) bool {
     return std.ascii.lessThanIgnoreCase(a, b);
 }
 
-fn llvmNameToZigName(
+fn llvmNameToZigName(arena: *mem.Allocator, llvm_name: []const u8) ![]const u8 {
+    const duped = try arena.dupe(u8, llvm_name);
+    for (duped) |*byte| switch (byte.*) {
+        '-', '.' => byte.* = '_',
+        else => continue,
+    };
+    return duped;
+}
+
+fn llvmNameToZigNameOmit(
     arena: *mem.Allocator,
     llvm_target: LlvmTarget,
     llvm_name: []const u8,
@@ -690,12 +874,7 @@ fn llvmNameToZigName(
             return feature_override.zig_name orelse break;
         }
     }
-    const duped = try arena.dupe(u8, llvm_name);
-    for (duped) |*byte| switch (byte.*) {
-        '-', '.' => byte.* = '_',
-        else => continue,
-    };
-    return duped;
+    return try llvmNameToZigName(arena, llvm_name);
 }
 
 fn hasSuperclass(obj: *json.ObjectMap, class_name: []const u8) bool {
@@ -742,5 +921,20 @@ fn walkFeatures(
         try deletion_set.put(dep, {});
         const other_feature = features_table.get(dep).?;
         try walkFeatures(features_table, deletion_set, other_feature);
+    }
+}
+
+fn putDep(
+    deps_set: *std.StringHashMap(void),
+    features_table: std.StringHashMap(Feature),
+    zig_feature_name: []const u8,
+) error{OutOfMemory}!void {
+    const feature = features_table.get(zig_feature_name).?;
+    if (feature.flatten) {
+        for (feature.deps) |dep| {
+            try putDep(deps_set, features_table, dep);
+        }
+    } else {
+        try deps_set.put(zig_feature_name, {});
     }
 }
