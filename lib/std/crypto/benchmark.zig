@@ -208,6 +208,8 @@ const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.aegis.Aegis256, .name = "aegis-256" },
     Crypto{ .ty = crypto.aead.aes_gcm.Aes128Gcm, .name = "aes128-gcm" },
     Crypto{ .ty = crypto.aead.aes_gcm.Aes256Gcm, .name = "aes256-gcm" },
+    Crypto{ .ty = crypto.aead.aes_ocb.Aes128Ocb, .name = "aes128-ocb" },
+    Crypto{ .ty = crypto.aead.aes_ocb.Aes256Ocb, .name = "aes256-ocb" },
     Crypto{ .ty = crypto.aead.isap.IsapA128A, .name = "isapa128a" },
 };
 
