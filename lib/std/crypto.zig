@@ -16,6 +16,11 @@ pub const aead = struct {
         pub const Aes256Gcm = @import("crypto/aes_gcm.zig").Aes256Gcm;
     };
 
+    pub const aes_ocb = struct {
+        pub const Aes128Ocb = @import("crypto/aes_ocb.zig").Aes128Ocb;
+        pub const Aes256Ocb = @import("crypto/aes_ocb.zig").Aes256Ocb;
+    };
+
     pub const Gimli = @import("crypto/gimli.zig").Aead;
 
     pub const chacha_poly = struct {
@@ -157,30 +162,11 @@ test "crypto" {
         }
     }
 
-    _ = @import("crypto/aes.zig");
-    _ = @import("crypto/bcrypt.zig");
+    _ = @import("crypto/aegis.zig");
+    _ = @import("crypto/aes_gcm.zig");
+    _ = @import("crypto/aes_ocb.zig");
     _ = @import("crypto/blake2.zig");
-    _ = @import("crypto/blake3.zig");
     _ = @import("crypto/chacha20.zig");
-    _ = @import("crypto/gimli.zig");
-    _ = @import("crypto/hmac.zig");
-    _ = @import("crypto/isap.zig");
-    _ = @import("crypto/md5.zig");
-    _ = @import("crypto/modes.zig");
-    _ = @import("crypto/pbkdf2.zig");
-    _ = @import("crypto/poly1305.zig");
-    _ = @import("crypto/sha1.zig");
-    _ = @import("crypto/sha2.zig");
-    _ = @import("crypto/sha3.zig");
-    _ = @import("crypto/salsa20.zig");
-    _ = @import("crypto/siphash.zig");
-    _ = @import("crypto/25519/curve25519.zig");
-    _ = @import("crypto/25519/ed25519.zig");
-    _ = @import("crypto/25519/edwards25519.zig");
-    _ = @import("crypto/25519/field.zig");
-    _ = @import("crypto/25519/scalar.zig");
-    _ = @import("crypto/25519/x25519.zig");
-    _ = @import("crypto/25519/ristretto255.zig");
 }
 
 test "CSPRNG" {
