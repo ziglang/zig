@@ -762,7 +762,7 @@ test "open file with exclusive lock twice, make sure it waits" {
     try evt.init();
     defer evt.deinit();
 
-    const t = try std.Thread.spawn(S.C{ .dir = &tmp.dir, .evt = &evt }, S.checkFn);
+    const t = try std.Thread.spawn(S.checkFn, S.C{ .dir = &tmp.dir, .evt = &evt });
     defer t.wait();
 
     const SLEEP_TIMEOUT_NS = 10 * std.time.ns_per_ms;
