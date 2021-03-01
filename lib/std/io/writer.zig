@@ -4,6 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const builtin = std.builtin;
 const mem = std.mem;
 
@@ -85,6 +86,12 @@ pub fn Writer(
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
             mem.writeInt(T, &bytes, value, endian);
             return self.writeAll(&bytes);
+        }
+
+        pub fn writeStruct(self: Self, value: anytype) Error!void {
+            // Only extern and packed structs have defined in-memory layout.
+            comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
+            return self.writeAll(mem.asBytes(&value));
         }
     };
 }
