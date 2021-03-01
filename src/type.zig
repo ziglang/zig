@@ -1825,6 +1825,17 @@ pub const Type = extern union {
         };
     }
 
+    pub fn errorUnionSet(self: Type) Type {
+        return switch (self.tag()) {
+            .anyerror_void_error_union => Type.initTag(.anyerror),
+            .error_union => {
+                const payload = self.castTag(.error_union).?;
+                return payload.data.error_set;
+            },
+            else => unreachable,
+        };
+    }
+
     /// Asserts the type is an array or vector.
     pub fn arrayLen(self: Type) u64 {
         return switch (self.tag()) {

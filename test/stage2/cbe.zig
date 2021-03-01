@@ -286,6 +286,20 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!b) unreachable;
             \\}
         , "");
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var e: anyerror!c_int = 0;
+            \\    const i = e catch 69;
+            \\    return i;
+            \\}
+        , "");
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var e: anyerror!c_int = error.Foo;
+            \\    const i = e catch 69;
+            \\    return 69 - i;
+            \\}
+        , "");
     }
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {

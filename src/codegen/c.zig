@@ -251,6 +251,31 @@ pub const DeclGen = struct {
                 // error values will be #defined at the top of the file
                 return writer.print("zig_error_{s}", .{payload.data.name});
             },
+            .ErrorUnion => {
+                const error_type = t.errorUnionSet();
+                const payload_type = t.errorUnionChild();
+                const data = val.castTag(.error_union).?.data;
+                try writer.writeByte('(');
+                try dg.renderType(writer, t);
+                try writer.writeAll("){");
+                if (val.getError()) |_| {
+                    try writer.writeAll(" .error = ");
+                    try dg.renderValue(
+                        writer,
+                        error_type,
+                        data,
+                    );
+                    try writer.writeAll(" }");
+                } else {
+                    try writer.writeAll(" .payload = ");
+                    try dg.renderValue(
+                        writer,
+                        payload_type,
+                        data,
+                    );
+                    try writer.writeAll(", .error = 0 }");
+                }
+            },
             else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement value {s}", .{
                 @tagName(e),
             }),
@@ -385,16 +410,17 @@ pub const DeclGen = struct {
                     return w.writeAll(some.name);
                 }
                 const child_type = t.errorUnionChild();
+                const set_type = t.errorUnionSet();
 
                 var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
                 defer buffer.deinit();
                 const bw = buffer.writer();
 
                 try bw.writeAll("typedef struct { ");
-                try dg.renderType(bw, t.errorUnionChild());
+                try dg.renderType(bw, child_type);
                 try bw.writeAll(" payload; uint16_t error; } ");
                 const name_index = buffer.items.len;
-                try bw.print("zig_err_union_{s}_t;\n", .{typeToCIdentifier(child_type)});
+                try bw.print("zig_err_union_{s}_{s}_t;\n", .{ typeToCIdentifier(set_type), typeToCIdentifier(child_type) });
 
                 const rendered = buffer.toOwnedSlice();
                 errdefer dg.typedefs.allocator.free(rendered);
@@ -543,6 +569,12 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .optional_payload_ptr => try genOptionalPayload(o, inst.castTag(.optional_payload).?),
             .is_err => try genIsErr(o, inst.castTag(.is_err).?),
             .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?),
+            .unwrap_errunion_payload => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload).?),
+            .unwrap_errunion_err => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err).?),
+            .unwrap_errunion_payload_ptr => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload_ptr).?),
+            .unwrap_errunion_err_ptr => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err_ptr).?),
+            .wrap_errunion_payload => try genWrapErrUnionPay(o, inst.castTag(.wrap_errunion_payload).?),
+            .wrap_errunion_err => try genWrapErrUnionErr(o, inst.castTag(.wrap_errunion_err).?),
             else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
         };
         switch (result_value) {
@@ -962,6 +994,35 @@ fn genOptionalPayload(o: *Object, inst: *Inst.UnOp) !CValue {
     return local;
 }
 
+// *(E!T) -> E NOT *E
+fn genUnwrapErrUnionErr(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const operand = try o.resolveInst(inst.operand);
+
+    const maybe_deref = if (inst.operand.ty.zigTypeTag() == .Pointer) "->" else ".";
+
+    const local = try o.allocLocal(inst.base.ty, .Const);
+    try writer.writeAll(" = (");
+    try o.writeCValue(writer, operand);
+
+    try writer.print("){s}error;\n", .{maybe_deref});
+    return local;
+}
+fn genUnwrapErrUnionPay(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const operand = try o.resolveInst(inst.operand);
+
+    const maybe_deref = if (inst.operand.ty.zigTypeTag() == .Pointer) "->" else ".";
+    const maybe_addrof = if (inst.base.ty.zigTypeTag() == .Pointer) "&" else "";
+
+    const local = try o.allocLocal(inst.base.ty, .Const);
+    try writer.print(" = {s}(", .{maybe_addrof});
+    try o.writeCValue(writer, operand);
+
+    try writer.print("){s}payload;\n", .{maybe_deref});
+    return local;
+}
+
 fn genWrapOptional(o: *Object, inst: *Inst.UnOp) !CValue {
     const writer = o.writer();
     const operand = try o.resolveInst(inst.operand);
@@ -976,6 +1037,26 @@ fn genWrapOptional(o: *Object, inst: *Inst.UnOp) !CValue {
     try writer.writeAll(" = { .is_null = false, .payload =");
     try o.writeCValue(writer, operand);
     try writer.writeAll("};\n");
+    return local;
+}
+fn genWrapErrUnionErr(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const operand = try o.resolveInst(inst.operand);
+
+    const local = try o.allocLocal(inst.base.ty, .Const);
+    try writer.writeAll(" = { .error = ");
+    try o.writeCValue(writer, operand);
+    try writer.writeAll(" };\n");
+    return local;
+}
+fn genWrapErrUnionPay(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const operand = try o.resolveInst(inst.operand);
+
+    const local = try o.allocLocal(inst.base.ty, .Const);
+    try writer.writeAll(" = { .error = 0, .payload = ");
+    try o.writeCValue(writer, operand);
+    try writer.writeAll(" };\n");
     return local;
 }
 
