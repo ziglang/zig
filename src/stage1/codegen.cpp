@@ -4037,12 +4037,6 @@ static void gen_set_stack_pointer(CodeGen *g, LLVMValueRef aligned_end_addr) {
     LLVMBuildCall(g->builder, write_register_fn_val, params, 2, "");
 }
 
-static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
-    unsigned attr_kind_id = LLVMGetEnumAttributeKindForName("sret", 4);
-    LLVMAttributeRef sret_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), attr_kind_id, 0);
-    LLVMAddCallSiteAttribute(call_instr, 1, sret_attr);
-}
-
 static void render_async_spills(CodeGen *g) {
     ZigType *fn_type = g->cur_fn->type_entry;
     ZigType *import = get_scope_import(&g->cur_fn->fndef_scope->base);
@@ -4558,7 +4552,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
     } else if (!ret_has_bits) {
         return nullptr;
     } else if (first_arg_ret) {
-        set_call_instr_sret(g, result);
+        ZigLLVMSetCallSret(result, get_llvm_type(g, src_return_type));
         return result_loc;
     } else if (handle_is_ptr(g, src_return_type)) {
         LLVMValueRef store_instr = LLVMBuildStore(g->builder, result, result_loc);

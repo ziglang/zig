@@ -940,6 +940,15 @@ void ZigLLVMSetTailCall(LLVMValueRef Call) {
     unwrap<CallInst>(Call)->setTailCallKind(CallInst::TCK_MustTail);
 } 
 
+void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type) {
+    const AttributeList attr_set = unwrap<CallInst>(Call)->getAttributes();
+    AttrBuilder attr_builder;
+    Type *llvm_type = unwrap<Type>(return_type);
+    attr_builder.addStructRetAttr(llvm_type);
+    const AttributeList new_attr_set = attr_set.addAttributes(unwrap<CallInst>(Call)->getContext(), 1, attr_builder);
+    unwrap<CallInst>(Call)->setAttributes(new_attr_set);
+}
+
 void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
     unwrap<Function>(function)->setPrefixData(unwrap<Constant>(data));
 }

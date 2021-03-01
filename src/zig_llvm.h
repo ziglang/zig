@@ -264,6 +264,7 @@ ZIG_EXTERN_C struct ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigne
 
 ZIG_EXTERN_C void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 ZIG_EXTERN_C void ZigLLVMSetTailCall(LLVMValueRef Call);
+ZIG_EXTERN_C void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type);
 ZIG_EXTERN_C void ZigLLVMFunctionSetPrefixData(LLVMValueRef fn, LLVMValueRef data);
 ZIG_EXTERN_C void ZigLLVMFunctionSetCallingConv(LLVMValueRef function, enum ZigLLVM_CallingConv cc);
 
