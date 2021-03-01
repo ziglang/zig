@@ -566,7 +566,7 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .is_non_null_ptr => try genIsNull(o, inst.castTag(.is_non_null_ptr).?),
             .wrap_optional => try genWrapOptional(o, inst.castTag(.wrap_optional).?),
             .optional_payload => try genOptionalPayload(o, inst.castTag(.optional_payload).?),
-            .optional_payload_ptr => try genOptionalPayload(o, inst.castTag(.optional_payload).?),
+            .optional_payload_ptr => try genOptionalPayload(o, inst.castTag(.optional_payload_ptr).?),
             .is_err => try genIsErr(o, inst.castTag(.is_err).?),
             .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?),
             .unwrap_errunion_payload => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload).?),
