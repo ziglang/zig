@@ -1663,6 +1663,7 @@ pub const Type = extern union {
             .Int,
             .Float,
             .ErrorSet,
+            .ErrorUnion,
             .Enum,
             .Frame,
             .AnyFrame,
@@ -1687,7 +1688,6 @@ pub const Type = extern union {
             },
             .Pointer, .Array => ty = ty.elemType(),
 
-            .ErrorUnion => @panic("TODO fn isValidVarType"),
             .Fn => @panic("TODO fn isValidVarType"),
             .Struct => @panic("TODO struct isValidVarType"),
             .Union => @panic("TODO union isValidVarType"),
