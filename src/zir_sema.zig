@@ -2075,6 +2075,7 @@ fn zirArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!
     const ir_tag = switch (inst.base.tag) {
         .add => Inst.Tag.add,
         .sub => Inst.Tag.sub,
+        .mul => Inst.Tag.mul,
         else => return mod.fail(scope, inst.base.src, "TODO implement arithmetic for operand '{s}''", .{@tagName(inst.base.tag)}),
     };
 

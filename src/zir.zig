@@ -1649,6 +1649,7 @@ const DumpTzir = struct {
 
                 .add,
                 .sub,
+                .mul,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -1771,6 +1772,7 @@ const DumpTzir = struct {
 
                 .add,
                 .sub,
+                .mul,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,

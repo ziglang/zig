@@ -899,6 +899,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .load => return self.genLoad(inst.castTag(.load).?),
                 .loop => return self.genLoop(inst.castTag(.loop).?),
                 .not => return self.genNot(inst.castTag(.not).?),
+                .mul => return self.genMul(inst.castTag(.mul).?),
                 .ptrtoint => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
                 .ref => return self.genRef(inst.castTag(.ref).?),
                 .ret => return self.genRet(inst.castTag(.ret).?),
@@ -1125,6 +1126,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .add),
                 else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genMul(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                .arm, .armeb => return try self.genArmMul(&inst.base, inst.lhs, inst.rhs),
+                else => return self.fail(inst.base.src, "TODO implement mul for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -1476,6 +1487,38 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 else => unreachable, // not a binary instruction
             }
+        }
+
+        fn genArmMul(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst) !MCValue {
+            const lhs = try self.resolveInst(op_lhs);
+            const rhs = try self.resolveInst(op_rhs);
+
+            // Destination must be a register
+            // LHS must be a register
+            // RHS must be a register
+            var dst_mcv: MCValue = undefined;
+            var lhs_mcv: MCValue = undefined;
+            var rhs_mcv: MCValue = undefined;
+            if (self.reuseOperand(inst, 0, lhs)) {
+                // LHS is the destination
+                lhs_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
+                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
+                dst_mcv = lhs_mcv;
+            } else if (self.reuseOperand(inst, 1, rhs)) {
+                // RHS is the destination
+                lhs_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
+                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
+                dst_mcv = rhs_mcv;
+            } else {
+                // TODO save 1 copy instruction by directly allocating the destination register
+                // LHS is the destination
+                lhs_mcv = try self.copyToNewRegister(inst, lhs);
+                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
+                dst_mcv = lhs_mcv;
+            }
+
+            writeInt(u32, try self.code.addManyAsArray(4), Instruction.mul(.al, dst_mcv.register, lhs_mcv.register, rhs_mcv.register).toU32());
+            return dst_mcv;
         }
 
         /// ADD, SUB, XOR, OR, AND
