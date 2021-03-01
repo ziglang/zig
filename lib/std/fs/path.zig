@@ -1226,7 +1226,7 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// pointer address range of `path`, even if it is length zero.
 pub fn extension(path: []const u8) []const u8 {
     const filename = basename(path);
-    const index = mem.lastIndexOf(u8, filename, ".") orelse return path[path.len..];
+    const index = mem.lastIndexOfScalar(u8, filename, '.') orelse return path[path.len..];
     if (index == 0) return path[path.len..];
     return filename[index..];
 }
