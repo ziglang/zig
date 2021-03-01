@@ -4549,6 +4549,18 @@ test "recovery: missing for payload" {
     });
 }
 
+test "recovery: missing comma in params" {
+    try testError(
+        \\fn foo(comptime bool what what) void { }
+        \\fn bar(a: i32, b: i32 c) void { }
+        \\
+    , &[_]Error{
+        .expected_token,
+        .expected_token,
+        .expected_token,
+    });
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
