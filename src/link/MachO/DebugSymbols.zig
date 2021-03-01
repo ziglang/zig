@@ -1096,7 +1096,7 @@ pub fn commitDeclDebugInfo(
                     if (src_fn.off + src_fn.len + min_nop_size > next.off) {
                         // It grew too big, so we move it to a new location.
                         if (src_fn.prev) |prev| {
-                            _ = self.dbg_line_fn_free_list.put(allocator, prev, {}) catch {};
+                            self.dbg_line_fn_free_list.put(allocator, prev, {}) catch {};
                             prev.next = src_fn.next;
                         }
                         next.prev = src_fn.prev;
@@ -1256,7 +1256,7 @@ fn updateDeclDebugInfoAllocation(
             if (text_block.dbg_info_off + text_block.dbg_info_len + min_nop_size > next.dbg_info_off) {
                 // It grew too big, so we move it to a new location.
                 if (text_block.dbg_info_prev) |prev| {
-                    _ = self.dbg_info_decl_free_list.put(allocator, prev, {}) catch {};
+                    self.dbg_info_decl_free_list.put(allocator, prev, {}) catch {};
                     prev.dbg_info_next = text_block.dbg_info_next;
                 }
                 next.dbg_info_prev = text_block.dbg_info_prev;

@@ -1291,6 +1291,19 @@ pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
     return ws2_32.getsockname(s, name, @ptrCast(*i32, namelen));
 }
 
+pub fn sendmsg(
+    s: ws2_32.SOCKET,
+    msg: *const ws2_32.WSAMSG,
+    flags: u32,
+) i32 {
+    var bytes_send: DWORD = undefined;
+    if (ws2_32.WSASendMsg(s, msg, flags, &bytes_send, null, null) == ws2_32.SOCKET_ERROR) {
+        return ws2_32.SOCKET_ERROR;
+    } else {
+        return @as(i32, @intCast(u31, bytes_send));
+    }
+}
+
 pub fn sendto(s: ws2_32.SOCKET, buf: [*]const u8, len: usize, flags: u32, to: ?*const ws2_32.sockaddr, to_len: ws2_32.socklen_t) i32 {
     var buffer = ws2_32.WSABUF{ .len = @truncate(u31, len), .buf = @intToPtr([*]u8, @ptrToInt(buf)) };
     var bytes_send: DWORD = undefined;

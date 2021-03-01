@@ -39,8 +39,8 @@ pub fn isSep(byte: u8) bool {
 
 /// This is different from mem.join in that the separator will not be repeated if
 /// it is found at the end or beginning of a pair of consecutive paths.
-fn joinSep(allocator: *Allocator, separator: u8, sepPredicate: fn (u8) bool, paths: []const []const u8) ![]u8 {
-    if (paths.len == 0) return &[0]u8{};
+fn joinSepMaybeZ(allocator: *Allocator, separator: u8, sepPredicate: fn (u8) bool, paths: []const []const u8, zero: bool) ![]u8 {
+    if (paths.len == 0) return if (zero) try allocator.dupe(u8, &[1]u8{0}) else &[0]u8{};
 
     const total_len = blk: {
         var sum: usize = paths[0].len;
@@ -53,6 +53,7 @@ fn joinSep(allocator: *Allocator, separator: u8, sepPredicate: fn (u8) bool, pat
             sum += @boolToInt(!prev_sep and !this_sep);
             sum += if (prev_sep and this_sep) this_path.len - 1 else this_path.len;
         }
+        if (zero) sum += 1;
         break :blk sum;
     };
 
@@ -76,6 +77,8 @@ fn joinSep(allocator: *Allocator, separator: u8, sepPredicate: fn (u8) bool, pat
         buf_index += adjusted_path.len;
     }
 
+    if (zero) buf[buf.len - 1] = 0;
+
     // No need for shrink since buf is exactly the correct size.
     return buf;
 }
@@ -83,60 +86,73 @@ fn joinSep(allocator: *Allocator, separator: u8, sepPredicate: fn (u8) bool, pat
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: *Allocator, paths: []const []const u8) ![]u8 {
-    return joinSep(allocator, sep, isSep, paths);
+    return joinSepMaybeZ(allocator, sep, isSep, paths, false);
 }
 
-fn testJoinWindows(paths: []const []const u8, expected: []const u8) void {
+/// Naively combines a series of paths with the native path seperator and null terminator.
+/// Allocates memory for the result, which must be freed by the caller.
+pub fn joinZ(allocator: *Allocator, paths: []const []const u8) ![:0]u8 {
+    const out = joinSepMaybeZ(allocator, sep, isSep, paths, true);
+    return out[0 .. out.len - 1 :0];
+}
+
+fn testJoinMaybeZWindows(paths: []const []const u8, expected: []const u8, zero: bool) void {
     const windowsIsSep = struct {
         fn isSep(byte: u8) bool {
             return byte == '/' or byte == '\\';
         }
     }.isSep;
-    const actual = joinSep(testing.allocator, sep_windows, windowsIsSep, paths) catch @panic("fail");
+    const actual = joinSepMaybeZ(testing.allocator, sep_windows, windowsIsSep, paths, zero) catch @panic("fail");
     defer testing.allocator.free(actual);
-    testing.expectEqualSlices(u8, expected, actual);
+    testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
 }
 
-fn testJoinPosix(paths: []const []const u8, expected: []const u8) void {
+fn testJoinMaybeZPosix(paths: []const []const u8, expected: []const u8, zero: bool) void {
     const posixIsSep = struct {
         fn isSep(byte: u8) bool {
             return byte == '/';
         }
     }.isSep;
-    const actual = joinSep(testing.allocator, sep_posix, posixIsSep, paths) catch @panic("fail");
+    const actual = joinSepMaybeZ(testing.allocator, sep_posix, posixIsSep, paths, zero) catch @panic("fail");
     defer testing.allocator.free(actual);
-    testing.expectEqualSlices(u8, expected, actual);
+    testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
 }
 
 test "join" {
-    testJoinWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c");
-    testJoinWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c");
-    testJoinWindows(&[_][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c");
+    for (&[_]bool{ false, true }) |zero| {
+        testJoinMaybeZWindows(&[_][]const u8{}, "", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c", zero);
 
-    testJoinWindows(&[_][]const u8{ "c:\\", "a", "b\\", "c" }, "c:\\a\\b\\c");
-    testJoinWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c");
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b\\", "c" }, "c:\\a\\b\\c", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", zero);
 
-    testJoinWindows(
-        &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
-        "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
-    );
+        testJoinMaybeZWindows(
+            &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
+            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
+            zero,
+        );
 
-    testJoinWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c");
-    testJoinWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c");
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c", zero);
+        testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c", zero);
 
-    testJoinPosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c");
-    testJoinPosix(&[_][]const u8{ "/a/b/", "c" }, "/a/b/c");
+        testJoinMaybeZPosix(&[_][]const u8{}, "", zero);
+        testJoinMaybeZPosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c", zero);
+        testJoinMaybeZPosix(&[_][]const u8{ "/a/b/", "c" }, "/a/b/c", zero);
 
-    testJoinPosix(&[_][]const u8{ "/", "a", "b/", "c" }, "/a/b/c");
-    testJoinPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c");
+        testJoinMaybeZPosix(&[_][]const u8{ "/", "a", "b/", "c" }, "/a/b/c", zero);
+        testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", zero);
 
-    testJoinPosix(
-        &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
-        "/home/andy/dev/zig/build/lib/zig/std/io.zig",
-    );
+        testJoinMaybeZPosix(
+            &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
+            "/home/andy/dev/zig/build/lib/zig/std/io.zig",
+            zero,
+        );
 
-    testJoinPosix(&[_][]const u8{ "a", "/c" }, "a/c");
-    testJoinPosix(&[_][]const u8{ "a/", "/c" }, "a/c");
+        testJoinMaybeZPosix(&[_][]const u8{ "a", "/c" }, "a/c", zero);
+        testJoinMaybeZPosix(&[_][]const u8{ "a/", "/c" }, "a/c", zero);
+    }
 }
 
 pub const isAbsoluteC = @compileError("deprecated: renamed to isAbsoluteZ");
@@ -1210,7 +1226,7 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// pointer address range of `path`, even if it is length zero.
 pub fn extension(path: []const u8) []const u8 {
     const filename = basename(path);
-    const index = mem.lastIndexOf(u8, filename, ".") orelse return path[path.len..];
+    const index = mem.lastIndexOfScalar(u8, filename, '.') orelse return path[path.len..];
     if (index == 0) return path[path.len..];
     return filename[index..];
 }

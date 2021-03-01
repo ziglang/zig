@@ -1178,7 +1178,6 @@ fn zirErrorValue(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorValue) InnerE
         .ty = result_type,
         .val = try Value.Tag.@"error".create(scope.arena(), .{
             .name = entry.key,
-            .value = entry.value,
         }),
     });
 }
@@ -2215,7 +2214,8 @@ fn zirCmp(
         }
         if (rhs.value()) |rval| {
             if (lhs.value()) |lval| {
-                return mod.constBool(scope, inst.base.src, (lval.castTag(.@"error").?.data.value == rval.castTag(.@"error").?.data.value) == (op == .eq));
+                // TODO optimisation oppurtunity: evaluate if std.mem.eql is faster with the names, or calling to Module.getErrorValue to get the values and then compare them is faster
+                return mod.constBool(scope, inst.base.src, std.mem.eql(u8, lval.castTag(.@"error").?.data.name, rval.castTag(.@"error").?.data.name) == (op == .eq));
             }
         }
         return mod.fail(scope, inst.base.src, "TODO implement equality comparison between runtime errors", .{});

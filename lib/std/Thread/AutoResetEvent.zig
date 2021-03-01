@@ -220,8 +220,8 @@ test "basic usage" {
     };
 
     var context = Context{};
-    const send_thread = try std.Thread.spawn(&context, Context.sender);
-    const recv_thread = try std.Thread.spawn(&context, Context.receiver);
+    const send_thread = try std.Thread.spawn(Context.sender, &context);
+    const recv_thread = try std.Thread.spawn(Context.receiver, &context);
 
     send_thread.wait();
     recv_thread.wait();

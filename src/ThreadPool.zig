@@ -74,7 +74,7 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
         try worker.idle_node.data.init();
         errdefer worker.idle_node.data.deinit();
 
-        worker.thread = try std.Thread.spawn(worker, Worker.run);
+        worker.thread = try std.Thread.spawn(Worker.run, worker);
     }
 }
 

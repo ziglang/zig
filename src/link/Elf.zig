@@ -2165,7 +2165,7 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
     // is desired for both.
     _ = self.dbg_line_fn_free_list.remove(&decl.fn_link.elf);
     if (decl.fn_link.elf.prev) |prev| {
-        _ = self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
+        self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
         prev.next = decl.fn_link.elf.next;
         if (decl.fn_link.elf.next) |next| {
             next.prev = prev;
@@ -2423,7 +2423,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
                 if (src_fn.off + src_fn.len + min_nop_size > next.off) {
                     // It grew too big, so we move it to a new location.
                     if (src_fn.prev) |prev| {
-                        _ = self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
+                        self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
                         prev.next = src_fn.next;
                     }
                     assert(src_fn.prev != next);
@@ -2579,7 +2579,7 @@ fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !
             if (text_block.dbg_info_off + text_block.dbg_info_len + min_nop_size > next.dbg_info_off) {
                 // It grew too big, so we move it to a new location.
                 if (text_block.dbg_info_prev) |prev| {
-                    _ = self.dbg_info_decl_free_list.put(self.base.allocator, prev, {}) catch {};
+                    self.dbg_info_decl_free_list.put(self.base.allocator, prev, {}) catch {};
                     prev.dbg_info_next = text_block.dbg_info_next;
                 }
                 next.dbg_info_prev = text_block.dbg_info_prev;

@@ -200,7 +200,7 @@ pub fn main() !void {
                     continue;
                 }
                 if (std.mem.startsWith(u8, ver, "GCC_")) continue;
-                _ = try global_ver_set.put(ver, undefined);
+                try global_ver_set.put(ver, undefined);
                 const gop = try global_fn_set.getOrPut(name);
                 if (gop.found_existing) {
                     if (!std.mem.eql(u8, gop.entry.value.lib, "c")) {
@@ -242,7 +242,7 @@ pub fn main() !void {
         var buffered = std.io.bufferedWriter(vers_txt_file.writer());
         const vers_txt = buffered.writer();
         for (global_ver_list) |name, i| {
-            _ = global_ver_set.put(name, i) catch unreachable;
+            global_ver_set.put(name, i) catch unreachable;
             try vers_txt.print("{s}\n", .{name});
         }
         try buffered.flush();
