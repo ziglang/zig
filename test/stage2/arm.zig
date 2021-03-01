@@ -344,4 +344,38 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("integer multiplication", linux_arm);
+        // Simple u32 integer multiplication
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    assert(mul(1, 1) == 1);
+            \\    assert(mul(42, 1) == 42);
+            \\    assert(mul(1, 42) == 42);
+            \\    assert(mul(123, 42) == 5166);
+            \\    exit();
+            \\}
+            \\
+            \\fn mul(x: u32, y: u32) u32 {
+            \\    return x * y;
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
