@@ -149,7 +149,7 @@ pub fn readLoadCommands(self: *Object, reader: anytype, offset: ReadOffset) !voi
                 self.build_version_cmd_index = i;
             },
             else => {
-                log.info("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
+                log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);
