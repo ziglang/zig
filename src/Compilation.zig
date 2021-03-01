@@ -2264,6 +2264,7 @@ pub fn addCCArgs(
         }
         try argv.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
         try argv.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
+        try argv.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
     }
 
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
