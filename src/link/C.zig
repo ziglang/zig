@@ -92,6 +92,12 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     const typedefs = &decl.fn_link.c.typedefs;
     const code = &decl.link.c.code;
     fwd_decl.shrinkRetainingCapacity(0);
+    {
+        var it = typedefs.iterator();
+        while (it.next()) |entry| {
+            module.gpa.free(entry.value.rendered);
+        }
+    }
     typedefs.clearRetainingCapacity();
     code.shrinkRetainingCapacity(0);
 
