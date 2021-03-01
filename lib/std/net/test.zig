@@ -161,7 +161,7 @@ test "listen on a port, send bytes, receive bytes" {
         }
     };
 
-    const t = try std.Thread.spawn(server.listen_address, S.clientFn);
+    const t = try std.Thread.spawn(S.clientFn, server.listen_address);
     defer t.wait();
 
     var client = try server.accept();
@@ -285,7 +285,7 @@ test "listen on a unix socket, send bytes, receive bytes" {
         }
     };
 
-    const t = try std.Thread.spawn({}, S.clientFn);
+    const t = try std.Thread.spawn(S.clientFn, {});
     defer t.wait();
 
     var client = try server.accept();

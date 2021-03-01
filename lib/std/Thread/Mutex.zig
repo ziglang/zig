@@ -299,7 +299,7 @@ test "basic usage" {
         const thread_count = 10;
         var threads: [thread_count]*std.Thread = undefined;
         for (threads) |*t| {
-            t.* = try std.Thread.spawn(&context, worker);
+            t.* = try std.Thread.spawn(worker, &context);
         }
         for (threads) |t|
             t.wait();

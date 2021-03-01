@@ -59,11 +59,11 @@ test "Once executes its function just once" {
         defer for (threads) |handle| handle.wait();
 
         for (threads) |*handle| {
-            handle.* = try std.Thread.spawn(@as(u8, 0), struct {
+            handle.* = try std.Thread.spawn(struct {
                 fn thread_fn(x: u8) void {
                     global_once.call();
                 }
-            }.thread_fn);
+            }.thread_fn, 0);
         }
     }
 

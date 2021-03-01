@@ -165,18 +165,32 @@ pub const SpawnError = error{
     Unexpected,
 };
 
-/// caller must call wait on the returned thread
-/// fn startFn(@TypeOf(context)) T
-/// where T is u8, noreturn, void, or !void
-/// caller must call wait on the returned thread
-pub fn spawn(context: anytype, comptime startFn: anytype) SpawnError!*Thread {
+// Given `T`, the type of the thread startFn, extract the expected type for the
+// context parameter.
+fn SpawnContextType(comptime T: type) type {
+    const TI = @typeInfo(T);
+    if (TI != .Fn)
+        @compileError("expected function type, found " ++ @typeName(T));
+
+    if (TI.Fn.args.len != 1)
+        @compileError("expected function with single argument, found " ++ @typeName(T));
+
+    return TI.Fn.args[0].arg_type orelse
+        @compileError("cannot use a generic function as thread startFn");
+}
+
+/// Spawns a new thread executing startFn, returning an handle for it.
+/// Caller must call wait on the returned thread.
+/// The `startFn` function must take a single argument of type T and return a
+/// value of type u8, noreturn, void or !void.
+/// The `context` parameter is of type T and is passed to the spawned thread.
+pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startFn))) SpawnError!*Thread {
     if (builtin.single_threaded) @compileError("cannot spawn thread when building in single-threaded mode");
     // TODO compile-time call graph analysis to determine stack upper bound
     // https://github.com/ziglang/zig/issues/157
     const default_stack_size = 16 * 1024 * 1024;
 
     const Context = @TypeOf(context);
-    comptime assert(@typeInfo(@TypeOf(startFn)).Fn.args[0].arg_type.? == Context);
 
     if (std.Target.current.os.tag == .windows) {
         const WinThread = struct {
