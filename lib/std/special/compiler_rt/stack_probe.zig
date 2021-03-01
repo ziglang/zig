@@ -53,7 +53,7 @@ pub fn zig_probe_stack() callconv(.Naked) void {
                 \\        orl    $0,8(%%esp)
                 \\        add    %%eax,%%esp
                 \\        pop    %%ecx
-                \\        ret
+                \\        retw
             );
         },
         else => {},
