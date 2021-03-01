@@ -1154,7 +1154,7 @@ fn zirErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) InnerError
 
     for (inst.positionals.fields) |field_name| {
         const entry = try mod.getErrorValue(field_name);
-        if (payload.data.fields.fetchPutAssumeCapacity(entry.key, entry.value)) |prev| {
+        if (payload.data.fields.fetchPutAssumeCapacity(entry.key, {})) |_| {
             return mod.fail(scope, inst.base.src, "duplicate error: '{s}'", .{field_name});
         }
     }

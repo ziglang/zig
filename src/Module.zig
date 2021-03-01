@@ -4083,15 +4083,15 @@ pub fn namedFieldPtr(
             const child_type = try val.toType(scope.arena());
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
+                    var name: []const u8 = undefined;
                     // TODO resolve inferred error sets
-                    const entry = if (val.castTag(.error_set)) |payload|
-                        (payload.data.fields.getEntry(field_name) orelse
-                            return mod.fail(scope, src, "no error named '{s}' in '{}'", .{ field_name, child_type })).*
+                    if (val.castTag(.error_set)) |payload|
+                        name = (payload.data.fields.getEntry(field_name) orelse return mod.fail(scope, src, "no error named '{s}' in '{}'", .{ field_name, child_type })).key
                     else
-                        try mod.getErrorValue(field_name);
+                        name = (try mod.getErrorValue(field_name)).key;
 
                     const result_type = if (child_type.tag() == .anyerror)
-                        try Type.Tag.error_set_single.create(scope.arena(), entry.key)
+                        try Type.Tag.error_set_single.create(scope.arena(), name)
                     else
                         child_type;
 
@@ -4100,7 +4100,7 @@ pub fn namedFieldPtr(
                         .val = try Value.Tag.ref_val.create(
                             scope.arena(),
                             try Value.Tag.@"error".create(scope.arena(), .{
-                                .name = entry.key,
+                                .name = name,
                             }),
                         ),
                     });
