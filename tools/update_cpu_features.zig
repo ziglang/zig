@@ -1186,7 +1186,7 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     file.writer().print(
         \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig
         \\
-        \\Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.
+        \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
         \\
         \\On a less beefy system, or when debugging, compile with --single-threaded.
         \\
