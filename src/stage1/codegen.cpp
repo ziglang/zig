@@ -4153,7 +4153,15 @@ static LLVMValueRef gen_frame_size(CodeGen *g, LLVMValueRef fn_val) {
     LLVMValueRef casted_fn_val = LLVMBuildBitCast(g->builder, fn_val, ptr_usize_llvm_type, "");
     LLVMValueRef negative_one = LLVMConstInt(LLVMInt32Type(), -1, true);
     LLVMValueRef prefix_ptr = LLVMBuildInBoundsGEP(g->builder, casted_fn_val, &negative_one, 1, "");
-    return LLVMBuildLoad(g->builder, prefix_ptr, "");
+    LLVMValueRef load_inst = LLVMBuildLoad(g->builder, prefix_ptr, "");
+
+    // Some architectures (e.g SPARCv9) has different alignment requirements between a
+    // function/usize pointer and also require all loads to be aligned.
+    // On those architectures, not explicitly setting the alignment will lead into @frameSize
+    // generating usize-aligned load instruction that could crash if the function pointer
+    // happens to be not usize-aligned.
+    LLVMSetAlignment(load_inst, 1);
+    return load_inst;
 }
 
 static void gen_init_stack_trace(CodeGen *g, LLVMValueRef trace_field_ptr, LLVMValueRef addrs_field_ptr) {
