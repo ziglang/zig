@@ -2352,18 +2352,24 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
             }
         }
 
-        try ais.writer().print("{s}\n", .{trimmed_comment});
-        index = 1 + (newline orelse return true);
+        index = 1 + (newline orelse end - 1);
 
-        if (ais.disabled_offset) |disabled_offset| {
-            if (mem.eql(u8, trimmed_comment, "// zig fmt: on")) {
-                // write the source for which formatting was disabled directly
-                // to the underlying writer, fixing up invaild whitespace
-                try writeFixingWhitespace(ais.underlying_writer, tree.source[disabled_offset..index]);
-                ais.disabled_offset = null;
-            }
-        } else if (mem.eql(u8, trimmed_comment, "// zig fmt: off")) {
+        const comment_content = mem.trimLeft(u8, trimmed_comment["//".len..], &std.ascii.spaces);
+        if (ais.disabled_offset != null and mem.eql(u8, comment_content, "zig fmt: on")) {
+            // Write the source for which formatting was disabled directly
+            // to the underlying writer, fixing up invaild whitespace.
+            const disabled_source = tree.source[ais.disabled_offset.?..comment_start];
+            try writeFixingWhitespace(ais.underlying_writer, disabled_source);
+            ais.disabled_offset = null;
+            // Write with the canonical single space.
+            try ais.writer().writeAll("// zig fmt: on\n");
+        } else if (ais.disabled_offset == null and mem.eql(u8, comment_content, "zig fmt: off")) {
+            // Write with the canonical single space.
+            try ais.writer().writeAll("// zig fmt: off\n");
             ais.disabled_offset = index;
+        } else {
+            // Write the comment minus trailing whitespace.
+            try ais.writer().print("{s}\n", .{trimmed_comment});
         }
     }
 
