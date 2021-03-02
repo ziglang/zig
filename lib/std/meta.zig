@@ -1094,6 +1094,36 @@ test "sizeof" {
     testing.expect(sizeof(c_void) == 1);
 }
 
+pub const CIntLiteralRadix = enum { decimal, octal, hexadecimal };
+
+fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime target: comptime_int, comptime radix: CIntLiteralRadix) type {
+    const signed_decimal = [_]type{ c_int, c_long, c_longlong };
+    const signed_oct_hex = [_]type{ c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong };
+    const unsigned = [_]type{ c_uint, c_ulong, c_ulonglong };
+
+    const list: []const type = if (@typeInfo(SuffixType).Int.signedness == .unsigned)
+        &unsigned
+    else if (radix == .decimal)
+        &signed_decimal
+    else
+        &signed_oct_hex;
+
+    var pos = mem.indexOfScalar(type, list, SuffixType).?;
+
+    while (pos < list.len) : (pos += 1) {
+        if (target >= math.minInt(list[pos]) and target <= math.maxInt(list[pos])) {
+            return list[pos];
+        }
+    }
+    @compileError("Integer literal does not fit in compatible types");
+}
+
+/// Promote the type of an integer literal until it fits as C would.
+/// This is for translate-c and is not intended for general use.
+pub fn promoteIntLiteral(comptime SuffixType: type, comptime target: comptime_int, comptime radix: CIntLiteralRadix) PromoteIntLiteralReturnType(SuffixType, target, radix) {
+    return @as(PromoteIntLiteralReturnType(SuffixType, target, radix), target);
+}
+
 /// For a given function type, returns a tuple type which fields will
 /// correspond to the argument types.
 ///
