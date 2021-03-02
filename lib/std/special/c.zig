@@ -325,7 +325,7 @@ fn clone() callconv(.Naked) void {
                 \\  pop %%esi
                 \\  pop %%ebx
                 \\  pop %%ebp
-                \\  retw
+                \\  ret
             );
         },
         .x86_64 => {
