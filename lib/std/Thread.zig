@@ -362,7 +362,7 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
             os.EAGAIN => return error.SystemResources,
             os.EPERM => unreachable,
             os.EINVAL => unreachable,
-            else => return os.unexpectedErrno(@intCast(usize, err)),
+            else => return os.unexpectedErrno(err),
         }
 
         return thread_obj;

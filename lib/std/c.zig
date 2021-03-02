@@ -37,9 +37,9 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-pub fn getErrno(rc: anytype) u16 {
+pub fn getErrno(rc: anytype) c_int {
     if (rc == -1) {
-        return @intCast(u16, _errno().*);
+        return _errno().*;
     } else {
         return 0;
     }
