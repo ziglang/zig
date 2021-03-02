@@ -30,7 +30,7 @@ fn cWriterWrite(c_file: *std.c.FILE, bytes: []const u8) std.fs.File.WriteError!u
         os.ENOSPC => return error.NoSpaceLeft,
         os.EPERM => return error.AccessDenied,
         os.EPIPE => return error.BrokenPipe,
-        else => |err| return os.unexpectedErrno(@intCast(usize, err)),
+        else => |err| return os.unexpectedErrno(err),
     }
 }
 
