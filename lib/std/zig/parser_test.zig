@@ -1108,6 +1108,25 @@ test "zig fmt: comment to disable/enable zig fmt first" {
     );
 }
 
+test "zig fmt: 'zig fmt: (off|on)' can be surrounded by arbitrary whitespace" {
+    try testTransform(
+        \\// Test trailing comma syntax
+        \\//     zig fmt: off
+        \\
+        \\const struct_trailing_comma = struct { x: i32, y: i32, };
+        \\
+        \\//   zig fmt: on
+    ,
+        \\// Test trailing comma syntax
+        \\// zig fmt: off
+        \\
+        \\const struct_trailing_comma = struct { x: i32, y: i32, };
+        \\
+        \\// zig fmt: on
+        \\
+    );
+}
+
 test "zig fmt: comment to disable/enable zig fmt" {
     try testTransform(
         \\const  a  =  b;
