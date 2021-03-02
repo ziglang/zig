@@ -2848,11 +2848,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
         const is_enabled = target.cpu.features.isEnabled(index);
         if (is_enabled) {
-            // TODO some kind of "zig identifier escape" function rather than
-            // unconditionally using @"" syntax
-            try buffer.appendSlice("        .@\"");
-            try buffer.appendSlice(feature.name);
-            try buffer.appendSlice("\",\n");
+            try buffer.writer().print("        .{},\n", .{std.zig.fmtId(feature.name)});
         }
     }
 
