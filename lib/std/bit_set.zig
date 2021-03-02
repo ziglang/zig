@@ -4,10 +4,6 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
-const std = @import("std");
-const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-
 //! This file defines several variants of bit sets.  A bit set
 //! is a densely stored set of integers with a known maximum,
 //! in which each integer gets a single bit.  Bit sets have very
@@ -39,6 +35,10 @@ const Allocator = std.mem.Allocator;
 //! DynamicBitSetUnmanaged:
 //!   A variant of DynamicBitSet which does not store a pointer to its
 //!   allocator, in order to save space.
+
+const std = @import("std");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 /// Returns the optimal static bit set type for the specified number
 /// of elements.  The returned type will perform no allocations,
@@ -83,7 +83,7 @@ pub fn IntegerBitSet(comptime size: u16) type {
         }
 
         /// Returns the number of bits in this bit set
-        pub inline fn capacity(self: Self) usize {
+        pub fn capacity(self: Self) callconv(.Inline) usize {
             return bit_length;
         }
 
@@ -168,7 +168,7 @@ pub fn IntegerBitSet(comptime size: u16) type {
             const mask = self.mask;
             if (mask == 0) return null;
             const index = @ctz(MaskInt, mask);
-            self.mask = mask & (mask-1);
+            self.mask = mask & (mask - 1);
             return index;
         }
 
@@ -306,7 +306,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         }
 
         /// Returns the number of bits in this bit set
-        pub inline fn capacity(self: Self) usize {
+        pub fn capacity(self: Self) callconv(.Inline) usize {
             return bit_length;
         }
 
@@ -566,7 +566,7 @@ pub const DynamicBitSetUnmanaged = struct {
     }
 
     /// Returns the number of bits in this bit set
-    pub inline fn capacity(self: Self) usize {
+    pub fn capacity(self: Self) callconv(.Inline) usize {
         return self.bit_length;
     }
 
@@ -691,7 +691,7 @@ pub const DynamicBitSetUnmanaged = struct {
             offset += @bitSizeOf(MaskInt);
         } else return null;
         const index = @ctz(MaskInt, mask[0]);
-        mask[0] &= (mask[0]-1);
+        mask[0] &= (mask[0] - 1);
         return offset + index;
     }
 
@@ -777,7 +777,7 @@ pub const DynamicBitSet = struct {
     }
 
     /// Returns the number of bits in this bit set
-    pub inline fn capacity(self: Self) usize {
+    pub fn capacity(self: Self) callconv(.Inline) usize {
         return self.unmanaged.capacity();
     }
 
@@ -955,7 +955,7 @@ fn BitSetIterator(comptime MaskInt: type, comptime options: IteratorOptions) typ
         // isn't a next word.  If the next word is the
         // last word, mask off the padding bits so we
         // don't visit them.
-        inline fn nextWord(self: *Self, comptime is_first_word: bool) void {
+        fn nextWord(self: *Self, comptime is_first_word: bool) callconv(.Inline) void {
             var word = switch (direction) {
                 .forward => self.words_remain[0],
                 .reverse => self.words_remain[self.words_remain.len - 1],
@@ -1114,8 +1114,9 @@ fn testBitSet(a: anytype, b: anytype, len: usize) void {
     }
 
     const test_bits = [_]usize{
-        0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 22, 31, 32, 63, 64,
-        66, 95, 127, 160, 192, 1000 };
+        0,  1,  2,   3,   4,   5,    6, 7, 9, 10, 11, 22, 31, 32, 63, 64,
+        66, 95, 127, 160, 192, 1000,
+    };
     for (test_bits) |i| {
         if (i < a.capacity()) {
             a.set(i);

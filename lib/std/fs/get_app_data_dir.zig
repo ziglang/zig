@@ -60,7 +60,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
             var dir_path_ptr: [*:0]u8 = undefined;
             // TODO look into directory_which
             const be_user_settings = 0xbbe;
-            const rc = os.system.find_directory(be_user_settings, -1, true, dir_path_ptr, 1) ;
+            const rc = os.system.find_directory(be_user_settings, -1, true, dir_path_ptr, 1);
             const settings_dir = try allocator.dupeZ(u8, mem.spanZ(dir_path_ptr));
             defer allocator.free(settings_dir);
             switch (rc) {
