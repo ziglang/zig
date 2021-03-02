@@ -106,6 +106,7 @@ pub const Inst = struct {
         store,
         sub,
         unreach,
+        mul,
         not,
         floatcast,
         intcast,
@@ -165,6 +166,7 @@ pub const Inst = struct {
 
                 .add,
                 .sub,
+                .mul,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
