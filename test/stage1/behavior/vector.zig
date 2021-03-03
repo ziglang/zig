@@ -510,6 +510,28 @@ test "vector reduce operation" {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
 
+            // LLVM ERROR: Cannot select: intrinsic %llvm.aarch64.neon.fminnmv
+            // https://github.com/ziglang/zig/issues/8130
+            // wasmtime: unknown import: `env::fminf` has not been defined
+            // https://github.com/ziglang/zig/issues/8131
+            switch (std.builtin.arch) {
+                .aarch64 => switch (TX) {
+                    f16 => switch (op) {
+                        .Min, .Max, => return,
+                        else => {},
+                    },
+                    else => {},
+                },
+                .wasm32 => switch (@typeInfo(TX)) {
+                    .Float => switch (op) {
+                        .Min, .Max, => return,
+                        else => {},
+                    },
+                    else => {},
+                },
+                else => {},
+            }
+
             var r = @reduce(op, @as(Vector(N, TX), x));
             switch (@typeInfo(TX)) {
                 .Int, .Bool => expectEqual(expected, r),
@@ -556,10 +578,7 @@ test "vector reduce operation" {
 
             doTheTestReduce(.Min, [4]i128{ 1234567, -386, 0, 3 }, @as(i128, -386));
             doTheTestReduce(.Min, [4]u128{ 99, 9999, 9, 99999 }, @as(u128, 9));
-            if (std.builtin.arch != .aarch64) {
-                // https://github.com/ziglang/zig/issues/8130
-                doTheTestReduce(.Min, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, -100.0));
-            }
+            doTheTestReduce(.Min, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, -100.0));
             doTheTestReduce(.Min, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, -100.0));
             doTheTestReduce(.Min, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, -100.0));
 
@@ -577,10 +596,7 @@ test "vector reduce operation" {
 
             doTheTestReduce(.Max, [4]i128{ 1234567, -386, 0, 3 }, @as(i128, 1234567));
             doTheTestReduce(.Max, [4]u128{ 99, 9999, 9, 99999 }, @as(u128, 99999));
-            if (std.builtin.arch != .aarch64) {
-                // https://github.com/ziglang/zig/issues/8130
-                doTheTestReduce(.Max, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, 10.0e9));
-            }
+            doTheTestReduce(.Max, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, 10.0e9));
             doTheTestReduce(.Max, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, 10.0e9));
             doTheTestReduce(.Max, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, 10.0e9));
 
