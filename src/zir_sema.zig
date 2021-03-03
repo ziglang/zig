@@ -1235,8 +1235,7 @@ fn zirMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerEr
     switch (lhs_ty.tag()) {
         .error_set_single => {
             const name = lhs_ty.castTag(.error_set_single).?.data;
-            const num = mod.global_error_set.get(name).?;
-            payload.data.fields.putAssumeCapacity(name, num);
+            payload.data.fields.putAssumeCapacity(name, {});
         },
         .error_set => {
             var multiple = lhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
@@ -1251,8 +1250,7 @@ fn zirMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerEr
     switch (rhs_ty.tag()) {
         .error_set_single => {
             const name = rhs_ty.castTag(.error_set_single).?.data;
-            const num = mod.global_error_set.get(name).?;
-            payload.data.fields.putAssumeCapacity(name, num);
+            payload.data.fields.putAssumeCapacity(name, {});
         },
         .error_set => {
             var multiple = rhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
