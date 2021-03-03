@@ -3,6 +3,7 @@ const Object = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const fs = std.fs;
+const io = std.io;
 const log = std.log.scoped(.object);
 const macho = std.macho;
 const mem = std.mem;
@@ -24,6 +25,7 @@ segment_cmd_index: ?u16 = null,
 symtab_cmd_index: ?u16 = null,
 dysymtab_cmd_index: ?u16 = null,
 build_version_cmd_index: ?u16 = null,
+data_in_code_cmd_index: ?u16 = null,
 text_section_index: ?u16 = null,
 
 // __DWARF segment sections
@@ -36,6 +38,8 @@ dwarf_debug_ranges_index: ?u16 = null,
 symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
+data_in_code_entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
+
 pub fn deinit(self: *Object) void {
     for (self.load_commands.items) |*lc| {
         lc.deinit(self.allocator);
@@ -43,6 +47,7 @@ pub fn deinit(self: *Object) void {
     self.load_commands.deinit(self.allocator);
     self.symtab.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
+    self.data_in_code_entries.deinit(self.allocator);
     self.allocator.free(self.name);
     self.file.close();
 }
@@ -82,6 +87,8 @@ pub fn initFromFile(allocator: *Allocator, arch: std.Target.Cpu.Arch, name: []co
     try self.readLoadCommands(reader, .{});
     try self.readSymtab();
     try self.readStrtab();
+
+    if (self.data_in_code_cmd_index != null) try self.readDataInCode();
 
     log.debug("\n\n", .{});
     log.debug("{s} defines symbols", .{self.name});
@@ -148,6 +155,9 @@ pub fn readLoadCommands(self: *Object, reader: anytype, offset: ReadOffset) !voi
             macho.LC_BUILD_VERSION => {
                 self.build_version_cmd_index = i;
             },
+            macho.LC_DATA_IN_CODE => {
+                self.data_in_code_cmd_index = i;
+            },
             else => {
                 log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
             },
@@ -188,4 +198,24 @@ pub fn readSection(self: Object, allocator: *Allocator, index: u16) ![]u8 {
     var buffer = try allocator.alloc(u8, sect.size);
     _ = try self.file.preadAll(buffer, sect.offset);
     return buffer;
+}
+
+pub fn readDataInCode(self: *Object) !void {
+    const index = self.data_in_code_cmd_index orelse return;
+    const data_in_code = self.load_commands.items[index].LinkeditData;
+
+    var buffer = try self.allocator.alloc(u8, data_in_code.datasize);
+    defer self.allocator.free(buffer);
+
+    _ = try self.file.preadAll(buffer, data_in_code.dataoff);
+
+    var stream = io.fixedBufferStream(buffer);
+    var reader = stream.reader();
+    while (true) {
+        const dice = reader.readStruct(macho.data_in_code_entry) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
+        try self.data_in_code_entries.append(self.allocator, dice);
+    }
 }

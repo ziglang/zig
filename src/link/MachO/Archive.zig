@@ -210,6 +210,8 @@ fn readObject(self: *Archive, arch: std.Target.Cpu.Arch, ar_name: []const u8, re
     try object.readSymtab();
     try object.readStrtab();
 
+    if (object.data_in_code_cmd_index != null) try object.readDataInCode();
+
     log.debug("\n\n", .{});
     log.debug("{s} defines symbols", .{object.name});
     for (object.symtab.items) |sym| {

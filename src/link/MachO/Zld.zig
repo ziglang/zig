@@ -332,7 +332,7 @@ fn mapAndUpdateSections(
     const target_seg = &self.load_commands.items[target_seg_id].Segment;
     const target_sect = &target_seg.sections.items[target_sect_id];
 
-    const alignment = try math.powi(u32, 2, source_sect.@"align");
+    const alignment = try math.powi(u32, 2, target_sect.@"align");
     const offset = mem.alignForwardGeneric(u64, target_sect.size, alignment);
     const size = mem.alignForwardGeneric(u64, source_sect.size, alignment);
     const key = MappingKey{
@@ -345,7 +345,7 @@ fn mapAndUpdateSections(
         .target_sect_id = target_sect_id,
         .offset = @intCast(u32, offset),
     });
-    log.debug("{s}: {s},{s} mapped to {s},{s} from 0x{x} to 0x{x}", .{
+    log.warn("{s}: {s},{s} mapped to {s},{s} from 0x{x} to 0x{x}", .{
         object.name,
         parseName(&source_sect.segname),
         parseName(&source_sect.sectname),
@@ -355,7 +355,6 @@ fn mapAndUpdateSections(
         offset + size,
     });
 
-    target_sect.@"align" = math.max(target_sect.@"align", source_sect.@"align");
     target_sect.size = offset + size;
 }
 
@@ -514,120 +513,117 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                 });
             },
             else => {
-                log.debug("unhandled section type 0x{x} for '{s}/{s}'", .{ flags, segname, sectname });
+                log.warn("unhandled section type 0x{x} for '{s}/{s}'", .{ flags, segname, sectname });
             },
+        }
+    }
+
+    // Find ideal section alignment.
+    for (object_seg.sections.items) |source_sect, id| {
+        if (self.getMatchingSection(source_sect)) |res| {
+            const target_seg = &self.load_commands.items[res.seg].Segment;
+            const target_sect = &target_seg.sections.items[res.sect];
+            target_sect.@"align" = math.max(target_sect.@"align", source_sect.@"align");
         }
     }
 
     // Update section mappings
-    // __TEXT,__text has to be always defined!
-    try self.mapAndUpdateSections(
-        object_id,
-        object.text_section_index.?,
-        self.text_segment_cmd_index.?,
-        self.text_section_index.?,
-    );
-
     for (object_seg.sections.items) |source_sect, id| {
         const source_sect_id = @intCast(u16, id);
-        if (id == object.text_section_index.?) continue;
+        if (self.getMatchingSection(source_sect)) |res| {
+            try self.mapAndUpdateSections(object_id, source_sect_id, res.seg, res.sect);
+            continue;
+        }
 
         const segname = parseName(&source_sect.segname);
         const sectname = parseName(&source_sect.sectname);
-        const flags = source_sect.flags;
+        log.warn("section '{s}/{s}' will be unmapped", .{ segname, sectname });
+        try self.unhandled_sections.putNoClobber(self.allocator, .{
+            .object_id = object_id,
+            .source_sect_id = source_sect_id,
+        }, 0);
+    }
+}
 
-        switch (flags) {
+const MatchingSection = struct {
+    seg: u16,
+    sect: u16,
+};
+
+fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
+    const segname = parseName(&section.segname);
+    const sectname = parseName(&section.sectname);
+    const res: ?MatchingSection = blk: {
+        switch (section.flags) {
             macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
-                try self.mapAndUpdateSections(
-                    object_id,
-                    source_sect_id,
-                    self.text_segment_cmd_index.?,
-                    self.text_const_section_index.?,
-                );
+                break :blk .{
+                    .seg = self.text_segment_cmd_index.?,
+                    .sect = self.text_const_section_index.?,
+                };
             },
             macho.S_CSTRING_LITERALS => {
-                try self.mapAndUpdateSections(
-                    object_id,
-                    source_sect_id,
-                    self.text_segment_cmd_index.?,
-                    self.cstring_section_index.?,
-                );
+                break :blk .{
+                    .seg = self.text_segment_cmd_index.?,
+                    .sect = self.cstring_section_index.?,
+                };
             },
             macho.S_ZEROFILL => {
-                try self.mapAndUpdateSections(
-                    object_id,
-                    source_sect_id,
-                    self.data_segment_cmd_index.?,
-                    self.bss_section_index.?,
-                );
+                break :blk .{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.bss_section_index.?,
+                };
             },
             macho.S_THREAD_LOCAL_VARIABLES => {
-                try self.mapAndUpdateSections(
-                    object_id,
-                    source_sect_id,
-                    self.data_segment_cmd_index.?,
-                    self.tlv_section_index.?,
-                );
+                break :blk .{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.tlv_section_index.?,
+                };
             },
             macho.S_THREAD_LOCAL_REGULAR => {
-                try self.mapAndUpdateSections(
-                    object_id,
-                    source_sect_id,
-                    self.data_segment_cmd_index.?,
-                    self.tlv_data_section_index.?,
-                );
+                break :blk .{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.tlv_data_section_index.?,
+                };
             },
             macho.S_THREAD_LOCAL_ZEROFILL => {
-                try self.mapAndUpdateSections(
-                    object_id,
-                    source_sect_id,
-                    self.data_segment_cmd_index.?,
-                    self.tlv_bss_section_index.?,
-                );
+                break :blk .{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.tlv_bss_section_index.?,
+                };
+            },
+            macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS => {
+                break :blk .{
+                    .seg = self.text_segment_cmd_index.?,
+                    .sect = self.text_section_index.?,
+                };
             },
             macho.S_REGULAR => {
                 if (mem.eql(u8, segname, "__TEXT")) {
-                    try self.mapAndUpdateSections(
-                        object_id,
-                        source_sect_id,
-                        self.text_segment_cmd_index.?,
-                        self.text_const_section_index.?,
-                    );
-                    continue;
+                    break :blk .{
+                        .seg = self.text_segment_cmd_index.?,
+                        .sect = self.text_const_section_index.?,
+                    };
                 } else if (mem.eql(u8, segname, "__DATA")) {
                     if (mem.eql(u8, sectname, "__data")) {
-                        try self.mapAndUpdateSections(
-                            object_id,
-                            source_sect_id,
-                            self.data_segment_cmd_index.?,
-                            self.data_section_index.?,
-                        );
-                        continue;
+                        break :blk .{
+                            .seg = self.data_segment_cmd_index.?,
+                            .sect = self.data_section_index.?,
+                        };
                     } else if (mem.eql(u8, sectname, "__const")) {
-                        try self.mapAndUpdateSections(
-                            object_id,
-                            source_sect_id,
-                            self.data_segment_cmd_index.?,
-                            self.data_const_section_index.?,
-                        );
-                        continue;
+                        break :blk .{
+                            .seg = self.data_segment_cmd_index.?,
+                            .sect = self.data_const_section_index.?,
+                        };
                     }
                 }
-                log.debug("section '{s}/{s}' will be unmapped", .{ segname, sectname });
-                try self.unhandled_sections.putNoClobber(self.allocator, .{
-                    .object_id = object_id,
-                    .source_sect_id = source_sect_id,
-                }, 0);
+                break :blk null;
             },
             else => {
-                log.debug("section '{s}/{s}' will be unmapped", .{ segname, sectname });
-                try self.unhandled_sections.putNoClobber(self.allocator, .{
-                    .object_id = object_id,
-                    .source_sect_id = source_sect_id,
-                }, 0);
+                break :blk null;
             },
         }
-    }
+    };
+    return res;
 }
 
 fn sortSections(self: *Zld) !void {
@@ -784,7 +780,7 @@ fn resolveImports(self: *Zld) !void {
             mem.eql(u8, sym_name, "___stack_chk_guard") or
             mem.eql(u8, sym_name, "_environ"))
         {
-            log.debug("writing nonlazy symbol '{s}'", .{sym_name});
+            log.warn("writing nonlazy symbol '{s}'", .{sym_name});
             const index = @intCast(u32, self.nonlazy_imports.items().len);
             try self.nonlazy_imports.putNoClobber(self.allocator, key, .{
                 .symbol = new_sym,
@@ -792,7 +788,7 @@ fn resolveImports(self: *Zld) !void {
                 .index = index,
             });
         } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
-            log.debug("writing threadlocal symbol '{s}'", .{sym_name});
+            log.warn("writing threadlocal symbol '{s}'", .{sym_name});
             const index = @intCast(u32, self.threadlocal_imports.items().len);
             try self.threadlocal_imports.putNoClobber(self.allocator, key, .{
                 .symbol = new_sym,
@@ -800,7 +796,7 @@ fn resolveImports(self: *Zld) !void {
                 .index = index,
             });
         } else {
-            log.debug("writing lazy symbol '{s}'", .{sym_name});
+            log.warn("writing lazy symbol '{s}'", .{sym_name});
             const index = @intCast(u32, self.lazy_imports.items().len);
             try self.lazy_imports.putNoClobber(self.allocator, key, .{
                 .symbol = new_sym,
@@ -812,7 +808,7 @@ fn resolveImports(self: *Zld) !void {
 
     const n_strx = try self.makeString("dyld_stub_binder");
     const name = try self.allocator.dupe(u8, "dyld_stub_binder");
-    log.debug("writing nonlazy symbol 'dyld_stub_binder'", .{});
+    log.warn("writing nonlazy symbol 'dyld_stub_binder'", .{});
     const index = @intCast(u32, self.nonlazy_imports.items().len);
     try self.nonlazy_imports.putNoClobber(self.allocator, name, .{
         .symbol = .{
@@ -1016,7 +1012,7 @@ fn writeStubHelperCommon(self: *Zld) !void {
                         const new_this_addr = this_addr + @sizeOf(u32);
                         const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch |_| break :binder_blk;
                         const literal = math.cast(u18, displacement) catch |_| break :binder_blk;
-                        log.debug("2: disp=0x{x}, literal=0x{x}", .{ displacement, literal });
+                        log.warn("2: disp=0x{x}, literal=0x{x}", .{ displacement, literal });
                         // Pad with nop to please division.
                         // nop
                         mem.writeIntLittle(u32, code[12..16], Arm64.nop().toU32());
@@ -1069,7 +1065,7 @@ fn writeLazySymbolPointer(self: *Zld, index: u32) !void {
     var buf: [@sizeOf(u64)]u8 = undefined;
     mem.writeIntLittle(u64, &buf, end);
     const off = la_symbol_ptr.offset + index * @sizeOf(u64);
-    log.debug("writing lazy symbol pointer entry 0x{x} at 0x{x}", .{ end, off });
+    log.warn("writing lazy symbol pointer entry 0x{x} at 0x{x}", .{ end, off });
     try self.file.?.pwriteAll(&buf, off);
 }
 
@@ -1082,7 +1078,7 @@ fn writeStub(self: *Zld, index: u32) !void {
     const stub_off = stubs.offset + index * stubs.reserved2;
     const stub_addr = stubs.addr + index * stubs.reserved2;
     const la_ptr_addr = la_symbol_ptr.addr + index * @sizeOf(u64);
-    log.debug("writing stub at 0x{x}", .{stub_off});
+    log.warn("writing stub at 0x{x}", .{stub_off});
     var code = try self.allocator.alloc(u8, stubs.reserved2);
     defer self.allocator.free(code);
     switch (self.arch.?) {
@@ -1229,7 +1225,7 @@ fn resolveSymbols(self: *Zld) !void {
             const target_addr = target_sect.addr + target_mapping.offset;
             const n_value = sym.n_value - source_sect.addr + target_addr;
 
-            log.debug("resolving '{s}':{} as {s} symbol at 0x{x}", .{ sym_name, sym, tt, n_value });
+            log.warn("resolving '{s}':{} as {s} symbol at 0x{x}", .{ sym_name, sym, tt, n_value });
 
             // TODO this assumes only two symbol-filled segments. Also, there might be a more
             // generic way of doing this.
@@ -1259,8 +1255,8 @@ fn resolveSymbols(self: *Zld) !void {
 
 fn doRelocs(self: *Zld) !void {
     for (self.objects.items) |object, object_id| {
-        log.debug("\n\n", .{});
-        log.debug("relocating object {s}", .{object.name});
+        log.warn("\n\n", .{});
+        log.warn("relocating object {s}", .{object.name});
 
         const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
 
@@ -1283,7 +1279,7 @@ fn doRelocs(self: *Zld) !void {
                 .object_id = @intCast(u16, object_id),
                 .source_sect_id = @intCast(u16, source_sect_id),
             }) orelse {
-                log.debug("no mapping for {s},{s}; skipping", .{ segname, sectname });
+                log.warn("no mapping for {s},{s}; skipping", .{ segname, sectname });
                 continue;
             };
             const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
@@ -1301,34 +1297,34 @@ fn doRelocs(self: *Zld) !void {
                 switch (self.arch.?) {
                     .aarch64 => {
                         const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
-                        log.debug("{s}", .{rel_type});
-                        log.debug("    | source address 0x{x}", .{this_addr});
-                        log.debug("    | offset 0x{x}", .{off});
+                        log.warn("{s}", .{rel_type});
+                        log.warn("    | source address 0x{x}", .{this_addr});
+                        log.warn("    | offset 0x{x}", .{off});
 
                         if (rel_type == .ARM64_RELOC_ADDEND) {
                             addend = rel.r_symbolnum;
-                            log.debug("    | calculated addend = 0x{x}", .{addend});
+                            log.warn("    | calculated addend = 0x{x}", .{addend});
                             // TODO followed by either PAGE21 or PAGEOFF12 only.
                             continue;
                         }
                     },
                     .x86_64 => {
                         const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-                        log.debug("{s}", .{rel_type});
-                        log.debug("    | source address 0x{x}", .{this_addr});
-                        log.debug("    | offset 0x{x}", .{off});
+                        log.warn("{s}", .{rel_type});
+                        log.warn("    | source address 0x{x}", .{this_addr});
+                        log.warn("    | offset 0x{x}", .{off});
                     },
                     else => {},
                 }
 
                 const target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel);
-                log.debug("    | target address 0x{x}", .{target_addr});
+                log.warn("    | target address 0x{x}", .{target_addr});
                 if (rel.r_extern == 1) {
                     const target_symname = object.getString(object.symtab.items[rel.r_symbolnum].n_strx);
-                    log.debug("    | target symbol '{s}'", .{target_symname});
+                    log.warn("    | target symbol '{s}'", .{target_symname});
                 } else {
                     const target_sectname = seg.sections.items[rel.r_symbolnum - 1].sectname;
-                    log.debug("    | target section '{s}'", .{parseName(&target_sectname)});
+                    log.warn("    | target section '{s}'", .{parseName(&target_sectname)});
                 }
 
                 switch (self.arch.?) {
@@ -1361,13 +1357,12 @@ fn doRelocs(self: *Zld) !void {
                             => {
                                 assert(rel.r_length == 2);
                                 const inst = code[off..][0..4];
-                                const offset: i32 = blk: {
+                                const offset = @intCast(i64, mem.readIntLittle(i32, inst));
+                                log.warn("    | calculated addend 0x{x}", .{offset});
+                                const actual_target_addr = blk: {
                                     if (rel.r_extern == 1) {
-                                        break :blk mem.readIntLittle(i32, inst);
+                                        break :blk @intCast(i64, target_addr) + offset;
                                     } else {
-                                        // TODO it might be required here to parse the offset from the instruction placeholder,
-                                        // compare the displacement with the original displacement in the .o file, and adjust
-                                        // the displacement in the resultant binary file.
                                         const correction: i4 = switch (rel_type) {
                                             .X86_64_RELOC_SIGNED => 0,
                                             .X86_64_RELOC_SIGNED_1 => 1,
@@ -1375,11 +1370,28 @@ fn doRelocs(self: *Zld) !void {
                                             .X86_64_RELOC_SIGNED_4 => 4,
                                             else => unreachable,
                                         };
-                                        break :blk correction;
+                                        log.warn("    | calculated correction 0x{x}", .{correction});
+
+                                        // The value encoded in the instruction is a displacement - 4 - correction.
+                                        // To obtain the adjusted target address in the final binary, we need
+                                        // calculate the original target address within the object file, establish
+                                        // what the offset from the original target section was, and apply this
+                                        // offset to the resultant target section with this relocated binary.
+                                        const orig_sect_id = @intCast(u16, rel.r_symbolnum - 1);
+                                        const target_map = self.mappings.get(.{
+                                            .object_id = @intCast(u16, object_id),
+                                            .source_sect_id = orig_sect_id,
+                                        }) orelse unreachable;
+                                        const orig_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+                                        const orig_sect = orig_seg.sections.items[orig_sect_id];
+                                        const orig_offset = off + offset + 4 + correction - @intCast(i64, orig_sect.addr);
+                                        log.warn("    | original offset 0x{x}", .{orig_offset});
+                                        const adjusted = @intCast(i64, target_addr) + orig_offset;
+                                        log.warn("    | adjusted target address 0x{x}", .{adjusted});
+                                        break :blk adjusted - correction;
                                     }
                                 };
-                                log.debug("    | calculated addend 0x{x}", .{offset});
-                                const result = @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4 + offset;
+                                const result = actual_target_addr - @intCast(i64, this_addr) - 4;
                                 const displacement = @bitCast(u32, @intCast(i32, result));
                                 mem.writeIntLittle(u32, inst, displacement);
                             },
@@ -1391,11 +1403,40 @@ fn doRelocs(self: *Zld) !void {
                                     3 => {
                                         const inst = code[off..][0..8];
                                         const offset = mem.readIntLittle(i64, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
-                                        const result = if (sub) |s|
-                                            @intCast(i64, target_addr) - s + offset
-                                        else
-                                            @intCast(i64, target_addr) + offset;
+
+                                        const result = outer: {
+                                            if (rel.r_extern == 1) {
+                                                log.warn("    | calculated addend 0x{x}", .{offset});
+                                                if (sub) |s| {
+                                                    break :outer @intCast(i64, target_addr) - s + offset;
+                                                } else {
+                                                    break :outer @intCast(i64, target_addr) + offset;
+                                                }
+                                            } else {
+                                                // The value encoded in the instruction is an absolute offset
+                                                // from the start of MachO header to the target address in the
+                                                // object file. To extract the address, we calculate the offset from
+                                                // the beginning of the source section to the address, and apply it to
+                                                // the target address value.
+                                                const orig_sect_id = @intCast(u16, rel.r_symbolnum - 1);
+                                                const target_map = self.mappings.get(.{
+                                                    .object_id = @intCast(u16, object_id),
+                                                    .source_sect_id = orig_sect_id,
+                                                }) orelse unreachable;
+                                                const orig_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+                                                const orig_sect = orig_seg.sections.items[orig_sect_id];
+                                                const orig_offset = offset - @intCast(i64, orig_sect.addr);
+                                                const actual_target_addr = inner: {
+                                                    if (sub) |s| {
+                                                        break :inner @intCast(i64, target_addr) - s + orig_offset;
+                                                    } else {
+                                                        break :inner @intCast(i64, target_addr) + orig_offset;
+                                                    }
+                                                };
+                                                log.warn("    | adjusted target address 0x{x}", .{actual_target_addr});
+                                                break :outer actual_target_addr;
+                                            }
+                                        };
                                         mem.writeIntLittle(u64, inst, @bitCast(u64, result));
                                         sub = null;
 
@@ -1422,7 +1463,7 @@ fn doRelocs(self: *Zld) !void {
                                     2 => {
                                         const inst = code[off..][0..4];
                                         const offset = mem.readIntLittle(i32, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
+                                        log.warn("    | calculated addend 0x{x}", .{offset});
                                         const result = if (sub) |s|
                                             @intCast(i64, target_addr) - s + offset
                                         else
@@ -1459,7 +1500,7 @@ fn doRelocs(self: *Zld) !void {
                                 const this_page = @intCast(i32, this_addr >> 12);
                                 const target_page = @intCast(i32, ta >> 12);
                                 const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
-                                log.debug("    | moving by {} pages", .{pages});
+                                log.warn("    | moving by {} pages", .{pages});
                                 var parsed = mem.bytesAsValue(meta.TagPayload(Arm64, Arm64.Address), inst);
                                 parsed.immhi = @truncate(u19, pages >> 2);
                                 parsed.immlo = @truncate(u2, pages);
@@ -1470,14 +1511,14 @@ fn doRelocs(self: *Zld) !void {
                             => {
                                 const inst = code[off..][0..4];
                                 if (Arm64.isArithmetic(inst)) {
-                                    log.debug("    | detected ADD opcode", .{});
+                                    log.warn("    | detected ADD opcode", .{});
                                     // add
                                     var parsed = mem.bytesAsValue(meta.TagPayload(Arm64, Arm64.Add), inst);
                                     const ta = if (addend) |a| target_addr + a else target_addr;
                                     const narrowed = @truncate(u12, ta);
                                     parsed.offset = narrowed;
                                 } else {
-                                    log.debug("    | detected LDR/STR opcode", .{});
+                                    log.warn("    | detected LDR/STR opcode", .{});
                                     // ldr/str
                                     var parsed = mem.bytesAsValue(meta.TagPayload(Arm64, Arm64.LoadRegister), inst);
                                     const ta = if (addend) |a| target_addr + a else target_addr;
@@ -1518,7 +1559,7 @@ fn doRelocs(self: *Zld) !void {
                                 };
                                 const ta = if (addend) |a| target_addr + a else target_addr;
                                 const narrowed = @truncate(u12, ta);
-                                log.debug("    | rewriting TLV access to ADD opcode", .{});
+                                log.warn("    | rewriting TLV access to ADD opcode", .{});
                                 // For TLV, we always generate an add instruction.
                                 mem.writeIntLittle(u32, inst, Arm64.add(parsed.rt, parsed.rn, narrowed, parsed.size).toU32());
                             },
@@ -1530,7 +1571,7 @@ fn doRelocs(self: *Zld) !void {
                                     3 => {
                                         const inst = code[off..][0..8];
                                         const offset = mem.readIntLittle(i64, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
+                                        log.warn("    | calculated addend 0x{x}", .{offset});
                                         const result = if (sub) |s|
                                             @intCast(i64, target_addr) - s + offset
                                         else
@@ -1561,7 +1602,7 @@ fn doRelocs(self: *Zld) !void {
                                     2 => {
                                         const inst = code[off..][0..4];
                                         const offset = mem.readIntLittle(i32, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
+                                        log.warn("    | calculated addend 0x{x}", .{offset});
                                         const result = if (sub) |s|
                                             @intCast(i64, target_addr) - s + offset
                                         else
@@ -1583,7 +1624,7 @@ fn doRelocs(self: *Zld) !void {
                 }
             }
 
-            log.debug("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
+            log.warn("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
                 segname,
                 sectname,
                 object.name,
@@ -1595,7 +1636,7 @@ fn doRelocs(self: *Zld) !void {
                 target_sect.flags == macho.S_THREAD_LOCAL_ZEROFILL or
                 target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES)
             {
-                log.debug("zeroing out '{s},{s}' from 0x{x} to 0x{x}", .{
+                log.warn("zeroing out '{s},{s}' from 0x{x} to 0x{x}", .{
                     parseName(&target_sect.segname),
                     parseName(&target_sect.sectname),
                     target_sect_off,
@@ -1629,7 +1670,7 @@ fn relocTargetAddr(self: *Zld, object_id: u16, rel: macho.relocation_info) !u64 
                 const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
                 const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
                 const target_sect_addr = target_sect.addr + target_mapping.offset;
-                log.debug("    | symbol local to object", .{});
+                log.warn("    | symbol local to object", .{});
                 break :blk target_sect_addr + sym.n_value - source_sect.addr;
             } else if (isImport(&sym)) {
                 // Relocate to either the artifact's local symbol, or an import from
@@ -2059,6 +2100,18 @@ fn populateMetadata(self: *Zld) !void {
             },
         });
     }
+
+    if (self.data_in_code_cmd_index == null and self.arch.? == .x86_64) {
+        self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.allocator, .{
+            .LinkeditData = .{
+                .cmd = macho.LC_DATA_IN_CODE,
+                .cmdsize = @sizeOf(macho.linkedit_data_command),
+                .dataoff = 0,
+                .datasize = 0,
+            },
+        });
+    }
 }
 
 fn flush(self: *Zld) !void {
@@ -2077,6 +2130,9 @@ fn flush(self: *Zld) !void {
     try self.writeBindInfoTable();
     try self.writeLazyBindInfoTable();
     try self.writeExportInfo();
+    if (self.arch.? == .x86_64) {
+        try self.writeDataInCode();
+    }
 
     {
         const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
@@ -2169,12 +2225,42 @@ fn writeRebaseInfoTable(self: *Zld) !void {
     }
 
     try pointers.ensureCapacity(pointers.items.len + self.local_rebases.items.len);
+    pointers.appendSliceAssumeCapacity(self.local_rebases.items);
 
-    const nlocals = self.local_rebases.items.len;
-    var i = nlocals;
-    while (i > 0) : (i -= 1) {
-        pointers.appendAssumeCapacity(self.local_rebases.items[i - 1]);
-    }
+    // const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    // const base_id = text_seg.sections.items.len;
+    // for (self.locals.items()) |entry| {
+    //     for (entry.value.items) |symbol| {
+    //         const local = symbol.inner;
+
+    //         if (self.data_const_section_index) |index| {
+    //             if (local.n_sect == base_id + index) {
+    //                 const offset = local.n_value - data_seg.inner.vmaddr;
+    //                 try pointers.append(.{
+    //                     .offset = offset,
+    //                     .segment_id = @intCast(u16, self.data_segment_cmd_index.?),
+    //                 });
+    //             }
+    //         }
+    //         if (self.data_section_index) |index| {
+    //             if (local.n_sect == base_id + index) {
+    //                 const offset = local.n_value - data_seg.inner.vmaddr;
+    //                 try pointers.append(.{
+    //                     .offset = offset,
+    //                     .segment_id = @intCast(u16, self.data_segment_cmd_index.?),
+    //                 });
+    //             }
+    //         }
+    //     }
+    // }
+
+    std.sort.sort(Pointer, pointers.items, {}, pointerCmp);
+
+    // const nlocals = self.local_rebases.items.len;
+    // var i = nlocals;
+    // while (i > 0) : (i -= 1) {
+    //     pointers.appendAssumeCapacity(self.local_rebases.items[i - 1]);
+    // }
 
     const size = try rebaseInfoSize(pointers.items);
     var buffer = try self.allocator.alloc(u8, @intCast(usize, size));
@@ -2189,9 +2275,17 @@ fn writeRebaseInfoTable(self: *Zld) !void {
     dyld_info.rebase_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @sizeOf(u64)));
     seg.inner.filesize += dyld_info.rebase_size;
 
-    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
+    log.warn("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.rebase_off);
+}
+
+fn pointerCmp(context: void, a: Pointer, b: Pointer) bool {
+    if (a.segment_id < b.segment_id) return true;
+    if (a.segment_id == b.segment_id) {
+        return a.offset < b.offset;
+    }
+    return false;
 }
 
 fn writeBindInfoTable(self: *Zld) !void {
@@ -2242,7 +2336,7 @@ fn writeBindInfoTable(self: *Zld) !void {
     dyld_info.bind_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.bind_size;
 
-    log.debug("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
+    log.warn("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.bind_off);
 }
@@ -2281,7 +2375,7 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
     dyld_info.lazy_bind_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.lazy_bind_size;
 
-    log.debug("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
+    log.warn("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
     try self.populateLazyBindOffsetsInStubHelper(buffer);
@@ -2383,7 +2477,7 @@ fn writeExportInfo(self: *Zld) !void {
     dyld_info.export_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.export_size;
 
-    log.debug("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
+    log.warn("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.export_off);
 }
@@ -2517,7 +2611,7 @@ fn writeDebugInfo(self: *Zld) !void {
 
     const stabs_off = symtab.symoff;
     const stabs_size = symtab.nsyms * @sizeOf(macho.nlist_64);
-    log.debug("writing symbol stabs from 0x{x} to 0x{x}", .{ stabs_off, stabs_size + stabs_off });
+    log.warn("writing symbol stabs from 0x{x} to 0x{x}", .{ stabs_off, stabs_size + stabs_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(stabs.items), stabs_off);
 
     linkedit.inner.filesize += stabs_size;
@@ -2535,12 +2629,12 @@ fn writeSymbolTable(self: *Zld) !void {
     defer locals.deinit();
 
     for (self.locals.items()) |entries| {
-        log.debug("'{s}': {} entries", .{ entries.key, entries.value.items.len });
+        log.warn("'{s}': {} entries", .{ entries.key, entries.value.items.len });
         // var symbol: ?macho.nlist_64 = null;
         for (entries.value.items) |entry| {
-            log.debug("    | {}", .{entry.inner});
-            log.debug("    | {}", .{entry.tt});
-            log.debug("    | {s}", .{self.objects.items[entry.object_id].name});
+            log.warn("    | {}", .{entry.inner});
+            log.warn("    | {}", .{entry.tt});
+            log.warn("    | {s}", .{self.objects.items[entry.object_id].name});
             // switch (entry.tt) {
             //     .Global => {
             //         symbol = entry.inner;
@@ -2585,17 +2679,17 @@ fn writeSymbolTable(self: *Zld) !void {
 
     const locals_off = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
-    log.debug("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
+    log.warn("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(locals.items), locals_off);
 
     const exports_off = locals_off + locals_size;
     const exports_size = nexports * @sizeOf(macho.nlist_64);
-    log.debug("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
+    log.warn("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(exports.items), exports_off);
 
     const undefs_off = exports_off + exports_size;
     const undefs_size = nundefs * @sizeOf(macho.nlist_64);
-    log.debug("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
+    log.warn("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(undefs.items), undefs_off);
 
     symtab.nsyms += @intCast(u32, nlocals + nexports + nundefs);
@@ -2626,7 +2720,7 @@ fn writeDynamicSymbolTable(self: *Zld) !void {
     const needed_size = dysymtab.nindirectsyms * @sizeOf(u32);
     seg.inner.filesize += needed_size;
 
-    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{
+    log.warn("writing indirect symbol table from 0x{x} to 0x{x}", .{
         dysymtab.indirectsymoff,
         dysymtab.indirectsymoff + needed_size,
     });
@@ -2665,7 +2759,7 @@ fn writeStringTable(self: *Zld) !void {
     symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.strtab.items.len, @alignOf(u64)));
     seg.inner.filesize += symtab.strsize;
 
-    log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
+    log.warn("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
     try self.file.?.pwriteAll(self.strtab.items, symtab.stroff);
 
@@ -2673,6 +2767,48 @@ fn writeStringTable(self: *Zld) !void {
         // This is the last section, so we need to pad it out.
         try self.file.?.pwriteAll(&[_]u8{0}, seg.inner.fileoff + seg.inner.filesize - 1);
     }
+}
+
+fn writeDataInCode(self: *Zld) !void {
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const dice_cmd = &self.load_commands.items[self.data_in_code_cmd_index.?].LinkeditData;
+    const fileoff = seg.inner.fileoff + seg.inner.filesize;
+
+    var buf = std.ArrayList(u8).init(self.allocator);
+    defer buf.deinit();
+
+    const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const text_sect = text_seg.sections.items[self.text_section_index.?];
+    for (self.objects.items) |object, object_id| {
+        const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+        const source_sect = source_seg.sections.items[object.text_section_index.?];
+        const target_mapping = self.mappings.get(.{
+            .object_id = @intCast(u16, object_id),
+            .source_sect_id = object.text_section_index.?,
+        }) orelse continue;
+
+        // TODO Currently assume that Dice will always be within the __TEXT,__text section.
+        try buf.ensureCapacity(
+            buf.items.len + object.data_in_code_entries.items.len * @sizeOf(macho.data_in_code_entry),
+        );
+        for (object.data_in_code_entries.items) |dice| {
+            const new_dice: macho.data_in_code_entry = .{
+                .offset = text_sect.offset + target_mapping.offset + dice.offset - source_sect.offset,
+                .length = dice.length,
+                .kind = dice.kind,
+            };
+            buf.appendSliceAssumeCapacity(mem.asBytes(&new_dice));
+        }
+    }
+    const datasize = @intCast(u32, buf.items.len);
+
+    dice_cmd.dataoff = @intCast(u32, fileoff);
+    dice_cmd.datasize = datasize;
+    seg.inner.filesize += datasize;
+
+    log.warn("writing data-in-code from 0x{x} to 0x{x}", .{ fileoff, fileoff + datasize });
+
+    try self.file.?.pwriteAll(buf.items, fileoff);
 }
 
 fn writeCodeSignaturePadding(self: *Zld) !void {
@@ -2691,7 +2827,7 @@ fn writeCodeSignaturePadding(self: *Zld) !void {
     seg.inner.filesize += needed_size;
     seg.inner.vmsize = mem.alignForwardGeneric(u64, seg.inner.filesize, self.page_size.?);
 
-    log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
+    log.warn("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
 
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
@@ -2717,7 +2853,7 @@ fn writeCodeSignature(self: *Zld) !void {
     var stream = std.io.fixedBufferStream(buffer);
     try code_sig.write(stream.writer());
 
-    log.debug("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
+    log.warn("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
 
     try self.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
 }
@@ -2736,7 +2872,7 @@ fn writeLoadCommands(self: *Zld) !void {
     }
 
     const off = @sizeOf(macho.mach_header_64);
-    log.debug("writing {} load commands from 0x{x} to 0x{x}", .{ self.load_commands.items.len, off, off + sizeofcmds });
+    log.warn("writing {} load commands from 0x{x} to 0x{x}", .{ self.load_commands.items.len, off, off + sizeofcmds });
     try self.file.?.pwriteAll(buffer, off);
 }
 
@@ -2774,7 +2910,7 @@ fn writeHeader(self: *Zld) !void {
     for (self.load_commands.items) |cmd| {
         header.sizeofcmds += cmd.cmdsize();
     }
-    log.debug("writing Mach-O header {}", .{header});
+    log.warn("writing Mach-O header {}", .{header});
     try self.file.?.pwriteAll(mem.asBytes(&header), 0);
 }
 
@@ -2788,7 +2924,7 @@ pub fn makeStaticString(bytes: []const u8) [16]u8 {
 fn makeString(self: *Zld, bytes: []const u8) !u32 {
     try self.strtab.ensureCapacity(self.allocator, self.strtab.items.len + bytes.len + 1);
     const offset = @intCast(u32, self.strtab.items.len);
-    log.debug("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
+    log.warn("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
     self.strtab.appendSliceAssumeCapacity(bytes);
     self.strtab.appendAssumeCapacity(0);
     return offset;

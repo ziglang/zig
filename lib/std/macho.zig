@@ -1615,3 +1615,17 @@ pub const GenericBlob = extern struct {
     /// Total length of blob
     length: u32,
 };
+
+/// The LC_DATA_IN_CODE load commands uses a linkedit_data_command 
+/// to point to an array of data_in_code_entry entries. Each entry
+/// describes a range of data in a code section.
+pub const data_in_code_entry = extern struct {
+    /// From mach_header to start of data range.
+    offset: u32,
+
+    /// Number of bytes in data range.
+    length: u16,
+
+    /// A DICE_KIND value.
+    kind: u16,
+};
