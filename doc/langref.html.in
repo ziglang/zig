@@ -10447,13 +10447,40 @@ fn readU32Be() u32 {}
       {#header_close#}
       {#header_open|Source Encoding#}
       <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>
-      <p>Throughout all zig source code (including in comments), some codepoints are never allowed:</p>
+      <p>Throughout all zig source code (including in comments), some code points are never allowed:</p>
       <ul>
-        <li>Ascii control characters, except for U+000a (LF): U+0000 - U+0009, U+000b - U+0001f, U+007f. (Note that Windows line endings (CRLF) are not allowed, and hard tabs are not allowed.)</li>
+        <li>Ascii control characters, except for U+000a (LF), U+000d (CR), and U+0009 (HT): U+0000 - U+0008, U+000b - U+000c, U+000e - U+0001f, U+007f.</li>
         <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
       </ul>
-      <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code (except possibly the last line of the file).</p>
-      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/ziglang/zig/issues/663">issue #663</a></p>
+      <p>
+      LF (byte value 0x0a, code point U+000a, {#syntax#}'\n'{#endsyntax#}) is the line terminator in Zig source code.
+      This byte value terminates every line of zig source code except the last line of the file.
+      It is recommended that non-empty source files end with an empty line, which means the last byte would be 0x0a (LF).
+      </p>
+      <p>
+      Each LF may be immediately preceded by a single CR (byte value 0x0d, code point U+000d, {#syntax#}'\r'{#endsyntax#})
+      to form a Windows style line ending, but this is discouraged.
+      A CR in any other context is not allowed.
+      </p>
+      <p>
+      HT hard tabs (byte value 0x09, code point U+0009, {#syntax#}'\t'{#endsyntax#}) are interchangeable with
+      SP spaces (byte value 0x20, code point U+0020, {#syntax#}' '{#endsyntax#}) as a token separator,
+      but use of hard tabs is discouraged. See {#link|Grammar#}.
+      </p>
+      <p>
+      Note that running <code>zig fmt</code> on a source file will implement all recommendations mentioned here.
+      Note also that the stage1 compiler does <a href="https://github.com/ziglang/zig/wiki/FAQ#why-does-zig-force-me-to-use-spaces-instead-of-tabs">not yet support CR or HT</a> control characters.
+      </p>
+      <p>
+      Note that a tool reading Zig source code can make assumptions if the source code is assumed to be correct Zig code.
+      For example, when identifying the ends of lines, a tool can use a naive search such as <code>/\n/</code>,
+      or an <a href="https://msdn.microsoft.com/en-us/library/dd409797.aspx">advanced</a>
+      search such as <code>/\r\n?|[\n\u0085\u2028\u2029]/</code>, and in either case line endings will be correctly identified.
+      For another example, when identifying the whitespace before the first token on a line,
+      a tool can either use a naive search such as <code>/[ \t]/</code>,
+      or an <a href="https://tc39.es/ecma262/#sec-characterclassescape">advanced</a> search such as <code>/\s/</code>,
+      and in either case whitespace will be correctly identified.
+      </p>
       {#header_close#}
 
       {#header_open|Keyword Reference#}
@@ -11373,6 +11400,7 @@ ExprList &lt;- (Expr COMMA)* Expr?
 
 # *** Tokens ***
 eof &lt;- !.
+eol &lt;- ('\r'? '\n') | eof
 hex &lt;- [0-9a-fA-F]
 hex_ &lt;- ('_'/hex)
 dec &lt;- [0-9]
@@ -11382,39 +11410,39 @@ dec_int &lt;- dec (dec_* dec)?
 hex_int &lt;- hex (hex_* dec)?
 
 char_escape
-    &lt;- &quot;\\x&quot; hex hex
-     / &quot;\\u{&quot; hex+ &quot;}&quot;
-     / &quot;\\&quot; [nr\\t'&quot;]
+    &lt;- '\\x' hex hex
+     / '\\u{' hex+ '}'
+     / '\\' [nr\\t'&quot;]
 char_char
     &lt;- char_escape
-     / [^\\'\n]
+     / [^\\'\r\n]
 string_char
     &lt;- char_escape
-     / [^\\&quot;\n]
+     / [^\\&quot;\r\n]
 
-line_comment &lt;- '//'[^\n]*
-line_string &lt;- (&quot;\\\\&quot; [^\n]* [ \n]*)+
-skip &lt;- ([ \n] / line_comment)*
+line_comment &lt;- '//'[^\r\n]* eol
+line_string &lt;- ('\\\\' [^\r\n]* eol skip)+
+skip &lt;- ([ \t] / eol / line_comment)*
 
 CHAR_LITERAL &lt;- &quot;'&quot; char_char &quot;'&quot; skip
 FLOAT
-    &lt;- &quot;0x&quot; hex_* hex &quot;.&quot; hex_int ([pP] [-+]? hex_int)? skip
-     /      dec_int   &quot;.&quot; dec_int ([eE] [-+]? dec_int)? skip
-     / &quot;0x&quot; hex_* hex &quot;.&quot;? [pP] [-+]? hex_int skip
-     /      dec_int   &quot;.&quot;? [eE] [-+]? dec_int skip
+    &lt;- '0x' hex_* hex '.' hex_int ([pP] [-+]? hex_int)? skip
+     /      dec_int   '.' dec_int ([eE] [-+]? dec_int)? skip
+     / '0x' hex_* hex '.'? [pP] [-+]? hex_int skip
+     /      dec_int   '.'? [eE] [-+]? dec_int skip
 INTEGER
-    &lt;- &quot;0b&quot; [_01]*  [01]  skip
-     / &quot;0o&quot; [_0-7]* [0-7] skip
-     / &quot;0x&quot; hex_* hex skip
+    &lt;- '0b' [_01]*  [01]  skip
+     / '0o' [_0-7]* [0-7] skip
+     / '0x' hex_* hex skip
      /      dec_int   skip
-STRINGLITERALSINGLE &lt;- &quot;\&quot;&quot; string_char* &quot;\&quot;&quot; skip
+STRINGLITERALSINGLE &lt;- '&quot;' string_char* '&quot;' skip
 STRINGLITERAL
     &lt;- STRINGLITERALSINGLE
-     / line_string                 skip
+     / line_string skip
 IDENTIFIER
     &lt;- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
-     / &quot;@\&quot;&quot; string_char* &quot;\&quot;&quot;                            skip
-BUILTINIDENTIFIER &lt;- &quot;@&quot;[A-Za-z_][A-Za-z0-9_]* skip
+     / '@&quot;' string_char* '&quot;' skip
+BUILTINIDENTIFIER &lt;- '@'[A-Za-z_][A-Za-z0-9_]* skip
 
 
 AMPERSAND            &lt;- '&amp;'      ![=]      skip
