@@ -131,6 +131,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .typeof => return zirTypeof(mod, scope, old_inst.castTag(.typeof).?),
         .typeof_peer => return zirTypeofPeer(mod, scope, old_inst.castTag(.typeof_peer).?),
         .optional_type => return zirOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
+        .optional_type_from_ptr_elem => return zirOptionalTypeFromPtrElem(mod, scope, old_inst.castTag(.optional_type_from_ptr_elem).?),
         .optional_payload_safe => return zirOptionalPayload(mod, scope, old_inst.castTag(.optional_payload_safe).?, true),
         .optional_payload_unsafe => return zirOptionalPayload(mod, scope, old_inst.castTag(.optional_payload_unsafe).?, false),
         .optional_payload_safe_ptr => return zirOptionalPayloadPtr(mod, scope, old_inst.castTag(.optional_payload_safe_ptr).?, true),
@@ -1091,6 +1092,16 @@ fn zirOptionalType(mod: *Module, scope: *Scope, optional: *zir.Inst.UnOp) InnerE
     const child_type = try resolveType(mod, scope, optional.positionals.operand);
 
     return mod.constType(scope, optional.base.src, try mod.optionalType(scope, child_type));
+}
+
+fn zirOptionalTypeFromPtrElem(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const ptr = try resolveInst(mod, scope, inst.positionals.operand);
+    const elem_ty = ptr.ty.elemType();
+
+    return mod.constType(scope, inst.base.src, try mod.optionalType(scope, elem_ty));
 }
 
 fn zirArrayType(mod: *Module, scope: *Scope, array: *zir.Inst.BinOp) InnerError!*Inst {

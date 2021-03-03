@@ -157,6 +157,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var ptr_val2 = &(null_val orelse value);
             \\
             \\    const val3 = opt_val orelse 30;
+            \\    var val3_var = opt_val orelse 30;
             \\
             \\    assert(val1 == 10);
             \\    assert(val1_1 == 10);
@@ -168,6 +169,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    assert(ptr_val2.* == 20);
             \\
             \\    assert(val3 == 10);
+            \\    assert(val3_var == 10);
+            \\
+            \\    (null_val orelse val2) = 1234;
+            \\    assert(val2 == 1234);
+            \\
+            \\    (opt_val orelse val2) = 5678;
+            \\    assert(opt_val.? == 5678);
+            \\
             \\    return 0;
             \\}
         , "");

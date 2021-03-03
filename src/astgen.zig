@@ -1709,14 +1709,13 @@ fn orelseCatchExpr(
     setBlockResultLoc(&block_scope, rl);
     defer block_scope.instructions.deinit(mod.gpa);
 
-    // This could be a pointer or value depending on the `rl` parameter.
+    // This could be a pointer or value depending on the `operand_rl` parameter.
+    // We cannot use `block_scope.break_result_loc` because that has the bare
+    // type, whereas this expression has the optional type. Later we make
+    // up for this fact by calling rvalue on the else branch.
     block_scope.break_count += 1;
-    const operand = try expr(
-        mod,
-        &block_scope.base,
-        if (block_scope.break_result_loc == .ref) .ref else .none,
-        lhs,
-    );
+    const operand_rl = try makeOptionalTypeResultLoc(mod, &block_scope.base, src, block_scope.break_result_loc);
+    const operand = try expr(mod, &block_scope.base, operand_rl, lhs);
     const cond = try addZIRUnOp(mod, &block_scope.base, src, cond_op, operand);
 
     const condbr = try addZIRInstSpecial(mod, &block_scope.base, src, zir.Inst.CondBr, .{
@@ -1768,6 +1767,10 @@ fn orelseCatchExpr(
 
     // This could be a pointer or value depending on `unwrap_op`.
     const unwrapped_payload = try addZIRUnOp(mod, &else_scope.base, src, unwrap_op, operand);
+    const else_result = switch (rl) {
+        .ref => unwrapped_payload,
+        else => try rvalue(mod, &else_scope.base, block_scope.break_result_loc, unwrapped_payload),
+    };
 
     return finishThenElseBlock(
         mod,
@@ -1781,7 +1784,7 @@ fn orelseCatchExpr(
         src,
         src,
         then_result,
-        unwrapped_payload,
+        else_result,
         block,
         block,
     );
@@ -3966,6 +3969,25 @@ fn rlStrategy(rl: ResultLoc, block_scope: *Scope.GenZIR) ResultLoc.Strategy {
                     .elide_store_to_block_ptr_instructions = false,
                 };
             }
+        },
+    }
+}
+
+/// If the input ResultLoc is ref, returns ResultLoc.ref. Otherwise:
+/// Returns ResultLoc.ty, where the type is determined by the input
+/// ResultLoc type, wrapped in an optional type. If the input ResultLoc
+/// has no type, .none is returned.
+fn makeOptionalTypeResultLoc(mod: *Module, scope: *Scope, src: usize, rl: ResultLoc) !ResultLoc {
+    switch (rl) {
+        .ref => return ResultLoc.ref,
+        .discard, .none, .block_ptr, .inferred_ptr, .bitcasted_ptr => return ResultLoc.none,
+        .ty => |elem_ty| {
+            const wrapped_ty = try addZIRUnOp(mod, scope, src, .optional_type, elem_ty);
+            return ResultLoc{ .ty = wrapped_ty };
+        },
+        .ptr => |ptr_ty| {
+            const wrapped_ty = try addZIRUnOp(mod, scope, src, .optional_type_from_ptr_elem, ptr_ty);
+            return ResultLoc{ .ty = wrapped_ty };
         },
     }
 }
