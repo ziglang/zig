@@ -401,7 +401,9 @@ pub const Tokenizer = struct {
             Zero,
             IntegerLiteralOct,
             IntegerLiteralBinary,
+            IntegerLiteralBinaryFirst,
             IntegerLiteralHex,
+            IntegerLiteralHexFirst,
             IntegerLiteral,
             IntegerSuffix,
             IntegerSuffixU,
@@ -1046,10 +1048,10 @@ pub const Tokenizer = struct {
                         state = .IntegerLiteralOct;
                     },
                     'b', 'B' => {
-                        state = .IntegerLiteralBinary;
+                        state = .IntegerLiteralBinaryFirst;
                     },
                     'x', 'X' => {
-                        state = .IntegerLiteralHex;
+                        state = .IntegerLiteralHexFirst;
                     },
                     '.' => {
                         state = .FloatFraction;
@@ -1066,11 +1068,31 @@ pub const Tokenizer = struct {
                         self.index -= 1;
                     },
                 },
+                .IntegerLiteralBinaryFirst => switch (c) {
+                    '0'...'7' => state = .IntegerLiteralBinary,
+                    else => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                },
                 .IntegerLiteralBinary => switch (c) {
                     '0', '1' => {},
                     else => {
                         state = .IntegerSuffix;
                         self.index -= 1;
+                    },
+                },
+                .IntegerLiteralHexFirst => switch (c) {
+                    '0'...'9', 'a'...'f', 'A'...'F' => state = .IntegerLiteralHex,
+                    '.' => {
+                        state = .FloatFractionHex;
+                    },
+                    'p', 'P' => {
+                        state = .FloatExponent;
+                    },
+                    else => {
+                        result.id = .Invalid;
+                        break;
                     },
                 },
                 .IntegerLiteralHex => switch (c) {
@@ -1238,6 +1260,8 @@ pub const Tokenizer = struct {
                 .MultiLineCommentAsterisk,
                 .FloatExponent,
                 .MacroString,
+                .IntegerLiteralBinaryFirst,
+                .IntegerLiteralHexFirst,
                 => result.id = .Invalid,
 
                 .FloatExponentDigits => result.id = if (counter == 0) .Invalid else .{ .FloatLiteral = .none },
@@ -1523,6 +1547,7 @@ test "num suffixes" {
         \\ 1.0f 1.0L 1.0 .0 1.
         \\ 0l 0lu 0ll 0llu 0
         \\ 1u 1ul 1ull 1
+        \\ 0x 0b
         \\
     , &[_]Token.Id{
         .{ .FloatLiteral = .f },
@@ -1541,6 +1566,9 @@ test "num suffixes" {
         .{ .IntegerLiteral = .lu },
         .{ .IntegerLiteral = .llu },
         .{ .IntegerLiteral = .none },
+        .Nl,
+        .Invalid,
+        .Invalid,
         .Nl,
     });
 }
