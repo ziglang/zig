@@ -299,6 +299,9 @@ pub const Inst = struct {
         xor,
         /// Create an optional type '?T'
         optional_type,
+        /// Create an optional type '?T'. The operand is a pointer value. The optional type will
+        /// be the type of the pointer element, wrapped in an optional.
+        optional_type_from_ptr_elem,
         /// Create a union type.
         union_type,
         /// ?T => T with safety.
@@ -397,6 +400,7 @@ pub const Inst = struct {
                 .mut_slice_type,
                 .const_slice_type,
                 .optional_type,
+                .optional_type_from_ptr_elem,
                 .optional_payload_safe,
                 .optional_payload_unsafe,
                 .optional_payload_safe_ptr,
@@ -597,6 +601,7 @@ pub const Inst = struct {
                 .typeof,
                 .xor,
                 .optional_type,
+                .optional_type_from_ptr_elem,
                 .optional_payload_safe,
                 .optional_payload_unsafe,
                 .optional_payload_safe_ptr,
