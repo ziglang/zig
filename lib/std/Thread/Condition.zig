@@ -17,8 +17,8 @@ const linux = std.os.linux;
 const Mutex = std.Thread.Mutex;
 const assert = std.debug.assert;
 
-pub fn wait(cond: *Condition, mutex: *Mutex) void {
-    cond.impl.wait(mutex);
+pub fn wait(cond: *Condition, held: Mutex.Held) void {
+    cond.impl.wait(held);
 }
 
 pub fn signal(cond: *Condition) void {
@@ -39,7 +39,7 @@ else
     AtomicCondition;
 
 pub const SingleThreadedCondition = struct {
-    pub fn wait(cond: *SingleThreadedCondition, mutex: *Mutex) void {
+    pub fn wait(cond: *SingleThreadedCondition, held: Mutex.Held) void {
         unreachable; // deadlock detected
     }
 
@@ -51,10 +51,10 @@ pub const SingleThreadedCondition = struct {
 pub const WindowsCondition = struct {
     cond: windows.CONDITION_VARIABLE = windows.CONDITION_VARIABLE_INIT,
 
-    pub fn wait(cond: *WindowsCondition, mutex: *Mutex) void {
+    pub fn wait(cond: *WindowsCondition, held: Mutex.Held) void {
         const rc = windows.kernel32.SleepConditionVariableSRW(
             &cond.cond,
-            &mutex.srwlock,
+            &held.mutex.srwlock,
             windows.INFINITE,
             @as(windows.ULONG, 0),
         );
@@ -73,8 +73,8 @@ pub const WindowsCondition = struct {
 pub const PthreadCondition = struct {
     cond: std.c.pthread_cond_t = .{},
 
-    pub fn wait(cond: *PthreadCondition, mutex: *Mutex) void {
-        const rc = std.c.pthread_cond_wait(&cond.cond, &mutex.impl.pthread_mutex);
+    pub fn wait(cond: *PthreadCondition, held: Mutex.Held) void {
+        const rc = std.c.pthread_cond_wait(&cond.cond, &held.mutex.pthread_mutex);
         assert(rc == 0);
     }
 
@@ -140,20 +140,20 @@ pub const AtomicCondition = struct {
         }
     };
 
-    pub fn wait(cond: *AtomicCondition, mutex: *Mutex) void {
+    pub fn wait(cond: *AtomicCondition, held: Mutex.Held) void {
         var waiter = QueueList.Node{ .data = .{} };
 
         {
-            const held = cond.queue_mutex.acquire();
-            defer held.release();
+            const h = cond.queue_mutex.acquire();
+            defer h.release();
 
             cond.queue_list.prepend(&waiter);
             @atomicStore(bool, &cond.pending, true, .SeqCst);
         }
 
-        mutex.unlock();
+        held.release();
         waiter.data.wait();
-        mutex.lock();
+        _ = held.mutex.acquire();
     }
 
     pub fn signal(cond: *AtomicCondition) void {
@@ -192,3 +192,64 @@ pub const AtomicCondition = struct {
             waiter.data.notify();
     }
 };
+
+const TestContext = struct {
+    mutex: *Mutex,
+    state: bool,
+    con: *Condition,
+};
+
+test "basic usage" {
+    var mutex = Mutex{};
+    var condition = Condition{};
+    var context = TestContext{
+        .mutex = &mutex,
+        .state = false,
+        .con = &condition,
+    };
+
+    var thread = try std.Thread.spawn(worker, &context);
+
+    {
+        var lock = context.mutex.acquire();
+        defer lock.release();
+
+        while (!context.state) {
+            context.con.wait(lock);
+        }
+    }
+
+    std.time.sleep(std.time.ns_per_ms * 2);
+    {
+        const lock = context.mutex.acquire();
+        defer lock.release();
+
+        context.state = false;
+        context.con.broadcast();
+    }
+
+    thread.wait();
+    std.testing.expectEqual(true, context.state);
+}
+
+fn worker(context: *TestContext) void {
+    std.time.sleep(std.time.ns_per_ms * 2);
+
+    // Update state and signal.
+    {
+        const lock = context.mutex.acquire();
+        defer lock.release();
+        context.state = true;
+        context.con.signal();
+    }
+
+    // Wait for state to be switched back.
+    {
+        var lock = context.mutex.acquire();
+        defer lock.release();
+        while (context.state) {
+            context.con.wait(lock);
+        }
+        context.state = true;
+    }
+}
