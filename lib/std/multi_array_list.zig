@@ -136,7 +136,7 @@ pub fn MultiArrayList(comptime S: type) type {
             const slices = self.slice();
             var result: S = undefined;
             inline for (fields) |field_info, i| {
-                @field(elem, field_info.name) = slices.items(@intToEnum(Field, i))[index];
+                @field(result, field_info.name) = slices.items(@intToEnum(Field, i))[index];
             }
             return result;
         }
