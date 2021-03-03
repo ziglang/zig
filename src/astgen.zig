@@ -1655,7 +1655,7 @@ fn errorSetDecl(
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => count += 1,
-                .r_paren => break :count count,
+                .r_brace => break :count count,
                 else => unreachable,
             }
         } else unreachable; // TODO should not need else unreachable here
@@ -1672,7 +1672,7 @@ fn errorSetDecl(
                     fields[field_i] = try mod.identifierTokenString(scope, tok_i);
                     field_i += 1;
                 },
-                .r_paren => break,
+                .r_brace => break,
                 else => unreachable,
             }
         }

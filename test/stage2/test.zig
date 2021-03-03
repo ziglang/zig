@@ -985,7 +985,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\pub fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -1524,5 +1524,38 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    unreachable;
             \\}
         , "");
+    }
+    {
+        var case = ctx.exe("merge error sets", linux_x64);
+
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const E = error{ A, B, D } || error { A, B, C };
+            \\    const a = E.A;
+            \\    const b = E.B;
+            \\    const c = E.C;
+            \\    const d = E.D;
+            \\    const E2 = error { X, Y } || @TypeOf(error.Z);
+            \\    const x = E2.X;
+            \\    const y = E2.Y;
+            \\    const z = E2.Z;
+            \\    assert(anyerror || error { Z } == anyerror);
+            \\    exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
     }
 }
