@@ -1256,7 +1256,7 @@ pub fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.Format
         }
     }
 
-    try formatInt(ns, 10, false, .{}, writer);
+    try formatInt(ns_remaining, 10, false, .{}, writer);
     try writer.writeAll("ns");
     return;
 }
@@ -1292,6 +1292,7 @@ test "fmtDuration" {
         .{ .s = "1y1h999.999us", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1 },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1 },
+        .{ .s = "1y1m999ns", .d = 365 * std.time.ns_per_day + std.time.ns_per_min + 999 },
     }) |tc| {
         const slice = try bufPrint(&buf, "{}", .{fmtDuration(tc.d)});
         std.testing.expectEqualStrings(tc.s, slice);
