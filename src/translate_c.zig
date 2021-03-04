@@ -1127,6 +1127,44 @@ fn transOffsetOfExpr(
     return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO: implement complex OffsetOfExpr translation", .{});
 }
 
+/// Translate an arithmetic expression with a pointer operand and a signed-integer operand.
+/// Zig requires a usize argument for pointer arithmetic, so we intCast to isize and then
+/// bitcast to usize; pointer wraparound make the math work.
+/// Zig pointer addition is not commutative (unlike C); the pointer operand needs to be on the left.
+/// The + operator in C is not a sequence point so it should be safe to switch the order if necessary.
+fn transCreatePointerArithmeticSignedOp(
+    c: *Context,
+    scope: *Scope,
+    stmt: *const clang.BinaryOperator,
+    result_used: ResultUsed,
+) TransError!Node {
+    const is_add = stmt.getOpcode() == .Add;
+    const lhs = stmt.getLHS();
+    const rhs = stmt.getRHS();
+    const swap_operands = is_add and cIsSignedInteger(getExprQualType(c, lhs));
+
+    const swizzled_lhs = if (swap_operands) rhs else lhs;
+    const swizzled_rhs = if (swap_operands) lhs else rhs;
+
+    const lhs_node = try transExpr(c, scope, swizzled_lhs, .used);
+    const rhs_node = try transExpr(c, scope, swizzled_rhs, .used);
+
+    const intcast_node = try Tag.int_cast.create(c.arena, .{
+        .lhs = try Tag.identifier.create(c.arena, "isize"),
+        .rhs = rhs_node,
+    });
+
+    const bitcast_node = try Tag.bit_cast.create(c.arena, .{
+        .lhs = try Tag.identifier.create(c.arena, "usize"),
+        .rhs = intcast_node,
+    });
+
+    const arith_args = .{ .lhs = lhs_node, .rhs = bitcast_node };
+    const arith_node = try if (is_add) Tag.add.create(c.arena, arith_args) else Tag.sub.create(c.arena, arith_args);
+
+    return maybeSuppressResult(c, scope, result_used, arith_node);
+}
+
 fn transBinaryOperator(
     c: *Context,
     scope: *Scope,
@@ -1183,6 +1221,12 @@ fn transBinaryOperator(
         },
         .LOr => {
             return transCreateNodeBoolInfixOp(c, scope, stmt, .@"or", result_used);
+        },
+        .Add, .Sub => {
+            // `ptr + idx` and `idx + ptr` -> ptr + @bitCast(usize, @intCast(isize, idx))
+            // `ptr - idx` -> ptr - @bitCast(usize, @intCast(isize, idx))
+            if (qualTypeIsPtr(qt) and (cIsSignedInteger(getExprQualType(c, stmt.getLHS())) or
+                cIsSignedInteger(getExprQualType(c, stmt.getRHS())))) return transCreatePointerArithmeticSignedOp(c, scope, stmt, result_used);
         },
         else => {},
     }
