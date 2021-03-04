@@ -339,7 +339,7 @@ fn caseInEql(a: []const u8, b: []const u8) bool {
 }
 
 pub fn parseFloat(comptime T: type, s: []const u8) !T {
-    if (s.len == 0) {
+    if (s.len == 0 or (s.len == 1 and (s[0] == '+' or s[0] == '-'))) {
         return error.InvalidCharacter;
     }
 
@@ -379,6 +379,8 @@ test "fmt.parseFloat" {
         testing.expectError(error.InvalidCharacter, parseFloat(T, ""));
         testing.expectError(error.InvalidCharacter, parseFloat(T, "   1"));
         testing.expectError(error.InvalidCharacter, parseFloat(T, "1abc"));
+        testing.expectError(error.InvalidCharacter, parseFloat(T, "+"));
+        testing.expectError(error.InvalidCharacter, parseFloat(T, "-"));
 
         expectEqual(try parseFloat(T, "0"), 0.0);
         expectEqual(try parseFloat(T, "0"), 0.0);
