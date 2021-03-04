@@ -1210,11 +1210,7 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, uppercase: bool, op
     return fbs.pos;
 }
 
-/// Formats a number of nanoseconds according to its magnitude:
-///
-/// - #ns
-/// - [#y][#w][#d][#h][#m]#[.###][u|m]s
-pub fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     var ns_remaining = ns;
     inline for (.{
         .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
@@ -1261,8 +1257,9 @@ pub fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.Format
     return;
 }
 
-/// Return a Formatter for a number of nanoseconds using `formatDuration`.
-fn fmtDuration(ns: u64) Formatter(formatDuration) {
+/// Return a Formatter for number of nanoseconds according to its magnitude:
+/// [#y][#w][#d][#h][#m]#[.###][n|u|m]s
+pub fn fmtDuration(ns: u64) Formatter(formatDuration) {
     return .{ .data = ns };
 }
 
@@ -1298,9 +1295,6 @@ test "fmtDuration" {
         std.testing.expectEqualStrings(tc.s, slice);
     }
 }
-
-const Duration = @compileError("Duration has been deprecated; wrap your argument in std.fmt.fmtDuration instead");
-const duration = @compileError("duration has been deprecated; wrap your argument in std.fmt.fmtDuration instead");
 
 pub const ParseIntError = error{
     /// The result cannot fit in the type specified
