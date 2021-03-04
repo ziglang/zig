@@ -2787,13 +2787,12 @@ fn writeDataInCode(self: *Zld) !void {
             .source_sect_id = object.text_section_index.?,
         }) orelse continue;
 
-        // TODO Currently assume that Dice will always be within the __TEXT,__text section.
         try buf.ensureCapacity(
             buf.items.len + object.data_in_code_entries.items.len * @sizeOf(macho.data_in_code_entry),
         );
         for (object.data_in_code_entries.items) |dice| {
             const new_dice: macho.data_in_code_entry = .{
-                .offset = text_sect.offset + target_mapping.offset + dice.offset - source_sect.offset,
+                .offset = text_sect.offset + target_mapping.offset + dice.offset,
                 .length = dice.length,
                 .kind = dice.kind,
             };
