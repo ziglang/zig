@@ -34,6 +34,15 @@ pub fn main() !void {
     const out_file_name = try (args_it.next(allocator) orelse @panic("expected output arg"));
     defer allocator.free(out_file_name);
 
+    var do_code_tests = true;
+    if (args_it.next(allocator)) |arg| {
+        if (mem.eql(u8, try arg, "--skip-code-tests")) {
+            do_code_tests = false;
+        } else {
+            @panic("unrecognized arg");
+        }
+    }
+
     var in_file = try fs.cwd().openFile(in_file_name, .{ .read = true });
     defer in_file.close();
 
@@ -50,7 +59,7 @@ pub fn main() !void {
     try fs.cwd().makePath(tmp_dir_name);
     defer fs.cwd().deleteTree(tmp_dir_name) catch {};
 
-    try genHtml(allocator, &tokenizer, &toc, buffered_writer.writer(), zig_exe);
+    try genHtml(allocator, &tokenizer, &toc, buffered_writer.writer(), zig_exe, do_code_tests);
     try buffered_writer.flush();
 }
 
@@ -564,8 +573,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             );
                         }
                         _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    } else
-                        unreachable; // TODO issue #707
+                    } else unreachable; // TODO issue #707
                     try nodes.append(Node{
                         .Code = Code{
                             .id = code_kind_id,
@@ -784,12 +792,12 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: anytype, source_token:
         if (mem.indexOf(u8, src[index..token.loc.start], "//")) |comment_start_off| {
             // render one comment
             const comment_start = index + comment_start_off;
-            const comment_end_off = mem.indexOf(u8, src[comment_start .. token.loc.start], "\n");
+            const comment_end_off = mem.indexOf(u8, src[comment_start..token.loc.start], "\n");
             const comment_end = if (comment_end_off) |o| comment_start + o else token.loc.start;
 
             try writeEscaped(out, src[index..comment_start]);
             try out.writeAll("<span class=\"tok-comment\">");
-            try writeEscaped(out, src[comment_start .. comment_end]);
+            try writeEscaped(out, src[comment_start..comment_end]);
             try out.writeAll("</span>");
             index = comment_end;
             tokenizer.index = index;
@@ -1002,7 +1010,7 @@ fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: anytype, source_token: To
     return tokenizeAndPrintRaw(docgen_tokenizer, out, source_token, raw_src);
 }
 
-fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: anytype, zig_exe: []const u8) !void {
+fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: anytype, zig_exe: []const u8, do_code_tests: bool) !void {
     var code_progress_index: usize = 0;
 
     var env_map = try process.getEnvMap(allocator);
@@ -1061,6 +1069,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                 try out.writeAll("<pre>");
                 try tokenizeAndPrint(tokenizer, out, code.source_token);
                 try out.writeAll("</pre>");
+
+                if (!do_code_tests) {
+                    print("SKIP\n", .{});
+                    continue;
+                }
+
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{s}.zig", .{code.name});
                 const tmp_source_file_name = try fs.path.join(
                     allocator,
