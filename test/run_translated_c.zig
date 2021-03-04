@@ -1131,4 +1131,30 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("pointer arithmetic with signed operand",
+        \\#include <stdlib.h>
+        \\int main() {
+        \\    int array[10];
+        \\    int *x = &array[5];
+        \\    int *y;
+        \\    int idx = 0;
+        \\    y = x + ++idx;
+        \\    if (y != x + 1 || y != &array[6]) abort();
+        \\    y = idx + x;
+        \\    if (y != x + 1 || y != &array[6]) abort();
+        \\    y = x - idx;
+        \\    if (y != x - 1 || y != &array[4]) abort();
+        \\
+        \\    idx = 0;
+        \\    y = --idx + x;
+        \\    if (y != x - 1 || y != &array[4]) abort();
+        \\    y = idx + x;
+        \\    if (y != x - 1 || y != &array[4]) abort();
+        \\    y = x - idx;
+        \\    if (y != x + 1 || y != &array[6]) abort();
+        \\
+        \\    return 0;
+        \\}
+    , "");
 }
