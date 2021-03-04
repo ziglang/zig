@@ -518,6 +518,12 @@ pub const HWCAP_IDIV = HWCAP_IDIVA | HWCAP_IDIVT;
 pub const HWCAP_LPAE = 1 << 20;
 pub const HWCAP_EVTSTRM = 1 << 21;
 
+pub const HWCAP2_AES = 1 << 0;
+pub const HWCAP2_PMULL = 1 << 1;
+pub const HWCAP2_SHA1 = 1 << 2;
+pub const HWCAP2_SHA2 = 1 << 3;
+pub const HWCAP2_CRC32 = 1 << 4;
+
 pub const Flock = extern struct {
     l_type: i16,
     l_whence: i16,

@@ -889,6 +889,9 @@ pub const NativeTargetInfo = struct {
             .x86_64, .i386 => {
                 return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, cross_target);
             },
+            .arm, .armeb => {
+                return @import("system/arm.zig").detectNativeCpuAndFeatures(cpu_arch, os, cross_target);
+            },
             else => {
                 // This architecture does not have CPU model & feature detection yet.
                 // See https://github.com/ziglang/zig/issues/4591
