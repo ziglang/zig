@@ -4580,6 +4580,16 @@ test "recovery: missing comma in params" {
     });
 }
 
+test "recovery: missing while rbrace" {
+    try testError(
+        \\fn a() b {
+        \\    while (d) {
+        \\}
+    , &[_]Error{
+        .expected_statement,
+    });
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;

@@ -937,14 +937,17 @@ const Parser = struct {
     /// If a parse error occurs, reports an error, but then finds the next statement
     /// and returns that one instead. If a parse error occurs but there is no following
     /// statement, returns 0.
-    fn expectStatementRecoverable(p: *Parser) error{OutOfMemory}!Node.Index {
+    fn expectStatementRecoverable(p: *Parser) Error!Node.Index {
         while (true) {
             return p.expectStatement() catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ParseError => {
                     p.findNextStmt(); // Try to skip to the next statement.
-                    if (p.token_tags[p.tok_i] == .r_brace) return null_node;
-                    continue;
+                    switch (p.token_tags[p.tok_i]) {
+                        .r_brace => return null_node,
+                        .eof => return error.ParseError,
+                        else => continue,
+                    }
                 },
             };
         }
