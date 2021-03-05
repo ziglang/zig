@@ -453,13 +453,23 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .unwrap_optional => {
-            const operand = try expr(mod, scope, rl, node_datas[node].lhs);
-            const op: zir.Inst.Tag = switch (rl) {
-                .ref => .optional_payload_safe_ptr,
-                else => .optional_payload_safe,
-            };
             const src = token_starts[main_tokens[node]];
-            return addZIRUnOp(mod, scope, src, op, operand);
+            switch (rl) {
+                .ref => return addZIRUnOp(
+                    mod,
+                    scope,
+                    src,
+                    .optional_payload_safe_ptr,
+                    try expr(mod, scope, .ref, node_datas[node].lhs),
+                ),
+                else => return rvalue(mod, scope, rl, try addZIRUnOp(
+                    mod,
+                    scope,
+                    src,
+                    .optional_payload_safe,
+                    try expr(mod, scope, .none, node_datas[node].lhs),
+                )),
+            }
         },
         .block_two, .block_two_semicolon => {
             const statements = [2]ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
@@ -1645,7 +1655,7 @@ fn errorSetDecl(
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => count += 1,
-                .r_paren => break :count count,
+                .r_brace => break :count count,
                 else => unreachable,
             }
         } else unreachable; // TODO should not need else unreachable here
@@ -1662,7 +1672,7 @@ fn errorSetDecl(
                     fields[field_i] = try mod.identifierTokenString(scope, tok_i);
                     field_i += 1;
                 },
-                .r_paren => break,
+                .r_brace => break,
                 else => unreachable,
             }
         }
@@ -1699,9 +1709,13 @@ fn orelseCatchExpr(
     setBlockResultLoc(&block_scope, rl);
     defer block_scope.instructions.deinit(mod.gpa);
 
-    // This could be a pointer or value depending on the `rl` parameter.
+    // This could be a pointer or value depending on the `operand_rl` parameter.
+    // We cannot use `block_scope.break_result_loc` because that has the bare
+    // type, whereas this expression has the optional type. Later we make
+    // up for this fact by calling rvalue on the else branch.
     block_scope.break_count += 1;
-    const operand = try expr(mod, &block_scope.base, block_scope.break_result_loc, lhs);
+    const operand_rl = try makeOptionalTypeResultLoc(mod, &block_scope.base, src, block_scope.break_result_loc);
+    const operand = try expr(mod, &block_scope.base, operand_rl, lhs);
     const cond = try addZIRUnOp(mod, &block_scope.base, src, cond_op, operand);
 
     const condbr = try addZIRInstSpecial(mod, &block_scope.base, src, zir.Inst.CondBr, .{
@@ -1753,6 +1767,10 @@ fn orelseCatchExpr(
 
     // This could be a pointer or value depending on `unwrap_op`.
     const unwrapped_payload = try addZIRUnOp(mod, &else_scope.base, src, unwrap_op, operand);
+    const else_result = switch (rl) {
+        .ref => unwrapped_payload,
+        else => try rvalue(mod, &else_scope.base, block_scope.break_result_loc, unwrapped_payload),
+    };
 
     return finishThenElseBlock(
         mod,
@@ -1766,7 +1784,7 @@ fn orelseCatchExpr(
         src,
         src,
         then_result,
-        unwrapped_payload,
+        else_result,
         block,
         block,
     );
@@ -3951,6 +3969,25 @@ fn rlStrategy(rl: ResultLoc, block_scope: *Scope.GenZIR) ResultLoc.Strategy {
                     .elide_store_to_block_ptr_instructions = false,
                 };
             }
+        },
+    }
+}
+
+/// If the input ResultLoc is ref, returns ResultLoc.ref. Otherwise:
+/// Returns ResultLoc.ty, where the type is determined by the input
+/// ResultLoc type, wrapped in an optional type. If the input ResultLoc
+/// has no type, .none is returned.
+fn makeOptionalTypeResultLoc(mod: *Module, scope: *Scope, src: usize, rl: ResultLoc) !ResultLoc {
+    switch (rl) {
+        .ref => return ResultLoc.ref,
+        .discard, .none, .block_ptr, .inferred_ptr, .bitcasted_ptr => return ResultLoc.none,
+        .ty => |elem_ty| {
+            const wrapped_ty = try addZIRUnOp(mod, scope, src, .optional_type, elem_ty);
+            return ResultLoc{ .ty = wrapped_ty };
+        },
+        .ptr => |ptr_ty| {
+            const wrapped_ty = try addZIRUnOp(mod, scope, src, .optional_type_from_ptr_elem, ptr_ty);
+            return ResultLoc{ .ty = wrapped_ty };
         },
     }
 }

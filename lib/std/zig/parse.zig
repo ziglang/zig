@@ -3714,7 +3714,6 @@ const Parser = struct {
                     if (p.eatToken(.r_paren)) |_| {
                         return SmallSpan{ .zero_or_one = 0 };
                     }
-                    continue;
                 },
                 .r_paren => return SmallSpan{ .zero_or_one = 0 },
                 else => {
@@ -3728,14 +3727,7 @@ const Parser = struct {
 
         const param_two = while (true) {
             switch (p.token_tags[p.nextToken()]) {
-                .comma => {
-                    if (p.eatToken(.r_paren)) |_| {
-                        return SmallSpan{ .zero_or_one = param_one };
-                    }
-                    const param = try p.expectParamDecl();
-                    if (param != 0) break param;
-                    continue;
-                },
+                .comma => {},
                 .r_paren => return SmallSpan{ .zero_or_one = param_one },
                 .colon, .r_brace, .r_bracket => {
                     p.tok_i -= 1;
@@ -3748,6 +3740,11 @@ const Parser = struct {
                     try p.warnExpected(.comma);
                 },
             }
+            if (p.eatToken(.r_paren)) |_| {
+                return SmallSpan{ .zero_or_one = param_one };
+            }
+            const param = try p.expectParamDecl();
+            if (param != 0) break param;
         } else unreachable;
 
         var list = std.ArrayList(Node.Index).init(p.gpa);
@@ -3757,17 +3754,7 @@ const Parser = struct {
 
         while (true) {
             switch (p.token_tags[p.nextToken()]) {
-                .comma => {
-                    if (p.token_tags[p.tok_i] == .r_paren) {
-                        p.tok_i += 1;
-                        return SmallSpan{ .multi = list.toOwnedSlice() };
-                    }
-                    const param = try p.expectParamDecl();
-                    if (param != 0) {
-                        try list.append(param);
-                    }
-                    continue;
-                },
+                .comma => {},
                 .r_paren => return SmallSpan{ .multi = list.toOwnedSlice() },
                 .colon, .r_brace, .r_bracket => {
                     p.tok_i -= 1;
@@ -3780,6 +3767,11 @@ const Parser = struct {
                     try p.warnExpected(.comma);
                 },
             }
+            if (p.eatToken(.r_paren)) |_| {
+                return SmallSpan{ .multi = list.toOwnedSlice() };
+            }
+            const param = try p.expectParamDecl();
+            if (param != 0) try list.append(param);
         }
     }
 

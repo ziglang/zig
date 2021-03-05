@@ -132,4 +132,72 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("optionals", linux_x64);
+
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\export fn main() c_int {
+            \\    var opt_val: ?i32 = 10;
+            \\    var null_val: ?i32 = null;
+            \\
+            \\    var val1: i32 = opt_val.?;
+            \\    const val1_1: i32 = opt_val.?;
+            \\    var ptr_val1 = &(opt_val.?);
+            \\    const ptr_val1_1 = &(opt_val.?);
+            \\
+            \\    var val2: i32 = null_val orelse 20;
+            \\    const val2_2: i32 = null_val orelse 20;
+            \\
+            \\    var value: i32 = 20;
+            \\    var ptr_val2 = &(null_val orelse value);
+            \\
+            \\    const val3 = opt_val orelse 30;
+            \\    var val3_var = opt_val orelse 30;
+            \\
+            \\    assert(val1 == 10);
+            \\    assert(val1_1 == 10);
+            \\    assert(ptr_val1.* == 10);
+            \\    assert(ptr_val1_1.* == 10);
+            \\
+            \\    assert(val2 == 20);
+            \\    assert(val2_2 == 20);
+            \\    assert(ptr_val2.* == 20);
+            \\
+            \\    assert(val3 == 10);
+            \\    assert(val3_var == 10);
+            \\
+            \\    (null_val orelse val2) = 1234;
+            \\    assert(val2 == 1234);
+            \\
+            \\    (opt_val orelse val2) = 5678;
+            \\    assert(opt_val.? == 5678);
+            \\
+            \\    return 0;
+            \\}
+        , "");
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("for loop", linux_x64);
+
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\export fn main() c_int {
+            \\    var x: u32 = 0;
+            \\    for ("hello") |_| {
+            \\        x += 1;
+            \\    }
+            \\    assert("hello".len == x);
+            \\    return 0;
+            \\}
+        , "");
+    }
 }

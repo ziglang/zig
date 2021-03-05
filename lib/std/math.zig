@@ -1330,3 +1330,59 @@ test "math.comptime" {
     comptime const v = sin(@as(f32, 1)) + ln(@as(f32, 5));
     testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
 }
+
+/// Returns a mask of all ones if value is true,
+/// and a mask of all zeroes if value is false.
+/// Compiles to one instruction for register sized integers.
+pub fn boolMask(comptime MaskInt: type, value: bool) callconv(.Inline) MaskInt {
+    if (@typeInfo(MaskInt) != .Int)
+        @compileError("boolMask requires an integer mask type.");
+
+    if (MaskInt == u0 or MaskInt == i0)
+        @compileError("boolMask cannot convert to u0 or i0, they are too small.");
+
+    // The u1 and i1 cases tend to overflow,
+    // so we special case them here.
+    if (MaskInt == u1) return @boolToInt(value);
+    if (MaskInt == i1) {
+        // The @as here is a workaround for #7950
+        return @bitCast(i1, @as(u1, @boolToInt(value)));
+    }
+
+    // At comptime, -% is disallowed on unsigned values.
+    // So we need to jump through some hoops in that case.
+    // This is a workaround for #7951
+    if (@typeInfo(@TypeOf(.{value})).Struct.fields[0].is_comptime) {
+        // Since it's comptime, we don't need this to generate nice code.
+        // We can just do a branch here.
+        return if (value) ~@as(MaskInt, 0) else 0;
+    }
+
+    return -%@intCast(MaskInt, @boolToInt(value));
+}
+
+test "boolMask" {
+    const runTest = struct {
+        fn runTest() void {
+            testing.expectEqual(@as(u1, 0), boolMask(u1, false));
+            testing.expectEqual(@as(u1, 1), boolMask(u1, true));
+
+            testing.expectEqual(@as(i1, 0), boolMask(i1, false));
+            testing.expectEqual(@as(i1, -1), boolMask(i1, true));
+
+            testing.expectEqual(@as(u13, 0), boolMask(u13, false));
+            testing.expectEqual(@as(u13, 0x1FFF), boolMask(u13, true));
+
+            testing.expectEqual(@as(i13, 0), boolMask(i13, false));
+            testing.expectEqual(@as(i13, -1), boolMask(i13, true));
+
+            testing.expectEqual(@as(u32, 0), boolMask(u32, false));
+            testing.expectEqual(@as(u32, 0xFFFF_FFFF), boolMask(u32, true));
+
+            testing.expectEqual(@as(i32, 0), boolMask(i32, false));
+            testing.expectEqual(@as(i32, -1), boolMask(i32, true));
+        }
+    }.runTest;
+    runTest();
+    comptime runTest();
+}

@@ -2144,7 +2144,7 @@ pub const Value = extern union {
             base: Payload = .{ .tag = base_tag },
             data: struct {
                 /// TODO revisit this when we have the concept of the error tag type
-                fields: std.StringHashMapUnmanaged(u16),
+                fields: std.StringHashMapUnmanaged(void),
                 decl: *Module.Decl,
             },
         };

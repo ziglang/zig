@@ -131,6 +131,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .typeof => return zirTypeof(mod, scope, old_inst.castTag(.typeof).?),
         .typeof_peer => return zirTypeofPeer(mod, scope, old_inst.castTag(.typeof_peer).?),
         .optional_type => return zirOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
+        .optional_type_from_ptr_elem => return zirOptionalTypeFromPtrElem(mod, scope, old_inst.castTag(.optional_type_from_ptr_elem).?),
         .optional_payload_safe => return zirOptionalPayload(mod, scope, old_inst.castTag(.optional_payload_safe).?, true),
         .optional_payload_unsafe => return zirOptionalPayload(mod, scope, old_inst.castTag(.optional_payload_unsafe).?, false),
         .optional_payload_safe_ptr => return zirOptionalPayloadPtr(mod, scope, old_inst.castTag(.optional_payload_safe_ptr).?, true),
@@ -1093,6 +1094,16 @@ fn zirOptionalType(mod: *Module, scope: *Scope, optional: *zir.Inst.UnOp) InnerE
     return mod.constType(scope, optional.base.src, try mod.optionalType(scope, child_type));
 }
 
+fn zirOptionalTypeFromPtrElem(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const ptr = try resolveInst(mod, scope, inst.positionals.operand);
+    const elem_ty = ptr.ty.elemType();
+
+    return mod.constType(scope, inst.base.src, try mod.optionalType(scope, elem_ty));
+}
+
 fn zirArrayType(mod: *Module, scope: *Scope, array: *zir.Inst.BinOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1154,7 +1165,7 @@ fn zirErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) InnerError
 
     for (inst.positionals.fields) |field_name| {
         const entry = try mod.getErrorValue(field_name);
-        if (payload.data.fields.fetchPutAssumeCapacity(entry.key, entry.value)) |prev| {
+        if (payload.data.fields.fetchPutAssumeCapacity(entry.key, {})) |_| {
             return mod.fail(scope, inst.base.src, "duplicate error: '{s}'", .{field_name});
         }
     }
@@ -1185,7 +1196,79 @@ fn zirErrorValue(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorValue) InnerE
 fn zirMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
-    return mod.fail(scope, inst.base.src, "TODO implement merge_error_sets", .{});
+
+    const rhs_ty = try resolveType(mod, scope, inst.positionals.rhs);
+    const lhs_ty = try resolveType(mod, scope, inst.positionals.lhs);
+    if (rhs_ty.zigTypeTag() != .ErrorSet)
+        return mod.fail(scope, inst.positionals.rhs.src, "expected error set type, found {}", .{rhs_ty});
+    if (lhs_ty.zigTypeTag() != .ErrorSet)
+        return mod.fail(scope, inst.positionals.lhs.src, "expected error set type, found {}", .{lhs_ty});
+
+    // anything merged with anyerror is anyerror
+    if (lhs_ty.tag() == .anyerror or rhs_ty.tag() == .anyerror)
+        return mod.constInst(scope, inst.base.src, .{
+            .ty = Type.initTag(.type),
+            .val = Value.initTag(.anyerror_type),
+        });
+    // The declarations arena will store the hashmap.
+    var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
+    errdefer new_decl_arena.deinit();
+
+    const payload = try new_decl_arena.allocator.create(Value.Payload.ErrorSet);
+    payload.* = .{
+        .base = .{ .tag = .error_set },
+        .data = .{
+            .fields = .{},
+            .decl = undefined, // populated below
+        },
+    };
+    try payload.data.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, switch (rhs_ty.tag()) {
+        .error_set_single => 1,
+        .error_set => rhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields.size,
+        else => unreachable,
+    } + switch (lhs_ty.tag()) {
+        .error_set_single => 1,
+        .error_set => lhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields.size,
+        else => unreachable,
+    }));
+
+    switch (lhs_ty.tag()) {
+        .error_set_single => {
+            const name = lhs_ty.castTag(.error_set_single).?.data;
+            payload.data.fields.putAssumeCapacity(name, {});
+        },
+        .error_set => {
+            var multiple = lhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
+            var it = multiple.iterator();
+            while (it.next()) |entry| {
+                payload.data.fields.putAssumeCapacity(entry.key, entry.value);
+            }
+        },
+        else => unreachable,
+    }
+
+    switch (rhs_ty.tag()) {
+        .error_set_single => {
+            const name = rhs_ty.castTag(.error_set_single).?.data;
+            payload.data.fields.putAssumeCapacity(name, {});
+        },
+        .error_set => {
+            var multiple = rhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
+            var it = multiple.iterator();
+            while (it.next()) |entry| {
+                payload.data.fields.putAssumeCapacity(entry.key, entry.value);
+            }
+        },
+        else => unreachable,
+    }
+    // TODO create name in format "error:line:column"
+    const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initPayload(&payload.base),
+    });
+    payload.data.decl = new_decl;
+
+    return mod.analyzeDeclVal(scope, inst.base.src, new_decl);
 }
 
 fn zirEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
@@ -2075,6 +2158,7 @@ fn zirArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!
     const ir_tag = switch (inst.base.tag) {
         .add => Inst.Tag.add,
         .sub => Inst.Tag.sub,
+        .mul => Inst.Tag.mul,
         else => return mod.fail(scope, inst.base.src, "TODO implement arithmetic for operand '{s}''", .{@tagName(inst.base.tag)}),
     };
 
