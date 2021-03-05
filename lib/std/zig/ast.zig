@@ -766,7 +766,7 @@ pub const Tree = struct {
             .container_decl_arg => {
                 const members = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (members.end - members.start == 0) {
-                    end_offset += 1; // for the rparen
+                    end_offset += 3; // for the rparen + lbrace + rbrace
                     n = datas[n].lhs;
                 } else {
                     end_offset += 1; // for the rbrace
