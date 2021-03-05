@@ -448,6 +448,15 @@ const Emit = union(enum) {
     }
 };
 
+fn optionalBoolEnvVar(arena: *Allocator, name: []const u8) !bool {
+    if (std.process.getEnvVarOwned(arena, name)) |value| {
+        return true;
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => return false,
+        else => |e| return e,
+    }
+}
+
 fn optionalStringEnvVar(arena: *Allocator, name: []const u8) !?[]const u8 {
     if (std.process.getEnvVarOwned(arena, name)) |value| {
         return value;
@@ -482,8 +491,8 @@ fn buildOutputType(
     var single_threaded = false;
     var function_sections = false;
     var watch = false;
-    var verbose_link = false;
-    var verbose_cc = false;
+    var verbose_link = try optionalBoolEnvVar(arena, "ZIG_VERBOSE_LINK");
+    var verbose_cc = try optionalBoolEnvVar(arena, "ZIG_VERBOSE_CC");
     var verbose_tokenize = false;
     var verbose_ast = false;
     var verbose_ir = false;
