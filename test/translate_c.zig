@@ -3410,6 +3410,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const MAY_NEED_PROMOTION_2 = @import("std").meta.promoteIntLiteral(c_long, 307230723072, .decimal);
         \\pub const MAY_NEED_PROMOTION_3 = @import("std").meta.promoteIntLiteral(c_ulong, 819281928192, .decimal);
         \\pub const MAY_NEED_PROMOTION_HEX = @import("std").meta.promoteIntLiteral(c_int, 0x80000000, .hexadecimal);
-        \\pub const MAY_NEED_PROMOTION_OCT = @import("std").meta.promoteIntLiteral(c_int, 0o020000000000, .octal);
+        \\pub const MAY_NEED_PROMOTION_OCT = @import("std").meta.promoteIntLiteral(c_int, 0o20000000000, .octal);
     });
 }

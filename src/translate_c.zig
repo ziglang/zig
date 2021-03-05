@@ -4436,7 +4436,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
                 switch (lit_bytes[1]) {
                     '0'...'7' => {
                         // Octal
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes});
+                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes[1..]});
                         radix = "octal";
                     },
                     'X' => {
