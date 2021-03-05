@@ -1127,6 +1127,22 @@ fn transOffsetOfExpr(
     return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO: implement complex OffsetOfExpr translation", .{});
 }
 
+/// Cast a signed integer node to a usize, for use in pointer arithmetic. Negative numbers
+/// will become very large positive numbers but that is ok since we only use this in
+/// pointer arithmetic expressions, where wraparound will ensure we get the correct value.
+/// node -> @bitCast(usize, @intCast(isize, node))
+fn usizeCastForWrappingPtrArithmetic(gpa: *mem.Allocator, node: Node) TransError!Node {
+    const intcast_node = try Tag.int_cast.create(gpa, .{
+        .lhs = try Tag.identifier.create(gpa, "isize"),
+        .rhs = node,
+    });
+
+    return Tag.bit_cast.create(gpa, .{
+        .lhs = try Tag.identifier.create(gpa, "usize"),
+        .rhs = intcast_node,
+    });
+}
+
 /// Translate an arithmetic expression with a pointer operand and a signed-integer operand.
 /// Zig requires a usize argument for pointer arithmetic, so we intCast to isize and then
 /// bitcast to usize; pointer wraparound make the math work.
@@ -1149,15 +1165,7 @@ fn transCreatePointerArithmeticSignedOp(
     const lhs_node = try transExpr(c, scope, swizzled_lhs, .used);
     const rhs_node = try transExpr(c, scope, swizzled_rhs, .used);
 
-    const intcast_node = try Tag.int_cast.create(c.arena, .{
-        .lhs = try Tag.identifier.create(c.arena, "isize"),
-        .rhs = rhs_node,
-    });
-
-    const bitcast_node = try Tag.bit_cast.create(c.arena, .{
-        .lhs = try Tag.identifier.create(c.arena, "usize"),
-        .rhs = intcast_node,
-    });
+    const bitcast_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
 
     const arith_args = .{ .lhs = lhs_node, .rhs = bitcast_node };
     const arith_node = try if (is_add) Tag.add.create(c.arena, arith_args) else Tag.sub.create(c.arena, arith_args);
@@ -3043,6 +3051,7 @@ fn transCreateCompoundAssign(
     const lhs_qt = getExprQualType(c, lhs);
     const rhs_qt = getExprQualType(c, rhs);
     const is_signed = cIsSignedInteger(lhs_qt);
+    const is_ptr_op_signed = qualTypeIsPtr(lhs_qt) and cIsSignedInteger(rhs_qt);
     const requires_int_cast = blk: {
         const are_integers = cIsInteger(lhs_qt) and cIsInteger(rhs_qt);
         const are_same_sign = cIsSignedInteger(lhs_qt) == cIsSignedInteger(rhs_qt);
@@ -3068,6 +3077,10 @@ fn transCreateCompoundAssign(
             try transExprCoercing(c, scope, rhs, .used)
         else
             try transExpr(c, scope, rhs, .used);
+
+        if (is_ptr_op_signed) {
+            rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
+        }
 
         if (is_shift or requires_int_cast) {
             // @intCast(rhs)
@@ -3120,6 +3133,9 @@ fn transCreateCompoundAssign(
                 try transQualType(c, scope, getExprQualType(c, lhs), loc);
 
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+        }
+        if (is_ptr_op_signed) {
+            rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
         }
 
         const assign = try transCreateNodeInfixOp(c, &block_scope.base, op, ref_node, rhs_node, .used);
