@@ -1121,7 +1121,7 @@ fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime target: compt
 /// Promote the type of an integer literal until it fits as C would.
 /// This is for translate-c and is not intended for general use.
 pub fn promoteIntLiteral(comptime SuffixType: type, comptime target: comptime_int, comptime radix: CIntLiteralRadix) PromoteIntLiteralReturnType(SuffixType, target, radix) {
-    return @as(PromoteIntLiteralReturnType(SuffixType, target, radix), target);
+    return target;
 }
 
 /// For a given function type, returns a tuple type which fields will
