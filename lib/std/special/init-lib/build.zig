@@ -1,7 +1,6 @@
 const std = @import("std");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
     const lib = b.addStaticLibrary("$", "src/main.zig");
     lib.setBuildMode(mode);
