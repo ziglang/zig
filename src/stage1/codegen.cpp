@@ -487,6 +487,53 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         addLLVMFnAttr(llvm_fn, "noreturn");
     }
 
+    if (!calling_convention_allows_zig_types(cc)) {
+        // A simplistic and desperate attempt at making the compiler respect the
+        // target ABI for return types.
+        // This is just enough to avoid miscompiling the test suite, it will be
+        // better in stage2.
+        ZigType *int_type = return_type->id == ZigTypeIdInt ? return_type :
+                return_type->id == ZigTypeIdEnum ? return_type->data.enumeration.tag_int_type :
+                nullptr;
+
+        if (int_type != nullptr) {
+            const bool is_signed = int_type->data.integral.is_signed;
+            const uint32_t bit_width = int_type->data.integral.bit_count;
+            bool should_extend = false;
+
+            // Rough equivalent of Clang's isPromotableIntegerType.
+            switch (bit_width) {
+                case 1: // bool
+                case 8: // {un,}signed char
+                case 16: // {un,}signed short
+                    should_extend = true;
+                    break;
+                default:
+                    break;
+            }
+
+            switch (g->zig_target->arch) {
+                case ZigLLVM_sparcv9:
+                case ZigLLVM_riscv64:
+                case ZigLLVM_ppc64:
+                case ZigLLVM_ppc64le:
+                    // Always extend to the register width.
+                    should_extend = bit_width < 64;
+                    break;
+                default:
+                    break;
+            }
+
+            // {zero,sign}-extend the result.
+            if (should_extend) {
+                if (is_signed)
+                    addLLVMAttr(llvm_fn, 0, "signext");
+                else
+                    addLLVMAttr(llvm_fn, 0, "zeroext");
+            }
+        }
+    }
+
     if (fn->body_node != nullptr) {
         maybe_export_dll(g, llvm_fn, linkage);
 
