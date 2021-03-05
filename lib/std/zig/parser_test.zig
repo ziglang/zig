@@ -963,6 +963,27 @@ test "zig fmt: allowzero pointer" {
     );
 }
 
+test "zig fmt: empty enum decls" {
+    try testCanonical(
+        \\const A = enum {};
+        \\const B = enum(u32) {};
+        \\const C = extern enum(c_int) {};
+        \\const D = packed enum(u8) {};
+        \\
+    );
+}
+
+test "zig fmt: empty union decls" {
+    try testCanonical(
+        \\const A = union {};
+        \\const B = union(enum) {};
+        \\const C = union(Foo) {};
+        \\const D = extern union {};
+        \\const E = packed union {};
+        \\
+    );
+}
+
 test "zig fmt: enum literal" {
     try testCanonical(
         \\const x = .hi;
