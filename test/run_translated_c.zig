@@ -1164,6 +1164,10 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    y = (x -= idx);
         \\    if (y != x || y != &array[5]) abort();
         \\
+        \\    if (array + idx != &array[1] || array + 1 != &array[1]) abort();
+        \\    idx = -1;
+        \\    if (array - idx != &array[1]) abort();
+        \\
         \\    return 0;
         \\}
     , "");

@@ -1493,7 +1493,8 @@ fn transImplicitCastExpr(
             }
 
             const addr = try Tag.address_of.create(c.arena, try transExpr(c, scope, sub_expr, .used));
-            return maybeSuppressResult(c, scope, result_used, addr);
+            const casted = try transCPtrCast(c, scope, expr.getBeginLoc(), dest_type, src_type, addr);
+            return maybeSuppressResult(c, scope, result_used, casted);
         },
         .NullToPointer => {
             return Tag.null_literal.init();
@@ -3156,10 +3157,10 @@ fn transCPtrCast(
     const src_child_type = src_ty.getPointeeType();
     const dst_type_node = try transType(c, scope, ty, loc);
 
-    if ((src_child_type.isConstQualified() and
+    if (!src_ty.isArrayType() and ((src_child_type.isConstQualified() and
         !child_type.isConstQualified()) or
         (src_child_type.isVolatileQualified() and
-        !child_type.isVolatileQualified()))
+        !child_type.isVolatileQualified())))
     {
         // Casting away const or volatile requires us to use @intToPtr
         const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
