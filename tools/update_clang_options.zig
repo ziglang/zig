@@ -269,6 +269,10 @@ const known_options = [_]KnownOpt{
         .ident = "dep_file",
     },
     .{
+        .name = "write-dependencies",
+        .ident = "dep_file",
+    },
+    .{
         .name = "MV",
         .ident = "dep_file",
     },
@@ -285,15 +289,27 @@ const known_options = [_]KnownOpt{
         .ident = "dep_file",
     },
     .{
+        .name = "print-missing-file-dependencies",
+        .ident = "dep_file",
+    },
+    .{
         .name = "MJ",
         .ident = "dep_file",
     },
     .{
         .name = "MM",
-        .ident = "dep_file",
+        .ident = "dep_file_mm",
+    },
+    .{
+        .name = "user-dependencies",
+        .ident = "dep_file_mm",
     },
     .{
         .name = "MMD",
+        .ident = "dep_file",
+    },
+    .{
+        .name = "write-user-dependencies",
         .ident = "dep_file",
     },
     .{
