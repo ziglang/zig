@@ -2179,10 +2179,13 @@ fn zirArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!
     }
 
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
-    const ir_tag = switch (inst.base.tag) {
-        .add => Inst.Tag.add,
-        .sub => Inst.Tag.sub,
-        .mul => Inst.Tag.mul,
+    const ir_tag: Inst.Tag = switch (inst.base.tag) {
+        .add => .add,
+        .addwrap => .addwrap,
+        .sub => .sub,
+        .subwrap => .subwrap,
+        .mul => .mul,
+        .mulwrap => .mulwrap,
         else => return mod.fail(scope, inst.base.src, "TODO implement arithmetic for operand '{s}''", .{@tagName(inst.base.tag)}),
     };
 
