@@ -4297,6 +4297,18 @@ test "zig fmt: respect extra newline between switch items" {
     );
 }
 
+test "zig fmt: assignment with inline for and inline while" {
+    try testCanonical(
+        \\const tmp = inline for (items) |item| {};
+        \\
+    );
+
+    try testCanonical(
+        \\const tmp2 = inline while (true) {};
+        \\
+    );
+}
+
 test "zig fmt: insert trailing comma if there are comments between switch values" {
     try testTransform(
         \\const a = switch (b) {

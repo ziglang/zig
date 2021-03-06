@@ -1981,7 +1981,7 @@ const Parser = struct {
                 }
             },
             .keyword_inline => {
-                p.tok_i += 2;
+                p.tok_i += 1;
                 switch (p.token_tags[p.tok_i]) {
                     .keyword_for => return p.parseForExpr(),
                     .keyword_while => return p.parseWhileExpr(),
