@@ -726,12 +726,14 @@ test "switching on non exhaustive union" {
         const U = union(E) {
             a: i32,
             b: u32,
+            _,
         };
         fn doTheTest() void {
             var a = U{ .a = 2 };
             switch (a) {
                 .a => |val| expect(val == 2),
                 .b => unreachable,
+                _ => unreachable,
             }
         }
     };
@@ -803,4 +805,27 @@ test "union enum type gets a separate scope" {
     };
 
     S.doTheTest();
+}
+
+fn testNonExhaustive(x: anytype) void {
+    switch (x) {
+        .a => |n| {},
+        .b => |n| {},
+        _ => {},
+    }
+    switch (x) {
+        .a => |n| {},
+        else => {},
+    }
+    switch (x) {
+        .a => |n| {},
+        else => {},
+    }
+}
+
+test "non-exhaustive unions" {
+    const A = union((enum(u32) { a, b, _ })) { a: u32, b: u32, _ };
+    const B = union(enum(u32)) { a: u32, b: u32, _ };
+    testNonExhaustive(A{ .a = 0 });
+    testNonExhaustive(B{ .a = 0 });
 }

@@ -2,6 +2,66 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("non-exhaustive switch on non-exhaustive unions",
+        \\const A = union((enum(u32) { a, b, _ })) { a: u32, b: u32, _ };
+        \\const B = union(enum(u32)) { a: u32, b: u32, _ };
+        \\fn check(x: anytype) void {
+        \\    switch (x) {
+        \\        .a => |n| {},
+        \\        .b => |n| {},
+        \\    }
+        \\    switch (x) {
+        \\        .a => |n| {},
+        \\        _ => {},
+        \\    }
+        \\    switch (x) {
+        \\        .a => |n| {},
+        \\    }
+        \\}
+        \\export fn foo() void {
+        \\    var x = A{ .a = 0 };
+        \\    var y = B{ .a = 0 };
+        \\    check(x);
+        \\    check(y);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+        "tmp.zig:8:5: error: enumeration value 'enum:1:18.b' not handled in switch",
+        "tmp.zig:12:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+        "tmp.zig:12:5: error: enumeration value 'enum:1:18.b' not handled in switch",
+        "tmp.zig:4:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+        "tmp.zig:8:5: error: enumeration value '@typeInfo(B).Union.tag_type.?.b' not handled in switch",
+        "tmp.zig:12:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+        "tmp.zig:12:5: error: enumeration value '@typeInfo(B).Union.tag_type.?.b' not handled in switch",
+    });
+
+    cases.add("exhaustive enum tag on non-exhaustive union",
+        \\const C = union((enum(u32) { a, b })) { a: u32, b: u32, _ };
+        \\export fn foo() void {
+        \\    _ = C{ .a = 0 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:17: error: enum tag of non-exhaustive union must be non-exhaustive",
+    });
+
+    cases.add("non-exhautive enum tag on exhaustive union",
+        \\const D = union((enum(u32) { a, b, _ })) { a: u32, b: u32 };
+        \\export fn foo() void {
+        \\    _ = D{ .a = 0 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:11: error: union with non-exhaustive enum tag must be non-exhaustive",
+    });
+
+    cases.add("non-exhaustive union without explicit enum size",
+        \\const E = union(enum) { a: u32, b: u32, _ };
+        \\export fn foo() void {
+        \\    _ = E{ .a = 0 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:11: error: non-exhaustive enum must specify size",
+    });
+
     cases.add("lazy pointer with undefined element type",
         \\export fn foo() void {
         \\    comptime var T: type = undefined;

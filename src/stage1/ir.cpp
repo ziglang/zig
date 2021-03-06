@@ -29709,10 +29709,6 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
     if (type_is_invalid(switch_type))
         return ira->codegen->invalid_inst_gen;
 
-    ZigValue *original_value = ((IrInstSrcSwitchTarget *)(instruction->target_value))->target_value_ptr->child->value;
-    bool target_is_originally_union = original_value->type->id == ZigTypeIdPointer &&
-        original_value->type->data.pointer.child_type->id == ZigTypeIdUnion;
-
     if (switch_type->id == ZigTypeIdEnum) {
         HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> field_prev_uses = {};
         field_prev_uses.init(switch_type->data.enumeration.src_field_count);
@@ -29771,9 +29767,6 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             if (!switch_type->data.enumeration.non_exhaustive) {
                 ir_add_error(ira, &instruction->base.base,
                     buf_sprintf("switch on exhaustive enum has `_` prong"));
-            } else if (target_is_originally_union) {
-                ir_add_error(ira, &instruction->base.base,
-                    buf_sprintf("`_` prong not allowed when switching on tagged union"));
             }
             for (uint32_t i = 0; i < switch_type->data.enumeration.src_field_count; i += 1) {
                 TypeEnumField *enum_field = &switch_type->data.enumeration.fields[i];
@@ -29788,7 +29781,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 }
             }
         } else if (instruction->else_prong == nullptr) {
-            if (switch_type->data.enumeration.non_exhaustive && !target_is_originally_union) {
+            if (switch_type->data.enumeration.non_exhaustive) {
                 ir_add_error(ira, &instruction->base.base,
                     buf_sprintf("switch on non-exhaustive enum must include `else` or `_` prong"));
             }

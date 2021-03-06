@@ -3189,9 +3189,35 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     union_type->data.unionation.resolve_loop_flag_zero_bits = true;
 
     uint32_t field_count;
+    bool container_non_exhaustive;
     if (decl_node->type == NodeTypeContainerDecl) {
+        AstNode *last_field_node = decl_node->data.container_decl.fields.at(decl_node->data.container_decl.fields.length - 1);
+        if (buf_eql_str(last_field_node->data.struct_field.name, "_")) {
+            if (last_field_node->data.struct_field.value != nullptr) {
+                add_node_error(g, last_field_node, buf_sprintf("value assigned to '_' field of non-exhaustive union"));
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            if (decl_node->data.container_decl.init_arg_expr == nullptr) {
+                add_node_error(g, decl_node, buf_sprintf("non-exhaustive enum must specify size"));
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            bool is_auto_enum = decl_node->data.container_decl.auto_enum;
+            bool is_explicit_enum = decl_node->data.container_decl.init_arg_expr != nullptr;
+            if (!is_auto_enum && !is_explicit_enum) {
+                add_node_error(g, decl_node, buf_sprintf("untagged union cannot be non-exhaustive"));
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            container_non_exhaustive = true;
+        } else {
+            container_non_exhaustive = false;
+        }
+
         assert(union_type->data.unionation.fields == nullptr);
-        field_count = (uint32_t)decl_node->data.container_decl.fields.length;
+        field_count = (uint32_t)decl_node->data.container_decl.fields.length
+            - container_non_exhaustive;
         union_type->data.unionation.src_field_count = field_count;
         union_type->data.unionation.fields = heap::c_allocator.allocate<TypeUnionField>(field_count);
         union_type->data.unionation.fields_by_name.init(field_count);
@@ -3287,6 +3313,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         tag_type->data.enumeration.fields_by_name.init(field_count);
         tag_type->data.enumeration.decls_scope = create_decls_scope(
                 g, nullptr, nullptr, tag_type, get_scope_import(scope), &tag_type->name);
+        tag_type->data.enumeration.non_exhaustive = container_non_exhaustive;
     } else if (enum_type_node != nullptr) {
         tag_type = analyze_type_expr(g, scope, enum_type_node);
     } else {
@@ -3310,6 +3337,20 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         if ((err = type_resolve(g, tag_type, ResolveStatusAlignmentKnown))) {
             assert(g->errors.length != 0);
             return err;
+        }
+        if (decl_node->type == NodeTypeContainerDecl) {
+            if (container_non_exhaustive && !tag_type->data.enumeration.non_exhaustive) {
+                add_node_error(g, enum_type_node != nullptr ? enum_type_node : decl_node,
+                    buf_sprintf("enum tag of non-exhaustive union must be non-exhaustive"));
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            if (!container_non_exhaustive && tag_type->data.enumeration.non_exhaustive) {
+                add_node_error(g, decl_node,
+                    buf_sprintf("union with non-exhaustive enum tag must be non-exhaustive"));
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
         }
         covered_enum_fields = heap::c_allocator.allocate<bool>(tag_type->data.enumeration.src_field_count);
     }
