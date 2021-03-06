@@ -42,6 +42,19 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exeFromCompiledC("var args", .{});
+
+        case.addCompareOutput(
+            \\extern fn printf(format: [*:0]const u8, ...) c_int;
+            \\
+            \\export fn main() c_int {
+            \\    _ = printf("Hello, %s!\n", "world");
+            \\    return 0;
+            \\}
+        , "Hello, world!\n");
+    }
+
+    {
         var case = ctx.exeFromCompiledC("x86_64-linux inline assembly", linux_x64);
 
         // Exit with 0

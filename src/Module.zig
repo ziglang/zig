@@ -370,6 +370,8 @@ pub const Scope = struct {
             .gen_zir => return self.cast(GenZIR).?.arena,
             .local_val => return self.cast(LocalVal).?.gen_zir.arena,
             .local_ptr => return self.cast(LocalPtr).?.gen_zir.arena,
+            .gen_suspend => return self.cast(GenZIR).?.arena,
+            .gen_nosuspend => return self.cast(Nosuspend).?.gen_zir.arena,
             .file => unreachable,
             .container => unreachable,
         }
@@ -385,6 +387,8 @@ pub const Scope = struct {
             .gen_zir => self.cast(GenZIR).?.decl,
             .local_val => self.cast(LocalVal).?.gen_zir.decl,
             .local_ptr => self.cast(LocalPtr).?.gen_zir.decl,
+            .gen_suspend => return self.cast(GenZIR).?.decl,
+            .gen_nosuspend => return self.cast(Nosuspend).?.gen_zir.decl,
             .file => null,
             .container => null,
         };
@@ -396,6 +400,8 @@ pub const Scope = struct {
             .gen_zir => self.cast(GenZIR).?.decl,
             .local_val => self.cast(LocalVal).?.gen_zir.decl,
             .local_ptr => self.cast(LocalPtr).?.gen_zir.decl,
+            .gen_suspend => return self.cast(GenZIR).?.decl,
+            .gen_nosuspend => return self.cast(Nosuspend).?.gen_zir.decl,
             .file => null,
             .container => null,
         };
@@ -410,6 +416,8 @@ pub const Scope = struct {
             .local_ptr => return self.cast(LocalPtr).?.gen_zir.decl.container,
             .file => return &self.cast(File).?.root_container,
             .container => return self.cast(Container).?,
+            .gen_suspend => return self.cast(GenZIR).?.decl.container,
+            .gen_nosuspend => return self.cast(Nosuspend).?.gen_zir.decl.container,
         }
     }
 
@@ -422,6 +430,8 @@ pub const Scope = struct {
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
+            .gen_suspend => unreachable,
+            .gen_nosuspend => unreachable,
             .file => unreachable,
             .container => return self.cast(Container).?.fullyQualifiedNameHash(name),
         }
@@ -436,6 +446,8 @@ pub const Scope = struct {
             .local_val => return &self.cast(LocalVal).?.gen_zir.decl.container.file_scope.tree,
             .local_ptr => return &self.cast(LocalPtr).?.gen_zir.decl.container.file_scope.tree,
             .container => return &self.cast(Container).?.file_scope.tree,
+            .gen_suspend => return &self.cast(GenZIR).?.decl.container.file_scope.tree,
+            .gen_nosuspend => return &self.cast(Nosuspend).?.gen_zir.decl.container.file_scope.tree,
         }
     }
 
@@ -443,9 +455,10 @@ pub const Scope = struct {
     pub fn getGenZIR(self: *Scope) *GenZIR {
         return switch (self.tag) {
             .block => unreachable,
-            .gen_zir => self.cast(GenZIR).?,
+            .gen_zir, .gen_suspend => self.cast(GenZIR).?,
             .local_val => return self.cast(LocalVal).?.gen_zir,
             .local_ptr => return self.cast(LocalPtr).?.gen_zir,
+            .gen_nosuspend => return self.cast(Nosuspend).?.gen_zir,
             .file => unreachable,
             .container => unreachable,
         };
@@ -461,6 +474,8 @@ pub const Scope = struct {
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
+            .gen_suspend => unreachable,
+            .gen_nosuspend => unreachable,
         }
     }
 
@@ -472,6 +487,8 @@ pub const Scope = struct {
             .local_val => unreachable,
             .local_ptr => unreachable,
             .block => unreachable,
+            .gen_suspend => unreachable,
+            .gen_nosuspend => unreachable,
         }
     }
 
@@ -486,6 +503,36 @@ pub const Scope = struct {
                 .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
                 .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
                 .block => return @fieldParentPtr(Block, "base", cur).src_decl.container.file_scope,
+                .gen_suspend => @fieldParentPtr(GenZIR, "base", cur).parent,
+                .gen_nosuspend => @fieldParentPtr(Nosuspend, "base", cur).parent,
+            };
+        }
+    }
+
+    pub fn getSuspend(base: *Scope) ?*Scope.GenZIR {
+        var cur = base;
+        while (true) {
+            cur = switch (cur.tag) {
+                .gen_zir => @fieldParentPtr(GenZIR, "base", cur).parent,
+                .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
+                .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
+                .gen_nosuspend => @fieldParentPtr(Nosuspend, "base", cur).parent,
+                .gen_suspend => return @fieldParentPtr(GenZIR, "base", cur),
+                else => return null,
+            };
+        }
+    }
+
+    pub fn getNosuspend(base: *Scope) ?*Scope.Nosuspend {
+        var cur = base;
+        while (true) {
+            cur = switch (cur.tag) {
+                .gen_zir => @fieldParentPtr(GenZIR, "base", cur).parent,
+                .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
+                .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
+                .gen_suspend => @fieldParentPtr(GenZIR, "base", cur).parent,
+                .gen_nosuspend => return @fieldParentPtr(Nosuspend, "base", cur),
+                else => return null,
             };
         }
     }
@@ -507,6 +554,8 @@ pub const Scope = struct {
         gen_zir,
         local_val,
         local_ptr,
+        gen_suspend,
+        gen_nosuspend,
     };
 
     pub const Container = struct {
@@ -740,6 +789,8 @@ pub const Scope = struct {
         /// so they can possibly be elided later if the labeled block ends up not needing
         /// a result location pointer.
         labeled_store_to_block_ptr_list: std.ArrayListUnmanaged(*zir.Inst.BinOp) = .{},
+        /// for suspend error notes
+        src: usize = 0,
 
         pub const Label = struct {
             token: ast.TokenIndex,
@@ -772,6 +823,16 @@ pub const Scope = struct {
         gen_zir: *GenZIR,
         name: []const u8,
         ptr: *zir.Inst,
+    };
+
+    pub const Nosuspend = struct {
+        pub const base_tag: Tag = .gen_nosuspend;
+
+        base: Scope = Scope{ .tag = base_tag },
+        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZIR`.
+        parent: *Scope,
+        gen_zir: *GenZIR,
+        src: usize,
     };
 };
 
@@ -1122,7 +1183,8 @@ fn astgenAndSemaFn(
     const param_count = blk: {
         var count: usize = 0;
         var it = fn_proto.iterate(tree);
-        while (it.next()) |_| {
+        while (it.next()) |param| {
+            if (param.anytype_ellipsis3) |some| if (token_tags[some] == .ellipsis3) break;
             count += 1;
         }
         break :blk count;
@@ -1135,6 +1197,7 @@ fn astgenAndSemaFn(
     });
     const type_type_rl: astgen.ResultLoc = .{ .ty = type_type };
 
+    var is_var_args = false;
     {
         var param_type_i: usize = 0;
         var it = fn_proto.iterate(tree);
@@ -1147,12 +1210,10 @@ fn astgenAndSemaFn(
                         "TODO implement anytype parameter",
                         .{},
                     ),
-                    .ellipsis3 => return mod.failTok(
-                        &fn_type_scope.base,
-                        token,
-                        "TODO implement var args",
-                        .{},
-                    ),
+                    .ellipsis3 => {
+                        is_var_args = true;
+                        break;
+                    },
                     else => unreachable,
                 }
             }
@@ -1234,7 +1295,13 @@ fn astgenAndSemaFn(
         type_type_rl,
         fn_proto.ast.return_type,
     );
-    const fn_type_inst = if (fn_proto.ast.callconv_expr != 0) cc: {
+
+    const is_extern = if (fn_proto.extern_export_token) |maybe_export_token|
+        token_tags[maybe_export_token] == .keyword_extern
+    else
+        false;
+
+    const cc_inst = if (fn_proto.ast.callconv_expr != 0) cc: {
         // TODO instead of enum literal type, this needs to be the
         // std.builtin.CallingConvention enum. We need to implement importing other files
         // and enums in order to fix this.
@@ -1243,18 +1310,31 @@ fn astgenAndSemaFn(
             .ty = Type.initTag(.type),
             .val = Value.initTag(.enum_literal_type),
         });
-        const cc = try astgen.comptimeExpr(mod, &fn_type_scope.base, .{
+        break :cc try astgen.comptimeExpr(mod, &fn_type_scope.base, .{
             .ty = enum_lit_ty,
         }, fn_proto.ast.callconv_expr);
-        break :cc try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type_cc, .{
+    } else if (is_extern) cc: {
+        // note: https://github.com/ziglang/zig/issues/5269
+        const src = token_starts[fn_proto.extern_export_token.?];
+        break :cc try astgen.addZIRInst(mod, &fn_type_scope.base, src, zir.Inst.EnumLiteral, .{ .name = "C" }, .{});
+    } else null;
+
+    const fn_type_inst = if (cc_inst) |cc| fn_type: {
+        var fn_type = try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type_cc, .{
             .return_type = return_type_inst,
             .param_types = param_types,
             .cc = cc,
         });
-    } else try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type, .{
-        .return_type = return_type_inst,
-        .param_types = param_types,
-    });
+        if (is_var_args) fn_type.tag = .fn_type_cc_var_args;
+        break :fn_type fn_type;
+    } else fn_type: {
+        var fn_type = try astgen.addZirInstTag(mod, &fn_type_scope.base, fn_src, .fn_type, .{
+            .return_type = return_type_inst,
+            .param_types = param_types,
+        });
+        if (is_var_args) fn_type.tag = .fn_type_var_args;
+        break :fn_type fn_type;
+    };
 
     if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
         zir.dumpZir(mod.gpa, "fn_type", decl.name, fn_type_scope.instructions.items) catch {};
@@ -1287,7 +1367,12 @@ fn astgenAndSemaFn(
     const fn_type = try zir_sema.analyzeBodyValueAsType(mod, &block_scope, fn_type_inst, .{
         .instructions = fn_type_scope.instructions.items,
     });
+
     if (body_node == 0) {
+        if (!is_extern) {
+            return mod.failNode(&block_scope.base, fn_proto.ast.fn_token, "non-extern function has no body", .{});
+        }
+
         // Extern function.
         var type_changed = true;
         if (decl.typedValueManaged()) |tvm| {
@@ -1315,6 +1400,10 @@ fn astgenAndSemaFn(
         }
 
         return type_changed;
+    }
+
+    if (fn_type.fnIsVarArgs()) {
+        return mod.failNode(&block_scope.base, fn_proto.ast.fn_token, "non-extern function is variadic", .{});
     }
 
     const new_func = try decl_arena.allocator.create(Fn);
@@ -3295,6 +3384,9 @@ pub fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Ty
 }
 
 pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) InnerError!*Inst {
+    if (dest_type.tag() == .var_args_param) {
+        return self.coerceVarArgParam(scope, inst);
+    }
     // If the types are the same, we can return the operand.
     if (dest_type.eql(inst.ty))
         return inst;
@@ -3447,6 +3539,15 @@ pub fn coerceNum(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) Inn
     return null;
 }
 
+pub fn coerceVarArgParam(mod: *Module, scope: *Scope, inst: *Inst) !*Inst {
+    switch (inst.ty.zigTypeTag()) {
+        .ComptimeInt, .ComptimeFloat => return mod.fail(scope, inst.src, "integer and float literals in var args function must be casted", .{}),
+        else => {},
+    }
+    // TODO implement more of this function.
+    return inst;
+}
+
 pub fn storePtr(self: *Module, scope: *Scope, src: usize, ptr: *Inst, uncasted_value: *Inst) !*Inst {
     if (ptr.ty.isConstPtr())
         return self.fail(scope, src, "cannot assign to constant", .{});
@@ -3586,7 +3687,7 @@ pub fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, err_msg: *ErrorMsg) I
             }
             self.failed_decls.putAssumeCapacityNoClobber(block.owner_decl, err_msg);
         },
-        .gen_zir => {
+        .gen_zir, .gen_suspend => {
             const gen_zir = scope.cast(Scope.GenZIR).?;
             gen_zir.decl.analysis = .sema_failure;
             gen_zir.decl.generation = self.generation;
@@ -3600,6 +3701,12 @@ pub fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, err_msg: *ErrorMsg) I
         },
         .local_ptr => {
             const gen_zir = scope.cast(Scope.LocalPtr).?.gen_zir;
+            gen_zir.decl.analysis = .sema_failure;
+            gen_zir.decl.generation = self.generation;
+            self.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+        },
+        .gen_nosuspend => {
+            const gen_zir = scope.cast(Scope.Nosuspend).?.gen_zir;
             gen_zir.decl.analysis = .sema_failure;
             gen_zir.decl.generation = self.generation;
             self.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
