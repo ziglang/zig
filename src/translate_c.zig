@@ -671,15 +671,6 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         break :blk null;
     };
 
-    const alignment = blk: {
-        const alignment = var_decl.getAlignedAttribute(c.clang_context);
-        if (alignment != 0) {
-            // Clang reports the alignment in bits
-            break :blk alignment / 8;
-        }
-        break :blk null;
-    };
-
     const node = try Tag.var_decl.create(c.arena, .{
         .is_pub = is_pub,
         .is_const = is_const,
@@ -687,7 +678,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         .is_export = is_export,
         .is_threadlocal = is_threadlocal,
         .linksection_string = linksection_string,
-        .alignment = alignment,
+        .alignment = zigAlignment(var_decl.getAlignedAttribute(c.clang_context)),
         .name = checked_name,
         .type = type_node,
         .init = init_node,
@@ -833,14 +824,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 else => |e| return e,
             };
 
-            const alignment = blk_2: {
-                const alignment = field_decl.getAlignedAttribute(c.clang_context);
-                if (alignment != 0) {
-                    // Clang reports the alignment in bits
-                    break :blk_2 alignment / 8;
-                }
-                break :blk_2 null;
-            };
+            const alignment = zigAlignment(field_decl.getAlignedAttribute(c.clang_context));
 
             if (is_anon) {
                 try c.decl_table.putNoClobber(c.gpa, @ptrToInt(field_decl.getCanonicalDecl()), field_name);
@@ -1373,6 +1357,13 @@ fn transCStyleCastExprClass(
     return maybeSuppressResult(c, scope, result_used, cast_node);
 }
 
+/// Clang reports the alignment in bits, we use bytes
+/// Clang uses 0 for "no alignment specified", we use null
+fn zigAlignment(bit_alignment: c_uint) ?c_uint {
+    if (bit_alignment == 0) return null;
+    return bit_alignment / 8;
+}
+
 fn transDeclStmtOne(
     c: *Context,
     scope: *Scope,
@@ -1412,6 +1403,7 @@ fn transDeclStmtOne(
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
                 init_node = try Tag.bool_to_int.create(c.arena, init_node);
             }
+
             const node = try Tag.var_decl.create(c.arena, .{
                 .is_pub = false,
                 .is_const = is_const,
@@ -1419,7 +1411,7 @@ fn transDeclStmtOne(
                 .is_export = false,
                 .is_threadlocal = false,
                 .linksection_string = null,
-                .alignment = null,
+                .alignment = zigAlignment(var_decl.getAlignedAttribute(c.clang_context)),
                 .name = mangled_name,
                 .type = type_node,
                 .init = init_node,
@@ -4111,16 +4103,7 @@ fn finishTransFnProto(
         break :blk null;
     };
 
-    const alignment = blk: {
-        if (fn_decl) |decl| {
-            const alignment = decl.getAlignedAttribute(c.clang_context);
-            if (alignment != 0) {
-                // Clang reports the alignment in bits
-                break :blk alignment / 8;
-            }
-        }
-        break :blk null;
-    };
+    const alignment = if (fn_decl) |decl| zigAlignment(decl.getAlignedAttribute(c.clang_context)) else null;
 
     const explicit_callconv = if ((is_export or is_extern) and cc == .C) null else cc;
 
