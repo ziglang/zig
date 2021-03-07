@@ -1612,13 +1612,15 @@ const Parser = struct {
     /// PrefixTypeOp
     ///     <- QUESTIONMARK
     ///      / KEYWORD_anyframe MINUSRARROW
-    ///      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+    ///      / SliceTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+    ///      / ArrayTypeStart
+    /// SliceTypeStart <- LBRACKET (COLON Expr)? RBRACKET
     /// PtrTypeStart
     ///     <- ASTERISK
     ///      / ASTERISK2
     ///      / LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
-    /// ArrayTypeStart <- LBRACKET Expr? (COLON Expr)? RBRACKET
+    /// ArrayTypeStart <- LBRACKET Expr (COLON Expr)? RBRACKET
     fn parseTypeExpr(p: *Parser) Error!Node.Index {
         switch (p.token_tags[p.tok_i]) {
             .question_mark => return p.addNode(.{
@@ -1785,15 +1787,15 @@ const Parser = struct {
                     else
                         0;
                     _ = try p.expectToken(.r_bracket);
-                    const mods = try p.parsePtrModifiers();
-                    const elem_type = try p.expectTypeExpr();
-                    if (mods.bit_range_start != 0) {
-                        try p.warnMsg(.{
-                            .tag = .invalid_bit_range,
-                            .token = p.nodes.items(.main_token)[mods.bit_range_start],
-                        });
-                    }
                     if (len_expr == 0) {
+                        const mods = try p.parsePtrModifiers();
+                        const elem_type = try p.expectTypeExpr();
+                        if (mods.bit_range_start != 0) {
+                            try p.warnMsg(.{
+                                .tag = .invalid_bit_range,
+                                .token = p.nodes.items(.main_token)[mods.bit_range_start],
+                            });
+                        }
                         if (sentinel == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_aligned,
@@ -1826,12 +1828,15 @@ const Parser = struct {
                             });
                         }
                     } else {
-                        if (mods.align_node != 0) {
-                            try p.warnMsg(.{
-                                .tag = .invalid_align,
-                                .token = p.nodes.items(.main_token)[mods.align_node],
-                            });
+                        switch (p.token_tags[p.tok_i]) {
+                            .keyword_align,
+                            .keyword_const,
+                            .keyword_volatile,
+                            .keyword_allowzero,
+                            => return p.fail(.ptr_mod_on_array_child_type),
+                            else => {},
                         }
+                        const elem_type = try p.expectTypeExpr();
                         if (sentinel == 0) {
                             return p.addNode(.{
                                 .tag = .array_type,

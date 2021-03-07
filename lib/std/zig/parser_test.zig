@@ -4350,11 +4350,17 @@ test "zig fmt: error for invalid bit range" {
     });
 }
 
-test "zig fmt: error for invalid align" {
+test "zig fmt: error for ptr mod on array child type" {
     try testError(
-        \\var x: [10]align(10)u8 = bar;
+        \\var a: [10]align(10) u8 = e;
+        \\var b: [10]const u8 = f;
+        \\var c: [10]volatile u8 = g;
+        \\var d: [10]allowzero u8 = h;
     , &[_]Error{
-        .invalid_align,
+        .ptr_mod_on_array_child_type,
+        .ptr_mod_on_array_child_type,
+        .ptr_mod_on_array_child_type,
+        .ptr_mod_on_array_child_type,
     });
 }
 
