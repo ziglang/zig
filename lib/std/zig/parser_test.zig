@@ -852,6 +852,7 @@ test "zig fmt: slices" {
     try testCanonical(
         \\const a = b[0..];
         \\const c = d[0..1];
+        \\const d = f[0.. :0];
         \\const e = f[0..1 :0];
         \\
     );
@@ -861,6 +862,7 @@ test "zig fmt: slices with spaces in bounds" {
     try testCanonical(
         \\const a = b[0 + 0 ..];
         \\const c = d[0 + 0 .. 1];
+        \\const c = d[0 + 0 .. :0];
         \\const e = f[0 .. 1 + 1 :0];
         \\
     );
