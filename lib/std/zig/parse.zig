@@ -3441,7 +3441,7 @@ const Parser = struct {
     }
 
     /// SuffixOp
-    ///     <- LBRACKET Expr (DOT2 (Expr (COLON Expr)?)?)? RBRACKET
+    ///     <- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
     ///      / DOT IDENTIFIER
     ///      / DOTASTERISK
     ///      / DOTQUESTIONMARK
@@ -3453,17 +3453,6 @@ const Parser = struct {
 
                 if (p.eatToken(.ellipsis2)) |_| {
                     const end_expr = try p.parseExpr();
-                    if (end_expr == 0) {
-                        _ = try p.expectToken(.r_bracket);
-                        return p.addNode(.{
-                            .tag = .slice_open,
-                            .main_token = lbracket,
-                            .data = .{
-                                .lhs = lhs,
-                                .rhs = index_expr,
-                            },
-                        });
-                    }
                     if (p.eatToken(.colon)) |_| {
                         const sentinel = try p.parseExpr();
                         _ = try p.expectToken(.r_bracket);
@@ -3479,20 +3468,29 @@ const Parser = struct {
                                 }),
                             },
                         });
-                    } else {
-                        _ = try p.expectToken(.r_bracket);
+                    }
+                    _ = try p.expectToken(.r_bracket);
+                    if (end_expr == 0) {
                         return p.addNode(.{
-                            .tag = .slice,
+                            .tag = .slice_open,
                             .main_token = lbracket,
                             .data = .{
                                 .lhs = lhs,
-                                .rhs = try p.addExtra(Node.Slice{
-                                    .start = index_expr,
-                                    .end = end_expr,
-                                }),
+                                .rhs = index_expr,
                             },
                         });
                     }
+                    return p.addNode(.{
+                        .tag = .slice,
+                        .main_token = lbracket,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = try p.addExtra(Node.Slice{
+                                .start = index_expr,
+                                .end = end_expr,
+                            }),
+                        },
+                    });
                 }
                 _ = try p.expectToken(.r_bracket);
                 return p.addNode(.{

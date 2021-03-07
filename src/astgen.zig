@@ -848,7 +848,9 @@ pub fn blockExpr(
     const token_tags = tree.tokens.items(.tag);
 
     const lbrace = main_tokens[block_node];
-    if (token_tags[lbrace - 1] == .colon) {
+    if (token_tags[lbrace - 1] == .colon and
+        token_tags[lbrace - 2] == .identifier)
+    {
         return labeledBlockExpr(mod, scope, rl, block_node, statements, .block);
     }
 

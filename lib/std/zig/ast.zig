@@ -525,7 +525,9 @@ pub const Tree = struct {
             => {
                 // Look for a label.
                 const lbrace = main_tokens[n];
-                if (token_tags[lbrace - 1] == .colon) {
+                if (token_tags[lbrace - 1] == .colon and
+                    token_tags[lbrace - 2] == .identifier)
+                {
                     end_offset += 2;
                 }
                 return lbrace - end_offset;
@@ -989,13 +991,13 @@ pub const Tree = struct {
             },
             .slice => {
                 const extra = tree.extraData(datas[n].rhs, Node.Slice);
-                assert(extra.end != 0); // should have used SliceOpen
+                assert(extra.end != 0); // should have used slice_open
                 end_offset += 1; // rbracket
                 n = extra.end;
             },
             .slice_sentinel => {
                 const extra = tree.extraData(datas[n].rhs, Node.SliceSentinel);
-                assert(extra.sentinel != 0); // should have used Slice
+                assert(extra.sentinel != 0); // should have used slice
                 end_offset += 1; // rbracket
                 n = extra.sentinel;
             },
@@ -2925,6 +2927,7 @@ pub const Node = struct {
 
     pub const SliceSentinel = struct {
         start: Index,
+        /// May be 0 if the slice is "open"
         end: Index,
         sentinel: Index,
     };
