@@ -1224,11 +1224,7 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, uppercase: bool, op
     return fbs.pos;
 }
 
-/// Formats a number of nanoseconds according to its magnitude:
-///
-/// - #ns
-/// - [#y][#w][#d][#h][#m]#[.###][u|m]s
-pub fn formatDuration(ns: u64, writer: anytype) !void {
+fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     var ns_remaining = ns;
     inline for (.{
         .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
@@ -1270,12 +1266,18 @@ pub fn formatDuration(ns: u64, writer: anytype) !void {
         }
     }
 
-    try formatInt(ns, 10, false, .{}, writer);
+    try formatInt(ns_remaining, 10, false, .{}, writer);
     try writer.writeAll("ns");
     return;
 }
 
-test "formatDuration" {
+/// Return a Formatter for number of nanoseconds according to its magnitude:
+/// [#y][#w][#d][#h][#m]#[.###][n|u|m]s
+pub fn fmtDuration(ns: u64) Formatter(formatDuration) {
+    return .{ .data = ns };
+}
+
+test "fmtDuration" {
     var buf: [24]u8 = undefined;
     inline for (.{
         .{ .s = "0ns", .d = 0 },
@@ -1301,24 +1303,11 @@ test "formatDuration" {
         .{ .s = "1y1h999.999us", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1 },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1 },
+        .{ .s = "1y1m999ns", .d = 365 * std.time.ns_per_day + std.time.ns_per_min + 999 },
     }) |tc| {
-        const slice = try bufPrint(&buf, "{}", .{duration(tc.d)});
+        const slice = try bufPrint(&buf, "{}", .{fmtDuration(tc.d)});
         std.testing.expectEqualStrings(tc.s, slice);
     }
-}
-
-/// Wraps a `u64` to format with `formatDuration`.
-const Duration = struct {
-    ns: u64,
-
-    pub fn format(self: Duration, comptime fmt: []const u8, options: FormatOptions, writer: anytype) !void {
-        return formatDuration(self.ns, writer);
-    }
-};
-
-/// Formats a number of nanoseconds according to its magnitude. See `formatDuration`.
-pub fn duration(ns: u64) Duration {
-    return Duration{ .ns = ns };
 }
 
 pub const ParseIntError = error{
