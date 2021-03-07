@@ -147,11 +147,15 @@ fn initAndFill(buffer: []u8) void {
         fillWithOsEntropy(&seed);
     }
 
+    init(seed);
+
+    return fillWithCsprng(buffer);
+}
+
+pub fn init(seed: [std.crypto.core.Gimli.BLOCKBYTES]u8) void {
     wipe_me.gimli = std.crypto.core.Gimli.init(seed);
 
     // This is at the end so that accidental recursive dependencies result
     // in stack overflows instead of invalid random data.
     wipe_me.init_state = .initialized;
-
-    return fillWithCsprng(buffer);
 }

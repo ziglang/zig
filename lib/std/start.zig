@@ -216,6 +216,12 @@ fn posixCallMainAndExit() noreturn {
             std.os.linux.tls.initStaticTLS();
         }
 
+        if (comptime std.meta.globalOption("use_AT_RANDOM_auxval", bool) orelse true) {
+            // Initialize the per-thread CSPRNG since Linux gave us the handy-dandy
+            // AT_RANDOM. This depends on the TLS initialization above.
+            initCryptoSeedFromAuxVal(std.os.linux.getauxval(std.elf.AT_RANDOM));
+        }
+
         // TODO This is disabled because what should we do when linking libc and this code
         // does not execute? And also it's causing a test failure in stack traces in release modes.
 
@@ -255,6 +261,23 @@ fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) 
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
     return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
+}
+
+fn initCryptoSeedFromAuxVal(addr: usize) void {
+    if (addr == 0) return;
+    // "The address of sixteen bytes containing a random value."
+    const ptr = @intToPtr(*[16]u8, addr);
+    // don't use AT_RANDOM if it has been zeroed out
+    if (mem.allEqual(u8, ptr, 0)) return;
+
+    var seed = [_]u8{0} ** 48;
+    seed[0..16].* = ptr.*;
+    tlcsprng.init(seed);
+
+    // Clear AT_RANDOM after we use it, otherwise our secure
+    // seed is sitting in memory ready for some other code in the
+    // program to reuse, and hence break our security.
+    std.crypto.utils.secureZero(u8, ptr);
 }
 
 // General error message for a malformed return type
