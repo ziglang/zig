@@ -166,11 +166,6 @@ pub const SegmentCommand = struct {
         return .{ .inner = inner };
     }
 
-    // TODO remove me, I'm just a temp!
-    pub fn append(self: *SegmentCommand, alloc: *Allocator, section: macho.section_64) !void {
-        return self.addSection(alloc, section);
-    }
-
     pub fn addSection(self: *SegmentCommand, alloc: *Allocator, section: macho.section_64) !void {
         try self.sections.append(alloc, section);
         self.inner.cmdsize += @sizeOf(macho.section_64);

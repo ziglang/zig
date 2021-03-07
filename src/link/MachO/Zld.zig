@@ -377,7 +377,7 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                     if (self.text_const_section_index != null) continue;
 
                     self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
-                    try text_seg.append(self.allocator, .{
+                    try text_seg.addSection(self.allocator, .{
                         .sectname = makeStaticString("__const"),
                         .segname = makeStaticString("__TEXT"),
                         .addr = 0,
@@ -396,7 +396,7 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                     if (self.data_const_section_index != null) continue;
 
                     self.data_const_section_index = @intCast(u16, data_seg.sections.items.len);
-                    try data_seg.append(self.allocator, .{
+                    try data_seg.addSection(self.allocator, .{
                         .sectname = makeStaticString("__const"),
                         .segname = makeStaticString("__DATA"),
                         .addr = 0,
@@ -417,7 +417,7 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                 if (self.cstring_section_index != null) continue;
 
                 self.cstring_section_index = @intCast(u16, text_seg.sections.items.len);
-                try text_seg.append(self.allocator, .{
+                try text_seg.addSection(self.allocator, .{
                     .sectname = makeStaticString("__cstring"),
                     .segname = makeStaticString("__TEXT"),
                     .addr = 0,
@@ -437,7 +437,7 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                 if (self.bss_section_index != null) continue;
 
                 self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.append(self.allocator, .{
+                try data_seg.addSection(self.allocator, .{
                     .sectname = makeStaticString("__bss"),
                     .segname = makeStaticString("__DATA"),
                     .addr = 0,
@@ -457,7 +457,7 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                 if (self.tlv_section_index != null) continue;
 
                 self.tlv_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.append(self.allocator, .{
+                try data_seg.addSection(self.allocator, .{
                     .sectname = makeStaticString("__thread_vars"),
                     .segname = makeStaticString("__DATA"),
                     .addr = 0,
@@ -477,7 +477,7 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                 if (self.tlv_data_section_index != null) continue;
 
                 self.tlv_data_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.append(self.allocator, .{
+                try data_seg.addSection(self.allocator, .{
                     .sectname = makeStaticString("__thread_data"),
                     .segname = makeStaticString("__DATA"),
                     .addr = 0,
@@ -497,7 +497,7 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                 if (self.tlv_bss_section_index != null) continue;
 
                 self.tlv_bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.append(self.allocator, .{
+                try data_seg.addSection(self.allocator, .{
                     .sectname = makeStaticString("__thread_bss"),
                     .segname = makeStaticString("__DATA"),
                     .addr = 0,
@@ -1842,7 +1842,7 @@ fn populateMetadata(self: *Zld) !void {
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
-        try text_seg.append(self.allocator, .{
+        try text_seg.addSection(self.allocator, .{
             .sectname = makeStaticString("__text"),
             .segname = makeStaticString("__TEXT"),
             .addr = 0,
@@ -1871,7 +1871,7 @@ fn populateMetadata(self: *Zld) !void {
             .aarch64 => 3 * @sizeOf(u32),
             else => unreachable, // unhandled architecture type
         };
-        try text_seg.append(self.allocator, .{
+        try text_seg.addSection(self.allocator, .{
             .sectname = makeStaticString("__stubs"),
             .segname = makeStaticString("__TEXT"),
             .addr = 0,
@@ -1900,7 +1900,7 @@ fn populateMetadata(self: *Zld) !void {
             .aarch64 => 6 * @sizeOf(u32),
             else => unreachable,
         };
-        try text_seg.append(self.allocator, .{
+        try text_seg.addSection(self.allocator, .{
             .sectname = makeStaticString("__stub_helper"),
             .segname = makeStaticString("__TEXT"),
             .addr = 0,
@@ -1938,7 +1938,7 @@ fn populateMetadata(self: *Zld) !void {
     if (self.got_section_index == null) {
         const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         self.got_section_index = @intCast(u16, data_seg.sections.items.len);
-        try data_seg.append(self.allocator, .{
+        try data_seg.addSection(self.allocator, .{
             .sectname = makeStaticString("__got"),
             .segname = makeStaticString("__DATA"),
             .addr = 0,
@@ -1957,7 +1957,7 @@ fn populateMetadata(self: *Zld) !void {
     if (self.la_symbol_ptr_section_index == null) {
         const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         self.la_symbol_ptr_section_index = @intCast(u16, data_seg.sections.items.len);
-        try data_seg.append(self.allocator, .{
+        try data_seg.addSection(self.allocator, .{
             .sectname = makeStaticString("__la_symbol_ptr"),
             .segname = makeStaticString("__DATA"),
             .addr = 0,
@@ -1976,7 +1976,7 @@ fn populateMetadata(self: *Zld) !void {
     if (self.data_section_index == null) {
         const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         self.data_section_index = @intCast(u16, data_seg.sections.items.len);
-        try data_seg.append(self.allocator, .{
+        try data_seg.addSection(self.allocator, .{
             .sectname = makeStaticString("__data"),
             .segname = makeStaticString("__DATA"),
             .addr = 0,
@@ -2290,40 +2290,7 @@ fn writeRebaseInfoTable(self: *Zld) !void {
     try pointers.ensureCapacity(pointers.items.len + self.local_rebases.items.len);
     pointers.appendSliceAssumeCapacity(self.local_rebases.items);
 
-    // const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    // const base_id = text_seg.sections.items.len;
-    // for (self.locals.items()) |entry| {
-    //     for (entry.value.items) |symbol| {
-    //         const local = symbol.inner;
-
-    //         if (self.data_const_section_index) |index| {
-    //             if (local.n_sect == base_id + index) {
-    //                 const offset = local.n_value - data_seg.inner.vmaddr;
-    //                 try pointers.append(.{
-    //                     .offset = offset,
-    //                     .segment_id = @intCast(u16, self.data_segment_cmd_index.?),
-    //                 });
-    //             }
-    //         }
-    //         if (self.data_section_index) |index| {
-    //             if (local.n_sect == base_id + index) {
-    //                 const offset = local.n_value - data_seg.inner.vmaddr;
-    //                 try pointers.append(.{
-    //                     .offset = offset,
-    //                     .segment_id = @intCast(u16, self.data_segment_cmd_index.?),
-    //                 });
-    //             }
-    //         }
-    //     }
-    // }
-
     std.sort.sort(Pointer, pointers.items, {}, pointerCmp);
-
-    // const nlocals = self.local_rebases.items.len;
-    // var i = nlocals;
-    // while (i > 0) : (i -= 1) {
-    //     pointers.appendAssumeCapacity(self.local_rebases.items[i - 1]);
-    // }
 
     const size = try rebaseInfoSize(pointers.items);
     var buffer = try self.allocator.alloc(u8, @intCast(usize, size));
@@ -2698,21 +2665,8 @@ fn writeSymbolTable(self: *Zld) !void {
             log.debug("    | {}", .{entry.inner});
             log.debug("    | {}", .{entry.tt});
             log.debug("    | {s}", .{self.objects.items[entry.object_id].name});
-            // switch (entry.tt) {
-            //     .Global => {
-            //         symbol = entry.inner;
-            //         break;
-            //     },
-            //     .WeakGlobal => {
-            //         symbol = entry.inner;
-            //     },
-            //     .Local => {},
-            // }
             try locals.append(entry.inner);
         }
-        // if (symbol) |s| {
-        //     try locals.append(s);
-        // }
     }
     const nlocals = locals.items.len;
 
