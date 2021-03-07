@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -1543,6 +1543,68 @@ test "nosuspend on function calls" {
     };
     expectEqual(@as(i32, 42), nosuspend S1.c().b);
     expectEqual(@as(i32, 42), (try nosuspend S1.d()).b);
+}
+
+test "nosuspend on async function calls" {
+    const S0 = struct {
+        b: i32 = 42,
+    };
+    const S1 = struct {
+        fn c() S0 {
+            return S0{};
+        }
+        fn d() !S0 {
+            return S0{};
+        }
+    };
+    var frame_c = nosuspend async S1.c();
+    expectEqual(@as(i32, 42), (await frame_c).b);
+    var frame_d = nosuspend async S1.d();
+    expectEqual(@as(i32, 42), (try await frame_d).b);
+}
+
+// test "resume nosuspend async function calls" {
+//     const S0 = struct {
+//         b: i32 = 42,
+//     };
+//     const S1 = struct {
+//         fn c() S0 {
+//             suspend;
+//             return S0{};
+//         }
+//         fn d() !S0 {
+//             suspend;
+//             return S0{};
+//         }
+//     };
+//     var frame_c = nosuspend async S1.c();
+//     resume frame_c;
+//     expectEqual(@as(i32, 42), (await frame_c).b);
+//     var frame_d = nosuspend async S1.d();
+//     resume frame_d;
+//     expectEqual(@as(i32, 42), (try await frame_d).b);
+// }
+
+test "nosuspend resume async function calls" {
+    const S0 = struct {
+        b: i32 = 42,
+    };
+    const S1 = struct {
+        fn c() S0 {
+            suspend;
+            return S0{};
+        }
+        fn d() !S0 {
+            suspend;
+            return S0{};
+        }
+    };
+    var frame_c = async S1.c();
+    nosuspend resume frame_c;
+    expectEqual(@as(i32, 42), (await frame_c).b);
+    var frame_d = async S1.d();
+    nosuspend resume frame_d;
+    expectEqual(@as(i32, 42), (try await frame_d).b);
 }
 
 test "avoid forcing frame alignment resolution implicit cast to *c_void" {
