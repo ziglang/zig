@@ -1054,6 +1054,10 @@ fn transStmt(
             return maybeSuppressResult(c, scope, result_used, expr);
         },
         .OffsetOfExprClass => return transOffsetOfExpr(c, scope, @ptrCast(*const clang.OffsetOfExpr, stmt), result_used),
+        .CompoundLiteralExprClass => {
+            const compound_literal = @ptrCast(*const clang.CompoundLiteralExpr, stmt);
+            return transExpr(c, scope, compound_literal.getInitializer(), result_used);
+        },
         else => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
@@ -2560,8 +2564,8 @@ fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: 
             });
             return maybeSuppressResult(c, scope, used, as_node);
         },
-        else => {
-            return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "unsupported constant expression kind", .{});
+        else => |kind| {
+            return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "unsupported constant expression kind '{s}'", .{kind});
         },
     }
 }
