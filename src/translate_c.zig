@@ -11,6 +11,7 @@ const math = std.math;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
+const c_builtins = std.c.builtins;
 
 const CallingConvention = std.builtin.CallingConvention;
 
@@ -1526,7 +1527,7 @@ fn transImplicitCastExpr(
             return maybeSuppressResult(c, scope, result_used, ne);
         },
         .BuiltinFnToFnPtr => {
-            return transExpr(c, scope, sub_expr, result_used);
+            return transBuiltinFnExpr(c, scope, sub_expr, result_used);
         },
         .ToVoid => {
             // Should only appear in the rhs and lhs of a ConditionalOperator
@@ -1540,6 +1541,22 @@ fn transImplicitCastExpr(
             .{@tagName(kind)},
         ),
     }
+}
+
+fn isBuiltinDefined(name: []const u8) bool {
+    inline for (std.meta.declarations(c_builtins)) |decl| {
+        if (std.mem.eql(u8, name, decl.name)) return true;
+    }
+    return false;
+}
+
+fn transBuiltinFnExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
+    const node = try transExpr(c, scope, expr, used);
+    if (node.castTag(.identifier)) |ident| {
+        const name = ident.data;
+        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.c.builtins", .{name});
+    }
+    return node;
 }
 
 fn transBoolExpr(
@@ -4759,6 +4776,10 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
+            if (mem.startsWith(u8, mangled_name, "__builtin_") and !isBuiltinDefined(mangled_name)) {
+                try m.fail(c, "TODO implement function '{s}' in std.c.builtins", .{mangled_name});
+                return error.ParseError;
+            }
             return Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
         },
         .LParen => {
