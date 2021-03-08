@@ -453,7 +453,20 @@ fn start_asm_path(comp: *Compilation, arena: *Allocator, basename: []const u8) !
     } else if (arch.isARM()) {
         try result.appendSlice("arm");
     } else if (arch.isMIPS()) {
-        try result.appendSlice("mips");
+        if (!mem.eql(u8, basename, "crti.S") and !mem.eql(u8, basename, "crtn.S")) {
+            try result.appendSlice("mips");
+        } else {
+            if (is_64) {
+                const abi_dir = if (comp.getTarget().abi == .gnuabin32)
+                    "n32"
+                else
+                    "n64";
+                try result.appendSlice("mips" ++ s ++ "mips64" ++ s);
+                try result.appendSlice(abi_dir);
+            } else {
+                try result.appendSlice("mips" ++ s ++ "mips32");
+            }
+        }
     } else if (arch == .x86_64) {
         try result.appendSlice("x86_64");
     } else if (arch == .i386) {
