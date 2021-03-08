@@ -188,3 +188,9 @@ pub fn __builtin_memcpy(
 pub fn __builtin_expect(expr: c_long, c: c_long) callconv(.Inline) c_long {
     return expr;
 }
+
+// __builtin_alloca_with_align is not currently implemented.
+// It is used in a run-translated-c test and a test-translate-c test to ensure that non-implemented
+// builtins are correctly demoted. If you implement __builtin_alloca_with_align, please update the
+// run-translated-c test and the test-translate-c test to use a different non-implemented builtin.
+// pub fn __builtin_alloca_with_align(size: usize, alignment: usize) callconv(.Inline) *c_void {}
