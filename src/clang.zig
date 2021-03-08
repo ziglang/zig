@@ -300,6 +300,14 @@ pub const ConstantExpr = opaque {};
 
 pub const ContinueStmt = opaque {};
 
+pub const ConvertVectorExpr = opaque {
+    pub const getSrcExpr = ZigClangConvertVectorExpr_getSrcExpr;
+    extern fn ZigClangConvertVectorExpr_getSrcExpr(*const ConvertVectorExpr) *const Expr;
+
+    pub const getTypeSourceInfo_getType = ZigClangConvertVectorExpr_getTypeSourceInfo_getType;
+    extern fn ZigClangConvertVectorExpr_getTypeSourceInfo_getType(*const ConvertVectorExpr) QualType;
+};
+
 pub const DecayedType = opaque {
     pub const getDecayedType = ZigClangDecayedType_getDecayedType;
     extern fn ZigClangDecayedType_getDecayedType(*const DecayedType) QualType;
@@ -748,6 +756,14 @@ pub const ReturnStmt = opaque {
     extern fn ZigClangReturnStmt_getRetValue(*const ReturnStmt) ?*const Expr;
 };
 
+pub const ShuffleVectorExpr = opaque {
+    pub const getNumSubExprs = ZigClangShuffleVectorExpr_getNumSubExprs;
+    extern fn ZigClangShuffleVectorExpr_getNumSubExprs(*const ShuffleVectorExpr) c_uint;
+
+    pub const getExpr = ZigClangShuffleVectorExpr_getExpr;
+    extern fn ZigClangShuffleVectorExpr_getExpr(*const ShuffleVectorExpr, c_uint) *const Expr;
+};
+
 pub const SourceManager = opaque {
     pub const getSpellingLoc = ZigClangSourceManager_getSpellingLoc;
     extern fn ZigClangSourceManager_getSpellingLoc(*const SourceManager, Loc: SourceLocation) SourceLocation;
@@ -836,6 +852,9 @@ pub const Type = opaque {
 
     pub const isRecordType = ZigClangType_isRecordType;
     extern fn ZigClangType_isRecordType(*const Type) bool;
+
+    pub const isVectorType = ZigClangType_isVectorType;
+    extern fn ZigClangType_isVectorType(*const Type) bool;
 
     pub const isIncompleteOrZeroLengthArrayType = ZigClangType_isIncompleteOrZeroLengthArrayType;
     extern fn ZigClangType_isIncompleteOrZeroLengthArrayType(*const Type, *const ASTContext) bool;
@@ -935,6 +954,14 @@ pub const VarDecl = opaque {
 
     pub const getTypeSourceInfo_getType = ZigClangVarDecl_getTypeSourceInfo_getType;
     extern fn ZigClangVarDecl_getTypeSourceInfo_getType(*const VarDecl) QualType;
+};
+
+pub const VectorType = opaque {
+    pub const getElementType = ZigClangVectorType_getElementType;
+    extern fn ZigClangVectorType_getElementType(*const VectorType) QualType;
+
+    pub const getNumElements = ZigClangVectorType_getNumElements;
+    extern fn ZigClangVectorType_getNumElements(*const VectorType) c_uint;
 };
 
 pub const WhileStmt = opaque {
