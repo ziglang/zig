@@ -3230,8 +3230,20 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .sparcv9 => return "elf64_sparc",
         .mips => return "elf32btsmip",
         .mipsel => return "elf32ltsmip",
-        .mips64 => return "elf64btsmip",
-        .mips64el => return "elf64ltsmip",
+        .mips64 => {
+            if (target.abi == .gnuabin32) {
+                return "elf32btsmipn32";
+            } else {
+                return "elf64btsmip";
+            }
+        },
+        .mips64el => {
+            if (target.abi == .gnuabin32) {
+                return "elf32ltsmipn32";
+            } else {
+                return "elf64ltsmip";
+            }
+        },
         .s390x => return "elf64_s390",
         .x86_64 => {
             if (target.abi == .gnux32) {
