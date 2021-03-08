@@ -1123,11 +1123,143 @@ fn transStmt(
             const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, stmt);
             return transExpr(c, scope, gen_sel.getResultExpr(), result_used);
         },
+        .ConvertVectorExprClass => {
+            const conv_vec = @ptrCast(*const clang.ConvertVectorExpr, stmt);
+            const conv_vec_node = try transConvertVectorExpr(c, scope, stmt.getBeginLoc(), conv_vec);
+            return maybeSuppressResult(c, scope, result_used, conv_vec_node);
+        },
+        .ShuffleVectorExprClass => {
+            const shuffle_vec_expr = @ptrCast(*const clang.ShuffleVectorExpr, stmt);
+            const shuffle_vec_node = try transShuffleVectorExpr(c, scope, shuffle_vec_expr);
+            return maybeSuppressResult(c, scope, result_used, shuffle_vec_node);
+        },
         // When adding new cases here, see comment for maybeBlockify()
         else => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
     }
+}
+
+/// See https://clang.llvm.org/docs/LanguageExtensions.html#langext-builtin-convertvector
+fn transConvertVectorExpr(
+    c: *Context,
+    scope: *Scope,
+    source_loc: clang.SourceLocation,
+    expr: *const clang.ConvertVectorExpr,
+) TransError!Node {
+    const base_stmt = @ptrCast(*const clang.Stmt, expr);
+
+    var block_scope = try Scope.Block.init(c, scope, true);
+    defer block_scope.deinit();
+
+    const src_expr = expr.getSrcExpr();
+    const src_type = qualTypeCanon(src_expr.getType());
+    const src_vector_ty = @ptrCast(*const clang.VectorType, src_type);
+    const src_element_qt = src_vector_ty.getElementType();
+    const src_element_type_node = try transQualType(c, &block_scope.base, src_element_qt, base_stmt.getBeginLoc());
+
+    const src_expr_node = try transExpr(c, &block_scope.base, src_expr, .used);
+
+    const dst_qt = expr.getTypeSourceInfo_getType();
+    const dst_type_node = try transQualType(c, &block_scope.base, dst_qt, base_stmt.getBeginLoc());
+    const dst_vector_ty = @ptrCast(*const clang.VectorType, qualTypeCanon(dst_qt));
+    const num_elements = dst_vector_ty.getNumElements();
+    const dst_element_qt = dst_vector_ty.getElementType();
+
+    // workaround for https://github.com/ziglang/zig/issues/8322
+    // we store the casted results into temp variables and use those
+    // to initialize the vector. Eventually we can just directly
+    // construct the init_list from casted source members
+    var i: usize = 0;
+    while (i < num_elements) : (i += 1) {
+        const mangled_name = try block_scope.makeMangledName(c, "tmp");
+        const value = try Tag.array_access.create(c.arena, .{
+            .lhs = src_expr_node,
+            .rhs = try transCreateNodeNumber(c, i, .int),
+        });
+        const tmp_decl_node = try Tag.var_simple.create(c.arena, .{
+            .name = mangled_name,
+            .init = try transCCast(c, &block_scope.base, base_stmt.getBeginLoc(), dst_element_qt, src_element_qt, value),
+        });
+        try block_scope.statements.append(tmp_decl_node);
+    }
+
+    const init_list = try c.arena.alloc(Node, num_elements);
+    for (init_list) |*init, init_index| {
+        const tmp_decl = block_scope.statements.items[init_index];
+        const name = tmp_decl.castTag(.var_simple).?.data.name;
+        init.* = try Tag.identifier.create(c.arena, name);
+    }
+
+    const vec_init = try Tag.array_init.create(c.arena, .{
+        .cond = dst_type_node,
+        .cases = init_list,
+    });
+
+    const break_node = try Tag.break_val.create(c.arena, .{
+        .label = block_scope.label,
+        .val = vec_init,
+    });
+    try block_scope.statements.append(break_node);
+    return block_scope.complete(c);
+}
+
+fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorExpr, vector_len: Node) TransError!Node {
+    const num_subexprs = expr.getNumSubExprs();
+    assert(num_subexprs >= 3); // two source vectors + at least 1 index expression
+    const mask_len = num_subexprs - 2;
+
+    const mask_type = try Tag.std_meta_vector.create(c.arena, .{
+        .lhs = try transCreateNodeNumber(c, mask_len, .int),
+        .rhs = try Tag.type.create(c.arena, "i32"),
+    });
+
+    const init_list = try c.arena.alloc(Node, mask_len);
+
+    for (init_list) |*init, i| {
+        const index_expr = try transExprCoercing(c, scope, expr.getExpr(@intCast(c_uint, i + 2)), .used);
+        const converted_index = try Tag.std_meta_shuffle_vector_index.create(c.arena, .{ .lhs = index_expr, .rhs = vector_len });
+        init.* = converted_index;
+    }
+
+    const mask_init = try Tag.array_init.create(c.arena, .{
+        .cond = mask_type,
+        .cases = init_list,
+    });
+    return Tag.@"comptime".create(c.arena, mask_init);
+}
+
+/// @typeInfo(@TypeOf(vec_node)).Vector.<field>
+fn vectorTypeInfo(arena: *mem.Allocator, vec_node: Node, field: []const u8) TransError!Node {
+    const typeof_call = try Tag.typeof.create(arena, vec_node);
+    const typeinfo_call = try Tag.typeinfo.create(arena, typeof_call);
+    const vector_type_info = try Tag.field_access.create(arena, .{ .lhs = typeinfo_call, .field_name = "Vector" });
+    return Tag.field_access.create(arena, .{ .lhs = vector_type_info, .field_name = field });
+}
+
+fn transShuffleVectorExpr(
+    c: *Context,
+    scope: *Scope,
+    expr: *const clang.ShuffleVectorExpr,
+) TransError!Node {
+    const base_expr = @ptrCast(*const clang.Expr, expr);
+    const num_subexprs = expr.getNumSubExprs();
+    if (num_subexprs < 3) return fail(c, error.UnsupportedTranslation, base_expr.getBeginLoc(), "ShuffleVector needs at least 1 index", .{});
+
+    const a = try transExpr(c, scope, expr.getExpr(0), .used);
+    const b = try transExpr(c, scope, expr.getExpr(1), .used);
+
+    // clang requires first two arguments to __builtin_shufflevector to be same type
+    const vector_child_type = try vectorTypeInfo(c.arena, a, "child");
+    const vector_len = try vectorTypeInfo(c.arena, a, "len");
+    const shuffle_mask = try makeShuffleMask(c, scope, expr, vector_len);
+
+    return Tag.shuffle.create(c.arena, .{
+        .element_type = vector_child_type,
+        .a = a,
+        .b = b,
+        .mask_vector = shuffle_mask,
+    });
 }
 
 /// Translate a "simple" offsetof expression containing exactly one component,
@@ -1935,6 +2067,10 @@ fn cIsEnum(qt: clang.QualType) bool {
     return qt.getCanonicalType().getTypeClass() == .Enum;
 }
 
+fn cIsVector(qt: clang.QualType) bool {
+    return qt.getCanonicalType().getTypeClass() == .Vector;
+}
+
 /// Get the underlying int type of an enum. The C compiler chooses a signed int
 /// type that is large enough to hold all of the enum's values. It is not required
 /// to be the smallest possible type that can hold all the values.
@@ -1990,6 +2126,11 @@ fn transCCast(
         }
         // @bitCast(dest_type, intermediate_value)
         return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
+    }
+    if (cIsVector(src_type) or cIsVector(dst_type)) {
+        // C cast where at least 1 operand is a vector requires them to be same size
+        // @bitCast(dest_type, val)
+        return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
         // @intCast(dest_type, @ptrToInt(val))
@@ -2209,6 +2350,63 @@ fn transInitListExprArray(
     }
 }
 
+fn transInitListExprVector(
+    c: *Context,
+    scope: *Scope,
+    loc: clang.SourceLocation,
+    expr: *const clang.InitListExpr,
+    ty: *const clang.Type,
+) TransError!Node {
+
+    const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
+    const vector_type = try transQualType(c, scope, qt, loc);
+    const init_count = expr.getNumInits();
+
+    if (init_count == 0) {
+        return Tag.container_init.create(c.arena, .{
+            .lhs = vector_type,
+            .inits = try c.arena.alloc(ast.Payload.ContainerInit.Initializer, 0),
+        });
+    }
+
+    var block_scope = try Scope.Block.init(c, scope, true);
+    defer block_scope.deinit();
+
+    // workaround for https://github.com/ziglang/zig/issues/8322
+    // we store the initializers in temp variables and use those
+    // to initialize the vector. Eventually we can just directly
+    // construct the init_list from casted source members
+    var i: usize = 0;
+    while (i < init_count) : (i += 1) {
+        const mangled_name = try block_scope.makeMangledName(c, "tmp");
+        const init_expr = expr.getInit(@intCast(c_uint, i));
+        const tmp_decl_node = try Tag.var_simple.create(c.arena, .{
+            .name = mangled_name,
+            .init = try transExpr(c, &block_scope.base, init_expr, .used),
+        });
+        try block_scope.statements.append(tmp_decl_node);
+    }
+
+    const init_list = try c.arena.alloc(Node, init_count);
+    for (init_list) |*init, init_index| {
+        const tmp_decl = block_scope.statements.items[init_index];
+        const name = tmp_decl.castTag(.var_simple).?.data.name;
+        init.* = try Tag.identifier.create(c.arena, name);
+    }
+
+    const array_init = try Tag.array_init.create(c.arena, .{
+        .cond = vector_type,
+        .cases = init_list,
+    });
+    const break_node = try Tag.break_val.create(c.arena, .{
+        .label = block_scope.label,
+        .val = array_init,
+    });
+    try block_scope.statements.append(break_node);
+
+    return block_scope.complete(c);
+}
+
 fn transInitListExpr(
     c: *Context,
     scope: *Scope,
@@ -2229,6 +2427,14 @@ fn transInitListExpr(
         ));
     } else if (qual_type.isArrayType()) {
         return maybeSuppressResult(c, scope, used, try transInitListExprArray(
+            c,
+            scope,
+            source_loc,
+            expr,
+            qual_type,
+        ));
+    } else if (qual_type.isVectorType()) {
+        return maybeSuppressResult(c, scope, used, try transInitListExprVector(
             c,
             scope,
             source_loc,
@@ -4084,6 +4290,15 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
                 else => |e| return e,
             };
             return Tag.typeof.create(c.arena, underlying_expr);
+        },
+        .Vector => {
+            const vector_ty = @ptrCast(*const clang.VectorType, ty);
+            const num_elements = vector_ty.getNumElements();
+            const element_qt = vector_ty.getElementType();
+            return Tag.std_meta_vector.create(c.arena, .{
+                .lhs = try transCreateNodeNumber(c, num_elements, .int),
+                .rhs = try transQualType(c, scope, element_qt, source_loc),
+            });
         },
         else => {
             const type_name = c.str(ty.getTypeClassName());
