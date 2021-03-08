@@ -37,6 +37,7 @@ load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
 pagezero_segment_cmd_index: ?u16 = null,
 text_segment_cmd_index: ?u16 = null,
+data_const_segment_cmd_index: ?u16 = null,
 data_segment_cmd_index: ?u16 = null,
 linkedit_segment_cmd_index: ?u16 = null,
 dyld_info_cmd_index: ?u16 = null,
@@ -277,6 +278,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.sortSections();
     try self.resolveImports();
     try self.allocateTextSegment();
+    try self.allocateDataConstSegment();
     try self.allocateDataSegment();
     self.allocateLinkeditSegment();
     try self.writeStubHelperCommon();
@@ -362,6 +364,7 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
     const object = self.objects.items[object_id];
     const object_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
     const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
 
     // Create missing metadata
@@ -395,10 +398,10 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                     if (!mem.eql(u8, sectname, "__const")) continue;
                     if (self.data_const_section_index != null) continue;
 
-                    self.data_const_section_index = @intCast(u16, data_seg.sections.items.len);
-                    try data_seg.addSection(self.allocator, .{
+                    self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                    try data_const_seg.addSection(self.allocator, .{
                         .sectname = makeStaticString("__const"),
-                        .segname = makeStaticString("__DATA"),
+                        .segname = makeStaticString("__DATA_CONST"),
                         .addr = 0,
                         .size = 0,
                         .offset = 0,
@@ -611,7 +614,7 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                         };
                     } else if (mem.eql(u8, sectname, "__const")) {
                         break :blk .{
-                            .seg = self.data_segment_cmd_index.?,
+                            .seg = self.data_const_segment_cmd_index.?,
                             .sect = self.data_const_section_index.?,
                         };
                     }
@@ -627,100 +630,85 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
 }
 
 fn sortSections(self: *Zld) !void {
-    const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    var text_sections = text_seg.sections.toOwnedSlice(self.allocator);
-    defer self.allocator.free(text_sections);
-    try text_seg.sections.ensureCapacity(self.allocator, text_sections.len);
-
-    const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    var data_sections = data_seg.sections.toOwnedSlice(self.allocator);
-    defer self.allocator.free(data_sections);
-    try data_seg.sections.ensureCapacity(self.allocator, data_sections.len);
-
     var text_index_mapping = std.AutoHashMap(u16, u16).init(self.allocator);
     defer text_index_mapping.deinit();
-
+    var data_const_index_mapping = std.AutoHashMap(u16, u16).init(self.allocator);
+    defer data_const_index_mapping.deinit();
     var data_index_mapping = std.AutoHashMap(u16, u16).init(self.allocator);
     defer data_index_mapping.deinit();
 
-    if (self.text_section_index) |index| {
-        const new_index = @intCast(u16, text_seg.sections.items.len);
-        self.text_section_index = new_index;
-        text_seg.sections.appendAssumeCapacity(text_sections[index]);
-        try text_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.stubs_section_index) |index| {
-        const new_index = @intCast(u16, text_seg.sections.items.len);
-        self.stubs_section_index = new_index;
-        text_seg.sections.appendAssumeCapacity(text_sections[index]);
-        try text_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.stub_helper_section_index) |index| {
-        const new_index = @intCast(u16, text_seg.sections.items.len);
-        self.stub_helper_section_index = new_index;
-        text_seg.sections.appendAssumeCapacity(text_sections[index]);
-        try text_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.text_const_section_index) |index| {
-        const new_index = @intCast(u16, text_seg.sections.items.len);
-        self.text_const_section_index = new_index;
-        text_seg.sections.appendAssumeCapacity(text_sections[index]);
-        try text_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.cstring_section_index) |index| {
-        const new_index = @intCast(u16, text_seg.sections.items.len);
-        self.cstring_section_index = new_index;
-        text_seg.sections.appendAssumeCapacity(text_sections[index]);
-        try text_index_mapping.putNoClobber(index, new_index);
+    {
+        // __TEXT segment
+        const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        var sections = seg.sections.toOwnedSlice(self.allocator);
+        defer self.allocator.free(sections);
+        try seg.sections.ensureCapacity(self.allocator, sections.len);
+
+        const indices = &[_]*?u16{
+            &self.text_section_index,
+            &self.stubs_section_index,
+            &self.stub_helper_section_index,
+            &self.text_const_section_index,
+            &self.cstring_section_index,
+        };
+        for (indices) |maybe_index| {
+            const new_index: u16 = if (maybe_index.*) |index| blk: {
+                const idx = @intCast(u16, seg.sections.items.len);
+                seg.sections.appendAssumeCapacity(sections[index]);
+                try text_index_mapping.putNoClobber(index, idx);
+                break :blk idx;
+            } else continue;
+            maybe_index.* = new_index;
+        }
     }
 
-    if (self.got_section_index) |index| {
-        const new_index = @intCast(u16, data_seg.sections.items.len);
-        self.got_section_index = new_index;
-        data_seg.sections.appendAssumeCapacity(data_sections[index]);
-        try data_index_mapping.putNoClobber(index, new_index);
+    {
+        // __DATA_CONST segment
+        const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        var sections = seg.sections.toOwnedSlice(self.allocator);
+        defer self.allocator.free(sections);
+        try seg.sections.ensureCapacity(self.allocator, sections.len);
+
+        const indices = &[_]*?u16{
+            &self.got_section_index,
+            &self.data_const_section_index,
+        };
+        for (indices) |maybe_index| {
+            const new_index: u16 = if (maybe_index.*) |index| blk: {
+                const idx = @intCast(u16, seg.sections.items.len);
+                seg.sections.appendAssumeCapacity(sections[index]);
+                try data_const_index_mapping.putNoClobber(index, idx);
+                break :blk idx;
+            } else continue;
+            maybe_index.* = new_index;
+        }
     }
-    if (self.data_const_section_index) |index| {
-        const new_index = @intCast(u16, data_seg.sections.items.len);
-        self.data_const_section_index = new_index;
-        data_seg.sections.appendAssumeCapacity(data_sections[index]);
-        try data_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.la_symbol_ptr_section_index) |index| {
-        const new_index = @intCast(u16, data_seg.sections.items.len);
-        self.la_symbol_ptr_section_index = new_index;
-        data_seg.sections.appendAssumeCapacity(data_sections[index]);
-        try data_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.tlv_section_index) |index| {
-        const new_index = @intCast(u16, data_seg.sections.items.len);
-        self.tlv_section_index = new_index;
-        data_seg.sections.appendAssumeCapacity(data_sections[index]);
-        try data_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.data_section_index) |index| {
-        const new_index = @intCast(u16, data_seg.sections.items.len);
-        self.data_section_index = new_index;
-        data_seg.sections.appendAssumeCapacity(data_sections[index]);
-        try data_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.tlv_data_section_index) |index| {
-        const new_index = @intCast(u16, data_seg.sections.items.len);
-        self.tlv_data_section_index = new_index;
-        data_seg.sections.appendAssumeCapacity(data_sections[index]);
-        try data_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.tlv_bss_section_index) |index| {
-        const new_index = @intCast(u16, data_seg.sections.items.len);
-        self.tlv_bss_section_index = new_index;
-        data_seg.sections.appendAssumeCapacity(data_sections[index]);
-        try data_index_mapping.putNoClobber(index, new_index);
-    }
-    if (self.bss_section_index) |index| {
-        const new_index = @intCast(u16, data_seg.sections.items.len);
-        self.bss_section_index = new_index;
-        data_seg.sections.appendAssumeCapacity(data_sections[index]);
-        try data_index_mapping.putNoClobber(index, new_index);
+
+    {
+        // __DATA segment
+        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        var sections = seg.sections.toOwnedSlice(self.allocator);
+        defer self.allocator.free(sections);
+        try seg.sections.ensureCapacity(self.allocator, sections.len);
+
+        // __DATA segment
+        const indices = &[_]*?u16{
+            &self.la_symbol_ptr_section_index,
+            &self.tlv_section_index,
+            &self.data_section_index,
+            &self.tlv_data_section_index,
+            &self.tlv_bss_section_index,
+            &self.bss_section_index,
+        };
+        for (indices) |maybe_index| {
+            const new_index: u16 = if (maybe_index.*) |index| blk: {
+                const idx = @intCast(u16, seg.sections.items.len);
+                seg.sections.appendAssumeCapacity(sections[index]);
+                try data_index_mapping.putNoClobber(index, idx);
+                break :blk idx;
+            } else continue;
+            maybe_index.* = new_index;
+        }
     }
 
     var it = self.mappings.iterator();
@@ -728,6 +716,9 @@ fn sortSections(self: *Zld) !void {
         const mapping = &entry.value;
         if (self.text_segment_cmd_index.? == mapping.target_seg_id) {
             const new_index = text_index_mapping.get(mapping.target_sect_id) orelse unreachable;
+            mapping.target_sect_id = new_index;
+        } else if (self.data_const_segment_cmd_index.? == mapping.target_seg_id) {
+            const new_index = data_const_index_mapping.get(mapping.target_sect_id) orelse unreachable;
             mapping.target_sect_id = new_index;
         } else if (self.data_segment_cmd_index.? == mapping.target_seg_id) {
             const new_index = data_index_mapping.get(mapping.target_sect_id) orelse unreachable;
@@ -874,10 +865,9 @@ fn allocateTextSegment(self: *Zld) !void {
     }
 }
 
-fn allocateDataSegment(self: *Zld) !void {
-    const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+fn allocateDataConstSegment(self: *Zld) !void {
+    const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     const nonlazy = @intCast(u32, self.nonlazy_imports.items().len);
-    const lazy = @intCast(u32, self.lazy_imports.items().len);
 
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     seg.inner.fileoff = text_seg.inner.fileoff + text_seg.inner.filesize;
@@ -886,6 +876,17 @@ fn allocateDataSegment(self: *Zld) !void {
     // Set got size
     const got = &seg.sections.items[self.got_section_index.?];
     got.size += nonlazy * @sizeOf(u64);
+
+    try self.allocateSegment(self.data_const_segment_cmd_index.?, 0);
+}
+
+fn allocateDataSegment(self: *Zld) !void {
+    const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+    const lazy = @intCast(u32, self.lazy_imports.items().len);
+
+    const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+    seg.inner.fileoff = data_const_seg.inner.fileoff + data_const_seg.inner.filesize;
+    seg.inner.vmaddr = data_const_seg.inner.vmaddr + data_const_seg.inner.vmsize;
 
     // Set la_symbol_ptr and data size
     const la_symbol_ptr = &seg.sections.items[self.la_symbol_ptr_section_index.?];
@@ -926,10 +927,11 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64) !void {
 fn writeStubHelperCommon(self: *Zld) !void {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const stub_helper = &text_segment.sections.items[self.stub_helper_section_index.?];
+    const data_const_segment = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+    const got = &data_const_segment.sections.items[self.got_section_index.?];
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const data = &data_segment.sections.items[self.data_section_index.?];
     const la_symbol_ptr = data_segment.sections.items[self.la_symbol_ptr_section_index.?];
-    const got = &data_segment.sections.items[self.got_section_index.?];
 
     self.stub_helper_stubs_start_off = blk: {
         switch (self.arch.?) {
@@ -1247,15 +1249,16 @@ fn resolveSymbols(self: *Zld) !void {
 
             log.debug("resolving '{s}':{} as {s} symbol at 0x{x}", .{ sym_name, sym, tt, n_value });
 
-            // TODO this assumes only two symbol-filled segments. Also, there might be a more
-            // generic way of doing this.
-            const n_sect = blk: {
-                if (self.text_segment_cmd_index.? == target_mapping.target_seg_id) {
-                    break :blk target_mapping.target_sect_id + 1;
+            // TODO there might be a more generic way of doing this.
+            var n_sect: u16 = 0;
+            for (self.load_commands.items) |cmd, cmd_id| {
+                if (cmd != .Segment) break;
+                if (cmd_id == target_mapping.target_seg_id) {
+                    n_sect += target_mapping.target_sect_id + 1;
+                    break;
                 }
-                const prev_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                break :blk @intCast(u16, prev_seg.sections.items.len + target_mapping.target_sect_id + 1);
-            };
+                n_sect += @intCast(u16, cmd.Segment.sections.items.len);
+            }
 
             const n_strx = try self.makeString(sym_name);
             try locs.entry.value.append(self.allocator, .{
@@ -1460,23 +1463,24 @@ fn doRelocs(self: *Zld) !void {
                                         mem.writeIntLittle(u64, inst, @bitCast(u64, result));
                                         sub = null;
 
-                                        // TODO should handle this better.
                                         outer: {
                                             var hit: bool = false;
-                                            if (self.data_section_index) |index| inner: {
-                                                if (index != target_mapping.target_sect_id) break :inner;
-                                                hit = true;
+                                            if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
+                                                if (self.data_section_index) |index| {
+                                                    if (index == target_mapping.target_sect_id) hit = true;
+                                                }
                                             }
-                                            if (self.data_const_section_index) |index| inner: {
-                                                if (index != target_mapping.target_sect_id) break :inner;
-                                                hit = true;
+                                            if (target_mapping.target_seg_id == self.data_const_segment_cmd_index.?) {
+                                                if (self.data_const_section_index) |index| {
+                                                    if (index == target_mapping.target_sect_id) hit = true;
+                                                }
                                             }
+
                                             if (!hit) break :outer;
-                                            const this_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                                            const this_offset = target_sect_addr + off - this_seg.inner.vmaddr;
+
                                             try self.local_rebases.append(self.allocator, .{
-                                                .offset = this_offset,
-                                                .segment_id = @intCast(u16, self.data_segment_cmd_index.?),
+                                                .offset = this_addr - target_seg.inner.vmaddr,
+                                                .segment_id = target_mapping.target_seg_id,
                                             });
                                         }
                                     },
@@ -1642,23 +1646,24 @@ fn doRelocs(self: *Zld) !void {
                                         mem.writeIntLittle(u64, inst, @bitCast(u64, result));
                                         sub = null;
 
-                                        // TODO should handle this better.
                                         outer: {
                                             var hit: bool = false;
-                                            if (self.data_section_index) |index| inner: {
-                                                if (index != target_mapping.target_sect_id) break :inner;
-                                                hit = true;
+                                            if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
+                                                if (self.data_section_index) |index| {
+                                                    if (index == target_mapping.target_sect_id) hit = true;
+                                                }
                                             }
-                                            if (self.data_const_section_index) |index| inner: {
-                                                if (index != target_mapping.target_sect_id) break :inner;
-                                                hit = true;
+                                            if (target_mapping.target_seg_id == self.data_const_segment_cmd_index.?) {
+                                                if (self.data_const_section_index) |index| {
+                                                    if (index == target_mapping.target_sect_id) hit = true;
+                                                }
                                             }
+
                                             if (!hit) break :outer;
-                                            const this_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                                            const this_offset = target_sect_addr + off - this_seg.inner.vmaddr;
+
                                             try self.local_rebases.append(self.allocator, .{
-                                                .offset = this_offset,
-                                                .segment_id = @intCast(u16, self.data_segment_cmd_index.?),
+                                                .offset = this_addr - target_seg.inner.vmaddr,
+                                                .segment_id = target_mapping.target_seg_id,
                                             });
                                         }
                                     },
@@ -1763,7 +1768,7 @@ fn relocTargetAddr(self: *Zld, object_id: u16, rel: macho.relocation_info) !u64 
                     const stubs = segment.sections.items[self.stubs_section_index.?];
                     break :blk stubs.addr + ext.index * stubs.reserved2;
                 } else if (self.nonlazy_imports.get(sym_name)) |ext| {
-                    const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+                    const segment = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
                     const got = segment.sections.items[self.got_section_index.?];
                     break :blk got.addr + ext.index * @sizeOf(u64);
                 } else if (self.threadlocal_imports.get(sym_name)) |ext| {
@@ -1916,6 +1921,44 @@ fn populateMetadata(self: *Zld) !void {
         });
     }
 
+    if (self.data_const_segment_cmd_index == null) {
+        self.data_const_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.allocator, .{
+            .Segment = SegmentCommand.empty(.{
+                .cmd = macho.LC_SEGMENT_64,
+                .cmdsize = @sizeOf(macho.segment_command_64),
+                .segname = makeStaticString("__DATA_CONST"),
+                .vmaddr = 0,
+                .vmsize = 0,
+                .fileoff = 0,
+                .filesize = 0,
+                .maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                .initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE,
+                .nsects = 0,
+                .flags = 0,
+            }),
+        });
+    }
+
+    if (self.got_section_index == null) {
+        const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        self.got_section_index = @intCast(u16, data_const_seg.sections.items.len);
+        try data_const_seg.addSection(self.allocator, .{
+            .sectname = makeStaticString("__got"),
+            .segname = makeStaticString("__DATA_CONST"),
+            .addr = 0,
+            .size = 0,
+            .offset = 0,
+            .@"align" = 3, // 2^3 = @sizeOf(u64)
+            .reloff = 0,
+            .nreloc = 0,
+            .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
+            .reserved1 = 0,
+            .reserved2 = 0,
+            .reserved3 = 0,
+        });
+    }
+
     if (self.data_segment_cmd_index == null) {
         self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.allocator, .{
@@ -1932,25 +1975,6 @@ fn populateMetadata(self: *Zld) !void {
                 .nsects = 0,
                 .flags = 0,
             }),
-        });
-    }
-
-    if (self.got_section_index == null) {
-        const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        self.got_section_index = @intCast(u16, data_seg.sections.items.len);
-        try data_seg.addSection(self.allocator, .{
-            .sectname = makeStaticString("__got"),
-            .segname = makeStaticString("__DATA"),
-            .addr = 0,
-            .size = 0,
-            .offset = 0,
-            .@"align" = 3, // 2^3 = @sizeOf(u64)
-            .reloff = 0,
-            .nreloc = 0,
-            .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
-            .reserved1 = 0,
-            .reserved2 = 0,
-            .reserved3 = 0,
         });
     }
 
@@ -2269,15 +2293,17 @@ fn setEntryPoint(self: *Zld) !void {
 }
 
 fn writeRebaseInfoTable(self: *Zld) !void {
-    const data_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-
     var pointers = std.ArrayList(Pointer).init(self.allocator);
     defer pointers.deinit();
-    try pointers.ensureCapacity(self.lazy_imports.items().len);
+
+    try pointers.ensureCapacity(pointers.items.len + self.local_rebases.items.len);
+    pointers.appendSliceAssumeCapacity(self.local_rebases.items);
 
     if (self.la_symbol_ptr_section_index) |idx| {
-        const sect = data_seg.sections.items[idx];
-        const base_offset = sect.addr - data_seg.inner.vmaddr;
+        try pointers.ensureCapacity(pointers.items.len + self.lazy_imports.items().len);
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
         for (self.lazy_imports.items()) |entry| {
             pointers.appendAssumeCapacity(.{
@@ -2286,9 +2312,6 @@ fn writeRebaseInfoTable(self: *Zld) !void {
             });
         }
     }
-
-    try pointers.ensureCapacity(pointers.items.len + self.local_rebases.items.len);
-    pointers.appendSliceAssumeCapacity(self.local_rebases.items);
 
     std.sort.sort(Pointer, pointers.items, {}, pointerCmp);
 
@@ -2319,16 +2342,15 @@ fn pointerCmp(context: void, a: Pointer, b: Pointer) bool {
 }
 
 fn writeBindInfoTable(self: *Zld) !void {
-    const data_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-
     var pointers = std.ArrayList(Pointer).init(self.allocator);
     defer pointers.deinit();
     try pointers.ensureCapacity(self.nonlazy_imports.items().len + self.threadlocal_imports.items().len);
 
     if (self.got_section_index) |idx| {
-        const sect = data_seg.sections.items[idx];
-        const base_offset = sect.addr - data_seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
         for (self.nonlazy_imports.items()) |entry| {
             pointers.appendAssumeCapacity(.{
                 .offset = base_offset + entry.value.index * @sizeOf(u64),
@@ -2340,8 +2362,9 @@ fn writeBindInfoTable(self: *Zld) !void {
     }
 
     if (self.tlv_section_index) |idx| {
-        const sect = data_seg.sections.items[idx];
-        const base_offset = sect.addr - data_seg.inner.vmaddr;
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
         for (self.threadlocal_imports.items()) |entry| {
             pointers.appendAssumeCapacity(.{
@@ -2372,15 +2395,14 @@ fn writeBindInfoTable(self: *Zld) !void {
 }
 
 fn writeLazyBindInfoTable(self: *Zld) !void {
-    const data_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-
     var pointers = std.ArrayList(Pointer).init(self.allocator);
     defer pointers.deinit();
     try pointers.ensureCapacity(self.lazy_imports.items().len);
 
     if (self.la_symbol_ptr_section_index) |idx| {
-        const sect = data_seg.sections.items[idx];
-        const base_offset = sect.addr - data_seg.inner.vmaddr;
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
         for (self.lazy_imports.items()) |entry| {
             pointers.appendAssumeCapacity(.{
@@ -2725,8 +2747,9 @@ fn writeDynamicSymbolTable(self: *Zld) !void {
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const stubs = &text_segment.sections.items[self.stubs_section_index.?];
+    const data_const_segment = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+    const got = &data_const_segment.sections.items[self.got_section_index.?];
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const got = &data_segment.sections.items[self.got_section_index.?];
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
 
