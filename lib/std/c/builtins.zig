@@ -140,7 +140,7 @@ pub fn __builtin_object_size(ptr: ?*const c_void, ty: c_int) callconv(.Inline) u
     // If it is not possible to determine which objects ptr points to at compile time,
     // __builtin_object_size should return (size_t) -1 for type 0 or 1 and (size_t) 0
     // for type 2 or 3.
-    if (ty == 0 or ty == 1) return @bitCast(usize, -@as(c_long, 1));
+    if (ty == 0 or ty == 1) return @bitCast(usize, -@as(isize, 1));
     if (ty == 2 or ty == 3) return 0;
     unreachable;
 }
