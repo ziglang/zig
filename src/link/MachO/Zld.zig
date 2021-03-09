@@ -74,7 +74,8 @@ locals: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Symbol)) = .{},
 exports: std.StringArrayHashMapUnmanaged(macho.nlist_64) = .{},
 nonlazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
 lazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
-threadlocal_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
+tlv_bootstrap: ?Import = null,
+threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
 local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
@@ -202,16 +203,13 @@ pub fn init(allocator: *Allocator) Zld {
 }
 
 pub fn deinit(self: *Zld) void {
+    self.threadlocal_offsets.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
     self.local_rebases.deinit(self.allocator);
     for (self.lazy_imports.items()) |*entry| {
         self.allocator.free(entry.key);
     }
     self.lazy_imports.deinit(self.allocator);
-    for (self.threadlocal_imports.items()) |*entry| {
-        self.allocator.free(entry.key);
-    }
-    self.threadlocal_imports.deinit(self.allocator);
     for (self.nonlazy_imports.items()) |*entry| {
         self.allocator.free(entry.key);
     }
@@ -780,12 +778,11 @@ fn resolveImports(self: *Zld) !void {
             });
         } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
             log.debug("writing threadlocal symbol '{s}'", .{sym_name});
-            const index = @intCast(u32, self.threadlocal_imports.items().len);
-            try self.threadlocal_imports.putNoClobber(self.allocator, key, .{
+            self.tlv_bootstrap = .{
                 .symbol = new_sym,
                 .dylib_ordinal = dylib_ordinal,
-                .index = index,
-            });
+                .index = 0,
+            };
         } else {
             log.debug("writing lazy symbol '{s}'", .{sym_name});
             const index = @intCast(u32, self.lazy_imports.items().len);
@@ -1463,7 +1460,7 @@ fn doRelocs(self: *Zld) !void {
                                         mem.writeIntLittle(u64, inst, @bitCast(u64, result));
                                         sub = null;
 
-                                        outer: {
+                                        rebases: {
                                             var hit: bool = false;
                                             if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
                                                 if (self.data_section_index) |index| {
@@ -1476,12 +1473,32 @@ fn doRelocs(self: *Zld) !void {
                                                 }
                                             }
 
-                                            if (!hit) break :outer;
+                                            if (!hit) break :rebases;
 
                                             try self.local_rebases.append(self.allocator, .{
                                                 .offset = this_addr - target_seg.inner.vmaddr,
                                                 .segment_id = target_mapping.target_seg_id,
                                             });
+                                        }
+                                        // TLV is handled via a separate offset mechanism.
+                                        // Calculate the offset to the initializer.
+                                        if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
+                                            assert(rel.r_extern == 1);
+                                            const sym = object.symtab.items[rel.r_symbolnum];
+                                            if (isImport(&sym)) break :tlv;
+
+                                            const base_addr = blk: {
+                                                if (self.tlv_data_section_index) |index| {
+                                                    const tlv_data = target_seg.sections.items[index];
+                                                    break :blk tlv_data.addr;
+                                                } else {
+                                                    const tlv_bss = target_seg.sections.items[self.tlv_bss_section_index.?];
+                                                    break :blk tlv_bss.addr;
+                                                }
+                                            };
+                                            // Since we require TLV data to always preceed TLV bss section, we calculate
+                                            // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
+                                            try self.threadlocal_offsets.append(self.allocator, target_addr - base_addr);
                                         }
                                     },
                                     2 => {
@@ -1646,7 +1663,7 @@ fn doRelocs(self: *Zld) !void {
                                         mem.writeIntLittle(u64, inst, @bitCast(u64, result));
                                         sub = null;
 
-                                        outer: {
+                                        rebases: {
                                             var hit: bool = false;
                                             if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
                                                 if (self.data_section_index) |index| {
@@ -1659,12 +1676,32 @@ fn doRelocs(self: *Zld) !void {
                                                 }
                                             }
 
-                                            if (!hit) break :outer;
+                                            if (!hit) break :rebases;
 
                                             try self.local_rebases.append(self.allocator, .{
                                                 .offset = this_addr - target_seg.inner.vmaddr,
                                                 .segment_id = target_mapping.target_seg_id,
                                             });
+                                        }
+                                        // TLV is handled via a separate offset mechanism.
+                                        // Calculate the offset to the initializer.
+                                        if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
+                                            assert(rel.r_extern == 1);
+                                            const sym = object.symtab.items[rel.r_symbolnum];
+                                            if (isImport(&sym)) break :tlv;
+
+                                            const base_addr = blk: {
+                                                if (self.tlv_data_section_index) |index| {
+                                                    const tlv_data = target_seg.sections.items[index];
+                                                    break :blk tlv_data.addr;
+                                                } else {
+                                                    const tlv_bss = target_seg.sections.items[self.tlv_bss_section_index.?];
+                                                    break :blk tlv_bss.addr;
+                                                }
+                                            };
+                                            // Since we require TLV data to always preceed TLV bss section, we calculate
+                                            // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
+                                            try self.threadlocal_offsets.append(self.allocator, target_addr - base_addr);
                                         }
                                     },
                                     2 => {
@@ -1771,10 +1808,10 @@ fn relocTargetAddr(self: *Zld, object_id: u16, rel: macho.relocation_info) !u64 
                     const segment = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
                     const got = segment.sections.items[self.got_section_index.?];
                     break :blk got.addr + ext.index * @sizeOf(u64);
-                } else if (self.threadlocal_imports.get(sym_name)) |ext| {
+                } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
                     const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
                     const tlv = segment.sections.items[self.tlv_section_index.?];
-                    break :blk tlv.addr + ext.index * @sizeOf(u64);
+                    break :blk tlv.addr + self.tlv_bootstrap.?.index * @sizeOf(u64);
                 } else {
                     log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
                     return error.FailedToResolveRelocationTarget;
@@ -2207,11 +2244,33 @@ fn flush(self: *Zld) !void {
         const sect = &seg.sections.items[index];
         sect.offset = 0;
     }
+
     if (self.tlv_bss_section_index) |index| {
         const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const sect = &seg.sections.items[index];
         sect.offset = 0;
     }
+
+    if (self.tlv_section_index) |index| {
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = &seg.sections.items[index];
+
+        var buffer = try self.allocator.alloc(u8, sect.size);
+        defer self.allocator.free(buffer);
+        _ = try self.file.?.preadAll(buffer, sect.offset);
+
+        var stream = std.io.fixedBufferStream(buffer);
+        var writer = stream.writer();
+
+        const seek_amt = 2 * @sizeOf(u64);
+        while (self.threadlocal_offsets.popOrNull()) |offset| {
+            try writer.context.seekBy(seek_amt);
+            try writer.writeIntLittle(u64, offset);
+        }
+
+        try self.file.?.pwriteAll(buffer, sect.offset);
+    }
+
     try self.setEntryPoint();
     try self.writeRebaseInfoTable();
     try self.writeBindInfoTable();
@@ -2344,9 +2403,9 @@ fn pointerCmp(context: void, a: Pointer, b: Pointer) bool {
 fn writeBindInfoTable(self: *Zld) !void {
     var pointers = std.ArrayList(Pointer).init(self.allocator);
     defer pointers.deinit();
-    try pointers.ensureCapacity(self.nonlazy_imports.items().len + self.threadlocal_imports.items().len);
 
     if (self.got_section_index) |idx| {
+        try pointers.ensureCapacity(pointers.items.len + self.nonlazy_imports.items().len);
         const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
         const sect = seg.sections.items[idx];
         const base_offset = sect.addr - seg.inner.vmaddr;
@@ -2366,14 +2425,12 @@ fn writeBindInfoTable(self: *Zld) !void {
         const sect = seg.sections.items[idx];
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
-        for (self.threadlocal_imports.items()) |entry| {
-            pointers.appendAssumeCapacity(.{
-                .offset = base_offset + entry.value.index * @sizeOf(u64),
-                .segment_id = segment_id,
-                .dylib_ordinal = entry.value.dylib_ordinal,
-                .name = entry.key,
-            });
-        }
+        try pointers.append(.{
+            .offset = base_offset + self.tlv_bootstrap.?.index * @sizeOf(u64),
+            .segment_id = segment_id,
+            .dylib_ordinal = self.tlv_bootstrap.?.dylib_ordinal,
+            .name = "__tlv_bootstrap",
+        });
     }
 
     const size = try bindInfoSize(pointers.items);
@@ -2701,7 +2758,11 @@ fn writeSymbolTable(self: *Zld) !void {
         exports.appendAssumeCapacity(entry.value);
     }
 
-    const nundefs = self.lazy_imports.items().len + self.nonlazy_imports.items().len + self.threadlocal_imports.items().len;
+    const has_tlv: bool = self.tlv_bootstrap != null;
+
+    var nundefs = self.lazy_imports.items().len + self.nonlazy_imports.items().len;
+    if (has_tlv) nundefs += 1;
+
     var undefs = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer undefs.deinit();
 
@@ -2712,8 +2773,8 @@ fn writeSymbolTable(self: *Zld) !void {
     for (self.nonlazy_imports.items()) |entry| {
         undefs.appendAssumeCapacity(entry.value.symbol);
     }
-    for (self.threadlocal_imports.items()) |entry| {
-        undefs.appendAssumeCapacity(entry.value.symbol);
+    if (has_tlv) {
+        undefs.appendAssumeCapacity(self.tlv_bootstrap.?.symbol);
     }
 
     const locals_off = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
