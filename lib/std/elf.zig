@@ -1525,6 +1525,8 @@ pub const EM = extern enum(u16) {
 
     /// Linux kernel bpf virtual machine
     _BPF = 247,
+
+    _,
 };
 
 /// Section data should be writable during execution.
