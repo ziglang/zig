@@ -1187,4 +1187,15 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Cast signed integer to pointer. Issue #8201",
+        \\#include <stdlib.h>
+        \\#define MAP_FAILED  ((void *) -1)
+        \\int main(void) {
+        \\    void *ptr = MAP_FAILED;
+        \\    if ((size_t)ptr != (size_t)-1) abort();
+        \\    if ((int)ptr != -1) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

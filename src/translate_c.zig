@@ -1887,7 +1887,12 @@ fn transCCast(
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
         // @intToPtr(dest_type, val)
-        return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        var rhs = expr;
+        if (cIsSignedInteger(src_type)) {
+            // @intToPtr(dest_type, @bitCast(usize, @intCast(isize, val)));
+            rhs = try usizeCastForWrappingPtrArithmetic(c.arena, expr);
+        }
+        return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_node, .rhs = rhs });
     }
     if (cIsFloating(src_type) and cIsFloating(dst_type)) {
         // @floatCast(dest_type, val)
