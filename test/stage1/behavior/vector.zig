@@ -510,18 +510,9 @@ test "vector reduce operation" {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
 
-            // LLVM ERROR: Cannot select: intrinsic %llvm.aarch64.neon.fminnmv
-            // https://github.com/ziglang/zig/issues/8130
             // wasmtime: unknown import: `env::fminf` has not been defined
             // https://github.com/ziglang/zig/issues/8131
             switch (std.builtin.arch) {
-                .aarch64 => switch (TX) {
-                    f16 => switch (op) {
-                        .Min, .Max, => return,
-                        else => {},
-                    },
-                    else => {},
-                },
                 .wasm32 => switch (@typeInfo(TX)) {
                     .Float => switch (op) {
                         .Min, .Max, => return,
