@@ -107,6 +107,18 @@ pub const onetimeauth = struct {
 pub const pwhash = struct {
     pub const bcrypt = @import("crypto/bcrypt.zig");
     pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
+
+    pub const scrypt = struct {
+        pub const mcf_encoding = @import("crypto/scrypt/mcf_encoding.zig");
+        
+        const scrypt = @import("crypto/scrypt/scrypt.zig");
+        pub const Error = scrypt.Error;
+        pub const Params = scrypt.Params;
+        pub const kdf = scrypt.kdf;
+        pub const phc_alg_id = scrypt.phc_alg_id;
+    };
+
+    pub const phc_encoding = @import("crypto/phc_encoding.zig");
 };
 
 /// Digital signature functions.
