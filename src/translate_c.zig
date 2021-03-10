@@ -1058,6 +1058,10 @@ fn transStmt(
             const compound_literal = @ptrCast(*const clang.CompoundLiteralExpr, stmt);
             return transExpr(c, scope, compound_literal.getInitializer(), result_used);
         },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, stmt);
+            return transExpr(c, scope, gen_sel.getResultExpr(), result_used);
+        },
         else => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
@@ -1581,6 +1585,10 @@ fn exprIsNarrowStringLiteral(expr: *const clang.Expr) bool {
         .ParenExprClass => {
             const op_expr = @ptrCast(*const clang.ParenExpr, expr).getSubExpr();
             return exprIsNarrowStringLiteral(op_expr);
+        },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, expr);
+            return exprIsNarrowStringLiteral(gen_sel.getResultExpr());
         },
         else => return false,
     }
@@ -2724,6 +2732,10 @@ fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
             const un_op = @ptrCast(*const clang.UnaryOperator, expr);
             const opcode = un_op.getOpcode();
             return (opcode == .AddrOf or opcode == .Deref) and cIsFunctionDeclRef(un_op.getSubExpr());
+        },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, expr);
+            return cIsFunctionDeclRef(gen_sel.getResultExpr());
         },
         else => return false,
     }
