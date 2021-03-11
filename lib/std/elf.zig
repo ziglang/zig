@@ -337,6 +337,7 @@ pub const ET = extern enum(u16) {
 /// All integers are native endian.
 pub const Header = struct {
     endian: builtin.Endian,
+    machine: EM,
     is_64: bool,
     entry: u64,
     phoff: u64,
@@ -387,8 +388,14 @@ pub const Header = struct {
             else => return error.InvalidElfClass,
         };
 
+        const machine = if (need_bswap) blk: {
+            const value = @enumToInt(hdr32.e_machine);
+            break :blk @intToEnum(EM, @byteSwap(@TypeOf(value), value));
+        } else hdr32.e_machine;
+
         return @as(Header, .{
             .endian = endian,
+            .machine = machine,
             .is_64 = is_64,
             .entry = int(is_64, need_bswap, hdr32.e_entry, hdr64.e_entry),
             .phoff = int(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff),
@@ -1518,6 +1525,8 @@ pub const EM = extern enum(u16) {
 
     /// Linux kernel bpf virtual machine
     _BPF = 247,
+
+    _,
 };
 
 /// Section data should be writable during execution.
