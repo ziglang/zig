@@ -1094,6 +1094,58 @@ test "sizeof" {
     testing.expect(sizeof(c_void) == 1);
 }
 
+pub const CIntLiteralRadix = enum { decimal, octal, hexadecimal };
+
+fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: comptime_int, comptime radix: CIntLiteralRadix) type {
+    const signed_decimal = [_]type{ c_int, c_long, c_longlong };
+    const signed_oct_hex = [_]type{ c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong };
+    const unsigned = [_]type{ c_uint, c_ulong, c_ulonglong };
+
+    const list: []const type = if (@typeInfo(SuffixType).Int.signedness == .unsigned)
+        &unsigned
+    else if (radix == .decimal)
+        &signed_decimal
+    else
+        &signed_oct_hex;
+
+    var pos = mem.indexOfScalar(type, list, SuffixType).?;
+
+    while (pos < list.len) : (pos += 1) {
+        if (number >= math.minInt(list[pos]) and number <= math.maxInt(list[pos])) {
+            return list[pos];
+        }
+    }
+    @compileError("Integer literal is too large");
+}
+
+/// Promote the type of an integer literal until it fits as C would.
+/// This is for translate-c and is not intended for general use.
+pub fn promoteIntLiteral(
+    comptime SuffixType: type,
+    comptime number: comptime_int,
+    comptime radix: CIntLiteralRadix,
+) PromoteIntLiteralReturnType(SuffixType, number, radix) {
+    return number;
+}
+
+test "promoteIntLiteral" {
+    const signed_hex = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .hexadecimal);
+    testing.expectEqual(c_uint, @TypeOf(signed_hex));
+
+    if (math.maxInt(c_longlong) == math.maxInt(c_int)) return;
+
+    const signed_decimal = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .decimal);
+    const unsigned = promoteIntLiteral(c_uint, math.maxInt(c_uint) + 1, .hexadecimal);
+
+    if (math.maxInt(c_long) > math.maxInt(c_int)) {
+        testing.expectEqual(c_long, @TypeOf(signed_decimal));
+        testing.expectEqual(c_ulong, @TypeOf(unsigned));
+    } else {
+        testing.expectEqual(c_longlong, @TypeOf(signed_decimal));
+        testing.expectEqual(c_ulonglong, @TypeOf(unsigned));
+    }
+}
+
 /// For a given function type, returns a tuple type which fields will
 /// correspond to the argument types.
 ///

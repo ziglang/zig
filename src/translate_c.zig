@@ -4435,40 +4435,68 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
 
     switch (m.list[m.i].id) {
         .IntegerLiteral => |suffix| {
+            var radix: []const u8 = "decimal";
             if (lit_bytes.len > 2 and lit_bytes[0] == '0') {
                 switch (lit_bytes[1]) {
                     '0'...'7' => {
                         // Octal
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes});
+                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes[1..]});
+                        radix = "octal";
                     },
                     'X' => {
                         // Hexadecimal with capital X, valid in C but not in Zig
                         lit_bytes = try std.fmt.allocPrint(c.arena, "0x{s}", .{lit_bytes[2..]});
+                        radix = "hexadecimal";
+                    },
+                    'x' => {
+                        radix = "hexadecimal";
                     },
                     else => {},
                 }
             }
 
-            if (suffix == .none) {
-                return transCreateNodeNumber(c, lit_bytes, .int);
-            }
-
             const type_node = try Tag.type.create(c.arena, switch (suffix) {
+                .none => "c_int",
                 .u => "c_uint",
                 .l => "c_long",
                 .lu => "c_ulong",
                 .ll => "c_longlong",
                 .llu => "c_ulonglong",
-                else => unreachable,
+                .f => unreachable,
             });
             lit_bytes = lit_bytes[0 .. lit_bytes.len - switch (suffix) {
-                .u, .l => @as(u8, 1),
+                .none => @as(u8, 0),
+                .u, .l => 1,
                 .lu, .ll => 2,
                 .llu => 3,
-                else => unreachable,
+                .f => unreachable,
             }];
-            const rhs = try transCreateNodeNumber(c, lit_bytes, .int);
-            return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
+
+            const value = std.fmt.parseInt(i128, lit_bytes, 0) catch math.maxInt(i128);
+
+            // make the output less noisy by skipping promoteIntLiteral where
+            // it's guaranteed to not be required because of C standard type constraints
+            const guaranteed_to_fit = switch (suffix) {
+                .none => if (math.cast(i16, value)) |_| true else |_| false,
+                .u => if (math.cast(u16, value)) |_| true else |_| false,
+                .l => if (math.cast(i32, value)) |_| true else |_| false,
+                .lu => if (math.cast(u32, value)) |_| true else |_| false,
+                .ll => if (math.cast(i64, value)) |_| true else |_| false,
+                .llu => if (math.cast(u64, value)) |_| true else |_| false,
+                .f => unreachable,
+            };
+
+            const literal_node = try transCreateNodeNumber(c, lit_bytes, .int);
+
+            if (guaranteed_to_fit) {
+                return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = literal_node });
+            } else {
+                return Tag.std_meta_promoteIntLiteral.create(c.arena, .{
+                    .type = type_node,
+                    .value = literal_node,
+                    .radix = try Tag.enum_literal.create(c.arena, radix),
+                });
+            }
         },
         .FloatLiteral => |suffix| {
             if (lit_bytes[0] == '.')
