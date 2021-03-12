@@ -835,7 +835,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                             std.process.exit(1);
                         }
                     },
-                    else => std.process.abort(),
+                    else => {
+                        log.err("{s} terminated", .{ argv.items[0] });
+                        return error.LLDCrashed;
+                    },
                 }
             } else {
                 child.stdin_behavior = .Ignore;
