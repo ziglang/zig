@@ -210,13 +210,15 @@ fn refreshWithHeldLock(self: *Progress) void {
 
         saved_cursor_pos = info.dwCursorPosition;
 
-        const window_height = @intCast(windows.DWORD, info.srWindow.Bottom - info.srWindow.Top) + 1;
-        const window_width = @intCast(windows.DWORD, info.srWindow.Right - info.srWindow.Left) + 1;
+        const window_height = @intCast(windows.DWORD, info.srWindow.Bottom - info.srWindow.Top + 1);
+        const window_width = @intCast(windows.DWORD, info.srWindow.Right - info.srWindow.Left + 1);
         // Number of terminal cells to clear, starting from the cursor position
         // and ending at the window bottom right corner.
-        const fill_chars = window_width * (window_height -
-            @intCast(windows.DWORD, info.dwCursorPosition.Y - info.srWindow.Top)) -
-            @intCast(windows.DWORD, info.dwCursorPosition.X - info.srWindow.Left);
+        const fill_chars = if (window_width == 0 or window_height == 0) 0 else chars: {
+            break :chars window_width * (window_height -
+                @intCast(windows.DWORD, info.dwCursorPosition.Y - info.srWindow.Top)) -
+                @intCast(windows.DWORD, info.dwCursorPosition.X - info.srWindow.Left);
+        };
 
         var written: windows.DWORD = undefined;
         if (windows.kernel32.FillConsoleOutputAttribute(
