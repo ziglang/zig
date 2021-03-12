@@ -616,7 +616,7 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, writer: anytype, address: us
         else => return err,
     };
 
-    const symbol_info = try module.getSymbolAtAddress(address);
+    const symbol_info = try module.addressToSymbol(address);
     defer symbol_info.deinit();
 
     return printLineInfo(
@@ -1475,7 +1475,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             return di;
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
             nosuspend {
                 // Translate the VA into an address into this object
                 const relocated_address = address - self.base_address;
@@ -1544,7 +1544,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             return self.coff.allocator;
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
@@ -1697,7 +1697,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
 
-        pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+        pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
