@@ -51,6 +51,8 @@ phdr_load_re_index: ?u16 = null,
 /// The index into the program headers of the global offset table.
 /// It needs PT_LOAD and Read flags.
 phdr_got_index: ?u16 = null,
+/// The index into the program headers of a PT_LOAD program header with Read flag
+phdr_load_ro_index: ?u16 = null,
 entry_addr: ?u64 = null,
 
 debug_strtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
@@ -60,6 +62,7 @@ shstrtab_index: ?u16 = null,
 text_section_index: ?u16 = null,
 symtab_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
+rodata_section_index: ?u16 = null,
 debug_info_section_index: ?u16 = null,
 debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
@@ -489,6 +492,28 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         });
         self.phdr_table_dirty = true;
     }
+    if (self.phdr_load_ro_index == null) {
+        self.phdr_load_ro_index = @intCast(u16, self.program_headers.items.len);
+        // TODO Find a hint about how much data need to be in rodata ?
+        const file_size = 1024;
+        // Same reason as for GOT
+        const p_align = if (self.base.options.target.os.tag == .linux) 0x1000 else @as(u16, ptr_size);
+        const off = self.findFreeSpace(file_size, p_align);
+        log.debug("found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        // TODO Same as for GOT
+        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x6000000 else 0xD000;
+        try self.program_headers.append(self.base.allocator, .{
+            .p_type = elf.PT_LOAD,
+            .p_offset = off,
+            .p_filesz = file_size,
+            .p_vaddr = rodata_addr,
+            .p_paddr = rodata_addr,
+            .p_memsz = file_size,
+            .p_align = p_align,
+            .p_flags = elf.PF_R,
+        });
+        self.phdr_table_dirty = true;
+    }
     if (self.shstrtab_index == null) {
         self.shstrtab_index = @intCast(u16, self.sections.items.len);
         assert(self.shstrtab.items.len == 0);
@@ -534,6 +559,24 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
         try self.sections.append(self.base.allocator, .{
             .sh_name = try self.makeString(".got"),
+            .sh_type = elf.SHT_PROGBITS,
+            .sh_flags = elf.SHF_ALLOC,
+            .sh_addr = phdr.p_vaddr,
+            .sh_offset = phdr.p_offset,
+            .sh_size = phdr.p_filesz,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = phdr.p_align,
+            .sh_entsize = 0,
+        });
+        self.shdr_table_dirty = true;
+    }
+    if (self.rodata_section_index == null) {
+        self.rodata_section_index = @intCast(u16, self.sections.items.len);
+        const phdr = &self.program_headers.items[self.phdr_load_ro_index.?];
+
+        try self.sections.append(self.base.allocator, .{
+            .sh_name = try self.makeString(".rodata"),
             .sh_type = elf.SHT_PROGBITS,
             .sh_flags = elf.SHF_ALLOC,
             .sh_addr = phdr.p_vaddr,
