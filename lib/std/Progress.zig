@@ -185,9 +185,11 @@ pub fn refresh(self: *Progress) void {
 // ED -- Clear screen
 const ED = "\x1b[J";
 // DECSC -- Save cursor position
-const DECSC = "\x1b[s";
+const DECSC = "\x1b7";
 // DECRC -- Restore cursor position
-const DECRC = "\x1b[u";
+const DECRC = "\x1b8";
+// Note that ESC7/ESC8 are used instead of CSI s/CSI u as the latter are not
+// supported by some terminals (eg. Terminal.app).
 
 fn refreshWithHeldLock(self: *Progress) void {
     const is_dumb = !self.supports_ansi_escape_codes and !(std.builtin.os.tag == .windows);
