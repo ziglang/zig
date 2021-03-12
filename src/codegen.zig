@@ -2267,6 +2267,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue{ .dead = {} };
+            if (inst.lhs.ty.zigTypeTag() == .ErrorSet or inst.rhs.ty.zigTypeTag() == .ErrorSet)
+                return self.fail(inst.base.src, "TODO implement cmp for errors", .{});
             switch (arch) {
                 .x86_64 => {
                     try self.code.ensureCapacity(self.code.items.len + 8);

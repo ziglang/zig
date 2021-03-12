@@ -1686,8 +1686,8 @@ pub const Type = extern union {
                 return ty.optionalChild(&buf).isValidVarType(is_extern);
             },
             .Pointer, .Array => ty = ty.elemType(),
+            .ErrorUnion => ty = ty.errorUnionChild(),
 
-            .ErrorUnion => @panic("TODO fn isValidVarType"),
             .Fn => @panic("TODO fn isValidVarType"),
             .Struct => @panic("TODO struct isValidVarType"),
             .Union => @panic("TODO union isValidVarType"),
@@ -1811,6 +1811,29 @@ pub const Type = extern union {
             },
             else => unreachable,
         }
+    }
+
+    /// Asserts that the type is an error union.
+    pub fn errorUnionChild(self: Type) Type {
+        return switch (self.tag()) {
+            .anyerror_void_error_union => Type.initTag(.anyerror),
+            .error_union => {
+                const payload = self.castTag(.error_union).?;
+                return payload.data.payload;
+            },
+            else => unreachable,
+        };
+    }
+
+    pub fn errorUnionSet(self: Type) Type {
+        return switch (self.tag()) {
+            .anyerror_void_error_union => Type.initTag(.anyerror),
+            .error_union => {
+                const payload = self.castTag(.error_union).?;
+                return payload.data.error_set;
+            },
+            else => unreachable,
+        };
     }
 
     /// Asserts the type is an array or vector.
