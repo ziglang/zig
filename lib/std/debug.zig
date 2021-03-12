@@ -329,7 +329,7 @@ const RESET = "\x1b[0m";
 
 pub fn writeStackTrace(
     stack_trace: builtin.StackTrace,
-    out_stream: anytype,
+    writer: anytype,
     allocator: *mem.Allocator,
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
@@ -343,7 +343,7 @@ pub fn writeStackTrace(
         frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
     }) {
         const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_config);
+        try printSourceAtAddress(debug_info, writer, return_address - 1, tty_config);
     }
 }
 
@@ -429,22 +429,22 @@ pub const StackIterator = struct {
 };
 
 pub fn writeCurrentStackTrace(
-    out_stream: anytype,
+    writer: anytype,
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
     start_addr: ?usize,
 ) !void {
     if (builtin.os.tag == .windows) {
-        return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
+        return writeCurrentStackTraceWindows(writer, debug_info, tty_config, start_addr);
     }
     var it = StackIterator.init(start_addr, null);
     while (it.next()) |return_address| {
-        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_config);
+        try printSourceAtAddress(debug_info, writer, return_address - 1, tty_config);
     }
 }
 
 pub fn writeCurrentStackTraceWindows(
-    out_stream: anytype,
+    writer: anytype,
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
     start_addr: ?usize,
@@ -459,7 +459,7 @@ pub fn writeCurrentStackTraceWindows(
         return;
     } else 0;
     for (addrs[start_i..]) |addr| {
-        try printSourceAtAddress(debug_info, out_stream, addr - 1, tty_config);
+        try printSourceAtAddress(debug_info, writer, addr - 1, tty_config);
     }
 }
 
@@ -480,16 +480,16 @@ pub const TTY = struct {
         // TODO give this a payload of file handle
         windows_api,
 
-        fn setColor(conf: Config, out_stream: anytype, color: Color) void {
+        fn setColor(conf: Config, writer: anytype, color: Color) void {
             nosuspend switch (conf) {
                 .no_color => return,
                 .escape_codes => switch (color) {
-                    .Red => out_stream.writeAll(RED) catch return,
-                    .Green => out_stream.writeAll(GREEN) catch return,
-                    .Cyan => out_stream.writeAll(CYAN) catch return,
-                    .White, .Bold => out_stream.writeAll(WHITE) catch return,
-                    .Dim => out_stream.writeAll(DIM) catch return,
-                    .Reset => out_stream.writeAll(RESET) catch return,
+                    .Red => writer.writeAll(RED) catch return,
+                    .Green => writer.writeAll(GREEN) catch return,
+                    .Cyan => writer.writeAll(CYAN) catch return,
+                    .White, .Bold => writer.writeAll(WHITE) catch return,
+                    .Dim => writer.writeAll(DIM) catch return,
+                    .Reset => writer.writeAll(RESET) catch return,
                 },
                 .windows_api => if (builtin.os.tag == .windows) {
                     const stderr_file = io.getStdErr();
@@ -600,11 +600,11 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: TTY.Config) !void {
+pub fn printSourceAtAddress(debug_info: *DebugInfo, writer: anytype, address: usize, tty_config: TTY.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {
             return printLineInfo(
-                out_stream,
+                writer,
                 null,
                 address,
                 "???",
@@ -620,7 +620,7 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address
     defer symbol_info.deinit();
 
     return printLineInfo(
-        out_stream,
+        writer,
         symbol_info.line_info,
         address,
         symbol_info.symbol_name,
@@ -631,7 +631,7 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address
 }
 
 fn printLineInfo(
-    out_stream: anytype,
+    writer: anytype,
     line_info: ?LineInfo,
     address: usize,
     symbol_name: []const u8,
@@ -640,34 +640,34 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        tty_config.setColor(out_stream, .White);
+        tty_config.setColor(writer, .White);
 
         if (line_info) |*li| {
-            try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
+            try writer.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
         } else {
-            try out_stream.writeAll("???:?:?");
+            try writer.writeAll("???:?:?");
         }
 
-        tty_config.setColor(out_stream, .Reset);
-        try out_stream.writeAll(": ");
-        tty_config.setColor(out_stream, .Dim);
-        try out_stream.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
-        tty_config.setColor(out_stream, .Reset);
-        try out_stream.writeAll("\n");
+        tty_config.setColor(writer, .Reset);
+        try writer.writeAll(": ");
+        tty_config.setColor(writer, .Dim);
+        try writer.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
+        tty_config.setColor(writer, .Reset);
+        try writer.writeAll("\n");
 
         // Show the matching source code line if possible
         if (line_info) |li| {
-            if (printLineFromFile(out_stream, li)) {
+            if (printLineFromFile(writer, li)) {
                 if (li.column > 0) {
                     // The caret already takes one char
                     const space_needed = @intCast(usize, li.column - 1);
 
-                    try out_stream.writeByteNTimes(' ', space_needed);
-                    tty_config.setColor(out_stream, .Green);
-                    try out_stream.writeAll("^");
-                    tty_config.setColor(out_stream, .Reset);
+                    try writer.writeByteNTimes(' ', space_needed);
+                    tty_config.setColor(writer, .Green);
+                    try writer.writeAll("^");
+                    tty_config.setColor(writer, .Reset);
                 }
-                try out_stream.writeAll("\n");
+                try writer.writeAll("\n");
             } else |err| switch (err) {
                 error.EndOfFile, error.FileNotFound => {},
                 error.BadPathName => {},
@@ -1051,7 +1051,7 @@ fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugI
     };
 }
 
-fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
+fn printLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
     var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
@@ -1068,7 +1068,7 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
 
         for (slice) |byte| {
             if (line == line_info.line) {
-                try out_stream.writeByte(byte);
+                try writer.writeByte(byte);
                 if (byte == '\n') {
                     return;
                 }
