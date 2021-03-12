@@ -810,11 +810,12 @@ test "peer type resolution implicit cast to variable type" {
     const S = struct {
         fn doTheTest() void {
             var x: []const u8 = undefined;
-            for ("hello") |c| x = switch (c) {
-                'h', 'e' => &[_]u8{c}, // should cast to slice
-                'l', ' ' => &[_]u8{ c, '.' }, // should cast to slice
-                else => ([_]u8{c})[0..], // is a slice
-            };
+            for ("hello") |c|
+                x = switch (c) {
+                    'h', 'e' => &[_]u8{c}, // should cast to slice
+                    'l', ' ' => &[_]u8{ c, '.' }, // should cast to slice
+                    else => ([_]u8{c})[0..], // is a slice
+                };
         }
     };
     S.doTheTest();
