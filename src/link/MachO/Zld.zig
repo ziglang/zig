@@ -767,7 +767,9 @@ fn resolveImports(self: *Zld) !void {
             mem.eql(u8, sym_name, "___stderrp") or
             mem.eql(u8, sym_name, "___stdinp") or
             mem.eql(u8, sym_name, "___stack_chk_guard") or
-            mem.eql(u8, sym_name, "_environ"))
+            mem.eql(u8, sym_name, "_environ") or
+            mem.eql(u8, sym_name, "__DefaultRuneLocale") or
+            mem.eql(u8, sym_name, "_mach_task_self_"))
         {
             log.debug("writing nonlazy symbol '{s}'", .{sym_name});
             const index = @intCast(u32, self.nonlazy_imports.items().len);
@@ -1192,6 +1194,8 @@ fn writeStubInStubHelper(self: *Zld, index: u32) !void {
 fn resolveSymbols(self: *Zld) !void {
     for (self.objects.items) |object, object_id| {
         const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+        log.debug("\n\n", .{});
+        log.debug("resolving symbols in {s}", .{object.name});
 
         for (object.symtab.items) |sym| {
             if (isImport(&sym)) continue;
@@ -1219,8 +1223,10 @@ fn resolveSymbols(self: *Zld) !void {
             if (tt == .Global) {
                 for (locs.entry.value.items) |ss| {
                     if (ss.tt == .Global) {
-                        log.err("symbol '{s}' defined multiple times", .{sym_name});
-                        return error.MultipleSymbolDefinitions;
+                        log.debug("symbol already defined '{s}'", .{sym_name});
+                        continue;
+                        // log.err("symbol '{s}' defined multiple times: {}", .{ sym_name, sym });
+                        // return error.MultipleSymbolDefinitions;
                     }
                 }
             }
@@ -1589,8 +1595,28 @@ fn doRelocs(self: *Zld) !void {
                                         ),
                                         inst,
                                     );
+
                                     const ta = if (addend) |a| target_addr + a else target_addr;
                                     const narrowed = @truncate(u12, ta);
+                                    log.debug("    | narrowed 0x{x}", .{narrowed});
+                                    log.debug("    | parsed.size 0x{x}", .{parsed.size});
+
+                                    if (rel_type == .ARM64_RELOC_GOT_LOAD_PAGEOFF12) blk: {
+                                        const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+                                        const got = data_const_seg.sections.items[self.got_section_index.?];
+                                        if (got.addr <= target_addr and target_addr < got.addr + got.size) break :blk;
+
+                                        log.debug("    | rewriting to add", .{});
+                                        mem.writeIntLittle(u32, inst, aarch64.Instruction.add(
+                                            @intToEnum(aarch64.Register, parsed.rt),
+                                            @intToEnum(aarch64.Register, parsed.rn),
+                                            narrowed,
+                                            false,
+                                        ).toU32());
+                                        addend = null;
+                                        continue;
+                                    }
+
                                     const offset: u12 = blk: {
                                         if (parsed.size == 0) {
                                             if (parsed.v == 1) {
@@ -2628,8 +2654,16 @@ fn writeDebugInfo(self: *Zld) !void {
             });
             // Path to object file with debug info
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const path = object.name;
-            const full_path = try std.os.realpath(path, &buffer);
+            const full_path = blk: {
+                if (object.ar_name) |prefix| {
+                    const path = try std.os.realpath(prefix, &buffer);
+                    break :blk try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object.name });
+                } else {
+                    const path = try std.os.realpath(object.name, &buffer);
+                    break :blk try mem.dupe(self.allocator, u8, path);
+                }
+            };
+            defer self.allocator.free(full_path);
             const stat = try object.file.stat();
             const mtime = @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
             try stabs.append(.{
@@ -2640,6 +2674,7 @@ fn writeDebugInfo(self: *Zld) !void {
                 .n_value = mtime,
             });
         }
+        log.debug("analyzing debug info in '{s}'", .{object.name});
 
         for (object.symtab.items) |source_sym| {
             const symname = object.getString(source_sym.n_strx);

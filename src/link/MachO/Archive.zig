@@ -202,13 +202,17 @@ fn readObject(self: *Archive, arch: std.Target.Cpu.Arch, ar_name: []const u8, re
     var object = Object{
         .allocator = self.allocator,
         .name = object_name,
+        .ar_name = try mem.dupe(self.allocator, u8, ar_name),
         .file = new_file,
         .header = header,
     };
 
     try object.readLoadCommands(reader, .{ .offset = offset });
-    try object.readSymtab();
-    try object.readStrtab();
+
+    if (object.symtab_cmd.index != null) {
+        try object.readSymtab();
+        try object.readStrtab();
+    }
 
     if (object.data_in_code_cmd_index != null) try object.readDataInCode();
 

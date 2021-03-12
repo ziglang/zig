@@ -16,6 +16,7 @@ usingnamespace @import("commands.zig");
 allocator: *Allocator,
 file: fs.File,
 name: []u8,
+ar_name: ?[]u8 = null,
 
 header: macho.mach_header_64,
 
@@ -49,6 +50,9 @@ pub fn deinit(self: *Object) void {
     self.strtab.deinit(self.allocator);
     self.data_in_code_entries.deinit(self.allocator);
     self.allocator.free(self.name);
+    if (self.ar_name) |v| {
+        self.allocator.free(v);
+    }
     self.file.close();
 }
 
@@ -85,8 +89,11 @@ pub fn initFromFile(allocator: *Allocator, arch: std.Target.Cpu.Arch, name: []co
     };
 
     try self.readLoadCommands(reader, .{});
-    try self.readSymtab();
-    try self.readStrtab();
+
+    if (self.symtab_cmd_index != null) {
+        try self.readSymtab();
+        try self.readStrtab();
+    }
 
     if (self.data_in_code_cmd_index != null) try self.readDataInCode();
 
