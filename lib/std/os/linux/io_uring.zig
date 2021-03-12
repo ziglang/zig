@@ -163,9 +163,9 @@ pub const IO_Uring = struct {
     /// Returns the number of SQEs submitted.
     /// Matches the implementation of io_uring_submit_and_wait() in liburing.
     pub fn submit_and_wait(self: *IO_Uring, wait_nr: u32) !u32 {
-        var submitted = self.flush_sq();
+        const submitted = self.flush_sq();
         var flags: u32 = 0;
-        if (self.sq_ring_needs_enter(submitted, &flags) or wait_nr > 0) {
+        if (self.sq_ring_needs_enter(&flags) or wait_nr > 0) {
             if (wait_nr > 0 or (self.flags & linux.IORING_SETUP_IOPOLL) != 0) {
                 flags |= linux.IORING_ENTER_GETEVENTS;
             }
@@ -236,9 +236,9 @@ pub const IO_Uring = struct {
     /// or if IORING_SQ_NEED_WAKEUP is set and the SQ thread must be explicitly awakened.
     /// For the latter case, we set the SQ thread wakeup flag.
     /// Matches the implementation of sq_ring_needs_enter() in liburing.
-    pub fn sq_ring_needs_enter(self: *IO_Uring, submitted: u32, flags: *u32) bool {
+    pub fn sq_ring_needs_enter(self: *IO_Uring, flags: *u32) bool {
         assert(flags.* == 0);
-        if ((self.flags & linux.IORING_SETUP_SQPOLL) == 0 and submitted > 0) return true;
+        if ((self.flags & linux.IORING_SETUP_SQPOLL) == 0) return true;
         if ((@atomicLoad(u32, self.sq.flags, .Unordered) & linux.IORING_SQ_NEED_WAKEUP) != 0) {
             flags.* |= linux.IORING_ENTER_SQ_WAKEUP;
             return true;
