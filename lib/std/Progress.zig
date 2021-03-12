@@ -209,7 +209,13 @@ fn refreshWithHeldLock(self: *Progress) void {
             unreachable;
 
         saved_cursor_pos = info.dwCursorPosition;
-        const fill_chars = @intCast(windows.DWORD, info.dwSize.X * (info.dwSize.Y - info.dwCursorPosition.Y) - info.dwCursorPosition.X);
+
+        const window_height = @intCast(windows.DWORD, info.srWindow.Bottom - info.srWindow.Top) + 1;
+        const window_width = @intCast(windows.DWORD, info.srWindow.Right - info.srWindow.Left) + 1;
+        // Number of terminal cells to clear, starting from the cursor position
+        // and ending at the window bottom right corner.
+        const fill_chars = window_width * (window_width - @intCast(windows.DWORD, info.dwCursorPosition.Y - info.srWindow.Top)) -
+            @intCast(windows.DWORD, info.dwCursorPosition.Y - info.srWindow.Top);
 
         var written: windows.DWORD = undefined;
         if (windows.kernel32.FillConsoleOutputAttribute(
@@ -271,11 +277,7 @@ fn refreshWithHeldLock(self: *Progress) void {
         const seq_after = DECRC;
         std.mem.copy(u8, self.output_buffer[end..], seq_after);
         end += seq_after.len;
-    } else if (std.builtin.os.tag == .windows) {
-        if (windows.kernel32.SetConsoleCursorPosition(file.handle, saved_cursor_pos) != windows.TRUE) {
-            unreachable;
-        }
-    } else {
+    } else if (std.builtin.os.tag != .windows) {
         self.output_buffer[end] = '\n';
         end += 1;
     }
@@ -284,6 +286,12 @@ fn refreshWithHeldLock(self: *Progress) void {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
     };
+
+    if (std.builtin.os.tag == .windows) {
+        if (windows.kernel32.SetConsoleCursorPosition(file.handle, saved_cursor_pos) != windows.TRUE)
+            unreachable;
+    }
+
     self.prev_refresh_timestamp = self.timer.read();
 }
 
