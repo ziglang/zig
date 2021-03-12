@@ -22,6 +22,7 @@ pub const DynamicBitSet = bit_set.DynamicBitSet;
 pub const DynamicBitSetUnmanaged = bit_set.DynamicBitSetUnmanaged;
 pub const HashMap = hash_map.HashMap;
 pub const HashMapUnmanaged = hash_map.HashMapUnmanaged;
+pub const HeldValue = @import("held_value.zig").HeldValue;
 pub const MultiArrayList = @import("multi_array_list.zig").MultiArrayList;
 pub const PackedIntArray = @import("packed_int_array.zig").PackedIntArray;
 pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayEndian;

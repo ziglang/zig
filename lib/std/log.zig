@@ -76,6 +76,7 @@
 
 const std = @import("std.zig");
 const builtin = std.builtin;
+const HeldValue = std.HeldValue;
 const root = @import("root");
 
 pub const Level = enum {
@@ -110,12 +111,45 @@ pub const default_level: Level = switch (builtin.mode) {
     .ReleaseSmall => .err,
 };
 
+const config = if (@hasDecl(root, "log_config"))
+    root.log_config
+else
+    default_config;
+
 /// The current log level. This is set to root.log_level if present, otherwise
 /// log.default_level.
 pub const level: Level = if (@hasDecl(root, "log_level"))
     root.log_level
 else
     default_level;
+
+pub fn defaultWriter() std.fs.File.Writer {
+    return std.io.getStdErr().writer();
+}
+
+const has_writer_decl = @hasDecl(root, "logWriter");
+
+/// The function used to get a writer for logging.
+const getWriter = if (has_writer_decl)
+    root.logWriter
+else
+    defaultWriter;
+
+/// The function used to determine which escape codes can be used for the log
+/// writer.
+pub const detectTTYConfig = if (@hasDecl(root, "logDetectTTYConfig"))
+    root.logDetectTTYConfig
+else if (has_writer_decl)
+    @compileError("logWriter exists in root, so logDetectTTYConfig must also exist")
+else
+    std.debug.default_config.detectTTYConfig;
+
+var mutex = std.Thread.Mutex{};
+
+const HeldWriter = HeldValue(@TypeOf(getWriter()));
+pub fn heldWriter() HeldWriter {
+    return .{ .value = getWriter(), .held = mutex.acquire() };
+}
 
 fn log(
     comptime message_level: Level,
@@ -142,10 +176,11 @@ fn log(
                 .debug => "debug",
             };
             const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-            const stderr = std.io.getStdErr().writer();
-            const held = std.debug.getStderrMutex().acquire();
+            const held = heldWriter();
             defer held.release();
-            nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+            const writer = held.value;
+            const full_format = level_txt ++ prefix2 ++ format ++ "\n";
+            nosuspend writer.print(full_format, args) catch {};
         }
     }
 }

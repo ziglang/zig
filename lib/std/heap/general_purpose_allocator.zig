@@ -99,12 +99,14 @@
 
 const std = @import("std");
 const log = std.log.scoped(.gpa);
+const logDetectTTYConfig = std.log.detectTTYConfig;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const page_size = std.mem.page_size;
 const StackTrace = std.builtin.StackTrace;
+const StackTraceWithTTYConfig = std.builtin.StackTraceWithTTYConfig;
 
 /// Integer type for pointing to slots in a small allocation
 const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
@@ -207,18 +209,17 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             bytes: []u8,
             stack_addresses: [stack_n]usize,
 
-            fn dumpStackTrace(self: *LargeAlloc) void {
-                std.debug.dumpStackTrace(self.getStackTrace());
-            }
-
-            fn getStackTrace(self: *LargeAlloc) std.builtin.StackTrace {
+            fn getStackTrace(self: *LargeAlloc) StackTraceWithTTYConfig {
                 var len: usize = 0;
                 while (len < stack_n and self.stack_addresses[len] != 0) {
                     len += 1;
                 }
                 return .{
-                    .instruction_addresses = &self.stack_addresses,
-                    .index = len,
+                    .trace = .{
+                        .instruction_addresses = &self.stack_addresses,
+                        .index = len,
+                    },
+                    .tty_config = logDetectTTYConfig(),
                 };
             }
         };
@@ -271,15 +272,18 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             size_class: usize,
             slot_index: SlotIndex,
             trace_kind: TraceKind,
-        ) StackTrace {
+        ) StackTraceWithTTYConfig {
             const stack_addresses = bucket.stackTracePtr(size_class, slot_index, trace_kind);
             var len: usize = 0;
             while (len < stack_n and stack_addresses[len] != 0) {
                 len += 1;
             }
-            return StackTrace{
-                .instruction_addresses = stack_addresses,
-                .index = len,
+            return .{
+                .trace = .{
+                    .instruction_addresses = stack_addresses,
+                    .index = len,
+                },
+                .tty_config = logDetectTTYConfig(),
             };
         }
 
@@ -450,7 +454,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     entry.value.bytes.len,
                     old_mem.len,
                     entry.value.getStackTrace(),
-                    free_stack_trace,
+                    free_stack_trace.withTTYConfig(logDetectTTYConfig()),
                 });
             }
 
@@ -541,7 +545,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     log.err("Double free detected. Allocation: {s} First free: {s} Second free: {s}", .{
                         alloc_stack_trace,
                         free_stack_trace,
-                        second_free_stack_trace,
+                        second_free_stack_trace.withTTYConfig(logDetectTTYConfig()),
                     });
                     if (new_size == 0) {
                         // Recoverable. Restore self.total_requested_bytes if needed, as we

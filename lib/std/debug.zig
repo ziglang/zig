@@ -16,6 +16,7 @@ const DW = std.dwarf;
 const macho = std.macho;
 const coff = std.coff;
 const pdb = std.pdb;
+const HeldValue = std.HeldValue;
 const ArrayList = std.ArrayList;
 const root = @import("root");
 const maxInt = std.math.maxInt;
@@ -25,17 +26,6 @@ const windows = std.os.windows;
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => false,
-};
-
-const Module = struct {
-    mod_info: pdb.ModInfo,
-    module_name: []u8,
-    obj_file_name: []u8,
-
-    populated: bool,
-    symbols: []u8,
-    subsect_info: []u8,
-    checksum_offset: ?usize,
 };
 
 pub const LineInfo = struct {
@@ -50,96 +40,591 @@ pub const LineInfo = struct {
     }
 };
 
-var stderr_mutex = std.Thread.Mutex{};
+pub const SymbolInfo = struct {
+    symbol_name: []const u8 = "???",
+    compile_unit_name: []const u8 = "???",
+    line_info: ?LineInfo = null,
+
+    fn deinit(self: @This()) void {
+        if (self.line_info) |li| {
+            li.deinit();
+        }
+    }
+};
+
+pub const default_config = struct {
+    pub fn getWriter() std.fs.File.Writer {
+        return std.io.getStdErr().writer();
+    }
+
+    pub fn detectTTYConfig() TTY.Config {
+        var bytes: [128]u8 = undefined;
+        const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+        if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
+            return .escape_codes;
+        } else |_| {
+            const stderr_file = io.getStdErr();
+            if (stderr_file.supportsAnsiEscapeCodes()) {
+                return .escape_codes;
+            } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
+                return .windows_api;
+            } else {
+                return .no_color;
+            }
+        }
+    }
+
+    pub const AddressSymbolMapping = struct {
+        debug_info: DebugInfo,
+
+        pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
+            const module = self.debug_info.getModuleForAddress(address) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => {
+                    return SymbolInfo{};
+                },
+                else => return err,
+            };
+
+            return module.addressToSymbol(address);
+        }
+
+        pub fn init(allocator: *std.mem.Allocator) !@This() {
+            return @This(){ .debug_info = try openSelfDebugInfo(allocator) };
+        }
+    };
+
+    fn writeLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
+        // Need this to always block even in async I/O mode, because this could potentially
+        // be called from e.g. the event loop code crashing.
+        var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
+        defer f.close();
+        // TODO fstat and make sure that the file has the correct size
+
+        var buf: [mem.page_size]u8 = undefined;
+        var line: usize = 1;
+        var column: usize = 1;
+        var abs_index: usize = 0;
+        while (true) {
+            const amt_read = try f.read(buf[0..]);
+            const slice = buf[0..amt_read];
+
+            for (slice) |byte| {
+                if (line == line_info.line) {
+                    try writer.writeByte(byte);
+                    if (byte == '\n') {
+                        return;
+                    }
+                }
+                if (byte == '\n') {
+                    line += 1;
+                    column = 1;
+                } else {
+                    column += 1;
+                }
+            }
+
+            if (amt_read < buf.len) return error.EndOfFile;
+        }
+    }
+
+    pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: LineInfo) !bool {
+        writeLineFromFileAnyOs(writer, line_info) catch |err| {
+            switch (err) {
+                error.EndOfFile, error.FileNotFound => {},
+                error.BadPathName => {},
+                error.AccessDenied => {},
+                else => return err,
+            }
+            return false;
+        };
+        return true;
+    }
+
+    /// When overriding panicTerminate, if you *must* lock a mutex, be careful not to panic!
+    /// Otherwise, this will would call panicTerminate recursively and deadlock.
+    pub const panicTerminate = os.abort;
+};
+
+const is_default_config = @hasDecl(root, "debug_config");
+const config = if (is_default_config)
+    root.debug_config
+else
+    default_config;
+
+const has_writer_decl = @hasDecl(config, "getWriter");
+
+/// The function used to get a writer for debugging.
+/// Slightly different name than in config to avoid redefinition in default.
+const getWrit = if (has_writer_decl)
+    config.getWriter
+else
+    default_config.getWriter;
+
+/// The function used to determine which escape codes can be used.
+/// Slightly different name than in config to avoid redefinition in default.
+const getTTYConfig = if (@hasDecl(config, "detectTTYConfig"))
+    config.detectTTYConfig
+else if (has_writer_decl)
+    @compileError("getWriter exists in config, so detectTTYConfig must also exist")
+else
+    default_config.detectTTYConfig;
+
+const has_address_symbol_mapping_decl = @hasDecl(config, "AddressSymbolMapping");
+const using_default_address_symbol_mapping = is_default_config or
+    !has_address_symbol_mapping_decl;
+
+/// Slightly different name than in config to avoid redefinition in default.
+const AddrSymMapping = if (has_address_symbol_mapping_decl)
+    config.AddressSymbolMapping
+else
+    default_config.AddressSymbolMapping;
+
+/// Slightly different name than in config to avoid redefinition in default.
+const writeLineFromSourceFile = if (@hasDecl(config, "attemptWriteLineFromSourceFile"))
+    config.attemptWriteLineFromSourceFile
+else
+    default_config.attemptWriteLineFromSourceFile;
+
+/// Slightly different name than in config to avoid redefinition in default.
+const panicTerm = if (@hasDecl(config, "panicTerminate"))
+    config.panicTerminate
+else
+    default_config.panicTerminate;
+
+var mutex = std.Thread.Mutex{};
+
+const HeldWriter = HeldValue(@TypeOf(getWrit()));
+pub fn heldWriter() HeldWriter {
+    return .{ .value = getWrit(), .held = mutex.acquire() };
+}
 
 /// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
 /// "printf debugging".
 pub const warn = print;
 
-/// Print to stderr, unbuffered, and silently returning on failure. Intended
+/// Print to log writer, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    const held = stderr_mutex.acquire();
+    const held = heldWriter();
     defer held.release();
-    const stderr = io.getStdErr().writer();
-    nosuspend stderr.print(fmt, args) catch return;
-}
-
-pub fn getStderrMutex() *std.Thread.Mutex {
-    return &stderr_mutex;
+    const writer = held.value;
+    nosuspend writer.print(fmt, args) catch {};
 }
 
 /// TODO multithreaded awareness
-var self_debug_info: ?DebugInfo = null;
+var symbol_at_address: ?AddrSymMapping = null;
 
-pub fn getSelfDebugInfo() !*DebugInfo {
-    if (self_debug_info) |*info| {
+pub fn getAddressSymbolMapping() !*AddrSymMapping {
+    if (symbol_at_address) |*info| {
         return info;
     } else {
-        self_debug_info = try openSelfDebugInfo(getDebugInfoAllocator());
-        return &self_debug_info.?;
+        symbol_at_address = try AddrSymMapping.init(getDebugInfoAllocator());
+        return &symbol_at_address.?;
     }
 }
 
-pub fn detectTTYConfig() TTY.Config {
-    var bytes: [128]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-    if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
-        return .escape_codes;
-    } else |_| {
-        const stderr_file = io.getStdErr();
-        if (stderr_file.supportsAnsiEscapeCodes()) {
-            return .escape_codes;
-        } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
-            return .windows_api;
-        } else {
-            return .no_color;
-        }
+fn getMappingForDump(writer: anytype) ?*AddrSymMapping {
+    if (using_default_address_symbol_mapping and builtin.strip_debug_info) {
+        writer.print("Unable to dump stack trace: debug info stripped\n", .{}) catch {};
+        return null;
     }
+    return getAddressSymbolMapping() catch |err| {
+        writer.print(
+            "Unable to dump stack trace: Unable to open debug info: {s}\n",
+            .{@errorName(err)},
+        ) catch {};
+        return null;
+    };
+}
+
+/// Should be called with the writer locked.
+fn getStackTraceDumper(writer: anytype) ?StackTraceDumper(@TypeOf(writer)) {
+    return if (getMappingForDump(writer)) |mapping|
+        .{ .writer = writer, .tty_config = getTTYConfig(), .mapping = mapping }
+    else
+        null;
+}
+
+fn dumpHandleError(writer: anytype, err: anytype) void {
+    writer.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
-/// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    nosuspend {
-        const stderr = io.getStdErr().writer();
-        if (builtin.strip_debug_info) {
-            stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
-            return;
-        }
-        const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
-            return;
-        };
-        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(), start_addr) catch |err| {
-            stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
-            return;
-        };
-    }
+    const held = heldWriter();
+    defer held.release();
+    const writer = held.value;
+    nosuspend if (getStackTraceDumper(writer)) |write_trace| {
+        write_trace.current(start_addr) catch |err| dumpHandleError(writer, err);
+    };
 }
 
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
-/// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
-    nosuspend {
-        const stderr = io.getStdErr().writer();
-        if (builtin.strip_debug_info) {
-            stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
-            return;
-        }
-        const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
-            return;
+    const held = heldWriter();
+    defer held.release();
+    const writer = held.value;
+    nosuspend if (getStackTraceDumper(writer)) |write_trace| {
+        write_trace.fromBase(bp, ip) catch |err| dumpHandleError(writer, err);
+    };
+}
+
+/// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
+pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
+    const held = heldWriter();
+    defer held.release();
+    const writer = held.value;
+    nosuspend if (getStackTraceDumper(writer)) |write_trace| {
+        write_trace.stackTrace(stack_trace) catch |err| dumpHandleError(writer, err);
+    };
+}
+
+pub fn formatStackTraceWithTTYConfig(
+    self: std.builtin.StackTraceWithTTYConfig,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    if (getMappingForDump(writer)) |mapping| {
+        const dumper = std.debug.StackTraceDumper(@TypeOf(writer)){
+            .writer = writer,
+            .tty_config = self.tty_config,
+            .mapping = mapping,
         };
-        const tty_config = detectTTYConfig();
-        printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
-        var it = StackIterator.init(null, bp);
-        while (it.next()) |return_address| {
-            printSourceAtAddress(debug_info, stderr, return_address - 1, tty_config) catch return;
-        }
+        dumper.stackTrace(self.trace) catch |err| dumpHandleError(writer, err);
     }
 }
+
+pub fn StackTraceDumper(comptime Writer: type) type {
+    return struct {
+        const Self = @This();
+
+        writer: Writer,
+        tty_config: TTY.Config,
+        mapping: *AddrSymMapping,
+
+        pub fn current(self: Self, start_addr: ?usize) !void {
+            if (builtin.os.tag == .windows) {
+                return self.currentWindows(start_addr);
+            }
+            var it = StackIterator.init(start_addr, null);
+            while (it.next()) |return_address| {
+                try self.sourceAtAddress(return_address - 1);
+            }
+        }
+
+        fn currentWindows(
+            self: Self,
+            start_addr: ?usize,
+        ) !void {
+            var addr_buf: [1024]usize = undefined;
+            const n = windows.ntdll.RtlCaptureStackBackTrace(
+                0,
+                addr_buf.len,
+                @ptrCast(**c_void, &addr_buf),
+                null,
+            );
+            const addrs = addr_buf[0..n];
+            var start_i: usize = if (start_addr) |saddr| blk: {
+                for (addrs) |addr, i| {
+                    if (addr == saddr) break :blk i;
+                }
+                return;
+            } else 0;
+            for (addrs[start_i..]) |addr| {
+                try self.sourceAtAddress(addr - 1);
+            }
+        }
+
+        pub fn fromBase(
+            self: @This(),
+            bp: usize,
+            ip: usize,
+        ) !void {
+            try self.sourceAtAddress(ip);
+            var it = StackIterator.init(null, bp);
+            while (it.next()) |return_address| {
+                try self.sourceAtAddress(return_address - 1);
+            }
+        }
+
+        pub fn stackTrace(
+            self: @This(),
+            stack_trace: builtin.StackTrace,
+        ) !void {
+            var frame_index: usize = 0;
+            var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
+
+            while (frames_left != 0) : ({
+                frames_left -= 1;
+                frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
+            }) {
+                const return_address = stack_trace.instruction_addresses[frame_index];
+                try self.sourceAtAddress(return_address - 1);
+            }
+        }
+
+        /// TODO resources https://github.com/ziglang/zig/issues/4353
+        /// TODO(rgreenblatt) I am pretty sure resources are fine here...
+        /// TODO(rgreenblatt) override formatting???
+        pub fn sourceAtAddress(
+            self: @This(),
+            address: usize,
+        ) !void {
+            const si = try self.mapping.addressToSymbol(address);
+            defer si.deinit();
+
+            const writer = self.writer;
+            const tty_config = self.tty_config;
+
+            nosuspend {
+                tty_config.setColor(writer, .White);
+
+                if (si.line_info) |*li| {
+                    try writer.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
+                } else {
+                    try writer.writeAll("???:?:?");
+                }
+
+                tty_config.setColor(writer, .Reset);
+                try writer.writeAll(": ");
+                tty_config.setColor(writer, .Dim);
+                try writer.print("0x{x} in {s} ({s})", .{ address, si.symbol_name, si.compile_unit_name });
+                tty_config.setColor(writer, .Reset);
+                try writer.writeAll("\n");
+
+                // Show the matching source code line if possible
+                if (si.line_info) |li| {
+                    if (try writeLineFromSourceFile(writer, li)) {
+                        if (li.column > 0) {
+                            // The caret already takes one char
+                            const space_needed = @intCast(usize, li.column - 1);
+
+                            try writer.writeByteNTimes(' ', space_needed);
+                            tty_config.setColor(writer, .Green);
+                            try writer.writeAll("^");
+                            tty_config.setColor(writer, .Reset);
+                        }
+                        try writer.writeAll("\n");
+                    }
+                }
+            }
+        }
+    };
+}
+
+/// This function invokes undefined behavior when `ok` is `false`.
+/// In Debug and ReleaseSafe modes, calls to this function are always
+/// generated, and the `unreachable` statement triggers a panic.
+/// In ReleaseFast and ReleaseSmall modes, calls to this function are
+/// optimized away, and in fact the optimizer is able to use the assertion
+/// in its heuristics.
+/// Inside a test block, it is best to use the `std.testing` module rather
+/// than this function, because this function may not detect a test failure
+/// in ReleaseFast and ReleaseSmall mode. Outside of a test block, this assert
+/// function is the correct function to use.
+pub fn assert(ok: bool) void {
+    if (!ok) unreachable; // assertion failure
+}
+
+pub fn panic(comptime format: []const u8, args: anytype) noreturn {
+    @setCold(true);
+    // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
+    const first_trace_addr = if (builtin.os.tag == .wasi) null else @returnAddress();
+    panicExtra(null, first_trace_addr, format, args);
+}
+
+/// Non-zero whenever the program triggered a panic.
+/// The counter is incremented/decremented atomically.
+var panicking: u8 = 0;
+
+/// Locked to avoid interleaving panic messages from multiple threads.
+///
+/// We can't use the other Mutex ("mutex") because a panic may have happended
+/// while that mutex is held. Unfortunately, this means that panic messages
+/// may interleave with print(...) or similar.
+var panic_mutex = std.Thread.Mutex{};
+
+/// Counts how many times the panic handler is invoked by this thread.
+/// This is used to catch and handle panics triggered by the panic handler.
+threadlocal var panic_stage: usize = 0;
+
+pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: anytype) noreturn {
+    @setCold(true);
+
+    if (enable_segfault_handler) {
+        // If a segfault happens while panicking, we want it to actually segfault, not trigger
+        // the handler.
+        resetSegfaultHandler();
+    }
+
+    const writer = getWrit();
+
+    // As a workaround for not having threadlocal variable support in LLD for this target,
+    // we have a simpler panic implementation that does not use threadlocal variables.
+    // TODO https://github.com/ziglang/zig/issues/7527
+    if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64) {
+        nosuspend blk: {
+            // We can't lock anything in this case because we might recursively panic!
+            if (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst) == 0) {
+                writer.print("panic: " ++ format ++ "\n", args) catch break :blk;
+
+                // we don't use the dump functions because those lock the mutex
+                const write_trace = if (getStackTraceDumper(writer)) |wt| wt else break :blk;
+                if (trace) |t| {
+                    write_trace.stackTrace(t.*) catch |err| {
+                        dumpHandleError(writer, err);
+                        break :blk;
+                    };
+                }
+                write_trace.current(first_trace_addr) catch |err| {
+                    dumpHandleError(writer, err);
+                    break :blk;
+                };
+            } else {
+                writer.print("Panicked during a panic. Aborting.\n", .{}) catch break :blk;
+            }
+        }
+        os.abort();
+    }
+
+    nosuspend switch (panic_stage) {
+        0 => blk: {
+            panic_stage = 1;
+
+            _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
+
+            // Make sure to release the mutex when done
+            {
+                const held = panic_mutex.acquire();
+                defer held.release();
+
+                if (builtin.single_threaded) {
+                    writer.print("panic: ", .{}) catch break :blk;
+                } else {
+                    const current_thread_id = std.Thread.getCurrentThreadId();
+                    writer.print("thread {d} panic: ", .{current_thread_id}) catch break :blk;
+                }
+                writer.print(format ++ "\n", args) catch break :blk;
+
+                // we don't use the dump functions because those lock the mutex
+                const write_trace = if (getStackTraceDumper(writer)) |wt| wt else break :blk;
+                if (trace) |t| {
+                    write_trace.stackTrace(t.*) catch |err| {
+                        dumpHandleError(writer, err);
+                        break :blk;
+                    };
+                }
+                write_trace.current(first_trace_addr) catch |err| {
+                    dumpHandleError(writer, err);
+                    break :blk;
+                };
+            }
+
+            if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
+                // Another thread is panicking, wait for the last one to finish
+                // and call abort()
+
+                // Sleep forever without hammering the CPU
+                var event: std.Thread.StaticResetEvent = .{};
+                event.wait();
+                unreachable;
+            }
+        },
+        1 => blk: {
+            panic_stage = 2;
+
+            // A panic happened while trying to print a previous panic message,
+            // we're still holding the mutex but that's fine as we're going to
+            // call abort()
+            writer.print("Panicked during a panic. Aborting.\n", .{}) catch break :blk;
+        },
+        else => {
+            // Panicked while printing "Panicked during a panic."
+        },
+    };
+
+    panicTerm();
+}
+
+const RED = "\x1b[31;1m";
+const GREEN = "\x1b[32;1m";
+const CYAN = "\x1b[36;1m";
+const WHITE = "\x1b[37;1m";
+const DIM = "\x1b[2m";
+const RESET = "\x1b[0m";
+
+pub const TTY = struct {
+    pub const Color = enum {
+        Red,
+        Green,
+        Cyan,
+        White,
+        Dim,
+        Bold,
+        Reset,
+    };
+
+    pub const Config = enum {
+        no_color,
+        escape_codes,
+        // TODO give this a payload of file handle
+        windows_api,
+
+        fn setColor(conf: Config, writer: anytype, color: Color) void {
+            nosuspend switch (conf) {
+                .no_color => return,
+                .escape_codes => switch (color) {
+                    .Red => writer.writeAll(RED) catch return,
+                    .Green => writer.writeAll(GREEN) catch return,
+                    .Cyan => writer.writeAll(CYAN) catch return,
+                    .White, .Bold => writer.writeAll(WHITE) catch return,
+                    .Dim => writer.writeAll(DIM) catch return,
+                    .Reset => writer.writeAll(RESET) catch return,
+                },
+                .windows_api => if (builtin.os.tag == .windows) {
+                    const stderr_file = io.getStdErr();
+                    const S = struct {
+                        var attrs: windows.WORD = undefined;
+                        var init_attrs = false;
+                    };
+                    if (!S.init_attrs) {
+                        S.init_attrs = true;
+                        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+                        // TODO handle error
+                        _ = windows.kernel32.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
+                        S.attrs = info.wAttributes;
+                    }
+
+                    // TODO handle errors
+                    switch (color) {
+                        .Red => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .Green => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .Cyan => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .White, .Bold => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .Dim => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .Reset => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs) catch {};
+                        },
+                    }
+                } else {
+                    unreachable;
+                },
+            };
+        }
+    };
+};
 
 /// Returns a slice with the same pointer as addresses, with a potentially smaller len.
 /// On Windows, when first_address is not null, we ask for at least 32 stack frames,
@@ -186,164 +671,6 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
             };
         }
         stack_trace.index = stack_trace.instruction_addresses.len;
-    }
-}
-
-/// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
-/// TODO multithreaded awareness
-pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
-    nosuspend {
-        const stderr = io.getStdErr().writer();
-        if (builtin.strip_debug_info) {
-            stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
-            return;
-        }
-        const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
-            return;
-        };
-        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig()) catch |err| {
-            stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
-            return;
-        };
-    }
-}
-
-/// This function invokes undefined behavior when `ok` is `false`.
-/// In Debug and ReleaseSafe modes, calls to this function are always
-/// generated, and the `unreachable` statement triggers a panic.
-/// In ReleaseFast and ReleaseSmall modes, calls to this function are
-/// optimized away, and in fact the optimizer is able to use the assertion
-/// in its heuristics.
-/// Inside a test block, it is best to use the `std.testing` module rather
-/// than this function, because this function may not detect a test failure
-/// in ReleaseFast and ReleaseSmall mode. Outside of a test block, this assert
-/// function is the correct function to use.
-pub fn assert(ok: bool) void {
-    if (!ok) unreachable; // assertion failure
-}
-
-pub fn panic(comptime format: []const u8, args: anytype) noreturn {
-    @setCold(true);
-    // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
-    const first_trace_addr = if (builtin.os.tag == .wasi) null else @returnAddress();
-    panicExtra(null, first_trace_addr, format, args);
-}
-
-/// Non-zero whenever the program triggered a panic.
-/// The counter is incremented/decremented atomically.
-var panicking: u8 = 0;
-
-// Locked to avoid interleaving panic messages from multiple threads.
-var panic_mutex = std.Thread.Mutex{};
-
-/// Counts how many times the panic handler is invoked by this thread.
-/// This is used to catch and handle panics triggered by the panic handler.
-threadlocal var panic_stage: usize = 0;
-
-pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: anytype) noreturn {
-    @setCold(true);
-
-    if (enable_segfault_handler) {
-        // If a segfault happens while panicking, we want it to actually segfault, not trigger
-        // the handler.
-        resetSegfaultHandler();
-    }
-
-    if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64)
-        nosuspend {
-            // As a workaround for not having threadlocal variable support in LLD for this target,
-            // we have a simpler panic implementation that does not use threadlocal variables.
-            // TODO https://github.com/ziglang/zig/issues/7527
-            const stderr = io.getStdErr().writer();
-            if (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst) == 0) {
-                stderr.print("panic: " ++ format ++ "\n", args) catch os.abort();
-                if (trace) |t| {
-                    dumpStackTrace(t.*);
-                }
-                dumpCurrentStackTrace(first_trace_addr);
-            } else {
-                stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
-            }
-            os.abort();
-        };
-
-    nosuspend switch (panic_stage) {
-        0 => {
-            panic_stage = 1;
-
-            _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
-
-            // Make sure to release the mutex when done
-            {
-                const held = panic_mutex.acquire();
-                defer held.release();
-
-                const stderr = io.getStdErr().writer();
-                if (builtin.single_threaded) {
-                    stderr.print("panic: ", .{}) catch os.abort();
-                } else {
-                    const current_thread_id = std.Thread.getCurrentThreadId();
-                    stderr.print("thread {d} panic: ", .{current_thread_id}) catch os.abort();
-                }
-                stderr.print(format ++ "\n", args) catch os.abort();
-                if (trace) |t| {
-                    dumpStackTrace(t.*);
-                }
-                dumpCurrentStackTrace(first_trace_addr);
-            }
-
-            if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
-                // Another thread is panicking, wait for the last one to finish
-                // and call abort()
-
-                // Sleep forever without hammering the CPU
-                var event: std.Thread.StaticResetEvent = .{};
-                event.wait();
-                unreachable;
-            }
-        },
-        1 => {
-            panic_stage = 2;
-
-            // A panic happened while trying to print a previous panic message,
-            // we're still holding the mutex but that's fine as we're going to
-            // call abort()
-            const stderr = io.getStdErr().writer();
-            stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
-        },
-        else => {
-            // Panicked while printing "Panicked during a panic."
-        },
-    };
-
-    os.abort();
-}
-
-const RED = "\x1b[31;1m";
-const GREEN = "\x1b[32;1m";
-const CYAN = "\x1b[36;1m";
-const WHITE = "\x1b[37;1m";
-const DIM = "\x1b[2m";
-const RESET = "\x1b[0m";
-
-pub fn writeStackTrace(
-    stack_trace: builtin.StackTrace,
-    writer: anytype,
-    allocator: *mem.Allocator,
-    debug_info: *DebugInfo,
-    tty_config: TTY.Config,
-) !void {
-    if (builtin.strip_debug_info) return error.MissingDebugInfo;
-    var frame_index: usize = 0;
-    var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
-
-    while (frames_left != 0) : ({
-        frames_left -= 1;
-        frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
-    }) {
-        const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, writer, return_address - 1, tty_config);
     }
 }
 
@@ -428,110 +755,15 @@ pub const StackIterator = struct {
     }
 };
 
-pub fn writeCurrentStackTrace(
-    writer: anytype,
-    debug_info: *DebugInfo,
-    tty_config: TTY.Config,
-    start_addr: ?usize,
-) !void {
-    if (builtin.os.tag == .windows) {
-        return writeCurrentStackTraceWindows(writer, debug_info, tty_config, start_addr);
-    }
-    var it = StackIterator.init(start_addr, null);
-    while (it.next()) |return_address| {
-        try printSourceAtAddress(debug_info, writer, return_address - 1, tty_config);
-    }
-}
+const Module = struct {
+    mod_info: pdb.ModInfo,
+    module_name: []u8,
+    obj_file_name: []u8,
 
-pub fn writeCurrentStackTraceWindows(
-    writer: anytype,
-    debug_info: *DebugInfo,
-    tty_config: TTY.Config,
-    start_addr: ?usize,
-) !void {
-    var addr_buf: [1024]usize = undefined;
-    const n = windows.ntdll.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**c_void, &addr_buf), null);
-    const addrs = addr_buf[0..n];
-    var start_i: usize = if (start_addr) |saddr| blk: {
-        for (addrs) |addr, i| {
-            if (addr == saddr) break :blk i;
-        }
-        return;
-    } else 0;
-    for (addrs[start_i..]) |addr| {
-        try printSourceAtAddress(debug_info, writer, addr - 1, tty_config);
-    }
-}
-
-pub const TTY = struct {
-    pub const Color = enum {
-        Red,
-        Green,
-        Cyan,
-        White,
-        Dim,
-        Bold,
-        Reset,
-    };
-
-    pub const Config = enum {
-        no_color,
-        escape_codes,
-        // TODO give this a payload of file handle
-        windows_api,
-
-        fn setColor(conf: Config, writer: anytype, color: Color) void {
-            nosuspend switch (conf) {
-                .no_color => return,
-                .escape_codes => switch (color) {
-                    .Red => writer.writeAll(RED) catch return,
-                    .Green => writer.writeAll(GREEN) catch return,
-                    .Cyan => writer.writeAll(CYAN) catch return,
-                    .White, .Bold => writer.writeAll(WHITE) catch return,
-                    .Dim => writer.writeAll(DIM) catch return,
-                    .Reset => writer.writeAll(RESET) catch return,
-                },
-                .windows_api => if (builtin.os.tag == .windows) {
-                    const stderr_file = io.getStdErr();
-                    const S = struct {
-                        var attrs: windows.WORD = undefined;
-                        var init_attrs = false;
-                    };
-                    if (!S.init_attrs) {
-                        S.init_attrs = true;
-                        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-                        // TODO handle error
-                        _ = windows.kernel32.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
-                        S.attrs = info.wAttributes;
-                    }
-
-                    // TODO handle errors
-                    switch (color) {
-                        .Red => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Green => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Cyan => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .White, .Bold => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Dim => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Reset => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs) catch {};
-                        },
-                    }
-                } else {
-                    unreachable;
-                },
-            };
-        }
-    };
+    populated: bool,
+    symbols: []u8,
+    subsect_info: []u8,
+    checksum_offset: ?usize,
 };
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
@@ -597,85 +829,6 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
         }
     }
     return null;
-}
-
-/// TODO resources https://github.com/ziglang/zig/issues/4353
-pub fn printSourceAtAddress(debug_info: *DebugInfo, writer: anytype, address: usize, tty_config: TTY.Config) !void {
-    const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => {
-            return printLineInfo(
-                writer,
-                null,
-                address,
-                "???",
-                "???",
-                tty_config,
-                printLineFromFileAnyOs,
-            );
-        },
-        else => return err,
-    };
-
-    const symbol_info = try module.addressToSymbol(address);
-    defer symbol_info.deinit();
-
-    return printLineInfo(
-        writer,
-        symbol_info.line_info,
-        address,
-        symbol_info.symbol_name,
-        symbol_info.compile_unit_name,
-        tty_config,
-        printLineFromFileAnyOs,
-    );
-}
-
-fn printLineInfo(
-    writer: anytype,
-    line_info: ?LineInfo,
-    address: usize,
-    symbol_name: []const u8,
-    compile_unit_name: []const u8,
-    tty_config: TTY.Config,
-    comptime printLineFromFile: anytype,
-) !void {
-    nosuspend {
-        tty_config.setColor(writer, .White);
-
-        if (line_info) |*li| {
-            try writer.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
-        } else {
-            try writer.writeAll("???:?:?");
-        }
-
-        tty_config.setColor(writer, .Reset);
-        try writer.writeAll(": ");
-        tty_config.setColor(writer, .Dim);
-        try writer.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
-        tty_config.setColor(writer, .Reset);
-        try writer.writeAll("\n");
-
-        // Show the matching source code line if possible
-        if (line_info) |li| {
-            if (printLineFromFile(writer, li)) {
-                if (li.column > 0) {
-                    // The caret already takes one char
-                    const space_needed = @intCast(usize, li.column - 1);
-
-                    try writer.writeByteNTimes(' ', space_needed);
-                    tty_config.setColor(writer, .Green);
-                    try writer.writeAll("^");
-                    tty_config.setColor(writer, .Reset);
-                }
-                try writer.writeAll("\n");
-            } else |err| switch (err) {
-                error.EndOfFile, error.FileNotFound => {},
-                error.BadPathName => {},
-                error.AccessDenied => {},
-                else => return err,
-            }
-        }
-    }
 }
 
 // TODO use this
@@ -1051,40 +1204,6 @@ fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugI
     };
 }
 
-fn printLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
-    // Need this to always block even in async I/O mode, because this could potentially
-    // be called from e.g. the event loop code crashing.
-    var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
-    defer f.close();
-    // TODO fstat and make sure that the file has the correct size
-
-    var buf: [mem.page_size]u8 = undefined;
-    var line: usize = 1;
-    var column: usize = 1;
-    var abs_index: usize = 0;
-    while (true) {
-        const amt_read = try f.read(buf[0..]);
-        const slice = buf[0..amt_read];
-
-        for (slice) |byte| {
-            if (line == line_info.line) {
-                try writer.writeByte(byte);
-                if (byte == '\n') {
-                    return;
-                }
-            }
-            if (byte == '\n') {
-                line += 1;
-                column = 1;
-            } else {
-                column += 1;
-            }
-        }
-
-        if (amt_read < buf.len) return error.EndOfFile;
-    }
-}
-
 const MachoSymbol = struct {
     nlist: *const macho.nlist_64,
     ofile: ?*const macho.nlist_64,
@@ -1356,18 +1475,6 @@ pub const DebugInfo = struct {
 
     fn lookupModuleHaiku(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
         @panic("TODO implement lookup module for Haiku");
-    }
-};
-
-const SymbolInfo = struct {
-    symbol_name: []const u8 = "???",
-    compile_unit_name: []const u8 = "???",
-    line_info: ?LineInfo = null,
-
-    fn deinit(self: @This()) void {
-        if (self.line_info) |li| {
-            li.deinit();
-        }
     }
 };
 
