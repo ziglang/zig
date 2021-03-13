@@ -8,7 +8,8 @@ const crypto = std.crypto;
 const debug = std.debug;
 const fmt = std.fmt;
 const mem = std.mem;
-const Sha512 = std.crypto.hash.sha2.Sha512;
+const Sha512 = crypto.hash.sha2.Sha512;
+const Error = crypto.Error;
 
 /// Ed25519 (EdDSA) signatures.
 pub const Ed25519 = struct {
@@ -40,7 +41,7 @@ pub const Ed25519 = struct {
         ///
         /// For this reason, an EdDSA secret key is commonly called a seed,
         /// from which the actual secret is derived.
-        pub fn create(seed: ?[seed_length]u8) !KeyPair {
+        pub fn create(seed: ?[seed_length]u8) Error!KeyPair {
             const ss = seed orelse ss: {
                 var random_seed: [seed_length]u8 = undefined;
                 crypto.random.bytes(&random_seed);
@@ -71,7 +72,7 @@ pub const Ed25519 = struct {
     /// Sign a message using a key pair, and optional random noise.
     /// Having noise creates non-standard, non-deterministic signatures,
     /// but has been proven to increase resilience against fault attacks.
-    pub fn sign(msg: []const u8, key_pair: KeyPair, noise: ?[noise_length]u8) ![signature_length]u8 {
+    pub fn sign(msg: []const u8, key_pair: KeyPair, noise: ?[noise_length]u8) Error![signature_length]u8 {
         const seed = key_pair.secret_key[0..seed_length];
         const public_key = key_pair.secret_key[seed_length..];
         if (!mem.eql(u8, public_key, &key_pair.public_key)) {
@@ -111,8 +112,8 @@ pub const Ed25519 = struct {
     }
 
     /// Verify an Ed25519 signature given a message and a public key.
-    /// Returns error.InvalidSignature is the signature verification failed.
-    pub fn verify(sig: [signature_length]u8, msg: []const u8, public_key: [public_length]u8) !void {
+    /// Returns error.SignatureVerificationFailed is the signature verification failed.
+    pub fn verify(sig: [signature_length]u8, msg: []const u8, public_key: [public_length]u8) Error!void {
         const r = sig[0..32];
         const s = sig[32..64];
         try Curve.scalar.rejectNonCanonical(s.*);
@@ -133,7 +134,7 @@ pub const Ed25519 = struct {
         const ah = try a.neg().mulPublic(hram);
         const sb_ah = (try Curve.basePoint.mulPublic(s.*)).add(ah);
         if (expected_r.sub(sb_ah).clearCofactor().rejectIdentity()) |_| {
-            return error.InvalidSignature;
+            return error.SignatureVerificationFailed;
         } else |_| {}
     }
 
@@ -145,7 +146,7 @@ pub const Ed25519 = struct {
     };
 
     /// Verify several signatures in a single operation, much faster than verifying signatures one-by-one
-    pub fn verifyBatch(comptime count: usize, signature_batch: [count]BatchElement) !void {
+    pub fn verifyBatch(comptime count: usize, signature_batch: [count]BatchElement) Error!void {
         var r_batch: [count][32]u8 = undefined;
         var s_batch: [count][32]u8 = undefined;
         var a_batch: [count]Curve = undefined;
@@ -200,7 +201,7 @@ pub const Ed25519 = struct {
 
         const zsb = try Curve.basePoint.mulPublic(zs_sum);
         if (zr.add(zah).sub(zsb).rejectIdentity()) |_| {
-            return error.InvalidSignature;
+            return error.SignatureVerificationFailed;
         } else |_| {}
     }
 };
@@ -223,7 +224,7 @@ test "ed25519 signature" {
     var buf: [128]u8 = undefined;
     std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&sig)}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
     try Ed25519.verify(sig, "test", key_pair.public_key);
-    std.testing.expectError(error.InvalidSignature, Ed25519.verify(sig, "TEST", key_pair.public_key));
+    std.testing.expectError(error.SignatureVerificationFailed, Ed25519.verify(sig, "TEST", key_pair.public_key));
 }
 
 test "ed25519 batch verification" {
@@ -251,7 +252,7 @@ test "ed25519 batch verification" {
         try Ed25519.verifyBatch(2, signature_batch);
 
         signature_batch[1].sig = sig1;
-        std.testing.expectError(error.InvalidSignature, Ed25519.verifyBatch(signature_batch.len, signature_batch));
+        std.testing.expectError(error.SignatureVerificationFailed, Ed25519.verifyBatch(signature_batch.len, signature_batch));
     }
 }
 
@@ -316,7 +317,7 @@ test "ed25519 test vectors" {
             .msg_hex = "9bedc267423725d473888631ebf45988bad3db83851ee85c85e241a07d148b41",
             .public_key_hex = "f7badec5b8abeaf699583992219b7b223f1df3fbbea919844e3f7c554a43dd43",
             .sig_hex = "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff03be9678ac102edcd92b0210bb34d7428d12ffc5df5f37e359941266a4e35f0f",
-            .expected = error.InvalidSignature, // 8 - non-canonical R
+            .expected = error.SignatureVerificationFailed, // 8 - non-canonical R
         },
         Vec{
             .msg_hex = "9bedc267423725d473888631ebf45988bad3db83851ee85c85e241a07d148b41",

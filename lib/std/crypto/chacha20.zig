@@ -13,6 +13,7 @@ const testing = std.testing;
 const maxInt = math.maxInt;
 const Vector = std.meta.Vector;
 const Poly1305 = std.crypto.onetimeauth.Poly1305;
+const Error = std.crypto.Error;
 
 // Vectorized implementation of the core function
 const ChaCha20VecImpl = struct {
@@ -656,7 +657,7 @@ fn chacha20poly1305Seal(ciphertextAndTag: []u8, plaintext: []const u8, data: []c
 }
 
 /// Verifies and decrypts an authenticated message produced by chacha20poly1305SealDetached.
-fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_length]u8, data: []const u8, key: [32]u8, nonce: [12]u8) !void {
+fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_length]u8, data: []const u8, key: [32]u8, nonce: [12]u8) Error!void {
     // split ciphertext and tag
     assert(dst.len == ciphertext.len);
 
@@ -702,9 +703,9 @@ fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *const [
 }
 
 /// Verifies and decrypts an authenticated message produced by chacha20poly1305Seal.
-fn chacha20poly1305Open(dst: []u8, ciphertextAndTag: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) !void {
+fn chacha20poly1305Open(dst: []u8, ciphertextAndTag: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) Error!void {
     if (ciphertextAndTag.len < chacha20poly1305_tag_length) {
-        return error.InvalidMessage;
+        return error.AuthenticationFailed;
     }
     const ciphertextLen = ciphertextAndTag.len - chacha20poly1305_tag_length;
     return try chacha20poly1305OpenDetached(dst, ciphertextAndTag[0..ciphertextLen], ciphertextAndTag[ciphertextLen..][0..chacha20poly1305_tag_length], data, key, nonce);
@@ -740,13 +741,13 @@ fn xchacha20poly1305Seal(ciphertextAndTag: []u8, plaintext: []const u8, data: []
 }
 
 /// Verifies and decrypts an authenticated message produced by xchacha20poly1305SealDetached.
-fn xchacha20poly1305OpenDetached(plaintext: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_length]u8, data: []const u8, key: [32]u8, nonce: [24]u8) !void {
+fn xchacha20poly1305OpenDetached(plaintext: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_length]u8, data: []const u8, key: [32]u8, nonce: [24]u8) Error!void {
     const extended = extend(key, nonce);
     return try chacha20poly1305OpenDetached(plaintext, ciphertext, tag, data, extended.key, extended.nonce);
 }
 
 /// Verifies and decrypts an authenticated message produced by xchacha20poly1305Seal.
-fn xchacha20poly1305Open(ciphertextAndTag: []u8, msgAndTag: []const u8, data: []const u8, key: [32]u8, nonce: [24]u8) !void {
+fn xchacha20poly1305Open(ciphertextAndTag: []u8, msgAndTag: []const u8, data: []const u8, key: [32]u8, nonce: [24]u8) Error!void {
     const extended = extend(key, nonce);
     return try chacha20poly1305Open(ciphertextAndTag, msgAndTag, data, extended.key, extended.nonce);
 }
@@ -864,7 +865,7 @@ test "open" {
         testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], data[0..], key, bad_nonce));
 
         // a short ciphertext should result in a different error
-        testing.expectError(error.InvalidMessage, chacha20poly1305Open(out[0..], "", data[0..], key, bad_nonce));
+        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], "", data[0..], key, bad_nonce));
     }
 }
 
@@ -915,7 +916,7 @@ pub const Chacha20Poly1305 = struct {
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
         assert(c.len == m.len);
         return try chacha20poly1305OpenDetached(m, c, tag[0..], ad, k, npub);
     }
@@ -944,7 +945,7 @@ pub const XChacha20Poly1305 = struct {
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
         assert(c.len == m.len);
         return try xchacha20poly1305OpenDetached(m, c, tag[0..], ad, k, npub);
     }

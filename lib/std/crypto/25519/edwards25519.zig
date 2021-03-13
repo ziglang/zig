@@ -7,6 +7,7 @@ const std = @import("std");
 const debug = std.debug;
 const fmt = std.fmt;
 const mem = std.mem;
+const Error = std.crypto.Error;
 
 /// Group operations over Edwards25519.
 pub const Edwards25519 = struct {
@@ -25,7 +26,7 @@ pub const Edwards25519 = struct {
     is_base: bool = false,
 
     /// Decode an Edwards25519 point from its compressed (Y+sign) coordinates.
-    pub fn fromBytes(s: [encoded_length]u8) !Edwards25519 {
+    pub fn fromBytes(s: [encoded_length]u8) Error!Edwards25519 {
         const z = Fe.one;
         const y = Fe.fromBytes(s);
         var u = y.sq();
@@ -55,7 +56,7 @@ pub const Edwards25519 = struct {
     }
 
     /// Check that the encoding of a point is canonical.
-    pub fn rejectNonCanonical(s: [32]u8) !void {
+    pub fn rejectNonCanonical(s: [32]u8) Error!void {
         return Fe.rejectNonCanonical(s, true);
     }
 
@@ -80,7 +81,7 @@ pub const Edwards25519 = struct {
     const identityElement = Edwards25519{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
 
     /// Reject the neutral element.
-    pub fn rejectIdentity(p: Edwards25519) !void {
+    pub fn rejectIdentity(p: Edwards25519) Error!void {
         if (p.x.isZero()) {
             return error.IdentityElement;
         }
@@ -176,7 +177,7 @@ pub const Edwards25519 = struct {
     // Based on real-world benchmarks, we only use this for multi-scalar multiplication.
     // NAF could be useful to half the size of precomputation tables, but we intentionally
     // avoid these to keep the standard library lightweight.
-    fn pcMul(pc: [9]Edwards25519, s: [32]u8, comptime vartime: bool) !Edwards25519 {
+    fn pcMul(pc: [9]Edwards25519, s: [32]u8, comptime vartime: bool) Error!Edwards25519 {
         std.debug.assert(vartime);
         const e = nonAdjacentForm(s);
         var q = Edwards25519.identityElement;
@@ -196,7 +197,7 @@ pub const Edwards25519 = struct {
     }
 
     // Scalar multiplication with a 4-bit window and the first 15 multiples.
-    fn pcMul16(pc: [16]Edwards25519, s: [32]u8, comptime vartime: bool) !Edwards25519 {
+    fn pcMul16(pc: [16]Edwards25519, s: [32]u8, comptime vartime: bool) Error!Edwards25519 {
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
@@ -234,7 +235,7 @@ pub const Edwards25519 = struct {
     /// Multiply an Edwards25519 point by a scalar without clamping it.
     /// Return error.WeakPublicKey if the resulting point is
     /// the identity element.
-    pub fn mul(p: Edwards25519, s: [32]u8) !Edwards25519 {
+    pub fn mul(p: Edwards25519, s: [32]u8) Error!Edwards25519 {
         const pc = if (p.is_base) basePointPc else pc: {
             const xpc = precompute(p, 15);
             xpc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
@@ -245,7 +246,7 @@ pub const Edwards25519 = struct {
 
     /// Multiply an Edwards25519 point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
-    pub fn mulPublic(p: Edwards25519, s: [32]u8) !Edwards25519 {
+    pub fn mulPublic(p: Edwards25519, s: [32]u8) Error!Edwards25519 {
         if (p.is_base) {
             return pcMul16(basePointPc, s, true);
         } else {
@@ -257,7 +258,7 @@ pub const Edwards25519 = struct {
 
     /// Multiscalar multiplication *IN VARIABLE TIME* for public data
     /// Computes ps0*ss0 + ps1*ss1 + ps2*ss2... faster than doing many of these operations individually
-    pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) !Edwards25519 {
+    pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) Error!Edwards25519 {
         var pcs: [count][9]Edwards25519 = undefined;
         for (ps) |p, i| {
             if (p.is_base) {
@@ -296,14 +297,14 @@ pub const Edwards25519 = struct {
     /// This is strongly recommended for DH operations.
     /// Return error.WeakPublicKey if the resulting point is
     /// the identity element.
-    pub fn clampedMul(p: Edwards25519, s: [32]u8) !Edwards25519 {
+    pub fn clampedMul(p: Edwards25519, s: [32]u8) Error!Edwards25519 {
         var t: [32]u8 = s;
         scalar.clamp(&t);
         return mul(p, t);
     }
 
     // montgomery -- recover y = sqrt(x^3 + A*x^2 + x)
-    fn xmontToYmont(x: Fe) !Fe {
+    fn xmontToYmont(x: Fe) Error!Fe {
         var x2 = x.sq();
         const x3 = x.mul(x2);
         x2 = x2.mul32(Fe.edwards25519a_32);

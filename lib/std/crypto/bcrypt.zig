@@ -11,7 +11,8 @@ const math = std.math;
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
-const utils = std.crypto.utils;
+const utils = crypto.utils;
+const Error = crypto.Error;
 
 const salt_length: usize = 16;
 const salt_str_length: usize = 22;
@@ -20,13 +21,6 @@ const ct_length: usize = 24;
 
 /// Length (in bytes) of a password hash
 pub const hash_length: usize = 60;
-
-pub const BcryptError = error{
-    /// The hashed password cannot be decoded.
-    InvalidEncoding,
-    /// The hash is not valid for the given password.
-    InvalidPassword,
-};
 
 const State = struct {
     sboxes: [4][256]u32 = [4][256]u32{
@@ -185,7 +179,7 @@ const Codec = struct {
         debug.assert(j == b64.len);
     }
 
-    fn decode(bin: []u8, b64: []const u8) BcryptError!void {
+    fn decode(bin: []u8, b64: []const u8) Error!void {
         var i: usize = 0;
         var j: usize = 0;
         while (j < bin.len) {
@@ -210,7 +204,7 @@ const Codec = struct {
     }
 };
 
-fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) BcryptError![hash_length]u8 {
+fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) Error![hash_length]u8 {
     var state = State{};
     var password_buf: [73]u8 = undefined;
     const trimmed_len = math.min(password.len, password_buf.len - 1);
@@ -258,14 +252,14 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
 /// IMPORTANT: by design, bcrypt silently truncates passwords to 72 bytes.
 /// If this is an issue for your application, hash the password first using a function such as SHA-512,
 /// and then use the resulting hash as the password parameter for bcrypt.
-pub fn strHash(password: []const u8, rounds_log: u6) ![hash_length]u8 {
+pub fn strHash(password: []const u8, rounds_log: u6) Error![hash_length]u8 {
     var salt: [salt_length]u8 = undefined;
     crypto.random.bytes(&salt);
     return strHashInternal(password, rounds_log, salt);
 }
 
 /// Verify that a previously computed hash is valid for a given password.
-pub fn strVerify(h: [hash_length]u8, password: []const u8) BcryptError!void {
+pub fn strVerify(h: [hash_length]u8, password: []const u8) Error!void {
     if (!mem.eql(u8, "$2", h[0..2])) return error.InvalidEncoding;
     if (h[3] != '$' or h[6] != '$') return error.InvalidEncoding;
     const rounds_log_str = h[4..][0..2];
@@ -275,7 +269,7 @@ pub fn strVerify(h: [hash_length]u8, password: []const u8) BcryptError!void {
     const rounds_log = fmt.parseInt(u6, rounds_log_str[0..], 10) catch return error.InvalidEncoding;
     const wanted_s = try strHashInternal(password, rounds_log, salt);
     if (!mem.eql(u8, wanted_s[0..], h[0..])) {
-        return error.InvalidPassword;
+        return error.PasswordVerificationFailed;
     }
 }
 
@@ -292,7 +286,7 @@ test "bcrypt codec" {
 test "bcrypt" {
     const s = try strHash("password", 5);
     try strVerify(s, "password");
-    testing.expectError(error.InvalidPassword, strVerify(s, "invalid password"));
+    testing.expectError(error.PasswordVerificationFailed, strVerify(s, "invalid password"));
 
     const long_s = try strHash("password" ** 100, 5);
     try strVerify(long_s, "password" ** 100);

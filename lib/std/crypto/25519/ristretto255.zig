@@ -5,6 +5,7 @@
 // and substantial portions of the software.
 const std = @import("std");
 const fmt = std.fmt;
+const Error = std.crypto.Error;
 
 /// Group operations over Edwards25519.
 pub const Ristretto255 = struct {
@@ -34,7 +35,7 @@ pub const Ristretto255 = struct {
         return .{ .ratio_is_square = @boolToInt(has_m_root) | @boolToInt(has_p_root), .root = x.abs() };
     }
 
-    fn rejectNonCanonical(s: [encoded_length]u8) !void {
+    fn rejectNonCanonical(s: [encoded_length]u8) Error!void {
         if ((s[0] & 1) != 0) {
             return error.NonCanonical;
         }
@@ -42,7 +43,7 @@ pub const Ristretto255 = struct {
     }
 
     /// Reject the neutral element.
-    pub fn rejectIdentity(p: Ristretto255) callconv(.Inline) !void {
+    pub fn rejectIdentity(p: Ristretto255) callconv(.Inline) Error!void {
         return p.p.rejectIdentity();
     }
 
@@ -50,7 +51,7 @@ pub const Ristretto255 = struct {
     pub const basePoint = Ristretto255{ .p = Curve.basePoint };
 
     /// Decode a Ristretto255 representative.
-    pub fn fromBytes(s: [encoded_length]u8) !Ristretto255 {
+    pub fn fromBytes(s: [encoded_length]u8) Error!Ristretto255 {
         try rejectNonCanonical(s);
         const s_ = Fe.fromBytes(s);
         const ss = s_.sq(); // s^2
@@ -153,7 +154,7 @@ pub const Ristretto255 = struct {
     /// Multiply a Ristretto255 element with a scalar.
     /// Return error.WeakPublicKey if the resulting element is
     /// the identity element.
-    pub fn mul(p: Ristretto255, s: [encoded_length]u8) callconv(.Inline) !Ristretto255 {
+    pub fn mul(p: Ristretto255, s: [encoded_length]u8) callconv(.Inline) Error!Ristretto255 {
         return Ristretto255{ .p = try p.p.mul(s) };
     }
 
