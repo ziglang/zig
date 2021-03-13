@@ -888,19 +888,20 @@ pub fn Vector(comptime len: u32, comptime child: type) type {
 /// Given a type and value, cast the value to the type as c would.
 /// This is for translate-c and is not intended for general use.
 pub fn cast(comptime DestType: type, target: anytype) DestType {
-    const TargetType = @TypeOf(target);
+    // this function should behave like transCCast in translate-c, except it's for macros
+    const SourceType = @TypeOf(target);
     switch (@typeInfo(DestType)) {
-        .Pointer => |dest_ptr| {
-            switch (@typeInfo(TargetType)) {
+        .Pointer => {
+            switch (@typeInfo(SourceType)) {
                 .Int, .ComptimeInt => {
                     return @intToPtr(DestType, target);
                 },
-                .Pointer => |ptr| {
-                    return @ptrCast(DestType, @alignCast(dest_ptr.alignment, target));
+                .Pointer => {
+                    return castPtr(DestType, target);
                 },
                 .Optional => |opt| {
                     if (@typeInfo(opt.child) == .Pointer) {
-                        return @ptrCast(DestType, @alignCast(dest_ptr.alignment, target));
+                        return castPtr(DestType, target);
                     }
                 },
                 else => {},
@@ -908,17 +909,16 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
         },
         .Optional => |dest_opt| {
             if (@typeInfo(dest_opt.child) == .Pointer) {
-                const dest_ptr = @typeInfo(dest_opt.child).Pointer;
-                switch (@typeInfo(TargetType)) {
+                switch (@typeInfo(SourceType)) {
                     .Int, .ComptimeInt => {
                         return @intToPtr(DestType, target);
                     },
                     .Pointer => {
-                        return @ptrCast(DestType, @alignCast(dest_ptr.alignment, target));
+                        return castPtr(DestType, target);
                     },
                     .Optional => |target_opt| {
                         if (@typeInfo(target_opt.child) == .Pointer) {
-                            return @ptrCast(DestType, @alignCast(dest_ptr.alignment, target));
+                            return castPtr(DestType, target);
                         }
                     },
                     else => {},
@@ -926,25 +926,25 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
             }
         },
         .Enum => {
-            if (@typeInfo(TargetType) == .Int or @typeInfo(TargetType) == .ComptimeInt) {
+            if (@typeInfo(SourceType) == .Int or @typeInfo(SourceType) == .ComptimeInt) {
                 return @intToEnum(DestType, target);
             }
         },
-        .Int, .ComptimeInt => {
-            switch (@typeInfo(TargetType)) {
+        .Int => {
+            switch (@typeInfo(SourceType)) {
                 .Pointer => {
-                    return @intCast(DestType, @ptrToInt(target));
+                    return castInt(DestType, @ptrToInt(target));
                 },
                 .Optional => |opt| {
                     if (@typeInfo(opt.child) == .Pointer) {
-                        return @intCast(DestType, @ptrToInt(target));
+                        return castInt(DestType, @ptrToInt(target));
                     }
                 },
                 .Enum => {
-                    return @intCast(DestType, @enumToInt(target));
+                    return castInt(DestType, @enumToInt(target));
                 },
-                .Int, .ComptimeInt => {
-                    return @intCast(DestType, target);
+                .Int => {
+                    return castInt(DestType, target);
                 },
                 else => {},
             }
@@ -952,6 +952,34 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
         else => {},
     }
     return @as(DestType, target);
+}
+
+fn castInt(comptime DestType: type, target: anytype) DestType {
+    const dest = @typeInfo(DestType).Int;
+    const source = @typeInfo(@TypeOf(target)).Int;
+
+    if (dest.bits < source.bits)
+        return @bitCast(DestType, @truncate(Int(source.signedness, dest.bits), target))
+    else
+        return @bitCast(DestType, @as(Int(source.signedness, dest.bits), target));
+}
+
+fn castPtr(comptime DestType: type, target: anytype) DestType {
+    const dest = ptrInfo(DestType);
+    const source = ptrInfo(@TypeOf(target));
+
+    if (source.is_const and !dest.is_const or source.is_volatile and !dest.is_volatile)
+        return @intToPtr(DestType, @ptrToInt(target))
+    else
+        return @ptrCast(DestType, @alignCast(dest.alignment, target));
+}
+
+fn ptrInfo(comptime PtrType: type) TypeInfo.Pointer {
+    return switch(@typeInfo(PtrType)){
+        .Optional => |opt_info| @typeInfo(opt_info.child).Pointer,
+        .Pointer => |ptr_info| ptr_info,
+        else => unreachable,
+    };
 }
 
 test "std.meta.cast" {
@@ -977,6 +1005,11 @@ test "std.meta.cast" {
     testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(?*u32, 4)));
     testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
     testing.expectEqual(@as(u8, 2), cast(u8, E.Two));
+
+    testing.expectEqual(@bitCast(i32, @as(u32, 0x8000_0000)), cast(i32, @as(u32, 0x8000_0000)));
+
+    testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*const u8, 2)));
+    testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
 }
 
 /// Given a value returns its size as C's sizeof operator would.
