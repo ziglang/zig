@@ -1366,7 +1366,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 _ = try c.addToken(.r_paren, ")");
                 break :blk res;
             } else 0;
+            
+            _ = try c.addToken(.l_brace, "{");
             const body = try renderNode(c, payload.body);
+            _ = try c.addToken(.r_brace, "}");
 
             if (cont_expr == 0) {
                 return c.addNode(.{
