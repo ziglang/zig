@@ -73,7 +73,7 @@ pub const default_config = struct {
         }
     }
 
-    pub const AddressSymbolMapping = struct {
+    pub const SymbolMap = struct {
         debug_info: DebugInfo,
 
         pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
@@ -172,15 +172,15 @@ else if (has_writer_decl)
 else
     default_config.getTTYConfig;
 
-const has_address_symbol_mapping_decl = @hasDecl(config, "AddressSymbolMapping");
-const using_default_address_symbol_mapping = is_default_config or
-    !has_address_symbol_mapping_decl;
+const has_symbol_map_decl = @hasDecl(config, "SymbolMap");
+const using_default_symbol_map = is_default_config or
+    !has_symbol_map_decl;
 
 /// Slightly different name than in config to avoid redefinition in default.
-const AddrSymMapping = if (has_address_symbol_mapping_decl)
-    config.AddressSymbolMapping
+const SymMap = if (has_symbol_map_decl)
+    config.SymbolMap
 else
-    default_config.AddressSymbolMapping;
+    default_config.SymbolMap;
 
 /// Slightly different name than in config to avoid redefinition in default.
 const writeLineFromSourceFile = if (@hasDecl(config, "attemptWriteLineFromSourceFile"))
@@ -210,23 +210,23 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
 }
 
 /// TODO multithreaded awareness
-var symbol_at_address: ?AddrSymMapping = null;
+var symbol_at_address: ?SymMap = null;
 
-pub fn getAddressSymbolMapping() !*AddrSymMapping {
+pub fn getSymbolMap() !*SymMap {
     if (symbol_at_address) |*info| {
         return info;
     } else {
-        symbol_at_address = try AddrSymMapping.init(getDebugInfoAllocator());
+        symbol_at_address = try SymMap.init(getDebugInfoAllocator());
         return &symbol_at_address.?;
     }
 }
 
-fn getMappingForDump(writer: anytype) ?*AddrSymMapping {
-    if (using_default_address_symbol_mapping and builtin.strip_debug_info) {
+fn getMappingForDump(writer: anytype) ?*SymMap {
+    if (using_default_symbol_map and builtin.strip_debug_info) {
         writer.print("Unable to dump stack trace: debug info stripped\n", .{}) catch {};
         return null;
     }
-    return getAddressSymbolMapping() catch |err| {
+    return getSymbolMap() catch |err| {
         writer.print(
             "Unable to dump stack trace: Unable to open debug info: {s}\n",
             .{@errorName(err)},
@@ -300,7 +300,7 @@ pub fn StackTraceDumper(comptime Writer: type) type {
 
         writer: Writer,
         tty_config: TTY.Config,
-        mapping: *AddrSymMapping,
+        mapping: *SymMap,
 
         pub fn current(self: Self, start_addr: ?usize) !void {
             if (builtin.os.tag == .windows) {
