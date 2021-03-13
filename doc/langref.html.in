@@ -684,7 +684,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|String Literals and Unicode Code Point Literals#}
       <p>
-      String literals are single-item constant {#link|Pointers#} to null-terminated byte arrays.
+      String literals are constant single-item {#link|Pointers#} to null-terminated byte arrays.
       The type of string literals encodes both the length, and the fact that they are null-terminated,
       and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
       {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
@@ -1783,7 +1783,7 @@ comptime {
     expect(message.len == 5);
 }
 
-// A string literal is a pointer to an array literal.
+// A string literal is a single-item pointer to an array literal.
 const same_message = "hello";
 
 comptime {
@@ -1989,15 +1989,15 @@ test "null terminated array" {
 
       {#header_open|Pointers#}
       <p>
-      Zig has two kinds of pointers:
+      Zig has two kinds of pointers: single-item and many-item.
       </p>
       <ul>
-          <li>{#syntax#}*T{#endsyntax#} - pointer to exactly one item.
+          <li>{#syntax#}*T{#endsyntax#} - single-item pointer to exactly one item.
             <ul>
               <li>Supports deref syntax: {#syntax#}ptr.*{#endsyntax#}</li>
             </ul>
           </li>
-          <li>{#syntax#}[*]T{#endsyntax#} - pointer to unknown number of items.
+          <li>{#syntax#}[*]T{#endsyntax#} - many-item pointer to unknown number of items.
             <ul>
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
@@ -2009,7 +2009,7 @@ test "null terminated array" {
       </ul>
       <p>These types are closely related to {#link|Arrays#} and {#link|Slices#}:</p>
         <ul>
-            <li>{#syntax#}*[N]T{#endsyntax#} - pointer to N items, same as single-item pointer to array.
+            <li>{#syntax#}*[N]T{#endsyntax#} - pointer to N items, same as single-item pointer to an array.
             <ul>
                 <li>Supports index syntax: {#syntax#}array_ptr[i]{#endsyntax#}</li>
                 <li>Supports slice syntax: {#syntax#}array_ptr[start..end]{#endsyntax#}</li>
@@ -2038,7 +2038,7 @@ test "address of syntax" {
     // Dereference a pointer:
     expect(x_ptr.* == 1234);
 
-    // When you get the address of a const variable, you get a const pointer to a single item.
+    // When you get the address of a const variable, you get a const single-item pointer.
     expect(@TypeOf(x_ptr) == *const i32);
 
     // If you want to mutate the value, you'd need an address of a mutable variable:
@@ -2051,7 +2051,7 @@ test "address of syntax" {
 
 test "pointer array access" {
     // Taking an address of an individual element gives a
-    // pointer to a single item. This kind of pointer
+    // single-item pointer. This kind of pointer
     // does not support pointer arithmetic.
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const ptr = &array[2];
@@ -2320,8 +2320,8 @@ test "basic slices" {
     expect(&slice[0] == &array[0]);
     expect(slice.len == array.len);
 
-    // Using the address-of operator on a slice gives a pointer to a single
-    // item, while using the `ptr` field gives an unknown length pointer.
+    // Using the address-of operator on a slice gives a single-item pointer,
+    // while using the `ptr` field gives a many-item pointer.
     expect(@TypeOf(slice.ptr) == [*]i32);
     expect(@TypeOf(&slice[0]) == *i32);
     expect(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
@@ -5244,8 +5244,7 @@ test "*[N]T to []T" {
     expect(std.mem.eql(f32, x2, &[2]f32{ 1.2, 3.4 }));
 }
 
-// Single-item pointers to arrays can be coerced to
-// unknown length pointers.
+// Single-item pointers to arrays can be coerced to many-item pointers.
 test "*[N]T to [*]T" {
     var buf: [5]u8 = "hello".*;
     const x: [*]u8 = &buf;
@@ -9853,7 +9852,7 @@ const c = @cImport({
       </p>
       <p>
       When importing C header files, it is ambiguous whether pointers should be translated as
-      single-item pointers ({#syntax#}*T{#endsyntax#}) or unknown-length pointers ({#syntax#}[*]T{#endsyntax#}).
+      single-item pointers ({#syntax#}*T{#endsyntax#}) or many-item pointers ({#syntax#}[*]T{#endsyntax#}).
       C pointers are a compromise so that Zig code can utilize translated header files directly.
       </p>
       <p>{#syntax#}[*c]T{#endsyntax#} - C pointer.</p>
