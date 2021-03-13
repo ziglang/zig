@@ -90,6 +90,10 @@ pub const default_config = struct {
         pub fn init(allocator: *std.mem.Allocator) !@This() {
             return @This(){ .debug_info = try openSelfDebugInfo(allocator) };
         }
+        
+        pub fn deinit() void {
+            self.debug_info.deinit();
+        }
     };
 
     fn writeLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
