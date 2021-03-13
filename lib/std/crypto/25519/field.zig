@@ -6,6 +6,7 @@
 const std = @import("std");
 const readIntLittle = std.mem.readIntLittle;
 const writeIntLittle = std.mem.writeIntLittle;
+const Error = std.crypto.Error;
 
 pub const Fe = struct {
     limbs: [5]u64,
@@ -112,7 +113,7 @@ pub const Fe = struct {
     }
 
     /// Reject non-canonical encodings of an element, possibly ignoring the top bit
-    pub fn rejectNonCanonical(s: [32]u8, comptime ignore_extra_bit: bool) !void {
+    pub fn rejectNonCanonical(s: [32]u8, comptime ignore_extra_bit: bool) Error!void {
         var c: u16 = (s[31] & 0x7f) ^ 0x7f;
         comptime var i = 30;
         inline while (i > 0) : (i -= 1) {
@@ -412,7 +413,7 @@ pub const Fe = struct {
     }
 
     /// Compute the square root of `x2`, returning `error.NotSquare` if `x2` was not a square
-    pub fn sqrt(x2: Fe) !Fe {
+    pub fn sqrt(x2: Fe) Error!Fe {
         var x2_copy = x2;
         const x = x2.uncheckedSqrt();
         const check = x.sq().sub(x2_copy);

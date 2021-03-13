@@ -144,6 +144,8 @@ pub const random = &@import("crypto/tlcsprng.zig").interface;
 
 const std = @import("std.zig");
 
+pub const Error = @import("crypto/error.zig").Error;
+
 test "crypto" {
     const please_windows_dont_oom = std.Target.current.os.tag == .windows;
     if (please_windows_dont_oom) return error.SkipZigTest;
@@ -151,7 +153,9 @@ test "crypto" {
     inline for (std.meta.declarations(@This())) |decl| {
         switch (decl.data) {
             .Type => |t| {
-                std.testing.refAllDecls(t);
+                if (@typeInfo(t) != .ErrorSet) {
+                    std.testing.refAllDecls(t);
+                }
             },
             .Var => |v| {
                 _ = v;

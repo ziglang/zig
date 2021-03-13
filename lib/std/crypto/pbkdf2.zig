@@ -7,6 +7,7 @@
 const std = @import("std");
 const mem = std.mem;
 const maxInt = std.math.maxInt;
+const Error = std.crypto.Error;
 
 // RFC 2898 Section 5.2
 //
@@ -36,14 +37,6 @@ const maxInt = std.math.maxInt;
 
 // Based on Apple's CommonKeyDerivation, based originally on code by Damien Bergamini.
 
-pub const Pbkdf2Error = error{
-    /// At least one round is required
-    TooFewRounds,
-
-    /// Maximum length of the derived key is `maxInt(u32) * Prf.mac_length`
-    DerivedKeyTooLong,
-};
-
 /// Apply PBKDF2 to generate a key from a password.
 ///
 /// PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
@@ -62,8 +55,8 @@ pub const Pbkdf2Error = error{
 ///         the derivedKey. It is common to tune this parameter to achieve approximately 100ms.
 ///
 /// Prf: Pseudo-random function to use. A common choice is `std.crypto.auth.hmac.HmacSha256`.
-pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) Pbkdf2Error!void {
-    if (rounds < 1) return error.TooFewRounds;
+pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) Error!void {
+    if (rounds < 1) return error.WeakParameters;
 
     const dkLen = derivedKey.len;
     const hLen = Prf.mac_length;
@@ -76,7 +69,7 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
     //
     if (comptime (maxInt(usize) > maxInt(u32) * hLen) and (dkLen > @as(usize, maxInt(u32) * hLen))) {
         // If maxInt(usize) is less than `maxInt(u32) * hLen` then dkLen is always inbounds
-        return error.DerivedKeyTooLong;
+        return error.OutputTooLong;
     }
 
     // FromSpec:
