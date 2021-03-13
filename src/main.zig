@@ -1059,6 +1059,7 @@ fn buildOutputType(
                 preprocessor,
             };
             var c_out_mode: COutMode = .link;
+            var last_target_arg_index: ?usize = null;
             var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
             var linker_args = std.ArrayList([]const u8).init(arena);
@@ -1068,7 +1069,10 @@ fn buildOutputType(
                     fatal("unable to parse command line parameters: {s}", .{@errorName(err)});
                 };
                 switch (it.zig_equivalent) {
-                    .target => target_arch_os_abi = it.only_arg, // example: -target riscv64-linux-unknown
+                    .target => {
+                        target_arch_os_abi = it.only_arg;
+                        last_target_arg_index = it.next_index - 1;
+                    },
                     .o => out_path = it.only_arg, // -o
                     .c => c_out_mode = .object, // -c
                     .asm_only => c_out_mode = .assembly, // -S
@@ -1417,8 +1421,22 @@ fn buildOutputType(
                     output_mode = .Obj;
                     // An error message is generated when there is more than 1 C source file.
                     if (c_source_files.items.len != 1) {
+                        const punt_args = blk: {
+                            if (last_target_arg_index) |tindex| {
+                                // rewrite -target
+                                // if multiple -target are present, clang will only process the last instance
+                                const cross_target = try std.zig.CrossTarget.parse(.{
+                                    .arch_os_abi = target_arch_os_abi,
+                                });
+                                var args_copy = try std.mem.dupe(arena, []const u8, all_args);
+                                args_copy[tindex] = try @import("codegen/llvm.zig").targetTriple(arena, cross_target.toTarget());
+                                break :blk args_copy;
+                            } else {
+                                break :blk all_args;
+                            }
+                        };
                         // For example `zig cc` and no args should print the "no input files" message.
-                        return punt_to_clang(arena, all_args);
+                        return punt_to_clang(arena, punt_args);
                     }
                     if (out_path) |p| {
                         emit_bin = .{ .yes = p };
