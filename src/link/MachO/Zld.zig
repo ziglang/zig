@@ -77,6 +77,7 @@ lazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
 tlv_bootstrap: ?Import = null,
 threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
 local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
+nonlazy_pointers: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
@@ -84,6 +85,16 @@ stub_helper_stubs_start_off: ?u64 = null,
 
 mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
 unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
+
+// TODO this will require scanning the relocations at least one to work out
+// the exact amount of local GOT indirections. For the time being, set some
+// default value.
+const max_local_got_indirections: u16 = 1000;
+
+const GotEntry = struct {
+    index: u32,
+    target_addr: u64,
+};
 
 const MappingKey = struct {
     object_id: u16,
@@ -214,6 +225,10 @@ pub fn deinit(self: *Zld) void {
         self.allocator.free(entry.key);
     }
     self.nonlazy_imports.deinit(self.allocator);
+    for (self.nonlazy_pointers.items()) |*entry| {
+        self.allocator.free(entry.key);
+    }
+    self.nonlazy_pointers.deinit(self.allocator);
     for (self.exports.items()) |*entry| {
         self.allocator.free(entry.key);
     }
@@ -874,7 +889,10 @@ fn allocateDataConstSegment(self: *Zld) !void {
 
     // Set got size
     const got = &seg.sections.items[self.got_section_index.?];
-    got.size += nonlazy * @sizeOf(u64);
+    // TODO this will require scanning the relocations at least one to work out
+    // the exact amount of local GOT indirections. For the time being, set some
+    // default value.
+    got.size += (max_local_got_indirections + nonlazy) * @sizeOf(u64);
 
     try self.allocateSegment(self.data_const_segment_cmd_index.?, 0);
 }
@@ -1358,13 +1376,65 @@ fn doRelocs(self: *Zld) !void {
                         const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
 
                         switch (rel_type) {
-                            .X86_64_RELOC_BRANCH,
-                            .X86_64_RELOC_GOT_LOAD,
-                            .X86_64_RELOC_GOT,
-                            => {
+                            .X86_64_RELOC_BRANCH => {
                                 assert(rel.r_length == 2);
                                 const inst = code[off..][0..4];
                                 const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4));
+                                mem.writeIntLittle(u32, inst, displacement);
+                            },
+                            .X86_64_RELOC_GOT_LOAD => {
+                                assert(rel.r_length == 2);
+                                const inst = code[off..][0..4];
+                                const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4));
+
+                                blk: {
+                                    const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+                                    const got = data_const_seg.sections.items[self.got_section_index.?];
+                                    if (got.addr <= target_addr and target_addr < got.addr + got.size) break :blk;
+                                    log.debug("    | rewriting to leaq", .{});
+                                    code[off - 2] = 0x8d;
+                                }
+
+                                mem.writeIntLittle(u32, inst, displacement);
+                            },
+                            .X86_64_RELOC_GOT => {
+                                assert(rel.r_length == 2);
+                                // TODO Instead of referring to the target symbol directly, we refer to it
+                                // indirectly via GOT. Getting actual target address should be done in the
+                                // helper relocTargetAddr function rather than here.
+                                const sym = object.symtab.items[rel.r_symbolnum];
+                                const sym_name = try self.allocator.dupe(u8, object.getString(sym.n_strx));
+                                const res = try self.nonlazy_pointers.getOrPut(self.allocator, sym_name);
+                                defer if (res.found_existing) self.allocator.free(sym_name);
+
+                                const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+                                const got = data_const_seg.sections.items[self.got_section_index.?];
+
+                                if (!res.found_existing) {
+                                    const index = @intCast(u32, self.nonlazy_pointers.items().len) - 1;
+                                    assert(index < max_local_got_indirections); // TODO This is just a temp solution.
+                                    res.entry.value = .{
+                                        .index = index,
+                                        .target_addr = target_addr,
+                                    };
+                                    var buf: [@sizeOf(u64)]u8 = undefined;
+                                    mem.writeIntLittle(u64, &buf, target_addr);
+                                    const got_offset = got.offset + (index + self.nonlazy_imports.items().len) * @sizeOf(u64);
+
+                                    log.debug("    | GOT off 0x{x}", .{got.offset});
+                                    log.debug("    | writing GOT entry 0x{x} at 0x{x}", .{ target_addr, got_offset });
+
+                                    try self.file.?.pwriteAll(&buf, got_offset);
+                                }
+
+                                const index = res.entry.value.index + self.nonlazy_imports.items().len;
+                                const actual_target_addr = got.addr + index * @sizeOf(u64);
+
+                                log.debug("    | GOT addr 0x{x}", .{got.addr});
+                                log.debug("    | actual target address in GOT 0x{x}", .{actual_target_addr});
+
+                                const inst = code[off..][0..4];
+                                const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, actual_target_addr) - @intCast(i64, this_addr) - 4));
                                 mem.writeIntLittle(u32, inst, displacement);
                             },
                             .X86_64_RELOC_TLV => {
@@ -2384,6 +2454,23 @@ fn writeRebaseInfoTable(self: *Zld) !void {
     try pointers.ensureCapacity(pointers.items.len + self.local_rebases.items.len);
     pointers.appendSliceAssumeCapacity(self.local_rebases.items);
 
+    if (self.got_section_index) |idx| {
+        // TODO this should be cleaned up!
+        try pointers.ensureCapacity(pointers.items.len + self.nonlazy_pointers.items().len);
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
+        const index_offset = @intCast(u32, self.nonlazy_imports.items().len);
+        for (self.nonlazy_pointers.items()) |entry| {
+            const index = index_offset + entry.value.index;
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + index * @sizeOf(u64),
+                .segment_id = segment_id,
+            });
+        }
+    }
+
     if (self.la_symbol_ptr_section_index) |idx| {
         try pointers.ensureCapacity(pointers.items.len + self.lazy_imports.items().len);
         const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
@@ -2851,8 +2938,9 @@ fn writeDynamicSymbolTable(self: *Zld) !void {
 
     const lazy = self.lazy_imports.items();
     const nonlazy = self.nonlazy_imports.items();
+    const got_locals = self.nonlazy_pointers.items();
     dysymtab.indirectsymoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
-    dysymtab.nindirectsyms = @intCast(u32, lazy.len * 2 + nonlazy.len);
+    dysymtab.nindirectsyms = @intCast(u32, lazy.len * 2 + nonlazy.len + got_locals.len);
     const needed_size = dysymtab.nindirectsyms * @sizeOf(u32);
     seg.inner.filesize += needed_size;
 
@@ -2867,20 +2955,24 @@ fn writeDynamicSymbolTable(self: *Zld) !void {
     var writer = stream.writer();
 
     stubs.reserved1 = 0;
-    for (self.lazy_imports.items()) |_, i| {
+    for (lazy) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
         try writer.writeIntLittle(u32, symtab_idx);
     }
 
     const base_id = @intCast(u32, lazy.len);
     got.reserved1 = base_id;
-    for (self.nonlazy_imports.items()) |_, i| {
+    for (nonlazy) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i + base_id);
         try writer.writeIntLittle(u32, symtab_idx);
     }
+    // TODO there should be one common set of GOT entries.
+    for (got_locals) |_| {
+        try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL);
+    }
 
-    la_symbol_ptr.reserved1 = got.reserved1 + @intCast(u32, nonlazy.len);
-    for (self.lazy_imports.items()) |_, i| {
+    la_symbol_ptr.reserved1 = got.reserved1 + @intCast(u32, nonlazy.len) + @intCast(u32, got_locals.len);
+    for (lazy) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
         try writer.writeIntLittle(u32, symtab_idx);
     }

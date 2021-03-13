@@ -209,7 +209,7 @@ fn readObject(self: *Archive, arch: std.Target.Cpu.Arch, ar_name: []const u8, re
 
     try object.readLoadCommands(reader, .{ .offset = offset });
 
-    if (object.symtab_cmd.index != null) {
+    if (object.symtab_cmd_index != null) {
         try object.readSymtab();
         try object.readStrtab();
     }
@@ -245,8 +245,11 @@ fn getName(allocator: *Allocator, header: ar_hdr, reader: anytype) ![]u8 {
             name = try allocator.dupe(u8, n);
         },
         .Length => |len| {
-            name = try allocator.alloc(u8, len);
-            try reader.readNoEof(name);
+            var n = try allocator.alloc(u8, len);
+            defer allocator.free(n);
+            try reader.readNoEof(n);
+            const actual_len = mem.indexOfScalar(u8, n, @as(u8, 0));
+            name = try allocator.dupe(u8, n[0..actual_len.?]);
         },
     }
     return name;
