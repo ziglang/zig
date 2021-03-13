@@ -841,7 +841,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--debug-log")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
-                        try log_scopes.append(gpa, args[i]);
+                        if (!build_options.enable_logging) {
+                            std.log.warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
+                        } else {
+                            try log_scopes.append(gpa, args[i]);
+                        }
                     } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
                         want_compiler_rt = true;
                     } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
