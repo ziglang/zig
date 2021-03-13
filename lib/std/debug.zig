@@ -90,7 +90,7 @@ pub const default_config = struct {
         pub fn init(allocator: *std.mem.Allocator) !@This() {
             return @This(){ .debug_info = try openSelfDebugInfo(allocator) };
         }
-        
+
         pub fn deinit() void {
             self.debug_info.deinit();
         }
@@ -278,8 +278,13 @@ pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     };
 }
 
-pub fn formatStackTraceWithTTYConfig(
-    self: std.builtin.StackTraceWithTTYConfig,
+const StackTraceWithTTYConfig = struct {
+    trace: builtin.StackTrace,
+    tty_config: std.debug.TTY.Config,
+};
+
+fn formatStackTraceWithTTYConfig(
+    self: StackTraceWithTTYConfig,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
@@ -292,6 +297,15 @@ pub fn formatStackTraceWithTTYConfig(
         };
         dumper.stackTrace(self.trace) catch |err| dumpHandleError(writer, err);
     }
+}
+
+pub const FmtStackTrace = std.fmt.Formatter(formatStackTraceWithTTYConfig);
+
+pub fn fmtStackTrace(
+    trace: builtin.StackTrace,
+    tty_config: std.debug.TTY.Config,
+) FmtStackTrace {
+    return .{ .data = .{ .trace = trace, .tty_config = tty_config } };
 }
 
 pub fn StackTraceDumper(comptime Writer: type) type {

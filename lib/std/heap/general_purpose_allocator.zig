@@ -106,7 +106,6 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const page_size = std.mem.page_size;
 const StackTrace = std.builtin.StackTrace;
-const StackTraceWithTTYConfig = std.builtin.StackTraceWithTTYConfig;
 
 /// Integer type for pointing to slots in a small allocation
 const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
@@ -205,22 +204,25 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         const small_bucket_count = math.log2(page_size);
         const largest_bucket_object_size = 1 << (small_bucket_count - 1);
 
+        const FmtStackTrace = std.debug.FmtStackTrace;
+
+        fn fmtStackTrace(trace: StackTrace) FmtStackTrace {
+            return std.debug.fmtStackTrace(trace, logDetectTTYConfig());
+        }
+
         const LargeAlloc = struct {
             bytes: []u8,
             stack_addresses: [stack_n]usize,
 
-            fn getStackTrace(self: *LargeAlloc) StackTraceWithTTYConfig {
+            fn getStackTrace(self: *LargeAlloc) FmtStackTrace {
                 var len: usize = 0;
                 while (len < stack_n and self.stack_addresses[len] != 0) {
                     len += 1;
                 }
-                return .{
-                    .trace = .{
-                        .instruction_addresses = &self.stack_addresses,
-                        .index = len,
-                    },
-                    .tty_config = logDetectTTYConfig(),
-                };
+                return fmtStackTrace(.{
+                    .instruction_addresses = &self.stack_addresses,
+                    .index = len,
+                });
             }
         };
         const LargeAllocTable = std.AutoHashMapUnmanaged(usize, LargeAlloc);
@@ -272,19 +274,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             size_class: usize,
             slot_index: SlotIndex,
             trace_kind: TraceKind,
-        ) StackTraceWithTTYConfig {
+        ) FmtStackTrace {
             const stack_addresses = bucket.stackTracePtr(size_class, slot_index, trace_kind);
             var len: usize = 0;
             while (len < stack_n and stack_addresses[len] != 0) {
                 len += 1;
             }
-            return .{
-                .trace = .{
-                    .instruction_addresses = stack_addresses,
-                    .index = len,
-                },
-                .tty_config = logDetectTTYConfig(),
-            };
+            return fmtStackTrace(.{
+                .instruction_addresses = stack_addresses,
+                .index = len,
+            });
         }
 
         fn bucketStackFramesStart(size_class: usize) usize {
@@ -454,7 +453,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     entry.value.bytes.len,
                     old_mem.len,
                     entry.value.getStackTrace(),
-                    free_stack_trace.withTTYConfig(logDetectTTYConfig()),
+                    fmtStackTrace(free_stack_trace),
                 });
             }
 
@@ -545,7 +544,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     log.err("Double free detected. Allocation: {s} First free: {s} Second free: {s}", .{
                         alloc_stack_trace,
                         free_stack_trace,
-                        second_free_stack_trace.withTTYConfig(logDetectTTYConfig()),
+                        fmtStackTrace(second_free_stack_trace),
                     });
                     if (new_size == 0) {
                         // Recoverable. Restore self.total_requested_bytes if needed, as we

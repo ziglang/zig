@@ -58,24 +58,9 @@ pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
 
-    pub fn withTTYConfig(
-        self: @This(),
-        tty_config: std.debug.TTY.Config,
-    ) StackTraceWithTTYConfig {
-        return .{ .trace = self, .tty_config = tty_config };
-    }
-
-
     // TODO(rgreenblatt): maybe this shouldn't exist so the default formatter can be used?
     // TODO(rgreenblatt): should this instead default to using no color?
     pub const format = @compileError("use 'withTTYConfig' to specify if colors can be used");
-};
-
-pub const StackTraceWithTTYConfig = struct {
-    trace: StackTrace,
-    tty_config: std.debug.TTY.Config,
-
-    pub const format = std.debug.formatStackTraceWithTTYConfig;
 };
 
 /// This data structure is used by the Zig language code generation and
