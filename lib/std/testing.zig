@@ -200,67 +200,69 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
     return error.TestFailed;
 }
 
-/// This function is intended to be used only in tests. When the actual value is not
-/// within the margin of the expected value,
-/// prints diagnostics to stderr to show exactly how they are not equal, then aborts.
-/// The types must be floating point
-pub fn expectWithinMargin(expected: anytype, actual: @TypeOf(expected), margin: @TypeOf(expected)) void {
-    std.debug.assert(margin >= 0.0);
+pub const expectWithinMargin = @compileError("expectWithinMargin is deprecated, use expectApproxEqAbs or expectApproxEqRel");
+pub const expectWithinEpsilon = @compileError("expectWithinEpsilon is deprecated, use expectApproxEqAbs or expectApproxEqRel");
 
-    switch (@typeInfo(@TypeOf(actual))) {
-        .Float,
-        .ComptimeFloat,
-        => {
-            if (@fabs(expected - actual) > margin) {
-                std.debug.panic("actual {}, not within margin {} of expected {}", .{ actual, margin, expected });
-            }
-        },
+/// This function is intended to be used only in tests. When the actual value is
+/// not approximately equal to the expected value, prints diagnostics to stderr
+/// to show exactly how they are not equal, then aborts.
+/// See `math.approxEqAbs` for more informations on the tolerance parameter.
+/// The types must be floating point
+pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) void {
+    const T = @TypeOf(expected);
+
+    switch (@typeInfo(T)) {
+        .Float => if (!math.approxEqAbs(T, expected, actual, tolerance))
+            std.debug.panic("actual {}, not within absolute tolerance {} of expected {}", .{ actual, tolerance, expected }),
+
+        .ComptimeFloat => @compileError("Cannot approximately compare two comptime_float values"),
+
         else => @compileError("Unable to compare non floating point values"),
     }
 }
 
-test "expectWithinMargin" {
+test "expectApproxEqAbs" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const pos_x: T = 12.0;
         const pos_y: T = 12.06;
         const neg_x: T = -12.0;
         const neg_y: T = -12.06;
 
-        expectWithinMargin(pos_x, pos_y, 0.1);
-        expectWithinMargin(neg_x, neg_y, 0.1);
+        expectApproxEqAbs(pos_x, pos_y, 0.1);
+        expectApproxEqAbs(neg_x, neg_y, 0.1);
     }
 }
 
-/// This function is intended to be used only in tests. When the actual value is not
-/// within the epsilon of the expected value,
-/// prints diagnostics to stderr to show exactly how they are not equal, then aborts.
+/// This function is intended to be used only in tests. When the actual value is
+/// not approximately equal to the expected value, prints diagnostics to stderr
+/// to show exactly how they are not equal, then aborts.
+/// See `math.approxEqRel` for more informations on the tolerance parameter.
 /// The types must be floating point
-pub fn expectWithinEpsilon(expected: anytype, actual: @TypeOf(expected), epsilon: @TypeOf(expected)) void {
-    std.debug.assert(epsilon >= 0.0 and epsilon <= 1.0);
+pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) void {
+    const T = @TypeOf(expected);
 
-    // Relative epsilon test.
-    const margin = math.max(math.fabs(expected), math.fabs(actual)) * epsilon;
-    switch (@typeInfo(@TypeOf(actual))) {
-        .Float,
-        .ComptimeFloat,
-        => {
-            if (@fabs(expected - actual) > margin) {
-                std.debug.panic("actual {}, not within epsilon {}, of expected {}", .{ actual, epsilon, expected });
-            }
-        },
+    switch (@typeInfo(T)) {
+        .Float => if (!math.approxEqRel(T, expected, actual, tolerance))
+            std.debug.panic("actual {}, not within relative tolerance {} of expected {}", .{ actual, tolerance, expected }),
+
+        .ComptimeFloat => @compileError("Cannot approximately compare two comptime_float values"),
+
         else => @compileError("Unable to compare non floating point values"),
     }
 }
 
-test "expectWithinEpsilon" {
+test "expectApproxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const pos_x: T = 12.0;
-        const pos_y: T = 13.2;
-        const neg_x: T = -12.0;
-        const neg_y: T = -13.2;
+        const eps_value = comptime math.epsilon(T);
+        const sqrt_eps_value = comptime math.sqrt(eps_value);
 
-        expectWithinEpsilon(pos_x, pos_y, 0.1);
-        expectWithinEpsilon(neg_x, neg_y, 0.1);
+        const pos_x: T = 12.0;
+        const pos_y: T = pos_x + 2 * eps_value;
+        const neg_x: T = -12.0;
+        const neg_y: T = neg_x - 2 * eps_value;
+
+        expectApproxEqRel(pos_x, pos_y, sqrt_eps_value);
+        expectApproxEqRel(neg_x, neg_y, sqrt_eps_value);
     }
 }
 

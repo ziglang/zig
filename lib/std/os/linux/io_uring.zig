@@ -1353,7 +1353,7 @@ test "timeout (after a relative time)" {
         .res = -linux.ETIME,
         .flags = 0,
     }, cqe);
-    testing.expectWithinMargin(@intToFloat(f64, ms), @intToFloat(f64, stopped - started), margin);
+    testing.expectApproxEqAbs(@intToFloat(f64, ms), @intToFloat(f64, stopped - started), margin);
 }
 
 test "timeout (after a number of completions)" {
