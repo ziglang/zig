@@ -275,8 +275,10 @@ pub const Tree = struct {
             .extra_volatile_qualifier => {
                 return stream.writeAll("extra volatile qualifier");
             },
-            .invalid_align => {
-                return stream.writeAll("alignment not allowed on arrays");
+            .ptr_mod_on_array_child_type => {
+                return stream.print("pointer modifier '{s}' not allowed on array child type", .{
+                    token_tags[parse_error.token].symbol(),
+                });
             },
             .invalid_and => {
                 return stream.writeAll("`&&` is invalid; note that `and` is boolean AND");
@@ -525,7 +527,9 @@ pub const Tree = struct {
             => {
                 // Look for a label.
                 const lbrace = main_tokens[n];
-                if (token_tags[lbrace - 1] == .colon) {
+                if (token_tags[lbrace - 1] == .colon and
+                    token_tags[lbrace - 2] == .identifier)
+                {
                     end_offset += 2;
                 }
                 return lbrace - end_offset;
@@ -766,7 +770,7 @@ pub const Tree = struct {
             .container_decl_arg => {
                 const members = tree.extraData(datas[n].rhs, Node.SubRange);
                 if (members.end - members.start == 0) {
-                    end_offset += 1; // for the rparen
+                    end_offset += 3; // for the rparen + lbrace + rbrace
                     n = datas[n].lhs;
                 } else {
                     end_offset += 1; // for the rbrace
@@ -989,13 +993,13 @@ pub const Tree = struct {
             },
             .slice => {
                 const extra = tree.extraData(datas[n].rhs, Node.Slice);
-                assert(extra.end != 0); // should have used SliceOpen
+                assert(extra.end != 0); // should have used slice_open
                 end_offset += 1; // rbracket
                 n = extra.end;
             },
             .slice_sentinel => {
                 const extra = tree.extraData(datas[n].rhs, Node.SliceSentinel);
-                assert(extra.sentinel != 0); // should have used Slice
+                assert(extra.sentinel != 0); // should have used slice
                 end_offset += 1; // rbracket
                 n = extra.sentinel;
             },
@@ -2386,7 +2390,7 @@ pub const Error = struct {
         extra_allowzero_qualifier,
         extra_const_qualifier,
         extra_volatile_qualifier,
-        invalid_align,
+        ptr_mod_on_array_child_type,
         invalid_and,
         invalid_bit_range,
         invalid_token,
@@ -2925,6 +2929,7 @@ pub const Node = struct {
 
     pub const SliceSentinel = struct {
         start: Index,
+        /// May be 0 if the slice is "open"
         end: Index,
         sentinel: Index,
     };

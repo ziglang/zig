@@ -271,6 +271,11 @@ pub const CompoundAssignOperator = opaque {
     extern fn ZigClangCompoundAssignOperator_getRHS(*const CompoundAssignOperator) *const Expr;
 };
 
+pub const CompoundLiteralExpr = opaque {
+    pub const getInitializer = ZigClangCompoundLiteralExpr_getInitializer;
+    extern fn ZigClangCompoundLiteralExpr_getInitializer(*const CompoundLiteralExpr) *const Expr;
+};
+
 pub const CompoundStmt = opaque {
     pub const body_begin = ZigClangCompoundStmt_body_begin;
     extern fn ZigClangCompoundStmt_body_begin(*const CompoundStmt) ConstBodyIterator;

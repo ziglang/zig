@@ -626,10 +626,13 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .@"comptime" => return comptimeExpr(mod, scope, rl, node_datas[node].lhs),
         .@"switch", .switch_comma => return switchExpr(mod, scope, rl, node),
 
+        .@"nosuspend" => return nosuspendExpr(mod, scope, rl, node),
+        .@"suspend" => return rvalue(mod, scope, rl, try suspendExpr(mod, scope, node)),
+        .@"await" => return awaitExpr(mod, scope, rl, node),
+        .@"resume" => return rvalue(mod, scope, rl, try resumeExpr(mod, scope, node)),
+
         .@"defer" => return mod.failNode(scope, node, "TODO implement astgen.expr for .defer", .{}),
         .@"errdefer" => return mod.failNode(scope, node, "TODO implement astgen.expr for .errdefer", .{}),
-        .@"await" => return mod.failNode(scope, node, "TODO implement astgen.expr for .await", .{}),
-        .@"resume" => return mod.failNode(scope, node, "TODO implement astgen.expr for .resume", .{}),
         .@"try" => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
 
         .array_init_one,
@@ -652,15 +655,12 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .struct_init_comma,
         => return mod.failNode(scope, node, "TODO implement astgen.expr for struct literals", .{}),
 
-        .@"suspend" => return mod.failNode(scope, node, "TODO implement astgen.expr for .suspend", .{}),
         .@"anytype" => return mod.failNode(scope, node, "TODO implement astgen.expr for .anytype", .{}),
         .fn_proto_simple,
         .fn_proto_multi,
         .fn_proto_one,
         .fn_proto,
         => return mod.failNode(scope, node, "TODO implement astgen.expr for function prototypes", .{}),
-
-        .@"nosuspend" => return mod.failNode(scope, node, "TODO implement astgen.expr for .nosuspend", .{}),
     }
 }
 
@@ -766,6 +766,8 @@ fn breakExpr(
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .gen_suspend => scope = scope.cast(Scope.GenZIR).?.parent,
+            .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => if (break_label != 0) {
                 const label_name = try mod.identifierTokenString(parent_scope, break_label);
                 return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
@@ -819,6 +821,8 @@ fn continueExpr(
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .gen_suspend => scope = scope.cast(Scope.GenZIR).?.parent,
+            .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => if (break_label != 0) {
                 const label_name = try mod.identifierTokenString(parent_scope, break_label);
                 return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
@@ -844,7 +848,9 @@ pub fn blockExpr(
     const token_tags = tree.tokens.items(.tag);
 
     const lbrace = main_tokens[block_node];
-    if (token_tags[lbrace - 1] == .colon) {
+    if (token_tags[lbrace - 1] == .colon and
+        token_tags[lbrace - 2] == .identifier)
+    {
         return labeledBlockExpr(mod, scope, rl, block_node, statements, .block);
     }
 
@@ -893,6 +899,8 @@ fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIn
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .gen_suspend => scope = scope.cast(Scope.GenZIR).?.parent,
+            .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => return,
         }
     }
@@ -1100,6 +1108,8 @@ fn varDecl(
                 s = local_ptr.parent;
             },
             .gen_zir => s = s.cast(Scope.GenZIR).?.parent,
+            .gen_suspend => s = s.cast(Scope.GenZIR).?.parent,
+            .gen_nosuspend => s = s.cast(Scope.Nosuspend).?.parent,
             else => break,
         };
     }
@@ -3021,6 +3031,8 @@ fn identifier(
                 s = local_ptr.parent;
             },
             .gen_zir => s = s.cast(Scope.GenZIR).?.parent,
+            .gen_suspend => s = s.cast(Scope.GenZIR).?.parent,
+            .gen_nosuspend => s = s.cast(Scope.Nosuspend).?.parent,
             else => break,
         };
     }
@@ -3633,12 +3645,107 @@ fn callExpr(
     }
 
     const src = token_starts[call.ast.lparen];
+    var modifier: std.builtin.CallOptions.Modifier = .auto;
+    if (call.async_token) |_| modifier = .async_kw;
+
     const result = try addZIRInst(mod, scope, src, zir.Inst.Call, .{
         .func = lhs,
         .args = args,
+        .modifier = modifier,
     }, .{});
     // TODO function call with result location
     return rvalue(mod, scope, rl, result);
+}
+
+fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
+
+    if (scope.getNosuspend()) |some| {
+        const msg = msg: {
+            const msg = try mod.errMsg(scope, src, "suspend in nosuspend block", .{});
+            errdefer msg.destroy(mod.gpa);
+            try mod.errNote(scope, some.src, msg, "nosuspend block here", .{});
+            break :msg msg;
+        };
+        return mod.failWithOwnedErrorMsg(scope, msg);
+    }
+
+    if (scope.getSuspend()) |some| {
+        const msg = msg: {
+            const msg = try mod.errMsg(scope, src, "cannot suspend inside suspend block", .{});
+            errdefer msg.destroy(mod.gpa);
+            try mod.errNote(scope, some.src, msg, "other suspend block here", .{});
+            break :msg msg;
+        };
+        return mod.failWithOwnedErrorMsg(scope, msg);
+    }
+
+    var suspend_scope: Scope.GenZIR = .{
+        .base = .{ .tag = .gen_suspend },
+        .parent = scope,
+        .decl = scope.ownerDecl().?,
+        .arena = scope.arena(),
+        .force_comptime = scope.isComptime(),
+        .instructions = .{},
+    };
+    defer suspend_scope.instructions.deinit(mod.gpa);
+
+    const operand = tree.nodes.items(.data)[node].lhs;
+    if (operand != 0) {
+        const possibly_unused_result = try expr(mod, &suspend_scope.base, .none, operand);
+        if (!possibly_unused_result.tag.isNoReturn()) {
+            _ = try addZIRUnOp(mod, &suspend_scope.base, src, .ensure_result_used, possibly_unused_result);
+        }
+    } else {
+        return addZIRNoOp(mod, scope, src, .@"suspend");
+    }
+
+    const block = try addZIRInstBlock(mod, scope, src, .suspend_block, .{
+        .instructions = try scope.arena().dupe(*zir.Inst, suspend_scope.instructions.items),
+    });
+    return &block.base;
+}
+
+fn nosuspendExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    var child_scope = Scope.Nosuspend{
+        .parent = scope,
+        .gen_zir = scope.getGenZIR(),
+        .src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]],
+    };
+
+    return expr(mod, &child_scope.base, rl, tree.nodes.items(.data)[node].lhs);
+}
+
+fn awaitExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
+    const is_nosuspend = scope.getNosuspend() != null;
+
+    // TODO some @asyncCall stuff
+
+    if (scope.getSuspend()) |some| {
+        const msg = msg: {
+            const msg = try mod.errMsg(scope, src, "cannot await inside suspend block", .{});
+            errdefer msg.destroy(mod.gpa);
+            try mod.errNote(scope, some.src, msg, "suspend block here", .{});
+            break :msg msg;
+        };
+        return mod.failWithOwnedErrorMsg(scope, msg);
+    }
+
+    const operand = try expr(mod, scope, .ref, tree.nodes.items(.data)[node].lhs);
+    // TODO pass result location
+    return addZIRUnOp(mod, scope, src, if (is_nosuspend) .nosuspend_await else .@"await", operand);
+}
+
+fn resumeExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
+
+    const operand = try expr(mod, scope, .ref, tree.nodes.items(.data)[node].lhs);
+    return addZIRUnOp(mod, scope, src, .@"resume", operand);
 }
 
 pub const simple_types = std.ComptimeStringMap(Value.Tag, .{

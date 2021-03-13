@@ -73,7 +73,8 @@ fn render(
                     if (vars.get(var_name)) |value| {
                         const trimmed = mem.trim(u8, value, " \r\n");
                         if (fmt == .html and mem.endsWith(u8, var_name, "BYTESIZE")) {
-                            try writer.print("{Bi:.1}", .{try std.fmt.parseInt(u64, trimmed, 10)});
+                            const size = try std.fmt.parseInt(u64, trimmed, 10);
+                            try writer.print("{:.1}", .{std.fmt.fmtIntSizeDec(size)});
                         } else {
                             try writer.writeAll(trimmed);
                         }

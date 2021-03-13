@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 const meta = std.meta;
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const testing = std.testing;
 
 pub fn MultiArrayList(comptime S: type) type {
     return struct {
@@ -27,8 +28,11 @@ pub fn MultiArrayList(comptime S: type) type {
             capacity: usize,
 
             pub fn items(self: Slice, comptime field: Field) []FieldType(field) {
-                const byte_ptr = self.ptrs[@enumToInt(field)];
                 const F = FieldType(field);
+                if (self.len == 0) {
+                    return &[_]F{};
+                }
+                const byte_ptr = self.ptrs[@enumToInt(field)];
                 const casted_ptr = @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
                 return casted_ptr[0..self.len];
             }
@@ -247,6 +251,7 @@ pub fn MultiArrayList(comptime S: type) type {
                 .exact,
             );
             if (self.len == 0) {
+                gpa.free(self.allocatedBytes());
                 self.bytes = new_bytes.ptr;
                 self.capacity = new_capacity;
                 return;
@@ -287,7 +292,6 @@ pub fn MultiArrayList(comptime S: type) type {
 }
 
 test "basic usage" {
-    const testing = std.testing;
     const ally = testing.allocator;
 
     const Foo = struct {
@@ -298,6 +302,8 @@ test "basic usage" {
 
     var list = MultiArrayList(Foo){};
     defer list.deinit(ally);
+
+    testing.expectEqual(@as(usize, 0), list.items(.a).len);
 
     try list.ensureCapacity(ally, 2);
 
@@ -369,7 +375,7 @@ test "basic usage" {
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes
 // function used the @reduce code path.
 test "regression test for @reduce bug" {
-    const ally = std.testing.allocator;
+    const ally = testing.allocator;
     var list = MultiArrayList(struct {
         tag: std.zig.Token.Tag,
         start: u32,
@@ -412,35 +418,70 @@ test "regression test for @reduce bug" {
     try list.append(ally, .{ .tag = .eof, .start = 123 });
 
     const tags = list.items(.tag);
-    std.testing.expectEqual(tags[1], .identifier);
-    std.testing.expectEqual(tags[2], .equal);
-    std.testing.expectEqual(tags[3], .builtin);
-    std.testing.expectEqual(tags[4], .l_paren);
-    std.testing.expectEqual(tags[5], .string_literal);
-    std.testing.expectEqual(tags[6], .r_paren);
-    std.testing.expectEqual(tags[7], .semicolon);
-    std.testing.expectEqual(tags[8], .keyword_pub);
-    std.testing.expectEqual(tags[9], .keyword_fn);
-    std.testing.expectEqual(tags[10], .identifier);
-    std.testing.expectEqual(tags[11], .l_paren);
-    std.testing.expectEqual(tags[12], .r_paren);
-    std.testing.expectEqual(tags[13], .identifier);
-    std.testing.expectEqual(tags[14], .bang);
-    std.testing.expectEqual(tags[15], .identifier);
-    std.testing.expectEqual(tags[16], .l_brace);
-    std.testing.expectEqual(tags[17], .identifier);
-    std.testing.expectEqual(tags[18], .period);
-    std.testing.expectEqual(tags[19], .identifier);
-    std.testing.expectEqual(tags[20], .period);
-    std.testing.expectEqual(tags[21], .identifier);
-    std.testing.expectEqual(tags[22], .l_paren);
-    std.testing.expectEqual(tags[23], .string_literal);
-    std.testing.expectEqual(tags[24], .comma);
-    std.testing.expectEqual(tags[25], .period);
-    std.testing.expectEqual(tags[26], .l_brace);
-    std.testing.expectEqual(tags[27], .r_brace);
-    std.testing.expectEqual(tags[28], .r_paren);
-    std.testing.expectEqual(tags[29], .semicolon);
-    std.testing.expectEqual(tags[30], .r_brace);
-    std.testing.expectEqual(tags[31], .eof);
+    testing.expectEqual(tags[1], .identifier);
+    testing.expectEqual(tags[2], .equal);
+    testing.expectEqual(tags[3], .builtin);
+    testing.expectEqual(tags[4], .l_paren);
+    testing.expectEqual(tags[5], .string_literal);
+    testing.expectEqual(tags[6], .r_paren);
+    testing.expectEqual(tags[7], .semicolon);
+    testing.expectEqual(tags[8], .keyword_pub);
+    testing.expectEqual(tags[9], .keyword_fn);
+    testing.expectEqual(tags[10], .identifier);
+    testing.expectEqual(tags[11], .l_paren);
+    testing.expectEqual(tags[12], .r_paren);
+    testing.expectEqual(tags[13], .identifier);
+    testing.expectEqual(tags[14], .bang);
+    testing.expectEqual(tags[15], .identifier);
+    testing.expectEqual(tags[16], .l_brace);
+    testing.expectEqual(tags[17], .identifier);
+    testing.expectEqual(tags[18], .period);
+    testing.expectEqual(tags[19], .identifier);
+    testing.expectEqual(tags[20], .period);
+    testing.expectEqual(tags[21], .identifier);
+    testing.expectEqual(tags[22], .l_paren);
+    testing.expectEqual(tags[23], .string_literal);
+    testing.expectEqual(tags[24], .comma);
+    testing.expectEqual(tags[25], .period);
+    testing.expectEqual(tags[26], .l_brace);
+    testing.expectEqual(tags[27], .r_brace);
+    testing.expectEqual(tags[28], .r_paren);
+    testing.expectEqual(tags[29], .semicolon);
+    testing.expectEqual(tags[30], .r_brace);
+    testing.expectEqual(tags[31], .eof);
+}
+
+test "ensure capacity on empty list" {
+    const ally = testing.allocator;
+
+    const Foo = struct {
+        a: u32,
+        b: u8,
+    };
+
+    var list = MultiArrayList(Foo){};
+    defer list.deinit(ally);
+
+    try list.ensureCapacity(ally, 2);
+    list.appendAssumeCapacity(.{ .a = 1, .b = 2 });
+    list.appendAssumeCapacity(.{ .a = 3, .b = 4 });
+
+    testing.expectEqualSlices(u32, &[_]u32{ 1, 3 }, list.items(.a));
+    testing.expectEqualSlices(u8, &[_]u8{ 2, 4 }, list.items(.b));
+
+    list.len = 0;
+    list.appendAssumeCapacity(.{ .a = 5, .b = 6 });
+    list.appendAssumeCapacity(.{ .a = 7, .b = 8 });
+
+    testing.expectEqualSlices(u32, &[_]u32{ 5, 7 }, list.items(.a));
+    testing.expectEqualSlices(u8, &[_]u8{ 6, 8 }, list.items(.b));
+
+    list.len = 0;
+    try list.ensureCapacity(ally, 16);
+
+    list.appendAssumeCapacity(.{ .a = 9, .b = 10 });
+    list.appendAssumeCapacity(.{ .a = 11, .b = 12 });
+
+    testing.expectEqualSlices(u32, &[_]u32{ 9, 11 }, list.items(.a));
+    testing.expectEqualSlices(u8, &[_]u8{ 10, 12 }, list.items(.b));
 }

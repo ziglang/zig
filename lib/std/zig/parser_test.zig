@@ -852,6 +852,7 @@ test "zig fmt: slices" {
     try testCanonical(
         \\const a = b[0..];
         \\const c = d[0..1];
+        \\const d = f[0.. :0];
         \\const e = f[0..1 :0];
         \\
     );
@@ -861,6 +862,7 @@ test "zig fmt: slices with spaces in bounds" {
     try testCanonical(
         \\const a = b[0 + 0 ..];
         \\const c = d[0 + 0 .. 1];
+        \\const c = d[0 + 0 .. :0];
         \\const e = f[0 .. 1 + 1 :0];
         \\
     );
@@ -959,6 +961,27 @@ test "zig fmt: tagged union enum tag last token" {
 test "zig fmt: allowzero pointer" {
     try testCanonical(
         \\const T = [*]allowzero const u8;
+        \\
+    );
+}
+
+test "zig fmt: empty enum decls" {
+    try testCanonical(
+        \\const A = enum {};
+        \\const B = enum(u32) {};
+        \\const C = extern enum(c_int) {};
+        \\const D = packed enum(u8) {};
+        \\
+    );
+}
+
+test "zig fmt: empty union decls" {
+    try testCanonical(
+        \\const A = union {};
+        \\const B = union(enum) {};
+        \\const C = union(Foo) {};
+        \\const D = extern union {};
+        \\const E = packed union {};
         \\
     );
 }
@@ -4276,6 +4299,18 @@ test "zig fmt: respect extra newline between switch items" {
     );
 }
 
+test "zig fmt: assignment with inline for and inline while" {
+    try testCanonical(
+        \\const tmp = inline for (items) |item| {};
+        \\
+    );
+
+    try testCanonical(
+        \\const tmp2 = inline while (true) {};
+        \\
+    );
+}
+
 test "zig fmt: insert trailing comma if there are comments between switch values" {
     try testTransform(
         \\const a = switch (b) {
@@ -4315,11 +4350,17 @@ test "zig fmt: error for invalid bit range" {
     });
 }
 
-test "zig fmt: error for invalid align" {
+test "zig fmt: error for ptr mod on array child type" {
     try testError(
-        \\var x: [10]align(10)u8 = bar;
+        \\var a: [10]align(10) u8 = e;
+        \\var b: [10]const u8 = f;
+        \\var c: [10]volatile u8 = g;
+        \\var d: [10]allowzero u8 = h;
     , &[_]Error{
-        .invalid_align,
+        .ptr_mod_on_array_child_type,
+        .ptr_mod_on_array_child_type,
+        .ptr_mod_on_array_child_type,
+        .ptr_mod_on_array_child_type,
     });
 }
 
@@ -4577,6 +4618,16 @@ test "recovery: missing comma in params" {
         .expected_token,
         .expected_token,
         .expected_token,
+    });
+}
+
+test "recovery: missing while rbrace" {
+    try testError(
+        \\fn a() b {
+        \\    while (d) {
+        \\}
+    , &[_]Error{
+        .expected_statement,
     });
 }
 

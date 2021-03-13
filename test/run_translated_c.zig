@@ -1131,4 +1131,60 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("pointer arithmetic with signed operand",
+        \\#include <stdlib.h>
+        \\int main() {
+        \\    int array[10];
+        \\    int *x = &array[5];
+        \\    int *y;
+        \\    int idx = 0;
+        \\    y = x + ++idx;
+        \\    if (y != x + 1 || y != &array[6]) abort();
+        \\    y = idx + x;
+        \\    if (y != x + 1 || y != &array[6]) abort();
+        \\    y = x - idx;
+        \\    if (y != x - 1 || y != &array[4]) abort();
+        \\
+        \\    idx = 0;
+        \\    y = --idx + x;
+        \\    if (y != x - 1 || y != &array[4]) abort();
+        \\    y = idx + x;
+        \\    if (y != x - 1 || y != &array[4]) abort();
+        \\    y = x - idx;
+        \\    if (y != x + 1 || y != &array[6]) abort();
+        \\
+        \\    idx = 1;
+        \\    x += idx;
+        \\    if (x != &array[6]) abort();
+        \\    x -= idx;
+        \\    if (x != &array[5]) abort();
+        \\    y = (x += idx);
+        \\    if (y != x || y != &array[6]) abort();
+        \\    y = (x -= idx);
+        \\    if (y != x || y != &array[5]) abort();
+        \\
+        \\    if (array + idx != &array[1] || array + 1 != &array[1]) abort();
+        \\    idx = -1;
+        \\    if (array - idx != &array[1]) abort();
+        \\
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Compound literals",
+        \\#include <stdlib.h>
+        \\struct Foo {
+        \\    int a;
+        \\    char b[2];
+        \\    float c;
+        \\};
+        \\int main() {
+        \\    struct Foo foo;
+        \\    int x = 1, y = 2;
+        \\    foo = (struct Foo) {x + y, {'a', 'b'}, 42.0f};
+        \\    if (foo.a != x + y || foo.b[0] != 'a' || foo.b[1] != 'b' || foo.c != 42.0f) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

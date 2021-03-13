@@ -1224,6 +1224,8 @@ ZIG_EXTERN_C enum ZigClangBO ZigClangCompoundAssignOperator_getOpcode(const stru
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangCompoundAssignOperator_getLHS(const struct ZigClangCompoundAssignOperator *);
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangCompoundAssignOperator_getRHS(const struct ZigClangCompoundAssignOperator *);
 
+ZIG_EXTERN_C const struct ZigClangExpr *ZigClangCompoundLiteralExpr_getInitializer(const struct ZigClangCompoundLiteralExpr *);
+
 ZIG_EXTERN_C enum ZigClangUO ZigClangUnaryOperator_getOpcode(const struct ZigClangUnaryOperator *);
 ZIG_EXTERN_C struct ZigClangQualType ZigClangUnaryOperator_getType(const struct ZigClangUnaryOperator *);
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangUnaryOperator_getSubExpr(const struct ZigClangUnaryOperator *);

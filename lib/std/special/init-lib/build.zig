@@ -1,7 +1,10 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.build.Builder) void {
+    // Standard release options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
+
     const lib = b.addStaticLibrary("$", "src/main.zig");
     lib.setBuildMode(mode);
     lib.install();

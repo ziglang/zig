@@ -39,6 +39,7 @@ pub const Node = extern union {
         float_literal,
         string_literal,
         char_literal,
+        enum_literal,
         identifier,
         @"if",
         /// if (!operand) break;
@@ -117,6 +118,7 @@ pub const Node = extern union {
         /// @intCast(lhs, rhs)
         int_cast,
         /// @rem(lhs, rhs)
+        std_meta_promoteIntLiteral,
         rem,
         /// @divTrunc(lhs, rhs)
         div_trunc,
@@ -312,6 +314,7 @@ pub const Node = extern union {
                 .float_literal,
                 .string_literal,
                 .char_literal,
+                .enum_literal,
                 .identifier,
                 .warning,
                 .type,
@@ -328,6 +331,7 @@ pub const Node = extern union {
                 .tuple => Payload.TupleInit,
                 .container_init => Payload.ContainerInit,
                 .std_meta_cast => Payload.Infix,
+                .std_meta_promoteIntLiteral => Payload.PromoteIntLiteral,
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type => Payload.Array,
@@ -651,6 +655,15 @@ pub const Payload = struct {
             field_name: []const u8,
         },
     };
+
+    pub const PromoteIntLiteral = struct {
+        base: Payload,
+        data: struct {
+            value: Node,
+            type: Node,
+            radix: Node,
+        },
+    };
 };
 
 /// Converts the nodes into a Zig ast.
@@ -821,6 +834,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const import_node = try renderStdImport(c, "meta", "cast");
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
+        .std_meta_promoteIntLiteral => {
+            const payload = node.castTag(.std_meta_promoteIntLiteral).?.data;
+            const import_node = try renderStdImport(c, "meta", "promoteIntLiteral");
+            return renderCall(c, import_node, &.{ payload.type, payload.value, payload.radix });
+        },
         .std_meta_sizeof => {
             const payload = node.castTag(.std_meta_sizeof).?.data;
             const import_node = try renderStdImport(c, "meta", "sizeof");
@@ -985,6 +1003,15 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addToken(.char_literal, payload),
+                .data = undefined,
+            });
+        },
+        .enum_literal => {
+            const payload = node.castTag(.enum_literal).?.data;
+            _ = try c.addToken(.period, ".");
+            return c.addNode(.{
+                .tag = .enum_literal,
+                .main_token = try c.addToken(.identifier, payload),
                 .data = undefined,
             });
         },
@@ -1982,11 +2009,13 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .typeof,
         .std_meta_sizeof,
         .std_meta_cast,
+        .std_meta_promoteIntLiteral,
         .std_mem_zeroinit,
         .integer_literal,
         .float_literal,
         .string_literal,
         .char_literal,
+        .enum_literal,
         .identifier,
         .field_access,
         .ptr_cast,

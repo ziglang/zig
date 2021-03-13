@@ -42,6 +42,19 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exeFromCompiledC("var args", .{});
+
+        case.addCompareOutput(
+            \\extern fn printf(format: [*:0]const u8, ...) c_int;
+            \\
+            \\export fn main() c_int {
+            \\    _ = printf("Hello, %s!\n", "world");
+            \\    return 0;
+            \\}
+        , "Hello, world!\n");
+    }
+
+    {
         var case = ctx.exeFromCompiledC("x86_64-linux inline assembly", linux_x64);
 
         // Exit with 0
@@ -228,6 +241,63 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        else => 5,
             \\    };
             \\    return a - 4;
+            \\}
+        , "");
+    }
+    //{
+    //    var case = ctx.exeFromCompiledC("optionals", .{});
+
+    //    // Simple while loop
+    //    case.addCompareOutput(
+    //        \\export fn main() c_int {
+    //        \\    var count: c_int = 0;
+    //        \\    var opt_ptr: ?*c_int = &count;
+    //        \\    while (opt_ptr) |_| : (count += 1) {
+    //        \\        if (count == 4) opt_ptr = null;
+    //        \\    }
+    //        \\    return count - 5;
+    //        \\}
+    //    , "");
+
+    //    // Same with non pointer optionals
+    //    case.addCompareOutput(
+    //        \\export fn main() c_int {
+    //        \\    var count: c_int = 0;
+    //        \\    var opt_ptr: ?c_int = count;
+    //        \\    while (opt_ptr) |_| : (count += 1) {
+    //        \\        if (count == 4) opt_ptr = null;
+    //        \\    }
+    //        \\    return count - 5;
+    //        \\}
+    //    , "");
+    //}
+    {
+        var case = ctx.exeFromCompiledC("errors", .{});
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var e1 = error.Foo;
+            \\    var e2 = error.Bar;
+            \\    assert(e1 != e2);
+            \\    assert(e1 == error.Foo);
+            \\    assert(e2 == error.Bar);
+            \\    return 0;
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        , "");
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var e: anyerror!c_int = 0;
+            \\    const i = e catch 69;
+            \\    return i;
+            \\}
+        , "");
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var e: anyerror!c_int = error.Foo;
+            \\    const i = e catch 69;
+            \\    return 69 - i;
             \\}
         , "");
     }

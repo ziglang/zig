@@ -865,6 +865,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genFuncInst(self: *Self, inst: *ir.Inst) !MCValue {
             switch (inst.tag) {
                 .add => return self.genAdd(inst.castTag(.add).?),
+                .addwrap => return self.genAddWrap(inst.castTag(.addwrap).?),
                 .alloc => return self.genAlloc(inst.castTag(.alloc).?),
                 .arg => return self.genArg(inst.castTag(.arg).?),
                 .assembly => return self.genAsm(inst.castTag(.assembly).?),
@@ -900,12 +901,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .loop => return self.genLoop(inst.castTag(.loop).?),
                 .not => return self.genNot(inst.castTag(.not).?),
                 .mul => return self.genMul(inst.castTag(.mul).?),
+                .mulwrap => return self.genMulWrap(inst.castTag(.mulwrap).?),
                 .ptrtoint => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
                 .ref => return self.genRef(inst.castTag(.ref).?),
                 .ret => return self.genRet(inst.castTag(.ret).?),
                 .retvoid => return self.genRetVoid(inst.castTag(.retvoid).?),
                 .store => return self.genStore(inst.castTag(.store).?),
                 .sub => return self.genSub(inst.castTag(.sub).?),
+                .subwrap => return self.genSubWrap(inst.castTag(.subwrap).?),
                 .switchbr => return self.genSwitch(inst.castTag(.switchbr).?),
                 .unreach => return MCValue{ .unreach = {} },
                 .optional_payload => return self.genOptionalPayload(inst.castTag(.optional_payload).?),
@@ -1129,6 +1132,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        fn genAddWrap(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement addwrap for {}", .{self.target.cpu.arch}),
+            }
+        }
+
         fn genMul(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
@@ -1136,6 +1148,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (arch) {
                 .arm, .armeb => return try self.genArmMul(&inst.base, inst.lhs, inst.rhs),
                 else => return self.fail(inst.base.src, "TODO implement mul for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genMulWrap(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement mulwrap for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -1389,6 +1410,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .sub),
                 else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genSubWrap(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement subwrap for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -2237,6 +2267,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue{ .dead = {} };
+            if (inst.lhs.ty.zigTypeTag() == .ErrorSet or inst.rhs.ty.zigTypeTag() == .ErrorSet)
+                return self.fail(inst.base.src, "TODO implement cmp for errors", .{});
             switch (arch) {
                 .x86_64 => {
                     try self.code.ensureCapacity(self.code.items.len + 8);

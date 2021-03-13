@@ -2822,6 +2822,11 @@ const struct ZigClangExpr *ZigClangCompoundAssignOperator_getRHS(const struct Zi
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getRHS());
 }
 
+const struct ZigClangExpr *ZigClangCompoundLiteralExpr_getInitializer(const ZigClangCompoundLiteralExpr *self) {
+    auto casted = reinterpret_cast<const clang::CompoundLiteralExpr *>(self);
+    return reinterpret_cast<const ZigClangExpr *>(casted->getInitializer());
+}
+
 enum ZigClangUO ZigClangUnaryOperator_getOpcode(const struct ZigClangUnaryOperator *self) {
     auto casted = reinterpret_cast<const clang::UnaryOperator *>(self);
     return (ZigClangUO)casted->getOpcode();

@@ -647,7 +647,10 @@ pub fn len(value: anytype) usize {
                 indexOfSentinel(info.child, sentinel, value)
             else
                 @compileError("length of pointer with no sentinel"),
-            .C => indexOfSentinel(info.child, 0, value),
+            .C => {
+                assert(value != null);
+                return indexOfSentinel(info.child, 0, value);
+            },
             .Slice => value.len,
         },
         .Struct => |info| if (info.is_tuple) {
@@ -708,7 +711,10 @@ pub fn lenZ(ptr: anytype) usize {
                 indexOfSentinel(info.child, sentinel, ptr)
             else
                 @compileError("length of pointer with no sentinel"),
-            .C => indexOfSentinel(info.child, 0, ptr),
+            .C => {
+                assert(ptr != null);
+                return indexOfSentinel(info.child, 0, ptr);
+            },
             .Slice => if (info.sentinel) |sentinel|
                 indexOfSentinel(info.child, sentinel, ptr.ptr)
             else

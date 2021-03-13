@@ -9,6 +9,7 @@ const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const C = @This();
+const Type = @import("../type.zig").Type;
 
 pub const base_tag: link.File.Tag = .c;
 pub const zig_h = @embedFile("C/zig.h");
@@ -28,9 +29,11 @@ pub const DeclBlock = struct {
 /// Per-function data.
 pub const FnBlock = struct {
     fwd_decl: std.ArrayListUnmanaged(u8),
+    typedefs: codegen.TypedefMap.Unmanaged,
 
     pub const empty: FnBlock = .{
         .fwd_decl = .{},
+        .typedefs = .{},
     };
 };
 
@@ -74,6 +77,11 @@ pub fn allocateDeclIndexes(self: *C, decl: *Module.Decl) !void {}
 pub fn freeDecl(self: *C, decl: *Module.Decl) void {
     decl.link.c.code.deinit(self.base.allocator);
     decl.fn_link.c.fwd_decl.deinit(self.base.allocator);
+    var it = decl.fn_link.c.typedefs.iterator();
+    while (it.next()) |some| {
+        self.base.allocator.free(some.value.rendered);
+    }
+    decl.fn_link.c.typedefs.deinit(self.base.allocator);
 }
 
 pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
@@ -81,8 +89,16 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     defer tracy.end();
 
     const fwd_decl = &decl.fn_link.c.fwd_decl;
+    const typedefs = &decl.fn_link.c.typedefs;
     const code = &decl.link.c.code;
     fwd_decl.shrinkRetainingCapacity(0);
+    {
+        var it = typedefs.iterator();
+        while (it.next()) |entry| {
+            module.gpa.free(entry.value.rendered);
+        }
+    }
+    typedefs.clearRetainingCapacity();
     code.shrinkRetainingCapacity(0);
 
     var object: codegen.Object = .{
@@ -91,6 +107,7 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
             .error_msg = null,
             .decl = decl,
             .fwd_decl = fwd_decl.toManaged(module.gpa),
+            .typedefs = typedefs.promote(module.gpa),
         },
         .gpa = module.gpa,
         .code = code.toManaged(module.gpa),
@@ -98,9 +115,16 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
-    defer object.value_map.deinit();
-    defer object.code.deinit();
-    defer object.dg.fwd_decl.deinit();
+    defer {
+        object.value_map.deinit();
+        object.code.deinit();
+        object.dg.fwd_decl.deinit();
+        var it = object.dg.typedefs.iterator();
+        while (it.next()) |some| {
+            module.gpa.free(some.value.rendered);
+        }
+        object.dg.typedefs.deinit();
+    }
 
     codegen.genDecl(&object) catch |err| switch (err) {
         error.AnalysisFail => {
@@ -111,6 +135,8 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     };
 
     fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
+    typedefs.* = object.dg.typedefs.unmanaged;
+    object.dg.typedefs.unmanaged = .{};
     code.* = object.code.moveToUnmanaged();
 
     // Free excess allocated memory for this Decl.
@@ -142,7 +168,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     defer all_buffers.deinit();
 
     // This is at least enough until we get to the function bodies without error handling.
-    try all_buffers.ensureCapacity(module.decl_table.count() + 1);
+    try all_buffers.ensureCapacity(module.decl_table.count() + 2);
 
     var file_size: u64 = zig_h.len;
     all_buffers.appendAssumeCapacity(.{
@@ -150,9 +176,26 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
         .iov_len = zig_h.len,
     });
 
-    var fn_count: usize = 0;
+    var err_typedef_buf = std.ArrayList(u8).init(comp.gpa);
+    defer err_typedef_buf.deinit();
+    const err_typedef_writer = err_typedef_buf.writer();
+    const err_typedef_item = all_buffers.addOneAssumeCapacity();
 
-    // Forward decls and non-functions first.
+    render_errors: {
+        if (module.global_error_set.size == 0) break :render_errors;
+        var it = module.global_error_set.iterator();
+        while (it.next()) |entry| {
+            // + 1 because 0 represents no error
+            try err_typedef_writer.print("#define zig_error_{s} {d}\n", .{ entry.key, entry.value + 1 });
+        }
+        try err_typedef_writer.writeByte('\n');
+    }
+
+    var fn_count: usize = 0;
+    var typedefs = std.HashMap(Type, []const u8, Type.hash, Type.eql, std.hash_map.default_max_load_percentage).init(comp.gpa);
+    defer typedefs.deinit();
+
+    // Typedefs, forward decls and non-functions first.
     // TODO: performance investigation: would keeping a list of Decls that we should
     // generate, rather than querying here, be faster?
     for (module.decl_table.items()) |kv| {
@@ -161,6 +204,16 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
             .most_recent => |tvm| {
                 const buf = buf: {
                     if (tvm.typed_value.val.castTag(.function)) |_| {
+                        var it = decl.fn_link.c.typedefs.iterator();
+                        while (it.next()) |new| {
+                            if (typedefs.get(new.key)) |previous| {
+                                try err_typedef_writer.print("typedef {s} {s};\n", .{ previous, new.value.name });
+                            } else {
+                                try typedefs.ensureCapacity(typedefs.capacity() + 1);
+                                try err_typedef_writer.writeAll(new.value.rendered);
+                                typedefs.putAssumeCapacityNoClobber(new.key, new.value.name);
+                            }
+                        }
                         fn_count += 1;
                         break :buf decl.fn_link.c.fwd_decl.items;
                     } else {
@@ -176,6 +229,12 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
             .never_succeeded => continue,
         }
     }
+
+    err_typedef_item.* = .{
+        .iov_base = err_typedef_buf.items.ptr,
+        .iov_len = err_typedef_buf.items.len,
+    };
+    file_size += err_typedef_buf.items.len;
 
     // Now the function bodies.
     try all_buffers.ensureCapacity(all_buffers.items.len + fn_count);

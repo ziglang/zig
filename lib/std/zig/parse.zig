@@ -937,14 +937,17 @@ const Parser = struct {
     /// If a parse error occurs, reports an error, but then finds the next statement
     /// and returns that one instead. If a parse error occurs but there is no following
     /// statement, returns 0.
-    fn expectStatementRecoverable(p: *Parser) error{OutOfMemory}!Node.Index {
+    fn expectStatementRecoverable(p: *Parser) Error!Node.Index {
         while (true) {
             return p.expectStatement() catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ParseError => {
                     p.findNextStmt(); // Try to skip to the next statement.
-                    if (p.token_tags[p.tok_i] == .r_brace) return null_node;
-                    continue;
+                    switch (p.token_tags[p.tok_i]) {
+                        .r_brace => return null_node,
+                        .eof => return error.ParseError,
+                        else => continue,
+                    }
                 },
             };
         }
@@ -1609,13 +1612,15 @@ const Parser = struct {
     /// PrefixTypeOp
     ///     <- QUESTIONMARK
     ///      / KEYWORD_anyframe MINUSRARROW
-    ///      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+    ///      / SliceTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+    ///      / ArrayTypeStart
+    /// SliceTypeStart <- LBRACKET (COLON Expr)? RBRACKET
     /// PtrTypeStart
     ///     <- ASTERISK
     ///      / ASTERISK2
     ///      / LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
-    /// ArrayTypeStart <- LBRACKET Expr? (COLON Expr)? RBRACKET
+    /// ArrayTypeStart <- LBRACKET Expr (COLON Expr)? RBRACKET
     fn parseTypeExpr(p: *Parser) Error!Node.Index {
         switch (p.token_tags[p.tok_i]) {
             .question_mark => return p.addNode(.{
@@ -1782,15 +1787,15 @@ const Parser = struct {
                     else
                         0;
                     _ = try p.expectToken(.r_bracket);
-                    const mods = try p.parsePtrModifiers();
-                    const elem_type = try p.expectTypeExpr();
-                    if (mods.bit_range_start != 0) {
-                        try p.warnMsg(.{
-                            .tag = .invalid_bit_range,
-                            .token = p.nodes.items(.main_token)[mods.bit_range_start],
-                        });
-                    }
                     if (len_expr == 0) {
+                        const mods = try p.parsePtrModifiers();
+                        const elem_type = try p.expectTypeExpr();
+                        if (mods.bit_range_start != 0) {
+                            try p.warnMsg(.{
+                                .tag = .invalid_bit_range,
+                                .token = p.nodes.items(.main_token)[mods.bit_range_start],
+                            });
+                        }
                         if (sentinel == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_aligned,
@@ -1823,12 +1828,15 @@ const Parser = struct {
                             });
                         }
                     } else {
-                        if (mods.align_node != 0) {
-                            try p.warnMsg(.{
-                                .tag = .invalid_align,
-                                .token = p.nodes.items(.main_token)[mods.align_node],
-                            });
+                        switch (p.token_tags[p.tok_i]) {
+                            .keyword_align,
+                            .keyword_const,
+                            .keyword_volatile,
+                            .keyword_allowzero,
+                            => return p.fail(.ptr_mod_on_array_child_type),
+                            else => {},
                         }
+                        const elem_type = try p.expectTypeExpr();
                         if (sentinel == 0) {
                             return p.addNode(.{
                                 .tag = .array_type,
@@ -1978,7 +1986,7 @@ const Parser = struct {
                 }
             },
             .keyword_inline => {
-                p.tok_i += 2;
+                p.tok_i += 1;
                 switch (p.token_tags[p.tok_i]) {
                     .keyword_for => return p.parseForExpr(),
                     .keyword_while => return p.parseWhileExpr(),
@@ -3438,7 +3446,7 @@ const Parser = struct {
     }
 
     /// SuffixOp
-    ///     <- LBRACKET Expr (DOT2 (Expr (COLON Expr)?)?)? RBRACKET
+    ///     <- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
     ///      / DOT IDENTIFIER
     ///      / DOTASTERISK
     ///      / DOTQUESTIONMARK
@@ -3450,17 +3458,6 @@ const Parser = struct {
 
                 if (p.eatToken(.ellipsis2)) |_| {
                     const end_expr = try p.parseExpr();
-                    if (end_expr == 0) {
-                        _ = try p.expectToken(.r_bracket);
-                        return p.addNode(.{
-                            .tag = .slice_open,
-                            .main_token = lbracket,
-                            .data = .{
-                                .lhs = lhs,
-                                .rhs = index_expr,
-                            },
-                        });
-                    }
                     if (p.eatToken(.colon)) |_| {
                         const sentinel = try p.parseExpr();
                         _ = try p.expectToken(.r_bracket);
@@ -3476,20 +3473,29 @@ const Parser = struct {
                                 }),
                             },
                         });
-                    } else {
-                        _ = try p.expectToken(.r_bracket);
+                    }
+                    _ = try p.expectToken(.r_bracket);
+                    if (end_expr == 0) {
                         return p.addNode(.{
-                            .tag = .slice,
+                            .tag = .slice_open,
                             .main_token = lbracket,
                             .data = .{
                                 .lhs = lhs,
-                                .rhs = try p.addExtra(Node.Slice{
-                                    .start = index_expr,
-                                    .end = end_expr,
-                                }),
+                                .rhs = index_expr,
                             },
                         });
                     }
+                    return p.addNode(.{
+                        .tag = .slice,
+                        .main_token = lbracket,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = try p.addExtra(Node.Slice{
+                                .start = index_expr,
+                                .end = end_expr,
+                            }),
+                        },
+                    });
                 }
                 _ = try p.expectToken(.r_bracket);
                 return p.addNode(.{

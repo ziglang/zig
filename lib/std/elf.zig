@@ -337,6 +337,7 @@ pub const ET = extern enum(u16) {
 /// All integers are native endian.
 pub const Header = struct {
     endian: builtin.Endian,
+    machine: EM,
     is_64: bool,
     entry: u64,
     phoff: u64,
@@ -387,8 +388,14 @@ pub const Header = struct {
             else => return error.InvalidElfClass,
         };
 
+        const machine = if (need_bswap) blk: {
+            const value = @enumToInt(hdr32.e_machine);
+            break :blk @intToEnum(EM, @byteSwap(@TypeOf(value), value));
+        } else hdr32.e_machine;
+
         return @as(Header, .{
             .endian = endian,
+            .machine = machine,
             .is_64 = is_64,
             .entry = int(is_64, need_bswap, hdr32.e_entry, hdr64.e_entry),
             .phoff = int(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff),
@@ -422,16 +429,8 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
                 if (self.elf_header.endian == std.builtin.endian) return phdr;
 
                 // Convert fields to native endianness.
-                return Elf64_Phdr{
-                    .p_type = @byteSwap(@TypeOf(phdr.p_type), phdr.p_type),
-                    .p_offset = @byteSwap(@TypeOf(phdr.p_offset), phdr.p_offset),
-                    .p_vaddr = @byteSwap(@TypeOf(phdr.p_vaddr), phdr.p_vaddr),
-                    .p_paddr = @byteSwap(@TypeOf(phdr.p_paddr), phdr.p_paddr),
-                    .p_filesz = @byteSwap(@TypeOf(phdr.p_filesz), phdr.p_filesz),
-                    .p_memsz = @byteSwap(@TypeOf(phdr.p_memsz), phdr.p_memsz),
-                    .p_flags = @byteSwap(@TypeOf(phdr.p_flags), phdr.p_flags),
-                    .p_align = @byteSwap(@TypeOf(phdr.p_align), phdr.p_align),
-                };
+                bswapAllFields(Elf64_Phdr, &phdr);
+                return phdr;
             }
 
             var phdr: Elf32_Phdr = undefined;
@@ -442,16 +441,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != std.builtin.endian) {
                 // Convert fields to native endianness.
-                phdr = .{
-                    .p_type = @byteSwap(@TypeOf(phdr.p_type), phdr.p_type),
-                    .p_offset = @byteSwap(@TypeOf(phdr.p_offset), phdr.p_offset),
-                    .p_vaddr = @byteSwap(@TypeOf(phdr.p_vaddr), phdr.p_vaddr),
-                    .p_paddr = @byteSwap(@TypeOf(phdr.p_paddr), phdr.p_paddr),
-                    .p_filesz = @byteSwap(@TypeOf(phdr.p_filesz), phdr.p_filesz),
-                    .p_memsz = @byteSwap(@TypeOf(phdr.p_memsz), phdr.p_memsz),
-                    .p_flags = @byteSwap(@TypeOf(phdr.p_flags), phdr.p_flags),
-                    .p_align = @byteSwap(@TypeOf(phdr.p_align), phdr.p_align),
-                };
+                bswapAllFields(Elf32_Phdr, &phdr);
             }
 
             // Convert 32-bit header to 64-bit.
@@ -560,6 +550,26 @@ pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     } else {
         return int_32;
     }
+}
+
+pub fn bswapAllFields(comptime S: type, ptr: *S) void {
+    if (@typeInfo(S) != .Struct) @compileError("bswapAllFields expects a struct as the first argument");
+    inline for (std.meta.fields(S)) |f| {
+        @field(ptr, f.name) = @byteSwap(f.field_type, @field(ptr, f.name));
+    }
+}
+test "bswapAllFields" {
+    var s: Elf32_Chdr = .{
+        .ch_type = 0x12341234,
+        .ch_size = 0x56785678,
+        .ch_addralign = 0x12124242,
+    };
+    bswapAllFields(Elf32_Chdr, &s);
+    std.testing.expectEqual(Elf32_Chdr{
+        .ch_type = 0x34123412,
+        .ch_size = 0x78567856,
+        .ch_addralign = 0x42421212,
+    }, s);
 }
 
 pub const EI_NIDENT = 16;
@@ -1515,6 +1525,8 @@ pub const EM = extern enum(u16) {
 
     /// Linux kernel bpf virtual machine
     _BPF = 247,
+
+    _,
 };
 
 /// Section data should be writable during execution.

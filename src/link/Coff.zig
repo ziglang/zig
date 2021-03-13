@@ -701,7 +701,11 @@ pub fn updateDecl(self: *Coff, module: *Module, decl: *Module.Decl) !void {
         }
     } else {
         const vaddr = try self.allocateTextBlock(&decl.link.coff, code.len, required_alignment);
-        log.debug("allocated text block for {s} at 0x{x} (size: {Bi})\n", .{ mem.spanZ(decl.name), vaddr, code.len });
+        log.debug("allocated text block for {s} at 0x{x} (size: {Bi})\n", .{
+            mem.spanZ(decl.name),
+            vaddr,
+            std.fmt.fmtIntSizeDec(code.len),
+        });
         errdefer self.freeTextBlock(&decl.link.coff);
         self.offset_table.items[decl.link.coff.offset_table_index] = vaddr;
         try self.writeOffsetTableEntry(decl.link.coff.offset_table_index);

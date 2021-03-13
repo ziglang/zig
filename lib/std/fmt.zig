@@ -35,11 +35,11 @@ pub const FormatOptions = struct {
 ///
 /// The format string must be comptime known and may contain placeholders following
 /// this format:
-/// `{[position][specifier]:[fill][alignment][width].[precision]}`
+/// `{[argument][specifier]:[fill][alignment][width].[precision]}`
 ///
 /// Each word between `[` and `]` is a parameter you have to replace with something:
 ///
-/// - *position* is the index of the argument that should be inserted
+/// - *argument* is either the index or the name of the argument that should be inserted
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
 /// - *fill* is a single character which is used to pad the formatted text
 /// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
@@ -52,16 +52,10 @@ pub const FormatOptions = struct {
 /// the digits after `:` is interpreted as *width*, not *fill*.
 ///
 /// The *specifier* has several options for types:
-/// - `x` and `X`:
-///   - format the non-numeric value as a string of bytes in hexadecimal notation ("binary dump") in either lower case or upper case
-///   - output numeric value in hexadecimal notation
+/// - `x` and `X`: output numeric value in hexadecimal notation
 /// - `s`:
 ///   - for pointer-to-many and C pointers of u8, print as a C-string using zero-termination
 ///   - for slices of u8, print the entire slice as a string without zero-termination
-/// - `z`: escape the string with @"" syntax if it is not a valid Zig identifier.
-/// - `Z`: print the string escaping non-printable characters using Zig escape sequences.
-/// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
-/// - `e` and `E`: if printing a string, escape non-printable characters
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
@@ -620,9 +614,9 @@ fn formatValue(
     writer: anytype,
 ) !void {
     if (comptime std.mem.eql(u8, fmt, "B")) {
-        return formatBytes(value, options, 1000, writer);
+        @compileError("specifier 'B' has been deprecated, wrap your argument in std.fmt.fmtIntSizeDec instead");
     } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
-        return formatBytes(value, options, 1024, writer);
+        @compileError("specifier 'Bi' has been deprecated, wrap your argument in std.fmt.fmtIntSizeBin instead");
     }
 
     const T = @TypeOf(value);
@@ -788,6 +782,67 @@ pub fn fmtSliceEscapeLower(bytes: []const u8) std.fmt.Formatter(formatSliceEscap
 /// hexadecimal notation.
 pub fn fmtSliceEscapeUpper(bytes: []const u8) std.fmt.Formatter(formatSliceEscapeUpper) {
     return .{ .data = bytes };
+}
+
+fn formatSizeImpl(comptime radix: comptime_int) type {
+    return struct {
+        fn f(
+            value: u64,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            writer: anytype,
+        ) !void {
+            if (value == 0) {
+                return writer.writeAll("0B");
+            }
+
+            const mags_si = " kMGTPEZY";
+            const mags_iec = " KMGTPEZY";
+
+            const log2 = math.log2(value);
+            const magnitude = switch (radix) {
+                1000 => math.min(log2 / comptime math.log2(1000), mags_si.len - 1),
+                1024 => math.min(log2 / 10, mags_iec.len - 1),
+                else => unreachable,
+            };
+            const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
+            const suffix = switch (radix) {
+                1000 => mags_si[magnitude],
+                1024 => mags_iec[magnitude],
+                else => unreachable,
+            };
+
+            try formatFloatDecimal(new_value, options, writer);
+
+            if (suffix == ' ') {
+                return writer.writeAll("B");
+            }
+
+            const buf = switch (radix) {
+                1000 => &[_]u8{ suffix, 'B' },
+                1024 => &[_]u8{ suffix, 'i', 'B' },
+                else => unreachable,
+            };
+            return writer.writeAll(buf);
+        }
+    };
+}
+
+const formatSizeDec = formatSizeImpl(1000).f;
+const formatSizeBin = formatSizeImpl(1024).f;
+
+/// Return a Formatter for a u64 value representing a file size.
+/// This formatter represents the number as multiple of 1000 and uses the SI
+/// measurement units (kB, MB, GB, ...).
+pub fn fmtIntSizeDec(value: u64) std.fmt.Formatter(formatSizeDec) {
+    return .{ .data = value };
+}
+
+/// Return a Formatter for a u64 value representing a file size.
+/// This formatter represents the number as multiple of 1024 and uses the IEC
+/// measurement units (KiB, MiB, GiB, ...).
+pub fn fmtIntSizeBin(value: u64) std.fmt.Formatter(formatSizeBin) {
+    return .{ .data = value };
 }
 
 pub fn formatText(
@@ -1111,47 +1166,6 @@ pub fn formatFloatDecimal(
     }
 }
 
-pub fn formatBytes(
-    value: anytype,
-    options: FormatOptions,
-    comptime radix: usize,
-    writer: anytype,
-) !void {
-    if (value == 0) {
-        return writer.writeAll("0B");
-    }
-
-    const is_float = comptime std.meta.trait.is(.Float)(@TypeOf(value));
-    const mags_si = " kMGTPEZY";
-    const mags_iec = " KMGTPEZY";
-
-    const log2 = if (is_float) @floatToInt(usize, math.log2(value)) else math.log2(value);
-    const magnitude = switch (radix) {
-        1000 => math.min(log2 / comptime math.log2(1000), mags_si.len - 1),
-        1024 => math.min(log2 / 10, mags_iec.len - 1),
-        else => unreachable,
-    };
-    const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
-    const suffix = switch (radix) {
-        1000 => mags_si[magnitude],
-        1024 => mags_iec[magnitude],
-        else => unreachable,
-    };
-
-    try formatFloatDecimal(new_value, options, writer);
-
-    if (suffix == ' ') {
-        return writer.writeAll("B");
-    }
-
-    const buf = switch (radix) {
-        1000 => &[_]u8{ suffix, 'B' },
-        1024 => &[_]u8{ suffix, 'i', 'B' },
-        else => unreachable,
-    };
-    return writer.writeAll(buf);
-}
-
 pub fn formatInt(
     value: anytype,
     base: u8,
@@ -1210,11 +1224,7 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, uppercase: bool, op
     return fbs.pos;
 }
 
-/// Formats a number of nanoseconds according to its magnitude:
-///
-/// - #ns
-/// - [#y][#w][#d][#h][#m]#[.###][u|m]s
-pub fn formatDuration(ns: u64, writer: anytype) !void {
+fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     var ns_remaining = ns;
     inline for (.{
         .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
@@ -1256,12 +1266,18 @@ pub fn formatDuration(ns: u64, writer: anytype) !void {
         }
     }
 
-    try formatInt(ns, 10, false, .{}, writer);
+    try formatInt(ns_remaining, 10, false, .{}, writer);
     try writer.writeAll("ns");
     return;
 }
 
-test "formatDuration" {
+/// Return a Formatter for number of nanoseconds according to its magnitude:
+/// [#y][#w][#d][#h][#m]#[.###][n|u|m]s
+pub fn fmtDuration(ns: u64) Formatter(formatDuration) {
+    return .{ .data = ns };
+}
+
+test "fmtDuration" {
     var buf: [24]u8 = undefined;
     inline for (.{
         .{ .s = "0ns", .d = 0 },
@@ -1287,24 +1303,11 @@ test "formatDuration" {
         .{ .s = "1y1h999.999us", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1 },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1 },
+        .{ .s = "1y1m999ns", .d = 365 * std.time.ns_per_day + std.time.ns_per_min + 999 },
     }) |tc| {
-        const slice = try bufPrint(&buf, "{}", .{duration(tc.d)});
+        const slice = try bufPrint(&buf, "{}", .{fmtDuration(tc.d)});
         std.testing.expectEqualStrings(tc.s, slice);
     }
-}
-
-/// Wraps a `u64` to format with `formatDuration`.
-const Duration = struct {
-    ns: u64,
-
-    pub fn format(self: Duration, comptime fmt: []const u8, options: FormatOptions, writer: anytype) !void {
-        return formatDuration(self.ns, writer);
-    }
-};
-
-/// Formats a number of nanoseconds according to its magnitude. See `formatDuration`.
-pub fn duration(ns: u64) Duration {
-    return Duration{ .ns = ns };
 }
 
 pub const ParseIntError = error{
@@ -1806,8 +1809,12 @@ test "cstr" {
 }
 
 test "filesize" {
-    try expectFmt("file size: 63MiB\n", "file size: {Bi}\n", .{@as(usize, 63 * 1024 * 1024)});
-    try expectFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
+    try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeDec(42)});
+    try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeBin(42)});
+    try expectFmt("file size: 63MB\n", "file size: {}\n", .{fmtIntSizeDec(63 * 1000 * 1000)});
+    try expectFmt("file size: 63MiB\n", "file size: {}\n", .{fmtIntSizeBin(63 * 1024 * 1024)});
+    try expectFmt("file size: 66.06MB\n", "file size: {:.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
+    try expectFmt("file size: 60.08MiB\n", "file size: {:.2}\n", .{fmtIntSizeBin(63 * 1000 * 1000)});
 }
 
 test "struct" {
@@ -2213,8 +2220,6 @@ test "vector" {
     try expectFmt("{    -2,    -1,    +0,    +1 }", "{d:5}", .{vi64});
     try expectFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
     try expectFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
-    try expectFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
-    try expectFmt("{ 1000B, 1.953125KiB, 2.9296875KiB, 3.90625KiB }", "{Bi}", .{vu64});
 }
 
 test "enum-literal" {

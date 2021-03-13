@@ -470,9 +470,9 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
             return renderToken(ais, tree, rbracket, space); // ]
         },
 
-        .slice_open => return renderSlice(gpa, ais, tree, tree.sliceOpen(node), space),
-        .slice => return renderSlice(gpa, ais, tree, tree.slice(node), space),
-        .slice_sentinel => return renderSlice(gpa, ais, tree, tree.sliceSentinel(node), space),
+        .slice_open => return renderSlice(gpa, ais, tree, node, tree.sliceOpen(node), space),
+        .slice => return renderSlice(gpa, ais, tree, node, tree.slice(node), space),
+        .slice_sentinel => return renderSlice(gpa, ais, tree, node, tree.sliceSentinel(node), space),
 
         .deref => {
             try renderExpression(gpa, ais, tree, datas[node].lhs, .none);
@@ -815,6 +815,7 @@ fn renderSlice(
     gpa: *Allocator,
     ais: *Ais,
     tree: ast.Tree,
+    slice_node: ast.Node.Index,
     slice: ast.full.Slice,
     space: Space,
 ) Error!void {
@@ -822,7 +823,9 @@ fn renderSlice(
     const after_start_space_bool = nodeCausesSliceOpSpace(node_tags[slice.ast.start]) or
         if (slice.ast.end != 0) nodeCausesSliceOpSpace(node_tags[slice.ast.end]) else false;
     const after_start_space = if (after_start_space_bool) Space.space else Space.none;
-    const after_dots_space = if (slice.ast.end != 0) after_start_space else Space.none;
+    const after_dots_space = if (slice.ast.end != 0)
+        after_start_space
+    else if (slice.ast.sentinel != 0) Space.space else Space.none;
 
     try renderExpression(gpa, ais, tree, slice.ast.sliced, .none);
     try renderToken(ais, tree, slice.ast.lbracket, .none); // lbracket
@@ -830,20 +833,18 @@ fn renderSlice(
     const start_last = tree.lastToken(slice.ast.start);
     try renderExpression(gpa, ais, tree, slice.ast.start, after_start_space);
     try renderToken(ais, tree, start_last + 1, after_dots_space); // ellipsis2 ("..")
-    if (slice.ast.end == 0) {
-        return renderToken(ais, tree, start_last + 2, space); // rbracket
+
+    if (slice.ast.end != 0) {
+        const after_end_space = if (slice.ast.sentinel != 0) Space.space else Space.none;
+        try renderExpression(gpa, ais, tree, slice.ast.end, after_end_space);
     }
 
-    const end_last = tree.lastToken(slice.ast.end);
-    const after_end_space = if (slice.ast.sentinel != 0) Space.space else Space.none;
-    try renderExpression(gpa, ais, tree, slice.ast.end, after_end_space);
-    if (slice.ast.sentinel == 0) {
-        return renderToken(ais, tree, end_last + 1, space); // rbracket
+    if (slice.ast.sentinel != 0) {
+        try renderToken(ais, tree, tree.firstToken(slice.ast.sentinel) - 1, .none); // colon
+        try renderExpression(gpa, ais, tree, slice.ast.sentinel, .none);
     }
 
-    try renderToken(ais, tree, end_last + 1, .none); // colon
-    try renderExpression(gpa, ais, tree, slice.ast.sentinel, .none);
-    try renderToken(ais, tree, tree.lastToken(slice.ast.sentinel) + 1, space); // rbracket
+    try renderToken(ais, tree, tree.lastToken(slice_node), space); // rbracket
 }
 
 fn renderAsmOutput(
