@@ -1836,6 +1836,7 @@ fn cIntTypeForEnum(enum_qt: clang.QualType) clang.QualType {
     return enum_decl.getIntegerType();
 }
 
+// when modifying this function, make sure to also update std.meta.cast
 fn transCCast(
     c: *Context,
     scope: *Scope,
