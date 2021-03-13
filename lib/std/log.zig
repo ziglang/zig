@@ -76,7 +76,6 @@
 
 const std = @import("std.zig");
 const builtin = std.builtin;
-const HeldValue = std.HeldValue;
 const root = @import("root");
 
 pub const Level = enum {
@@ -146,11 +145,6 @@ else
 
 var mutex = std.Thread.Mutex{};
 
-const HeldWriter = HeldValue(@TypeOf(getWriter()));
-pub fn heldWriter() HeldWriter {
-    return .{ .value = getWriter(), .held = mutex.acquire() };
-}
-
 fn log(
     comptime message_level: Level,
     comptime scope: @Type(.EnumLiteral),
@@ -176,9 +170,9 @@ fn log(
                 .debug => "debug",
             };
             const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-            const held = heldWriter();
+            const held = mutex.acquire();
             defer held.release();
-            const writer = held.value;
+            const writer = getWriter();
             const full_format = level_txt ++ prefix2 ++ format ++ "\n";
             nosuspend writer.print(full_format, args) catch {};
         }

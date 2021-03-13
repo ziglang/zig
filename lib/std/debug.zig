@@ -16,7 +16,6 @@ const DW = std.dwarf;
 const macho = std.macho;
 const coff = std.coff;
 const pdb = std.pdb;
-const HeldValue = std.HeldValue;
 const ArrayList = std.ArrayList;
 const root = @import("root");
 const maxInt = std.math.maxInt;
@@ -193,11 +192,6 @@ else
 
 var mutex = std.Thread.Mutex{};
 
-const HeldWriter = HeldValue(@TypeOf(getWrit()));
-pub fn heldWriter() HeldWriter {
-    return .{ .value = getWrit(), .held = mutex.acquire() };
-}
-
 /// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
 /// "printf debugging".
 pub const warn = print;
@@ -205,9 +199,9 @@ pub const warn = print;
 /// Print to log writer, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    const held = heldWriter();
+    const held = mutex.acquire();
     defer held.release();
-    const writer = held.value;
+    const writer = getWrit();
     nosuspend writer.print(fmt, args) catch {};
 }
 
@@ -251,9 +245,9 @@ fn dumpHandleError(writer: anytype, err: anytype) void {
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    const held = heldWriter();
+    const held = mutex.acquire();
     defer held.release();
-    const writer = held.value;
+    const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
         write_trace.current(start_addr) catch |err| dumpHandleError(writer, err);
     };
@@ -262,9 +256,9 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
-    const held = heldWriter();
+    const held = mutex.acquire();
     defer held.release();
-    const writer = held.value;
+    const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
         write_trace.fromBase(bp, ip) catch |err| dumpHandleError(writer, err);
     };
@@ -272,9 +266,9 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
-    const held = heldWriter();
+    const held = mutex.acquire();
     defer held.release();
-    const writer = held.value;
+    const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
         write_trace.stackTrace(stack_trace) catch |err| dumpHandleError(writer, err);
     };
@@ -459,6 +453,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         resetSegfaultHandler();
     }
 
+    // we can't lock the writer (see above comment on panic_mutex)
     const writer = getWrit();
 
     // As a workaround for not having threadlocal variable support in LLD for this target,
