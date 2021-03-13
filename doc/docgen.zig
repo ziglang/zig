@@ -4,6 +4,7 @@ const io = std.io;
 const fs = std.fs;
 const process = std.process;
 const ChildProcess = std.ChildProcess;
+const Progress = std.Progress;
 const print = std.debug.print;
 const mem = std.mem;
 const testing = std.testing;
@@ -234,7 +235,7 @@ fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, arg
             }
         }
         {
-            const caret_count = token.end - token.start;
+            const caret_count = std.math.min(token.end, loc.line_end) - token.start;
             var i: usize = 0;
             while (i < caret_count) : (i += 1) {
                 print("~", .{});
@@ -1012,6 +1013,9 @@ fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: anytype, source_token: To
 
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: anytype, zig_exe: []const u8, do_code_tests: bool) !void {
     var code_progress_index: usize = 0;
+    var progress = Progress{};
+    const root_node = try progress.start("Generating docgen examples", toc.nodes.len);
+    defer root_node.end();
 
     var env_map = try process.getEnvMap(allocator);
     try env_map.set("ZIG_DEBUG_COLOR", "1");
@@ -1058,8 +1062,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                 try tokenizeAndPrint(tokenizer, out, content_tok);
             },
             .Code => |code| {
-                code_progress_index += 1;
-                print("docgen example code {}/{}...", .{ code_progress_index, tokenizer.code_node_count });
+                root_node.completeOne();
 
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
@@ -1071,7 +1074,6 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                 try out.writeAll("</pre>");
 
                 if (!do_code_tests) {
-                    print("SKIP\n", .{});
                     continue;
                 }
 
@@ -1133,12 +1135,14 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
+                                        progress.log("", .{});
                                         print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                         dumpArgs(build_args.items);
                                         return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
                                     }
                                 },
                                 else => {
+                                    progress.log("", .{});
                                     print("{s}\nThe following command crashed:\n", .{result.stderr});
                                     dumpArgs(build_args.items);
                                     return parseError(tokenizer, code.source_token, "example compile crashed", .{});
@@ -1187,6 +1191,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
+                                        progress.log("", .{});
                                         print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                         dumpArgs(run_args);
                                         return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
@@ -1266,18 +1271,21 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         switch (result.term) {
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
+                                    progress.log("", .{});
                                     print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                     dumpArgs(test_args.items);
                                     return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
                                 }
                             },
                             else => {
+                                progress.log("", .{});
                                 print("{s}\nThe following command crashed:\n", .{result.stderr});
                                 dumpArgs(test_args.items);
                                 return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                             },
                         }
                         if (mem.indexOf(u8, result.stderr, error_match) == null) {
+                            progress.log("", .{});
                             print("{s}\nExpected to find '{s}' in stderr\n", .{ result.stderr, error_match });
                             return parseError(tokenizer, code.source_token, "example did not have expected compile error", .{});
                         }
@@ -1321,18 +1329,21 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         switch (result.term) {
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
+                                    progress.log("", .{});
                                     print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                     dumpArgs(test_args.items);
                                     return parseError(tokenizer, code.source_token, "example test incorrectly succeeded", .{});
                                 }
                             },
                             else => {
+                                progress.log("", .{});
                                 print("{s}\nThe following command crashed:\n", .{result.stderr});
                                 dumpArgs(test_args.items);
                                 return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                             },
                         }
                         if (mem.indexOf(u8, result.stderr, error_match) == null) {
+                            progress.log("", .{});
                             print("{s}\nExpected to find '{s}' in stderr\n", .{ result.stderr, error_match });
                             return parseError(tokenizer, code.source_token, "example did not have expected runtime safety error message", .{});
                         }
@@ -1400,18 +1411,21 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
+                                        progress.log("", .{});
                                         print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                         dumpArgs(build_args.items);
                                         return parseError(tokenizer, code.source_token, "example build incorrectly succeeded", .{});
                                     }
                                 },
                                 else => {
+                                    progress.log("", .{});
                                     print("{s}\nThe following command crashed:\n", .{result.stderr});
                                     dumpArgs(build_args.items);
                                     return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                                 },
                             }
                             if (mem.indexOf(u8, result.stderr, error_match) == null) {
+                                progress.log("", .{});
                                 print("{s}\nExpected to find '{s}' in stderr\n", .{ result.stderr, error_match });
                                 return parseError(tokenizer, code.source_token, "example did not have expected compile error message", .{});
                             }
@@ -1461,7 +1475,6 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         try out.print("\n{s}{s}</code></pre>\n", .{ escaped_stderr, escaped_stdout });
                     },
                 }
-                print("OK\n", .{});
             },
         }
     }
