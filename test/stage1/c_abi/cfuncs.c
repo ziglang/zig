@@ -24,6 +24,16 @@ void zig_f32(float);
 void zig_f64(double);
 void zig_five_floats(float, float, float, float, float);
 
+bool zig_ret_bool();
+uint8_t zig_ret_u8();
+uint16_t zig_ret_u16();
+uint32_t zig_ret_u32();
+uint64_t zig_ret_u64();
+int8_t zig_ret_i8();
+int16_t zig_ret_i16();
+int32_t zig_ret_i32();
+int64_t zig_ret_i64();
+
 void zig_ptr(void *);
 
 void zig_bool(bool);
@@ -118,6 +128,20 @@ void run_c_tests(void) {
         assert_or_panic(res.c == 22);
         assert_or_panic(res.d == 23);
         assert_or_panic(res.e == 24);
+    }
+
+    {
+        assert_or_panic(zig_ret_bool() == 1);
+
+        assert_or_panic(zig_ret_u8() == 0xff);
+        assert_or_panic(zig_ret_u16() == 0xffff);
+        assert_or_panic(zig_ret_u32() == 0xffffffff);
+        assert_or_panic(zig_ret_u64() == 0xffffffffffffffff);
+
+        assert_or_panic(zig_ret_i8() == -1);
+        assert_or_panic(zig_ret_i16() == -1);
+        assert_or_panic(zig_ret_i32() == -1);
+        assert_or_panic(zig_ret_i64() == -1);
     }
 }
 
@@ -235,4 +259,32 @@ void c_big_struct_floats(Vector5 vec) {
     assert_or_panic(vec.z == -12.0);
     assert_or_panic(vec.w == 69);
     assert_or_panic(vec.q == 55);
+}
+
+bool c_ret_bool() {
+    return 1;
+}
+uint8_t c_ret_u8() {
+    return 0xff;
+}
+uint16_t c_ret_u16() {
+    return 0xffff;
+}
+uint32_t c_ret_u32() {
+    return 0xffffffff;
+}
+uint64_t c_ret_u64() {
+    return 0xffffffffffffffff;
+}
+int8_t c_ret_i8() {
+    return -1;
+}
+int16_t c_ret_i16() {
+    return -1;
+}
+int32_t c_ret_i32() {
+    return -1;
+}
+int64_t c_ret_i64() {
+    return -1;
 }

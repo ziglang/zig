@@ -63,7 +63,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
   if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 13)
     message(FATAL_ERROR "expected LLVM 12.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
+elseif(ZIG_USE_LLVM_CONFIG)
   find_program(LLVM_CONFIG_EXE
       NAMES llvm-config-12 llvm-config-12.0 llvm-config120 llvm-config12 llvm-config
       PATHS
