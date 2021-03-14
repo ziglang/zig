@@ -209,7 +209,7 @@ pub const Builder = struct {
             self,
             name,
             if (root_src) |p| FileSource{ .path = p } else null,
-            false,
+            .Static,
         );
     }
 
@@ -224,7 +224,7 @@ pub const Builder = struct {
                 .step = wfs,
                 .basename = basename,
             },
-        }), false);
+        }), .Static);
     }
 
     pub fn addExecutableSource(
@@ -232,7 +232,7 @@ pub const Builder = struct {
         name: []const u8,
         root_src: ?FileSource,
     ) *LibExeObjStep {
-        return LibExeObjStep.createExecutable(self, name, root_src, false);
+        return LibExeObjStep.createExecutable(self, name, root_src, .Static);
     }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -1332,7 +1332,7 @@ pub const LibExeObjStep = struct {
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     out_filename: []const u8,
-    is_dynamic: bool,
+    link_mode: std.builtin.LinkMode,
     version: ?Version,
     build_mode: builtin.Mode,
     kind: Kind,
@@ -1468,7 +1468,7 @@ pub const LibExeObjStep = struct {
 
     pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource, kind: SharedLibKind) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Lib, true, switch (kind) {
+        self.* = initExtraArgs(builder, name, root_src, Kind.Lib, .Dynamic, switch (kind) {
             .versioned => |ver| ver,
             .unversioned => null,
         });
@@ -1477,25 +1477,25 @@ pub const LibExeObjStep = struct {
 
     pub fn createStaticLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Lib, false, null);
+        self.* = initExtraArgs(builder, name, root_src, Kind.Lib, .Static, null);
         return self;
     }
 
     pub fn createObject(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Obj, false, null);
+        self.* = initExtraArgs(builder, name, root_src, Kind.Obj, .Static, null);
         return self;
     }
 
-    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?FileSource, is_dynamic: bool) *LibExeObjStep {
+    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?FileSource, link_mode: std.builtin.LinkMode) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Exe, is_dynamic, null);
+        self.* = initExtraArgs(builder, name, root_src, Kind.Exe, link_mode, null);
         return self;
     }
 
     pub fn createTest(builder: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initExtraArgs(builder, name, root_src, Kind.Test, false, null);
+        self.* = initExtraArgs(builder, name, root_src, Kind.Test, .Static, null);
         return self;
     }
 
@@ -1504,7 +1504,7 @@ pub const LibExeObjStep = struct {
         name_raw: []const u8,
         root_src_raw: ?FileSource,
         kind: Kind,
-        is_dynamic: bool,
+        link_mode: std.builtin.LinkMode,
         ver: ?Version,
     ) LibExeObjStep {
         const name = builder.dupe(name_raw);
@@ -1518,7 +1518,7 @@ pub const LibExeObjStep = struct {
             .verbose_link = false,
             .verbose_cc = false,
             .build_mode = builtin.Mode.Debug,
-            .is_dynamic = is_dynamic,
+            .link_mode = link_mode,
             .kind = kind,
             .root_src = root_src,
             .name = name,
@@ -1577,12 +1577,12 @@ pub const LibExeObjStep = struct {
                 .Obj => .Obj,
                 .Exe, .Test => .Exe,
             },
-            .link_mode = if (self.is_dynamic) .Dynamic else .Static,
+            .link_mode = self.link_mode,
             .version = self.version,
         }) catch unreachable;
 
         if (self.kind == .Lib) {
-            if (!self.is_dynamic) {
+            if (self.link_mode == .Static) {
                 self.out_lib_filename = self.out_filename;
             } else if (self.version) |version| {
                 if (target.isDarwin()) {
@@ -1676,7 +1676,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn isDynamicLibrary(self: *LibExeObjStep) bool {
-        return self.kind == Kind.Lib and self.is_dynamic;
+        return self.kind == Kind.Lib and self.link_mode == .Dynamic;
     }
 
     pub fn producesPdbFile(self: *LibExeObjStep) bool {
@@ -2228,7 +2228,7 @@ pub const LibExeObjStep = struct {
                         const full_path_lib = other.getOutputLibPath();
                         try zig_args.append(full_path_lib);
 
-                        if (other.is_dynamic and !self.target.isWindows()) {
+                        if (other.link_mode == .Dynamic and !self.target.isWindows()) {
                             if (fs.path.dirname(full_path_lib)) |dirname| {
                                 try zig_args.append("-rpath");
                                 try zig_args.append(dirname);
@@ -2393,14 +2393,15 @@ pub const LibExeObjStep = struct {
         zig_args.append("--name") catch unreachable;
         zig_args.append(self.name) catch unreachable;
 
-        if (self.kind == Kind.Lib and self.is_dynamic) {
+        if (self.kind == Kind.Lib and self.link_mode == .Dynamic) {
             if (self.version) |version| {
                 zig_args.append("--version") catch unreachable;
                 zig_args.append(builder.fmt("{}", .{version})) catch unreachable;
             }
         }
-        if (self.is_dynamic) {
-            try zig_args.append("-dynamic");
+        switch (self.link_mode) {
+            .Dynamic => try zig_args.append("-dynamic"),
+            .Static => try zig_args.append("-static"),
         }
         if (self.bundle_compiler_rt) |x| {
             if (x) {
@@ -2702,7 +2703,7 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.kind == Kind.Lib and self.is_dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
+        if (self.kind == Kind.Lib and self.link_mode == .Dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, self.getOutputPath(), self.major_only_filename, self.name_only_filename);
         }
     }

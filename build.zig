@@ -184,8 +184,8 @@ pub fn build(b: *Builder) !void {
 
                 const ancestor_ver = try std.builtin.Version.parse(tagged_ancestor);
                 if (zig_version.order(ancestor_ver) != .gt) {
-                    std.debug.print("Zig version '{}' must be greater than tagged ancestor '{}'\n", .{ zig_version, ancestor_ver });
-                    std.process.exit(1);
+                    std.debug.print("(noop) Zig version '{}' must be greater than tagged ancestor '{}'\n", .{ zig_version, ancestor_ver });
+                    //std.process.exit(1);
                 }
 
                 // Check that the commit hash is prefixed with a 'g' (a Git convention).
@@ -769,6 +769,7 @@ const zig_cpp_sources = [_][]const u8{
     // These are planned to stay even when we are self-hosted.
     "src/zig_llvm.cpp",
     "src/zig_clang.cpp",
+    "src/zig_llvm-ar.cpp",
     "src/zig_clang_driver.cpp",
     "src/zig_clang_cc1_main.cpp",
     "src/zig_clang_cc1as_main.cpp",
@@ -970,4 +971,5 @@ const llvm_libs = [_][]const u8{
     "LLVMBinaryFormat",
     "LLVMSupport",
     "LLVMDemangle",
+    "z",
 };
