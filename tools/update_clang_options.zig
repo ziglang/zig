@@ -332,6 +332,10 @@ const known_options = [_]KnownOpt{
         .name = "s",
         .ident = "strip",
     },
+    .{
+        .name = "dynamiclib",
+        .ident = "shared",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

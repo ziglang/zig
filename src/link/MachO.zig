@@ -644,9 +644,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try argv.append("defs");
         }
 
-        if (is_dyn_lib) {
-            try argv.append("-static");
-        } else {
+        if (is_exe_or_dyn_lib) {
             try argv.append("-dynamic");
         }
 
