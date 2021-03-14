@@ -28,6 +28,8 @@ pub fn main() !void {
     const zig_exe = try fs.path.resolve(a, &[_][]const u8{zig_exe_rel});
 
     const dir_path = try fs.path.join(a, &[_][]const u8{ cache_root, "clitest" });
+    defer fs.cwd().deleteTree(dir_path) catch {};
+    
     const TestFn = fn ([]const u8, []const u8) anyerror!void;
     const test_fns = [_]TestFn{
         testZigInitLib,
