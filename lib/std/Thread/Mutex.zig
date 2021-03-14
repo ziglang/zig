@@ -40,15 +40,17 @@ const StaticResetEvent = std.thread.StaticResetEvent;
 
 /// Try to acquire the mutex without blocking. Returns `null` if the mutex is
 /// unavailable. Otherwise returns `Held`. Call `release` on `Held`.
-pub fn tryAcquire(m: *Mutex) ?Impl.Held {
+pub fn tryAcquire(m: *Mutex) ?Held {
     return m.impl.tryAcquire();
 }
 
 /// Acquire the mutex. Deadlocks if the mutex is already
 /// held by the calling thread.
-pub fn acquire(m: *Mutex) Impl.Held {
+pub fn acquire(m: *Mutex) Held {
     return m.impl.acquire();
 }
+
+pub const Held = Impl.Held;
 
 const Impl = if (builtin.single_threaded)
     Dummy
@@ -311,7 +313,7 @@ test "basic usage" {
 fn worker(ctx: *TestContext) void {
     var i: usize = 0;
     while (i != TestContext.incr_count) : (i += 1) {
-        const held = ctx.mutex.acquire();
+        const held: Mutex.Held = ctx.mutex.acquire();
         defer held.release();
 
         ctx.data += 1;
