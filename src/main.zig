@@ -2708,9 +2708,22 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = io.getStdIn().reader();
+        const stdin = io.getStdIn();
 
-        const source_code = try stdin.readAllAlloc(gpa, max_src_size);
+        const source_code = blk: {
+            const source_code = try stdin.readToEndAllocOptions(gpa, max_src_size, null, @alignOf(u16), null);
+            errdefer gpa.free(source_code);
+
+            // If the file starts with a UTF-16 BOM, translate it to UTF-8
+            if (mem.startsWith(u8, source_code, "\xff\xfe")) {
+                const source_code_utf16_le = mem.bytesAsSlice(u16, source_code);
+                const source_code_utf8 = try std.unicode.utf16leToUtf8Alloc(gpa, source_code_utf16_le);
+                gpa.free(source_code);
+                break :blk source_code_utf8;
+            } else {
+                break :blk source_code;
+            }
+        };
         defer gpa.free(source_code);
 
         var tree = std.zig.parse(gpa, source_code) catch |err| {
@@ -2785,6 +2798,7 @@ const FmtError = error{
     EndOfStream,
     Unseekable,
     NotOpenForWriting,
+    UnknownTextFormat,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
@@ -2850,20 +2864,38 @@ fn fmtPathFile(
     if (stat.kind == .Directory)
         return error.IsDir;
 
-    const source_code = source_file.readToEndAllocOptions(
-        fmt.gpa,
-        max_src_size,
-        std.math.cast(usize, stat.size) catch return error.FileTooBig,
-        @alignOf(u8),
-        null,
-    ) catch |err| switch (err) {
-        error.ConnectionResetByPeer => unreachable,
-        error.ConnectionTimedOut => unreachable,
-        error.NotOpenForReading => unreachable,
-        else => |e| return e,
+    const source_code = blk: {
+        const source_code = source_file.readToEndAllocOptions(
+            fmt.gpa,
+            max_src_size,
+            std.math.cast(usize, stat.size) catch return error.FileTooBig,
+            @alignOf(u16),
+            null,
+        ) catch |err| switch (err) {
+            error.ConnectionResetByPeer => unreachable,
+            error.ConnectionTimedOut => unreachable,
+            error.NotOpenForReading => unreachable,
+            else => |e| return e,
+        };
+        source_file.close();
+        file_closed = true;
+        errdefer fmt.gpa.free(source_code);
+
+        // If the file starts with a UTF-16 BOM, translate it to UTF-8
+        if (mem.eql(u8, source_code[0..2], "\xff\xfe")) {
+            const source_code_utf16_le = mem.bytesAsSlice(u16, source_code);
+            const source_code_utf8 = std.unicode.utf16leToUtf8Alloc(fmt.gpa, source_code_utf16_le) catch |err| return switch (err) {
+                error.DanglingSurrogateHalf => FmtError.UnknownTextFormat,
+                error.ExpectedSecondSurrogateHalf => FmtError.UnknownTextFormat,
+                error.UnexpectedSecondSurrogateHalf => FmtError.UnknownTextFormat,
+                else => |e| e,
+            };
+            fmt.gpa.free(source_code);
+            break :blk source_code_utf8;
+        } else {
+            break :blk source_code;
+        }
     };
-    source_file.close();
-    file_closed = true;
     defer fmt.gpa.free(source_code);
 
     // Add to set after no longer possible to get error.IsDir.
