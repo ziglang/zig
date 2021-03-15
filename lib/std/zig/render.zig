@@ -1423,6 +1423,7 @@ fn renderSwitchCase(
     switch_case: ast.full.SwitchCase,
     space: Space,
 ) Error!void {
+    const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
     const trailing_comma = token_tags[switch_case.ast.arrow_token - 1] == .comma;
 
@@ -1445,12 +1446,11 @@ fn renderSwitchCase(
     }
 
     // Render the arrow and everything after it
-    const first_target_token = tree.firstToken(switch_case.ast.target_expr);
-    const pre_target_space = if (tree.tokensOnSameLine(first_target_token - 1, first_target_token))
-        Space.space
+    const pre_target_space = if (node_tags[switch_case.ast.target_expr] == .multiline_string_literal)
+        // Newline gets inserted when rendering the target expr.
+        Space.none
     else
-        // Newline gets inserted when rendering the target expr if needed.
-        Space.none;
+        Space.space;
     const after_arrow_space: Space = if (switch_case.payload_token == null) pre_target_space else .space;
     try renderToken(ais, tree, switch_case.ast.arrow_token, after_arrow_space);
 

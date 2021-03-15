@@ -3038,6 +3038,23 @@ test "zig fmt: switch" {
         \\}
         \\
     );
+
+    try testTransform(
+        \\test {
+        \\    switch (x) {
+        \\        foo =>
+        \\            "bar",
+        \\    }
+        \\}
+        \\
+    ,
+        \\test {
+        \\    switch (x) {
+        \\        foo => "bar",
+        \\    }
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: switch multiline string" {
