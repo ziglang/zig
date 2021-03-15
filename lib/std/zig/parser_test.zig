@@ -12,6 +12,9 @@ test "zig fmt: respect line breaks in struct field value declaration" {
         \\    bar: u32 =
         \\        // a comment
         \\        42,
+        \\    bar: u32 =
+        \\        42,
+        \\    // a comment
         \\    bar: []const u8 =
         \\        \\ foo
         \\        \\ bar
