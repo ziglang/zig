@@ -373,8 +373,8 @@ pub const McfEncoding = struct {
     /// Derive key from password and return mcf encoded string
     pub fn create(
         allocator: *mem.Allocator,
-        params: Params,
         password: []const u8,
+        params: Params,
     ) ![pwhash_str_length]u8 {
         var salt_bin: [32]u8 = undefined;
         crypto.random.bytes(&salt_bin);
@@ -393,6 +393,25 @@ pub const McfEncoding = struct {
         }).toString();
     }
 };
+
+/// Compute a hash of a password using the scrypt key derivation function.
+/// The function returns a string that includes all the parameters required for verification.
+pub fn strHash(
+    allocator: *mem.Allocator,
+    password: []const u8,
+    params: Params,
+) ![McfEncoding.pwhash_str_length]u8 {
+    return McfEncoding.create(allocator, password, params);
+}
+
+/// Verify that a previously computed hash is valid for a given password.
+pub fn strVerify(
+    allocator: *mem.Allocator,
+    str: [McfEncodingError.pwhash_str_length]u8,
+    password: []const u8,
+) !void {
+    return McfEncoding.verify(allocator, str, password);
+}
 
 test "kdf" {
     const password = "testpass";
@@ -475,6 +494,6 @@ test "password hashing (crypt format)" {
     try McfEncoding.verify(std.testing.allocator, str, password);
 
     const params = Params.interactive();
-    const str2 = try McfEncoding.create(std.testing.allocator, params, password);
+    const str2 = try McfEncoding.create(std.testing.allocator, password, params);
     try McfEncoding.verify(std.testing.allocator, &str2, password);
 }
