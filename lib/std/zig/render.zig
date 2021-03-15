@@ -1445,17 +1445,24 @@ fn renderSwitchCase(
     }
 
     // Render the arrow and everything after it
-    try renderToken(ais, tree, switch_case.ast.arrow_token, .space);
+    const first_target_token = tree.firstToken(switch_case.ast.target_expr);
+    const pre_target_space = if (tree.tokensOnSameLine(first_target_token - 1, first_target_token))
+        Space.space
+    else
+        // Newline gets inserted when rendering the target expr if needed.
+        Space.none;
+    const after_arrow_space: Space = if (switch_case.payload_token == null) pre_target_space else .space;
+    try renderToken(ais, tree, switch_case.ast.arrow_token, after_arrow_space);
 
     if (switch_case.payload_token) |payload_token| {
         try renderToken(ais, tree, payload_token - 1, .none); // pipe
         if (token_tags[payload_token] == .asterisk) {
             try renderToken(ais, tree, payload_token, .none); // asterisk
             try renderToken(ais, tree, payload_token + 1, .none); // identifier
-            try renderToken(ais, tree, payload_token + 2, .space); // pipe
+            try renderToken(ais, tree, payload_token + 2, pre_target_space); // pipe
         } else {
             try renderToken(ais, tree, payload_token, .none); // identifier
-            try renderToken(ais, tree, payload_token + 1, .space); // pipe
+            try renderToken(ais, tree, payload_token + 1, pre_target_space); // pipe
         }
     }
 
