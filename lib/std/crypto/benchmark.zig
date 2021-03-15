@@ -299,6 +299,31 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     return throughput;
 }
 
+const pwhash_scrypt = [_]Crypto{Crypto{ .ty = crypto.pwhash.scrypt.kdf, .name = "scrypt" }};
+
+pub fn benchmarkPwhashScrypt(comptime kdf: anytype, comptime count: comptime_int) !u64 {
+    const password = "testpass";
+    const salt = "saltsalt";
+    const params = crypto.pwhash.scrypt.Params.interactive();
+    var dk: [32]u8 = undefined;
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            try kdf(std.testing.allocator, &dk, password, salt, params);
+            mem.doNotOptimizeAway(&dk);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, count / elapsed_s);
+
+    return throughput;
+}
+
 fn usage() void {
     std.debug.warn(
         \\throughput_test [options]
@@ -415,6 +440,13 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkAes8(E.ty, mode(10000000));
             try stdout.print("{s:>17}: {:10} ops/s\n", .{ E.name, throughput });
+        }
+    }
+
+    inline for (pwhash_scrypt) |K| {
+        if (filter == null or std.mem.indexOf(u8, K.name, filter.?) != null) {
+            const throughput = try benchmarkPwhashScrypt(K.ty, mode(16));
+            try stdout.print("{s:>17}: {:10} ops/s\n", .{ K.name, throughput });
         }
     }
 }
