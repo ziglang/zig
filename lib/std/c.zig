@@ -303,13 +303,12 @@ pub extern "c" fn getaddrinfo(
 
 test "getaddrinfo" {
     if (!std.builtin.link_libc) return error.SkipZigTest;
-    const allocator = std.testing.allocator;
     const port = "9999";
 
     var res: *std.os.addrinfo = undefined;
-    defer freeaddrinfo(res);
-
     const status = getaddrinfo(null, port, null, &res);
+
+    freeaddrinfo(res);
 
     std.testing.expectEqual(@intToEnum(EAI, 0), status);
 }
