@@ -3040,6 +3040,24 @@ test "zig fmt: switch" {
     );
 }
 
+test "zig fmt: switch multiline string" {
+    try testCanonical(
+        \\test "switch multiline string" {
+        \\    const x: u32 = 0;
+        \\    const str = switch (x) {
+        \\        1 => "one",
+        \\        2 => 
+        \\        \\ Comma after the multiline string
+        \\        \\ is needed
+        \\        ,
+        \\        3 => "three",
+        \\        else => "else",
+        \\    };
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: while" {
     try testCanonical(
         \\test "while" {
