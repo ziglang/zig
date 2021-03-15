@@ -3068,6 +3068,11 @@ test "zig fmt: while" {
         \\    while (i < 10) : ({
         \\        i += 1;
         \\        j += 1;
+        \\    }) continue;
+        \\
+        \\    while (i < 10) : ({
+        \\        i += 1;
+        \\        j += 1;
         \\    }) {
         \\        continue;
         \\    }
