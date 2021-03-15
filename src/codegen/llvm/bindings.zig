@@ -1,7 +1,20 @@
 //! We do this instead of @cImport because the self-hosted compiler is easier
 //! to bootstrap if it does not depend on translate-c.
 
-const Bool = bool;
+/// Do not compare directly to .True, use toBool() instead.
+pub const Bool = enum(c_int) {
+    False,
+    True,
+    _,
+
+    pub fn fromBool(b: bool) Bool {
+        return @intToEnum(Bool, @boolToInt(b));
+    }
+
+    pub fn toBool(b: Bool) bool {
+        return b != .False;
+    }
+};
 pub const AttributeIndex = c_uint;
 
 /// Make sure to use the *InContext functions instead of the global ones.
