@@ -301,17 +301,6 @@ pub extern "c" fn getaddrinfo(
     noalias res: **addrinfo,
 ) EAI;
 
-test "getaddrinfo" {
-    if (!std.builtin.link_libc) return error.SkipZigTest;
-    const port = "9999";
-
-    var res: *std.os.addrinfo = undefined;
-    const status = getaddrinfo(null, port, null, &res);
-
-    std.testing.expectEqual(@intToEnum(EAI, 0), status);
-    freeaddrinfo(res);
-}
-
 pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
 
 pub extern "c" fn getnameinfo(
