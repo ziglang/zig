@@ -2445,6 +2445,11 @@ static AstNode *ast_parse_switch_item(ParseContext *pc) {
 //      / PLUSPERCENTEQUAL
 //      / MINUSPERCENTEQUAL
 //      / EQUAL
+
+int is_valid_BinOpType(BinOpType op) {
+    return op != BinOpTypeInvalid;
+}
+
 static AstNode *ast_parse_assign_op(ParseContext *pc) {
     // In C, we have `T arr[N] = {[i] = T{}};` but it doesn't
     // seem to work in C++...
@@ -2465,7 +2470,7 @@ static AstNode *ast_parse_assign_op(ParseContext *pc) {
     table[TokenIdTimesPercentEq] = BinOpTypeAssignTimesWrap;
 
     BinOpType op = table[peek_token(pc)->id];
-    if (op != BinOpTypeInvalid) {
+    if (is_valid_BinOpType(op)) {
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
         res->data.bin_op_expr.bin_op = op;
@@ -2493,7 +2498,7 @@ static AstNode *ast_parse_compare_op(ParseContext *pc) {
     table[TokenIdCmpGreaterOrEq] = BinOpTypeCmpGreaterOrEq;
 
     BinOpType op = table[peek_token(pc)->id];
-    if (op != BinOpTypeInvalid) {
+    if (is_valid_BinOpType(op)) {
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
         res->data.bin_op_expr.bin_op = op;
@@ -2517,7 +2522,7 @@ static AstNode *ast_parse_bitwise_op(ParseContext *pc) {
     table[TokenIdKeywordOrElse] = BinOpTypeUnwrapOptional;
 
     BinOpType op = table[peek_token(pc)->id];
-    if (op != BinOpTypeInvalid) {
+    if (is_valid_BinOpType(op)) {
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
         res->data.bin_op_expr.bin_op = op;
@@ -2546,7 +2551,7 @@ static AstNode *ast_parse_bit_shift_op(ParseContext *pc) {
     table[TokenIdBitShiftRight] = BinOpTypeBitShiftRight;
 
     BinOpType op = table[peek_token(pc)->id];
-    if (op != BinOpTypeInvalid) {
+    if (is_valid_BinOpType(op)) {
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
         res->data.bin_op_expr.bin_op = op;
@@ -2571,7 +2576,7 @@ static AstNode *ast_parse_addition_op(ParseContext *pc) {
     table[TokenIdMinusPercent] = BinOpTypeSubWrap;
 
     BinOpType op = table[peek_token(pc)->id];
-    if (op != BinOpTypeInvalid) {
+    if (is_valid_BinOpType(op)) {
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
         res->data.bin_op_expr.bin_op = op;
@@ -2598,7 +2603,7 @@ static AstNode *ast_parse_multiply_op(ParseContext *pc) {
     table[TokenIdTimesPercent] = BinOpTypeMultWrap;
 
     BinOpType op = table[peek_token(pc)->id];
-    if (op != BinOpTypeInvalid) {
+    if (is_valid_BinOpType(op)) {
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
         res->data.bin_op_expr.bin_op = op;
@@ -2616,6 +2621,11 @@ static AstNode *ast_parse_multiply_op(ParseContext *pc) {
 //      / AMPERSAND
 //      / KEYWORD_try
 //      / KEYWORD_await
+
+int is_valid_PrefixOp(PrefixOp op) {
+    return op != PrefixOpInvalid;
+}
+
 static AstNode *ast_parse_prefix_op(ParseContext *pc) {
     PrefixOp table[TokenIdCount] = {};
     table[TokenIdBang] = PrefixOpBoolNot;
@@ -2625,7 +2635,7 @@ static AstNode *ast_parse_prefix_op(ParseContext *pc) {
     table[TokenIdAmpersand] = PrefixOpAddrOf;
 
     PrefixOp op = table[peek_token(pc)->id];
-    if (op != PrefixOpInvalid) {
+    if (is_valid_PrefixOp(op)) {
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypePrefixOpExpr, op_token);
         res->data.prefix_op_expr.prefix_op = op;
