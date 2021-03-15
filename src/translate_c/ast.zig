@@ -40,6 +40,8 @@ pub const Node = extern union {
         string_literal,
         char_literal,
         enum_literal,
+        /// "string"[0..end]
+        string_slice,
         identifier,
         @"if",
         /// if (!operand) break;
@@ -176,6 +178,7 @@ pub const Node = extern union {
         c_pointer,
         single_pointer,
         array_type,
+        null_sentinel_array_type,
 
         /// @import("std").meta.sizeof(operand)
         std_meta_sizeof,
@@ -335,6 +338,7 @@ pub const Node = extern union {
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type => Payload.Array,
+                .null_sentinel_array_type => Payload.NullSentinelArray,
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
                 .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
@@ -342,6 +346,7 @@ pub const Node = extern union {
                 .array_filler => Payload.ArrayFiller,
                 .pub_inline_fn => Payload.PubInlineFn,
                 .field_access => Payload.FieldAccess,
+                .string_slice => Payload.StringSlice,
             };
         }
 
@@ -590,6 +595,14 @@ pub const Payload = struct {
         },
     };
 
+    pub const NullSentinelArray = struct {
+        base: Payload,
+        data: struct {
+            elem_type: Node,
+            len: usize,
+        },
+    };
+
     pub const Pointer = struct {
         base: Payload,
         data: struct {
@@ -662,6 +675,14 @@ pub const Payload = struct {
             value: Node,
             type: Node,
             radix: Node,
+        },
+    };
+
+    pub const StringSlice = struct {
+        base: Payload,
+        data: struct {
+            string: Node,
+            end: usize,
         },
     };
 };
@@ -1013,6 +1034,36 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .enum_literal,
                 .main_token = try c.addToken(.identifier, payload),
                 .data = undefined,
+            });
+        },
+        .string_slice => {
+            const payload = node.castTag(.string_slice).?.data;
+
+            const string = try renderNode(c, payload.string);
+            const l_bracket = try c.addToken(.l_bracket, "[");
+            const start = try c.addNode(.{
+                .tag = .integer_literal,
+                .main_token = try c.addToken(.integer_literal, "0"),
+                .data = undefined,
+            });
+            _ = try c.addToken(.ellipsis2, "..");
+            const end = try c.addNode(.{
+                .tag = .integer_literal,
+                .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{payload.end}),
+                .data = undefined,
+            });
+            _ = try c.addToken(.r_bracket, "]");
+
+            return c.addNode(.{
+                .tag = .slice,
+                .main_token = l_bracket,
+                .data = .{
+                    .lhs = string,
+                    .rhs = try c.addExtra(std.zig.ast.Node.Slice{
+                        .start = start,
+                        .end = end,
+                    }),
+                },
             });
         },
         .fail_decl => {
@@ -1581,6 +1632,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.array_type).?.data;
             return renderArrayType(c, payload.len, payload.elem_type);
         },
+        .null_sentinel_array_type => {
+            const payload = node.castTag(.null_sentinel_array_type).?.data;
+            return renderNullSentinelArrayType(c, payload.len, payload.elem_type);
+        },
         .array_filler => {
             const payload = node.castTag(.array_filler).?.data;
 
@@ -1946,6 +2001,36 @@ fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
     });
 }
 
+fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
+    const l_bracket = try c.addToken(.l_bracket, "[");
+    const len_expr = try c.addNode(.{
+        .tag = .integer_literal,
+        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{len}),
+        .data = undefined,
+    });
+    _ = try c.addToken(.colon, ":");
+
+    const sentinel_expr = try c.addNode(.{
+        .tag = .integer_literal,
+        .main_token = try c.addToken(.integer_literal, "0"),
+        .data = undefined,
+    });
+
+    _ = try c.addToken(.r_bracket, "]");
+    const elem_type_expr = try renderNode(c, elem_type);
+    return c.addNode(.{
+        .tag = .array_type_sentinel,
+        .main_token = l_bracket,
+        .data = .{
+            .lhs = len_expr,
+            .rhs = try c.addExtra(std.zig.ast.Node.ArrayTypeSentinel {
+                .sentinel = sentinel_expr,
+                .elem_type = elem_type_expr,
+            }),
+        },
+    });
+}
+
 fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
     switch (node.tag()) {
         .warning => unreachable,
@@ -2014,6 +2099,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .integer_literal,
         .float_literal,
         .string_literal,
+        .string_slice,
         .char_literal,
         .enum_literal,
         .identifier,
@@ -2035,6 +2121,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .func,
         .call,
         .array_type,
+        .null_sentinel_array_type,
         .bool_to_int,
         .div_exact,
         .byte_offset_of,
