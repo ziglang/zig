@@ -216,7 +216,7 @@ pub fn PhcEncoding(comptime T: type) type {
 }
 
 fn write(buf: []u8, v: ?[]const u8) usize {
-    var value = v orelse return 0;
+    const value = v orelse return 0;
     mem.copy(u8, buf, fields_delimiter);
     mem.copy(u8, buf[fields_delimiter.len..], value);
     return fields_delimiter.len + value.len;
