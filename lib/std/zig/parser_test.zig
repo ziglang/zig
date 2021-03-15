@@ -3186,7 +3186,7 @@ test "zig fmt: for" {
 
 test "zig fmt: for if" {
     try testCanonical(
-        \\test "for if" {
+        \\test {
         \\    for (a) |x| if (x) f(x);
         \\
         \\    for (a) |x| if (x)
@@ -3202,6 +3202,131 @@ test "zig fmt: for if" {
         \\
         \\    for (a) |x|
         \\        if (x) {
+        \\            f(x);
+        \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: if for" {
+    try testCanonical(
+        \\test {
+        \\    if (a) for (x) |x| f(x);
+        \\
+        \\    if (a) for (x) |x|
+        \\        f(x);
+        \\
+        \\    if (a) for (x) |x| {
+        \\        f(x);
+        \\    };
+        \\
+        \\    if (a)
+        \\        for (x) |x|
+        \\            f(x);
+        \\
+        \\    if (a)
+        \\        for (x) |x| {
+        \\            f(x);
+        \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: while if" {
+    try testCanonical(
+        \\test {
+        \\    while (a) if (x) f(x);
+        \\
+        \\    while (a) if (x)
+        \\        f(x);
+        \\
+        \\    while (a) if (x) {
+        \\        f(x);
+        \\    };
+        \\
+        \\    while (a)
+        \\        if (x)
+        \\            f(x);
+        \\
+        \\    while (a)
+        \\        if (x) {
+        \\            f(x);
+        \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: if while" {
+    try testCanonical(
+        \\test {
+        \\    if (a) while (x) : (cont) f(x);
+        \\
+        \\    if (a) while (x) : (cont)
+        \\        f(x);
+        \\
+        \\    if (a) while (x) : (cont) {
+        \\        f(x);
+        \\    };
+        \\
+        \\    if (a)
+        \\        while (x) : (cont)
+        \\            f(x);
+        \\
+        \\    if (a)
+        \\        while (x) : (cont) {
+        \\            f(x);
+        \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: while for" {
+    try testCanonical(
+        \\test {
+        \\    while (a) for (x) |x| f(x);
+        \\
+        \\    while (a) for (x) |x|
+        \\        f(x);
+        \\
+        \\    while (a) for (x) |x| {
+        \\        f(x);
+        \\    };
+        \\
+        \\    while (a)
+        \\        for (x) |x|
+        \\            f(x);
+        \\
+        \\    while (a)
+        \\        for (x) |x| {
+        \\            f(x);
+        \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: for while" {
+    try testCanonical(
+        \\test {
+        \\    for (a) |a| while (x) |x| f(x);
+        \\
+        \\    for (a) |a| while (x) |x|
+        \\        f(x);
+        \\
+        \\    for (a) |a| while (x) |x| {
+        \\        f(x);
+        \\    };
+        \\
+        \\    for (a) |a|
+        \\        while (x) |x|
+        \\            f(x);
+        \\
+        \\    for (a) |a|
+        \\        while (x) |x| {
         \\            f(x);
         \\        };
         \\}
@@ -3253,6 +3378,82 @@ test "zig fmt: if" {
         \\    } else |err| {
         \\        unreachable;
         \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: fix single statement if/for/while line breaks" {
+    try testTransform(
+        \\test {
+        \\    if (cond) a
+        \\    else b;
+        \\
+        \\    if (cond)
+        \\        a
+        \\    else b;
+        \\
+        \\    for (xs) |x| foo()
+        \\    else bar();
+        \\
+        \\    for (xs) |x|
+        \\        foo()
+        \\    else bar();
+        \\
+        \\    while (a) : (b) foo()
+        \\    else bar();
+        \\
+        \\    while (a) : (b)
+        \\        foo()
+        \\    else bar();
+        \\}
+        \\
+    ,
+        \\test {
+        \\    if (cond) a else b;
+        \\
+        \\    if (cond)
+        \\        a
+        \\    else
+        \\        b;
+        \\
+        \\    for (xs) |x| foo() else bar();
+        \\
+        \\    for (xs) |x|
+        \\        foo()
+        \\    else
+        \\        bar();
+        \\
+        \\    while (a) : (b) foo() else bar();
+        \\
+        \\    while (a) : (b)
+        \\        foo()
+        \\    else
+        \\        bar();
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: anon struct/array literal in if" {
+    try testCanonical(
+        \\test {
+        \\    const a = if (cond) .{
+        \\        1, 2,
+        \\        3, 4,
+        \\    } else .{
+        \\        1,
+        \\        2,
+        \\        3,
+        \\    };
+        \\
+        \\    const rl_and_tag: struct { rl: ResultLoc, tag: zir.Inst.Tag } = if (any_payload_is_ref) .{
+        \\        .rl = .ref,
+        \\        .tag = .switchbr_ref,
+        \\    } else .{
+        \\        .rl = .none,
+        \\        .tag = .switchbr,
+        \\    };
         \\}
         \\
     );
@@ -3845,9 +4046,24 @@ test "zig fmt: comments in ternary ifs" {
         \\    // Comment
         \\    1
         \\else
+        \\    // Comment
         \\    0;
         \\
         \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
+        \\
+    );
+}
+
+test "zig fmt: while statement in blockless if" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    const zoom_node = if (focused_node == layout_first)
+        \\        while (it.next()) |node| {
+        \\            if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\        } else null
+        \\    else
+        \\        focused_node;
+        \\}
         \\
     );
 }
