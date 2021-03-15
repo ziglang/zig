@@ -4,6 +4,24 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
+test "zig fmt: respect line breaks in struct field value declaration" {
+    try testCanonical(
+        \\const Foo = struct {
+        \\    bar: u32 =
+        \\        42,
+        \\    bar: u32 =
+        \\        // a comment
+        \\        42,
+        \\    bar: []const u8 =
+        \\        \\ foo
+        \\        \\ bar
+        \\        \\ baz
+        \\    ,
+        \\};
+        \\
+    );
+}
+
 // TODO Remove this after zig 0.9.0 is released.
 test "zig fmt: rewrite inline functions as callconv(.Inline)" {
     try testTransform(

@@ -1159,7 +1159,13 @@ fn renderContainerField(
         try renderToken(ais, tree, rparen_token, .space); // )
     }
     const eq_token = tree.firstToken(field.ast.value_expr) - 1;
-    try renderToken(ais, tree, eq_token, .space); // =
+    const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
+    {
+        ais.pushIndent();
+        try renderToken(ais, tree, eq_token, eq_space); // =
+        ais.popIndent();
+    }
+    ais.pushIndentOneShot();
     return renderExpressionComma(gpa, ais, tree, field.ast.value_expr, space); // value
 }
 
