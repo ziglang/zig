@@ -4661,6 +4661,53 @@ test "zig fmt: insert trailing comma if there are comments between switch values
     );
 }
 
+test "zig fmt: make single-line if no trailing comma" {
+    try testTransform(
+        \\test "function call no trailing comma" {
+        \\    foo(
+        \\        1,
+        \\        2
+        \\    );
+        \\}
+        \\
+    ,
+        \\test "function call no trailing comma" {
+        \\    foo(1, 2);
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\test "struct no trailing comma" {
+        \\    const a = .{
+        \\        .foo = 1,
+        \\        .bar = 2
+        \\    };
+        \\}
+        \\
+    ,
+        \\test "struct no trailing comma" {
+        \\    const a = .{ .foo = 1, .bar = 2 };
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\test "array no trailing comma" {
+        \\    var stream = multiOutStream(.{
+        \\        fbs1.outStream(),
+        \\        fbs2.outStream()
+        \\    });
+        \\}
+        \\
+    ,
+        \\test "array no trailing comma" {
+        \\    var stream = multiOutStream(.{ fbs1.outStream(), fbs2.outStream() });
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;
