@@ -308,9 +308,8 @@ test "getaddrinfo" {
     var res: *std.os.addrinfo = undefined;
     const status = getaddrinfo(null, port, null, &res);
 
-    freeaddrinfo(res);
-
     std.testing.expectEqual(@intToEnum(EAI, 0), status);
+    freeaddrinfo(res);
 }
 
 pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
