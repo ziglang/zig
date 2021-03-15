@@ -957,8 +957,14 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-emit-analysis")) {
                         emit_analysis = .no;
                     } else if (mem.eql(u8, arg, "-dynamic")) {
+                        if (link_mode != null and link_mode.? == .Static) {
+                            fatal("Cannot specify both -dynamic and -static", .{});
+                        }
                         link_mode = .Dynamic;
                     } else if (mem.eql(u8, arg, "-static")) {
+                        if (link_mode != null and link_mode.? == .Dynamic) {
+                            fatal("Cannot specify both -dynamic and -static", .{});
+                        }
                         link_mode = .Static;
                     } else if (mem.eql(u8, arg, "-fdll-export-fns")) {
                         dll_export_fns = true;
