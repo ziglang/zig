@@ -17,6 +17,10 @@ test "zig fmt: respect line breaks in struct field value declaration" {
         \\        \\ bar
         \\        \\ baz
         \\    ,
+        \\    bar: u32 =
+        \\        blk: {
+        \\            break :blk 42;
+        \\        },
         \\};
         \\
     );
