@@ -108,6 +108,7 @@ pub const pwhash = struct {
     pub const bcrypt = @import("crypto/bcrypt.zig");
     pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
     pub const scrypt = @import("crypto/scrypt.zig");
+
     pub const phc_encoding = @import("crypto/phc_encoding.zig");
 };
 
