@@ -295,9 +295,9 @@ pub extern "c" fn kevent(
 ) c_int;
 
 pub extern "c" fn getaddrinfo(
-    noalias node: [*:0]const u8,
-    noalias service: [*:0]const u8,
-    noalias hints: *const addrinfo,
+    noalias node: ?[*:0]const u8,
+    noalias service: ?[*:0]const u8,
+    noalias hints: ?*const addrinfo,
     noalias res: **addrinfo,
 ) EAI;
 
