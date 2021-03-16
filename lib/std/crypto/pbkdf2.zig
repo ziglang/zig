@@ -67,8 +67,8 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
     //   1. If dkLen > maxInt(u32) * hLen, output "derived key too long" and
     //      stop.
     //
-    if (comptime (maxInt(usize) > maxInt(u32) * hLen) and (dkLen > @as(usize, maxInt(u32) * hLen))) {
-        // If maxInt(usize) is less than `maxInt(u32) * hLen` then dkLen is always inbounds
+    if (dkLen / hLen >= maxInt(u32)) {
+        // Counter starts at 1 and is 32 bit, so if we have to return more blocks, we would overflow
         return error.OutputTooLong;
     }
 
