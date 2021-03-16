@@ -2602,8 +2602,10 @@ fn writeStubInStubHelper(self: *MachO, index: u32) !void {
         else => unreachable,
     };
     const stub_off = self.stub_helper_stubs_start_off.? + index * stub_size;
+
     var code = try self.base.allocator.alloc(u8, stub_size);
     defer self.base.allocator.free(code);
+
     switch (self.base.options.target.cpu.arch) {
         .x86_64 => {
             const displacement = try math.cast(
@@ -2618,12 +2620,19 @@ fn writeStubInStubHelper(self: *MachO, index: u32) !void {
             mem.writeIntLittle(u32, code[6..][0..4], @bitCast(u32, displacement));
         },
         .aarch64 => {
-            const displacement = try math.cast(i28, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - 4);
+            const literal = blk: {
+                const div_res = try math.divExact(u64, stub_size - @sizeOf(u32), 4);
+                break :blk try math.cast(u18, div_res);
+            };
+            // ldr w16, literal
             mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.w16, .{
-                .literal = @divExact(stub_size - @sizeOf(u32), 4),
+                .literal = literal,
             }).toU32());
+            const displacement = try math.cast(i28, @intCast(i64, stub_helper.offset) - @intCast(i64, stub_off) - 4);
+            // b disp
             mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(displacement).toU32());
-            mem.writeIntLittle(u32, code[8..12], 0x0); // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
+            // Just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
+            mem.writeIntLittle(u32, code[8..12], 0x0);
         },
         else => unreachable,
     }
