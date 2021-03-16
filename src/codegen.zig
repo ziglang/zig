@@ -2152,8 +2152,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const decl = func_payload.data;
                         const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
                         defer self.bin_file.allocator.free(decl_name);
-                        const already_defined = macho_file.extern_lazy_symbols.contains(decl_name);
-                        const symbol: u32 = if (macho_file.extern_lazy_symbols.getIndex(decl_name)) |index|
+                        const already_defined = macho_file.lazy_imports.contains(decl_name);
+                        const symbol: u32 = if (macho_file.lazy_imports.getIndex(decl_name)) |index|
                             @intCast(u32, index)
                         else
                             try macho_file.addExternSymbol(decl_name);
@@ -3111,7 +3111,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             4, 8 => {
                                 const offset = if (math.cast(i9, adj_off)) |imm|
                                     Instruction.LoadStoreOffset.imm_post_index(-imm)
-                                else |_| Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u64), MCValue{ .immediate = adj_off }));
+                                else |_|
+                                    Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u64), MCValue{ .immediate = adj_off }));
                                 const rn: Register = switch (arch) {
                                     .aarch64, .aarch64_be => .x29,
                                     .aarch64_32 => .w29,

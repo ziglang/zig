@@ -839,8 +839,8 @@ fn findFreeSpaceLinkedit(self: *DebugSymbols, object_size: u64, min_alignment: u
 
 fn relocateSymbolTable(self: *DebugSymbols) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    const nlocals = self.base.local_symbols.items.len;
-    const nglobals = self.base.global_symbols.items.len;
+    const nlocals = self.base.locals.items.len;
+    const nglobals = self.base.globals.items.len;
     const nsyms = nlocals + nglobals;
 
     if (symtab.nsyms < nsyms) {
@@ -875,7 +875,7 @@ pub fn writeLocalSymbol(self: *DebugSymbols, index: usize) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const off = symtab.symoff + @sizeOf(macho.nlist_64) * index;
     log.debug("writing dSym local symbol {} at 0x{x}", .{ index, off });
-    try self.file.pwriteAll(mem.asBytes(&self.base.local_symbols.items[index]), off);
+    try self.file.pwriteAll(mem.asBytes(&self.base.locals.items[index]), off);
 }
 
 fn writeStringTable(self: *DebugSymbols) !void {
@@ -1057,7 +1057,7 @@ pub fn commitDeclDebugInfo(
     var dbg_info_buffer = &debug_buffers.dbg_info_buffer;
     var dbg_info_type_relocs = &debug_buffers.dbg_info_type_relocs;
 
-    const symbol = self.base.local_symbols.items[decl.link.macho.local_sym_index];
+    const symbol = self.base.locals.items[decl.link.macho.local_sym_index];
     const text_block = &decl.link.macho;
     // If the Decl is a function, we need to update the __debug_line program.
     const typed_value = decl.typed_value.most_recent.typed_value;
