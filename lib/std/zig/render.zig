@@ -1159,8 +1159,29 @@ fn renderContainerField(
         try renderToken(ais, tree, rparen_token, .space); // )
     }
     const eq_token = tree.firstToken(field.ast.value_expr) - 1;
-    try renderToken(ais, tree, eq_token, .space); // =
-    return renderExpressionComma(gpa, ais, tree, field.ast.value_expr, space); // value
+    const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
+    {
+        ais.pushIndent();
+        try renderToken(ais, tree, eq_token, eq_space); // =
+        ais.popIndent();
+    }
+
+    if (eq_space == .space)
+        return renderExpressionComma(gpa, ais, tree, field.ast.value_expr, space); // value
+
+    const token_tags = tree.tokens.items(.tag);
+    const maybe_comma = tree.lastToken(field.ast.value_expr) + 1;
+
+    if (token_tags[maybe_comma] == .comma) {
+        ais.pushIndent();
+        try renderExpression(gpa, ais, tree, field.ast.value_expr, .none); // value
+        ais.popIndent();
+        try renderToken(ais, tree, maybe_comma, space);
+    } else {
+        ais.pushIndent();
+        try renderExpression(gpa, ais, tree, field.ast.value_expr, space); // value
+        ais.popIndent();
+    }
 }
 
 fn renderBuiltinCall(
