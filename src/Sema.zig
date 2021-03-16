@@ -599,8 +599,8 @@ fn zirSetEvalBranchQuota(
     const src = inst_data.src();
     try sema.requireFunctionBlock(block, src);
     const quota = try sema.resolveAlreadyCoercedInt(block, src, inst_data.operand, u32);
-    if (b.branch_quota.* < quota)
-        b.branch_quota.* = quota;
+    if (sema.branch_quota < quota)
+        sema.branch_quota = quota;
     return sema.mod.constVoid(block.arena, .unneeded);
 }
 
@@ -2960,11 +2960,9 @@ fn safetyPanic(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, panic_id: Pani
 fn emitBackwardBranch(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
     const shared = block.inlining.?.shared;
     shared.branch_count += 1;
-    if (shared.branch_count > block.branch_quota.*) {
+    if (shared.branch_count > sema.branch_quota) {
         // TODO show the "called from here" stack
-        return mod.fail(&block.base, src, "evaluation exceeded {d} backwards branches", .{
-            block.branch_quota.*,
-        });
+        return sema.mod.fail(&block.base, src, "evaluation exceeded {d} backwards branches", .{sema.branch_quota});
     }
 }
 
