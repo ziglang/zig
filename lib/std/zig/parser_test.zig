@@ -3063,6 +3063,54 @@ test "zig fmt: switch" {
         \\}
         \\
     );
+
+    try testTransform(
+        \\test {
+        \\    switch (x) {
+        \\        foo =>
+        \\            "bar",
+        \\    }
+        \\}
+        \\
+    ,
+        \\test {
+        \\    switch (x) {
+        \\        foo => "bar",
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: switch multiline string" {
+    try testCanonical(
+        \\test "switch multiline string" {
+        \\    const x: u32 = 0;
+        \\    const str = switch (x) {
+        \\        1 => "one",
+        \\        2 =>
+        \\        \\ Comma after the multiline string
+        \\        \\ is needed
+        \\        ,
+        \\        3 => "three",
+        \\        else => "else",
+        \\    };
+        \\
+        \\    const Union = union(enum) {
+        \\        Int: i64,
+        \\        Float: f64,
+        \\    };
+        \\
+        \\    const str = switch (u) {
+        \\        Union.Int => |int|
+        \\        \\ Comma after the multiline string
+        \\        \\ is needed
+        \\        ,
+        \\        Union.Float => |*float| unreachable,
+        \\    };
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: while" {
