@@ -24,7 +24,7 @@ const ir = @import("ir.zig");
 const zir = @import("zir.zig");
 const trace = @import("tracy.zig").trace;
 const astgen = @import("astgen.zig");
-const Sema = @import("zir_sema.zig"); // TODO rename this file
+const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
