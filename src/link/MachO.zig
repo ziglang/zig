@@ -1597,7 +1597,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         };
         const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
             .x86_64 => 6,
-            .aarch64 => 2 * @sizeOf(u32),
+            .aarch64 => 3 * @sizeOf(u32),
             else => unreachable, // unhandled architecture type
         };
         const flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
@@ -2525,9 +2525,12 @@ fn writeStub(self: *MachO, index: u32) !void {
     const stub_off = stubs.offset + index * stubs.reserved2;
     const stub_addr = stubs.addr + index * stubs.reserved2;
     const la_ptr_addr = la_symbol_ptr.addr + index * @sizeOf(u64);
+
     log.debug("writing stub at 0x{x}", .{stub_off});
+
     var code = try self.base.allocator.alloc(u8, stubs.reserved2);
     defer self.base.allocator.free(code);
+
     switch (self.base.options.target.cpu.arch) {
         .x86_64 => {
             assert(la_ptr_addr >= stub_addr + stubs.reserved2);
@@ -2539,12 +2542,50 @@ fn writeStub(self: *MachO, index: u32) !void {
         },
         .aarch64 => {
             assert(la_ptr_addr >= stub_addr);
-            const displacement = try math.divExact(u64, la_ptr_addr - stub_addr, 4);
-            const literal = try math.cast(u19, displacement);
-            mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.x16, .{
-                .literal = literal,
-            }).toU32());
-            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.br(.x16).toU32());
+            outer: {
+                const this_addr = stub_addr;
+                const target_addr = la_ptr_addr;
+                inner: {
+                    const displacement = math.divExact(u64, target_addr - this_addr, 4) catch |_| break :inner;
+                    const literal = math.cast(u18, displacement) catch |_| break :inner;
+                    // ldr x16, literal
+                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldr(.x16, .{
+                        .literal = literal,
+                    }).toU32());
+                    // nop
+                    mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.nop().toU32());
+                    break :outer;
+                }
+                inner: {
+                    const new_this_addr = this_addr + @sizeOf(u32);
+                    const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch |_| break :inner;
+                    const literal = math.cast(u18, displacement) catch |_| break :inner;
+                    // nop
+                    mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.nop().toU32());
+                    // ldr x16, literal
+                    mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.ldr(.x16, .{
+                        .literal = literal,
+                    }).toU32());
+                    break :outer;
+                }
+                // Use adrp followed by ldr(register).
+                const this_page = @intCast(i32, this_addr >> 12);
+                const target_page = @intCast(i32, target_addr >> 12);
+                const pages = @intCast(i21, target_page - this_page);
+                // adrp x16, pages
+                mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adrp(.x16, pages).toU32());
+                const narrowed = @truncate(u12, target_addr);
+                const offset = try math.divExact(u12, narrowed, 8);
+                // ldr x16, x16, offset
+                mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.ldr(.x16, .{
+                    .register = .{
+                        .rn = .x16,
+                        .offset = aarch64.Instruction.LoadStoreOffset.imm(offset),
+                    },
+                }).toU32());
+            }
+            // br x16
+            mem.writeIntLittle(u32, code[8..12], aarch64.Instruction.br(.x16).toU32());
         },
         else => unreachable,
     }
