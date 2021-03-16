@@ -477,7 +477,7 @@ pub const list = list: {
             "@intCast",
             .{
                 .tag = .int_cast,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
