@@ -12,6 +12,7 @@ const aarch64 = @import("../codegen/aarch64.zig");
 const math = std.math;
 const mem = std.mem;
 
+const bind = @import("MachO/bind.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Module = @import("../Module.zig");
@@ -26,7 +27,6 @@ const Trie = @import("MachO/Trie.zig");
 const CodeSignature = @import("MachO/CodeSignature.zig");
 
 usingnamespace @import("MachO/commands.zig");
-usingnamespace @import("MachO/imports.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
@@ -108,9 +108,9 @@ locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 /// Table of all global symbols
 globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 /// Table of all extern nonlazy symbols, indexed by name.
-nonlazy_imports: std.StringArrayHashMapUnmanaged(ExternSymbol) = .{},
+nonlazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
 /// Table of all extern lazy symbols, indexed by name.
-lazy_imports: std.StringArrayHashMapUnmanaged(ExternSymbol) = .{},
+lazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -168,6 +168,17 @@ pie_fixups: std.ArrayListUnmanaged(PieFixup) = .{},
 /// prior to calling `generateSymbol`, and then immediately deallocated
 /// rather than sitting in the global scope.
 stub_fixups: std.ArrayListUnmanaged(StubFixup) = .{},
+
+pub const Import = struct {
+    /// MachO symbol table entry.
+    symbol: macho.nlist_64,
+
+    /// Id of the dynamic library where the specified entries can be found.
+    dylib_ordinal: i64,
+
+    /// Index of this import within the import list.
+    index: u32,
+};
 
 pub const PieFixup = struct {
     /// Target address we wanted to address in absolute terms.
@@ -1285,9 +1296,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             try self.writeStubInStubHelper(fixup.symbol);
             try self.writeLazySymbolPointer(fixup.symbol);
 
-            const extern_sym = &self.lazy_imports.items()[fixup.symbol].value;
-            extern_sym.segment = self.data_segment_cmd_index.?;
-            extern_sym.offset = fixup.symbol * @sizeOf(u64);
             self.rebase_info_dirty = true;
             self.lazy_binding_info_dirty = true;
         }
@@ -2065,7 +2073,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const name = try self.base.allocator.dupe(u8, "dyld_stub_binder");
         const offset = try self.makeString("dyld_stub_binder");
         try self.nonlazy_imports.putNoClobber(self.base.allocator, name, .{
-            .inner = .{
+            .symbol = .{
                 .n_strx = offset,
                 .n_type = std.macho.N_UNDF | std.macho.N_EXT,
                 .n_sect = 0,
@@ -2073,8 +2081,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .n_value = 0,
             },
             .dylib_ordinal = 1, // TODO this is currently hardcoded.
-            .segment = self.data_const_segment_cmd_index.?,
-            .offset = index * @sizeOf(u64),
+            .index = index,
         });
         self.binding_info_dirty = true;
     }
@@ -2238,7 +2245,7 @@ pub fn addExternSymbol(self: *MachO, name: []const u8) !u32 {
     const sym_name = try self.base.allocator.dupe(u8, name);
     const dylib_ordinal = 1; // TODO this is now hardcoded, since we only support libSystem.
     try self.lazy_imports.putNoClobber(self.base.allocator, sym_name, .{
-        .inner = .{
+        .symbol = .{
             .n_strx = offset,
             .n_type = macho.N_UNDF | macho.N_EXT,
             .n_sect = 0,
@@ -2246,6 +2253,7 @@ pub fn addExternSymbol(self: *MachO, name: []const u8) !u32 {
             .n_value = 0,
         },
         .dylib_ordinal = dylib_ordinal,
+        .index = index,
     });
     log.debug("adding new extern symbol '{s}' with dylib ordinal '{}'", .{ name, dylib_ordinal });
     return index;
@@ -2767,10 +2775,10 @@ fn writeAllGlobalAndUndefSymbols(self: *MachO) !void {
     defer undefs.deinit();
     try undefs.ensureCapacity(nundefs);
     for (self.lazy_imports.items()) |entry| {
-        undefs.appendAssumeCapacity(entry.value.inner);
+        undefs.appendAssumeCapacity(entry.value.symbol);
     }
     for (self.nonlazy_imports.items()) |entry| {
-        undefs.appendAssumeCapacity(entry.value.inner);
+        undefs.appendAssumeCapacity(entry.value.symbol);
     }
 
     const locals_off = symtab.symoff;
@@ -2832,20 +2840,20 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     var writer = stream.writer();
 
     stubs.reserved1 = 0;
-    for (self.lazy_imports.items()) |_, i| {
+    for (lazy) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
         try writer.writeIntLittle(u32, symtab_idx);
     }
 
     const base_id = @intCast(u32, lazy.len);
     got.reserved1 = base_id;
-    for (self.nonlazy_imports.items()) |_, i| {
+    for (nonlazy) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i + base_id);
         try writer.writeIntLittle(u32, symtab_idx);
     }
 
     la_symbol_ptr.reserved1 = got.reserved1 + @intCast(u32, nonlazy.len);
-    for (self.lazy_imports.items()) |_, i| {
+    for (lazy) |_, i| {
         const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
         try writer.writeIntLittle(u32, symtab_idx);
     }
@@ -2962,14 +2970,33 @@ fn writeRebaseInfoTable(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const size = try rebaseInfoSize(self.lazy_imports.items());
+    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer pointers.deinit();
+
+    if (self.la_symbol_ptr_section_index) |idx| {
+        try pointers.ensureCapacity(pointers.items.len + self.lazy_imports.items().len);
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
+
+        for (self.lazy_imports.items()) |entry| {
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + entry.value.index * @sizeOf(u64),
+                .segment_id = segment_id,
+            });
+        }
+    }
+
+    std.sort.sort(bind.Pointer, pointers.items, {}, bind.pointerCmp);
+
+    const size = try bind.rebaseInfoSize(pointers.items);
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    try writeRebaseInfo(self.lazy_imports.items(), stream.writer());
+    try bind.writeRebaseInfo(pointers.items, stream.writer());
 
-    const linkedit_segment = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     const allocated_size = self.allocatedSizeLinkedit(dyld_info.rebase_off);
     const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
@@ -2994,14 +3021,33 @@ fn writeBindingInfoTable(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const size = try bindInfoSize(self.nonlazy_imports.items());
+    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer pointers.deinit();
+
+    if (self.data_got_section_index) |idx| {
+        try pointers.ensureCapacity(pointers.items.len + self.nonlazy_imports.items().len);
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
+
+        for (self.nonlazy_imports.items()) |entry| {
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + entry.value.index * @sizeOf(u64),
+                .segment_id = segment_id,
+                .dylib_ordinal = entry.value.dylib_ordinal,
+                .name = entry.key,
+            });
+        }
+    }
+
+    const size = try bind.bindInfoSize(pointers.items);
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    try writeBindInfo(self.nonlazy_imports.items(), stream.writer());
+    try bind.writeBindInfo(pointers.items, stream.writer());
 
-    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     const allocated_size = self.allocatedSizeLinkedit(dyld_info.bind_off);
     const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
@@ -3023,14 +3069,36 @@ fn writeBindingInfoTable(self: *MachO) !void {
 fn writeLazyBindingInfoTable(self: *MachO) !void {
     if (!self.lazy_binding_info_dirty) return;
 
-    const size = try lazyBindInfoSize(self.lazy_imports.items());
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var pointers = std.ArrayList(bind.Pointer).init(self.base.allocator);
+    defer pointers.deinit();
+
+    if (self.la_symbol_ptr_section_index) |idx| {
+        try pointers.ensureCapacity(self.lazy_imports.items().len);
+        const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
+
+        for (self.lazy_imports.items()) |entry| {
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + entry.value.index * @sizeOf(u64),
+                .segment_id = segment_id,
+                .dylib_ordinal = entry.value.dylib_ordinal,
+                .name = entry.key,
+            });
+        }
+    }
+
+    const size = try bind.lazyBindInfoSize(pointers.items);
     var buffer = try self.base.allocator.alloc(u8, @intCast(usize, size));
     defer self.base.allocator.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    try writeLazyBindInfo(self.lazy_imports.items(), stream.writer());
+    try bind.writeLazyBindInfo(pointers.items, stream.writer());
 
-    const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfoOnly;
     const allocated_size = self.allocatedSizeLinkedit(dyld_info.lazy_bind_off);
     const needed_size = mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64));
