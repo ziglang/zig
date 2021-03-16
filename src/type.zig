@@ -863,7 +863,10 @@ pub const Type = extern union {
     }
 
     pub fn isNoReturn(self: Type) bool {
-        return self.zigTypeTag() == .NoReturn;
+        const definitely_correct_result = self.zigTypeTag() == .NoReturn;
+        const fast_result = self.tag_if_small_enough == Tag.noreturn;
+        assert(fast_result == definitely_correct_result);
+        return fast_result;
     }
 
     /// Asserts that hasCodeGenBits() is true.
@@ -3464,18 +3467,20 @@ pub const Type = extern union {
                 .int_unsigned,
                 => Payload.Bits,
 
+                .error_set,
+                .@"enum",
+                .@"struct",
+                .@"union",
+                => Payload.Decl,
+
                 .array => Payload.Array,
                 .array_sentinel => Payload.ArraySentinel,
                 .pointer => Payload.Pointer,
                 .function => Payload.Function,
                 .error_union => Payload.ErrorUnion,
-                .error_set => Payload.Decl,
                 .error_set_single => Payload.Name,
-                .empty_struct => Payload.ContainerScope,
-                .@"enum" => Payload.Enum,
-                .@"struct" => Payload.Struct,
-                .@"union" => Payload.Union,
                 .@"opaque" => Payload.Opaque,
+                .empty_struct => Payload.ContainerScope,
             };
         }
 
@@ -3598,13 +3603,8 @@ pub const Type = extern union {
 
         pub const Opaque = struct {
             base: Payload = .{ .tag = .@"opaque" },
-
-            scope: Module.Scope.Container,
+            data: Module.Scope.Container,
         };
-
-        pub const Enum = @import("type/Enum.zig");
-        pub const Struct = @import("type/Struct.zig");
-        pub const Union = @import("type/Union.zig");
     };
 };
 

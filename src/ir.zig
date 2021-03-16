@@ -360,7 +360,8 @@ pub const Inst = struct {
         base: Inst,
         asm_source: []const u8,
         is_volatile: bool,
-        output: ?[]const u8,
+        output: ?*Inst,
+        output_name: ?[]const u8,
         inputs: []const []const u8,
         clobbers: []const []const u8,
         args: []const *Inst,
@@ -588,4 +589,446 @@ pub const Inst = struct {
 
 pub const Body = struct {
     instructions: []*Inst,
+};
+
+/// For debugging purposes, prints a function representation to stderr.
+pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
+    const allocator = old_module.gpa;
+    var ctx: DumpTzir = .{
+        .allocator = allocator,
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .old_module = &old_module,
+        .module_fn = module_fn,
+        .indent = 2,
+        .inst_table = DumpTzir.InstTable.init(allocator),
+        .partial_inst_table = DumpTzir.InstTable.init(allocator),
+        .const_table = DumpTzir.InstTable.init(allocator),
+    };
+    defer ctx.inst_table.deinit();
+    defer ctx.partial_inst_table.deinit();
+    defer ctx.const_table.deinit();
+    defer ctx.arena.deinit();
+
+    switch (module_fn.state) {
+        .queued => std.debug.print("(queued)", .{}),
+        .inline_only => std.debug.print("(inline_only)", .{}),
+        .in_progress => std.debug.print("(in_progress)", .{}),
+        .sema_failure => std.debug.print("(sema_failure)", .{}),
+        .dependency_failure => std.debug.print("(dependency_failure)", .{}),
+        .success => {
+            const writer = std.io.getStdErr().writer();
+            ctx.dump(module_fn.body, writer) catch @panic("failed to dump TZIR");
+        },
+    }
+}
+
+const DumpTzir = struct {
+    allocator: *Allocator,
+    arena: std.heap.ArenaAllocator,
+    old_module: *const IrModule,
+    module_fn: *IrModule.Fn,
+    indent: usize,
+    inst_table: InstTable,
+    partial_inst_table: InstTable,
+    const_table: InstTable,
+    next_index: usize = 0,
+    next_partial_index: usize = 0,
+    next_const_index: usize = 0,
+
+    const InstTable = std.AutoArrayHashMap(*ir.Inst, usize);
+
+    /// TODO: Improve this code to include a stack of ir.Body and store the instructions
+    /// in there. Now we are putting all the instructions in a function local table,
+    /// however instructions that are in a Body can be thown away when the Body ends.
+    fn dump(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
+        // First pass to pre-populate the table so that we can show even invalid references.
+        // Must iterate the same order we iterate the second time.
+        // We also look for constants and put them in the const_table.
+        try dtz.fetchInstsAndResolveConsts(body);
+
+        std.debug.print("Module.Function(name={s}):\n", .{dtz.module_fn.owner_decl.name});
+
+        for (dtz.const_table.items()) |entry| {
+            const constant = entry.key.castTag(.constant).?;
+            try writer.print("  @{d}: {} = {};\n", .{
+                entry.value, constant.base.ty, constant.val,
+            });
+        }
+
+        return dtz.dumpBody(body, writer);
+    }
+
+    fn fetchInstsAndResolveConsts(dtz: *DumpTzir, body: ir.Body) error{OutOfMemory}!void {
+        for (body.instructions) |inst| {
+            try dtz.inst_table.put(inst, dtz.next_index);
+            dtz.next_index += 1;
+            switch (inst.tag) {
+                .alloc,
+                .retvoid,
+                .unreach,
+                .breakpoint,
+                .dbg_stmt,
+                .arg,
+                => {},
+
+                .ref,
+                .ret,
+                .bitcast,
+                .not,
+                .is_non_null,
+                .is_non_null_ptr,
+                .is_null,
+                .is_null_ptr,
+                .is_err,
+                .is_err_ptr,
+                .ptrtoint,
+                .floatcast,
+                .intcast,
+                .load,
+                .optional_payload,
+                .optional_payload_ptr,
+                .wrap_optional,
+                .wrap_errunion_payload,
+                .wrap_errunion_err,
+                .unwrap_errunion_payload,
+                .unwrap_errunion_err,
+                .unwrap_errunion_payload_ptr,
+                .unwrap_errunion_err_ptr,
+                => {
+                    const un_op = inst.cast(ir.Inst.UnOp).?;
+                    try dtz.findConst(un_op.operand);
+                },
+
+                .add,
+                .sub,
+                .mul,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                .store,
+                .bool_and,
+                .bool_or,
+                .bit_and,
+                .bit_or,
+                .xor,
+                => {
+                    const bin_op = inst.cast(ir.Inst.BinOp).?;
+                    try dtz.findConst(bin_op.lhs);
+                    try dtz.findConst(bin_op.rhs);
+                },
+
+                .br => {
+                    const br = inst.castTag(.br).?;
+                    try dtz.findConst(&br.block.base);
+                    try dtz.findConst(br.operand);
+                },
+
+                .br_block_flat => {
+                    const br_block_flat = inst.castTag(.br_block_flat).?;
+                    try dtz.findConst(&br_block_flat.block.base);
+                    try dtz.fetchInstsAndResolveConsts(br_block_flat.body);
+                },
+
+                .br_void => {
+                    const br_void = inst.castTag(.br_void).?;
+                    try dtz.findConst(&br_void.block.base);
+                },
+
+                .block => {
+                    const block = inst.castTag(.block).?;
+                    try dtz.fetchInstsAndResolveConsts(block.body);
+                },
+
+                .condbr => {
+                    const condbr = inst.castTag(.condbr).?;
+                    try dtz.findConst(condbr.condition);
+                    try dtz.fetchInstsAndResolveConsts(condbr.then_body);
+                    try dtz.fetchInstsAndResolveConsts(condbr.else_body);
+                },
+
+                .loop => {
+                    const loop = inst.castTag(.loop).?;
+                    try dtz.fetchInstsAndResolveConsts(loop.body);
+                },
+                .call => {
+                    const call = inst.castTag(.call).?;
+                    try dtz.findConst(call.func);
+                    for (call.args) |arg| {
+                        try dtz.findConst(arg);
+                    }
+                },
+
+                // TODO fill out this debug printing
+                .assembly,
+                .constant,
+                .varptr,
+                .switchbr,
+                => {},
+            }
+        }
+    }
+
+    fn dumpBody(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) (std.fs.File.WriteError || error{OutOfMemory})!void {
+        for (body.instructions) |inst| {
+            const my_index = dtz.next_partial_index;
+            try dtz.partial_inst_table.put(inst, my_index);
+            dtz.next_partial_index += 1;
+
+            try writer.writeByteNTimes(' ', dtz.indent);
+            try writer.print("%{d}: {} = {s}(", .{
+                my_index, inst.ty, @tagName(inst.tag),
+            });
+            switch (inst.tag) {
+                .alloc,
+                .retvoid,
+                .unreach,
+                .breakpoint,
+                .dbg_stmt,
+                => try writer.writeAll(")\n"),
+
+                .ref,
+                .ret,
+                .bitcast,
+                .not,
+                .is_non_null,
+                .is_null,
+                .is_non_null_ptr,
+                .is_null_ptr,
+                .is_err,
+                .is_err_ptr,
+                .ptrtoint,
+                .floatcast,
+                .intcast,
+                .load,
+                .optional_payload,
+                .optional_payload_ptr,
+                .wrap_optional,
+                .wrap_errunion_err,
+                .wrap_errunion_payload,
+                .unwrap_errunion_err,
+                .unwrap_errunion_payload,
+                .unwrap_errunion_payload_ptr,
+                .unwrap_errunion_err_ptr,
+                => {
+                    const un_op = inst.cast(ir.Inst.UnOp).?;
+                    const kinky = try dtz.writeInst(writer, un_op.operand);
+                    if (kinky != null) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                .add,
+                .sub,
+                .mul,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                .store,
+                .bool_and,
+                .bool_or,
+                .bit_and,
+                .bit_or,
+                .xor,
+                => {
+                    const bin_op = inst.cast(ir.Inst.BinOp).?;
+
+                    const lhs_kinky = try dtz.writeInst(writer, bin_op.lhs);
+                    try writer.writeAll(", ");
+                    const rhs_kinky = try dtz.writeInst(writer, bin_op.rhs);
+
+                    if (lhs_kinky != null or rhs_kinky != null) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!");
+                        if (lhs_kinky) |lhs| {
+                            try writer.print(" %{d}", .{lhs});
+                        }
+                        if (rhs_kinky) |rhs| {
+                            try writer.print(" %{d}", .{rhs});
+                        }
+                        try writer.writeAll("\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                .arg => {
+                    const arg = inst.castTag(.arg).?;
+                    try writer.print("{s})\n", .{arg.name});
+                },
+
+                .br => {
+                    const br = inst.castTag(.br).?;
+
+                    const lhs_kinky = try dtz.writeInst(writer, &br.block.base);
+                    try writer.writeAll(", ");
+                    const rhs_kinky = try dtz.writeInst(writer, br.operand);
+
+                    if (lhs_kinky != null or rhs_kinky != null) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!");
+                        if (lhs_kinky) |lhs| {
+                            try writer.print(" %{d}", .{lhs});
+                        }
+                        if (rhs_kinky) |rhs| {
+                            try writer.print(" %{d}", .{rhs});
+                        }
+                        try writer.writeAll("\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                .br_block_flat => {
+                    const br_block_flat = inst.castTag(.br_block_flat).?;
+                    const block_kinky = try dtz.writeInst(writer, &br_block_flat.block.base);
+                    if (block_kinky != null) {
+                        try writer.writeAll(", { // Instruction does not dominate all uses!\n");
+                    } else {
+                        try writer.writeAll(", {\n");
+                    }
+
+                    const old_indent = dtz.indent;
+                    dtz.indent += 2;
+                    try dtz.dumpBody(br_block_flat.body, writer);
+                    dtz.indent = old_indent;
+
+                    try writer.writeByteNTimes(' ', dtz.indent);
+                    try writer.writeAll("})\n");
+                },
+
+                .br_void => {
+                    const br_void = inst.castTag(.br_void).?;
+                    const kinky = try dtz.writeInst(writer, &br_void.block.base);
+                    if (kinky) |_| {
+                        try writer.writeAll(") // Instruction does not dominate all uses!\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                .block => {
+                    const block = inst.castTag(.block).?;
+
+                    try writer.writeAll("{\n");
+
+                    const old_indent = dtz.indent;
+                    dtz.indent += 2;
+                    try dtz.dumpBody(block.body, writer);
+                    dtz.indent = old_indent;
+
+                    try writer.writeByteNTimes(' ', dtz.indent);
+                    try writer.writeAll("})\n");
+                },
+
+                .condbr => {
+                    const condbr = inst.castTag(.condbr).?;
+
+                    const condition_kinky = try dtz.writeInst(writer, condbr.condition);
+                    if (condition_kinky != null) {
+                        try writer.writeAll(", { // Instruction does not dominate all uses!\n");
+                    } else {
+                        try writer.writeAll(", {\n");
+                    }
+
+                    const old_indent = dtz.indent;
+                    dtz.indent += 2;
+                    try dtz.dumpBody(condbr.then_body, writer);
+
+                    try writer.writeByteNTimes(' ', old_indent);
+                    try writer.writeAll("}, {\n");
+
+                    try dtz.dumpBody(condbr.else_body, writer);
+                    dtz.indent = old_indent;
+
+                    try writer.writeByteNTimes(' ', old_indent);
+                    try writer.writeAll("})\n");
+                },
+
+                .loop => {
+                    const loop = inst.castTag(.loop).?;
+
+                    try writer.writeAll("{\n");
+
+                    const old_indent = dtz.indent;
+                    dtz.indent += 2;
+                    try dtz.dumpBody(loop.body, writer);
+                    dtz.indent = old_indent;
+
+                    try writer.writeByteNTimes(' ', dtz.indent);
+                    try writer.writeAll("})\n");
+                },
+
+                .call => {
+                    const call = inst.castTag(.call).?;
+
+                    const args_kinky = try dtz.allocator.alloc(?usize, call.args.len);
+                    defer dtz.allocator.free(args_kinky);
+                    std.mem.set(?usize, args_kinky, null);
+                    var any_kinky_args = false;
+
+                    const func_kinky = try dtz.writeInst(writer, call.func);
+
+                    for (call.args) |arg, i| {
+                        try writer.writeAll(", ");
+
+                        args_kinky[i] = try dtz.writeInst(writer, arg);
+                        any_kinky_args = any_kinky_args or args_kinky[i] != null;
+                    }
+
+                    if (func_kinky != null or any_kinky_args) {
+                        try writer.writeAll(") // Instruction does not dominate all uses!");
+                        if (func_kinky) |func_index| {
+                            try writer.print(" %{d}", .{func_index});
+                        }
+                        for (args_kinky) |arg_kinky| {
+                            if (arg_kinky) |arg_index| {
+                                try writer.print(" %{d}", .{arg_index});
+                            }
+                        }
+                        try writer.writeAll("\n");
+                    } else {
+                        try writer.writeAll(")\n");
+                    }
+                },
+
+                // TODO fill out this debug printing
+                .assembly,
+                .constant,
+                .varptr,
+                .switchbr,
+                => {
+                    try writer.writeAll("!TODO!)\n");
+                },
+            }
+        }
+    }
+
+    fn writeInst(dtz: *DumpTzir, writer: std.fs.File.Writer, inst: *ir.Inst) !?usize {
+        if (dtz.partial_inst_table.get(inst)) |operand_index| {
+            try writer.print("%{d}", .{operand_index});
+            return null;
+        } else if (dtz.const_table.get(inst)) |operand_index| {
+            try writer.print("@{d}", .{operand_index});
+            return null;
+        } else if (dtz.inst_table.get(inst)) |operand_index| {
+            try writer.print("%{d}", .{operand_index});
+            return operand_index;
+        } else {
+            try writer.writeAll("!BADREF!");
+            return null;
+        }
+    }
+
+    fn findConst(dtz: *DumpTzir, operand: *ir.Inst) !void {
+        if (operand.tag == .constant) {
+            try dtz.const_table.put(operand, dtz.next_const_index);
+            dtz.next_const_index += 1;
+        }
+    }
 };

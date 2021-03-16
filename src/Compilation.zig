@@ -259,7 +259,7 @@ pub const CObject = struct {
 /// To support incremental compilation, errors are stored in various places
 /// so that they can be created and destroyed appropriately. This structure
 /// is used to collect all the errors from the various places into one
-/// convenient place for API users to consume. It is allocated into 1 heap
+/// convenient place for API users to consume. It is allocated into 1 arena
 /// and freed all at once.
 pub const AllErrors = struct {
     arena: std.heap.ArenaAllocator.State,
@@ -267,11 +267,11 @@ pub const AllErrors = struct {
 
     pub const Message = union(enum) {
         src: struct {
-            src_path: []const u8,
-            line: usize,
-            column: usize,
-            byte_offset: usize,
             msg: []const u8,
+            src_path: []const u8,
+            line: u32,
+            column: u32,
+            byte_offset: u32,
             notes: []Message = &.{},
         },
         plain: struct {
@@ -316,29 +316,31 @@ pub const AllErrors = struct {
         const notes = try arena.allocator.alloc(Message, module_err_msg.notes.len);
         for (notes) |*note, i| {
             const module_note = module_err_msg.notes[i];
-            const source = try module_note.src_loc.file_scope.getSource(module);
-            const loc = std.zig.findLineColumn(source, module_note.src_loc.byte_offset);
-            const sub_file_path = module_note.src_loc.file_scope.sub_file_path;
+            const source = try module_note.src_loc.fileScope().getSource(module);
+            const byte_offset = try module_note.src_loc.byteOffset(module);
+            const loc = std.zig.findLineColumn(source, byte_offset);
+            const sub_file_path = module_note.src_loc.fileScope().sub_file_path;
             note.* = .{
                 .src = .{
                     .src_path = try arena.allocator.dupe(u8, sub_file_path),
                     .msg = try arena.allocator.dupe(u8, module_note.msg),
-                    .byte_offset = module_note.src_loc.byte_offset,
-                    .line = loc.line,
-                    .column = loc.column,
+                    .byte_offset = byte_offset,
+                    .line = @intCast(u32, loc.line),
+                    .column = @intCast(u32, loc.column),
                 },
             };
         }
-        const source = try module_err_msg.src_loc.file_scope.getSource(module);
-        const loc = std.zig.findLineColumn(source, module_err_msg.src_loc.byte_offset);
-        const sub_file_path = module_err_msg.src_loc.file_scope.sub_file_path;
+        const source = try module_err_msg.src_loc.fileScope().getSource(module);
+        const byte_offset = try module_err_msg.src_loc.byteOffset(module);
+        const loc = std.zig.findLineColumn(source, byte_offset);
+        const sub_file_path = module_err_msg.src_loc.fileScope().sub_file_path;
         try errors.append(.{
             .src = .{
                 .src_path = try arena.allocator.dupe(u8, sub_file_path),
                 .msg = try arena.allocator.dupe(u8, module_err_msg.msg),
-                .byte_offset = module_err_msg.src_loc.byte_offset,
-                .line = loc.line,
-                .column = loc.column,
+                .byte_offset = byte_offset,
+                .line = @intCast(u32, loc.line),
+                .column = @intCast(u32, loc.column),
                 .notes = notes,
             },
         });

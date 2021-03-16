@@ -25,21 +25,22 @@ pub const ResultLoc = union(enum) {
     /// of an assignment uses this kind of result location.
     ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
-    ty: *zir.Inst,
+    ty: zir.Inst.Index,
     /// The expression must store its result into this typed pointer. The result instruction
     /// from the expression must be ignored.
-    ptr: *zir.Inst,
+    ptr: zir.Inst.Index,
     /// The expression must store its result into this allocation, which has an inferred type.
     /// The result instruction from the expression must be ignored.
-    inferred_ptr: *zir.Inst.Tag.alloc_inferred.Type(),
+    /// Always an instruction with tag `alloc_inferred`.
+    inferred_ptr: zir.Inst.Index,
     /// The expression must store its result into this pointer, which is a typed pointer that
     /// has been bitcasted to whatever the expression's type is.
     /// The result instruction from the expression must be ignored.
-    bitcasted_ptr: *zir.Inst.UnOp,
+    bitcasted_ptr: zir.Inst.Index,
     /// There is a pointer for the expression to store its result into, however, its type
     /// is inferred based on peer type resolution for a `zir.Inst.Block`.
     /// The result instruction from the expression must be ignored.
-    block_ptr: *Module.Scope.GenZIR,
+    block_ptr: *Module.Scope.GenZir,
 
     pub const Strategy = struct {
         elide_store_to_block_ptr_instructions: bool,
@@ -369,10 +370,10 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
 
         .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => {
             var params: [1]ast.Node.Index = undefined;
-            return callExpr(mod, scope, rl, tree.callOne(&params, node));
+            return callExpr(mod, scope, rl, node, tree.callOne(&params, node));
         },
         .call, .call_comma, .async_call, .async_call_comma => {
-            return callExpr(mod, scope, rl, tree.callFull(node));
+            return callExpr(mod, scope, rl, node, tree.callFull(node));
         },
 
         .unreachable_literal => {
@@ -487,9 +488,12 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         },
         .enum_literal => {
             const ident_token = main_tokens[node];
-            const name = try mod.identifierTokenString(scope, ident_token);
-            const src = token_starts[ident_token];
-            const result = try addZIRInst(mod, scope, src, zir.Inst.EnumLiteral, .{ .name = name }, .{});
+            const gen_zir = scope.getGenZir();
+            const string_bytes = &gen_zir.zir_exec.string_bytes;
+            const str_index = string_bytes.items.len;
+            try mod.appendIdentStr(scope, ident_token, string_bytes);
+            const str_len = string_bytes.items.len - str_index;
+            const result = try gen_zir.addStr(.enum_literal, str_index, str_len);
             return rvalue(mod, scope, rl, result);
         },
         .error_value => {
@@ -679,7 +683,7 @@ pub fn comptimeExpr(
     const token_starts = tree.tokens.items(.start);
 
     // Make a scope to collect generated instructions in the sub-expression.
-    var block_scope: Scope.GenZIR = .{
+    var block_scope: Scope.GenZir = .{
         .parent = parent_scope,
         .decl = parent_scope.ownerDecl().?,
         .arena = parent_scope.arena(),
@@ -720,7 +724,7 @@ fn breakExpr(
     while (true) {
         switch (scope.tag) {
             .gen_zir => {
-                const gen_zir = scope.cast(Scope.GenZIR).?;
+                const gen_zir = scope.cast(Scope.GenZir).?;
 
                 const block_inst = blk: {
                     if (break_label != 0) {
@@ -755,7 +759,7 @@ fn breakExpr(
                     try gen_zir.labeled_breaks.append(mod.gpa, br.castTag(.@"break").?);
 
                     if (have_store_to_block) {
-                        const inst_list = parent_scope.getGenZIR().instructions.items;
+                        const inst_list = parent_scope.getGenZir().instructions.items;
                         const last_inst = inst_list[inst_list.len - 2];
                         const store_inst = last_inst.castTag(.store_to_block_ptr).?;
                         assert(store_inst.positionals.lhs == gen_zir.rl_ptr.?);
@@ -797,7 +801,7 @@ fn continueExpr(
     while (true) {
         switch (scope.tag) {
             .gen_zir => {
-                const gen_zir = scope.cast(Scope.GenZIR).?;
+                const gen_zir = scope.cast(Scope.GenZir).?;
                 const continue_block = gen_zir.continue_block orelse {
                     scope = gen_zir.parent;
                     continue;
@@ -864,7 +868,7 @@ fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIn
     while (true) {
         switch (scope.tag) {
             .gen_zir => {
-                const gen_zir = scope.cast(Scope.GenZIR).?;
+                const gen_zir = scope.cast(Scope.GenZir).?;
                 if (gen_zir.label) |prev_label| {
                     if (try tokenIdentEql(mod, parent_scope, label, prev_label.token)) {
                         const tree = parent_scope.tree();
@@ -931,9 +935,9 @@ fn labeledBlockExpr(
 
     try checkLabelRedefinition(mod, parent_scope, label_token);
 
-    // Create the Block ZIR instruction so that we can put it into the GenZIR struct
+    // Create the Block ZIR instruction so that we can put it into the GenZir struct
     // so that break statements can reference it.
-    const gen_zir = parent_scope.getGenZIR();
+    const gen_zir = parent_scope.getGenZir();
     const block_inst = try gen_zir.arena.create(zir.Inst.Block);
     block_inst.* = .{
         .base = .{
@@ -946,14 +950,14 @@ fn labeledBlockExpr(
         .kw_args = .{},
     };
 
-    var block_scope: Scope.GenZIR = .{
+    var block_scope: Scope.GenZir = .{
         .parent = parent_scope,
         .decl = parent_scope.ownerDecl().?,
         .arena = gen_zir.arena,
         .force_comptime = parent_scope.isComptime(),
         .instructions = .{},
         // TODO @as here is working around a stage1 miscompilation bug :(
-        .label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+        .label = @as(?Scope.GenZir.Label, Scope.GenZir.Label{
             .token = label_token,
             .block_inst = block_inst,
         }),
@@ -1107,8 +1111,8 @@ fn varDecl(
                 }
                 s = local_ptr.parent;
             },
-            .gen_zir => s = s.cast(Scope.GenZIR).?.parent,
-            .gen_suspend => s = s.cast(Scope.GenZIR).?.parent,
+            .gen_zir => s = s.cast(Scope.GenZir).?.parent,
+            .gen_suspend => s = s.cast(Scope.GenZir).?.parent,
             .gen_nosuspend => s = s.cast(Scope.Nosuspend).?.parent,
             else => break,
         };
@@ -1137,7 +1141,7 @@ fn varDecl(
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
-                    .gen_zir = scope.getGenZIR(),
+                    .gen_zir = scope.getGenZir(),
                     .name = ident_name,
                     .inst = init_inst,
                 };
@@ -1146,7 +1150,7 @@ fn varDecl(
 
             // Detect whether the initialization expression actually uses the
             // result location pointer.
-            var init_scope: Scope.GenZIR = .{
+            var init_scope: Scope.GenZir = .{
                 .parent = scope,
                 .decl = scope.ownerDecl().?,
                 .arena = scope.arena(),
@@ -1168,7 +1172,7 @@ fn varDecl(
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
             const init_inst = try expr(mod, &init_scope.base, init_result_loc, var_decl.ast.init_node);
-            const parent_zir = &scope.getGenZIR().instructions;
+            const parent_zir = &scope.getGenZir().instructions;
             if (init_scope.rvalue_rl_count == 1) {
                 // Result location pointer not used. We don't need an alloc for this
                 // const local, and type inference becomes trivial.
@@ -1192,7 +1196,7 @@ fn varDecl(
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
-                    .gen_zir = scope.getGenZIR(),
+                    .gen_zir = scope.getGenZir(),
                     .name = ident_name,
                     .inst = casted_init,
                 };
@@ -1219,7 +1223,7 @@ fn varDecl(
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
-                .gen_zir = scope.getGenZIR(),
+                .gen_zir = scope.getGenZir(),
                 .name = ident_name,
                 .ptr = init_scope.rl_ptr.?,
             };
@@ -1246,7 +1250,7 @@ fn varDecl(
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
-                .gen_zir = scope.getGenZIR(),
+                .gen_zir = scope.getGenZir(),
                 .name = ident_name,
                 .ptr = var_data.alloc,
             };
@@ -1446,203 +1450,13 @@ fn arrayTypeSentinel(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.
     return rvalue(mod, scope, rl, result);
 }
 
-fn containerField(
-    mod: *Module,
-    scope: *Scope,
-    field: ast.full.ContainerField,
-) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const token_starts = tree.tokens.items(.start);
-
-    const src = token_starts[field.ast.name_token];
-    const name = try mod.identifierTokenString(scope, field.ast.name_token);
-
-    if (field.comptime_token == null and field.ast.value_expr == 0 and field.ast.align_expr == 0) {
-        if (field.ast.type_expr != 0) {
-            const ty = try typeExpr(mod, scope, field.ast.type_expr);
-            return addZIRInst(mod, scope, src, zir.Inst.ContainerFieldTyped, .{
-                .bytes = name,
-                .ty = ty,
-            }, .{});
-        } else {
-            return addZIRInst(mod, scope, src, zir.Inst.ContainerFieldNamed, .{
-                .bytes = name,
-            }, .{});
-        }
-    }
-
-    const ty = if (field.ast.type_expr != 0) try typeExpr(mod, scope, field.ast.type_expr) else null;
-    // TODO result location should be alignment type
-    const alignment = if (field.ast.align_expr != 0) try expr(mod, scope, .none, field.ast.align_expr) else null;
-    // TODO result location should be the field type
-    const init = if (field.ast.value_expr != 0) try expr(mod, scope, .none, field.ast.value_expr) else null;
-
-    return addZIRInst(mod, scope, src, zir.Inst.ContainerField, .{
-        .bytes = name,
-    }, .{
-        .ty = ty,
-        .init = init,
-        .alignment = alignment,
-        .is_comptime = field.comptime_token != null,
-    });
-}
-
 fn containerDecl(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
     container_decl: ast.full.ContainerDecl,
 ) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const token_starts = tree.tokens.items(.start);
-    const node_tags = tree.nodes.items(.tag);
-    const token_tags = tree.tokens.items(.tag);
-
-    const src = token_starts[container_decl.ast.main_token];
-
-    var gen_scope: Scope.GenZIR = .{
-        .parent = scope,
-        .decl = scope.ownerDecl().?,
-        .arena = scope.arena(),
-        .force_comptime = scope.isComptime(),
-        .instructions = .{},
-    };
-    defer gen_scope.instructions.deinit(mod.gpa);
-
-    var fields = std.ArrayList(*zir.Inst).init(mod.gpa);
-    defer fields.deinit();
-
-    for (container_decl.ast.members) |member| {
-        // TODO just handle these cases differently since they end up with different ZIR
-        // instructions anyway. It will be simpler & have fewer branches.
-        const field = switch (node_tags[member]) {
-            .container_field_init => try containerField(mod, &gen_scope.base, tree.containerFieldInit(member)),
-            .container_field_align => try containerField(mod, &gen_scope.base, tree.containerFieldAlign(member)),
-            .container_field => try containerField(mod, &gen_scope.base, tree.containerField(member)),
-            else => continue,
-        };
-        try fields.append(field);
-    }
-
-    var decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
-    errdefer decl_arena.deinit();
-    const arena = &decl_arena.allocator;
-
-    var layout: std.builtin.TypeInfo.ContainerLayout = .Auto;
-    if (container_decl.layout_token) |some| switch (token_tags[some]) {
-        .keyword_extern => layout = .Extern,
-        .keyword_packed => layout = .Packed,
-        else => unreachable,
-    };
-
-    // TODO this implementation is incorrect. The types must be created in semantic
-    // analysis, not astgen, because the same ZIR is re-used for multiple inline function calls,
-    // comptime function calls, and generic function instantiations, and these
-    // must result in different instances of container types.
-    const container_type = switch (token_tags[container_decl.ast.main_token]) {
-        .keyword_enum => blk: {
-            const tag_type: ?*zir.Inst = if (container_decl.ast.arg != 0)
-                try typeExpr(mod, &gen_scope.base, container_decl.ast.arg)
-            else
-                null;
-            const inst = try addZIRInst(mod, &gen_scope.base, src, zir.Inst.EnumType, .{
-                .fields = try arena.dupe(*zir.Inst, fields.items),
-            }, .{
-                .layout = layout,
-                .tag_type = tag_type,
-            });
-            const enum_type = try arena.create(Type.Payload.Enum);
-            enum_type.* = .{
-                .analysis = .{
-                    .queued = .{
-                        .body = .{ .instructions = try arena.dupe(*zir.Inst, gen_scope.instructions.items) },
-                        .inst = inst,
-                    },
-                },
-                .scope = .{
-                    .file_scope = scope.getFileScope(),
-                    .ty = Type.initPayload(&enum_type.base),
-                },
-            };
-            break :blk Type.initPayload(&enum_type.base);
-        },
-        .keyword_struct => blk: {
-            assert(container_decl.ast.arg == 0);
-            const inst = try addZIRInst(mod, &gen_scope.base, src, zir.Inst.StructType, .{
-                .fields = try arena.dupe(*zir.Inst, fields.items),
-            }, .{
-                .layout = layout,
-            });
-            const struct_type = try arena.create(Type.Payload.Struct);
-            struct_type.* = .{
-                .analysis = .{
-                    .queued = .{
-                        .body = .{ .instructions = try arena.dupe(*zir.Inst, gen_scope.instructions.items) },
-                        .inst = inst,
-                    },
-                },
-                .scope = .{
-                    .file_scope = scope.getFileScope(),
-                    .ty = Type.initPayload(&struct_type.base),
-                },
-            };
-            break :blk Type.initPayload(&struct_type.base);
-        },
-        .keyword_union => blk: {
-            const init_inst: ?*zir.Inst = if (container_decl.ast.arg != 0)
-                try typeExpr(mod, &gen_scope.base, container_decl.ast.arg)
-            else
-                null;
-            const has_enum_token = container_decl.ast.enum_token != null;
-            const inst = try addZIRInst(mod, &gen_scope.base, src, zir.Inst.UnionType, .{
-                .fields = try arena.dupe(*zir.Inst, fields.items),
-            }, .{
-                .layout = layout,
-                .has_enum_token = has_enum_token,
-                .init_inst = init_inst,
-            });
-            const union_type = try arena.create(Type.Payload.Union);
-            union_type.* = .{
-                .analysis = .{
-                    .queued = .{
-                        .body = .{ .instructions = try arena.dupe(*zir.Inst, gen_scope.instructions.items) },
-                        .inst = inst,
-                    },
-                },
-                .scope = .{
-                    .file_scope = scope.getFileScope(),
-                    .ty = Type.initPayload(&union_type.base),
-                },
-            };
-            break :blk Type.initPayload(&union_type.base);
-        },
-        .keyword_opaque => blk: {
-            if (fields.items.len > 0) {
-                return mod.fail(scope, fields.items[0].src, "opaque types cannot have fields", .{});
-            }
-            const opaque_type = try arena.create(Type.Payload.Opaque);
-            opaque_type.* = .{
-                .scope = .{
-                    .file_scope = scope.getFileScope(),
-                    .ty = Type.initPayload(&opaque_type.base),
-                },
-            };
-            break :blk Type.initPayload(&opaque_type.base);
-        },
-        else => unreachable,
-    };
-    const val = try Value.Tag.ty.create(arena, container_type);
-    const decl = try mod.createContainerDecl(scope, container_decl.ast.main_token, &decl_arena, .{
-        .ty = Type.initTag(.type),
-        .val = val,
-    });
-    if (rl == .ref) {
-        return addZIRInst(mod, scope, src, zir.Inst.DeclRef, .{ .decl = decl }, .{});
-    } else {
-        return rvalue(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclVal, .{
-            .decl = decl,
-        }, .{}));
-    }
+    return mod.failTok(scope, container_decl.ast.main_token, "TODO implement container decls", .{});
 }
 
 fn errorSetDecl(
@@ -1709,7 +1523,7 @@ fn orelseCatchExpr(
 
     const src = token_starts[op_token];
 
-    var block_scope: Scope.GenZIR = .{
+    var block_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
@@ -1738,7 +1552,7 @@ fn orelseCatchExpr(
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
-    var then_scope: Scope.GenZIR = .{
+    var then_scope: Scope.GenZir = .{
         .parent = &block_scope.base,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
@@ -1766,7 +1580,7 @@ fn orelseCatchExpr(
     block_scope.break_count += 1;
     const then_result = try expr(mod, then_sub_scope, block_scope.break_result_loc, rhs);
 
-    var else_scope: Scope.GenZIR = .{
+    var else_scope: Scope.GenZir = .{
         .parent = &block_scope.base,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
@@ -1804,9 +1618,9 @@ fn finishThenElseBlock(
     mod: *Module,
     parent_scope: *Scope,
     rl: ResultLoc,
-    block_scope: *Scope.GenZIR,
-    then_scope: *Scope.GenZIR,
-    else_scope: *Scope.GenZIR,
+    block_scope: *Scope.GenZir,
+    then_scope: *Scope.GenZir,
+    else_scope: *Scope.GenZir,
     then_body: *zir.Body,
     else_body: *zir.Body,
     then_src: usize,
@@ -2023,7 +1837,7 @@ fn boolBinOp(
         .val = Value.initTag(.bool_type),
     });
 
-    var block_scope: Scope.GenZIR = .{
+    var block_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
@@ -2043,7 +1857,7 @@ fn boolBinOp(
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
-    var rhs_scope: Scope.GenZIR = .{
+    var rhs_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
@@ -2058,7 +1872,7 @@ fn boolBinOp(
         .operand = rhs,
     }, .{});
 
-    var const_scope: Scope.GenZIR = .{
+    var const_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
@@ -2100,7 +1914,7 @@ fn ifExpr(
     rl: ResultLoc,
     if_full: ast.full.If,
 ) InnerError!*zir.Inst {
-    var block_scope: Scope.GenZIR = .{
+    var block_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
@@ -2142,7 +1956,7 @@ fn ifExpr(
     });
 
     const then_src = token_starts[tree.lastToken(if_full.ast.then_expr)];
-    var then_scope: Scope.GenZIR = .{
+    var then_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
@@ -2160,7 +1974,7 @@ fn ifExpr(
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
 
-    var else_scope: Scope.GenZIR = .{
+    var else_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
@@ -2201,7 +2015,7 @@ fn ifExpr(
 }
 
 /// Expects to find exactly 1 .store_to_block_ptr instruction.
-fn copyBodyWithElidedStoreBlockPtr(body: *zir.Body, scope: Module.Scope.GenZIR) !void {
+fn copyBodyWithElidedStoreBlockPtr(body: *zir.Body, scope: Module.Scope.GenZir) !void {
     body.* = .{
         .instructions = try scope.arena.alloc(*zir.Inst, scope.instructions.items.len - 1),
     };
@@ -2215,7 +2029,7 @@ fn copyBodyWithElidedStoreBlockPtr(body: *zir.Body, scope: Module.Scope.GenZIR) 
     assert(dst_index == body.instructions.len);
 }
 
-fn copyBodyNoEliding(body: *zir.Body, scope: Module.Scope.GenZIR) !void {
+fn copyBodyNoEliding(body: *zir.Body, scope: Module.Scope.GenZir) !void {
     body.* = .{
         .instructions = try scope.arena.dupe(*zir.Inst, scope.instructions.items),
     };
@@ -2234,7 +2048,7 @@ fn whileExpr(
         return mod.failTok(scope, inline_token, "TODO inline while", .{});
     }
 
-    var loop_scope: Scope.GenZIR = .{
+    var loop_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
@@ -2244,7 +2058,7 @@ fn whileExpr(
     setBlockResultLoc(&loop_scope, rl);
     defer loop_scope.instructions.deinit(mod.gpa);
 
-    var continue_scope: Scope.GenZIR = .{
+    var continue_scope: Scope.GenZir = .{
         .parent = &loop_scope.base,
         .decl = loop_scope.decl,
         .arena = loop_scope.arena,
@@ -2311,14 +2125,14 @@ fn whileExpr(
     loop_scope.break_block = while_block;
     loop_scope.continue_block = cond_block;
     if (while_full.label_token) |label_token| {
-        loop_scope.label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+        loop_scope.label = @as(?Scope.GenZir.Label, Scope.GenZir.Label{
             .token = label_token,
             .block_inst = while_block,
         });
     }
 
     const then_src = token_starts[tree.lastToken(while_full.ast.then_expr)];
-    var then_scope: Scope.GenZIR = .{
+    var then_scope: Scope.GenZir = .{
         .parent = &continue_scope.base,
         .decl = continue_scope.decl,
         .arena = continue_scope.arena,
@@ -2332,7 +2146,7 @@ fn whileExpr(
     loop_scope.break_count += 1;
     const then_result = try expr(mod, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
 
-    var else_scope: Scope.GenZIR = .{
+    var else_scope: Scope.GenZir = .{
         .parent = &continue_scope.base,
         .decl = continue_scope.decl,
         .arena = continue_scope.arena,
@@ -2416,7 +2230,7 @@ fn forExpr(
     const cond_src = token_starts[tree.firstToken(for_full.ast.cond_expr)];
     const len = try addZIRUnOp(mod, scope, cond_src, .indexable_ptr_len, array_ptr);
 
-    var loop_scope: Scope.GenZIR = .{
+    var loop_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
@@ -2426,7 +2240,7 @@ fn forExpr(
     setBlockResultLoc(&loop_scope, rl);
     defer loop_scope.instructions.deinit(mod.gpa);
 
-    var cond_scope: Scope.GenZIR = .{
+    var cond_scope: Scope.GenZir = .{
         .parent = &loop_scope.base,
         .decl = loop_scope.decl,
         .arena = loop_scope.arena,
@@ -2476,7 +2290,7 @@ fn forExpr(
     loop_scope.break_block = for_block;
     loop_scope.continue_block = cond_block;
     if (for_full.label_token) |label_token| {
-        loop_scope.label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+        loop_scope.label = @as(?Scope.GenZir.Label, Scope.GenZir.Label{
             .token = label_token,
             .block_inst = for_block,
         });
@@ -2484,7 +2298,7 @@ fn forExpr(
 
     // while body
     const then_src = token_starts[tree.lastToken(for_full.ast.then_expr)];
-    var then_scope: Scope.GenZIR = .{
+    var then_scope: Scope.GenZir = .{
         .parent = &cond_scope.base,
         .decl = cond_scope.decl,
         .arena = cond_scope.arena,
@@ -2529,7 +2343,7 @@ fn forExpr(
     const then_result = try expr(mod, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
 
     // else branch
-    var else_scope: Scope.GenZIR = .{
+    var else_scope: Scope.GenZir = .{
         .parent = &cond_scope.base,
         .decl = cond_scope.decl,
         .arena = cond_scope.arena,
@@ -2609,7 +2423,7 @@ fn switchExpr(
 
     const switch_src = token_starts[switch_token];
 
-    var block_scope: Scope.GenZIR = .{
+    var block_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
@@ -2748,7 +2562,7 @@ fn switchExpr(
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
-    var case_scope: Scope.GenZIR = .{
+    var case_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
@@ -2757,7 +2571,7 @@ fn switchExpr(
     };
     defer case_scope.instructions.deinit(mod.gpa);
 
-    var else_scope: Scope.GenZIR = .{
+    var else_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = case_scope.decl,
         .arena = case_scope.arena,
@@ -2966,12 +2780,8 @@ fn identifier(
         return mod.failNode(scope, ident, "TODO implement '_' identifier", .{});
     }
 
-    if (simple_types.get(ident_name)) |val_tag| {
-        const result = try addZIRInstConst(mod, scope, src, TypedValue{
-            .ty = Type.initTag(.type),
-            .val = Value.initTag(val_tag),
-        });
-        return rvalue(mod, scope, rl, result);
+    if (simple_types.get(ident_name)) |zir_const_tag| {
+        return rvalue(mod, scope, rl, @enumToInt(zir_const_tag));
     }
 
     if (ident_name.len >= 2) integer: {
@@ -3030,8 +2840,8 @@ fn identifier(
                 }
                 s = local_ptr.parent;
             },
-            .gen_zir => s = s.cast(Scope.GenZIR).?.parent,
-            .gen_suspend => s = s.cast(Scope.GenZIR).?.parent,
+            .gen_zir => s = s.cast(Scope.GenZir).?.parent,
+            .gen_suspend => s = s.cast(Scope.GenZir).?.parent,
             .gen_nosuspend => s = s.cast(Scope.Nosuspend).?.parent,
             else => break,
         };
@@ -3166,33 +2976,16 @@ fn integerLiteral(
     rl: ResultLoc,
     int_lit: ast.Node.Index,
 ) InnerError!*zir.Inst {
-    const arena = scope.arena();
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
-
     const int_token = main_tokens[int_lit];
     const prefixed_bytes = tree.tokenSlice(int_token);
-    const base: u8 = if (mem.startsWith(u8, prefixed_bytes, "0x"))
-        16
-    else if (mem.startsWith(u8, prefixed_bytes, "0o"))
-        8
-    else if (mem.startsWith(u8, prefixed_bytes, "0b"))
-        2
-    else
-        @as(u8, 10);
-
-    const bytes = if (base == 10)
-        prefixed_bytes
-    else
-        prefixed_bytes[2..];
-
-    if (std.fmt.parseInt(u64, bytes, base)) |small_int| {
-        const src = token_starts[int_token];
-        const result = try addZIRInstConst(mod, scope, src, .{
-            .ty = Type.initTag(.comptime_int),
-            .val = try Value.Tag.int_u64.create(arena, small_int),
-        });
+    if (std.fmt.parseInt(u64, prefixed_bytes, 0)) |small_int| {
+        const result: zir.Inst.Index = switch (small_int) {
+            0 => @enumToInt(zir.Const.zero),
+            1 => @enumToInt(zir.Const.one),
+            else => try addZirInt(small_int),
+        };
         return rvalue(mod, scope, rl, result);
     } else |err| {
         return mod.failTok(scope, int_token, "TODO implement int literals that don't fit in a u64", .{});
@@ -3316,7 +3109,7 @@ fn asRlPtr(
     // Detect whether this expr() call goes into rvalue() to store the result into the
     // result location. If it does, elide the coerce_result_ptr instruction
     // as well as the store instruction, instead passing the result as an rvalue.
-    var as_scope: Scope.GenZIR = .{
+    var as_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
@@ -3327,7 +3120,7 @@ fn asRlPtr(
 
     as_scope.rl_ptr = try addZIRBinOp(mod, &as_scope.base, src, .coerce_result_ptr, dest_type, result_ptr);
     const result = try expr(mod, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node);
-    const parent_zir = &scope.getGenZIR().instructions;
+    const parent_zir = &scope.getGenZir().instructions;
     if (as_scope.rvalue_rl_count == 1) {
         // Busted! This expression didn't actually need a pointer.
         const expected_len = parent_zir.items.len + as_scope.instructions.items.len - 2;
@@ -3622,39 +3415,47 @@ fn callExpr(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
+    node: ast.Node.Index,
     call: ast.full.Call,
 ) InnerError!*zir.Inst {
     if (call.async_token) |async_token| {
         return mod.failTok(scope, async_token, "TODO implement async fn call", .{});
     }
-
-    const tree = scope.tree();
-    const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
-
     const lhs = try expr(mod, scope, .none, call.ast.fn_expr);
 
-    const args = try scope.getGenZIR().arena.alloc(*zir.Inst, call.ast.params.len);
+    const args = try mod.gpa.alloc(zir.Inst.Index, call.ast.params.len);
+    defer mod.gpa.free(args);
+
+    const gen_zir = scope.getGenZir();
     for (call.ast.params) |param_node, i| {
-        const param_src = token_starts[tree.firstToken(param_node)];
-        const param_type = try addZIRInst(mod, scope, param_src, zir.Inst.ParamType, .{
-            .func = lhs,
-            .arg_index = i,
-        }, .{});
+        const param_type = try gen_zir.addParamType(.{
+            .callee = lhs,
+            .param_index = i,
+        });
         args[i] = try expr(mod, scope, .{ .ty = param_type }, param_node);
     }
 
-    const src = token_starts[call.ast.lparen];
-    var modifier: std.builtin.CallOptions.Modifier = .auto;
-    if (call.async_token) |_| modifier = .async_kw;
-
-    const result = try addZIRInst(mod, scope, src, zir.Inst.Call, .{
-        .func = lhs,
-        .args = args,
-        .modifier = modifier,
-    }, .{});
-    // TODO function call with result location
-    return rvalue(mod, scope, rl, result);
+    const modifier: std.builtin.CallOptions.Modifier = switch (call.async_token != null) {
+        true => .async_kw,
+        false => .auto,
+    };
+    const result: zir.Inst.Index = res: {
+        const tag: zir.Inst.Tag = switch (modifier) {
+            .auto => switch (args.len == 0) {
+                true => break :res try gen_zir.addCallNone(lhs, node),
+                false => .call,
+            },
+            .async_kw => .call_async_kw,
+            .never_tail => unreachable,
+            .never_inline => unreachable,
+            .no_async => .call_no_async,
+            .always_tail => unreachable,
+            .always_inline => unreachable,
+            .compile_time => .call_compile_time,
+        };
+        break :res try gen_zir.addCall(tag, lhs, args, node);
+    };
+    return rvalue(mod, scope, rl, result); // TODO function call with result location
 }
 
 fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
@@ -3748,11 +3549,17 @@ fn resumeExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir
     return addZIRUnOp(mod, scope, src, .@"resume", operand);
 }
 
-pub const simple_types = std.ComptimeStringMap(Value.Tag, .{
+pub const simple_types = std.ComptimeStringMap(zir.Const, .{
     .{ "u8", .u8_type },
     .{ "i8", .i8_type },
-    .{ "isize", .isize_type },
+    .{ "u16", .u16_type },
+    .{ "i16", .i16_type },
+    .{ "u32", .u32_type },
+    .{ "i32", .i32_type },
+    .{ "u64", .u64_type },
+    .{ "i64", .i64_type },
     .{ "usize", .usize_type },
+    .{ "isize", .isize_type },
     .{ "c_short", .c_short_type },
     .{ "c_ushort", .c_ushort_type },
     .{ "c_int", .c_int_type },
@@ -3774,6 +3581,13 @@ pub const simple_types = std.ComptimeStringMap(Value.Tag, .{
     .{ "comptime_int", .comptime_int_type },
     .{ "comptime_float", .comptime_float_type },
     .{ "noreturn", .noreturn_type },
+    .{ "null", .null_type },
+    .{ "undefined", .undefined_type },
+    .{ "anyframe", .anyframe_type },
+    .{ "undefined", .undef },
+    .{ "null", .null_value },
+    .{ "true", .bool_true },
+    .{ "false", .bool_false },
 });
 
 fn nodeMayNeedMemoryLocation(scope: *Scope, start_node: ast.Node.Index) bool {
@@ -4045,7 +3859,7 @@ fn rvalueVoid(
     return rvalue(mod, scope, rl, void_inst);
 }
 
-fn rlStrategy(rl: ResultLoc, block_scope: *Scope.GenZIR) ResultLoc.Strategy {
+fn rlStrategy(rl: ResultLoc, block_scope: *Scope.GenZir) ResultLoc.Strategy {
     var elide_store_to_block_ptr_instructions = false;
     switch (rl) {
         // In this branch there will not be any store_to_block_ptr instructions.
@@ -4099,7 +3913,7 @@ fn makeOptionalTypeResultLoc(mod: *Module, scope: *Scope, src: usize, rl: Result
     }
 }
 
-fn setBlockResultLoc(block_scope: *Scope.GenZIR, parent_rl: ResultLoc) void {
+fn setBlockResultLoc(block_scope: *Scope.GenZir, parent_rl: ResultLoc) void {
     // Depending on whether the result location is a pointer or value, different
     // ZIR needs to be generated. In the former case we rely on storing to the
     // pointer to communicate the result, and use breakvoid; in the latter case
@@ -4137,7 +3951,7 @@ pub fn addZirInstTag(
     comptime tag: zir.Inst.Tag,
     positionals: std.meta.fieldInfo(tag.Type(), .positionals).field_type,
 ) !*zir.Inst {
-    const gen_zir = scope.getGenZIR();
+    const gen_zir = scope.getGenZir();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
     const inst = try gen_zir.arena.create(tag.Type());
     inst.* = .{
@@ -4160,7 +3974,7 @@ pub fn addZirInstT(
     tag: zir.Inst.Tag,
     positionals: std.meta.fieldInfo(T, .positionals).field_type,
 ) !*T {
-    const gen_zir = scope.getGenZIR();
+    const gen_zir = scope.getGenZir();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
     const inst = try gen_zir.arena.create(T);
     inst.* = .{
@@ -4183,7 +3997,7 @@ pub fn addZIRInstSpecial(
     positionals: std.meta.fieldInfo(T, .positionals).field_type,
     kw_args: std.meta.fieldInfo(T, .kw_args).field_type,
 ) !*T {
-    const gen_zir = scope.getGenZIR();
+    const gen_zir = scope.getGenZir();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
     const inst = try gen_zir.arena.create(T);
     inst.* = .{
@@ -4199,7 +4013,7 @@ pub fn addZIRInstSpecial(
 }
 
 pub fn addZIRNoOpT(mod: *Module, scope: *Scope, src: usize, tag: zir.Inst.Tag) !*zir.Inst.NoOp {
-    const gen_zir = scope.getGenZIR();
+    const gen_zir = scope.getGenZir();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
     const inst = try gen_zir.arena.create(zir.Inst.NoOp);
     inst.* = .{
@@ -4226,7 +4040,7 @@ pub fn addZIRUnOp(
     tag: zir.Inst.Tag,
     operand: *zir.Inst,
 ) !*zir.Inst {
-    const gen_zir = scope.getGenZIR();
+    const gen_zir = scope.getGenZir();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
     const inst = try gen_zir.arena.create(zir.Inst.UnOp);
     inst.* = .{
@@ -4251,7 +4065,7 @@ pub fn addZIRBinOp(
     lhs: *zir.Inst,
     rhs: *zir.Inst,
 ) !*zir.Inst {
-    const gen_zir = scope.getGenZIR();
+    const gen_zir = scope.getGenZir();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
     const inst = try gen_zir.arena.create(zir.Inst.BinOp);
     inst.* = .{
@@ -4276,7 +4090,7 @@ pub fn addZIRInstBlock(
     tag: zir.Inst.Tag,
     body: zir.Body,
 ) !*zir.Inst.Block {
-    const gen_zir = scope.getGenZIR();
+    const gen_zir = scope.getGenZir();
     try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
     const inst = try gen_zir.arena.create(zir.Inst.Block);
     inst.* = .{

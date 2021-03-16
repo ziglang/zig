@@ -69,11 +69,12 @@ pub const Value = extern union {
         one,
         void_value,
         unreachable_value,
-        empty_struct_value,
-        empty_array,
         null_value,
         bool_true,
-        bool_false, // See last_no_payload_tag below.
+        bool_false,
+
+        empty_struct_value,
+        empty_array, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         ty,
@@ -107,7 +108,7 @@ pub const Value = extern union {
         /// to an inferred allocation. It does not support any of the normal value queries.
         inferred_alloc,
 
-        pub const last_no_payload_tag = Tag.bool_false;
+        pub const last_no_payload_tag = Tag.empty_array;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {

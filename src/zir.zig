@@ -10,17 +10,338 @@ const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
 const ir = @import("ir.zig");
-const IrModule = @import("Module.zig");
+const Module = @import("Module.zig");
+const ast = std.zig.ast;
 
-/// These are instructions that correspond to the ZIR text format. See `ir.Inst` for
-/// in-memory, analyzed instructions with types and values.
-/// We use a table to map these instruction to their respective semantically analyzed
-/// instructions because it is possible to have multiple analyses on the same ZIR
-/// happening at the same time.
+/// The minimum amount of information needed to represent a list of ZIR instructions.
+/// Once this structure is completed, it can be used to generate TZIR, followed by
+/// machine code, without any memory access into the AST tree token list, node list,
+/// or source bytes. Exceptions include:
+///  * Compile errors, which may need to reach into these data structures to
+///    create a useful report.
+///  * In the future, possibly inline assembly, which needs to get parsed and
+///    handled by the codegen backend, and errors reported there. However for now,
+///    inline assembly is not an exception.
+pub const Code = struct {
+    instructions: std.MultiArrayList(Inst).Slice,
+    /// In order to store references to strings in fewer bytes, we copy all
+    /// string bytes into here. String bytes can be null. It is up to whomever
+    /// is referencing the data here whether they want to store both index and length,
+    /// thus allowing null bytes, or store only index, and use null-termination. The
+    /// `string_bytes` array is agnostic to either usage.
+    string_bytes: []u8,
+    /// The meaning of this data is determined by `Inst.Tag` value.
+    extra: []u32,
+    /// First ZIR instruction in this `Code`.
+    root_start: Inst.Index,
+    /// Number of ZIR instructions in the implicit root block of the `Code`.
+    root_len: u32,
+
+    /// Returns the requested data, as well as the new index which is at the start of the
+    /// trailers for the object.
+    pub fn extraData(code: Code, comptime T: type, index: usize) struct { data: T, end: usize } {
+        const fields = std.meta.fields(T);
+        var i: usize = index;
+        var result: T = undefined;
+        inline for (fields) |field| {
+            comptime assert(field.field_type == u32);
+            @field(result, field.name) = code.extra[i];
+            i += 1;
+        }
+        return .{
+            .data = result,
+            .end = i,
+        };
+    }
+
+    /// Given an index into `string_bytes` returns the null-terminated string found there.
+    pub fn nullTerminatedString(code: Code, index: usize) [:0]const u8 {
+        var end: usize = index;
+        while (code.string_bytes[end] != 0) {
+            end += 1;
+        }
+        return code.string_bytes[index..end :0];
+    }
+};
+
+/// These correspond to the first N tags of Value.
+/// A ZIR instruction refers to another one by index. However the first N indexes
+/// correspond to this enum, and the next M indexes correspond to the parameters
+/// of the current function. After that, they refer to other instructions in the
+/// instructions array for the function.
+/// When adding to this, consider adding a corresponding entry o `simple_types`
+/// in astgen.
+pub const Const = enum {
+    /// The 0 value is reserved so that ZIR instruction indexes can use it to
+    /// mean "null".
+    unused,
+
+    u8_type,
+    i8_type,
+    u16_type,
+    i16_type,
+    u32_type,
+    i32_type,
+    u64_type,
+    i64_type,
+    usize_type,
+    isize_type,
+    c_short_type,
+    c_ushort_type,
+    c_int_type,
+    c_uint_type,
+    c_long_type,
+    c_ulong_type,
+    c_longlong_type,
+    c_ulonglong_type,
+    c_longdouble_type,
+    f16_type,
+    f32_type,
+    f64_type,
+    f128_type,
+    c_void_type,
+    bool_type,
+    void_type,
+    type_type,
+    anyerror_type,
+    comptime_int_type,
+    comptime_float_type,
+    noreturn_type,
+    null_type,
+    undefined_type,
+    fn_noreturn_no_args_type,
+    fn_void_no_args_type,
+    fn_naked_noreturn_no_args_type,
+    fn_ccc_void_no_args_type,
+    single_const_pointer_to_comptime_int_type,
+    const_slice_u8_type,
+    enum_literal_type,
+    anyframe_type,
+
+    /// `undefined` (untyped)
+    undef,
+    /// `0` (comptime_int)
+    zero,
+    /// `1` (comptime_int)
+    one,
+    /// `{}`
+    void_value,
+    /// `unreachable` (noreturn type)
+    unreachable_value,
+    /// `null` (untyped)
+    null_value,
+    /// `true`
+    bool_true,
+    /// `false`
+    bool_false,
+};
+
+pub const const_inst_list = enumArray(Const, .{
+    .u8_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.u8_type),
+    }),
+    .i8_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.i8_type),
+    }),
+    .u16_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.u16_type),
+    }),
+    .i16_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.i16_type),
+    }),
+    .u32_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.u32_type),
+    }),
+    .i32_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.i32_type),
+    }),
+    .u64_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.u64_type),
+    }),
+    .i64_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.i64_type),
+    }),
+    .usize_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.usize_type),
+    }),
+    .isize_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.isize_type),
+    }),
+    .c_short_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_short_type),
+    }),
+    .c_ushort_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_ushort_type),
+    }),
+    .c_int_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_int_type),
+    }),
+    .c_uint_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_uint_type),
+    }),
+    .c_long_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_long_type),
+    }),
+    .c_ulong_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_ulong_type),
+    }),
+    .c_longlong_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_longlong_type),
+    }),
+    .c_ulonglong_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_ulonglong_type),
+    }),
+    .c_longdouble_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_longdouble_type),
+    }),
+    .f16_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.f16_type),
+    }),
+    .f32_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.f32_type),
+    }),
+    .f64_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.f64_type),
+    }),
+    .f128_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.f128_type),
+    }),
+    .c_void_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.c_void_type),
+    }),
+    .bool_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.bool_type),
+    }),
+    .void_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.void_type),
+    }),
+    .type_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.type_type),
+    }),
+    .anyerror_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.anyerror_type),
+    }),
+    .comptime_int_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.comptime_int_type),
+    }),
+    .comptime_float_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.comptime_float_type),
+    }),
+    .noreturn_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.noreturn_type),
+    }),
+    .null_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.null_type),
+    }),
+    .undefined_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.undefined_type),
+    }),
+    .fn_noreturn_no_args_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.fn_noreturn_no_args_type),
+    }),
+    .fn_void_no_args_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.fn_void_no_args_type),
+    }),
+    .fn_naked_noreturn_no_args_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.fn_naked_noreturn_no_args_type),
+    }),
+    .fn_ccc_void_no_args_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.fn_ccc_void_no_args_type),
+    }),
+    .single_const_pointer_to_comptime_int_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.single_const_pointer_to_comptime_int_type),
+    }),
+    .const_slice_u8_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.const_slice_u8_type),
+    }),
+    .enum_literal_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.enum_literal_type),
+    }),
+    .anyframe_type = @as(TypedValue, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.anyframe_type),
+    }),
+
+    .undef = @as(TypedValue, .{
+        .ty = Type.initTag(.@"undefined"),
+        .val = Value.initTag(.undef),
+    }),
+    .zero = @as(TypedValue, .{
+        .ty = Type.initTag(.comptime_int),
+        .val = Value.initTag(.zero),
+    }),
+    .one = @as(TypedValue, .{
+        .ty = Type.initTag(.comptime_int),
+        .val = Value.initTag(.one),
+    }),
+    .void_value = @as(TypedValue, .{
+        .ty = Type.initTag(.void),
+        .val = Value.initTag(.void_value),
+    }),
+    .unreachable_value = @as(TypedValue, .{
+        .ty = Type.initTag(.noreturn),
+        .val = Value.initTag(.unreachable_value),
+    }),
+    .null_value = @as(TypedValue, .{
+        .ty = Type.initTag(.@"null"),
+        .val = Value.initTag(.null_value),
+    }),
+    .bool_true = @as(TypedValue, .{
+        .ty = Type.initTag(.bool),
+        .val = Value.initTag(.bool_true),
+    }),
+    .bool_false = @as(TypedValue, .{
+        .ty = Type.initTag(.bool),
+        .val = Value.initTag(.bool_false),
+    }),
+});
+
+/// These are untyped instructions generated from an Abstract Syntax Tree.
+/// The data here is immutable because it is possible to have multiple
+/// analyses on the same ZIR happening at the same time.
 pub const Inst = struct {
     tag: Tag,
-    /// Byte offset into the source.
-    src: usize,
+    data: Data,
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
@@ -28,40 +349,45 @@ pub const Inst = struct {
         add,
         /// Twos complement wrapping integer addition.
         addwrap,
-        /// Allocates stack local memory. Its lifetime ends when the block ends that contains
-        /// this instruction. The operand is the type of the allocated object.
+        /// Allocates stack local memory.
+        /// Uses the `un_node` union field. The operand is the type of the allocated object.
+        /// The node source location points to a var decl node.
+        /// Indicates the beginning of a new statement in debug info.
         alloc,
         /// Same as `alloc` except mutable.
         alloc_mut,
         /// Same as `alloc` except the type is inferred.
+        /// lhs and rhs unused.
         alloc_inferred,
         /// Same as `alloc_inferred` except mutable.
+        /// lhs and rhs unused.
         alloc_inferred_mut,
         /// Create an `anyframe->T`.
+        /// Uses the `un_node` field. AST node is the `anyframe->T` syntax. Operand is the type.
         anyframe_type,
         /// Array concatenation. `a ++ b`
         array_cat,
         /// Array multiplication `a ** b`
         array_mul,
-        /// Create an array type
+        /// lhs is length, rhs is element type.
         array_type,
-        /// Create an array type with sentinel
+        /// lhs is length, ArrayTypeSentinel[rhs]
         array_type_sentinel,
         /// Given a pointer to an indexable object, returns the len property. This is
-        /// used by for loops. This instruction also emits a for-loop specific instruction
-        /// if the indexable object is not indexable.
+        /// used by for loops. This instruction also emits a for-loop specific compile
+        /// error if the indexable object is not indexable.
+        /// Uses the `un_node` field. The AST node is the for loop node.
         indexable_ptr_len,
-        /// Function parameter value. These must be first in a function's main block,
-        /// in respective order with the parameters.
-        /// TODO make this instruction implicit; after we transition to having ZIR
-        /// instructions be same sized and referenced by index, the first N indexes
-        /// will implicitly be references to the parameters of the function.
-        arg,
         /// Type coercion.
+        /// Uses the `bin` field.
         as,
-        /// Inline assembly.
+        /// Inline assembly. Non-volatile.
+        /// Uses the `pl_node` union field. Payload is `Asm`. AST node is the assembly node.
         @"asm",
-        /// Await an async function.
+        /// Inline assembly with the volatile attribute.
+        /// Uses the `pl_node` union field. Payload is `Asm`. AST node is the assembly node.
+        asm_volatile,
+        /// `await x` syntax. Uses the `un_node` union field.
         @"await",
         /// Bitwise AND. `&`
         bit_and,
@@ -80,6 +406,7 @@ pub const Inst = struct {
         /// Bitwise OR. `|`
         bit_or,
         /// A labeled block of code, which can return a value.
+        /// Uses the `pl_node` union field.
         block,
         /// A block of code, which can return a value. There are no instructions that break out of
         /// this block; it is implied that the final instruction is the result.
@@ -89,18 +416,36 @@ pub const Inst = struct {
         /// Same as `block_flat` but additionally makes the inner instructions execute at comptime.
         block_comptime_flat,
         /// Boolean AND. See also `bit_and`.
+        /// Uses the `bin` field.
         bool_and,
         /// Boolean NOT. See also `bit_not`.
+        /// Uses the `un_tok` field.
         bool_not,
         /// Boolean OR. See also `bit_or`.
+        /// Uses the `bin` field.
         bool_or,
-        /// Return a value from a `Block`.
+        /// Return a value from a block.
+        /// Uses the `bin` union field: `lhs` is `Ref` to the block, `rhs` is operand.
+        /// Uses the source information from previous instruction.
         @"break",
+        /// Same as `break` but has source information in the form of a token, and
+        /// the operand is assumed to be the void value.
+        /// Uses the `un_tok` union field.
+        break_void_tok,
+        /// lhs and rhs unused.
         breakpoint,
-        /// Same as `break` but without an operand; the operand is assumed to be the void value.
-        break_void,
-        /// Function call.
+        /// Function call with modifier `.auto`.
+        /// Uses `pl_node`. AST node is the function call. Payload is `Call`.
         call,
+        /// Same as `call` but with modifier `.async_kw`.
+        call_async_kw,
+        /// Same as `call` but with modifier `.no_async`.
+        call_no_async,
+        /// Same as `call` but with modifier `.compile_time`.
+        call_compile_time,
+        /// Function call with modifier `.auto`, empty parameter list.
+        /// Uses the `un_node` field. Operand is callee. AST node is the function call.
+        call_none,
         /// `<`
         cmp_lt,
         /// `<=`
@@ -118,95 +463,117 @@ pub const Inst = struct {
         /// LHS is destination element type, RHS is result pointer.
         coerce_result_ptr,
         /// Emit an error message and fail compilation.
+        /// Uses the `un_node` field.
         compile_error,
         /// Log compile time variables and emit an error message.
+        /// Uses the `pl_node` union field. The AST node is the compile log builtin call.
+        /// The payload is `MultiOp`.
         compile_log,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         condbr,
         /// Special case, has no textual representation.
         @"const",
-        /// Container field with just the name.
-        container_field_named,
-        /// Container field with a type and a name,
-        container_field_typed,
-        /// Container field with all the bells and whistles.
-        container_field,
         /// Declares the beginning of a statement. Used for debug info.
-        dbg_stmt,
+        /// Uses the `node` union field.
+        dbg_stmt_node,
         /// Represents a pointer to a global decl.
+        /// Uses the `decl` union field.
         decl_ref,
-        /// Represents a pointer to a global decl by string name.
-        decl_ref_str,
         /// Equivalent to a decl_ref followed by deref.
+        /// Uses the `decl` union field.
         decl_val,
-        /// Load the value from a pointer.
-        deref,
+        /// Load the value from a pointer. Assumes `x.*` syntax.
+        /// Uses `un_node` field. AST node is the `x.*` syntax.
+        deref_node,
         /// Arithmetic division. Asserts no integer overflow.
         div,
         /// Given a pointer to an array, slice, or pointer, returns a pointer to the element at
-        /// the provided index.
+        /// the provided index. Uses the `bin` union field. Source location is implied
+        /// to be the same as the previous instruction.
         elem_ptr,
+        /// Same as `elem_ptr` except also stores a source location node.
+        /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
+        elem_ptr_node,
         /// Given an array, slice, or pointer, returns the element at the provided index.
+        /// Uses the `bin` union field. Source location is implied to be the same
+        /// as the previous instruction.
         elem_val,
+        /// Same as `elem_val` except also stores a source location node.
+        /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
+        elem_val_node,
         /// Emits a compile error if the operand is not `void`.
+        /// Uses the `un_node` field.
         ensure_result_used,
         /// Emits a compile error if an error is ignored.
+        /// Uses the `un_node` field.
         ensure_result_non_error,
         /// Create a `E!T` type.
         error_union_type,
-        /// Create an error set.
+        /// Create an error set. extra[lhs..rhs]. The values are token index offsets.
         error_set,
-        /// `error.Foo` syntax.
+        /// `error.Foo` syntax. uses the `tok` field of the Data union.
         error_value,
-        /// Export the provided Decl as the provided name in the compilation's output object file.
-        @"export",
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
-        /// to the named field. The field name is a []const u8. Used by a.b syntax.
+        /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
+        /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
         field_ptr,
         /// Given a struct or object that contains virtual fields, returns the named field.
-        /// The field name is a []const u8. Used by a.b syntax.
+        /// The field name is stored in string_bytes. Used by a.b syntax.
+        /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
         field_val,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is a comptime instruction. Used by @field.
+        /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_ptr_named,
         /// Given a struct or object that contains virtual fields, returns the named field.
         /// The field name is a comptime instruction. Used by @field.
+        /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_val_named,
-        /// Convert a larger float type to any other float type, possibly causing a loss of precision.
+        /// Convert a larger float type to any other float type, possibly causing
+        /// a loss of precision.
         floatcast,
-        /// Declare a function body.
-        @"fn",
         /// Returns a function type, assuming unspecified calling convention.
+        /// Uses the `fn_type` union field. `payload_index` points to a `FnType`.
         fn_type,
         /// Same as `fn_type` but the function is variadic.
         fn_type_var_args,
         /// Returns a function type, with a calling convention instruction operand.
+        /// Uses the `fn_type` union field. `payload_index` points to a `FnTypeCc`.
         fn_type_cc,
         /// Same as `fn_type_cc` but the function is variadic.
         fn_type_cc_var_args,
-        /// @import(operand)
+        /// `@import(operand)`.
+        /// Uses the `un_node` field.
         import,
-        /// Integer literal.
+        /// Integer literal that fits in a u64. Uses the int union value.
         int,
         /// Convert an integer value to another integer type, asserting that the destination type
         /// can hold the same mathematical value.
         intcast,
         /// Make an integer type out of signedness and bit count.
+        /// lhs is signedness, rhs is bit count.
         int_type,
         /// Return a boolean false if an optional is null. `x != null`
+        /// Uses the `un_tok` field.
         is_non_null,
         /// Return a boolean true if an optional is null. `x == null`
+        /// Uses the `un_tok` field.
         is_null,
         /// Return a boolean false if an optional is null. `x.* != null`
+        /// Uses the `un_tok` field.
         is_non_null_ptr,
         /// Return a boolean true if an optional is null. `x.* == null`
+        /// Uses the `un_tok` field.
         is_null_ptr,
         /// Return a boolean true if value is an error
+        /// Uses the `un_tok` field.
         is_err,
         /// Return a boolean true if dereferenced pointer is an error
+        /// Uses the `un_tok` field.
         is_err_ptr,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
+        /// SubRange[lhs..rhs]
         loop,
         /// Merge two error sets into one, `E1 || E2`.
         merge_error_sets,
@@ -221,63 +588,70 @@ pub const Inst = struct {
         /// An await inside a nosuspend scope.
         nosuspend_await,
         /// Given a reference to a function and a parameter index, returns the
-        /// type of the parameter. TODO what happens when the parameter is `anytype`?
+        /// type of the parameter. The only usage of this instruction is for the
+        /// result location of parameters of function calls. In the case of a function's
+        /// parameter type being `anytype`, it is the type coercion's job to detect this
+        /// scenario and skip the coercion, so that semantic analysis of this instruction
+        /// is not in a position where it must create an invalid type.
+        /// Uses the `param_type` union field.
         param_type,
-        /// An alternative to using `const` for simple primitive values such as `true` or `u8`.
-        /// TODO flatten so that each primitive has its own ZIR Inst Tag.
-        primitive,
         /// Convert a pointer to a `usize` integer.
+        /// Uses the `un_node` field. The AST node is the builtin fn call node.
         ptrtoint,
         /// Turns an R-Value into a const L-Value. In other words, it takes a value,
         /// stores it in a memory location, and returns a const pointer to it. If the value
         /// is `comptime`, the memory location is global static constant data. Otherwise,
         /// the memory location is in the stack frame, local to the scope containing the
         /// instruction.
+        /// Uses the `un_tok` union field.
         ref,
         /// Resume an async function.
         @"resume",
         /// Obtains a pointer to the return value.
+        /// lhs and rhs unused.
         ret_ptr,
         /// Obtains the return type of the in-scope function.
+        /// lhs and rhs unused.
         ret_type,
-        /// Sends control flow back to the function's callee. Takes an operand as the return value.
-        @"return",
-        /// Same as `return` but there is no operand; the operand is implicitly the void value.
-        return_void,
+        /// Sends control flow back to the function's callee.
+        /// Includes an operand as the return value.
+        /// Includes an AST node source location.
+        /// Uses the `un_node` union field.
+        ret_node,
+        /// Sends control flow back to the function's callee.
+        /// Includes an operand as the return value.
+        /// Includes a token source location.
+        /// Uses the un_tok union field.
+        ret_tok,
         /// Changes the maximum number of backwards branches that compile-time
         /// code execution can use before giving up and making a compile error.
+        /// Uses the `un_node` union field.
         set_eval_branch_quota,
         /// Integer shift-left. Zeroes are shifted in from the right hand side.
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
         shr,
-        /// Create a const pointer type with element type T. `*const T`
-        single_const_ptr_type,
-        /// Create a mutable pointer type with element type T. `*T`
-        single_mut_ptr_type,
-        /// Create a const pointer type with element type T. `[*]const T`
-        many_const_ptr_type,
-        /// Create a mutable pointer type with element type T. `[*]T`
-        many_mut_ptr_type,
-        /// Create a const pointer type with element type T. `[*c]const T`
-        c_const_ptr_type,
-        /// Create a mutable pointer type with element type T. `[*c]T`
-        c_mut_ptr_type,
-        /// Create a mutable slice type with element type T. `[]T`
-        mut_slice_type,
-        /// Create a const slice type with element type T. `[]T`
-        const_slice_type,
-        /// Create a pointer type with attributes
+        /// Create a pointer type that does not have a sentinel, alignment, or bit range specified.
+        /// Uses the `ptr_type_simple` union field.
+        ptr_type_simple,
+        /// Create a pointer type which can have a sentinel, alignment, and/or bit range.
+        /// Uses the `ptr_type` union field.
         ptr_type,
         /// Each `store_to_inferred_ptr` puts the type of the stored value into a set,
         /// and then `resolve_inferred_alloc` triggers peer type resolution on the set.
         /// The operand is a `alloc_inferred` or `alloc_inferred_mut` instruction, which
         /// is the allocation that needs to have its type inferred.
+        /// Uses the `un_node` field. The AST node is the var decl.
         resolve_inferred_alloc,
-        /// Slice operation `array_ptr[start..end:sentinel]`
-        slice,
-        /// Slice operation with just start `lhs[rhs..]`
+        /// Slice operation `lhs[rhs..]`. No sentinel and no end offset.
+        /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceStart`.
         slice_start,
+        /// Slice operation `array_ptr[start..end]`. No sentinel.
+        /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceEnd`.
+        slice_end,
+        /// Slice operation `array_ptr[start..end:sentinel]`.
+        /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
+        slice_sentinel,
         /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// Same as `store` but the type of the value being stored will be used to infer
@@ -287,242 +661,130 @@ pub const Inst = struct {
         /// the pointer type.
         store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
+        /// Uses the `str` union field.
         str,
-        /// Create a struct type.
-        struct_type,
         /// Arithmetic subtraction. Asserts no integer overflow.
         sub,
         /// Twos complement wrapping integer subtraction.
         subwrap,
         /// Returns the type of a value.
+        /// Uses the `un_tok` field.
         typeof,
-        /// Is the builtin @TypeOf which returns the type after peertype resolution of one or more params
+        /// The builtin `@TypeOf` which returns the type after Peer Type Resolution
+        /// of one or more params.
+        /// Uses the `pl_node` field. AST node is the `@TypeOf` call. Payload is `MultiOp`.
         typeof_peer,
         /// Asserts control-flow will not reach this instruction. Not safety checked - the compiler
         /// will assume the correctness of this instruction.
+        /// lhs and rhs unused.
         unreachable_unsafe,
         /// Asserts control-flow will not reach this instruction. In safety-checked modes,
         /// this will generate a call to the panic function unless it can be proven unreachable
         /// by the compiler.
+        /// lhs and rhs unused.
         unreachable_safe,
         /// Bitwise XOR. `^`
         xor,
         /// Create an optional type '?T'
+        /// Uses the `un_tok` field.
         optional_type,
         /// Create an optional type '?T'. The operand is a pointer value. The optional type will
         /// be the type of the pointer element, wrapped in an optional.
+        /// Uses the `un_tok` field.
         optional_type_from_ptr_elem,
-        /// Create a union type.
-        union_type,
         /// ?T => T with safety.
         /// Given an optional value, returns the payload value, with a safety check that
         /// the value is non-null. Used for `orelse`, `if` and `while`.
+        /// Uses the `un_tok` field.
         optional_payload_safe,
         /// ?T => T without safety.
         /// Given an optional value, returns the payload value. No safety checks.
+        /// Uses the `un_tok` field.
         optional_payload_unsafe,
         /// *?T => *T with safety.
         /// Given a pointer to an optional value, returns a pointer to the payload value,
         /// with a safety check that the value is non-null. Used for `orelse`, `if` and `while`.
+        /// Uses the `un_tok` field.
         optional_payload_safe_ptr,
         /// *?T => *T without safety.
         /// Given a pointer to an optional value, returns a pointer to the payload value.
         /// No safety checks.
+        /// Uses the `un_tok` field.
         optional_payload_unsafe_ptr,
         /// E!T => T with safety.
         /// Given an error union value, returns the payload value, with a safety check
         /// that the value is not an error. Used for catch, if, and while.
+        /// Uses the `un_tok` field.
         err_union_payload_safe,
         /// E!T => T without safety.
         /// Given an error union value, returns the payload value. No safety checks.
+        /// Uses the `un_tok` field.
         err_union_payload_unsafe,
         /// *E!T => *T with safety.
         /// Given a pointer to an error union value, returns a pointer to the payload value,
         /// with a safety check that the value is not an error. Used for catch, if, and while.
+        /// Uses the `un_tok` field.
         err_union_payload_safe_ptr,
         /// *E!T => *T without safety.
         /// Given a pointer to a error union value, returns a pointer to the payload value.
         /// No safety checks.
+        /// Uses the `un_tok` field.
         err_union_payload_unsafe_ptr,
         /// E!T => E without safety.
         /// Given an error union value, returns the error code. No safety checks.
+        /// Uses the `un_tok` field.
         err_union_code,
         /// *E!T => E without safety.
         /// Given a pointer to an error union value, returns the error code. No safety checks.
+        /// Uses the `un_tok` field.
         err_union_code_ptr,
         /// Takes a *E!T and raises a compiler error if T != void
+        /// Uses the `un_tok` field.
         ensure_err_payload_void,
-        /// Create a enum literal,
+        /// An enum literal. Uses the `str` union field.
         enum_literal,
-        /// Create an enum type.
-        enum_type,
-        /// Does nothing; returns a void value.
-        void_value,
-        /// Suspend an async function.
-        @"suspend",
-        /// Suspend an async function.
-        /// Same as .suspend but with a block.
+        /// Suspend an async function. The suspend block has 0 or 1 statements in it.
+        /// Uses the `un_node` union field.
+        suspend_block_one,
+        /// Suspend an async function. The suspend block has any number of statements in it.
+        /// Uses the `block` union field.
         suspend_block,
         /// A switch expression.
-        switchbr,
-        /// Same as `switchbr` but the target is a pointer to the value being switched on.
-        switchbr_ref,
+        /// lhs is target, SwitchBr[rhs]
+        /// All prongs of target handled.
+        switch_br,
+        /// Same as switch_br, except has a range field.
+        switch_br_range,
+        /// Same as switch_br, except has an else prong.
+        switch_br_else,
+        /// Same as switch_br_else, except has a range field.
+        switch_br_else_range,
+        /// Same as switch_br, except has an underscore prong.
+        switch_br_underscore,
+        /// Same as switch_br, except has a range field.
+        switch_br_underscore_range,
+        /// Same as `switch_br` but the target is a pointer to the value being switched on.
+        switch_br_ref,
+        /// Same as `switch_br_range` but the target is a pointer to the value being switched on.
+        switch_br_ref_range,
+        /// Same as `switch_br_else` but the target is a pointer to the value being switched on.
+        switch_br_ref_else,
+        /// Same as `switch_br_else_range` but the target is a pointer to the
+        /// value being switched on.
+        switch_br_ref_else_range,
+        /// Same as `switch_br_underscore` but the target is a pointer to the value
+        /// being switched on.
+        switch_br_ref_underscore,
+        /// Same as `switch_br_underscore_range` but the target is a pointer to
+        /// the value being switched on.
+        switch_br_ref_underscore_range,
         /// A range in a switch case, `lhs...rhs`.
         /// Only checks that `lhs >= rhs` if they are ints, everything else is
-        /// validated by the .switch instruction.
+        /// validated by the switch_br instruction.
         switch_range,
 
-        pub fn Type(tag: Tag) type {
-            return switch (tag) {
-                .alloc_inferred,
-                .alloc_inferred_mut,
-                .breakpoint,
-                .dbg_stmt,
-                .return_void,
-                .ret_ptr,
-                .ret_type,
-                .unreachable_unsafe,
-                .unreachable_safe,
-                .void_value,
-                .@"suspend",
-                => NoOp,
-
-                .alloc,
-                .alloc_mut,
-                .bool_not,
-                .compile_error,
-                .deref,
-                .@"return",
-                .is_null,
-                .is_non_null,
-                .is_null_ptr,
-                .is_non_null_ptr,
-                .is_err,
-                .is_err_ptr,
-                .ptrtoint,
-                .ensure_result_used,
-                .ensure_result_non_error,
-                .bitcast_result_ptr,
-                .ref,
-                .bitcast_ref,
-                .typeof,
-                .resolve_inferred_alloc,
-                .single_const_ptr_type,
-                .single_mut_ptr_type,
-                .many_const_ptr_type,
-                .many_mut_ptr_type,
-                .c_const_ptr_type,
-                .c_mut_ptr_type,
-                .mut_slice_type,
-                .const_slice_type,
-                .optional_type,
-                .optional_type_from_ptr_elem,
-                .optional_payload_safe,
-                .optional_payload_unsafe,
-                .optional_payload_safe_ptr,
-                .optional_payload_unsafe_ptr,
-                .err_union_payload_safe,
-                .err_union_payload_unsafe,
-                .err_union_payload_safe_ptr,
-                .err_union_payload_unsafe_ptr,
-                .err_union_code,
-                .err_union_code_ptr,
-                .ensure_err_payload_void,
-                .anyframe_type,
-                .bit_not,
-                .import,
-                .set_eval_branch_quota,
-                .indexable_ptr_len,
-                .@"resume",
-                .@"await",
-                .nosuspend_await,
-                => UnOp,
-
-                .add,
-                .addwrap,
-                .array_cat,
-                .array_mul,
-                .array_type,
-                .bit_and,
-                .bit_or,
-                .bool_and,
-                .bool_or,
-                .div,
-                .mod_rem,
-                .mul,
-                .mulwrap,
-                .shl,
-                .shr,
-                .store,
-                .store_to_block_ptr,
-                .store_to_inferred_ptr,
-                .sub,
-                .subwrap,
-                .cmp_lt,
-                .cmp_lte,
-                .cmp_eq,
-                .cmp_gte,
-                .cmp_gt,
-                .cmp_neq,
-                .as,
-                .floatcast,
-                .intcast,
-                .bitcast,
-                .coerce_result_ptr,
-                .xor,
-                .error_union_type,
-                .merge_error_sets,
-                .slice_start,
-                .switch_range,
-                => BinOp,
-
-                .block,
-                .block_flat,
-                .block_comptime,
-                .block_comptime_flat,
-                .suspend_block,
-                => Block,
-
-                .switchbr, .switchbr_ref => SwitchBr,
-
-                .arg => Arg,
-                .array_type_sentinel => ArrayTypeSentinel,
-                .@"break" => Break,
-                .break_void => BreakVoid,
-                .call => Call,
-                .decl_ref => DeclRef,
-                .decl_ref_str => DeclRefStr,
-                .decl_val => DeclVal,
-                .compile_log => CompileLog,
-                .loop => Loop,
-                .@"const" => Const,
-                .str => Str,
-                .int => Int,
-                .int_type => IntType,
-                .field_ptr, .field_val => Field,
-                .field_ptr_named, .field_val_named => FieldNamed,
-                .@"asm" => Asm,
-                .@"fn" => Fn,
-                .@"export" => Export,
-                .param_type => ParamType,
-                .primitive => Primitive,
-                .fn_type, .fn_type_var_args => FnType,
-                .fn_type_cc, .fn_type_cc_var_args => FnTypeCc,
-                .elem_ptr, .elem_val => Elem,
-                .condbr => CondBr,
-                .ptr_type => PtrType,
-                .enum_literal => EnumLiteral,
-                .error_set => ErrorSet,
-                .error_value => ErrorValue,
-                .slice => Slice,
-                .typeof_peer => TypeOfPeer,
-                .container_field_named => ContainerFieldNamed,
-                .container_field_typed => ContainerFieldTyped,
-                .container_field => ContainerField,
-                .enum_type => EnumType,
-                .union_type => UnionType,
-                .struct_type => StructType,
-            };
+        comptime {
+            assert(@sizeOf(Tag) == 1);
         }
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
@@ -540,7 +802,6 @@ pub const Inst = struct {
                 .array_type,
                 .array_type_sentinel,
                 .indexable_ptr_len,
-                .arg,
                 .as,
                 .@"asm",
                 .bit_and,
@@ -557,6 +818,13 @@ pub const Inst = struct {
                 .bool_or,
                 .breakpoint,
                 .call,
+                .call_async_kw,
+                .call_never_tail,
+                .call_never_inline,
+                .call_no_async,
+                .call_always_tail,
+                .call_always_inline,
+                .call_compile_time,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -567,21 +835,18 @@ pub const Inst = struct {
                 .@"const",
                 .dbg_stmt,
                 .decl_ref,
-                .decl_ref_str,
                 .decl_val,
-                .deref,
+                .deref_node,
                 .div,
                 .elem_ptr,
                 .elem_val,
                 .ensure_result_used,
                 .ensure_result_non_error,
-                .@"export",
                 .floatcast,
                 .field_ptr,
                 .field_val,
                 .field_ptr_named,
                 .field_val_named,
-                .@"fn",
                 .fn_type,
                 .fn_type_var_args,
                 .fn_type_cc,
@@ -599,7 +864,6 @@ pub const Inst = struct {
                 .mul,
                 .mulwrap,
                 .param_type,
-                .primitive,
                 .ptrtoint,
                 .ref,
                 .ret_ptr,
@@ -635,6 +899,7 @@ pub const Inst = struct {
                 .err_union_code,
                 .err_union_code_ptr,
                 .ptr_type,
+                .ptr_type_simple,
                 .ensure_err_payload_void,
                 .enum_literal,
                 .merge_error_sets,
@@ -650,9 +915,6 @@ pub const Inst = struct {
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
                 .compile_log,
-                .enum_type,
-                .union_type,
-                .struct_type,
                 .void_value,
                 .switch_range,
                 .@"resume",
@@ -661,19 +923,19 @@ pub const Inst = struct {
                 => false,
 
                 .@"break",
-                .break_void,
+                .break_void_tok,
                 .condbr,
                 .compile_error,
-                .@"return",
-                .return_void,
+                .ret_node,
+                .ret_tok,
                 .unreachable_unsafe,
                 .unreachable_safe,
                 .loop,
                 .container_field_named,
                 .container_field_typed,
                 .container_field,
-                .switchbr,
-                .switchbr_ref,
+                .switch_br,
+                .switch_br_ref,
                 .@"suspend",
                 .suspend_block,
                 => true,
@@ -681,1346 +943,244 @@ pub const Inst = struct {
         }
     };
 
-    /// Prefer `castTag` to this.
-    pub fn cast(base: *Inst, comptime T: type) ?*T {
-        if (@hasField(T, "base_tag")) {
-            return base.castTag(T.base_tag);
-        }
-        inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const tag = @intToEnum(Tag, field.value);
-            if (base.tag == tag) {
-                if (T == tag.Type()) {
-                    return @fieldParentPtr(T, "base", base);
-                }
-                return null;
+    /// The position of a ZIR instruction within the `Code` instructions array.
+    pub const Index = u32;
+
+    /// A reference to another ZIR instruction. If this value is below a certain
+    /// threshold, it implicitly refers to a constant-known value from the `Const` enum.
+    /// Below a second threshold, it implicitly refers to a parameter of the current
+    /// function.
+    /// Finally, after subtracting that offset, it refers to another instruction in
+    /// the instruction array.
+    /// This logic is implemented in `Sema.resolveRef`.
+    pub const Ref = u32;
+
+    /// For instructions whose payload fits into 8 bytes, this is used.
+    /// When an instruction's payload does not fit, bin_op is used, and
+    /// lhs and rhs refer to `Tag`-specific values, with one of the operands
+    /// used to index into a separate array specific to that instruction.
+    pub const Data = union {
+        /// Used for unary operators, with an AST node source location.
+        un_node: struct {
+            /// Offset from Decl AST node index.
+            src_node: ast.Node.Index,
+            /// The meaning of this operand depends on the corresponding `Tag`.
+            operand: Ref,
+
+            fn src(self: @This()) LazySrcLoc {
+                return .{ .node_offset = self.src_node };
+            }
+        },
+        /// Used for unary operators, with a token source location.
+        un_tok: struct {
+            /// Offset from Decl AST token index.
+            src_tok: ast.TokenIndex,
+            /// The meaning of this operand depends on the corresponding `Tag`.
+            operand: Ref,
+
+            fn src(self: @This()) LazySrcLoc {
+                return .{ .token_offset = self.src_tok };
+            }
+        },
+        pl_node: struct {
+            /// Offset from Decl AST node index.
+            /// `Tag` determines which kind of AST node this points to.
+            src_node: ast.Node.Index,
+            /// index into extra.
+            /// `Tag` determines what lives there.
+            payload_index: u32,
+
+            fn src(self: @This()) LazySrcLoc {
+                return .{ .node_offset = self.src_node };
+            }
+        },
+        bin: Bin,
+        decl: *Module.Decl,
+        @"const": *TypedValue,
+        str: struct {
+            /// Offset into `string_bytes`.
+            start: u32,
+            /// Number of bytes in the string.
+            len: u32,
+
+            pub fn get(self: @This(), code: Code) []const u8 {
+                return code.string_bytes[self.start..][0..self.len];
+            }
+        },
+        /// Offset from Decl AST token index.
+        tok: ast.TokenIndex,
+        /// Offset from Decl AST node index.
+        node: ast.Node.Index,
+        int: u64,
+        condbr: struct {
+            condition: Ref,
+            /// index into extra.
+            payload_index: u32,
+        },
+        ptr_type_simple: struct {
+            is_allowzero: bool,
+            is_mutable: bool,
+            is_volatile: bool,
+            size: std.builtin.TypeInfo.Pointer.Size,
+            elem_type: Ref,
+        },
+        ptr_type: struct {
+            flags: packed struct {
+                is_allowzero: bool,
+                is_mutable: bool,
+                is_volatile: bool,
+                has_sentinel: bool,
+                has_align: bool,
+                has_bit_start: bool,
+                has_bit_end: bool,
+                _: u1 = undefined,
+            },
+            size: std.builtin.TypeInfo.Pointer.Size,
+            /// Index into extra. See `PtrType`.
+            payload_index: u32,
+        },
+        fn_type: struct {
+            return_type: Ref,
+            /// For `fn_type` this points to a `FnType` in `extra`.
+            /// For `fn_type_cc` this points to `FnTypeCc` in `extra`.
+            payload_index: u32,
+        },
+        param_type: struct {
+            callee: Ref,
+            param_index: u32,
+        },
+
+        // Make sure we don't accidentally add a field to make this union
+        // bigger than expected. Note that in Debug builds, Zig is allowed
+        // to insert a secret field for safety checks.
+        comptime {
+            if (std.builtin.mode != .Debug) {
+                assert(@sizeOf(Data) == 8);
             }
         }
-        unreachable;
-    }
-
-    pub fn castTag(base: *Inst, comptime tag: Tag) ?*tag.Type() {
-        if (base.tag == tag) {
-            return @fieldParentPtr(tag.Type(), "base", base);
-        }
-        return null;
-    }
-
-    pub const NoOp = struct {
-        base: Inst,
-
-        positionals: struct {},
-        kw_args: struct {},
     };
 
-    pub const UnOp = struct {
-        base: Inst,
-
-        positionals: struct {
-            operand: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const BinOp = struct {
-        base: Inst,
-
-        positionals: struct {
-            lhs: *Inst,
-            rhs: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Arg = struct {
-        pub const base_tag = Tag.arg;
-        base: Inst,
-
-        positionals: struct {
-            /// This exists to be passed to the arg TZIR instruction, which
-            /// needs it for debug info.
-            name: []const u8,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Block = struct {
-        pub const base_tag = Tag.block;
-        base: Inst,
-
-        positionals: struct {
-            body: Body,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Break = struct {
-        pub const base_tag = Tag.@"break";
-        base: Inst,
-
-        positionals: struct {
-            block: *Block,
-            operand: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const BreakVoid = struct {
-        pub const base_tag = Tag.break_void;
-        base: Inst,
-
-        positionals: struct {
-            block: *Block,
-        },
-        kw_args: struct {},
-    };
-
-    // TODO break this into multiple call instructions to avoid paying the cost
-    // of the calling convention field most of the time.
-    pub const Call = struct {
-        pub const base_tag = Tag.call;
-        base: Inst,
-
-        positionals: struct {
-            func: *Inst,
-            args: []*Inst,
-            modifier: std.builtin.CallOptions.Modifier = .auto,
-        },
-        kw_args: struct {},
-    };
-
-    pub const DeclRef = struct {
-        pub const base_tag = Tag.decl_ref;
-        base: Inst,
-
-        positionals: struct {
-            decl: *IrModule.Decl,
-        },
-        kw_args: struct {},
-    };
-
-    pub const DeclRefStr = struct {
-        pub const base_tag = Tag.decl_ref_str;
-        base: Inst,
-
-        positionals: struct {
-            name: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const DeclVal = struct {
-        pub const base_tag = Tag.decl_val;
-        base: Inst,
-
-        positionals: struct {
-            decl: *IrModule.Decl,
-        },
-        kw_args: struct {},
-    };
-
-    pub const CompileLog = struct {
-        pub const base_tag = Tag.compile_log;
-        base: Inst,
-
-        positionals: struct {
-            to_log: []*Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Const = struct {
-        pub const base_tag = Tag.@"const";
-        base: Inst,
-
-        positionals: struct {
-            typed_value: TypedValue,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Str = struct {
-        pub const base_tag = Tag.str;
-        base: Inst,
-
-        positionals: struct {
-            bytes: []const u8,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Int = struct {
-        pub const base_tag = Tag.int;
-        base: Inst,
-
-        positionals: struct {
-            int: BigIntConst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Loop = struct {
-        pub const base_tag = Tag.loop;
-        base: Inst,
-
-        positionals: struct {
-            body: Body,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Field = struct {
-        base: Inst,
-
-        positionals: struct {
-            object: *Inst,
-            field_name: []const u8,
-        },
-        kw_args: struct {},
-    };
-
-    pub const FieldNamed = struct {
-        base: Inst,
-
-        positionals: struct {
-            object: *Inst,
-            field_name: *Inst,
-        },
-        kw_args: struct {},
-    };
-
+    /// Stored in extra. Trailing is:
+    /// * output_name: u32 // index into string_bytes (null terminated) if output is present
+    /// * arg: Ref // for every args_len.
+    /// * arg_name: u32 // index into string_bytes (null terminated) for every args_len.
+    /// * clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
-        pub const base_tag = Tag.@"asm";
-        base: Inst,
-
-        positionals: struct {
-            asm_source: *Inst,
-            return_type: *Inst,
-        },
-        kw_args: struct {
-            @"volatile": bool = false,
-            output: ?*Inst = null,
-            inputs: []const []const u8 = &.{},
-            clobbers: []const []const u8 = &.{},
-            args: []*Inst = &[0]*Inst{},
-        },
+        asm_source: Ref,
+        return_type: Ref,
+        /// May be omitted.
+        output: Ref,
+        args_len: u32,
+        clobbers_len: u32,
     };
 
-    pub const Fn = struct {
-        pub const base_tag = Tag.@"fn";
-        base: Inst,
-
-        positionals: struct {
-            fn_type: *Inst,
-            body: Body,
-        },
-        kw_args: struct {},
-    };
-
-    pub const FnType = struct {
-        pub const base_tag = Tag.fn_type;
-        base: Inst,
-
-        positionals: struct {
-            param_types: []*Inst,
-            return_type: *Inst,
-        },
-        kw_args: struct {},
-    };
-
+    /// This data is stored inside extra, with trailing parameter type indexes
+    /// according to `param_types_len`.
+    /// Each param type is a `Ref`.
     pub const FnTypeCc = struct {
-        pub const base_tag = Tag.fn_type_cc;
-        base: Inst,
-
-        positionals: struct {
-            param_types: []*Inst,
-            return_type: *Inst,
-            cc: *Inst,
-        },
-        kw_args: struct {},
+        cc: Ref,
+        param_types_len: u32,
     };
 
-    pub const IntType = struct {
-        pub const base_tag = Tag.int_type;
-        base: Inst,
-
-        positionals: struct {
-            signed: *Inst,
-            bits: *Inst,
-        },
-        kw_args: struct {},
+    /// This data is stored inside extra, with trailing parameter type indexes
+    /// according to `param_types_len`.
+    /// Each param type is a `Ref`.
+    pub const FnType = struct {
+        param_types_len: u32,
     };
 
-    pub const Export = struct {
-        pub const base_tag = Tag.@"export";
-        base: Inst,
-
-        positionals: struct {
-            symbol_name: *Inst,
-            decl_name: []const u8,
-        },
-        kw_args: struct {},
+    /// This data is stored inside extra, with trailing operands according to `operands_len`.
+    /// Each operand is a `Ref`.
+    pub const MultiOp = struct {
+        operands_len: u32,
     };
 
-    pub const ParamType = struct {
-        pub const base_tag = Tag.param_type;
-        base: Inst,
-
-        positionals: struct {
-            func: *Inst,
-            arg_index: usize,
-        },
-        kw_args: struct {},
+    /// Stored inside extra, with trailing arguments according to `args_len`.
+    /// Each argument is a `Ref`.
+    pub const Call = struct {
+        callee: Ref,
+        args_len: u32,
     };
 
-    pub const Primitive = struct {
-        pub const base_tag = Tag.primitive;
-        base: Inst,
-
-        positionals: struct {
-            tag: Builtin,
-        },
-        kw_args: struct {},
-
-        pub const Builtin = enum {
-            i8,
-            u8,
-            i16,
-            u16,
-            i32,
-            u32,
-            i64,
-            u64,
-            isize,
-            usize,
-            c_short,
-            c_ushort,
-            c_int,
-            c_uint,
-            c_long,
-            c_ulong,
-            c_longlong,
-            c_ulonglong,
-            c_longdouble,
-            c_void,
-            f16,
-            f32,
-            f64,
-            f128,
-            bool,
-            void,
-            noreturn,
-            type,
-            anyerror,
-            comptime_int,
-            comptime_float,
-            @"true",
-            @"false",
-            @"null",
-            @"undefined",
-            void_value,
-
-            pub fn toTypedValue(self: Builtin) TypedValue {
-                return switch (self) {
-                    .i8 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.i8_type) },
-                    .u8 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.u8_type) },
-                    .i16 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.i16_type) },
-                    .u16 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.u16_type) },
-                    .i32 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.i32_type) },
-                    .u32 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.u32_type) },
-                    .i64 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.i64_type) },
-                    .u64 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.u64_type) },
-                    .isize => .{ .ty = Type.initTag(.type), .val = Value.initTag(.isize_type) },
-                    .usize => .{ .ty = Type.initTag(.type), .val = Value.initTag(.usize_type) },
-                    .c_short => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_short_type) },
-                    .c_ushort => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_ushort_type) },
-                    .c_int => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_int_type) },
-                    .c_uint => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_uint_type) },
-                    .c_long => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_long_type) },
-                    .c_ulong => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_ulong_type) },
-                    .c_longlong => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_longlong_type) },
-                    .c_ulonglong => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_ulonglong_type) },
-                    .c_longdouble => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_longdouble_type) },
-                    .c_void => .{ .ty = Type.initTag(.type), .val = Value.initTag(.c_void_type) },
-                    .f16 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.f16_type) },
-                    .f32 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.f32_type) },
-                    .f64 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.f64_type) },
-                    .f128 => .{ .ty = Type.initTag(.type), .val = Value.initTag(.f128_type) },
-                    .bool => .{ .ty = Type.initTag(.type), .val = Value.initTag(.bool_type) },
-                    .void => .{ .ty = Type.initTag(.type), .val = Value.initTag(.void_type) },
-                    .noreturn => .{ .ty = Type.initTag(.type), .val = Value.initTag(.noreturn_type) },
-                    .type => .{ .ty = Type.initTag(.type), .val = Value.initTag(.type_type) },
-                    .anyerror => .{ .ty = Type.initTag(.type), .val = Value.initTag(.anyerror_type) },
-                    .comptime_int => .{ .ty = Type.initTag(.type), .val = Value.initTag(.comptime_int_type) },
-                    .comptime_float => .{ .ty = Type.initTag(.type), .val = Value.initTag(.comptime_float_type) },
-                    .@"true" => .{ .ty = Type.initTag(.bool), .val = Value.initTag(.bool_true) },
-                    .@"false" => .{ .ty = Type.initTag(.bool), .val = Value.initTag(.bool_false) },
-                    .@"null" => .{ .ty = Type.initTag(.@"null"), .val = Value.initTag(.null_value) },
-                    .@"undefined" => .{ .ty = Type.initTag(.@"undefined"), .val = Value.initTag(.undef) },
-                    .void_value => .{ .ty = Type.initTag(.void), .val = Value.initTag(.void_value) },
-                };
-            }
-        };
-    };
-
-    pub const Elem = struct {
-        base: Inst,
-
-        positionals: struct {
-            array: *Inst,
-            index: *Inst,
-        },
-        kw_args: struct {},
-    };
-
+    /// This data is stored inside extra, with two sets of trailing indexes:
+    /// * 0. the then body, according to `then_body_len`.
+    /// * 1. the else body, according to `else_body_len`.
     pub const CondBr = struct {
-        pub const base_tag = Tag.condbr;
-        base: Inst,
-
-        positionals: struct {
-            condition: *Inst,
-            then_body: Body,
-            else_body: Body,
-        },
-        kw_args: struct {},
+        then_body_len: u32,
+        else_body_len: u32,
     };
 
+    /// Stored in extra. Depending on the flags in Data, there will be up to 4
+    /// trailing Ref fields:
+    /// 0. sentinel: Ref // if `has_sentinel` flag is set
+    /// 1. align: Ref // if `has_align` flag is set
+    /// 2. bit_start: Ref // if `has_bit_start` flag is set
+    /// 3. bit_end: Ref // if `has_bit_end` flag is set
     pub const PtrType = struct {
-        pub const base_tag = Tag.ptr_type;
-        base: Inst,
-
-        positionals: struct {
-            child_type: *Inst,
-        },
-        kw_args: struct {
-            @"allowzero": bool = false,
-            @"align": ?*Inst = null,
-            align_bit_start: ?*Inst = null,
-            align_bit_end: ?*Inst = null,
-            mutable: bool = true,
-            @"volatile": bool = false,
-            sentinel: ?*Inst = null,
-            size: std.builtin.TypeInfo.Pointer.Size = .One,
-        },
+        elem_type: Ref,
     };
 
     pub const ArrayTypeSentinel = struct {
-        pub const base_tag = Tag.array_type_sentinel;
-        base: Inst,
-
-        positionals: struct {
-            len: *Inst,
-            sentinel: *Inst,
-            elem_type: *Inst,
-        },
-        kw_args: struct {},
+        sentinel: Ref,
+        elem_type: Ref,
     };
 
-    pub const EnumLiteral = struct {
-        pub const base_tag = Tag.enum_literal;
-        base: Inst,
-
-        positionals: struct {
-            name: []const u8,
-        },
-        kw_args: struct {},
+    pub const SliceStart = struct {
+        lhs: Ref,
+        start: Ref,
     };
 
-    pub const ErrorSet = struct {
-        pub const base_tag = Tag.error_set;
-        base: Inst,
-
-        positionals: struct {
-            fields: [][]const u8,
-        },
-        kw_args: struct {},
+    pub const SliceEnd = struct {
+        lhs: Ref,
+        start: Ref,
+        end: Ref,
     };
 
-    pub const ErrorValue = struct {
-        pub const base_tag = Tag.error_value;
-        base: Inst,
-
-        positionals: struct {
-            name: []const u8,
-        },
-        kw_args: struct {},
+    pub const SliceSentinel = struct {
+        lhs: Ref,
+        start: Ref,
+        end: Ref,
+        sentinel: Ref,
     };
 
-    pub const Slice = struct {
-        pub const base_tag = Tag.slice;
-        base: Inst,
-
-        positionals: struct {
-            array_ptr: *Inst,
-            start: *Inst,
-        },
-        kw_args: struct {
-            end: ?*Inst = null,
-            sentinel: ?*Inst = null,
-        },
+    /// The meaning of these operands depends on the corresponding `Tag`.
+    pub const Bin = struct {
+        lhs: Ref,
+        rhs: Ref,
     };
 
-    pub const TypeOfPeer = struct {
-        pub const base_tag = .typeof_peer;
-        base: Inst,
-        positionals: struct {
-            items: []*Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const ContainerFieldNamed = struct {
-        pub const base_tag = Tag.container_field_named;
-        base: Inst,
-
-        positionals: struct {
-            bytes: []const u8,
-        },
-        kw_args: struct {},
-    };
-
-    pub const ContainerFieldTyped = struct {
-        pub const base_tag = Tag.container_field_typed;
-        base: Inst,
-
-        positionals: struct {
-            bytes: []const u8,
-            ty: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const ContainerField = struct {
-        pub const base_tag = Tag.container_field;
-        base: Inst,
-
-        positionals: struct {
-            bytes: []const u8,
-        },
-        kw_args: struct {
-            ty: ?*Inst = null,
-            init: ?*Inst = null,
-            alignment: ?*Inst = null,
-            is_comptime: bool = false,
-        },
-    };
-
-    pub const EnumType = struct {
-        pub const base_tag = Tag.enum_type;
-        base: Inst,
-
-        positionals: struct {
-            fields: []*Inst,
-        },
-        kw_args: struct {
-            tag_type: ?*Inst = null,
-            layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
-        },
-    };
-
-    pub const StructType = struct {
-        pub const base_tag = Tag.struct_type;
-        base: Inst,
-
-        positionals: struct {
-            fields: []*Inst,
-        },
-        kw_args: struct {
-            layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
-        },
-    };
-
-    pub const UnionType = struct {
-        pub const base_tag = Tag.union_type;
-        base: Inst,
-
-        positionals: struct {
-            fields: []*Inst,
-        },
-        kw_args: struct {
-            init_inst: ?*Inst = null,
-            has_enum_token: bool,
-            layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
-        },
-    };
-
+    /// Stored in extra. Depending on zir tag and len fields, extra fields trail
+    /// this one in the extra array.
+    /// 0. range: Ref // If the tag has "_range" in it.
+    /// 1. else_body: Ref // If the tag has "_else" or "_underscore" in it.
+    /// 2. items: list of all individual items and ranges.
+    /// 3. cases: {
+    ///        item: Ref,
+    ///        body_len: u32,
+    ///        body member Ref for every body_len
+    ///    } for every cases_len
     pub const SwitchBr = struct {
-        base: Inst,
-
-        positionals: struct {
-            target: *Inst,
-            /// List of all individual items and ranges
-            items: []*Inst,
-            cases: []Case,
-            else_body: Body,
-            /// Pointer to first range if such exists.
-            range: ?*Inst = null,
-            special_prong: SpecialProng = .none,
-        },
-        kw_args: struct {},
-
-        pub const SpecialProng = enum {
-            none,
-            @"else",
-            underscore,
-        };
-
-        pub const Case = struct {
-            item: *Inst,
-            body: Body,
-        };
-    };
-};
-
-pub const ErrorMsg = struct {
-    byte_offset: usize,
-    msg: []const u8,
-};
-
-pub const Body = struct {
-    instructions: []*Inst,
-};
-
-pub const Module = struct {
-    decls: []*Decl,
-    arena: std.heap.ArenaAllocator,
-    error_msg: ?ErrorMsg = null,
-    metadata: std.AutoHashMap(*Inst, MetaData),
-    body_metadata: std.AutoHashMap(*Body, BodyMetaData),
-
-    pub const Decl = struct {
-        name: []const u8,
-
-        /// Hash of slice into the source of the part after the = and before the next instruction.
-        contents_hash: std.zig.SrcHash,
-
-        inst: *Inst,
+        /// TODO investigate, why do we need to store this? is it redundant?
+        items_len: u32,
+        cases_len: u32,
     };
 
-    pub const MetaData = struct {
-        deaths: ir.Inst.DeathsInt,
-        addr: usize,
+    pub const Field = struct {
+        lhs: Ref,
+        /// Offset into `string_bytes`.
+        field_name_start: u32,
+        /// Number of bytes in the string.
+        field_name_len: u32,
     };
 
-    pub const BodyMetaData = struct {
-        deaths: []*Inst,
+    pub const FieldNamed = struct {
+        lhs: Ref,
+        field_name: Ref,
     };
-
-    pub fn deinit(self: *Module, allocator: *Allocator) void {
-        self.metadata.deinit();
-        self.body_metadata.deinit();
-        allocator.free(self.decls);
-        self.arena.deinit();
-        self.* = undefined;
-    }
-
-    /// This is a debugging utility for rendering the tree to stderr.
-    pub fn dump(self: Module) void {
-        self.writeToStream(std.heap.page_allocator, std.io.getStdErr().writer()) catch {};
-    }
-
-    const DeclAndIndex = struct {
-        decl: *Decl,
-        index: usize,
-    };
-
-    /// TODO Look into making a table to speed this up.
-    pub fn findDecl(self: Module, name: []const u8) ?DeclAndIndex {
-        for (self.decls) |decl, i| {
-            if (mem.eql(u8, decl.name, name)) {
-                return DeclAndIndex{
-                    .decl = decl,
-                    .index = i,
-                };
-            }
-        }
-        return null;
-    }
-
-    pub fn findInstDecl(self: Module, inst: *Inst) ?DeclAndIndex {
-        for (self.decls) |decl, i| {
-            if (decl.inst == inst) {
-                return DeclAndIndex{
-                    .decl = decl,
-                    .index = i,
-                };
-            }
-        }
-        return null;
-    }
-
-    /// The allocator is used for temporary storage, but this function always returns
-    /// with no resources allocated.
-    pub fn writeToStream(self: Module, allocator: *Allocator, stream: anytype) !void {
-        var write = Writer{
-            .module = &self,
-            .inst_table = InstPtrTable.init(allocator),
-            .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(allocator),
-            .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(allocator),
-            .arena = std.heap.ArenaAllocator.init(allocator),
-            .indent = 2,
-            .next_instr_index = undefined,
-        };
-        defer write.arena.deinit();
-        defer write.inst_table.deinit();
-        defer write.block_table.deinit();
-        defer write.loop_table.deinit();
-
-        // First, build a map of *Inst to @ or % indexes
-        try write.inst_table.ensureCapacity(@intCast(u32, self.decls.len));
-
-        for (self.decls) |decl, decl_i| {
-            try write.inst_table.putNoClobber(decl.inst, .{ .inst = decl.inst, .index = null, .name = decl.name });
-        }
-
-        for (self.decls) |decl, i| {
-            write.next_instr_index = 0;
-            try stream.print("@{s} ", .{decl.name});
-            try write.writeInstToStream(stream, decl.inst);
-            try stream.writeByte('\n');
-        }
-    }
-};
-
-const InstPtrTable = std.AutoHashMap(*Inst, struct { inst: *Inst, index: ?usize, name: []const u8 });
-
-const Writer = struct {
-    module: *const Module,
-    inst_table: InstPtrTable,
-    block_table: std.AutoHashMap(*Inst.Block, []const u8),
-    loop_table: std.AutoHashMap(*Inst.Loop, []const u8),
-    arena: std.heap.ArenaAllocator,
-    indent: usize,
-    next_instr_index: usize,
-
-    fn writeInstToStream(
-        self: *Writer,
-        stream: anytype,
-        inst: *Inst,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        inline for (@typeInfo(Inst.Tag).Enum.fields) |enum_field| {
-            const expected_tag = @field(Inst.Tag, enum_field.name);
-            if (inst.tag == expected_tag) {
-                return self.writeInstToStreamGeneric(stream, expected_tag, inst);
-            }
-        }
-        unreachable; // all tags handled
-    }
-
-    fn writeInstToStreamGeneric(
-        self: *Writer,
-        stream: anytype,
-        comptime inst_tag: Inst.Tag,
-        base: *Inst,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const SpecificInst = inst_tag.Type();
-        const inst = @fieldParentPtr(SpecificInst, "base", base);
-        const Positionals = @TypeOf(inst.positionals);
-        try stream.writeAll("= " ++ @tagName(inst_tag) ++ "(");
-        const pos_fields = @typeInfo(Positionals).Struct.fields;
-        inline for (pos_fields) |arg_field, i| {
-            if (i != 0) {
-                try stream.writeAll(", ");
-            }
-            try self.writeParamToStream(stream, &@field(inst.positionals, arg_field.name));
-        }
-
-        comptime var need_comma = pos_fields.len != 0;
-        const KW_Args = @TypeOf(inst.kw_args);
-        inline for (@typeInfo(KW_Args).Struct.fields) |arg_field, i| {
-            if (@typeInfo(arg_field.field_type) == .Optional) {
-                if (@field(inst.kw_args, arg_field.name)) |non_optional| {
-                    if (need_comma) try stream.writeAll(", ");
-                    try stream.print("{s}=", .{arg_field.name});
-                    try self.writeParamToStream(stream, &non_optional);
-                    need_comma = true;
-                }
-            } else {
-                if (need_comma) try stream.writeAll(", ");
-                try stream.print("{s}=", .{arg_field.name});
-                try self.writeParamToStream(stream, &@field(inst.kw_args, arg_field.name));
-                need_comma = true;
-            }
-        }
-
-        try stream.writeByte(')');
-    }
-
-    fn writeParamToStream(self: *Writer, stream: anytype, param_ptr: anytype) !void {
-        const param = param_ptr.*;
-        if (@typeInfo(@TypeOf(param)) == .Enum) {
-            return stream.writeAll(@tagName(param));
-        }
-        switch (@TypeOf(param)) {
-            *Inst => return self.writeInstParamToStream(stream, param),
-            ?*Inst => return self.writeInstParamToStream(stream, param.?),
-            []*Inst => {
-                try stream.writeByte('[');
-                for (param) |inst, i| {
-                    if (i != 0) {
-                        try stream.writeAll(", ");
-                    }
-                    try self.writeInstParamToStream(stream, inst);
-                }
-                try stream.writeByte(']');
-            },
-            Body => {
-                try stream.writeAll("{\n");
-                if (self.module.body_metadata.get(param_ptr)) |metadata| {
-                    if (metadata.deaths.len > 0) {
-                        try stream.writeByteNTimes(' ', self.indent);
-                        try stream.writeAll("; deaths={");
-                        for (metadata.deaths) |death, i| {
-                            if (i != 0) try stream.writeAll(", ");
-                            try self.writeInstParamToStream(stream, death);
-                        }
-                        try stream.writeAll("}\n");
-                    }
-                }
-
-                for (param.instructions) |inst| {
-                    const my_i = self.next_instr_index;
-                    self.next_instr_index += 1;
-                    try self.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = undefined });
-                    try stream.writeByteNTimes(' ', self.indent);
-                    try stream.print("%{d} ", .{my_i});
-                    if (inst.cast(Inst.Block)) |block| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{d}", .{my_i});
-                        try self.block_table.put(block, name);
-                    } else if (inst.cast(Inst.Loop)) |loop| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{d}", .{my_i});
-                        try self.loop_table.put(loop, name);
-                    }
-                    self.indent += 2;
-                    try self.writeInstToStream(stream, inst);
-                    if (self.module.metadata.get(inst)) |metadata| {
-                        try stream.print(" ; deaths=0b{b}", .{metadata.deaths});
-                        // This is conditionally compiled in because addresses mess up the tests due
-                        // to Address Space Layout Randomization. It's super useful when debugging
-                        // codegen.zig though.
-                        if (!std.builtin.is_test) {
-                            try stream.print(" 0x{x}", .{metadata.addr});
-                        }
-                    }
-                    self.indent -= 2;
-                    try stream.writeByte('\n');
-                }
-                try stream.writeByteNTimes(' ', self.indent - 2);
-                try stream.writeByte('}');
-            },
-            bool => return stream.writeByte("01"[@boolToInt(param)]),
-            []u8, []const u8 => return stream.print("\"{}\"", .{std.zig.fmtEscapes(param)}),
-            BigIntConst, usize => return stream.print("{}", .{param}),
-            TypedValue => return stream.print("TypedValue{{ .ty = {}, .val = {}}}", .{ param.ty, param.val }),
-            *IrModule.Decl => return stream.print("Decl({s})", .{param.name}),
-            *Inst.Block => {
-                const name = self.block_table.get(param) orelse "!BADREF!";
-                return stream.print("\"{}\"", .{std.zig.fmtEscapes(name)});
-            },
-            *Inst.Loop => {
-                const name = self.loop_table.get(param).?;
-                return stream.print("\"{}\"", .{std.zig.fmtEscapes(name)});
-            },
-            [][]const u8, []const []const u8 => {
-                try stream.writeByte('[');
-                for (param) |str, i| {
-                    if (i != 0) {
-                        try stream.writeAll(", ");
-                    }
-                    try stream.print("\"{}\"", .{std.zig.fmtEscapes(str)});
-                }
-                try stream.writeByte(']');
-            },
-            []Inst.SwitchBr.Case => {
-                if (param.len == 0) {
-                    return stream.writeAll("{}");
-                }
-                try stream.writeAll("{\n");
-                for (param) |*case, i| {
-                    if (i != 0) {
-                        try stream.writeAll(",\n");
-                    }
-                    try stream.writeByteNTimes(' ', self.indent);
-                    self.indent += 2;
-                    try self.writeParamToStream(stream, &case.item);
-                    try stream.writeAll(" => ");
-                    try self.writeParamToStream(stream, &case.body);
-                    self.indent -= 2;
-                }
-                try stream.writeByte('\n');
-                try stream.writeByteNTimes(' ', self.indent - 2);
-                try stream.writeByte('}');
-            },
-            else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
-        }
-    }
-
-    fn writeInstParamToStream(self: *Writer, stream: anytype, inst: *Inst) !void {
-        if (self.inst_table.get(inst)) |info| {
-            if (info.index) |i| {
-                try stream.print("%{d}", .{info.index});
-            } else {
-                try stream.print("@{s}", .{info.name});
-            }
-        } else if (inst.cast(Inst.DeclVal)) |decl_val| {
-            try stream.print("@{s}", .{decl_val.positionals.decl.name});
-        } else {
-            // This should be unreachable in theory, but since ZIR is used for debugging the compiler
-            // we output some debug text instead.
-            try stream.print("?{s}?", .{@tagName(inst.tag)});
-        }
-    }
-};
-
-/// For debugging purposes, prints a function representation to stderr.
-pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
-    const allocator = old_module.gpa;
-    var ctx: DumpTzir = .{
-        .allocator = allocator,
-        .arena = std.heap.ArenaAllocator.init(allocator),
-        .old_module = &old_module,
-        .module_fn = module_fn,
-        .indent = 2,
-        .inst_table = DumpTzir.InstTable.init(allocator),
-        .partial_inst_table = DumpTzir.InstTable.init(allocator),
-        .const_table = DumpTzir.InstTable.init(allocator),
-    };
-    defer ctx.inst_table.deinit();
-    defer ctx.partial_inst_table.deinit();
-    defer ctx.const_table.deinit();
-    defer ctx.arena.deinit();
-
-    switch (module_fn.state) {
-        .queued => std.debug.print("(queued)", .{}),
-        .inline_only => std.debug.print("(inline_only)", .{}),
-        .in_progress => std.debug.print("(in_progress)", .{}),
-        .sema_failure => std.debug.print("(sema_failure)", .{}),
-        .dependency_failure => std.debug.print("(dependency_failure)", .{}),
-        .success => {
-            const writer = std.io.getStdErr().writer();
-            ctx.dump(module_fn.body, writer) catch @panic("failed to dump TZIR");
-        },
-    }
-}
-
-const DumpTzir = struct {
-    allocator: *Allocator,
-    arena: std.heap.ArenaAllocator,
-    old_module: *const IrModule,
-    module_fn: *IrModule.Fn,
-    indent: usize,
-    inst_table: InstTable,
-    partial_inst_table: InstTable,
-    const_table: InstTable,
-    next_index: usize = 0,
-    next_partial_index: usize = 0,
-    next_const_index: usize = 0,
-
-    const InstTable = std.AutoArrayHashMap(*ir.Inst, usize);
-
-    /// TODO: Improve this code to include a stack of ir.Body and store the instructions
-    /// in there. Now we are putting all the instructions in a function local table,
-    /// however instructions that are in a Body can be thown away when the Body ends.
-    fn dump(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
-        // First pass to pre-populate the table so that we can show even invalid references.
-        // Must iterate the same order we iterate the second time.
-        // We also look for constants and put them in the const_table.
-        try dtz.fetchInstsAndResolveConsts(body);
-
-        std.debug.print("Module.Function(name={s}):\n", .{dtz.module_fn.owner_decl.name});
-
-        for (dtz.const_table.items()) |entry| {
-            const constant = entry.key.castTag(.constant).?;
-            try writer.print("  @{d}: {} = {};\n", .{
-                entry.value, constant.base.ty, constant.val,
-            });
-        }
-
-        return dtz.dumpBody(body, writer);
-    }
-
-    fn fetchInstsAndResolveConsts(dtz: *DumpTzir, body: ir.Body) error{OutOfMemory}!void {
-        for (body.instructions) |inst| {
-            try dtz.inst_table.put(inst, dtz.next_index);
-            dtz.next_index += 1;
-            switch (inst.tag) {
-                .alloc,
-                .retvoid,
-                .unreach,
-                .breakpoint,
-                .dbg_stmt,
-                .arg,
-                => {},
-
-                .ref,
-                .ret,
-                .bitcast,
-                .not,
-                .is_non_null,
-                .is_non_null_ptr,
-                .is_null,
-                .is_null_ptr,
-                .is_err,
-                .is_err_ptr,
-                .ptrtoint,
-                .floatcast,
-                .intcast,
-                .load,
-                .optional_payload,
-                .optional_payload_ptr,
-                .wrap_optional,
-                .wrap_errunion_payload,
-                .wrap_errunion_err,
-                .unwrap_errunion_payload,
-                .unwrap_errunion_err,
-                .unwrap_errunion_payload_ptr,
-                .unwrap_errunion_err_ptr,
-                => {
-                    const un_op = inst.cast(ir.Inst.UnOp).?;
-                    try dtz.findConst(un_op.operand);
-                },
-
-                .add,
-                .addwrap,
-                .sub,
-                .subwrap,
-                .mul,
-                .mulwrap,
-                .cmp_lt,
-                .cmp_lte,
-                .cmp_eq,
-                .cmp_gte,
-                .cmp_gt,
-                .cmp_neq,
-                .store,
-                .bool_and,
-                .bool_or,
-                .bit_and,
-                .bit_or,
-                .xor,
-                => {
-                    const bin_op = inst.cast(ir.Inst.BinOp).?;
-                    try dtz.findConst(bin_op.lhs);
-                    try dtz.findConst(bin_op.rhs);
-                },
-
-                .br => {
-                    const br = inst.castTag(.br).?;
-                    try dtz.findConst(&br.block.base);
-                    try dtz.findConst(br.operand);
-                },
-
-                .br_block_flat => {
-                    const br_block_flat = inst.castTag(.br_block_flat).?;
-                    try dtz.findConst(&br_block_flat.block.base);
-                    try dtz.fetchInstsAndResolveConsts(br_block_flat.body);
-                },
-
-                .br_void => {
-                    const br_void = inst.castTag(.br_void).?;
-                    try dtz.findConst(&br_void.block.base);
-                },
-
-                .block => {
-                    const block = inst.castTag(.block).?;
-                    try dtz.fetchInstsAndResolveConsts(block.body);
-                },
-
-                .condbr => {
-                    const condbr = inst.castTag(.condbr).?;
-                    try dtz.findConst(condbr.condition);
-                    try dtz.fetchInstsAndResolveConsts(condbr.then_body);
-                    try dtz.fetchInstsAndResolveConsts(condbr.else_body);
-                },
-
-                .loop => {
-                    const loop = inst.castTag(.loop).?;
-                    try dtz.fetchInstsAndResolveConsts(loop.body);
-                },
-                .call => {
-                    const call = inst.castTag(.call).?;
-                    try dtz.findConst(call.func);
-                    for (call.args) |arg| {
-                        try dtz.findConst(arg);
-                    }
-                },
-
-                // TODO fill out this debug printing
-                .assembly,
-                .constant,
-                .varptr,
-                .switchbr,
-                => {},
-            }
-        }
-    }
-
-    fn dumpBody(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) (std.fs.File.WriteError || error{OutOfMemory})!void {
-        for (body.instructions) |inst| {
-            const my_index = dtz.next_partial_index;
-            try dtz.partial_inst_table.put(inst, my_index);
-            dtz.next_partial_index += 1;
-
-            try writer.writeByteNTimes(' ', dtz.indent);
-            try writer.print("%{d}: {} = {s}(", .{
-                my_index, inst.ty, @tagName(inst.tag),
-            });
-            switch (inst.tag) {
-                .alloc,
-                .retvoid,
-                .unreach,
-                .breakpoint,
-                .dbg_stmt,
-                => try writer.writeAll(")\n"),
-
-                .ref,
-                .ret,
-                .bitcast,
-                .not,
-                .is_non_null,
-                .is_null,
-                .is_non_null_ptr,
-                .is_null_ptr,
-                .is_err,
-                .is_err_ptr,
-                .ptrtoint,
-                .floatcast,
-                .intcast,
-                .load,
-                .optional_payload,
-                .optional_payload_ptr,
-                .wrap_optional,
-                .wrap_errunion_err,
-                .wrap_errunion_payload,
-                .unwrap_errunion_err,
-                .unwrap_errunion_payload,
-                .unwrap_errunion_payload_ptr,
-                .unwrap_errunion_err_ptr,
-                => {
-                    const un_op = inst.cast(ir.Inst.UnOp).?;
-                    const kinky = try dtz.writeInst(writer, un_op.operand);
-                    if (kinky != null) {
-                        try writer.writeAll(") // Instruction does not dominate all uses!\n");
-                    } else {
-                        try writer.writeAll(")\n");
-                    }
-                },
-
-                .add,
-                .addwrap,
-                .sub,
-                .subwrap,
-                .mul,
-                .mulwrap,
-                .cmp_lt,
-                .cmp_lte,
-                .cmp_eq,
-                .cmp_gte,
-                .cmp_gt,
-                .cmp_neq,
-                .store,
-                .bool_and,
-                .bool_or,
-                .bit_and,
-                .bit_or,
-                .xor,
-                => {
-                    const bin_op = inst.cast(ir.Inst.BinOp).?;
-
-                    const lhs_kinky = try dtz.writeInst(writer, bin_op.lhs);
-                    try writer.writeAll(", ");
-                    const rhs_kinky = try dtz.writeInst(writer, bin_op.rhs);
-
-                    if (lhs_kinky != null or rhs_kinky != null) {
-                        try writer.writeAll(") // Instruction does not dominate all uses!");
-                        if (lhs_kinky) |lhs| {
-                            try writer.print(" %{d}", .{lhs});
-                        }
-                        if (rhs_kinky) |rhs| {
-                            try writer.print(" %{d}", .{rhs});
-                        }
-                        try writer.writeAll("\n");
-                    } else {
-                        try writer.writeAll(")\n");
-                    }
-                },
-
-                .arg => {
-                    const arg = inst.castTag(.arg).?;
-                    try writer.print("{s})\n", .{arg.name});
-                },
-
-                .br => {
-                    const br = inst.castTag(.br).?;
-
-                    const lhs_kinky = try dtz.writeInst(writer, &br.block.base);
-                    try writer.writeAll(", ");
-                    const rhs_kinky = try dtz.writeInst(writer, br.operand);
-
-                    if (lhs_kinky != null or rhs_kinky != null) {
-                        try writer.writeAll(") // Instruction does not dominate all uses!");
-                        if (lhs_kinky) |lhs| {
-                            try writer.print(" %{d}", .{lhs});
-                        }
-                        if (rhs_kinky) |rhs| {
-                            try writer.print(" %{d}", .{rhs});
-                        }
-                        try writer.writeAll("\n");
-                    } else {
-                        try writer.writeAll(")\n");
-                    }
-                },
-
-                .br_block_flat => {
-                    const br_block_flat = inst.castTag(.br_block_flat).?;
-                    const block_kinky = try dtz.writeInst(writer, &br_block_flat.block.base);
-                    if (block_kinky != null) {
-                        try writer.writeAll(", { // Instruction does not dominate all uses!\n");
-                    } else {
-                        try writer.writeAll(", {\n");
-                    }
-
-                    const old_indent = dtz.indent;
-                    dtz.indent += 2;
-                    try dtz.dumpBody(br_block_flat.body, writer);
-                    dtz.indent = old_indent;
-
-                    try writer.writeByteNTimes(' ', dtz.indent);
-                    try writer.writeAll("})\n");
-                },
-
-                .br_void => {
-                    const br_void = inst.castTag(.br_void).?;
-                    const kinky = try dtz.writeInst(writer, &br_void.block.base);
-                    if (kinky) |_| {
-                        try writer.writeAll(") // Instruction does not dominate all uses!\n");
-                    } else {
-                        try writer.writeAll(")\n");
-                    }
-                },
-
-                .block => {
-                    const block = inst.castTag(.block).?;
-
-                    try writer.writeAll("{\n");
-
-                    const old_indent = dtz.indent;
-                    dtz.indent += 2;
-                    try dtz.dumpBody(block.body, writer);
-                    dtz.indent = old_indent;
-
-                    try writer.writeByteNTimes(' ', dtz.indent);
-                    try writer.writeAll("})\n");
-                },
-
-                .condbr => {
-                    const condbr = inst.castTag(.condbr).?;
-
-                    const condition_kinky = try dtz.writeInst(writer, condbr.condition);
-                    if (condition_kinky != null) {
-                        try writer.writeAll(", { // Instruction does not dominate all uses!\n");
-                    } else {
-                        try writer.writeAll(", {\n");
-                    }
-
-                    const old_indent = dtz.indent;
-                    dtz.indent += 2;
-                    try dtz.dumpBody(condbr.then_body, writer);
-
-                    try writer.writeByteNTimes(' ', old_indent);
-                    try writer.writeAll("}, {\n");
-
-                    try dtz.dumpBody(condbr.else_body, writer);
-                    dtz.indent = old_indent;
-
-                    try writer.writeByteNTimes(' ', old_indent);
-                    try writer.writeAll("})\n");
-                },
-
-                .loop => {
-                    const loop = inst.castTag(.loop).?;
-
-                    try writer.writeAll("{\n");
-
-                    const old_indent = dtz.indent;
-                    dtz.indent += 2;
-                    try dtz.dumpBody(loop.body, writer);
-                    dtz.indent = old_indent;
-
-                    try writer.writeByteNTimes(' ', dtz.indent);
-                    try writer.writeAll("})\n");
-                },
-
-                .call => {
-                    const call = inst.castTag(.call).?;
-
-                    const args_kinky = try dtz.allocator.alloc(?usize, call.args.len);
-                    defer dtz.allocator.free(args_kinky);
-                    std.mem.set(?usize, args_kinky, null);
-                    var any_kinky_args = false;
-
-                    const func_kinky = try dtz.writeInst(writer, call.func);
-
-                    for (call.args) |arg, i| {
-                        try writer.writeAll(", ");
-
-                        args_kinky[i] = try dtz.writeInst(writer, arg);
-                        any_kinky_args = any_kinky_args or args_kinky[i] != null;
-                    }
-
-                    if (func_kinky != null or any_kinky_args) {
-                        try writer.writeAll(") // Instruction does not dominate all uses!");
-                        if (func_kinky) |func_index| {
-                            try writer.print(" %{d}", .{func_index});
-                        }
-                        for (args_kinky) |arg_kinky| {
-                            if (arg_kinky) |arg_index| {
-                                try writer.print(" %{d}", .{arg_index});
-                            }
-                        }
-                        try writer.writeAll("\n");
-                    } else {
-                        try writer.writeAll(")\n");
-                    }
-                },
-
-                // TODO fill out this debug printing
-                .assembly,
-                .constant,
-                .varptr,
-                .switchbr,
-                => {
-                    try writer.writeAll("!TODO!)\n");
-                },
-            }
-        }
-    }
-
-    fn writeInst(dtz: *DumpTzir, writer: std.fs.File.Writer, inst: *ir.Inst) !?usize {
-        if (dtz.partial_inst_table.get(inst)) |operand_index| {
-            try writer.print("%{d}", .{operand_index});
-            return null;
-        } else if (dtz.const_table.get(inst)) |operand_index| {
-            try writer.print("@{d}", .{operand_index});
-            return null;
-        } else if (dtz.inst_table.get(inst)) |operand_index| {
-            try writer.print("%{d}", .{operand_index});
-            return operand_index;
-        } else {
-            try writer.writeAll("!BADREF!");
-            return null;
-        }
-    }
-
-    fn findConst(dtz: *DumpTzir, operand: *ir.Inst) !void {
-        if (operand.tag == .constant) {
-            try dtz.const_table.put(operand, dtz.next_const_index);
-            dtz.next_const_index += 1;
-        }
-    }
 };
 
 /// For debugging purposes, like dumpFn but for unanalyzed zir blocks
-pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8, instructions: []*Inst) !void {
+pub fn dumpZir(gpa: *Allocator, kind: []const u8, decl_name: [*:0]const u8, instructions: []*Inst) !void {
     var fib = std.heap.FixedBufferAllocator.init(&[_]u8{});
     var module = Module{
         .decls = &[_]*Module.Decl{},
@@ -2030,10 +1190,10 @@ pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8
     };
     var write = Writer{
         .module = &module,
-        .inst_table = InstPtrTable.init(allocator),
-        .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(allocator),
-        .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(allocator),
-        .arena = std.heap.ArenaAllocator.init(allocator),
+        .inst_table = InstPtrTable.init(gpa),
+        .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(gpa),
+        .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(gpa),
+        .arena = std.heap.ArenaAllocator.init(gpa),
         .indent = 4,
         .next_instr_index = 0,
     };
