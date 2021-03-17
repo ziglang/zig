@@ -201,8 +201,10 @@ pub fn getSymbolMap() !*SymMap {
     }
 }
 
+const is_stripped = using_default_symbol_map and builtin.strip_debug_info;
+
 fn getMappingForDump(writer: anytype) ?*SymMap {
-    if (using_default_symbol_map and builtin.strip_debug_info) {
+    if (is_stripped) {
         writer.print("Unable to dump stack trace: debug info stripped\n", .{}) catch {};
         return null;
     }
@@ -234,6 +236,9 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
+        // just to appease the compiler
+        if (is_stripped) unreachable;
+
         write_trace.current(start_addr) catch |err| dumpHandleError(writer, err);
     };
 }
@@ -246,6 +251,9 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
+        // just to appease the compiler
+        if (is_stripped) unreachable;
+
         write_trace.fromBase(bp, ip) catch |err| dumpHandleError(writer, err);
     };
 }
@@ -257,6 +265,9 @@ pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
+        // just to appease the compiler
+        if (is_stripped) unreachable;
+
         write_trace.stackTrace(stack_trace) catch |err| dumpHandleError(writer, err);
     };
 }
@@ -273,6 +284,9 @@ fn formatStackTraceWithTTYConfig(
     writer: anytype,
 ) !void {
     if (getMappingForDump(writer)) |mapping| {
+        // just to appease the compiler
+        if (is_stripped) unreachable;
+
         const dumper = std.debug.StackTraceDumper(@TypeOf(writer)){
             .writer = writer,
             .tty_config = self.tty_config,
@@ -496,6 +510,9 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
 
                 // we don't use the dump functions because those lock the mutex
                 const write_trace = if (getStackTraceDumper(writer)) |wt| wt else break :blk;
+                // just to appease the compiler
+                if (is_stripped) unreachable;
+
                 if (trace) |t| {
                     write_trace.stackTrace(t.*) catch |err| {
                         dumpHandleError(writer, err);
@@ -534,6 +551,10 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
 
                 // we don't use the dump functions because those lock the mutex
                 const write_trace = if (getStackTraceDumper(writer)) |wt| wt else break :blk;
+
+                // just to appease the compiler
+                if (is_stripped) unreachable;
+
                 if (trace) |t| {
                     write_trace.stackTrace(t.*) catch |err| {
                         dumpHandleError(writer, err);
