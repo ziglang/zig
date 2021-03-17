@@ -200,6 +200,9 @@ pub fn getPrintMutex() *std.Thread.Mutex {
     return &print_mutex;
 }
 
+pub const getStderrMutex = @compileError("This was renamed to getPrintMutex because " ++
+    "the writer used by `debug` can be overriden.");
+
 /// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
 /// "printf debugging".
 pub const warn = print;
