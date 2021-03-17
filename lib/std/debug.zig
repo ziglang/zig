@@ -96,40 +96,6 @@ pub const default_config = struct {
         }
     };
 
-    fn writeLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
-        // Need this to always block even in async I/O mode, because this could potentially
-        // be called from e.g. the event loop code crashing.
-        var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
-        defer f.close();
-        // TODO fstat and make sure that the file has the correct size
-
-        var buf: [mem.page_size]u8 = undefined;
-        var line: usize = 1;
-        var column: usize = 1;
-        var abs_index: usize = 0;
-        while (true) {
-            const amt_read = try f.read(buf[0..]);
-            const slice = buf[0..amt_read];
-
-            for (slice) |byte| {
-                if (line == line_info.line) {
-                    try writer.writeByte(byte);
-                    if (byte == '\n') {
-                        return;
-                    }
-                }
-                if (byte == '\n') {
-                    line += 1;
-                    column = 1;
-                } else {
-                    column += 1;
-                }
-            }
-
-            if (amt_read < buf.len) return error.EndOfFile;
-        }
-    }
-
     pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: LineInfo) !bool {
         writeLineFromFileAnyOs(writer, line_info) catch |err| {
             switch (err) {
@@ -434,6 +400,40 @@ pub fn StackTraceDumper(comptime Writer: type) type {
             }
         }
     };
+}
+
+fn writeLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
+    // Need this to always block even in async I/O mode, because this could potentially
+    // be called from e.g. the event loop code crashing.
+    var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
+    defer f.close();
+    // TODO fstat and make sure that the file has the correct size
+
+    var buf: [mem.page_size]u8 = undefined;
+    var line: usize = 1;
+    var column: usize = 1;
+    var abs_index: usize = 0;
+    while (true) {
+        const amt_read = try f.read(buf[0..]);
+        const slice = buf[0..amt_read];
+
+        for (slice) |byte| {
+            if (line == line_info.line) {
+                try writer.writeByte(byte);
+                if (byte == '\n') {
+                    return;
+                }
+            }
+            if (byte == '\n') {
+                line += 1;
+                column = 1;
+            } else {
+                column += 1;
+            }
+        }
+
+        if (amt_read < buf.len) return error.EndOfFile;
+    }
 }
 
 /// This function invokes undefined behavior when `ok` is `false`.
