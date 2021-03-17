@@ -2505,14 +2505,6 @@ fn writeRebaseInfoTable(self: *Zld) !void {
     try self.file.?.pwriteAll(buffer, dyld_info.rebase_off);
 }
 
-fn pointerCmp(context: void, a: Pointer, b: Pointer) bool {
-    if (a.segment_id < b.segment_id) return true;
-    if (a.segment_id == b.segment_id) {
-        return a.offset < b.offset;
-    }
-    return false;
-}
-
 fn writeBindInfoTable(self: *Zld) !void {
     var pointers = std.ArrayList(Pointer).init(self.allocator);
     defer pointers.deinit();
