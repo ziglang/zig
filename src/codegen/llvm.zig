@@ -219,7 +219,7 @@ pub const LLVMIRModule = struct {
 
         var error_message: [*:0]const u8 = undefined;
         var target: *const llvm.Target = undefined;
-        if (llvm.Target.getFromTriple(llvm_target_triple.ptr, &target, &error_message)) {
+        if (llvm.Target.getFromTriple(llvm_target_triple.ptr, &target, &error_message).toBool()) {
             defer llvm.disposeMessage(error_message);
 
             const stderr = std.io.getStdErr().writer();
@@ -303,7 +303,7 @@ pub const LLVMIRModule = struct {
             // verifyModule always allocs the error_message even if there is no error
             defer llvm.disposeMessage(error_message);
 
-            if (self.llvm_module.verify(.ReturnStatus, &error_message)) {
+            if (self.llvm_module.verify(.ReturnStatus, &error_message).toBool()) {
                 const stderr = std.io.getStdErr().writer();
                 try stderr.print("broken LLVM module found: {s}\nThis is a bug in the Zig compiler.", .{error_message});
                 return error.BrokenLLVMModule;
@@ -319,7 +319,7 @@ pub const LLVMIRModule = struct {
             object_pathZ.ptr,
             .ObjectFile,
             &error_message,
-        )) {
+        ).toBool()) {
             defer llvm.disposeMessage(error_message);
 
             const stderr = std.io.getStdErr().writer();
@@ -614,7 +614,7 @@ pub const LLVMIRModule = struct {
 
             var indices: [2]*const llvm.Value = .{
                 index_type.constNull(),
-                index_type.constInt(1, false),
+                index_type.constInt(1, .False),
             };
 
             return self.builder.buildLoad(self.builder.buildInBoundsGEP(operand, &indices, 2, ""), "");
@@ -676,7 +676,7 @@ pub const LLVMIRModule = struct {
         const signed = inst.base.ty.isSignedInt();
         // TODO: Should we use intcast here or just a simple bitcast?
         //       LLVM does truncation vs bitcast (+signed extension) in the intcast depending on the sizes
-        return self.builder.buildIntCast2(val, try self.getLLVMType(inst.base.ty, inst.base.src), signed, "");
+        return self.builder.buildIntCast2(val, try self.getLLVMType(inst.base.ty, inst.base.src), llvm.Bool.fromBool(signed), "");
     }
 
     fn genBitCast(self: *LLVMIRModule, inst: *Inst.UnOp) !?*const llvm.Value {
@@ -782,7 +782,7 @@ pub const LLVMIRModule = struct {
                 if (bigint.limbs.len != 1) {
                     return self.fail(src, "TODO implement bigger bigint", .{});
                 }
-                const llvm_int = llvm_type.constInt(bigint.limbs[0], false);
+                const llvm_int = llvm_type.constInt(bigint.limbs[0], .False);
                 if (!bigint.positive) {
                     return llvm.constNeg(llvm_int);
                 }
@@ -820,7 +820,7 @@ pub const LLVMIRModule = struct {
                         return self.fail(src, "TODO handle other sentinel values", .{});
                     } else false;
 
-                    return self.context.constString(payload.data.ptr, @intCast(c_uint, payload.data.len), !zero_sentinel);
+                    return self.context.constString(payload.data.ptr, @intCast(c_uint, payload.data.len), llvm.Bool.fromBool(!zero_sentinel));
                 } else {
                     return self.fail(src, "TODO handle more array values", .{});
                 }
@@ -836,13 +836,13 @@ pub const LLVMIRModule = struct {
                             llvm_child_type.constNull(),
                             self.context.intType(1).constNull(),
                         };
-                        return self.context.constStruct(&optional_values, 2, false);
+                        return self.context.constStruct(&optional_values, 2, .False);
                     } else {
                         var optional_values: [2]*const llvm.Value = .{
                             try self.genTypedValue(src, .{ .ty = child_type, .val = tv.val }),
                             self.context.intType(1).constAllOnes(),
                         };
-                        return self.context.constStruct(&optional_values, 2, false);
+                        return self.context.constStruct(&optional_values, 2, .False);
                     }
                 } else {
                     return self.fail(src, "TODO implement const of optional pointer", .{});
@@ -882,7 +882,7 @@ pub const LLVMIRModule = struct {
                         try self.getLLVMType(child_type, src),
                         self.context.intType(1),
                     };
-                    return self.context.structType(&optional_types, 2, false);
+                    return self.context.structType(&optional_types, 2, .False);
                 } else {
                     return self.fail(src, "TODO implement optional pointers as actual pointers", .{});
                 }
@@ -934,7 +934,7 @@ pub const LLVMIRModule = struct {
             try self.getLLVMType(return_type, src),
             if (fn_param_len == 0) null else llvm_param.ptr,
             @intCast(c_uint, fn_param_len),
-            false,
+            .False,
         );
         const llvm_fn = self.llvm_module.addFunction(func.name, fn_type);
 
