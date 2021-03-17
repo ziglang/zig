@@ -1796,20 +1796,12 @@ fn transStringLiteral(
     }
 }
 
-fn zigArraySize(array_node: Node) usize {
-    if (array_node.castTag(.array_type)) |arr| return arr.data.len;
-    if (array_node.castTag(.null_sentinel_array_type)) |arr| return arr.data.len;
-    unreachable;
-}
-
-fn zigArrayElemType(array_node: Node) Node {
-    if (array_node.castTag(.array_type)) |arr| return arr.data.elem_type;
-    if (array_node.castTag(.null_sentinel_array_type)) |arr| return arr.data.elem_type;
-    unreachable;
+fn getArrayPayload(array_type: Node) ast.Payload.Array.ArrayTypeInfo {
+    return (array_type.castTag(.array_type) orelse array_type.castTag(.null_sentinel_array_type).?).data;
 }
 
 /// Translate a string literal that is initializing an array. In general narrow string
-/// literals become `"<string>"[0..<size>].*` (unless the length is zero)
+/// literals become `"<string>".*` or `"<string>"[0..<size>].*` if they need truncation.
 /// Wide string literals become an array of integers. zero-fillers pad out the array to
 /// the appropriate length, if necessary.
 fn transStringLiteralInitializer(
@@ -1823,15 +1815,16 @@ fn transStringLiteralInitializer(
     const is_narrow = stmt.getKind() == .Ascii or stmt.getKind() == .UTF8;
 
     const str_length = stmt.getLength();
-    const array_size = zigArraySize(array_type);
-    const elem_type = zigArrayElemType(array_type);
+    const payload = getArrayPayload(array_type);
+    const array_size = payload.len;
+    const elem_type = payload.elem_type;
 
     if (array_size == 0) return Tag.empty_array.create(c.arena, elem_type);
 
     const num_inits = math.min(str_length, array_size);
     const init_node = if (num_inits > 0) blk: {
         if (is_narrow) {
-            // "string literal"[0..num_inits].*
+            // "string literal".* or string literal"[0..num_inits].*
             var str = try transNarrowStringLiteral(c, scope, stmt, .used);
             if (str_length != array_size) str = try Tag.string_slice.create(c.arena, .{ .string = str, .end = num_inits });
             break :blk try Tag.deref.create(c.arena, str);
