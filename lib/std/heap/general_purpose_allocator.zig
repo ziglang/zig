@@ -375,12 +375,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             // Any allocator would work, but we can't pass in ourselves because
             // that might cause unbounded recursion!
             var allocator_state = std.heap.ArenaAllocator.init(self.backing_allocator);
+            defer allocator_state.deinit();
             std.debug.captureStackTrace(
                 &allocator_state.allocator,
                 first_trace_addr,
                 stack_trace,
-            );
-            allocator_state.deinit();
+            ) catch |err| {
+                log.err("failed to capture stack trace: {s}", .{@errorName(err)});
+                stack_trace.instruction_addresses = &[0]usize{};
+                stack_trace.index = 0;
+            };
         }
 
         fn collectStackTrace(

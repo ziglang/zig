@@ -321,7 +321,7 @@ fn StackTraceDumper(comptime Writer: type) type {
                 .index = 0,
                 .instruction_addresses = &addr_buf,
             };
-            capStackTraceFrom(
+            try capStackTraceFrom(
                 getDebugInfoAllocator(), // TODO: different allocator?
                 first_address,
                 base_pointer,
@@ -654,10 +654,10 @@ pub fn captureStackTrace(
     allocator: *std.mem.Allocator,
     first_address: ?usize,
     stack_trace: *builtin.StackTrace,
-) void {
+) !void {
     // TODO are there any other arguments/registers which captureStackTraceFrom
     // should get access to?
-    capStackTraceFrom(allocator, first_address, null, stack_trace);
+    try capStackTraceFrom(allocator, first_address, null, stack_trace);
 }
 
 /// On Windows, when first_address is not null, we ask for at least 32 stack frames,
@@ -670,7 +670,7 @@ pub fn defaultCaptureStackTraceFrom(
     first_address: ?usize,
     base_pointer: ?usize,
     stack_trace: *builtin.StackTrace,
-) void {
+) !void {
     if (builtin.os.tag == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const u32_addrs_len = @intCast(u32, addrs.len);
