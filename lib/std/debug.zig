@@ -3,6 +3,14 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+
+//! std.debug contains functions for capturing and printing out stack traces
+//! as well as misc. functions such as `print`, `assert`, and `panicExtra`.
+//!
+//! Many of the implementations can be overriden via declarations
+//! in the root `debug_config` namespace. See the `default_config` for
+//! documentation on everything which can be overriden.
+
 const std = @import("std.zig");
 const builtin = std.builtin;
 const math = std.math;
@@ -52,10 +60,13 @@ pub const SymbolInfo = struct {
 };
 
 pub const default_config = struct {
+    /// Get the writer used for `print`, `panicExtra`, and stack trace dumping.
     pub fn getWriter() std.fs.File.Writer {
         return std.io.getStdErr().writer();
     }
 
+    /// Detect the `TTY.Config` for the writer returned by `getWriter`.
+    /// This determines which escape codes can be used.
     pub fn detectTTYConfig() TTY.Config {
         var bytes: [128]u8 = undefined;
         const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
@@ -73,6 +84,7 @@ pub const default_config = struct {
         }
     }
 
+    /// A struct which maps from addresses to symbols (`SymbolInfo`).
     pub const SymbolMap = struct {
         debug_info: DebugInfo,
 
@@ -96,6 +108,9 @@ pub const default_config = struct {
         }
     };
 
+    /// Try to write a line from a source file. If the line couldn't be written but
+    /// the error is acceptable (end of file, file not found, etc.), returns false.
+    /// If the line was correctly writen it returns true.
     pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: LineInfo) !bool {
         writeLineFromFileAnyOs(writer, line_info) catch |err| {
             switch (err) {
@@ -109,10 +124,14 @@ pub const default_config = struct {
         return true;
     }
 
+    /// Loads a stack trace into the provided argument.
     pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
 
-    /// When overriding panicTerminate, if you *must* lock a mutex, be careful not to panic!
-    /// Otherwise, this will would call panicTerminate recursively and deadlock.
+    /// This is the termination function for panic. It must be `noreturn`.
+    ///
+    /// When overriding panicTerminate, if you *must* lock a mutex, be careful
+    /// not to panic!  Otherwise, this will would call panicTerminate
+    /// recursively and deadlock.
     pub const panicTerminate = os.abort;
 };
 
@@ -124,14 +143,12 @@ else
 
 const has_writer_decl = @hasDecl(config, "getWriter");
 
-/// The function used to get a writer for debugging.
 /// Slightly different name than in config to avoid redefinition in default.
 const getWrit = if (has_writer_decl)
     config.getWriter
 else
     default_config.getWriter;
 
-/// The function used to determine which escape codes can be used.
 /// Slightly different name than in config to avoid redefinition in default.
 const getTTYConfig = if (@hasDecl(config, "detectTTYConfig"))
     config.detectTTYConfig
