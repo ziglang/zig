@@ -43,7 +43,7 @@ pub const LineInfo = struct {
     file_name: []const u8,
     allocator: ?*mem.Allocator,
 
-    fn deinit(self: LineInfo) void {
+    fn deinit(self: @This()) void {
         const allocator = self.allocator orelse return;
         allocator.free(self.file_name);
     }
