@@ -126,6 +126,12 @@ pub const default_config = struct {
         return true;
     }
 
+    // We define some of the bulkier functions outside of this namespace to
+    // avoid clutter.
+
+    /// Formats a single line for a stack trace.
+    pub const formatStackTraceLine = defaultFormatStackTraceLine;
+
     /// Loads a stack trace into the provided argument.
     pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
 
@@ -173,6 +179,12 @@ const writeLineFromSourceFile = if (@hasDecl(config, "attemptWriteLineFromSource
     config.attemptWriteLineFromSourceFile
 else
     default_config.attemptWriteLineFromSourceFile;
+
+/// Slightly different name than in config to avoid redefinition in default.
+const fmtStackTraceLine = if (@hasDecl(config, "formatStackTraceLine"))
+    config.formatStackTraceLine
+else
+    default_config.formatStackTraceLine;
 
 /// Slightly different name than in config to avoid redefinition in default.
 const capStackTraceFrom = if (@hasDecl(config, "captureStackTraceFrom"))
@@ -387,53 +399,66 @@ fn StackTraceDumper(comptime Writer: type) type {
             }
         }
 
-        /// TODO resources https://github.com/ziglang/zig/issues/4353
-        /// TODO(rgreenblatt) I am pretty sure resources are fine here...
-        /// TODO(rgreenblatt) override formatting???
         fn sourceAtAddress(
             self: @This(),
             address: usize,
         ) !void {
-            const si = try self.mapping.addressToSymbol(address);
-            defer si.deinit();
+            const symbol_info = try self.mapping.addressToSymbol(address);
+            defer symbol_info.deinit();
 
             const writer = self.writer;
             const tty_config = self.tty_config;
 
             nosuspend {
-                tty_config.setColor(writer, .White);
-
-                if (si.line_info) |*li| {
-                    try writer.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
-                } else {
-                    try writer.writeAll("???:?:?");
-                }
-
-                tty_config.setColor(writer, .Reset);
-                try writer.writeAll(": ");
-                tty_config.setColor(writer, .Dim);
-                try writer.print("0x{x} in {s} ({s})", .{ address, si.symbol_name, si.compile_unit_name });
-                tty_config.setColor(writer, .Reset);
-                try writer.writeAll("\n");
-
-                // Show the matching source code line if possible
-                if (si.line_info) |li| {
-                    if (try writeLineFromSourceFile(writer, li)) {
-                        if (li.column > 0) {
-                            // The caret already takes one char
-                            const space_needed = @intCast(usize, li.column - 1);
-
-                            try writer.writeByteNTimes(' ', space_needed);
-                            tty_config.setColor(writer, .Green);
-                            try writer.writeAll("^");
-                            tty_config.setColor(writer, .Reset);
-                        }
-                        try writer.writeAll("\n");
-                    }
-                }
+                try fmtStackTraceLine(
+                    writer,
+                    tty_config,
+                    address,
+                    symbol_info,
+                    writeLineFromSourceFile,
+                );
             }
         }
     };
+}
+
+fn defaultFormatStackTraceLine(
+    writer: anytype,
+    tty_config: TTY.Config,
+    address: usize,
+    si: SymbolInfo,
+    tryWriteLineFromSourceFile: anytype,
+) !void {
+    tty_config.setColor(writer, .White);
+
+    if (si.line_info) |*li| {
+        try writer.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
+    } else {
+        try writer.writeAll("???:?:?");
+    }
+
+    tty_config.setColor(writer, .Reset);
+    try writer.writeAll(": ");
+    tty_config.setColor(writer, .Dim);
+    try writer.print("0x{x} in {s} ({s})", .{ address, si.symbol_name, si.compile_unit_name });
+    tty_config.setColor(writer, .Reset);
+    try writer.writeAll("\n");
+
+    // Show the matching source code line if possible
+    if (si.line_info) |li| {
+        if (try tryWriteLineFromSourceFile(writer, li)) {
+            if (li.column > 0) {
+                // The caret already takes one char
+                const space_needed = @intCast(usize, li.column - 1);
+
+                try writer.writeByteNTimes(' ', space_needed);
+                tty_config.setColor(writer, .Green);
+                try writer.writeAll("^");
+                tty_config.setColor(writer, .Reset);
+            }
+            try writer.writeAll("\n");
+        }
+    }
 }
 
 fn writeLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
@@ -635,7 +660,7 @@ pub const TTY = struct {
         escape_codes: void,
         windows_api: std.fs.File,
 
-        fn setColor(conf: Config, writer: anytype, color: Color) void {
+        pub fn setColor(conf: Config, writer: anytype, color: Color) void {
             nosuspend switch (conf) {
                 .no_color => return,
                 .escape_codes => switch (color) {
