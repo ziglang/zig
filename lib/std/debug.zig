@@ -116,8 +116,8 @@ pub const default_config = struct {
     pub const panicTerminate = os.abort;
 };
 
-const is_default_config = @hasDecl(root, "debug_config");
-const config = if (is_default_config)
+const is_root_config = @hasDecl(root, "debug_config");
+const config = if (is_root_config)
     root.debug_config
 else
     default_config;
@@ -141,8 +141,7 @@ else
     default_config.detectTTYConfig;
 
 const has_symbol_map_decl = @hasDecl(config, "SymbolMap");
-const using_default_symbol_map = is_default_config or
-    !has_symbol_map_decl;
+const using_default_symbol_map = !(is_root_config and has_symbol_map_decl);
 
 /// Slightly different name than in config to avoid redefinition in default.
 const SymMap = if (has_symbol_map_decl)
