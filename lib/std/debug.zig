@@ -131,7 +131,7 @@ else
 
 /// The function used to determine which escape codes can be used.
 /// Slightly different name than in config to avoid redefinition in default.
-pub const detectTTYConfig = if (@hasDecl(config, "getTTYConfig"))
+const detectTTYConfig = if (@hasDecl(config, "getTTYConfig"))
     config.getTTYConfig
 else if (has_writer_decl)
     @compileError("getWriter exists in config, so getTTYConfig must also exist")
