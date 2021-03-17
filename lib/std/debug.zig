@@ -191,14 +191,14 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
 }
 
 /// TODO multithreaded awareness
-var symbol_at_address: ?SymMap = null;
+var sym_map: ?SymMap = null;
 
 pub fn getSymbolMap() !*SymMap {
-    if (symbol_at_address) |*info| {
+    if (sym_map) |*info| {
         return info;
     } else {
-        symbol_at_address = try SymMap.init(getDebugInfoAllocator());
-        return &symbol_at_address.?;
+        sym_map = try SymMap.init(getDebugInfoAllocator());
+        return &sym_map.?;
     }
 }
 
