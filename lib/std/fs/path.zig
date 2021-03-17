@@ -92,7 +92,7 @@ pub fn join(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Naively combines a series of paths with the native path seperator and null terminator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn joinZ(allocator: *Allocator, paths: []const []const u8) ![:0]u8 {
-    const out = joinSepMaybeZ(allocator, sep, isSep, paths, true);
+    const out = try joinSepMaybeZ(allocator, sep, isSep, paths, true);
     return out[0 .. out.len - 1 :0];
 }
 
@@ -119,6 +119,16 @@ fn testJoinMaybeZPosix(paths: []const []const u8, expected: []const u8, zero: bo
 }
 
 test "join" {
+    {
+        const actual: []u8 = try join(testing.allocator, &[_][]const u8{});
+        defer testing.allocator.free(actual);
+        testing.expectEqualSlices(u8, "", actual);
+    }
+    {
+        const actual: [:0]u8 = try joinZ(testing.allocator, &[_][]const u8{});
+        defer testing.allocator.free(actual);
+        testing.expectEqualSlices(u8, "", actual);
+    }
     for (&[_]bool{ false, true }) |zero| {
         testJoinMaybeZWindows(&[_][]const u8{}, "", zero);
         testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
