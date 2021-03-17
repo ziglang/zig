@@ -592,7 +592,7 @@ pub const TTY = struct {
     pub const Config = union(enum) {
         no_color: void,
         escape_codes: void,
-        windows_api: std.io.File,
+        windows_api: std.fs.File,
 
         fn setColor(conf: Config, writer: anytype, color: Color) void {
             nosuspend switch (conf) {
