@@ -254,7 +254,8 @@ fn dumpHandleError(writer: anytype, err: anytype) void {
     writer.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
 }
 
-/// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
+/// Tries to print the current stack trace to writer (as determined by
+/// getWriter from the config), unbuffered, and ignores any error returned.
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const held = print_mutex.acquire();
     defer held.release();
@@ -264,8 +265,9 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     };
 }
 
-/// Tries to print the stack trace starting from the supplied base pointer to stderr,
-/// unbuffered, and ignores any error returned.
+/// Tries to print the stack trace starting from the supplied base pointer
+/// to writer (as determined by getWriter from the config), unbuffered, and
+/// ignores any error returned.
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     const held = print_mutex.acquire();
     defer held.release();
@@ -275,7 +277,8 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     };
 }
 
-/// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
+/// Tries to print a stack trace to writer (as determined by getWriter from
+/// the config), unbuffered, and ignores any error returned.
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     const held = print_mutex.acquire();
     defer held.release();
@@ -460,8 +463,8 @@ var panicking: u8 = 0;
 
 /// Locked to avoid interleaving panic messages from multiple threads.
 ///
-/// We can't use the other Mutex ("print_mutex") because a panic may have 
-/// happended while that mutex is held. Unfortunately, this means that panic 
+/// We can't use the other Mutex ("print_mutex") because a panic may have
+/// happended while that mutex is held. Unfortunately, this means that panic
 /// messages may interleave with print(...) or similar.
 var panic_mutex = std.Thread.Mutex{};
 
@@ -586,11 +589,10 @@ pub const TTY = struct {
         Reset,
     };
 
-    pub const Config = enum {
-        no_color,
-        escape_codes,
-        // TODO give this a payload of file handle
-        windows_api,
+    pub const Config = union(enum) {
+        no_color: void,
+        escape_codes: void,
+        windows_api: std.io.File,
 
         fn setColor(conf: Config, writer: anytype, color: Color) void {
             nosuspend switch (conf) {
@@ -603,8 +605,7 @@ pub const TTY = struct {
                     .Dim => writer.writeAll(DIM) catch return,
                     .Reset => writer.writeAll(RESET) catch return,
                 },
-                .windows_api => if (builtin.os.tag == .windows) {
-                    const stderr_file = io.getStdErr();
+                .windows_api => |file| if (builtin.os.tag == .windows) {
                     const S = struct {
                         var attrs: windows.WORD = undefined;
                         var init_attrs = false;
@@ -613,29 +614,29 @@ pub const TTY = struct {
                         S.init_attrs = true;
                         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
                         // TODO handle error
-                        _ = windows.kernel32.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
+                        _ = windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info);
                         S.attrs = info.wAttributes;
                     }
 
                     // TODO handle errors
                     switch (color) {
                         .Red => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
+                            _ = windows.SetConsoleTextAttribute(file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
                         },
                         .Green => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
+                            _ = windows.SetConsoleTextAttribute(file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
                         },
                         .Cyan => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
+                            _ = windows.SetConsoleTextAttribute(file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
                         },
                         .White, .Bold => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
+                            _ = windows.SetConsoleTextAttribute(file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
                         },
                         .Dim => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY) catch {};
+                            _ = windows.SetConsoleTextAttribute(file.handle, windows.FOREGROUND_INTENSITY) catch {};
                         },
                         .Reset => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs) catch {};
+                            _ = windows.SetConsoleTextAttribute(file.handle, S.attrs) catch {};
                         },
                     }
                 } else {
@@ -1936,13 +1937,13 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         else => unreachable,
     };
 
-    // Don't use std.debug.print() as stderr_mutex may still be locked.
+    // Don't use std.debug.print() as print_mutex may still be locked.
     nosuspend {
-        const stderr = io.getStdErr().writer();
+        const writer = getWrit();
         _ = switch (sig) {
-            os.SIGSEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
-            os.SIGILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
-            os.SIGBUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
+            os.SIGSEGV => writer.print("Segmentation fault at address 0x{x}\n", .{addr}),
+            os.SIGILL => writer.print("Illegal instruction at address 0x{x}\n", .{addr}),
+            os.SIGBUS => writer.print("Bus error at address 0x{x}\n", .{addr}),
             else => unreachable,
         } catch os.abort();
     }
@@ -2007,13 +2008,13 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
     const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     if (@hasDecl(windows, "CONTEXT")) {
         const regs = info.ContextRecord.getRegs();
-        // Don't use std.debug.print() as stderr_mutex may still be locked.
+        // Don't use std.debug.print() as print_mutex may still be locked.
         nosuspend {
-            const stderr = io.getStdErr().writer();
+            const writer = getWrit();
             _ = switch (msg) {
-                0 => stderr.print("{s}\n", .{format.?}),
-                1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
-                2 => stderr.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
+                0 => writer.print("{s}\n", .{format.?}),
+                1 => writer.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
+                2 => writer.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
                 else => unreachable,
             } catch os.abort();
         }
