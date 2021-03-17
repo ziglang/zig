@@ -276,6 +276,8 @@ pub const tan = @import("math/tan.zig").tan;
 pub const complex = @import("math/complex.zig");
 pub const Complex = complex.Complex;
 
+pub const prob = @import("math/prob.zig");
+
 pub const big = @import("math/big.zig");
 
 test {
