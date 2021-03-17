@@ -337,8 +337,7 @@ pub const Node = extern union {
                 .std_meta_promoteIntLiteral => Payload.PromoteIntLiteral,
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
-                .array_type => Payload.Array,
-                .null_sentinel_array_type => Payload.NullSentinelArray,
+                .array_type, .null_sentinel_array_type => Payload.Array,
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
                 .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
@@ -589,18 +588,12 @@ pub const Payload = struct {
 
     pub const Array = struct {
         base: Payload,
-        data: struct {
-            elem_type: Node,
-            len: usize,
-        },
-    };
+        data: ArrayTypeInfo,
 
-    pub const NullSentinelArray = struct {
-        base: Payload,
-        data: struct {
+        pub const ArrayTypeInfo = struct {
             elem_type: Node,
             len: usize,
-        },
+        };
     };
 
     pub const Pointer = struct {
