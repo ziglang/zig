@@ -12,6 +12,7 @@ const TypedValue = @import("TypedValue.zig");
 const ir = @import("ir.zig");
 const Module = @import("Module.zig");
 const ast = std.zig.ast;
+const LazySrcLoc = Module.LazySrcLoc;
 
 /// The minimum amount of information needed to represent a list of ZIR instructions.
 /// Once this structure is completed, it can be used to generate TZIR, followed by
@@ -749,39 +750,39 @@ pub const Inst = struct {
         /// Suspend an async function. The suspend block has any number of statements in it.
         /// Uses the `block` union field.
         suspend_block,
-        /// A switch expression.
-        /// lhs is target, SwitchBr[rhs]
-        /// All prongs of target handled.
-        switch_br,
-        /// Same as switch_br, except has a range field.
-        switch_br_range,
-        /// Same as switch_br, except has an else prong.
-        switch_br_else,
-        /// Same as switch_br_else, except has a range field.
-        switch_br_else_range,
-        /// Same as switch_br, except has an underscore prong.
-        switch_br_underscore,
-        /// Same as switch_br, except has a range field.
-        switch_br_underscore_range,
-        /// Same as `switch_br` but the target is a pointer to the value being switched on.
-        switch_br_ref,
-        /// Same as `switch_br_range` but the target is a pointer to the value being switched on.
-        switch_br_ref_range,
-        /// Same as `switch_br_else` but the target is a pointer to the value being switched on.
-        switch_br_ref_else,
-        /// Same as `switch_br_else_range` but the target is a pointer to the
-        /// value being switched on.
-        switch_br_ref_else_range,
-        /// Same as `switch_br_underscore` but the target is a pointer to the value
-        /// being switched on.
-        switch_br_ref_underscore,
-        /// Same as `switch_br_underscore_range` but the target is a pointer to
-        /// the value being switched on.
-        switch_br_ref_underscore_range,
-        /// A range in a switch case, `lhs...rhs`.
-        /// Only checks that `lhs >= rhs` if they are ints, everything else is
-        /// validated by the switch_br instruction.
-        switch_range,
+        // /// A switch expression.
+        // /// lhs is target, SwitchBr[rhs]
+        // /// All prongs of target handled.
+        // switch_br,
+        // /// Same as switch_br, except has a range field.
+        // switch_br_range,
+        // /// Same as switch_br, except has an else prong.
+        // switch_br_else,
+        // /// Same as switch_br_else, except has a range field.
+        // switch_br_else_range,
+        // /// Same as switch_br, except has an underscore prong.
+        // switch_br_underscore,
+        // /// Same as switch_br, except has a range field.
+        // switch_br_underscore_range,
+        // /// Same as `switch_br` but the target is a pointer to the value being switched on.
+        // switch_br_ref,
+        // /// Same as `switch_br_range` but the target is a pointer to the value being switched on.
+        // switch_br_ref_range,
+        // /// Same as `switch_br_else` but the target is a pointer to the value being switched on.
+        // switch_br_ref_else,
+        // /// Same as `switch_br_else_range` but the target is a pointer to the
+        // /// value being switched on.
+        // switch_br_ref_else_range,
+        // /// Same as `switch_br_underscore` but the target is a pointer to the value
+        // /// being switched on.
+        // switch_br_ref_underscore,
+        // /// Same as `switch_br_underscore_range` but the target is a pointer to
+        // /// the value being switched on.
+        // switch_br_ref_underscore_range,
+        // /// A range in a switch case, `lhs...rhs`.
+        // /// Only checks that `lhs >= rhs` if they are ints, everything else is
+        // /// validated by the switch_br instruction.
+        // switch_range,
 
         comptime {
             assert(@sizeOf(Tag) == 1);
@@ -915,7 +916,6 @@ pub const Inst = struct {
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
                 .compile_log,
-                .void_value,
                 .switch_range,
                 .@"resume",
                 .@"await",
@@ -934,8 +934,6 @@ pub const Inst = struct {
                 .container_field_named,
                 .container_field_typed,
                 .container_field,
-                .switch_br,
-                .switch_br_ref,
                 .@"suspend",
                 .suspend_block,
                 => true,
@@ -967,7 +965,7 @@ pub const Inst = struct {
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
 
-            fn src(self: @This()) LazySrcLoc {
+            pub fn src(self: @This()) LazySrcLoc {
                 return .{ .node_offset = self.src_node };
             }
         },
@@ -978,7 +976,7 @@ pub const Inst = struct {
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
 
-            fn src(self: @This()) LazySrcLoc {
+            pub fn src(self: @This()) LazySrcLoc {
                 return .{ .token_offset = self.src_tok };
             }
         },
@@ -990,7 +988,7 @@ pub const Inst = struct {
             /// `Tag` determines what lives there.
             payload_index: u32,
 
-            fn src(self: @This()) LazySrcLoc {
+            pub fn src(self: @This()) LazySrcLoc {
                 return .{ .node_offset = self.src_node };
             }
         },

@@ -11,6 +11,8 @@ Merge TODO list:
  * update astgen.zig
  * finish updating Sema.zig
  * finish implementing SrcLoc byteOffset function
+ * audit Module.zig for use of token_starts - it should only be when
+   resolving LazySrcLoc
 
 
 Performance optimizations to look into:

@@ -25,8 +25,7 @@ pub const Inst = struct {
     /// lifetimes of operands are encoded elsewhere.
     deaths: DeathsInt = undefined,
     ty: Type,
-    /// Byte offset into the source.
-    src: usize,
+    src: Module.LazySrcLoc,
 
     pub const DeathsInt = u16;
     pub const DeathsBitIndex = std.math.Log2Int(DeathsInt);
