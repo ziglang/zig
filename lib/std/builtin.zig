@@ -60,7 +60,7 @@ pub const StackTrace = struct {
 
     // TODO(rgreenblatt): maybe this shouldn't exist so the default formatter can be used?
     // TODO(rgreenblatt): should this instead default to using no color?
-    pub const format = @compileError("use 'withTTYConfig' to specify if colors can be used");
+    pub const format = @compileError("use 'std.debug.fmtStackTrace' to specify if colors can be used");
 };
 
 /// This data structure is used by the Zig language code generation and
