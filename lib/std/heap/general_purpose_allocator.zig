@@ -380,6 +380,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 first_trace_addr,
                 stack_trace,
             );
+            allocator_state.deinit();
         }
 
         fn collectStackTrace(
