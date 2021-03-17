@@ -109,6 +109,8 @@ pub const default_config = struct {
         return true;
     }
 
+    pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
+
     /// When overriding panicTerminate, if you *must* lock a mutex, be careful not to panic!
     /// Otherwise, this will would call panicTerminate recursively and deadlock.
     pub const panicTerminate = os.abort;
@@ -153,6 +155,12 @@ const writeLineFromSourceFile = if (@hasDecl(config, "attemptWriteLineFromSource
     config.attemptWriteLineFromSourceFile
 else
     default_config.attemptWriteLineFromSourceFile;
+
+/// Slightly different name than in config to avoid redefinition in default.
+const capStackTraceFrom = if (@hasDecl(config, "captureStackTraceFrom"))
+    config.captureStackTraceFrom
+else
+    default_config.captureStackTraceFrom;
 
 /// Slightly different name than in config to avoid redefinition in default.
 const panicTerm = if (@hasDecl(config, "panicTerminate"))
@@ -277,6 +285,8 @@ fn formatStackTraceWithTTYConfig(
 
 pub const FmtStackTrace = std.fmt.Formatter(formatStackTraceWithTTYConfig);
 
+/// Create a "Formatter" struct which will pretty print a stack trace (with
+/// color if specified).
 pub fn fmtStackTrace(
     trace: builtin.StackTrace,
     tty_config: std.debug.TTY.Config,
@@ -284,7 +294,9 @@ pub fn fmtStackTrace(
     return .{ .data = .{ .trace = trace, .tty_config = tty_config } };
 }
 
-pub fn StackTraceDumper(comptime Writer: type) type {
+/// Wrapper for nicer internal debug usage. Use captureStackTrace and
+/// fmtStackTrace for external stack trace printing.
+fn StackTraceDumper(comptime Writer: type) type {
     return struct {
         const Self = @This();
 
@@ -292,52 +304,42 @@ pub fn StackTraceDumper(comptime Writer: type) type {
         tty_config: TTY.Config,
         mapping: *SymMap,
 
-        pub fn current(self: Self, start_addr: ?usize) !void {
-            if (builtin.os.tag == .windows) {
-                return self.currentWindows(start_addr);
-            }
-            var it = StackIterator.init(start_addr, null);
-            while (it.next()) |return_address| {
-                try self.sourceAtAddress(return_address - 1);
-            }
+        fn current(
+            self: Self,
+            first_address: ?usize,
+        ) !void {
+            return self.currentFrom(first_address, null);
         }
 
-        fn currentWindows(
+        fn currentFrom(
             self: Self,
-            start_addr: ?usize,
+            first_address: ?usize,
+            base_pointer: ?usize,
         ) !void {
             var addr_buf: [1024]usize = undefined;
-            const n = windows.ntdll.RtlCaptureStackBackTrace(
-                0,
-                addr_buf.len,
-                @ptrCast(**c_void, &addr_buf),
-                null,
+            var trace = builtin.StackTrace{
+                .index = 0,
+                .instruction_addresses = &addr_buf,
+            };
+            capStackTraceFrom(
+                getDebugInfoAllocator(), // TODO: different allocator?
+                first_address,
+                base_pointer,
+                &trace,
             );
-            const addrs = addr_buf[0..n];
-            var start_i: usize = if (start_addr) |saddr| blk: {
-                for (addrs) |addr, i| {
-                    if (addr == saddr) break :blk i;
-                }
-                return;
-            } else 0;
-            for (addrs[start_i..]) |addr| {
-                try self.sourceAtAddress(addr - 1);
-            }
+            return self.stackTrace(trace);
         }
 
-        pub fn fromBase(
+        fn fromBase(
             self: @This(),
             bp: usize,
             ip: usize,
         ) !void {
             try self.sourceAtAddress(ip);
-            var it = StackIterator.init(null, bp);
-            while (it.next()) |return_address| {
-                try self.sourceAtAddress(return_address - 1);
-            }
+            try self.currentFrom(null, bp);
         }
 
-        pub fn stackTrace(
+        fn stackTrace(
             self: @This(),
             stack_trace: builtin.StackTrace,
         ) !void {
@@ -356,7 +358,7 @@ pub fn StackTraceDumper(comptime Writer: type) type {
         /// TODO resources https://github.com/ziglang/zig/issues/4353
         /// TODO(rgreenblatt) I am pretty sure resources are fine here...
         /// TODO(rgreenblatt) override formatting???
-        pub fn sourceAtAddress(
+        fn sourceAtAddress(
             self: @This(),
             address: usize,
         ) !void {
@@ -648,12 +650,27 @@ pub const TTY = struct {
 };
 
 /// Returns a slice with the same pointer as addresses, with a potentially smaller len.
+pub fn captureStackTrace(
+    allocator: *std.mem.Allocator,
+    first_address: ?usize,
+    stack_trace: *builtin.StackTrace,
+) void {
+    // TODO are there any other arguments/registers which captureStackTraceFrom
+    // should get access to?
+    capStackTraceFrom(allocator, first_address, null, stack_trace);
+}
+
 /// On Windows, when first_address is not null, we ask for at least 32 stack frames,
 /// and then try to find the first address. If addresses.len is more than 32, we
 /// capture that many stack frames exactly, and then look for the first address,
 /// chopping off the irrelevant frames and shifting so that the returned addresses pointer
 /// equals the passed in addresses pointer.
-pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
+pub fn defaultCaptureStackTraceFrom(
+    allocator: *std.mem.Allocator,
+    first_address: ?usize,
+    base_pointer: ?usize,
+    stack_trace: *builtin.StackTrace,
+) void {
     if (builtin.os.tag == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const u32_addrs_len = @intCast(u32, addrs.len);
@@ -684,7 +701,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
         }
         stack_trace.index = slice.len;
     } else {
-        var it = StackIterator.init(first_address, null);
+        var it = StackIterator.init(first_address, base_pointer);
         for (stack_trace.instruction_addresses) |*addr, i| {
             addr.* = it.next() orelse {
                 stack_trace.index = i;
@@ -1857,6 +1874,8 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
 /// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;
 var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
+/// Note: this is also used from StackTraceDumper, so be careful when deinit
+/// is (eventually) implemented
 fn getDebugInfoAllocator() *mem.Allocator {
     if (debug_info_allocator) |a| return a;
 

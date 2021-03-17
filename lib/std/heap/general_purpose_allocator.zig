@@ -261,6 +261,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             fn captureStackTrace(
                 bucket: *BucketHeader,
+                self: *Self,
                 ret_addr: usize,
                 size_class: usize,
                 slot_index: SlotIndex,
@@ -269,7 +270,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 // Initialize them to 0. When determining the count we must look
                 // for non zero addresses.
                 const stack_addresses = bucket.stackTracePtr(size_class, slot_index, trace_kind);
-                collectStackTrace(ret_addr, stack_addresses);
+                self.collectStackTrace(ret_addr, stack_addresses);
             }
         };
 
@@ -365,14 +366,34 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             return leaks;
         }
 
-        fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
+        /// capture a stack trace: we wrap this function to pass in an allocator
+        fn captureStackTraceWrapper(
+            self: *Self,
+            first_trace_addr: ?usize,
+            stack_trace: *StackTrace,
+        ) void {
+            // Any allocator would work, but we can't pass in ourselves because
+            // that might cause unbounded recursion!
+            var allocator_state = std.heap.ArenaAllocator.init(self.backing_allocator);
+            std.debug.captureStackTrace(
+                &allocator_state.allocator,
+                first_trace_addr,
+                stack_trace,
+            );
+        }
+
+        fn collectStackTrace(
+            self: *Self,
+            first_trace_addr: usize,
+            addresses: *[stack_n]usize,
+        ) void {
             if (stack_n == 0) return;
             mem.set(usize, addresses, 0);
             var stack_trace = StackTrace{
                 .instruction_addresses = addresses,
                 .index = 0,
             };
-            std.debug.captureStackTrace(first_trace_addr, &stack_trace);
+            self.captureStackTraceWrapper(first_trace_addr, &stack_trace);
         }
 
         fn allocSlot(self: *Self, size_class: usize, trace_addr: usize) Error![*]u8 {
@@ -405,7 +426,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const used_bit_index: u3 = @intCast(u3, slot_index % 8); // TODO cast should be unnecessary
             used_bits_byte.* |= (@as(u8, 1) << used_bit_index);
             bucket.used_count += 1;
-            bucket.captureStackTrace(trace_addr, size_class, slot_index, .alloc);
+            bucket.captureStackTrace(self, trace_addr, size_class, slot_index, .alloc);
             return bucket.page + slot_index * size_class;
         }
 
@@ -452,7 +473,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     .instruction_addresses = &addresses,
                     .index = 0,
                 };
-                std.debug.captureStackTrace(ret_addr, &free_stack_trace);
+                self.captureStackTraceWrapper(ret_addr, &free_stack_trace);
                 log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {s} Free: {s}", .{
                     entry.value.bytes.len,
                     old_mem.len,
@@ -478,7 +499,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 });
             }
             entry.value.bytes = old_mem.ptr[0..result_len];
-            collectStackTrace(ret_addr, &entry.value.stack_addresses);
+            self.collectStackTrace(ret_addr, &entry.value.stack_addresses);
             return result_len;
         }
 
@@ -544,7 +565,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         .instruction_addresses = &addresses,
                         .index = 0,
                     };
-                    std.debug.captureStackTrace(ret_addr, &second_free_stack_trace);
+                    self.captureStackTraceWrapper(ret_addr, &second_free_stack_trace);
                     log.err("Double free detected. Allocation: {s} First free: {s} Second free: {s}", .{
                         alloc_stack_trace,
                         free_stack_trace,
@@ -565,7 +586,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
             if (new_size == 0) {
                 // Capture stack trace to be the "first free", in case a double free happens.
-                bucket.captureStackTrace(ret_addr, size_class, slot_index, .free);
+                bucket.captureStackTrace(self, ret_addr, size_class, slot_index, .free);
 
                 used_byte.* &= ~(@as(u8, 1) << used_bit_index);
                 bucket.used_count -= 1;
@@ -648,7 +669,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 const gop = self.large_allocations.getOrPutAssumeCapacity(@ptrToInt(slice.ptr));
                 assert(!gop.found_existing); // This would mean the kernel double-mapped pages.
                 gop.entry.value.bytes = slice;
-                collectStackTrace(ret_addr, &gop.entry.value.stack_addresses);
+                self.collectStackTrace(ret_addr, &gop.entry.value.stack_addresses);
 
                 if (config.verbose_log) {
                     log.info("large alloc {d} bytes at {*}", .{ slice.len, slice.ptr });
