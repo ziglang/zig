@@ -2132,9 +2132,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 if (inst.func.value()) |func_value| {
                     if (func_value.castTag(.function)) |func_payload| {
                         const func = func_payload.data;
-                        const text_segment = &macho_file.load_commands.items[macho_file.text_segment_cmd_index.?].Segment;
-                        const got = &text_segment.sections.items[macho_file.got_section_index.?];
-                        const got_addr = got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
+                        const got_addr = blk: {
+                            const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
+                            const got = seg.sections.items[macho_file.got_section_index.?];
+                            break :blk got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
+                        };
+                        log.debug("got_addr = 0x{x}", .{got_addr});
                         switch (arch) {
                             .x86_64 => {
                                 try self.genSetReg(inst.base.src, Type.initTag(.u32), .rax, .{ .memory = got_addr });
@@ -2152,8 +2155,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const decl = func_payload.data;
                         const decl_name = try std.fmt.allocPrint(self.bin_file.allocator, "_{s}", .{decl.name});
                         defer self.bin_file.allocator.free(decl_name);
-                        const already_defined = macho_file.extern_lazy_symbols.contains(decl_name);
-                        const symbol: u32 = if (macho_file.extern_lazy_symbols.getIndex(decl_name)) |index|
+                        const already_defined = macho_file.lazy_imports.contains(decl_name);
+                        const symbol: u32 = if (macho_file.lazy_imports.getIndex(decl_name)) |index|
                             @intCast(u32, index)
                         else
                             try macho_file.addExternSymbol(decl_name);
@@ -3111,7 +3114,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             4, 8 => {
                                 const offset = if (math.cast(i9, adj_off)) |imm|
                                     Instruction.LoadStoreOffset.imm_post_index(-imm)
-                                else |_| Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u64), MCValue{ .immediate = adj_off }));
+                                else |_|
+                                    Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u64), MCValue{ .immediate = adj_off }));
                                 const rn: Register = switch (arch) {
                                     .aarch64, .aarch64_be => .x29,
                                     .aarch64_32 => .w29,
@@ -3302,80 +3306,32 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     .memory => |addr| {
                         if (self.bin_file.options.pie) {
-                            // For MachO, the binary, with the exception of object files, has to be a PIE.
-                            // Therefore we cannot load an absolute address.
-                            // Instead, we need to make use of PC-relative addressing.
-                            if (reg.id() == 0) { // x0 is special-cased
-                                // TODO This needs to be optimised in the stack usage (perhaps use a shadow stack
-                                // like described here:
-                                // https://community.arm.com/developer/ip-products/processors/b/processors-ip-blog/posts/using-the-stack-in-aarch64-implementing-push-and-pop)
-                                // str x28, [sp, #-16]
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.str(.x28, Register.sp, .{
-                                    .offset = Instruction.LoadStoreOffset.imm_pre_index(-16),
-                                }).toU32());
-                                // adr x28, #8
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
-                                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                    try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                        .address = addr,
-                                        .start = self.code.items.len,
-                                        .len = 4,
-                                    });
-                                } else {
-                                    return self.fail(src, "TODO implement genSetReg for PIE on this platform", .{});
-                                }
-                                // b [label]
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.b(0).toU32());
-                                // mov r, x0
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(
-                                    reg,
-                                    .xzr,
-                                    .x0,
-                                    Instruction.Shift.none,
-                                ).toU32());
-                                // ldr x28, [sp], #16
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.x28, .{
-                                    .register = .{
-                                        .rn = Register.sp,
-                                        .offset = Instruction.LoadStoreOffset.imm_post_index(16),
-                                    },
-                                }).toU32());
+                            // PC-relative displacement to the entry in the GOT table.
+                            // TODO we should come up with our own, backend independent relocation types
+                            // which each backend (Elf, MachO, etc.) would then translate into an actual
+                            // fixup when linking.
+                            // adrp reg, pages
+                            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
+                                    .target_addr = addr,
+                                    .offset = self.code.items.len,
+                                    .size = 4,
+                                });
                             } else {
-                                // stp x0, x28, [sp, #-16]
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.stp(
-                                    .x0,
-                                    .x28,
-                                    Register.sp,
-                                    Instruction.LoadStorePairOffset.pre_index(-16),
-                                ).toU32());
-                                // adr x28, #8
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
-                                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                    try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                        .address = addr,
-                                        .start = self.code.items.len,
-                                        .len = 4,
-                                    });
-                                } else {
-                                    return self.fail(src, "TODO implement genSetReg for PIE on this platform", .{});
-                                }
-                                // b [label]
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.b(0).toU32());
-                                // mov r, x0
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(
-                                    reg,
-                                    .xzr,
-                                    .x0,
-                                    Instruction.Shift.none,
-                                ).toU32());
-                                // ldp x0, x28, [sp, #16]
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldp(
-                                    .x0,
-                                    .x28,
-                                    Register.sp,
-                                    Instruction.LoadStorePairOffset.post_index(16),
-                                ).toU32());
+                                return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});
                             }
+                            mem.writeIntLittle(
+                                u32,
+                                try self.code.addManyAsArray(4),
+                                Instruction.adrp(reg, 0).toU32(),
+                            );
+                            // ldr reg, reg, offset
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{
+                                .register = .{
+                                    .rn = reg,
+                                    .offset = Instruction.LoadStoreOffset.imm(0),
+                                },
+                            }).toU32());
                         } else {
                             // The value is in memory at a hard-coded address.
                             // If the type is a pointer, it means the pointer address is at this memory location.
@@ -3559,62 +3515,31 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     .memory => |x| {
                         if (self.bin_file.options.pie) {
-                            // For MachO, the binary, with the exception of object files, has to be a PIE.
-                            // Therefore, we cannot load an absolute address.
-                            assert(x > math.maxInt(u32)); // 32bit direct addressing is not supported by MachO.
-                            // The plan here is to use unconditional relative jump to GOT entry, where we store
-                            // pre-calculated and stored effective address to load into the target register.
-                            // We leave the actual displacement information empty (0-padded) and fixing it up
-                            // later in the linker.
-                            if (reg.id() == 0) { // %rax is special-cased
-                                try self.code.ensureCapacity(self.code.items.len + 5);
-                                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                    try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                        .address = x,
-                                        .start = self.code.items.len,
-                                        .len = 5,
-                                    });
-                                } else {
-                                    return self.fail(src, "TODO implement genSetReg for PIE on this platform", .{});
-                                }
-                                // call [label]
-                                self.code.appendSliceAssumeCapacity(&[_]u8{
-                                    0xE8,
-                                    0x0,
-                                    0x0,
-                                    0x0,
-                                    0x0,
+                            // RIP-relative displacement to the entry in the GOT table.
+                            // TODO we should come up with our own, backend independent relocation types
+                            // which each backend (Elf, MachO, etc.) would then translate into an actual
+                            // fixup when linking.
+                            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
+                                    .target_addr = x,
+                                    .offset = self.code.items.len + 3,
+                                    .size = 4,
                                 });
                             } else {
-                                try self.code.ensureCapacity(self.code.items.len + 10);
-                                // push %rax
-                                self.code.appendSliceAssumeCapacity(&[_]u8{0x50});
-                                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                    try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                        .address = x,
-                                        .start = self.code.items.len,
-                                        .len = 5,
-                                    });
-                                } else {
-                                    return self.fail(src, "TODO implement genSetReg for PIE on this platform", .{});
-                                }
-                                // call [label]
-                                self.code.appendSliceAssumeCapacity(&[_]u8{
-                                    0xE8,
-                                    0x0,
-                                    0x0,
-                                    0x0,
-                                    0x0,
-                                });
-                                // mov %r, %rax
-                                self.code.appendSliceAssumeCapacity(&[_]u8{
-                                    0x48,
-                                    0x89,
-                                    0xC0 | @as(u8, reg.id()),
-                                });
-                                // pop %rax
-                                self.code.appendSliceAssumeCapacity(&[_]u8{0x58});
+                                return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});
                             }
+                            try self.code.ensureCapacity(self.code.items.len + 7);
+                            self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended() });
+                            self.code.appendSliceAssumeCapacity(&[_]u8{
+                                0x8D,
+                                0x05 | (@as(u8, reg.id() & 0b111) << 3),
+                            });
+                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), 0);
+
+                            try self.code.ensureCapacity(self.code.items.len + 3);
+                            self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended(), .r = reg.isExtended() });
+                            const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, RM });
                         } else if (x <= math.maxInt(u32)) {
                             // Moving from memory to a register is a variant of `8B /r`.
                             // Since we're using 64-bit moves, we require a REX.
@@ -3777,9 +3702,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return MCValue{ .memory = got_addr };
                         } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                             const decl = payload.data;
-                            const text_segment = &macho_file.load_commands.items[macho_file.text_segment_cmd_index.?].Segment;
-                            const got = &text_segment.sections.items[macho_file.got_section_index.?];
-                            const got_addr = got.addr + decl.link.macho.offset_table_index * ptr_bytes;
+                            const got_addr = blk: {
+                                const seg = macho_file.load_commands.items[macho_file.data_const_segment_cmd_index.?].Segment;
+                                const got = seg.sections.items[macho_file.got_section_index.?];
+                                break :blk got.addr + decl.link.macho.offset_table_index * ptr_bytes;
+                            };
                             return MCValue{ .memory = got_addr };
                         } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                             const decl = payload.data;

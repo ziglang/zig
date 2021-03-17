@@ -1422,6 +1422,14 @@ pub const EXPORT_SYMBOL_FLAGS_KIND_WEAK_DEFINITION: u8 = 0x04;
 pub const EXPORT_SYMBOL_FLAGS_REEXPORT: u8 = 0x08;
 pub const EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER: u8 = 0x10;
 
+// An indirect symbol table entry is simply a 32bit index into the symbol table
+// to the symbol that the pointer or stub is refering to.  Unless it is for a
+// non-lazy symbol pointer section for a defined symbol which strip(1) as
+// removed.  In which case it has the value INDIRECT_SYMBOL_LOCAL.  If the
+// symbol was also absolute INDIRECT_SYMBOL_ABS is or'ed with that.
+pub const INDIRECT_SYMBOL_LOCAL: u32 = 0x80000000;
+pub const INDIRECT_SYMBOL_ABS: u32 = 0x40000000;
+
 // Codesign consts and structs taken from:
 // https://opensource.apple.com/source/xnu/xnu-6153.81.5/osfmk/kern/cs_blobs.h.auto.html
 
