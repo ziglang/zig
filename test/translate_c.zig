@@ -745,7 +745,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    static const char v2[] = "2.2.2";
         \\}
     , &[_][]const u8{
-        \\const v2: [5:0]u8 = "2.2.2"[0..5].*;
+        \\const v2: [5:0]u8 = "2.2.2".*;
         \\pub export fn foo() void {}
     });
 
@@ -1593,9 +1593,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\static char arr1[] = "hello";
         \\char arr2[] = "hello";
     , &[_][]const u8{
-        \\pub export var arr0: [5:0]u8 = "hello"[0..5].*;
-        \\pub var arr1: [5:0]u8 = "hello"[0..5].*;
-        \\pub export var arr2: [5:0]u8 = "hello"[0..5].*;
+        \\pub export var arr0: [5:0]u8 = "hello".*;
+        \\pub var arr1: [5:0]u8 = "hello".*;
+        \\pub export var arr2: [5:0]u8 = "hello".*;
     });
 
     cases.add("array initializer expr",
@@ -3421,7 +3421,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var empty_incomplete_w: [1]u32 = [1]u32{0} ** 1;
         \\pub export var empty_constant: [100]u8 = [1]u8{0} ** 100;
         \\pub export var empty_constant_w: [100]u32 = [1]u32{0} ** 100;
-        \\pub export var incomplete: [3:0]u8 = "abc"[0..3].*;
+        \\pub export var incomplete: [3:0]u8 = "abc".*;
         \\pub export var incomplete_w: [3:0]u32 = [3:0]u32{
         \\    '\u{1f4af}',
         \\    '\u{1f4af}',
@@ -3435,7 +3435,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var extend_w: [5]u32 = [1]u32{
         \\    '\u{1f4af}',
         \\} ++ [1]u32{0} ** 4;
-        \\pub export var no_null: [3]u8 = "abc"[0..3].*;
+        \\pub export var no_null: [3]u8 = "abc".*;
         \\pub export var no_null_w: [3]u32 = [3]u32{
         \\    '\u{1f4af}',
         \\    '\u{1f4af}',
