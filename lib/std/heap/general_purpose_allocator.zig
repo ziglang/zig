@@ -166,6 +166,10 @@ pub const Config = struct {
 
     /// Enables emitting info messages with the size and address of every allocation.
     verbose_log: bool = false,
+
+    /// TODO: this field should be removed after finding a better solution
+    /// to determining whether colors can be used on the log.
+    stack_trace_tty_config: std.debug.TTY.Config = .no_color,
 };
 
 pub fn GeneralPurposeAllocator(comptime config: Config) type {
@@ -207,7 +211,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         const FmtStackTrace = std.debug.FmtStackTrace;
 
         fn fmtStackTrace(trace: StackTrace) FmtStackTrace {
-            return std.debug.fmtStackTrace(trace, logDetectTTYConfig());
+            return std.debug.fmtStackTrace(trace, config.stack_trace_tty_config);
         }
 
         const LargeAlloc = struct {

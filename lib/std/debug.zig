@@ -194,7 +194,11 @@ const panicTerm = if (@hasDecl(config, "panicTerminate"))
 else
     default_config.panicTerminate;
 
-var mutex = std.Thread.Mutex{};
+var print_mutex = std.Thread.Mutex{};
+
+pub fn getPrintMutex() *std.Thread.Mutex {
+    return &print_mutex;
+}
 
 /// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
 /// "printf debugging".
@@ -203,7 +207,7 @@ pub const warn = print;
 /// Print to log writer, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    const held = mutex.acquire();
+    const held = print_mutex.acquire();
     defer held.release();
     const writer = getWrit();
     nosuspend writer.print(fmt, args) catch {};
@@ -249,7 +253,7 @@ fn dumpHandleError(writer: anytype, err: anytype) void {
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    const held = mutex.acquire();
+    const held = print_mutex.acquire();
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
@@ -260,7 +264,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
-    const held = mutex.acquire();
+    const held = print_mutex.acquire();
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
@@ -270,7 +274,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
-    const held = mutex.acquire();
+    const held = print_mutex.acquire();
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
@@ -453,9 +457,9 @@ var panicking: u8 = 0;
 
 /// Locked to avoid interleaving panic messages from multiple threads.
 ///
-/// We can't use the other Mutex ("mutex") because a panic may have happended
-/// while that mutex is held. Unfortunately, this means that panic messages
-/// may interleave with print(...) or similar.
+/// We can't use the other Mutex ("print_mutex") because a panic may have 
+/// happended while that mutex is held. Unfortunately, this means that panic 
+/// messages may interleave with print(...) or similar.
 var panic_mutex = std.Thread.Mutex{};
 
 /// Counts how many times the panic handler is invoked by this thread.
