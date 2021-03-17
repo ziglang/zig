@@ -66,7 +66,7 @@ pub const default_config = struct {
             if (stderr_file.supportsAnsiEscapeCodes()) {
                 return .escape_codes;
             } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
-                return .windows_api;
+                return .{ .windows_api = stderr_file };
             } else {
                 return .no_color;
             }
