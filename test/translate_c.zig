@@ -2428,7 +2428,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    b: c_int,
         \\};
         \\pub extern var a: struct_Foo;
-        \\pub export var b: f32 = 2;
+        \\pub export var b: f32 = 2.0;
         \\pub export fn foo() void {
         \\    var c: [*c]struct_Foo = undefined;
         \\    _ = a.b;
@@ -2992,17 +2992,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn fn_bool(x: bool) void;
         \\pub extern fn fn_ptr(x: ?*c_void) void;
         \\pub export fn call() void {
-        \\    fn_int(@floatToInt(c_int, 3));
-        \\    fn_int(@floatToInt(c_int, 3));
-        \\    fn_int(@floatToInt(c_int, 3));
+        \\    fn_int(@floatToInt(c_int, 3.0));
+        \\    fn_int(@floatToInt(c_int, 3.0));
+        \\    fn_int(@floatToInt(c_int, 3.0));
         \\    fn_int(@as(c_int, 1094861636));
         \\    fn_f32(@intToFloat(f32, @as(c_int, 3)));
         \\    fn_f64(@intToFloat(f64, @as(c_int, 3)));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '3'))));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '\x01'))));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, 0))));
-        \\    fn_f32(3);
-        \\    fn_f64(3);
+        \\    fn_f32(3.0);
+        \\    fn_f64(3.0);
         \\    fn_bool(@as(c_int, 123) != 0);
         \\    fn_bool(@as(c_int, 0) != 0);
         \\    fn_bool(@ptrToInt(fn_int) != 0);

@@ -3,6 +3,17 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("division of floating literals",
+        \\#define _NO_CRT_STDIO_INLINE 1
+        \\#include <stdio.h>
+        \\#define PI 3.14159265358979323846f
+        \\#define DEG2RAD (PI/180.0f)
+        \\int main(void) {
+        \\    printf("DEG2RAD is: %f\n", DEG2RAD);
+        \\    return 0;
+        \\}
+    , "DEG2RAD is: 0.017453" ++ nl);
+
     cases.add("use global scope for record/enum/typedef type transalation if needed",
         \\void bar(void);
         \\void baz(void);

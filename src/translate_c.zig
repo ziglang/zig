@@ -3248,11 +3248,11 @@ fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingL
     var dbl = stmt.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
-    const str = try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
-    var node = if (dbl == std.math.floor(dbl))
-        try Tag.integer_literal.create(c.arena, str)
+    const str = if (dbl == std.math.floor(dbl))
+        try std.fmt.allocPrint(c.arena, "{d}.0", .{dbl})
     else
-        try Tag.float_literal.create(c.arena, str);
+        try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
+    var node = try Tag.float_literal.create(c.arena, str);
     if (is_negative) node = try Tag.negate.create(c.arena, node);
     return maybeSuppressResult(c, scope, used, node);
 }
