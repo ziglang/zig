@@ -634,12 +634,26 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-        // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(self.base.allocator);
-        defer argv.deinit();
+        const use_zld = blk: {
+            if (self.base.options.is_native_os and self.base.options.system_linker_hack) {
+                break :blk false;
+            }
 
-        if (true) {
-            // if (self.base.options.use_zld) {
+            if (self.base.options.target.cpu.arch == .aarch64) {
+                break :blk true;
+            }
+
+            if (self.base.options.link_libcpp or
+                self.base.options.output_mode == .Lib or
+                self.base.options.linker_script != null)
+            {
+                break :blk false;
+            }
+
+            break :blk true;
+        };
+
+        if (use_zld) {
             var zld = Zld.init(self.base.allocator);
             defer zld.deinit();
             zld.arch = target.cpu.arch;
@@ -662,6 +676,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
             return zld.link(input_files.items, full_out_path);
         }
+
+        // Create an LLD command line and invoke it.
+        var argv = std.ArrayList([]const u8).init(self.base.allocator);
+        defer argv.deinit();
 
         // TODO https://github.com/ziglang/zig/issues/6971
         // Note that there is no need to check if running natively since we do that already
