@@ -56,7 +56,7 @@ pub const default_config = struct {
         return std.io.getStdErr().writer();
     }
 
-    pub fn getTTYConfig() TTY.Config {
+    pub fn detectTTYConfig() TTY.Config {
         var bytes: [128]u8 = undefined;
         const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
         if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
@@ -131,12 +131,12 @@ else
 
 /// The function used to determine which escape codes can be used.
 /// Slightly different name than in config to avoid redefinition in default.
-const detectTTYConfig = if (@hasDecl(config, "getTTYConfig"))
-    config.getTTYConfig
+const getTTYConfig = if (@hasDecl(config, "detectTTYConfig"))
+    config.detectTTYConfig
 else if (has_writer_decl)
-    @compileError("getWriter exists in config, so getTTYConfig must also exist")
+    @compileError("getWriter exists in config, so detectTTYConfig must also exist")
 else
-    default_config.getTTYConfig;
+    default_config.detectTTYConfig;
 
 const has_symbol_map_decl = @hasDecl(config, "SymbolMap");
 const using_default_symbol_map = is_default_config or
@@ -211,7 +211,7 @@ fn getMappingForDump(writer: anytype) ?*SymMap {
 /// Should be called with the writer locked.
 fn getStackTraceDumper(writer: anytype) ?StackTraceDumper(@TypeOf(writer)) {
     return if (getMappingForDump(writer)) |mapping|
-        .{ .writer = writer, .tty_config = detectTTYConfig(), .mapping = mapping }
+        .{ .writer = writer, .tty_config = getTTYConfig(), .mapping = mapping }
     else
         null;
 }
