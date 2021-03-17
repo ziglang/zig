@@ -1832,9 +1832,9 @@ fn transStringLiteralInitializer(
     const init_node = if (num_inits > 0) blk: {
         if (is_narrow) {
             // "string literal"[0..num_inits].*
-            const lit_node = try transNarrowStringLiteral(c, scope, stmt, .used);
-            const sliced = try Tag.string_slice.create(c.arena, .{ .string = lit_node, .end = num_inits });
-            break :blk try Tag.deref.create(c.arena, sliced);
+            var str = try transNarrowStringLiteral(c, scope, stmt, .used);
+            if (str_length != array_size) str = try Tag.string_slice.create(c.arena, .{ .string = str, .end = num_inits });
+            break :blk try Tag.deref.create(c.arena, str);
         } else {
             const init_list = try c.arena.alloc(Node, num_inits);
             var i: c_uint = 0;
