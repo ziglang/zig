@@ -16,11 +16,14 @@ const meta = std.meta;
 
 const phc = @import("phc_encoding.zig");
 
+/// Algorithm for PhcEncoding
+pub const phc_alg_id = "scrypt";
+
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
 const max_size = math.maxInt(usize);
 const max_int = max_size >> 1;
-/// Algorithm for PhcEncoding
-pub const phc_alg_id = "scrypt";
+const PhcParser = phc.Parser(Params);
+const PhcHasher = phc.Hasher(PhcParser, Params, kdf, phc_alg_id, 32, 32);
 
 const ScryptError = error{
     InvalidParams,
@@ -29,7 +32,7 @@ const ScryptError = error{
 
 pub const Error = ScryptError || mem.Allocator.Error;
 
-pub const McfEncodingError = error{
+pub const CryptHasherError = error{
     ParseError,
     InvalidAlgorithm,
     VerificationError,
@@ -138,19 +141,11 @@ pub const Params = struct {
     r: u30,
     p: u30,
 
-    pub fn new(log_n: u6, r: u30, p: u30) Self {
-        return Self{ .log_n = log_n, .r = r, .p = p };
-    }
+    /// Baseline parameters for interactive logins
+    pub const interactive = Self.fromLimits(524288, 16777216);
 
-    /// Create Params with libsodium interactive defaults
-    pub fn interactive() Self {
-        return Self.fromLimits(524288, 16777216);
-    }
-
-    /// Create Params with libsodium sensitive defaults
-    pub fn sensitive() Self {
-        return Self.fromLimits(33554432, 1073741824);
-    }
+    /// Baseline parameters for offline usage
+    pub const sensitive = Self.fromLimits(33554432, 1073741824);
 
     /// Create Params from ops and mem limits
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
@@ -264,113 +259,113 @@ pub fn kdf(
     try crypto.pwhash.pbkdf2(derived_key, password, dk, 1, HmacSha256);
 }
 
+fn CustomB64Codec(comptime map: [64]u8) type {
+    return struct {
+        const map64 = map;
+
+        fn encodedLen(len: usize) usize {
+            return (len * 4 + 2) / 3;
+        }
+
+        fn decodedLen(len: usize) usize {
+            return len / 4 * 3 + (len % 4) * 3 / 4;
+        }
+
+        fn intEncode(dst: []u8, src: anytype) void {
+            var n = src;
+            for (dst) |*x, i| {
+                x.* = map64[@truncate(u6, n)];
+                n = math.shr(@TypeOf(src), n, 6);
+            }
+        }
+
+        fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) CryptHasherError!T {
+            var v: T = 0;
+            for (src) |x, i| {
+                const vi = mem.indexOfScalar(u8, &map64, x) orelse return error.ParseError;
+                v |= @intCast(T, vi) << @intCast(math.Log2Int(T), i * 6);
+            }
+            return v;
+        }
+
+        fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
+            var i: usize = 0;
+            while (i < src.len / 3) : (i += 1) {
+                intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
+            }
+            const leftover = src[i * 3 ..];
+            var v: u24 = 0;
+            for (leftover) |x, j| {
+                v |= @as(u24, x) << @intCast(u5, j * 8);
+            }
+            intEncode(dst[i * 4 ..], v);
+        }
+
+        fn sliceDecode(comptime len: usize, dst: *[decodedLen(len)]u8, src: *const [len]u8) !void {
+            var i: usize = 0;
+            while (i < src.len / 4) : (i += 1) {
+                mem.writeIntSliceLittle(u24, dst[i * 3 ..], try intDecode(u24, src[i * 4 ..][0..4]));
+            }
+            const leftover = src[i * 4 ..];
+            var v: u24 = 0;
+            for (leftover) |_, j| {
+                v |= @as(u24, try intDecode(u6, leftover[j..][0..1])) << @intCast(u5, j * 6);
+            }
+            for (dst[i * 3 ..]) |*x, j| {
+                x.* = @truncate(u8, v >> @intCast(u5, j * 8));
+            }
+        }
+    };
+}
+
 // https://en.wikipedia.org/wiki/Crypt_(C)
 // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
-pub const McfEncoding = struct {
-    const Self = @This();
-    const map64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+pub const CryptHasher = struct {
+    const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
+    const prefix = "$7$";
 
-    params: Params,
-    /// encoded
-    salt: []const u8,
-    /// encoded
-    derived_key: []const u8,
-
-    /// Parse mcf encoded scrypt string
-    pub fn fromString(str: []const u8) McfEncodingError!Self {
-        if (str.len < 58) {
-            return error.ParseError;
-        }
-        const params = try Self.parseParams(str[0..14]);
-        var salt = str[14..];
-        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return error.ParseError];
-        return Self{
-            .params = params,
-            .salt = salt,
-            .derived_key = str[14 + salt.len + 1 ..][0..43],
-        };
-    }
-
-    /// Create mcf encoded scrypt string
-    pub fn toString(self: *Self) [pwhash_str_length]u8 {
-        var s: [pwhash_str_length]u8 = undefined;
-        mem.copy(u8, s[0..3], "$7$");
-        Self.intEncode(s[3..4], self.params.log_n);
-        Self.intEncode(s[4..9], self.params.r);
-        Self.intEncode(s[9..14], self.params.p);
-        mem.copy(u8, s[14..57], self.salt);
-        s[57] = '$';
-        mem.copy(u8, s[58..], self.derived_key);
-        return s;
-    }
-
-    /// Calculate size for encoding
-    pub fn encodedLen(len: usize) usize {
-        return (len * 4 + 2) / 3;
-    }
-
-    fn intEncode(dst: []u8, src: anytype) void {
-        var n = src;
-        for (dst) |*x, i| {
-            x.* = map64[@truncate(u6, n)];
-            n = math.shr(@TypeOf(src), n, 6);
-        }
-    }
-
-    /// Encode slice with crypt base64 format
-    pub fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
-        var i: usize = 0;
-        while (i < src.len / 3) : (i += 1) {
-            intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
-        }
-        const leftover = src[i * 3 ..];
-        var v: u24 = 0;
-        for (leftover) |x, j| {
-            v |= @as(u24, x) << @intCast(u5, j * 8);
-        }
-        intEncode(dst[i * 4 ..], v);
-    }
-
-    fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) McfEncodingError!T {
-        var v: T = 0;
-        for (src) |x, i| {
-            const vi = mem.indexOfScalar(u8, map64, x) orelse return error.ParseError;
-            v |= @intCast(T, vi) << @intCast(math.Log2Int(T), i * 6);
-        }
-        return v;
-    }
-
-    fn parseParams(encoded: *const [14]u8) McfEncodingError!Params {
-        if (!mem.eql(u8, "$7$", encoded[0..3])) {
+    fn parseParams(encoded: *const [14]u8) CryptHasherError!Params {
+        if (!mem.eql(u8, prefix, encoded[0..3])) {
             return error.InvalidAlgorithm;
         }
         return Params{
-            .log_n = try intDecode(u6, encoded[3..4]),
-            .r = try intDecode(u30, encoded[4..9]),
-            .p = try intDecode(u30, encoded[9..14]),
+            .log_n = try Codec.intDecode(u6, encoded[3..4]),
+            .r = try Codec.intDecode(u30, encoded[4..9]),
+            .p = try Codec.intDecode(u30, encoded[9..14]),
         };
     }
 
-    /// Verify password against mcf encoded string
+    /// Verify password against crypt encoded string
     pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
-        var self = try Self.fromString(str);
+        if (str.len < 58) {
+            return error.ParseError;
+        }
+        const params = try parseParams(str[0..14]);
+        var salt = str[14..];
+        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return error.ParseError];
+        const str_dk = str[14 + salt.len + 1 ..];
+        if (str_dk.len < 43) {
+            return error.ParseError;
+        }
+        const expected_encoded_dk = str_dk[0..43];
 
         var dk: [32]u8 = undefined;
-        try kdf(allocator, &dk, password, self.salt, self.params);
+        try kdf(allocator, &dk, password, salt, params);
 
-        var encoded_dk: [encodedLen(dk.len)]u8 = undefined;
-        const expected_encoded_dk = self.derived_key[0..43];
-        Self.sliceEncode(32, &encoded_dk, &dk);
-        const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk, expected_encoded_dk.*);
+        var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
+        Codec.sliceEncode(32, &encoded_dk, &dk);
+
+        const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk[0..].*, expected_encoded_dk[0..].*);
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
-            return McfEncodingError.VerificationError;
+            return CryptHasherError.VerificationError;
         }
     }
 
+    /// Length (in bytes) of a password hash
     pub const pwhash_str_length: usize = 101;
 
-    /// Derive key from password and return mcf encoded string
+    /// Derive key from password and return crypt encoded string
     pub fn create(
         allocator: *mem.Allocator,
         password: []const u8,
@@ -378,39 +373,57 @@ pub const McfEncoding = struct {
     ) ![pwhash_str_length]u8 {
         var salt_bin: [32]u8 = undefined;
         crypto.random.bytes(&salt_bin);
-        var salt: [encodedLen(salt_bin.len)]u8 = undefined;
-        Self.sliceEncode(32, &salt, &salt_bin);
+        var salt: [Codec.encodedLen(salt_bin.len)]u8 = undefined;
+        Codec.sliceEncode(32, &salt, &salt_bin);
 
         var dk: [32]u8 = undefined;
         try kdf(allocator, &dk, password, &salt, params);
 
-        var derived_key: [encodedLen(dk.len)]u8 = undefined;
-        Self.sliceEncode(32, &derived_key, &dk);
-        return (Self{
-            .params = params,
-            .salt = salt[0..43],
-            .derived_key = derived_key[0..43],
-        }).toString();
+        var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
+        Codec.sliceEncode(32, &encoded_dk, &dk);
+
+        var buf: [pwhash_str_length]u8 = undefined;
+        mem.copy(u8, buf[0..3], prefix);
+        Codec.intEncode(buf[3..4], params.log_n);
+        Codec.intEncode(buf[4..9], params.r);
+        Codec.intEncode(buf[9..14], params.p);
+        mem.copy(u8, buf[14..57], salt[0..]);
+        buf[57] = '$';
+        mem.copy(u8, buf[58..], encoded_dk[0..]);
+        return buf;
     }
+};
+
+pub const Options = struct {
+    kdf_params: Params,
+    encoding: crypto.pwhash.Encoding,
 };
 
 /// Compute a hash of a password using the scrypt key derivation function.
 /// The function returns a string that includes all the parameters required for verification.
-pub fn strHash(
-    allocator: *mem.Allocator,
-    password: []const u8,
-    params: Params,
-) ![McfEncoding.pwhash_str_length]u8 {
-    return McfEncoding.create(allocator, password, params);
+///
+/// You have to free result after use.
+pub fn strHash(allocator: *mem.Allocator, password: []const u8, options: Options) ![]u8 {
+    switch (options.encoding) {
+        .phc => return PhcHasher.create(allocator, password, options.kdf_params),
+        .crypt => {
+            const s = try CryptHasher.create(allocator, password, options.kdf_params);
+            return allocator.dupe(u8, &s);
+        },
+    }
 }
 
 /// Verify that a previously computed hash is valid for a given password.
 pub fn strVerify(
     allocator: *mem.Allocator,
-    str: [McfEncodingError.pwhash_str_length]u8,
+    str: []const u8,
     password: []const u8,
 ) !void {
-    return McfEncoding.verify(allocator, str, password);
+    if (mem.startsWith(u8, str, CryptHasher.prefix)) {
+        return CryptHasher.verify(allocator, str, password);
+    } else {
+        return PhcHasher.verify(allocator, str, password);
+    }
 }
 
 test "kdf" {
@@ -418,7 +431,7 @@ test "kdf" {
     const salt = "saltsalt";
 
     var v: [32]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(15, 8, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 15, .r = 8, .p = 1 });
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -432,7 +445,7 @@ test "kdf rfc 1" {
     const salt = "";
 
     var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(4, 1, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 4, .r = 1, .p = 1 });
 
     const hex = "77d6576238657b203b19ca42c18a0497f16b4844e3074ae8dfdffa3fede21442fcd0069ded0948f8326a753a0fc81f17e8d3e0fb2e0d3628cf35e20c38d18906";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -446,7 +459,7 @@ test "kdf rfc 2" {
     const salt = "NaCl";
 
     var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(10, 8, 16));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 10, .r = 8, .p = 16 });
 
     const hex = "fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -460,7 +473,7 @@ test "kdf rfc 3" {
     const salt = "SodiumChloride";
 
     var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(14, 8, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 14, .r = 8, .p = 1 });
 
     const hex = "7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2d5432955613f0fcf62d49705242a9af9e61e85dc0d651e40dfcf017b45575887";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -479,7 +492,7 @@ test "kdf rfc 4" {
     const salt = "SodiumChloride";
 
     var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(20, 8, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 20, .r = 8, .p = 1 });
 
     const hex = "2101cb9b6a511aaeaddbbe09cf70f881ec568d574a2ffd4dabe5ee9820adaa478e56fd8f4ba5d09ffa1c6d927c40f4c337304049e8a952fbcbf45c6fa77a41a4";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -491,9 +504,38 @@ test "kdf rfc 4" {
 test "password hashing (crypt format)" {
     const str = "$7$A6....1....TrXs5Zk6s8sWHpQgWDIXTR8kUU3s6Jc3s.DtdS8M2i4$a4ik5hGDN7foMuHOW.cp.CtX01UyCeO0.JAG.AHPpx5";
     const password = "Y0!?iQa9M%5ekffW(`";
-    try McfEncoding.verify(std.testing.allocator, str, password);
+    try CryptHasher.verify(std.testing.allocator, str, password);
 
-    const params = Params.interactive();
-    const str2 = try McfEncoding.create(std.testing.allocator, password, params);
-    try McfEncoding.verify(std.testing.allocator, &str2, password);
+    const params = Params.interactive;
+    const str2 = try CryptHasher.create(std.testing.allocator, password, params);
+    try CryptHasher.verify(std.testing.allocator, &str2, password);
+}
+
+test "strHash && strVerify" {
+    const alloc = std.testing.allocator;
+    const password = "testpass";
+
+    const s = try strHash(
+        alloc,
+        password,
+        Options{ .kdf_params = Params.interactive, .encoding = .crypt },
+    );
+    defer alloc.free(s);
+    try strVerify(alloc, s, password);
+
+    const s1 = try strHash(
+        alloc,
+        password,
+        Options{ .kdf_params = Params.interactive, .encoding = .phc },
+    );
+    defer alloc.free(s1);
+    try strVerify(alloc, s1, password);
+}
+
+test "unix-scrypt" {
+    // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
+    const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
+    const password = "pleaseletmein";
+
+    try strVerify(std.testing.allocator, str, password);
 }

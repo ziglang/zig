@@ -105,6 +105,11 @@ pub const onetimeauth = struct {
 ///
 /// Password hashing functions must be used whenever sensitive data has to be directly derived from a password.
 pub const pwhash = struct {
+    pub const Encoding = enum {
+        phc,
+        crypt,
+    };
+
     pub const bcrypt = @import("crypto/bcrypt.zig");
     pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
     pub const scrypt = @import("crypto/scrypt.zig");

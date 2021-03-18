@@ -21,16 +21,16 @@ const version_prefix = "v=";
 const params_delimiter = ",";
 const kv_delimiter = "=";
 
-const PhcEncodingError = error{
+const ParserError = error{
     ParseError,
     InvalidAlgorithm,
     VerificationError,
     NullSalt,
 };
 
-pub const Error = PhcEncodingError || mem.Allocator.Error || fmt.ParseIntError;
+pub const Error = ParserError || mem.Allocator.Error || fmt.ParseIntError;
 
-pub fn PhcEncoding(comptime T: type) type {
+pub fn Parser(comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -42,6 +42,8 @@ pub fn PhcEncoding(comptime T: type) type {
         derived_key: ?[]u8 = null,
 
         /// Parse phc encoded string
+        ///
+        /// You have to call `deinit` after use.
         pub fn fromString(allocator: *mem.Allocator, str: []const u8) !Self {
             var it = mem.split(str, fields_delimiter);
             _ = it.next();
@@ -49,7 +51,8 @@ pub fn PhcEncoding(comptime T: type) type {
             if (alg_id.len == 0 or alg_id.len > 32) {
                 return Error.ParseError;
             }
-            var res = Self{ .allocator = allocator, .alg_id = alg_id };
+            var res = Self{ .allocator = allocator, .alg_id = try allocator.dupe(u8, alg_id) };
+            errdefer allocator.free(res.alg_id);
             var s = it.next() orelse return res;
             if (mem.startsWith(u8, s, version_prefix) and
                 mem.indexOf(u8, s, params_delimiter) == null)
@@ -62,48 +65,22 @@ pub fn PhcEncoding(comptime T: type) type {
                 res.params = try T.fromPhcEncoding(&params_it);
                 s = it.next() orelse return res;
             }
-            const salt = try b64decode(allocator, s);
-            errdefer allocator.free(salt);
-            const derived_key = try b64decode(
+            res.salt = try b64decode(allocator, s);
+            errdefer allocator.free(res.salt.?);
+            res.derived_key = try b64decode(
                 allocator,
-                it.next() orelse {
-                    res.salt = salt;
-                    return res;
-                },
+                it.next() orelse return res,
             );
-            errdefer allocator.free(derived_key);
+            errdefer allocator.free(res.derived_key.?);
             if (it.next() != null) {
                 return Error.ParseError;
             }
-            res.salt = salt;
-            res.derived_key = derived_key;
             return res;
-        }
-
-        /// Check algorithm id
-        pub fn check_id(self: *Self, alg_id: []const u8) Error!void {
-            if (!mem.eql(u8, self.alg_id, alg_id)) {
-                return error.InvalidAlgorithm;
-            }
-        }
-
-        /// Verify derived key against phc encoded string
-        pub fn verify(
-            allocator: *mem.Allocator,
-            str: []const u8,
-            derived_key: []const u8,
-        ) !void {
-            var self = try Self.fromString(allocator, str);
-            defer self.deinit();
-            var dk = self.derived_key orelse return Error.VerificationError;
-            defer crypto.utils.secureZero(u8, dk);
-            if (!mem.eql(u8, dk, derived_key)) {
-                return Error.VerificationError;
-            }
         }
 
         /// Deinitialize salt and derived key
         pub fn deinit(self: *Self) void {
+            self.allocator.free(self.alg_id);
             if (self.salt) |v| {
                 self.allocator.free(v);
                 self.salt = null;
@@ -115,7 +92,9 @@ pub fn PhcEncoding(comptime T: type) type {
         }
 
         /// Create phc encoded string
-        pub fn toString(self: *Self) Error![]const u8 {
+        ///
+        /// You have to free result after use.
+        pub fn toString(self: *Self) Error![]u8 {
             var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
             if (self.version) |v| {
@@ -215,6 +194,61 @@ pub fn PhcEncoding(comptime T: type) type {
     };
 }
 
+/// For strHash && strVerify usage
+pub fn Hasher(
+    comptime T: type,
+    comptime P: type,
+    comptime KdfFn: anytype,
+    comptime algorithm_id: []const u8,
+    comptime salt_len: usize,
+    comptime derived_key_len: usize,
+) type {
+    return struct {
+        /// Verify password against phc encoded string
+        pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
+            var self = try T.fromString(allocator, str);
+            defer self.deinit();
+            if (!mem.eql(u8, self.alg_id, algorithm_id)) {
+                return Error.VerificationError;
+            }
+            const params = self.params orelse return Error.VerificationError;
+            const salt = self.salt orelse return Error.VerificationError;
+            const derived_key = self.derived_key orelse return Error.VerificationError;
+            if (derived_key.len != derived_key_len) {
+                return Error.VerificationError;
+            }
+            var dk: [derived_key_len]u8 = undefined;
+            try KdfFn(allocator, &dk, password, salt, params);
+            const ok = crypto.utils.timingSafeEql(
+                [derived_key_len]u8,
+                dk,
+                derived_key[0..derived_key_len].*,
+            );
+            crypto.utils.secureZero(u8, &dk);
+            if (!ok) {
+                return Error.VerificationError;
+            }
+        }
+
+        /// Derive key from password and return phc encoded string
+        ///
+        /// You have to free result after use.
+        pub fn create(allocator: *mem.Allocator, password: []const u8, params: P) ![]u8 {
+            var salt: [salt_len]u8 = undefined;
+            crypto.random.bytes(&salt);
+            var derived_key: [derived_key_len]u8 = undefined;
+            try KdfFn(allocator, &derived_key, password, &salt, params);
+            return (T{
+                .allocator = allocator,
+                .alg_id = algorithm_id,
+                .params = params,
+                .salt = salt[0..],
+                .derived_key = derived_key[0..],
+            }).toString();
+        }
+    };
+}
+
 fn write(buf: []u8, v: ?[]const u8) usize {
     const value = v orelse return 0;
     mem.copy(u8, buf, fields_delimiter);
@@ -310,7 +344,7 @@ test "conv" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
 
     var v = try phc.fromString(alloc, s);
@@ -322,32 +356,11 @@ test "conv" {
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
-test "verify" {
-    const scrypt = @import("scrypt.zig");
-
-    const phc = PhcEncoding(scrypt.Params);
-    const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
-
-    try phc.verify(std.testing.allocator, s, "testpass");
-}
-
-test "check_id" {
-    const scrypt = @import("scrypt.zig");
-
-    const phc = PhcEncoding(scrypt.Params);
-    const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
-
-    var v = try phc.fromString(std.testing.allocator, s);
-    defer v.deinit();
-
-    try v.check_id("scrypt");
-}
-
 test "conv only id" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt";
 
     var v = try phc.fromString(alloc, s);
@@ -363,7 +376,7 @@ test "conv only version" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1";
 
     var v = try phc.fromString(alloc, s);
@@ -379,7 +392,7 @@ test "conv only params" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$ln=15,r=8,p=1";
 
     var v = try phc.fromString(alloc, s);
@@ -395,7 +408,7 @@ test "conv only salt" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$c2FsdHNhbHQ";
 
     var v = try phc.fromString(alloc, s);
@@ -411,7 +424,7 @@ test "conv without derived_key" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ";
 
     var v = try phc.fromString(alloc, s);
@@ -427,7 +440,7 @@ test "conv without salt" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$ln=15,r=8,p=1";
 
     var v = try phc.fromString(alloc, s);
@@ -443,7 +456,7 @@ test "conv without params" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$c2FsdHNhbHQ$dGVzdHBhc3M";
 
     var v = try phc.fromString(alloc, s);
@@ -459,7 +472,7 @@ test "conv without version" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
 
     var v = try phc.fromString(alloc, s);
@@ -475,7 +488,7 @@ test "conv without params and derived_key" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$c2FsdHNhbHQ";
 
     var v = try phc.fromString(alloc, s);
@@ -491,7 +504,7 @@ test "conv without version and params" {
     const scrypt = @import("scrypt.zig");
     const alloc = std.testing.allocator;
 
-    const phc = PhcEncoding(scrypt.Params);
+    const phc = Parser(scrypt.Params);
     const s = "$scrypt$c2FsdHNhbHQ$dGVzdHBhc3M";
 
     var v = try phc.fromString(alloc, s);

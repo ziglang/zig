@@ -6,20 +6,31 @@
 
 const std = @import("std");
 const crypto = std.crypto;
+const debug = std.debug;
 const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
-const debug = std.debug;
-const testing = std.testing;
-const utils = std.crypto.utils;
 
-const salt_length: usize = 16;
-const salt_str_length: usize = 22;
-const ct_str_length: usize = 31;
-const ct_length: usize = 24;
+const phc = @import("phc_encoding.zig");
 
-/// Length (in bytes) of a password hash
+/// bcrypt salt length
+pub const salt_length: usize = 16;
+/// bcrypt derived key length
+pub const derived_key_length: usize = 24;
+/// deprecated, use: CryptHasher.pwhash_str_length
 pub const hash_length: usize = 60;
+/// Algorithm for PhcEncoding
+pub const phc_alg_id = "bcrypt";
+
+const PhcParser = phc.Parser(Params);
+const PhcHasher = phc.Hasher(
+    PhcParser,
+    Params,
+    phc_kdf,
+    phc_alg_id,
+    salt_length,
+    derived_key_length,
+);
 
 pub const BcryptError = error{
     /// The hashed password cannot be decoded.
@@ -210,7 +221,52 @@ const Codec = struct {
     }
 };
 
-fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) BcryptError![hash_length]u8 {
+pub const Params = struct {
+    const Self = @This();
+
+    log_rounds: u6,
+
+    /// Public interface for PhcEncoding
+    pub fn fromPhcEncoding(it: *phc.ParamsIterator) phc.Error!Self {
+        var lr: ?u6 = null;
+        while (try it.next()) |param| {
+            if (mem.eql(u8, param.key, "lr")) {
+                lr = try param.decimal(u6);
+            } else {
+                return error.ParseError;
+            }
+        }
+        return Self{ .log_rounds = lr orelse return error.ParseError };
+    }
+
+    /// Public interface for PhcEncoding
+    pub fn toPhcEncoding(
+        self: Self,
+        allocator: *mem.Allocator,
+        out: []?phc.Param,
+    ) mem.Allocator.Error!void {
+        const lr = try fmt.allocPrint(allocator, "{d}", .{self.log_rounds});
+        out[0] = phc.Param.new("lr", lr);
+    }
+};
+
+fn phc_kdf(
+    allocator: *mem.Allocator,
+    derived_key: []u8,
+    password: []const u8,
+    salt: []const u8,
+    params: Params,
+) !void {
+    kdf(derived_key[0..derived_key_length], password, salt[0..salt_length].*, params);
+}
+
+/// Apply BCRYPT to generate a key from a password.
+pub fn kdf(
+    derived_key: *[derived_key_length]u8,
+    password: []const u8,
+    salt: [salt_length]u8,
+    params: Params,
+) void {
     var state = State{};
     var password_buf: [73]u8 = undefined;
     const trimmed_len = math.min(password.len, password_buf.len - 1);
@@ -219,38 +275,111 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
     var passwordZ = password_buf[0 .. trimmed_len + 1];
     state.expand(salt[0..], passwordZ);
 
-    const rounds: u64 = @as(u64, 1) << rounds_log;
+    const rounds: u64 = @as(u64, 1) << params.log_rounds;
     var k: u64 = 0;
     while (k < rounds) : (k += 1) {
         state.expand0(passwordZ);
         state.expand0(salt[0..]);
     }
-    utils.secureZero(u8, &password_buf);
+    crypto.utils.secureZero(u8, &password_buf);
 
     var cdata = [6]u32{ 0x4f727068, 0x65616e42, 0x65686f6c, 0x64657253, 0x63727944, 0x6f756274 }; // "OrpheanBeholderScryDoubt"
     k = 0;
     while (k < 64) : (k += 1) {
         state.encrypt(&cdata);
     }
-
-    var ct: [ct_length]u8 = undefined;
     for (cdata) |c, i| {
-        mem.writeIntBig(u32, ct[i * 4 ..][0..4], c);
+        mem.writeIntBig(u32, derived_key[i * 4 ..][0..4], c);
     }
-
-    var salt_str: [salt_str_length]u8 = undefined;
-    Codec.encode(salt_str[0..], salt[0..]);
-
-    var ct_str: [ct_str_length]u8 = undefined;
-    Codec.encode(ct_str[0..], ct[0 .. ct.len - 1]);
-
-    var s_buf: [hash_length]u8 = undefined;
-    const s = fmt.bufPrint(s_buf[0..], "$2b${d}{d}${s}{s}", .{ rounds_log / 10, rounds_log % 10, salt_str, ct_str }) catch unreachable;
-    debug.assert(s.len == s_buf.len);
-    return s_buf;
 }
 
-/// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
+// https://en.wikipedia.org/wiki/Crypt_(C)
+pub const CryptHasher = struct {
+    const Self = @This();
+    const salt_str_length: usize = 22;
+    const derived_key_str_length: usize = 31;
+    const prefix = "$2";
+
+    fn parseParams(encoded: *const [7]u8) BcryptError!Params {
+        if (!mem.eql(u8, prefix, encoded[0..2])) {
+            return error.InvalidEncoding;
+        }
+        if (encoded[3] != '$' or encoded[6] != '$') {
+            return error.InvalidEncoding;
+        }
+        const lr = fmt.parseInt(u6, encoded[4..][0..2], 10) catch return error.InvalidEncoding;
+        return Params{ .log_rounds = lr };
+    }
+
+    /// Length (in bytes) of a password hash
+    pub const pwhash_str_length: usize = 60;
+
+    /// Verify password against crypt encoded string
+    pub fn verify(str: []const u8, password: []const u8) BcryptError!void {
+        if (str.len != pwhash_str_length) {
+            return error.InvalidEncoding;
+        }
+        const params = try Self.parseParams(str[0..7]);
+        const salt_str = str[7..][0..salt_str_length];
+        const derived_key_str = str[7 + salt_str_length ..][0..derived_key_str_length];
+
+        var salt: [salt_length]u8 = undefined;
+        try Codec.decode(&salt, salt_str);
+
+        var dk: [derived_key_length]u8 = undefined;
+        kdf(&dk, password, salt, params);
+
+        var derived_key: [derived_key_str_length]u8 = undefined;
+        Codec.encode(&derived_key, dk[0 .. dk.len - 1]);
+
+        const passed = crypto.utils.timingSafeEql(
+            [derived_key_str_length]u8,
+            derived_key,
+            derived_key_str.*,
+        );
+        crypto.utils.secureZero(u8, &derived_key);
+        if (!passed) {
+            return error.InvalidPassword;
+        }
+    }
+
+    /// Derive key from password and return crypt encoded string
+    pub fn create(password: []const u8, params: Params) [pwhash_str_length]u8 {
+        var salt_bin: [salt_length]u8 = undefined;
+        crypto.random.bytes(&salt_bin);
+
+        var dk: [derived_key_length]u8 = undefined;
+        kdf(&dk, password, salt_bin, params);
+
+        var salt: [salt_str_length]u8 = undefined;
+        Codec.encode(&salt, &salt_bin);
+
+        var derived_key: [derived_key_str_length]u8 = undefined;
+        Codec.encode(&derived_key, dk[0 .. dk.len - 1]);
+
+        var buf: [pwhash_str_length]u8 = undefined;
+        const s = fmt.bufPrint(
+            &buf,
+            "{s}b${d}{d}${s}{s}",
+            .{
+                prefix,
+                params.log_rounds / 10,
+                params.log_rounds % 10,
+                salt,
+                derived_key,
+            },
+        ) catch unreachable;
+        debug.assert(s.len == buf.len);
+        return buf;
+    }
+};
+
+pub const Options = struct {
+    kdf_params: Params,
+    encoding: crypto.pwhash.Encoding,
+};
+
+/// Compute a hash of a password using 2^log_rounds rounds of the bcrypt key stretching function.
 /// bcrypt is a computationally expensive and cache-hard function, explicitly designed to slow down exhaustive searches.
 ///
 /// The function returns a string that includes all the parameters required for verification.
@@ -258,45 +387,74 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
 /// IMPORTANT: by design, bcrypt silently truncates passwords to 72 bytes.
 /// If this is an issue for your application, hash the password first using a function such as SHA-512,
 /// and then use the resulting hash as the password parameter for bcrypt.
-pub fn strHash(password: []const u8, rounds_log: u6) ![hash_length]u8 {
-    var salt: [salt_length]u8 = undefined;
-    crypto.random.bytes(&salt);
-    return strHashInternal(password, rounds_log, salt);
-}
-
-/// Verify that a previously computed hash is valid for a given password.
-pub fn strVerify(h: [hash_length]u8, password: []const u8) BcryptError!void {
-    if (!mem.eql(u8, "$2", h[0..2])) return error.InvalidEncoding;
-    if (h[3] != '$' or h[6] != '$') return error.InvalidEncoding;
-    const rounds_log_str = h[4..][0..2];
-    const salt_str = h[7..][0..salt_str_length];
-    var salt: [salt_length]u8 = undefined;
-    try Codec.decode(salt[0..], salt_str[0..]);
-    const rounds_log = fmt.parseInt(u6, rounds_log_str[0..], 10) catch return error.InvalidEncoding;
-    const wanted_s = try strHashInternal(password, rounds_log, salt);
-    if (!mem.eql(u8, wanted_s[0..], h[0..])) {
-        return error.InvalidPassword;
+///
+/// You have to free result after use.
+pub fn strHash(allocator: *mem.Allocator, password: []const u8, options: Options) ![]u8 {
+    switch (options.encoding) {
+        .phc => return PhcHasher.create(allocator, password, options.kdf_params),
+        .crypt => {
+            const s = CryptHasher.create(password, options.kdf_params);
+            return allocator.dupe(u8, &s);
+        },
     }
 }
 
-test "bcrypt codec" {
+/// Verify that a previously computed hash is valid for a given password.
+pub fn strVerify(
+    allocator: *mem.Allocator,
+    str: []const u8,
+    password: []const u8,
+) !void {
+    if (mem.startsWith(u8, str, CryptHasher.prefix) and str.len >= 4 and str[3] == '$') {
+        return CryptHasher.verify(str, password);
+    } else {
+        return PhcHasher.verify(allocator, str, password);
+    }
+}
+
+test "Codec" {
     var salt: [salt_length]u8 = undefined;
     crypto.random.bytes(&salt);
-    var salt_str: [salt_str_length]u8 = undefined;
+    var salt_str: [CryptHasher.salt_str_length]u8 = undefined;
     Codec.encode(salt_str[0..], salt[0..]);
     var salt2: [salt_length]u8 = undefined;
     try Codec.decode(salt2[0..], salt_str[0..]);
-    testing.expectEqualSlices(u8, salt[0..], salt2[0..]);
+    std.testing.expectEqualSlices(u8, salt[0..], salt2[0..]);
 }
 
-test "bcrypt" {
-    const s = try strHash("password", 5);
-    try strVerify(s, "password");
-    testing.expectError(error.InvalidPassword, strVerify(s, "invalid password"));
+test "strHash && strVerify" {
+    const alloc = std.testing.allocator;
+    const params = Params{ .log_rounds = 5 };
 
-    const long_s = try strHash("password" ** 100, 5);
-    try strVerify(long_s, "password" ** 100);
-    try strVerify(long_s, "password" ** 101);
+    const s = try strHash(
+        alloc,
+        "password",
+        Options{ .kdf_params = params, .encoding = .crypt },
+    );
+    defer alloc.free(s);
 
-    try strVerify("$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe".*, "The devil himself");
+    try strVerify(alloc, s, "password");
+    std.testing.expectError(error.InvalidPassword, strVerify(alloc, s, "invalid password"));
+
+    const s1 = try strHash(alloc, "password", Options{ .kdf_params = params, .encoding = .phc });
+    defer alloc.free(s1);
+
+    try strVerify(alloc, s1, "password");
+    std.testing.expectError(phc.Error.VerificationError, strVerify(alloc, s1, "invalid password"));
+
+    const long_s = try strHash(
+        alloc,
+        "password" ** 100,
+        Options{ .kdf_params = params, .encoding = .crypt },
+    );
+    defer alloc.free(long_s);
+
+    try strVerify(alloc, long_s, "password" ** 100);
+    try strVerify(alloc, long_s, "password" ** 101);
+
+    try strVerify(
+        alloc,
+        "$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe",
+        "The devil himself",
+    );
 }
