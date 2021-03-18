@@ -135,6 +135,13 @@ pub const default_config = struct {
     /// Loads a stack trace into the provided argument.
     pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
 
+    /// Returns a pointer to a zero initialized threadlocal variable.
+    /// This config function exists because the `threadlocal` keyword
+    /// doesn't necessary work on freestanding.
+    pub fn getPanicStage() *usize {
+        return &panic_stage;
+    }
+
     pub fn sleepForever() noreturn {
         var event: std.Thread.StaticResetEvent = .{};
         event.wait();
@@ -197,6 +204,12 @@ const capStackTraceFrom = if (@hasDecl(config, "captureStackTraceFrom"))
     config.captureStackTraceFrom
 else
     default_config.captureStackTraceFrom;
+
+/// Slightly different name than in config to avoid redefinition in default.
+const getPanicStageTL = if (@hasDecl(config, "getPanicStage"))
+    config.getPanicStage
+else
+    default_config.getPanicStage;
 
 /// Slightly different name than in config to avoid redefinition in default.
 const sleepForev = if (@hasDecl(config, "sleepForever"))
@@ -588,9 +601,9 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         os.abort();
     }
 
-    nosuspend switch (panic_stage) {
+    nosuspend switch (getPanicStageTL().*) {
         0 => blk: {
-            panic_stage = 1;
+            getPanicStageTL().* = 1;
 
             _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
 
@@ -634,7 +647,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
             }
         },
         1 => blk: {
-            panic_stage = 2;
+            getPanicStageTL().* = 2;
 
             // A panic happened while trying to print a previous panic message,
             // we're still holding the mutex but that's fine as we're going to
