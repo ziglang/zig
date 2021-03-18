@@ -105,7 +105,7 @@ pub const default_config = struct {
             return @This(){ .debug_info = try openSelfDebugInfo(allocator) };
         }
 
-        pub fn deinit(self : *@This()) void {
+        pub fn deinit(self: *@This()) void {
             self.debug_info.deinit();
         }
     };
