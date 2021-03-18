@@ -2637,6 +2637,50 @@ fn argvCmd(allocator: *Allocator, argv: []const []const u8) ![]u8 {
     return cmd.toOwnedSlice();
 }
 
+fn readSourceFileToEndAlloc(allocator: *mem.Allocator, input: *const fs.File, size_hint: ?usize) ![]const u8 {
+    const source_code = input.readToEndAllocOptions(
+        allocator,
+        max_src_size,
+        size_hint,
+        @alignOf(u16),
+        null,
+    ) catch |err| switch (err) {
+        error.ConnectionResetByPeer => unreachable,
+        error.ConnectionTimedOut => unreachable,
+        error.NotOpenForReading => unreachable,
+        else => |e| return e,
+    };
+    errdefer allocator.free(source_code);
+
+    // Detect unsupported file types with their Byte Order Mark
+    const unsupported_boms = [_][]const u8{
+        "\xff\xfe\x00\x00", // UTF-32 little endian
+        "\xfe\xff\x00\x00", // UTF-32 big endian
+        "\xfe\xff", // UTF-16 big endian
+    };
+    for (unsupported_boms) |bom| {
+        if (mem.startsWith(u8, source_code, bom)) {
+            return error.UnsupportedEncoding;
+        }
+    }
+
+    // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
+    if (mem.startsWith(u8, source_code, "\xff\xfe")) {
+        const source_code_utf16_le = mem.bytesAsSlice(u16, source_code);
+        const source_code_utf8 = std.unicode.utf16leToUtf8Alloc(allocator, source_code_utf16_le) catch |err| switch (err) {
+            error.DanglingSurrogateHalf => error.UnsupportedEncoding,
+            error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
+            error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
+            else => |e| return e,
+        };
+
+        allocator.free(source_code);
+        return source_code_utf8;
+    }
+
+    return source_code;
+}
+
 pub const usage_fmt =
     \\Usage: zig fmt [file]...
     \\
@@ -2708,9 +2752,10 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = io.getStdIn().reader();
-
-        const source_code = try stdin.readAllAlloc(gpa, max_src_size);
+        const stdin = io.getStdIn();
+        const source_code = readSourceFileToEndAlloc(gpa, &stdin, null) catch |err| {
+            fatal("unable to read stdin: {s}", .{err});
+        };
         defer gpa.free(source_code);
 
         var tree = std.zig.parse(gpa, source_code) catch |err| {
@@ -2785,6 +2830,7 @@ const FmtError = error{
     EndOfStream,
     Unseekable,
     NotOpenForWriting,
+    UnsupportedEncoding,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
@@ -2850,21 +2896,15 @@ fn fmtPathFile(
     if (stat.kind == .Directory)
         return error.IsDir;
 
-    const source_code = source_file.readToEndAllocOptions(
+    const source_code = try readSourceFileToEndAlloc(
         fmt.gpa,
-        max_src_size,
+        &source_file,
         std.math.cast(usize, stat.size) catch return error.FileTooBig,
-        @alignOf(u8),
-        null,
-    ) catch |err| switch (err) {
-        error.ConnectionResetByPeer => unreachable,
-        error.ConnectionTimedOut => unreachable,
-        error.NotOpenForReading => unreachable,
-        else => |e| return e,
-    };
+    );
+    defer fmt.gpa.free(source_code);
+
     source_file.close();
     file_closed = true;
-    defer fmt.gpa.free(source_code);
 
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
