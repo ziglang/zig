@@ -51,7 +51,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = printf("Hello, %s!\n", "world");
             \\    return 0;
             \\}
-        , "Hello, world!\n");
+        , "Hello, world!" ++ std.cstr.line_sep);
     }
 
     {
