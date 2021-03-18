@@ -2629,7 +2629,8 @@ enum IrInstSrcId {
     IrInstSrcIdResolveResult,
     IrInstSrcIdResetResult,
     IrInstSrcIdSetAlignStack,
-    IrInstSrcIdArgType,
+    IrInstSrcIdArgTypeAllowVarFalse,
+    IrInstSrcIdArgTypeAllowVarTrue,
     IrInstSrcIdExport,
     IrInstSrcIdExtern,
     IrInstSrcIdErrorReturnTrace,
@@ -4144,7 +4145,6 @@ struct IrInstSrcArgType {
 
     IrInstSrc *fn_type;
     IrInstSrc *arg_index;
-    bool allow_var;
 };
 
 struct IrInstSrcExport {

@@ -514,7 +514,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResetResult *>(inst));
         case IrInstSrcIdSetAlignStack:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetAlignStack *>(inst));
-        case IrInstSrcIdArgType:
+        case IrInstSrcIdArgTypeAllowVarFalse:
+        case IrInstSrcIdArgTypeAllowVarTrue:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcArgType *>(inst));
         case IrInstSrcIdExport:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExport *>(inst));
@@ -1544,10 +1545,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcResetResult *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcSetAlignStack *) {
     return IrInstSrcIdSetAlignStack;
-}
-
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcArgType *) {
-    return IrInstSrcIdArgType;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcExport *) {
@@ -4590,10 +4587,17 @@ static IrInstSrc *ir_build_set_align_stack(IrBuilderSrc *irb, Scope *scope, AstN
 static IrInstSrc *ir_build_arg_type(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
         IrInstSrc *fn_type, IrInstSrc *arg_index, bool allow_var)
 {
-    IrInstSrcArgType *instruction = ir_build_instruction<IrInstSrcArgType>(irb, scope, source_node);
+    IrInstSrcArgType *instruction = heap::c_allocator.create<IrInstSrcArgType>();
+    instruction->base.id = allow_var ?
+        IrInstSrcIdArgTypeAllowVarTrue : IrInstSrcIdArgTypeAllowVarFalse;
+    instruction->base.base.scope = scope;
+    instruction->base.base.source_node = source_node;
+    instruction->base.base.debug_id = exec_next_debug_id(irb->exec);
+    instruction->base.owner_bb = irb->current_basic_block;
+    ir_instruction_append(irb->current_basic_block, &instruction->base);
+
     instruction->fn_type = fn_type;
     instruction->arg_index = arg_index;
-    instruction->allow_var = allow_var;
 
     ir_ref_instruction(fn_type, irb->current_basic_block);
     ir_ref_instruction(arg_index, irb->current_basic_block);
@@ -30976,7 +30980,9 @@ static IrInstGen *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstS
     return ir_const_void(ira, &instruction->base.base);
 }
 
-static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgType *instruction) {
+static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgType *instruction,
+        bool allow_var)
+{
     IrInstGen *fn_type_inst = instruction->fn_type->child;
     ZigType *fn_type = ir_resolve_type(ira, fn_type_inst);
     if (type_is_invalid(fn_type))
@@ -30998,7 +31004,7 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     if (arg_index >= fn_type_id->param_count) {
-        if (instruction->allow_var) {
+        if (allow_var) {
             // TODO remove this with var args
             return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_anytype);
         }
@@ -31013,7 +31019,7 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
         // Args are only unresolved if our function is generic.
         ir_assert(fn_type->data.fn.is_generic, &instruction->base.base);
 
-        if (instruction->allow_var) {
+        if (allow_var) {
             return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_anytype);
         } else {
             ir_add_error(ira, &arg_index_inst->base,
@@ -32383,8 +32389,10 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_reset_result(ira, (IrInstSrcResetResult *)instruction);
         case IrInstSrcIdSetAlignStack:
             return ir_analyze_instruction_set_align_stack(ira, (IrInstSrcSetAlignStack *)instruction);
-        case IrInstSrcIdArgType:
-            return ir_analyze_instruction_arg_type(ira, (IrInstSrcArgType *)instruction);
+        case IrInstSrcIdArgTypeAllowVarFalse:
+            return ir_analyze_instruction_arg_type(ira, (IrInstSrcArgType *)instruction, false);
+        case IrInstSrcIdArgTypeAllowVarTrue:
+            return ir_analyze_instruction_arg_type(ira, (IrInstSrcArgType *)instruction, true);
         case IrInstSrcIdExport:
             return ir_analyze_instruction_export(ira, (IrInstSrcExport *)instruction);
         case IrInstSrcIdExtern:
@@ -32826,7 +32834,8 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdAlignCast:
         case IrInstSrcIdImplicitCast:
         case IrInstSrcIdResolveResult:
-        case IrInstSrcIdArgType:
+        case IrInstSrcIdArgTypeAllowVarFalse:
+        case IrInstSrcIdArgTypeAllowVarTrue:
         case IrInstSrcIdErrorReturnTrace:
         case IrInstSrcIdErrorUnion:
         case IrInstSrcIdFloatOp:

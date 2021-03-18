@@ -308,8 +308,10 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcResetResult";
         case IrInstSrcIdSetAlignStack:
             return "SrcSetAlignStack";
-        case IrInstSrcIdArgType:
-            return "SrcArgType";
+        case IrInstSrcIdArgTypeAllowVarFalse:
+            return "SrcArgTypeAllowVarFalse";
+        case IrInstSrcIdArgTypeAllowVarTrue:
+            return "SrcArgTypeAllowVarTrue";
         case IrInstSrcIdExport:
             return "SrcExport";
         case IrInstSrcIdExtern:
@@ -2344,11 +2346,17 @@ static void ir_print_set_align_stack(IrPrintSrc *irp, IrInstSrcSetAlignStack *in
     fprintf(irp->f, ")");
 }
 
-static void ir_print_arg_type(IrPrintSrc *irp, IrInstSrcArgType *instruction) {
+static void ir_print_arg_type(IrPrintSrc *irp, IrInstSrcArgType *instruction, bool allow_var) {
     fprintf(irp->f, "@ArgType(");
     ir_print_other_inst_src(irp, instruction->fn_type);
     fprintf(irp->f, ",");
     ir_print_other_inst_src(irp, instruction->arg_index);
+    fprintf(irp->f, ",");
+    if (allow_var) {
+        fprintf(irp->f, "allow_var=true");
+    } else {
+        fprintf(irp->f, "allow_var=false");
+    }
     fprintf(irp->f, ")");
 }
 
@@ -2942,8 +2950,11 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdSetAlignStack:
             ir_print_set_align_stack(irp, (IrInstSrcSetAlignStack *)instruction);
             break;
-        case IrInstSrcIdArgType:
-            ir_print_arg_type(irp, (IrInstSrcArgType *)instruction);
+        case IrInstSrcIdArgTypeAllowVarFalse:
+            ir_print_arg_type(irp, (IrInstSrcArgType *)instruction, false);
+            break;
+        case IrInstSrcIdArgTypeAllowVarTrue:
+            ir_print_arg_type(irp, (IrInstSrcArgType *)instruction, true);
             break;
         case IrInstSrcIdExport:
             ir_print_export(irp, (IrInstSrcExport *)instruction);
