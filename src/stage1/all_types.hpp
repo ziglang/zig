@@ -391,6 +391,8 @@ enum LazyValueId {
     LazyValueIdAlignOf,
     LazyValueIdSizeOf,
     LazyValueIdPtrType,
+    LazyValueIdPtrTypeSimple,
+    LazyValueIdPtrTypeSimpleConst,
     LazyValueIdOptType,
     LazyValueIdSliceType,
     LazyValueIdFnType,
@@ -465,6 +467,13 @@ struct LazyValuePtrType {
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
+};
+
+struct LazyValuePtrTypeSimple {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstGen *elem_type;
 };
 
 struct LazyValueOptType {
@@ -2625,6 +2634,8 @@ enum IrInstSrcId {
     IrInstSrcIdHasField,
     IrInstSrcIdSetEvalBranchQuota,
     IrInstSrcIdPtrType,
+    IrInstSrcIdPtrTypeSimple,
+    IrInstSrcIdPtrTypeSimpleConst,
     IrInstSrcIdAlignCast,
     IrInstSrcIdImplicitCast,
     IrInstSrcIdResolveResult,
@@ -3293,6 +3304,12 @@ struct IrInstSrcArrayType {
 
     IrInstSrc *size;
     IrInstSrc *sentinel;
+    IrInstSrc *child_type;
+};
+
+struct IrInstSrcPtrTypeSimple {
+    IrInstSrc base;
+
     IrInstSrc *child_type;
 };
 

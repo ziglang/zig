@@ -300,6 +300,10 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcSetEvalBranchQuota";
         case IrInstSrcIdPtrType:
             return "SrcPtrType";
+        case IrInstSrcIdPtrTypeSimple:
+            return "SrcPtrTypeSimple";
+        case IrInstSrcIdPtrTypeSimpleConst:
+            return "SrcPtrTypeSimpleConst";
         case IrInstSrcIdAlignCast:
             return "SrcAlignCast";
         case IrInstSrcIdImplicitCast:
@@ -2245,6 +2249,15 @@ static void ir_print_ptr_type(IrPrintSrc *irp, IrInstSrcPtrType *instruction) {
     ir_print_other_inst_src(irp, instruction->child_type);
 }
 
+static void ir_print_ptr_type_simple(IrPrintSrc *irp, IrInstSrcPtrTypeSimple *instruction,
+        bool is_const)
+{
+    fprintf(irp->f, "&");
+    const char *const_str = is_const ? "const " : "";
+    fprintf(irp->f, "*%s", const_str);
+    ir_print_other_inst_src(irp, instruction->child_type);
+}
+
 static void ir_print_decl_ref(IrPrintSrc *irp, IrInstSrcDeclRef *instruction) {
     const char *ptr_str = (instruction->lval != LValNone) ? "ptr " : "";
     fprintf(irp->f, "declref %s%s", ptr_str, buf_ptr(instruction->tld->name));
@@ -2916,6 +2929,12 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdPtrType:
             ir_print_ptr_type(irp, (IrInstSrcPtrType *)instruction);
+            break;
+        case IrInstSrcIdPtrTypeSimple:
+            ir_print_ptr_type_simple(irp, (IrInstSrcPtrTypeSimple *)instruction, false);
+            break;
+        case IrInstSrcIdPtrTypeSimpleConst:
+            ir_print_ptr_type_simple(irp, (IrInstSrcPtrTypeSimple *)instruction, true);
             break;
         case IrInstSrcIdDeclRef:
             ir_print_decl_ref(irp, (IrInstSrcDeclRef *)instruction);
