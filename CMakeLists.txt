@@ -735,12 +735,14 @@ if(MSVC OR MINGW)
     target_link_libraries(zigstage1 LINK_PUBLIC version)
 endif()
 
-add_executable(zig0 ${ZIG0_SOURCES})
-set_target_properties(zig0 PROPERTIES
-    COMPILE_FLAGS ${EXE_CFLAGS}
-    LINK_FLAGS ${EXE_LDFLAGS}
-)
-target_link_libraries(zig0 zigstage1)
+if("${ZIG_EXECUTABLE}" STREQUAL "")
+  add_executable(zig0 ${ZIG0_SOURCES})
+  set_target_properties(zig0 PROPERTIES
+      COMPILE_FLAGS ${EXE_CFLAGS}
+      LINK_FLAGS ${EXE_LDFLAGS}
+  )
+  target_link_libraries(zig0 zigstage1)
+endif()
 
 if(MSVC)
     set(ZIG1_OBJECT "${CMAKE_BINARY_DIR}/zig1.obj")
@@ -789,7 +791,6 @@ if("${ZIG_EXECUTABLE}" STREQUAL "")
 else()
   add_custom_command(
       OUTPUT "${ZIG1_OBJECT}"
-      BYPRODUCTS "${ZIG1_OBJECT}"
       COMMAND "${ZIG_EXECUTABLE}" "build-obj" ${BUILD_ZIG1_ARGS}
       DEPENDS ${ZIG_STAGE2_SOURCES}
       COMMENT STATUS "Building self-hosted component ${ZIG1_OBJECT}"

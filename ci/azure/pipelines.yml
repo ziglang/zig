@@ -12,6 +12,19 @@ jobs:
   - script: ci/azure/macos_script
     name: main
     displayName: 'Build and test'
+- job: BuildMacOS_arm64
+  pool:
+    vmImage: 'macOS-10.15'
+
+  timeoutInMinutes: 60
+
+  steps:
+  - task: DownloadSecureFile@1
+    inputs:
+      secureFile: s3cfg
+  - script: ci/azure/macos_arm64_script
+    name: main
+    displayName: 'Build and cross-compile'
 - job: BuildLinux
   pool:
     vmImage: 'ubuntu-18.04'
