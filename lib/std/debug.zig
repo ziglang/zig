@@ -580,7 +580,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                     break :blk;
                 };
             } else {
-                writer.print("Panicked during a panic. Aborting.\n", .{}) catch break :blk;
+                writer.print("Panicked during a panic. Terminating.\n", .{}) catch break :blk;
             }
         }
         os.abort();
@@ -636,8 +636,8 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
 
             // A panic happened while trying to print a previous panic message,
             // we're still holding the mutex but that's fine as we're going to
-            // call abort()
-            writer.print("Panicked during a panic. Aborting.\n", .{}) catch break :blk;
+            // call panicTerm()
+            writer.print("Panicked during a panic. Terminating.\n", .{}) catch break :blk;
         },
         else => {
             // Panicked while printing "Panicked during a panic."
