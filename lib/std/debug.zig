@@ -659,7 +659,7 @@ pub const TTY = struct {
         no_color: void,
         escape_codes: void,
         // TODO: should be noreturn instead of void, see
-        // https://github.com/ziglang/zig/issues/3257 
+        // https://github.com/ziglang/zig/issues/3257
         // making this noreturn right now causes a crash
         windows_api: if (builtin.os.tag == .windows) std.fs.File else void,
 
