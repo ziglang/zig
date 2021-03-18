@@ -2610,7 +2610,8 @@ enum IrInstSrcId {
     IrInstSrcIdEnumToInt,
     IrInstSrcIdIntToErr,
     IrInstSrcIdErrToInt,
-    IrInstSrcIdCheckSwitchProngs,
+    IrInstSrcIdCheckSwitchProngsUnderYes,
+    IrInstSrcIdCheckSwitchProngsUnderNo,
     IrInstSrcIdCheckStatementIsVoid,
     IrInstSrcIdTypeName,
     IrInstSrcIdDeclRef,
@@ -4021,7 +4022,6 @@ struct IrInstSrcCheckSwitchProngs {
     IrInstSrcCheckSwitchProngsRange *ranges;
     size_t range_count;
     AstNode* else_prong;
-    bool have_underscore_prong;
 };
 
 struct IrInstSrcCheckStatementIsVoid {

@@ -476,7 +476,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToErr *>(inst));
         case IrInstSrcIdErrToInt:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrToInt *>(inst));
-        case IrInstSrcIdCheckSwitchProngs:
+        case IrInstSrcIdCheckSwitchProngsUnderNo:
+        case IrInstSrcIdCheckSwitchProngsUnderYes:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckSwitchProngs *>(inst));
         case IrInstSrcIdCheckStatementIsVoid:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckStatementIsVoid *>(inst));
@@ -1469,10 +1470,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcIntToErr *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcErrToInt *) {
     return IrInstSrcIdErrToInt;
-}
-
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCheckSwitchProngs *) {
-    return IrInstSrcIdCheckSwitchProngs;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcCheckStatementIsVoid *) {
@@ -4351,13 +4348,19 @@ static IrInstSrc *ir_build_check_switch_prongs(IrBuilderSrc *irb, Scope *scope, 
         IrInstSrc *target_value, IrInstSrcCheckSwitchProngsRange *ranges, size_t range_count,
         AstNode* else_prong, bool have_underscore_prong)
 {
-    IrInstSrcCheckSwitchProngs *instruction = ir_build_instruction<IrInstSrcCheckSwitchProngs>(
-            irb, scope, source_node);
+    IrInstSrcCheckSwitchProngs *instruction = heap::c_allocator.create<IrInstSrcCheckSwitchProngs>();
+    instruction->base.id = have_underscore_prong ?
+        IrInstSrcIdCheckSwitchProngsUnderYes : IrInstSrcIdCheckSwitchProngsUnderNo;
+    instruction->base.base.scope = scope;
+    instruction->base.base.source_node = source_node;
+    instruction->base.base.debug_id = exec_next_debug_id(irb->exec);
+    instruction->base.owner_bb = irb->current_basic_block;
+    ir_instruction_append(irb->current_basic_block, &instruction->base);
+
     instruction->target_value = target_value;
     instruction->ranges = ranges;
     instruction->range_count = range_count;
     instruction->else_prong = else_prong;
-    instruction->have_underscore_prong = have_underscore_prong;
 
     ir_ref_instruction(target_value, irb->current_basic_block);
     for (size_t i = 0; i < range_count; i += 1) {
@@ -29706,7 +29709,7 @@ static IrInstGen *ir_analyze_instruction_test_comptime(IrAnalyze *ira, IrInstSrc
 }
 
 static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
-        IrInstSrcCheckSwitchProngs *instruction)
+        IrInstSrcCheckSwitchProngs *instruction, bool have_underscore_prong)
 {
     IrInstGen *target_value = instruction->target_value->child;
     ZigType *switch_type = target_value->value->type;
@@ -29771,7 +29774,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 bigint_incr(&field_index);
             }
         }
-        if (instruction->have_underscore_prong) {
+        if (have_underscore_prong) {
             if (!switch_type->data.enumeration.non_exhaustive) {
                 ir_add_error(ira, &instruction->base.base,
                     buf_sprintf("switch on exhaustive enum has `_` prong"));
@@ -32347,8 +32350,10 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_fn_proto(ira, (IrInstSrcFnProto *)instruction);
         case IrInstSrcIdTestComptime:
             return ir_analyze_instruction_test_comptime(ira, (IrInstSrcTestComptime *)instruction);
-        case IrInstSrcIdCheckSwitchProngs:
-            return ir_analyze_instruction_check_switch_prongs(ira, (IrInstSrcCheckSwitchProngs *)instruction);
+        case IrInstSrcIdCheckSwitchProngsUnderNo:
+            return ir_analyze_instruction_check_switch_prongs(ira, (IrInstSrcCheckSwitchProngs *)instruction, false);
+        case IrInstSrcIdCheckSwitchProngsUnderYes:
+            return ir_analyze_instruction_check_switch_prongs(ira, (IrInstSrcCheckSwitchProngs *)instruction, true);
         case IrInstSrcIdCheckStatementIsVoid:
             return ir_analyze_instruction_check_statement_is_void(ira, (IrInstSrcCheckStatementIsVoid *)instruction);
         case IrInstSrcIdDeclRef:
@@ -32745,7 +32750,8 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdMemcpy:
         case IrInstSrcIdBreakpoint:
         case IrInstSrcIdOverflowOp: // TODO when we support multiple returns this can be side effect free
-        case IrInstSrcIdCheckSwitchProngs:
+        case IrInstSrcIdCheckSwitchProngsUnderNo:
+        case IrInstSrcIdCheckSwitchProngsUnderYes:
         case IrInstSrcIdCheckStatementIsVoid:
         case IrInstSrcIdCheckRuntimeScope:
         case IrInstSrcIdPanic:

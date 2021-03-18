@@ -270,8 +270,10 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcIntToErr";
         case IrInstSrcIdErrToInt:
             return "SrcErrToInt";
-        case IrInstSrcIdCheckSwitchProngs:
-            return "SrcCheckSwitchProngs";
+        case IrInstSrcIdCheckSwitchProngsUnderNo:
+            return "SrcCheckSwitchProngsUnderNo";
+        case IrInstSrcIdCheckSwitchProngsUnderYes:
+            return "SrcCheckSwitchProngsUnderYes";
         case IrInstSrcIdCheckStatementIsVoid:
             return "SrcCheckStatementIsVoid";
         case IrInstSrcIdTypeName:
@@ -2189,7 +2191,9 @@ static void ir_print_err_to_int(IrPrintGen *irp, IrInstGenErrToInt *instruction)
     ir_print_other_inst_gen(irp, instruction->target);
 }
 
-static void ir_print_check_switch_prongs(IrPrintSrc *irp, IrInstSrcCheckSwitchProngs *instruction) {
+static void ir_print_check_switch_prongs(IrPrintSrc *irp, IrInstSrcCheckSwitchProngs *instruction,
+        bool have_underscore_prong)
+{
     fprintf(irp->f, "@checkSwitchProngs(");
     ir_print_other_inst_src(irp, instruction->target_value);
     fprintf(irp->f, ",");
@@ -2202,6 +2206,8 @@ static void ir_print_check_switch_prongs(IrPrintSrc *irp, IrInstSrcCheckSwitchPr
     }
     const char *have_else_str = instruction->else_prong != nullptr ? "yes" : "no";
     fprintf(irp->f, ")else:%s", have_else_str);
+    const char *have_under_str = have_underscore_prong ? "yes" : "no";
+    fprintf(irp->f, " _:%s", have_under_str);
 }
 
 static void ir_print_check_statement_is_void(IrPrintSrc *irp, IrInstSrcCheckStatementIsVoid *instruction) {
@@ -2893,8 +2899,11 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdErrToInt:
             ir_print_err_to_int(irp, (IrInstSrcErrToInt *)instruction);
             break;
-        case IrInstSrcIdCheckSwitchProngs:
-            ir_print_check_switch_prongs(irp, (IrInstSrcCheckSwitchProngs *)instruction);
+        case IrInstSrcIdCheckSwitchProngsUnderNo:
+            ir_print_check_switch_prongs(irp, (IrInstSrcCheckSwitchProngs *)instruction, false);
+            break;
+        case IrInstSrcIdCheckSwitchProngsUnderYes:
+            ir_print_check_switch_prongs(irp, (IrInstSrcCheckSwitchProngs *)instruction, true);
             break;
         case IrInstSrcIdCheckStatementIsVoid:
             ir_print_check_statement_is_void(irp, (IrInstSrcCheckStatementIsVoid *)instruction);
