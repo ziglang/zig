@@ -325,7 +325,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         if (is_used) {
                             const slot_index = @intCast(SlotIndex, used_bits_byte * 8 + bit_index);
                             const stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
-                            log.err("Memory leak detected: {s}", .{stack_trace});
+                            log.err("Memory leak detected:\n{}", .{stack_trace});
                             leaks = true;
                         }
                         if (bit_index == math.maxInt(u3))
@@ -353,7 +353,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
             var it = self.large_allocations.iterator();
             while (it.next()) |large_alloc| {
-                log.err("Memory leak detected: {s}", .{large_alloc.value.getStackTrace()});
+                log.err("Memory leak detected:\n{}", .{large_alloc.value.getStackTrace()});
                 leaks = true;
             }
             return leaks;
@@ -479,7 +479,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     .index = 0,
                 };
                 self.captureStackTraceWrapper(ret_addr, &free_stack_trace);
-                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {s} Free: {s}", .{
+                log.err("Allocation size {d} bytes does not match free size {d}. Allocation:\n{}\nFree:\n{}", .{
                     entry.value.bytes.len,
                     old_mem.len,
                     entry.value.getStackTrace(),
@@ -571,7 +571,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         .index = 0,
                     };
                     self.captureStackTraceWrapper(ret_addr, &second_free_stack_trace);
-                    log.err("Double free detected. Allocation: {s} First free: {s} Second free: {s}", .{
+                    log.err("Double free detected. Allocation:\n{}\nFirst free:\n{}\nSecond free:\n{}", .{
                         alloc_stack_trace,
                         free_stack_trace,
                         fmtStackTrace(second_free_stack_trace),
