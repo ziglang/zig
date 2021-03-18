@@ -13,6 +13,9 @@ Merge TODO list:
  * finish implementing SrcLoc byteOffset function
  * audit Module.zig for use of token_starts - it should only be when
    resolving LazySrcLoc
+ * audit all the .unneeded src locations
+ * audit the calls in codegen toSrcLocWithDecl specifically if there is inlined function
+   calls from other files.
 
 
 Performance optimizations to look into:
@@ -30,71 +33,6 @@ Random snippets of code that I deleted and need to make sure get
 re-integrated appropriately:
 
 
-fn zirArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
-    const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
-    const param_index = b.instructions.items.len;
-    const param_count = fn_ty.fnParamLen();
-    if (param_index >= param_count) {
-        return mod.fail(scope, inst.base.src, "parameter index {d} outside list of length {d}", .{
-            param_index,
-            param_count,
-        });
-    }
-    const param_type = fn_ty.fnParamType(param_index);
-    const name = try scope.arena().dupeZ(u8, inst.positionals.name);
-    return mod.addArg(b, inst.base.src, param_type, name);
-}
-
-
-fn zirReturnVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-    const b = try mod.requireFunctionBlock(scope, inst.base.src);
-    if (b.inlining) |inlining| {
-        // We are inlining a function call; rewrite the `retvoid` as a `breakvoid`.
-        const void_inst = try mod.constVoid(scope, inst.base.src);
-        try inlining.merges.results.append(mod.gpa, void_inst);
-        const br = try mod.addBr(b, inst.base.src, inlining.merges.block_inst, void_inst);
-        return &br.base;
-    }
-
-    if (b.func) |func| {
-        // Need to emit a compile error if returning void is not allowed.
-        const void_inst = try mod.constVoid(scope, inst.base.src);
-        const fn_ty = func.owner_decl.typed_value.most_recent.typed_value.ty;
-        const casted_void = try mod.coerce(scope, fn_ty.fnReturnType(), void_inst);
-        if (casted_void.ty.zigTypeTag() != .Void) {
-            return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, casted_void);
-        }
-    }
-    return mod.addNoOp(b, inst.base.src, Type.initTag(.noreturn), .retvoid);
-}
-
-
-fn zirReturn(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-    const operand = try resolveInst(mod, scope, inst.positionals.operand);
-    const b = try mod.requireFunctionBlock(scope, inst.base.src);
-
-    if (b.inlining) |inlining| {
-        // We are inlining a function call; rewrite the `ret` as a `break`.
-        try inlining.merges.results.append(mod.gpa, operand);
-        const br = try mod.addBr(b, inst.base.src, inlining.merges.block_inst, operand);
-        return &br.base;
-    }
-
-    return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
-}
-
-fn zirPrimitive(mod: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-    return mod.constInst(scope, primitive.base.src, primitive.positionals.tag.toTypedValue());
-}
-
-
-
 
     /// Each Decl gets its own string interning, in order to avoid contention when
     /// using multiple threads to analyze Decls in parallel. Any particular Decl will only
@@ -105,24 +43,4 @@ fn zirPrimitive(mod: *Module, scope: *Scope, primitive: *zir.Inst.Primitive) Inn
     pub const StringTable = std.StringArrayHashMapUnmanaged(void);
 
 
-
-
-pub fn errSrcLoc(mod: *Module, scope: *Scope, src: LazySrcLoc) SrcLoc {
-    const file_scope = scope.getFileScope();
-    switch (src) {
-        .byte_offset => |off| return .{
-            .file_scope = file_scope,
-            .byte_offset = off,
-        },
-        .token_offset => |off| {
-            @panic("TODO errSrcLoc for token_offset");
-        },
-        .node_offset => |off| {
-            @panic("TODO errSrcLoc for node_offset");
-        },
-        .node_offset_var_decl_ty => |off| {
-            @panic("TODO errSrcLoc for node_offset_var_decl_ty");
-        },
-    }
-}
 

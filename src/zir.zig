@@ -34,6 +34,7 @@ pub const Code = struct {
     /// The meaning of this data is determined by `Inst.Tag` value.
     extra: []u32,
     /// First ZIR instruction in this `Code`.
+    /// `extra` at this index contains a `Ref` for every root member.
     root_start: Inst.Index,
     /// Number of ZIR instructions in the implicit root block of the `Code`.
     root_len: u32,
@@ -358,10 +359,9 @@ pub const Inst = struct {
         /// Same as `alloc` except mutable.
         alloc_mut,
         /// Same as `alloc` except the type is inferred.
-        /// lhs and rhs unused.
+        /// The operand is unused.
         alloc_inferred,
         /// Same as `alloc_inferred` except mutable.
-        /// lhs and rhs unused.
         alloc_inferred_mut,
         /// Create an `anyframe->T`.
         /// Uses the `un_node` field. AST node is the `anyframe->T` syntax. Operand is the type.
@@ -370,9 +370,11 @@ pub const Inst = struct {
         array_cat,
         /// Array multiplication `a ** b`
         array_mul,
-        /// lhs is length, rhs is element type.
+        /// `[N]T` syntax. No source location provided.
+        /// Uses the `bin` union field. lhs is length, rhs is element type.
         array_type,
-        /// lhs is length, ArrayTypeSentinel[rhs]
+        /// `[N:S]T` syntax. No source location provided.
+        /// Uses the `array_type_sentinel` field.
         array_type_sentinel,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
@@ -407,10 +409,11 @@ pub const Inst = struct {
         /// Bitwise OR. `|`
         bit_or,
         /// A labeled block of code, which can return a value.
-        /// Uses the `pl_node` union field.
+        /// Uses the `pl_node` union field. Payload is `MultiOp`.
         block,
         /// A block of code, which can return a value. There are no instructions that break out of
         /// this block; it is implied that the final instruction is the result.
+        /// Uses the `pl_node` union field. Payload is `MultiOp`.
         block_flat,
         /// Same as `block` but additionally makes the inner instructions execute at comptime.
         block_comptime,
@@ -433,7 +436,7 @@ pub const Inst = struct {
         /// the operand is assumed to be the void value.
         /// Uses the `un_tok` union field.
         break_void_tok,
-        /// lhs and rhs unused.
+        /// Uses the `node` union field.
         breakpoint,
         /// Function call with modifier `.auto`.
         /// Uses `pl_node`. AST node is the function call. Payload is `Call`.
@@ -471,8 +474,11 @@ pub const Inst = struct {
         /// The payload is `MultiOp`.
         compile_log,
         /// Conditional branch. Splits control flow based on a boolean condition value.
+        /// Uses the `pl_node` union field. AST node is an if, while, for, etc.
+        /// Payload is `CondBr`.
         condbr,
         /// Special case, has no textual representation.
+        /// Uses the `const` union field.
         @"const",
         /// Declares the beginning of a statement. Used for debug info.
         /// Uses the `node` union field.
@@ -512,7 +518,7 @@ pub const Inst = struct {
         error_union_type,
         /// Create an error set. extra[lhs..rhs]. The values are token index offsets.
         error_set,
-        /// `error.Foo` syntax. uses the `tok` field of the Data union.
+        /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
@@ -532,6 +538,8 @@ pub const Inst = struct {
         field_val_named,
         /// Convert a larger float type to any other float type, possibly causing
         /// a loss of precision.
+        /// Uses the `pl_node` field. AST is the `@floatCast` syntax.
+        /// Payload is `Bin` with lhs as the dest type, rhs the operand.
         floatcast,
         /// Returns a function type, assuming unspecified calling convention.
         /// Uses the `fn_type` union field. `payload_index` points to a `FnType`.
@@ -550,6 +558,8 @@ pub const Inst = struct {
         int,
         /// Convert an integer value to another integer type, asserting that the destination type
         /// can hold the same mathematical value.
+        /// Uses the `pl_node` field. AST is the `@intCast` syntax.
+        /// Payload is `Bin` with lhs as the dest type, rhs the operand.
         intcast,
         /// Make an integer type out of signedness and bit count.
         /// lhs is signedness, rhs is bit count.
@@ -574,7 +584,8 @@ pub const Inst = struct {
         is_err_ptr,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
-        /// SubRange[lhs..rhs]
+        /// Uses the `pl_node` field. The AST node is either a for loop or while loop.
+        /// The payload is `MultiOp`.
         loop,
         /// Merge two error sets into one, `E1 || E2`.
         merge_error_sets,
@@ -677,12 +688,12 @@ pub const Inst = struct {
         typeof_peer,
         /// Asserts control-flow will not reach this instruction. Not safety checked - the compiler
         /// will assume the correctness of this instruction.
-        /// lhs and rhs unused.
+        /// Uses the `node` union field.
         unreachable_unsafe,
         /// Asserts control-flow will not reach this instruction. In safety-checked modes,
         /// this will generate a call to the panic function unless it can be proven unreachable
         /// by the compiler.
-        /// lhs and rhs unused.
+        /// Uses the `node` union field.
         unreachable_safe,
         /// Bitwise XOR. `^`
         xor,
@@ -742,7 +753,7 @@ pub const Inst = struct {
         /// Takes a *E!T and raises a compiler error if T != void
         /// Uses the `un_tok` field.
         ensure_err_payload_void,
-        /// An enum literal. Uses the `str` union field.
+        /// An enum literal. Uses the `str_tok` union field.
         enum_literal,
         /// Suspend an async function. The suspend block has 0 or 1 statements in it.
         /// Uses the `un_node` union field.
@@ -995,6 +1006,7 @@ pub const Inst = struct {
         bin: Bin,
         decl: *Module.Decl,
         @"const": *TypedValue,
+        /// For strings which may contain null bytes.
         str: struct {
             /// Offset into `string_bytes`.
             start: u32,
@@ -1005,14 +1017,28 @@ pub const Inst = struct {
                 return code.string_bytes[self.start..][0..self.len];
             }
         },
+        str_tok: struct {
+            /// Offset into `string_bytes`. Null-terminated.
+            start: u32,
+            /// Offset from Decl AST token index.
+            src_tok: u32,
+
+            pub fn get(self: @This(), code: Code) [:0]const u8 {
+                return code.nullTerminatedString(self.start);
+            }
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .token_offset = self.src_tok };
+            }
+        },
         /// Offset from Decl AST token index.
         tok: ast.TokenIndex,
         /// Offset from Decl AST node index.
         node: ast.Node.Index,
         int: u64,
-        condbr: struct {
-            condition: Ref,
-            /// index into extra.
+        array_type_sentinel: struct {
+            len: Ref,
+            /// index into extra, points to an `ArrayTypeSentinel`
             payload_index: u32,
         },
         ptr_type_simple: struct {
@@ -1100,10 +1126,11 @@ pub const Inst = struct {
         args_len: u32,
     };
 
-    /// This data is stored inside extra, with two sets of trailing indexes:
+    /// This data is stored inside extra, with two sets of trailing `Ref`:
     /// * 0. the then body, according to `then_body_len`.
     /// * 1. the else body, according to `else_body_len`.
     pub const CondBr = struct {
+        condition: Ref,
         then_body_len: u32,
         else_body_len: u32,
     };

@@ -591,7 +591,7 @@ pub const Body = struct {
 };
 
 /// For debugging purposes, prints a function representation to stderr.
-pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
+pub fn dumpFn(old_module: Module, module_fn: *Module.Fn) void {
     const allocator = old_module.gpa;
     var ctx: DumpTzir = .{
         .allocator = allocator,
@@ -622,10 +622,10 @@ pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
 }
 
 const DumpTzir = struct {
-    allocator: *Allocator,
+    allocator: *std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
-    old_module: *const IrModule,
-    module_fn: *IrModule.Fn,
+    old_module: *const Module,
+    module_fn: *Module.Fn,
     indent: usize,
     inst_table: InstTable,
     partial_inst_table: InstTable,
@@ -634,12 +634,12 @@ const DumpTzir = struct {
     next_partial_index: usize = 0,
     next_const_index: usize = 0,
 
-    const InstTable = std.AutoArrayHashMap(*ir.Inst, usize);
+    const InstTable = std.AutoArrayHashMap(*Inst, usize);
 
-    /// TODO: Improve this code to include a stack of ir.Body and store the instructions
+    /// TODO: Improve this code to include a stack of Body and store the instructions
     /// in there. Now we are putting all the instructions in a function local table,
     /// however instructions that are in a Body can be thown away when the Body ends.
-    fn dump(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) !void {
+    fn dump(dtz: *DumpTzir, body: Body, writer: std.fs.File.Writer) !void {
         // First pass to pre-populate the table so that we can show even invalid references.
         // Must iterate the same order we iterate the second time.
         // We also look for constants and put them in the const_table.
@@ -657,7 +657,7 @@ const DumpTzir = struct {
         return dtz.dumpBody(body, writer);
     }
 
-    fn fetchInstsAndResolveConsts(dtz: *DumpTzir, body: ir.Body) error{OutOfMemory}!void {
+    fn fetchInstsAndResolveConsts(dtz: *DumpTzir, body: Body) error{OutOfMemory}!void {
         for (body.instructions) |inst| {
             try dtz.inst_table.put(inst, dtz.next_index);
             dtz.next_index += 1;
@@ -694,13 +694,16 @@ const DumpTzir = struct {
                 .unwrap_errunion_payload_ptr,
                 .unwrap_errunion_err_ptr,
                 => {
-                    const un_op = inst.cast(ir.Inst.UnOp).?;
+                    const un_op = inst.cast(Inst.UnOp).?;
                     try dtz.findConst(un_op.operand);
                 },
 
                 .add,
+                .addwrap,
                 .sub,
+                .subwrap,
                 .mul,
+                .mulwrap,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -714,7 +717,7 @@ const DumpTzir = struct {
                 .bit_or,
                 .xor,
                 => {
-                    const bin_op = inst.cast(ir.Inst.BinOp).?;
+                    const bin_op = inst.cast(Inst.BinOp).?;
                     try dtz.findConst(bin_op.lhs);
                     try dtz.findConst(bin_op.rhs);
                 },
@@ -770,7 +773,7 @@ const DumpTzir = struct {
         }
     }
 
-    fn dumpBody(dtz: *DumpTzir, body: ir.Body, writer: std.fs.File.Writer) (std.fs.File.WriteError || error{OutOfMemory})!void {
+    fn dumpBody(dtz: *DumpTzir, body: Body, writer: std.fs.File.Writer) (std.fs.File.WriteError || error{OutOfMemory})!void {
         for (body.instructions) |inst| {
             const my_index = dtz.next_partial_index;
             try dtz.partial_inst_table.put(inst, my_index);
@@ -812,7 +815,7 @@ const DumpTzir = struct {
                 .unwrap_errunion_payload_ptr,
                 .unwrap_errunion_err_ptr,
                 => {
-                    const un_op = inst.cast(ir.Inst.UnOp).?;
+                    const un_op = inst.cast(Inst.UnOp).?;
                     const kinky = try dtz.writeInst(writer, un_op.operand);
                     if (kinky != null) {
                         try writer.writeAll(") // Instruction does not dominate all uses!\n");
@@ -822,8 +825,11 @@ const DumpTzir = struct {
                 },
 
                 .add,
+                .addwrap,
                 .sub,
+                .subwrap,
                 .mul,
+                .mulwrap,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -837,7 +843,7 @@ const DumpTzir = struct {
                 .bit_or,
                 .xor,
                 => {
-                    const bin_op = inst.cast(ir.Inst.BinOp).?;
+                    const bin_op = inst.cast(Inst.BinOp).?;
 
                     const lhs_kinky = try dtz.writeInst(writer, bin_op.lhs);
                     try writer.writeAll(", ");
@@ -1008,7 +1014,7 @@ const DumpTzir = struct {
         }
     }
 
-    fn writeInst(dtz: *DumpTzir, writer: std.fs.File.Writer, inst: *ir.Inst) !?usize {
+    fn writeInst(dtz: *DumpTzir, writer: std.fs.File.Writer, inst: *Inst) !?usize {
         if (dtz.partial_inst_table.get(inst)) |operand_index| {
             try writer.print("%{d}", .{operand_index});
             return null;
@@ -1024,7 +1030,7 @@ const DumpTzir = struct {
         }
     }
 
-    fn findConst(dtz: *DumpTzir, operand: *ir.Inst) !void {
+    fn findConst(dtz: *DumpTzir, operand: *Inst) !void {
         if (operand.tag == .constant) {
             try dtz.const_table.put(operand, dtz.next_const_index);
             dtz.next_const_index += 1;

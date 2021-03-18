@@ -25,18 +25,18 @@ pub const ResultLoc = union(enum) {
     /// of an assignment uses this kind of result location.
     ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
-    ty: zir.Inst.Index,
+    ty: zir.Inst.Ref,
     /// The expression must store its result into this typed pointer. The result instruction
     /// from the expression must be ignored.
-    ptr: zir.Inst.Index,
+    ptr: zir.Inst.Ref,
     /// The expression must store its result into this allocation, which has an inferred type.
     /// The result instruction from the expression must be ignored.
     /// Always an instruction with tag `alloc_inferred`.
-    inferred_ptr: zir.Inst.Index,
+    inferred_ptr: zir.Inst.Ref,
     /// The expression must store its result into this pointer, which is a typed pointer that
     /// has been bitcasted to whatever the expression's type is.
     /// The result instruction from the expression must be ignored.
-    bitcasted_ptr: zir.Inst.Index,
+    bitcasted_ptr: zir.Inst.Ref,
     /// There is a pointer for the expression to store its result into, however, its type
     /// is inferred based on peer type resolution for a `zir.Inst.Block`.
     /// The result instruction from the expression must be ignored.
@@ -1133,10 +1133,9 @@ fn varDecl(
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
             if (!nodeMayNeedMemoryLocation(scope, var_decl.ast.init_node)) {
-                const result_loc: ResultLoc = if (var_decl.ast.type_node != 0)
-                    .{ .ty = try typeExpr(mod, scope, var_decl.ast.type_node) }
-                else
-                    .none;
+                const result_loc: ResultLoc = if (var_decl.ast.type_node != 0) .{
+                    .ty = try typeExpr(mod, scope, var_decl.ast.type_node),
+                } else .none;
                 const init_inst = try expr(mod, scope, result_loc, var_decl.ast.init_node);
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -2539,16 +2538,13 @@ fn switchExpr(
     if (underscore_src != null) special_prong = .underscore;
     var cases = try block_scope.arena.alloc(zir.Inst.SwitchBr.Case, simple_case_count);
 
-    const rl_and_tag: struct { rl: ResultLoc, tag: zir.Inst.Tag } = if (any_payload_is_ref)
-        .{
-            .rl = .ref,
-            .tag = .switchbr_ref,
-        }
-    else
-        .{
-            .rl = .none,
-            .tag = .switchbr,
-        };
+    const rl_and_tag: struct { rl: ResultLoc, tag: zir.Inst.Tag } = if (any_payload_is_ref) .{
+        .rl = .ref,
+        .tag = .switchbr_ref,
+    } else .{
+        .rl = .none,
+        .tag = .switchbr,
+    };
     const target = try expr(mod, &block_scope.base, rl_and_tag.rl, target_node);
     const switch_inst = try addZirInstT(mod, &block_scope.base, switch_src, zir.Inst.SwitchBr, rl_and_tag.tag, .{
         .target = target,
@@ -2980,11 +2976,12 @@ fn integerLiteral(
     const main_tokens = tree.nodes.items(.main_token);
     const int_token = main_tokens[int_lit];
     const prefixed_bytes = tree.tokenSlice(int_token);
+    const gz = scope.getGenZir();
     if (std.fmt.parseInt(u64, prefixed_bytes, 0)) |small_int| {
         const result: zir.Inst.Index = switch (small_int) {
             0 => @enumToInt(zir.Const.zero),
             1 => @enumToInt(zir.Const.one),
-            else => try addZirInt(small_int),
+            else => try gz.addInt(small_int),
         };
         return rvalue(mod, scope, rl, result);
     } else |err| {
@@ -3418,6 +3415,10 @@ fn callExpr(
     node: ast.Node.Index,
     call: ast.full.Call,
 ) InnerError!*zir.Inst {
+    if (true) {
+        @panic("TODO update for zir-memory-layout branch");
+    }
+
     if (call.async_token) |async_token| {
         return mod.failTok(scope, async_token, "TODO implement async fn call", .{});
     }
@@ -3512,7 +3513,7 @@ fn nosuspendExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Inde
     const tree = scope.tree();
     var child_scope = Scope.Nosuspend{
         .parent = scope,
-        .gen_zir = scope.getGenZIR(),
+        .gen_zir = scope.getGenZir(),
         .src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]],
     };
 
@@ -3808,33 +3809,42 @@ fn nodeMayNeedMemoryLocation(scope: *Scope, start_node: ast.Node.Index) bool {
 /// result locations must call this function on their result.
 /// As an example, if the `ResultLoc` is `ptr`, it will write the result to the pointer.
 /// If the `ResultLoc` is `ty`, it will coerce the result to the type.
-fn rvalue(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerError!*zir.Inst {
+fn rvalue(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    result: zir.Inst.Ref,
+    src_node: ast.Node.Index,
+) InnerError!zir.Inst.Ref {
+    const gz = scope.getGenZir();
     switch (rl) {
         .none => return result,
         .discard => {
             // Emit a compile error for discarding error values.
-            _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
+            _ = try gz.addUnNode(.ensure_result_non_error, result, src_node);
             return result;
         },
         .ref => {
             // We need a pointer but we have a value.
-            return addZIRUnOp(mod, scope, result.src, .ref, result);
+            const tree = scope.tree();
+            const src_token = tree.firstToken(src_node);
+            return gz.addUnTok(.ref, result, src_tok);
         },
-        .ty => |ty_inst| return addZIRBinOp(mod, scope, result.src, .as, ty_inst, result),
+        .ty => |ty_inst| return gz.addBin(.as, ty_inst, result),
         .ptr => |ptr_inst| {
-            _ = try addZIRBinOp(mod, scope, result.src, .store, ptr_inst, result);
+            _ = try gz.addBin(.store, ptr_inst, result);
             return result;
         },
         .bitcasted_ptr => |bitcasted_ptr| {
-            return mod.fail(scope, result.src, "TODO implement rvalue .bitcasted_ptr", .{});
+            return mod.failNode(scope, src_node, "TODO implement rvalue .bitcasted_ptr", .{});
         },
         .inferred_ptr => |alloc| {
-            _ = try addZIRBinOp(mod, scope, result.src, .store_to_inferred_ptr, &alloc.base, result);
+            _ = try gz.addBin(.store_to_inferred_ptr, alloc, result);
             return result;
         },
         .block_ptr => |block_scope| {
             block_scope.rvalue_rl_count += 1;
-            _ = try addZIRBinOp(mod, scope, result.src, .store_to_block_ptr, block_scope.rl_ptr.?, result);
+            _ = try gz.addBin(.store_to_block_ptr, block_scope.rl_ptr.?, result);
             return result;
         },
     }

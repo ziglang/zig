@@ -834,7 +834,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                         }
                     },
                     else => {
-                        log.err("{s} terminated", .{ argv.items[0] });
+                        log.err("{s} terminated", .{argv.items[0]});
                         return error.LLDCrashed;
                     },
                 }
@@ -1323,7 +1323,7 @@ pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.D
 pub fn updateDeclExports(
     self: *MachO,
     module: *Module,
-    decl: *const Module.Decl,
+    decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
     const tracy = trace(@src());

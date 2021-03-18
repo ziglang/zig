@@ -237,10 +237,10 @@ pub const Decl = struct {
         }
     }
 
-    pub fn srcLoc(decl: *const Decl) SrcLoc {
+    pub fn srcLoc(decl: *Decl) SrcLoc {
         return .{
-            .decl = decl,
-            .byte_offset = 0,
+            .container = .{ .decl = decl },
+            .lazy = .{ .node_offset = 0 },
         };
     }
 
@@ -352,7 +352,7 @@ pub const Fn = struct {
 
     /// For debugging purposes.
     pub fn dump(func: *Fn, mod: Module) void {
-        zir.dumpFn(mod, func);
+        ir.dumpFn(mod, func);
     }
 };
 
@@ -381,12 +381,12 @@ pub const Scope = struct {
     /// Returns the arena Allocator associated with the Decl of the Scope.
     pub fn arena(scope: *Scope) *Allocator {
         switch (scope.tag) {
-            .block => return scope.cast(Block).?.arena,
-            .gen_zir => return scope.cast(GenZir).?.arena,
-            .local_val => return scope.cast(LocalVal).?.gen_zir.arena,
-            .local_ptr => return scope.cast(LocalPtr).?.gen_zir.arena,
-            .gen_suspend => return scope.cast(GenZir).?.arena,
-            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.arena,
+            .block => return scope.cast(Block).?.sema.arena,
+            .gen_zir => return scope.cast(GenZir).?.zir_code.arena,
+            .local_val => return scope.cast(LocalVal).?.gen_zir.zir_code.arena,
+            .local_ptr => return scope.cast(LocalPtr).?.gen_zir.zir_code.arena,
+            .gen_suspend => return scope.cast(GenZir).?.zir_code.arena,
+            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.zir_code.arena,
             .file => unreachable,
             .container => unreachable,
             .decl_ref => unreachable,
@@ -399,12 +399,12 @@ pub const Scope = struct {
 
     pub fn ownerDecl(scope: *Scope) ?*Decl {
         return switch (scope.tag) {
-            .block => scope.cast(Block).?.owner_decl,
+            .block => scope.cast(Block).?.sema.owner_decl,
             .gen_zir => scope.cast(GenZir).?.zir_code.decl,
-            .local_val => scope.cast(LocalVal).?.gen_zir.decl,
-            .local_ptr => scope.cast(LocalPtr).?.gen_zir.decl,
-            .gen_suspend => return scope.cast(GenZir).?.decl,
-            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.decl,
+            .local_val => scope.cast(LocalVal).?.gen_zir.zir_code.decl,
+            .local_ptr => scope.cast(LocalPtr).?.gen_zir.zir_code.decl,
+            .gen_suspend => return scope.cast(GenZir).?.zir_code.decl,
+            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.zir_code.decl,
             .file => null,
             .container => null,
             .decl_ref => scope.cast(DeclRef).?.decl,
@@ -415,10 +415,10 @@ pub const Scope = struct {
         return switch (scope.tag) {
             .block => scope.cast(Block).?.src_decl,
             .gen_zir => scope.cast(GenZir).?.zir_code.decl,
-            .local_val => scope.cast(LocalVal).?.gen_zir.decl,
-            .local_ptr => scope.cast(LocalPtr).?.gen_zir.decl,
-            .gen_suspend => return scope.cast(GenZir).?.decl,
-            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.decl,
+            .local_val => scope.cast(LocalVal).?.gen_zir.zir_code.decl,
+            .local_ptr => scope.cast(LocalPtr).?.gen_zir.zir_code.decl,
+            .gen_suspend => return scope.cast(GenZir).?.zir_code.decl,
+            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.zir_code.decl,
             .file => null,
             .container => null,
             .decl_ref => scope.cast(DeclRef).?.decl,
@@ -463,11 +463,11 @@ pub const Scope = struct {
             .file => return &scope.cast(File).?.tree,
             .block => return &scope.cast(Block).?.src_decl.container.file_scope.tree,
             .gen_zir => return &scope.cast(GenZir).?.decl.container.file_scope.tree,
-            .local_val => return &scope.cast(LocalVal).?.gen_zir.decl.container.file_scope.tree,
-            .local_ptr => return &scope.cast(LocalPtr).?.gen_zir.decl.container.file_scope.tree,
+            .local_val => return &scope.cast(LocalVal).?.gen_zir.zir_code.decl.container.file_scope.tree,
+            .local_ptr => return &scope.cast(LocalPtr).?.gen_zir.zir_code.decl.container.file_scope.tree,
             .container => return &scope.cast(Container).?.file_scope.tree,
             .gen_suspend => return &scope.cast(GenZir).?.decl.container.file_scope.tree,
-            .gen_nosuspend => return &scope.cast(Nosuspend).?.gen_zir.decl.container.file_scope.tree,
+            .gen_nosuspend => return &scope.cast(Nosuspend).?.gen_zir.zir_code.decl.container.file_scope.tree,
             .decl_ref => return &scope.cast(DeclRef).?.decl.container.file_scope.tree,
         }
     }
@@ -529,7 +529,7 @@ pub const Scope = struct {
                 .block => return @fieldParentPtr(Block, "base", cur).src_decl.container.file_scope,
                 .gen_suspend => @fieldParentPtr(GenZir, "base", cur).parent,
                 .gen_nosuspend => @fieldParentPtr(Nosuspend, "base", cur).parent,
-                .decl_ref => @fieldParentPtr(DeclRef, "base", cur).decl.container.file_scope,
+                .decl_ref => return @fieldParentPtr(DeclRef, "base", cur).decl.container.file_scope,
             };
         }
     }
@@ -730,11 +730,6 @@ pub const Scope = struct {
         pub const Inlining = struct {
             /// Shared state among the entire inline/comptime call stack.
             shared: *Shared,
-            /// We use this to count from 0 so that arg instructions know
-            /// which parameter index they are, without having to store
-            /// a parameter index with each arg instruction.
-            param_index: usize,
-            casted_args: []*ir.Inst,
             merges: Merges,
 
             pub const Shared = struct {
@@ -762,16 +757,12 @@ pub const Scope = struct {
         pub fn makeSubBlock(parent: *Block) Block {
             return .{
                 .parent = parent,
-                .inst_map = parent.inst_map,
-                .func = parent.func,
-                .owner_decl = parent.owner_decl,
+                .sema = parent.sema,
                 .src_decl = parent.src_decl,
                 .instructions = .{},
-                .arena = parent.arena,
                 .label = null,
                 .inlining = parent.inlining,
                 .is_comptime = parent.is_comptime,
-                .branch_quota = parent.branch_quota,
             };
         }
 
@@ -795,7 +786,7 @@ pub const Scope = struct {
             ty: Type,
             comptime tag: ir.Inst.Tag,
         ) !*ir.Inst {
-            const inst = try block.arena.create(tag.Type());
+            const inst = try block.sema.arena.create(tag.Type());
             inst.* = .{
                 .base = .{
                     .tag = tag,
@@ -814,7 +805,7 @@ pub const Scope = struct {
             tag: ir.Inst.Tag,
             operand: *ir.Inst,
         ) !*ir.Inst {
-            const inst = try block.arena.create(ir.Inst.UnOp);
+            const inst = try block.sema.arena.create(ir.Inst.UnOp);
             inst.* = .{
                 .base = .{
                     .tag = tag,
@@ -835,7 +826,7 @@ pub const Scope = struct {
             lhs: *ir.Inst,
             rhs: *ir.Inst,
         ) !*ir.Inst {
-            const inst = try block.arena.create(ir.Inst.BinOp);
+            const inst = try block.sema.arena.create(ir.Inst.BinOp);
             inst.* = .{
                 .base = .{
                     .tag = tag,
@@ -854,7 +845,7 @@ pub const Scope = struct {
             target_block: *ir.Inst.Block,
             operand: *ir.Inst,
         ) !*ir.Inst.Br {
-            const inst = try scope_block.arena.create(ir.Inst.Br);
+            const inst = try scope_block.sema.arena.create(ir.Inst.Br);
             inst.* = .{
                 .base = .{
                     .tag = .br,
@@ -875,7 +866,7 @@ pub const Scope = struct {
             then_body: ir.Body,
             else_body: ir.Body,
         ) !*ir.Inst {
-            const inst = try block.arena.create(ir.Inst.CondBr);
+            const inst = try block.sema.arena.create(ir.Inst.CondBr);
             inst.* = .{
                 .base = .{
                     .tag = .condbr,
@@ -897,7 +888,7 @@ pub const Scope = struct {
             func: *ir.Inst,
             args: []const *ir.Inst,
         ) !*ir.Inst {
-            const inst = try block.arena.create(ir.Inst.Call);
+            const inst = try block.sema.arena.create(ir.Inst.Call);
             inst.* = .{
                 .base = .{
                     .tag = .call,
@@ -918,7 +909,7 @@ pub const Scope = struct {
             cases: []ir.Inst.SwitchBr.Case,
             else_body: ir.Body,
         ) !*ir.Inst {
-            const inst = try block.arena.create(ir.Inst.SwitchBr);
+            const inst = try block.sema.arena.create(ir.Inst.SwitchBr);
             inst.* = .{
                 .base = .{
                     .tag = .switchbr,
@@ -946,7 +937,7 @@ pub const Scope = struct {
         zir_code: *WipZirCode,
         /// Keeps track of the list of instructions in this scope only. References
         /// to instructions in `zir_code`.
-        instructions: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
+        instructions: std.ArrayListUnmanaged(zir.Inst.Ref) = .{},
         label: ?Label = null,
         break_block: zir.Inst.Index = 0,
         continue_block: zir.Inst.Index = 0,
@@ -978,12 +969,12 @@ pub const Scope = struct {
         };
 
         pub fn addFnTypeCc(gz: *GenZir, args: struct {
-            param_types: []const zir.Inst.Index,
-            ret_ty: zir.Inst.Index,
-            cc: zir.Inst.Index,
+            param_types: []const zir.Inst.Ref,
+            ret_ty: zir.Inst.Ref,
+            cc: zir.Inst.Ref,
         }) !zir.Inst.Index {
             const gpa = gz.zir_code.gpa;
-            try gz.instructions.ensureCapacity(gpa, gz.instructions.items + 1);
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
             try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.len +
                 @typeInfo(zir.Inst.FnTypeCc).Struct.fields.len + args.param_types.len);
@@ -994,7 +985,7 @@ pub const Scope = struct {
             }) catch unreachable; // Capacity is ensured above.
             gz.zir_code.extra.appendSliceAssumeCapacity(args.param_types);
 
-            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            const new_index = gz.zir_code.instructions.len;
             gz.zir_code.instructions.appendAssumeCapacity(.{
                 .tag = .fn_type_cc,
                 .data = .{ .fn_type = .{
@@ -1002,17 +993,18 @@ pub const Scope = struct {
                     .payload_index = payload_index,
                 } },
             });
-            gz.instructions.appendAssumeCapacity(new_index);
-            return new_index;
+            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
+            gz.instructions.appendAssumeCapacity(result);
+            return result;
         }
 
         pub fn addFnType(
             gz: *GenZir,
-            ret_ty: zir.Inst.Index,
-            param_types: []const zir.Inst.Index,
+            ret_ty: zir.Inst.Ref,
+            param_types: []const zir.Inst.Ref,
         ) !zir.Inst.Index {
             const gpa = gz.zir_code.gpa;
-            try gz.instructions.ensureCapacity(gpa, gz.instructions.items + 1);
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
             try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.len +
                 @typeInfo(zir.Inst.FnType).Struct.fields.len + param_types.len);
@@ -1022,7 +1014,7 @@ pub const Scope = struct {
             }) catch unreachable; // Capacity is ensured above.
             gz.zir_code.extra.appendSliceAssumeCapacity(param_types);
 
-            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            const new_index = gz.zir_code.instructions.len;
             gz.zir_code.instructions.appendAssumeCapacity(.{
                 .tag = .fn_type_cc,
                 .data = .{ .fn_type = .{
@@ -1030,29 +1022,118 @@ pub const Scope = struct {
                     .payload_index = payload_index,
                 } },
             });
-            gz.instructions.appendAssumeCapacity(new_index);
-            return new_index;
+            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
+            gz.instructions.appendAssumeCapacity(result);
+            return result;
         }
 
         pub fn addRetTok(
             gz: *GenZir,
-            operand: zir.Inst.Index,
-            src_tok: ast.TokenIndex,
+            operand: zir.Inst.Ref,
+            /// Absolute token index. This function does the conversion to Decl offset.
+            abs_tok_index: ast.TokenIndex,
         ) !zir.Inst.Index {
             const gpa = gz.zir_code.gpa;
-            try gz.instructions.ensureCapacity(gpa, gz.instructions.items + 1);
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
 
-            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            const new_index = gz.zir_code.instructions.len;
             gz.zir_code.instructions.appendAssumeCapacity(.{
                 .tag = .ret_tok,
                 .data = .{ .fn_type = .{
                     .operand = operand,
-                    .src_tok = src_tok,
+                    .src_tok = abs_tok_index - gz.zir_code.decl.srcToken(),
                 } },
             });
-            gz.instructions.appendAssumeCapacity(new_index);
-            return new_index;
+            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
+            gz.instructions.appendAssumeCapacity(result);
+            return result;
+        }
+
+        pub fn addInt(gz: *GenZir, integer: u64) !zir.Inst.Index {
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+
+            const new_index = gz.zir_code.instructions.len;
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = .int,
+                .data = .{ .int = integer },
+            });
+            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
+            gz.instructions.appendAssumeCapacity(result);
+            return result;
+        }
+
+        pub fn addUnNode(
+            gz: *GenZir,
+            tag: zir.Inst.Tag,
+            operand: zir.Inst.Ref,
+            /// Absolute node index. This function does the conversion to offset from Decl.
+            abs_node_index: ast.Node.Index,
+        ) !zir.Inst.Ref {
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+
+            const new_index = gz.zir_code.instructions.len;
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = tag,
+                .data = .{ .un_node = .{
+                    .operand = operand,
+                    .src_node = abs_node_index - gz.zir_code.decl.srcNode(),
+                } },
+            });
+            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
+            gz.instructions.appendAssumeCapacity(result);
+            return result;
+        }
+
+        pub fn addUnTok(
+            gz: *GenZir,
+            tag: zir.Inst.Tag,
+            operand: zir.Inst.Ref,
+            /// Absolute token index. This function does the conversion to Decl offset.
+            abs_tok_index: ast.TokenIndex,
+        ) !zir.Inst.Ref {
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+
+            const new_index = gz.zir_code.instructions.len;
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = tag,
+                .data = .{ .un_tok = .{
+                    .operand = operand,
+                    .src_tok = abs_tok_index - gz.zir_code.decl.srcToken(),
+                } },
+            });
+            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
+            gz.instructions.appendAssumeCapacity(result);
+            return result;
+        }
+
+        pub fn addBin(
+            gz: *GenZir,
+            tag: zir.Inst.Tag,
+            lhs: zir.Inst.Ref,
+            rhs: zir.Inst.Ref,
+        ) !zir.Inst.Ref {
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+
+            const new_index = gz.zir_code.instructions.len;
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = tag,
+                .data = .{ .bin = .{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                } },
+            });
+            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
+            gz.instructions.appendAssumeCapacity(result);
+            return result;
         }
     };
 
@@ -1106,7 +1187,9 @@ pub const WipZirCode = struct {
     instructions: std.MultiArrayList(zir.Inst) = .{},
     string_bytes: std.ArrayListUnmanaged(u8) = .{},
     extra: std.ArrayListUnmanaged(u32) = .{},
-    arg_count: usize = 0,
+    /// The end of special indexes. `zir.Inst.Ref` subtracts against this number to convert
+    /// to `zir.Inst.Index`. The default here is correct if there are 0 parameters.
+    ref_start_index: usize = zir.const_inst_list.len,
     decl: *Decl,
     gpa: *Allocator,
     arena: *Allocator,
@@ -1189,6 +1272,7 @@ pub const SrcLoc = struct {
 
             .byte_abs,
             .token_abs,
+            .node_abs,
             => src_loc.container.file_scope,
 
             .byte_offset,
@@ -1201,6 +1285,13 @@ pub const SrcLoc = struct {
             .node_offset_builtin_call_argn,
             .node_offset_array_access_index,
             .node_offset_slice_sentinel,
+            .node_offset_call_func,
+            .node_offset_field_name,
+            .node_offset_deref_ptr,
+            .node_offset_asm_source,
+            .node_offset_asm_ret_ty,
+            .node_offset_if_cond,
+            .node_offset_anyframe_type,
             => src_loc.container.decl.container.file_scope,
         };
     }
@@ -1216,6 +1307,13 @@ pub const SrcLoc = struct {
                 const file_scope = src_loc.container.file_scope;
                 const tree = try mod.getAstTree(file_scope);
                 const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_abs => |node_index| {
+                const file_scope = src_loc.container.file_scope;
+                const tree = try mod.getAstTree(file_scope);
+                const token_starts = tree.tokens.items(.start);
+                const tok_index = tree.firstToken(node_index);
                 return token_starts[tok_index];
             },
             .byte_offset => |byte_off| {
@@ -1244,6 +1342,13 @@ pub const SrcLoc = struct {
             .node_offset_builtin_call_argn => unreachable, // Handled specially in `Sema`.
             .node_offset_array_access_index => @panic("TODO"),
             .node_offset_slice_sentinel => @panic("TODO"),
+            .node_offset_call_func => @panic("TODO"),
+            .node_offset_field_name => @panic("TODO"),
+            .node_offset_deref_ptr => @panic("TODO"),
+            .node_offset_asm_source => @panic("TODO"),
+            .node_offset_asm_ret_ty => @panic("TODO"),
+            .node_offset_if_cond => @panic("TODO"),
+            .node_offset_anyframe_type => @panic("TODO"),
         }
     }
 };
@@ -1276,6 +1381,10 @@ pub const LazySrcLoc = union(enum) {
     /// offset from 0. The source file is determined contextually.
     /// Inside a `SrcLoc`, the `file_scope` union field will be active.
     token_abs: u32,
+    /// The source location points to an AST node within a source file,
+    /// offset from 0. The source file is determined contextually.
+    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
+    node_abs: u32,
     /// The source location points to a byte offset within a source file,
     /// offset from the byte offset of the Decl within the file.
     /// The Decl is determined contextually.
@@ -1322,6 +1431,48 @@ pub const LazySrcLoc = union(enum) {
     /// to the sentinel expression.
     /// The Decl is determined contextually.
     node_offset_slice_sentinel: u32,
+    /// The source location points to the callee expression of a function
+    /// call expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a function call AST node. Next, navigate
+    /// to the callee expression.
+    /// The Decl is determined contextually.
+    node_offset_call_func: u32,
+    /// The source location points to the field name of a field access expression,
+    /// found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a field access AST node. Next, navigate
+    /// to the field name token.
+    /// The Decl is determined contextually.
+    node_offset_field_name: u32,
+    /// The source location points to the pointer of a pointer deref expression,
+    /// found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a pointer deref AST node. Next, navigate
+    /// to the pointer expression.
+    /// The Decl is determined contextually.
+    node_offset_deref_ptr: u32,
+    /// The source location points to the assembly source code of an inline assembly
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to inline assembly AST node. Next, navigate
+    /// to the asm template source code.
+    /// The Decl is determined contextually.
+    node_offset_asm_source: u32,
+    /// The source location points to the return type of an inline assembly
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to inline assembly AST node. Next, navigate
+    /// to the return type expression.
+    /// The Decl is determined contextually.
+    node_offset_asm_ret_ty: u32,
+    /// The source location points to the condition expression of an if
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to an if expression AST node. Next, navigate
+    /// to the condition expression.
+    /// The Decl is determined contextually.
+    node_offset_if_cond: u32,
+    /// The source location points to the type expression of an `anyframe->T`
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a `anyframe->T` expression AST node. Next, navigate
+    /// to the type expression.
+    /// The Decl is determined contextually.
+    node_offset_anyframe_type: u32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
     pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
@@ -1330,6 +1481,7 @@ pub const LazySrcLoc = union(enum) {
             .todo,
             .byte_abs,
             .token_abs,
+            .node_abs,
             => .{
                 .container = .{ .file_scope = scope.getFileScope() },
                 .lazy = lazy,
@@ -1345,8 +1497,52 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_builtin_call_argn,
             .node_offset_array_access_index,
             .node_offset_slice_sentinel,
+            .node_offset_call_func,
+            .node_offset_field_name,
+            .node_offset_deref_ptr,
+            .node_offset_asm_source,
+            .node_offset_asm_ret_ty,
+            .node_offset_if_cond,
+            .node_offset_anyframe_type,
             => .{
                 .container = .{ .decl = scope.srcDecl().? },
+                .lazy = lazy,
+            },
+        };
+    }
+
+    /// Upgrade to a `SrcLoc` based on the `Decl` provided.
+    pub fn toSrcLocWithDecl(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
+        return switch (lazy) {
+            .unneeded,
+            .todo,
+            .byte_abs,
+            .token_abs,
+            .node_abs,
+            => .{
+                .container = .{ .file_scope = decl.getFileScope() },
+                .lazy = lazy,
+            },
+
+            .byte_offset,
+            .token_offset,
+            .node_offset,
+            .node_offset_var_decl_ty,
+            .node_offset_for_cond,
+            .node_offset_builtin_call_arg0,
+            .node_offset_builtin_call_arg1,
+            .node_offset_builtin_call_argn,
+            .node_offset_array_access_index,
+            .node_offset_slice_sentinel,
+            .node_offset_call_func,
+            .node_offset_field_name,
+            .node_offset_deref_ptr,
+            .node_offset_asm_source,
+            .node_offset_asm_ret_ty,
+            .node_offset_if_cond,
+            .node_offset_anyframe_type,
+            => .{
+                .container = .{ .decl = decl },
                 .lazy = lazy,
             },
         };
@@ -2255,7 +2451,7 @@ fn astgenAndSemaVarDecl(
     return type_changed;
 }
 
-fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !void {
+pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !void {
     try depender.dependencies.ensureCapacity(mod.gpa, depender.dependencies.items().len + 1);
     try dependee.dependants.ensureCapacity(mod.gpa, dependee.dependants.items().len + 1);
 
@@ -3144,8 +3340,8 @@ pub fn lookupDeclName(mod: *Module, scope: *Scope, ident_name: []const u8) ?*Dec
     return mod.decl_table.get(name_hash);
 }
 
-fn makeIntType(mod: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
-    const int_payload = try scope.arena().create(Type.Payload.Bits);
+pub fn makeIntType(arena: *Allocator, signed: bool, bits: u16) !Type {
+    const int_payload = try arena.create(Type.Payload.Bits);
     int_payload.* = .{
         .base = .{
             .tag = if (signed) .int_signed else .int_unsigned,
@@ -3252,45 +3448,51 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
                 if (inlining.shared.caller) |func| {
                     func.state = .sema_failure;
                 } else {
-                    block.owner_decl.analysis = .sema_failure;
-                    block.owner_decl.generation = mod.generation;
+                    block.sema.owner_decl.analysis = .sema_failure;
+                    block.sema.owner_decl.generation = mod.generation;
                 }
             } else {
-                if (block.func) |func| {
+                if (block.sema.func) |func| {
                     func.state = .sema_failure;
                 } else {
-                    block.owner_decl.analysis = .sema_failure;
-                    block.owner_decl.generation = mod.generation;
+                    block.sema.owner_decl.analysis = .sema_failure;
+                    block.sema.owner_decl.generation = mod.generation;
                 }
             }
-            mod.failed_decls.putAssumeCapacityNoClobber(block.owner_decl, err_msg);
+            mod.failed_decls.putAssumeCapacityNoClobber(block.sema.owner_decl, err_msg);
         },
         .gen_zir, .gen_suspend => {
             const gen_zir = scope.cast(Scope.GenZir).?;
-            gen_zir.decl.analysis = .sema_failure;
-            gen_zir.decl.generation = mod.generation;
-            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+            gen_zir.zir_code.decl.analysis = .sema_failure;
+            gen_zir.zir_code.decl.generation = mod.generation;
+            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.zir_code.decl, err_msg);
         },
         .local_val => {
             const gen_zir = scope.cast(Scope.LocalVal).?.gen_zir;
-            gen_zir.decl.analysis = .sema_failure;
-            gen_zir.decl.generation = mod.generation;
-            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+            gen_zir.zir_code.decl.analysis = .sema_failure;
+            gen_zir.zir_code.decl.generation = mod.generation;
+            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.zir_code.decl, err_msg);
         },
         .local_ptr => {
             const gen_zir = scope.cast(Scope.LocalPtr).?.gen_zir;
-            gen_zir.decl.analysis = .sema_failure;
-            gen_zir.decl.generation = mod.generation;
-            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+            gen_zir.zir_code.decl.analysis = .sema_failure;
+            gen_zir.zir_code.decl.generation = mod.generation;
+            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.zir_code.decl, err_msg);
         },
         .gen_nosuspend => {
             const gen_zir = scope.cast(Scope.Nosuspend).?.gen_zir;
-            gen_zir.decl.analysis = .sema_failure;
-            gen_zir.decl.generation = mod.generation;
-            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+            gen_zir.zir_code.decl.analysis = .sema_failure;
+            gen_zir.zir_code.decl.generation = mod.generation;
+            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.zir_code.decl, err_msg);
         },
         .file => unreachable,
         .container => unreachable,
+        .decl_ref => {
+            const decl_ref = scope.cast(Scope.DeclRef).?;
+            decl_ref.decl.analysis = .sema_failure;
+            decl_ref.decl.generation = mod.generation;
+            mod.failed_decls.putAssumeCapacityNoClobber(decl_ref.decl, err_msg);
+        },
     }
     return error.AnalysisFail;
 }
@@ -3344,14 +3546,12 @@ pub fn intSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
 }
 
 pub fn floatAdd(
-    mod: *Module,
-    scope: *Scope,
+    arena: *Allocator,
     float_type: Type,
     src: LazySrcLoc,
     lhs: Value,
     rhs: Value,
 ) !Value {
-    const arena = scope.arena();
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -3379,14 +3579,12 @@ pub fn floatAdd(
 }
 
 pub fn floatSub(
-    mod: *Module,
-    scope: *Scope,
+    arena: *Allocator,
     float_type: Type,
     src: LazySrcLoc,
     lhs: Value,
     rhs: Value,
 ) !Value {
-    const arena = scope.arena();
     switch (float_type.tag()) {
         .f16 => {
             @panic("TODO add __trunctfhf2 to compiler-rt");
@@ -3584,7 +3782,6 @@ pub fn optimizeMode(mod: Module) std.builtin.Mode {
 pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
     const tree = scope.tree();
     const token_tags = tree.tokens.items(.tag);
-    const token_starts = tree.tokens.items(.start);
     assert(token_tags[token] == .identifier);
     const ident_name = tree.tokenSlice(token);
     if (!mem.startsWith(u8, ident_name, "@")) {
@@ -3592,7 +3789,7 @@ pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex)
     }
     var buf = std.ArrayList(u8).init(mod.gpa);
     defer buf.deinit();
-    try parseStrLit(mod, scope, buf, ident_name, 1);
+    try parseStrLit(mod, scope, token, &buf, ident_name, 1);
     return buf.toOwnedSlice();
 }
 
@@ -3607,13 +3804,12 @@ pub fn appendIdentStr(
 ) InnerError!void {
     const tree = scope.tree();
     const token_tags = tree.tokens.items(.tag);
-    const token_starts = tree.tokens.items(.start);
     assert(token_tags[token] == .identifier);
     const ident_name = tree.tokenSlice(token);
     if (!mem.startsWith(u8, ident_name, "@")) {
         return buf.appendSlice(ident_name);
     } else {
-        return parseStrLit(scope, buf, ident_name, 1);
+        return parseStrLit(scope, token, buf, ident_name, 1);
     }
 }
 
@@ -3621,57 +3817,60 @@ pub fn appendIdentStr(
 pub fn parseStrLit(
     mod: *Module,
     scope: *Scope,
-    buf: *ArrayList(u8),
+    token: ast.TokenIndex,
+    buf: *std.ArrayList(u8),
     bytes: []const u8,
-    offset: usize,
+    offset: u32,
 ) InnerError!void {
+    const tree = scope.tree();
+    const token_starts = tree.tokens.items(.start);
     const raw_string = bytes[offset..];
     switch (try std.zig.string_literal.parseAppend(buf, raw_string)) {
         .success => return,
         .invalid_character => |bad_index| {
-            return mod.fail(
+            return mod.failOff(
                 scope,
-                token_starts[token] + offset + bad_index,
+                token_starts[token] + offset + @intCast(u32, bad_index),
                 "invalid string literal character: '{c}'",
                 .{raw_string[bad_index]},
             );
         },
         .expected_hex_digits => |bad_index| {
-            return mod.fail(
+            return mod.failOff(
                 scope,
-                token_starts[token] + offset + bad_index,
+                token_starts[token] + offset + @intCast(u32, bad_index),
                 "expected hex digits after '\\x'",
                 .{},
             );
         },
         .invalid_hex_escape => |bad_index| {
-            return mod.fail(
+            return mod.failOff(
                 scope,
-                token_starts[token] + offset + bad_index,
+                token_starts[token] + offset + @intCast(u32, bad_index),
                 "invalid hex digit: '{c}'",
                 .{raw_string[bad_index]},
             );
         },
         .invalid_unicode_escape => |bad_index| {
-            return mod.fail(
+            return mod.failOff(
                 scope,
-                token_starts[token] + offset + bad_index,
+                token_starts[token] + offset + @intCast(u32, bad_index),
                 "invalid unicode digit: '{c}'",
                 .{raw_string[bad_index]},
             );
         },
-        .missing_matching_brace => |bad_index| {
-            return mod.fail(
+        .missing_matching_rbrace => |bad_index| {
+            return mod.failOff(
                 scope,
-                token_starts[token] + offset + bad_index,
+                token_starts[token] + offset + @intCast(u32, bad_index),
                 "missing matching '}}' character",
                 .{},
             );
         },
         .expected_unicode_digits => |bad_index| {
-            return mod.fail(
+            return mod.failOff(
                 scope,
-                token_starts[token] + offset + bad_index,
+                token_starts[token] + offset + @intCast(u32, bad_index),
                 "expected unicode digits after '\\u'",
                 .{},
             );

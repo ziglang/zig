@@ -2670,7 +2670,7 @@ fn writeDeclDebugInfo(self: *Elf, text_block: *TextBlock, dbg_info_buf: []const 
 pub fn updateDeclExports(
     self: *Elf,
     module: *Module,
-    decl: *const Module.Decl,
+    decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
     if (self.llvm_ir_module) |_| return;

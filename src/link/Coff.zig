@@ -727,7 +727,7 @@ pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
     self.offset_table_free_list.append(self.base.allocator, decl.link.coff.offset_table_index) catch {};
 }
 
-pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl, exports: []const *Module.Export) !void {
+pub fn updateDeclExports(self: *Coff, module: *Module, decl: *Module.Decl, exports: []const *Module.Export) !void {
     if (self.llvm_ir_module) |_| return;
 
     for (exports) |exp| {

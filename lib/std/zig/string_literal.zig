@@ -22,7 +22,7 @@ pub const Result = union(enum) {
     /// Invalid unicode escape at this index.
     invalid_unicode_escape: usize,
     /// The left brace at this index is missing a matching right brace.
-    missing_matching_brace: usize,
+    missing_matching_rbrace: usize,
     /// Expected unicode digits at this index.
     expected_unicode_digits: usize,
 };
