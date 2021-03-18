@@ -633,13 +633,15 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         if (!mem.eql(u8, the_object_path, full_out_path)) {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
-    } else {
+    } else outer: {
         const use_zld = blk: {
             if (self.base.options.is_native_os and self.base.options.system_linker_hack) {
+                // If the user forces the use of ld64, make sure we are running native!
                 break :blk false;
             }
 
             if (self.base.options.target.cpu.arch == .aarch64) {
+                // On aarch64, always use zld.
                 break :blk true;
             }
 
@@ -647,6 +649,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 self.base.options.output_mode == .Lib or
                 self.base.options.linker_script != null)
             {
+                // Fallback to LLD in this handful of cases on x86_64 only.
                 break :blk false;
             }
 
@@ -674,7 +677,28 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try input_files.append(comp.libcxxabi_static_lib.?.full_object_path);
                 try input_files.append(comp.libcxx_static_lib.?.full_object_path);
             }
-            return zld.link(input_files.items, full_out_path);
+
+            if (self.base.options.verbose_link) {
+                var argv = std.ArrayList([]const u8).init(self.base.allocator);
+                defer argv.deinit();
+
+                try argv.append("zig");
+                try argv.append("ld");
+
+                try argv.ensureCapacity(input_files.items.len);
+                for (input_files.items) |f| {
+                    argv.appendAssumeCapacity(f);
+                }
+
+                try argv.append("-o");
+                try argv.append(full_out_path);
+
+                Compilation.dump_argv(argv.items);
+            }
+
+            try zld.link(input_files.items, full_out_path);
+
+            break :outer;
         }
 
         // Create an LLD command line and invoke it.
