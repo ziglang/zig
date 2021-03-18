@@ -658,7 +658,10 @@ pub const TTY = struct {
     pub const Config = union(enum) {
         no_color: void,
         escape_codes: void,
-        windows_api: std.fs.File,
+        // TODO: should be noreturn instead of void, see
+        // https://github.com/ziglang/zig/issues/3257 
+        // making this noreturn right now causes a crash
+        windows_api: if (builtin.os.tag == .windows) std.fs.File else void,
 
         pub fn setColor(conf: Config, writer: anytype, color: Color) void {
             nosuspend switch (conf) {
