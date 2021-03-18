@@ -853,7 +853,7 @@ fn allocateTextSegment(self: *Zld) !void {
         sizeofcmds += lc.cmdsize();
     }
 
-    try self.allocateSegment(self.text_segment_cmd_index.?, sizeofcmds);
+    try self.allocateSegment(self.text_segment_cmd_index.?, @sizeOf(macho.mach_header_64) + sizeofcmds);
 
     // Shift all sections to the back to minimize jump size between __TEXT and __DATA segments.
     var min_alignment: u32 = 0;
