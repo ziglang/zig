@@ -407,6 +407,8 @@ fn StackTraceDumper(comptime Writer: type) type {
                 frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
             }) {
                 const return_address = stack_trace.instruction_addresses[frame_index];
+                // should this case be handled here?
+                if (return_address == 0) break;
                 try self.sourceAtAddress(return_address - 1);
             }
         }
