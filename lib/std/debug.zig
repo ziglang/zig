@@ -135,6 +135,12 @@ pub const default_config = struct {
     /// Loads a stack trace into the provided argument.
     pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
 
+    pub fn sleepForever() noreturn {
+        var event: std.Thread.StaticResetEvent = .{};
+        event.wait();
+        unreachable;
+    }
+
     /// This is the termination function for panic. It must be `noreturn`.
     ///
     /// When overriding panicTerminate, if you *must* lock a mutex, be careful
@@ -191,6 +197,12 @@ const capStackTraceFrom = if (@hasDecl(config, "captureStackTraceFrom"))
     config.captureStackTraceFrom
 else
     default_config.captureStackTraceFrom;
+
+/// Slightly different name than in config to avoid redefinition in default.
+const sleepForev = if (@hasDecl(config, "sleepForever"))
+    config.sleepForever
+else
+    default_config.sleepForever;
 
 /// Slightly different name than in config to avoid redefinition in default.
 const panicTerm = if (@hasDecl(config, "panicTerminate"))
@@ -613,12 +625,10 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
 
             if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
                 // Another thread is panicking, wait for the last one to finish
-                // and call abort()
+                // and call panicTerm()
 
                 // Sleep forever without hammering the CPU
-                var event: std.Thread.StaticResetEvent = .{};
-                event.wait();
-                unreachable;
+                sleepForev();
             }
         },
         1 => blk: {
