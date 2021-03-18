@@ -4,7 +4,7 @@ const mem = std.mem;
 const math = std.math;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const expectWithinEpsilon = std.testing.expectWithinEpsilon;
+const expectApproxEqRel = std.testing.expectApproxEqRel;
 const Vector = std.meta.Vector;
 
 test "implicit cast vector to array - bool" {
@@ -514,10 +514,14 @@ test "vector reduce operation" {
             switch (@typeInfo(TX)) {
                 .Int, .Bool => expectEqual(expected, r),
                 .Float => {
-                    if (math.isNan(expected) != math.isNan(r)) {
-                        std.debug.panic("unexpected NaN value!\n", .{});
+                    const expected_nan = math.isNan(expected);
+                    const got_nan = math.isNan(r);
+
+                    if (expected_nan and got_nan) {
+                        // Do this check explicitly as two NaN values are never
+                        // equal.
                     } else {
-                        expectWithinEpsilon(expected, r, 0.001);
+                        expectApproxEqRel(expected, r, math.sqrt(math.epsilon(TX)));
                     }
                 },
                 else => unreachable,

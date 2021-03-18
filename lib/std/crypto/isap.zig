@@ -3,6 +3,7 @@ const debug = std.debug;
 const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
+const Error = std.crypto.Error;
 
 /// ISAPv2 is an authenticated encryption system hardened against side channels and fault attacks.
 /// https://csrc.nist.gov/CSRC/media/Projects/lightweight-cryptography/documents/round-2/spec-doc-rnd2/isap-spec-round2.pdf
@@ -217,7 +218,7 @@ pub const IsapA128A = struct {
         tag.* = mac(c, ad, npub, key);
     }
 
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) Error!void {
         var computed_tag = mac(c, ad, npub, key);
         var acc: u8 = 0;
         for (computed_tag) |_, j| {

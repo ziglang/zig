@@ -232,12 +232,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                             | (*((unsigned char *)(p) + 1) << 8)  \
         \\                             | (*((unsigned char *)(p) + 2) << 16))
     , &[_][]const u8{
-        \\pub const FOO = (foo + 2).*;
+        \\pub const FOO = (foo + @as(c_int, 2)).*;
         ,
-        \\pub const VALUE = ((((1 + (2 * 3)) + (4 * 5)) + 6) << 7) | @boolToInt(8 == 9);
+        \\pub const VALUE = ((((@as(c_int, 1) + (@as(c_int, 2) * @as(c_int, 3))) + (@as(c_int, 4) * @as(c_int, 5))) + @as(c_int, 6)) << @as(c_int, 7)) | @boolToInt(@as(c_int, 8) == @as(c_int, 9));
         ,
-        \\pub fn _AL_READ3BYTES(p: anytype) callconv(.Inline) @TypeOf((@import("std").meta.cast([*c]u8, p).* | ((@import("std").meta.cast([*c]u8, p) + 1).* << 8)) | ((@import("std").meta.cast([*c]u8, p) + 2).* << 16)) {
-        \\    return (@import("std").meta.cast([*c]u8, p).* | ((@import("std").meta.cast([*c]u8, p) + 1).* << 8)) | ((@import("std").meta.cast([*c]u8, p) + 2).* << 16);
+        \\pub fn _AL_READ3BYTES(p: anytype) callconv(.Inline) @TypeOf((@import("std").meta.cast([*c]u8, p).* | ((@import("std").meta.cast([*c]u8, p) + @as(c_int, 1)).* << @as(c_int, 8))) | ((@import("std").meta.cast([*c]u8, p) + @as(c_int, 2)).* << @as(c_int, 16))) {
+        \\    return (@import("std").meta.cast([*c]u8, p).* | ((@import("std").meta.cast([*c]u8, p) + @as(c_int, 1)).* << @as(c_int, 8))) | ((@import("std").meta.cast([*c]u8, p) + @as(c_int, 2)).* << @as(c_int, 16));
         \\}
     });
 
@@ -312,14 +312,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return type_1;
         \\}
         ,
-        \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ 200, 200, 200, 255 });
+        \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ @as(c_int, 200), @as(c_int, 200), @as(c_int, 200), @as(c_int, 255) });
         ,
         \\pub const struct_boom_t = extern struct {
         \\    i1: c_int,
         \\};
         \\pub const boom_t = struct_boom_t;
         ,
-        \\pub const FOO = @import("std").mem.zeroInit(boom_t, .{1});
+        \\pub const FOO = @import("std").mem.zeroInit(boom_t, .{@as(c_int, 1)});
     });
 
     cases.add("complex switch",
@@ -343,8 +343,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("correct semicolon after infixop",
         \\#define __ferror_unlocked_body(_fp) (((_fp)->_flags & _IO_ERR_SEEN) != 0)
     , &[_][]const u8{
-        \\pub fn __ferror_unlocked_body(_fp: anytype) callconv(.Inline) @TypeOf((_fp.*._flags & _IO_ERR_SEEN) != 0) {
-        \\    return (_fp.*._flags & _IO_ERR_SEEN) != 0;
+        \\pub fn __ferror_unlocked_body(_fp: anytype) callconv(.Inline) @TypeOf((_fp.*._flags & _IO_ERR_SEEN) != @as(c_int, 0)) {
+        \\    return (_fp.*._flags & _IO_ERR_SEEN) != @as(c_int, 0);
         \\}
     });
 
@@ -352,11 +352,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(x) ((x >= 0) + (x >= 0))
         \\#define BAR 1 && 2 > 4
     , &[_][]const u8{
-        \\pub fn FOO(x: anytype) callconv(.Inline) @TypeOf(@boolToInt(x >= 0) + @boolToInt(x >= 0)) {
-        \\    return @boolToInt(x >= 0) + @boolToInt(x >= 0);
+        \\pub fn FOO(x: anytype) callconv(.Inline) @TypeOf(@boolToInt(x >= @as(c_int, 0)) + @boolToInt(x >= @as(c_int, 0))) {
+        \\    return @boolToInt(x >= @as(c_int, 0)) + @boolToInt(x >= @as(c_int, 0));
         \\}
         ,
-        \\pub const BAR = (1 != 0) and (2 > 4);
+        \\pub const BAR = (@as(c_int, 1) != 0) and (@as(c_int, 2) > @as(c_int, 4));
     });
 
     cases.add("struct with aligned fields",
@@ -401,15 +401,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    break :blk bar;
         \\};
         ,
-        \\pub fn bar(x: anytype) callconv(.Inline) @TypeOf(baz(1, 2)) {
+        \\pub fn bar(x: anytype) callconv(.Inline) @TypeOf(baz(@as(c_int, 1), @as(c_int, 2))) {
         \\    return blk: {
         \\        _ = &x;
-        \\        _ = 3;
-        \\        _ = 4 == 4;
-        \\        _ = 5 * 6;
-        \\        _ = baz(1, 2);
-        \\        _ = 2 % 2;
-        \\        break :blk baz(1, 2);
+        \\        _ = @as(c_int, 3);
+        \\        _ = @as(c_int, 4) == @as(c_int, 4);
+        \\        _ = @as(c_int, 5) * @as(c_int, 6);
+        \\        _ = baz(@as(c_int, 1), @as(c_int, 2));
+        \\        _ = @as(c_int, 2) % @as(c_int, 2);
+        \\        break :blk baz(@as(c_int, 1), @as(c_int, 2));
         \\    };
         \\}
     });
@@ -418,9 +418,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define foo 1
         \\#define inline 2
     , &[_][]const u8{
-        \\pub const foo = 1;
+        \\pub const foo = @as(c_int, 1);
         ,
-        \\pub const @"inline" = 2;
+        \\pub const @"inline" = @as(c_int, 2);
     });
 
     cases.add("macro line continuation",
@@ -507,7 +507,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("#define hex literal with capital X",
         \\#define VAL 0XF00D
     , &[_][]const u8{
-        \\pub const VAL = 0xF00D;
+        \\pub const VAL = @import("std").meta.promoteIntLiteral(c_int, 0xF00D, .hexadecimal);
     });
 
     cases.add("anonymous struct & unions",
@@ -745,14 +745,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    static const char v2[] = "2.2.2";
         \\}
     , &[_][]const u8{
-        \\const v2: [6]u8 = [6]u8{
-        \\    '2',
-        \\    '.',
-        \\    '2',
-        \\    '.',
-        \\    '2',
-        \\    0,
-        \\};
+        \\const v2: [5:0]u8 = "2.2.2".*;
         \\pub export fn foo() void {}
     });
 
@@ -878,7 +871,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
     , &[_][]const u8{
-        \\pub const REDISMODULE_READ = 1 << 0;
+        \\pub const REDISMODULE_READ = @as(c_int, 1) << @as(c_int, 0);
     });
 
     cases.add("macro with right shift",
@@ -887,7 +880,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FLASH_SIZE = @as(c_ulong, 0x200000);
         ,
-        \\pub const FLASH_BANK_SIZE = FLASH_SIZE >> 1;
+        \\pub const FLASH_BANK_SIZE = FLASH_SIZE >> @as(c_int, 1);
     });
 
     cases.add("double define struct",
@@ -955,14 +948,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("#define an unsigned integer literal",
         \\#define CHANNEL_COUNT 24
     , &[_][]const u8{
-        \\pub const CHANNEL_COUNT = 24;
+        \\pub const CHANNEL_COUNT = @as(c_int, 24);
     });
 
     cases.add("#define referencing another #define",
         \\#define THING2 THING1
         \\#define THING1 1234
     , &[_][]const u8{
-        \\pub const THING1 = 1234;
+        \\pub const THING1 = @as(c_int, 1234);
         ,
         \\pub const THING2 = THING1;
     });
@@ -1008,7 +1001,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro with parens around negative number",
         \\#define LUA_GLOBALSINDEX        (-10002)
     , &[_][]const u8{
-        \\pub const LUA_GLOBALSINDEX = -10002;
+        \\pub const LUA_GLOBALSINDEX = -@as(c_int, 10002);
     });
 
     cases.add(
@@ -1091,8 +1084,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define foo 1 //foo
         \\#define bar /* bar */ 2
     , &[_][]const u8{
-        "pub const foo = 1;",
-        "pub const bar = 2;",
+        "pub const foo = @as(c_int, 1);",
+        "pub const bar = @as(c_int, 2);",
     });
 
     cases.add("string prefix",
@@ -1600,30 +1593,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\static char arr1[] = "hello";
         \\char arr2[] = "hello";
     , &[_][]const u8{
-        \\pub export var arr0: [6]u8 = [6]u8{
-        \\    'h',
-        \\    'e',
-        \\    'l',
-        \\    'l',
-        \\    'o',
-        \\    0,
-        \\};
-        \\pub var arr1: [6]u8 = [6]u8{
-        \\    'h',
-        \\    'e',
-        \\    'l',
-        \\    'l',
-        \\    'o',
-        \\    0,
-        \\};
-        \\pub export var arr2: [6]u8 = [6]u8{
-        \\    'h',
-        \\    'e',
-        \\    'l',
-        \\    'l',
-        \\    'o',
-        \\    0,
-        \\};
+        \\pub export var arr0: [5:0]u8 = "hello".*;
+        \\pub var arr1: [5:0]u8 = "hello".*;
+        \\pub export var arr2: [5:0]u8 = "hello".*;
     });
 
     cases.add("array initializer expr",
@@ -1722,7 +1694,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("comment after integer literal",
         \\#define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = 0x00000020;
+        \\pub const SDL_INIT_VIDEO = @as(c_int, 0x00000020);
     });
 
     cases.add("u integer suffix after hex literal",
@@ -1836,8 +1808,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub extern var c: c_int;
         ,
-        \\pub fn BASIC(c_1: anytype) callconv(.Inline) @TypeOf(c_1 * 2) {
-        \\    return c_1 * 2;
+        \\pub fn BASIC(c_1: anytype) callconv(.Inline) @TypeOf(c_1 * @as(c_int, 2)) {
+        \\    return c_1 * @as(c_int, 2);
         \\}
         ,
         \\pub fn FOO(L: anytype, b: anytype) callconv(.Inline) @TypeOf(L + b) {
@@ -2456,7 +2428,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    b: c_int,
         \\};
         \\pub extern var a: struct_Foo;
-        \\pub export var b: f32 = 2;
+        \\pub export var b: f32 = 2.0;
         \\pub export fn foo() void {
         \\    var c: [*c]struct_Foo = undefined;
         \\    _ = a.b;
@@ -2481,7 +2453,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return array[@intCast(c_uint, index)];
         \\}
         ,
-        \\pub const ACCESS = array[2];
+        \\pub const ACCESS = array[@as(c_int, 2)];
     });
 
     cases.add("cast signed array index to unsigned",
@@ -3020,17 +2992,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn fn_bool(x: bool) void;
         \\pub extern fn fn_ptr(x: ?*c_void) void;
         \\pub export fn call() void {
-        \\    fn_int(@floatToInt(c_int, 3));
-        \\    fn_int(@floatToInt(c_int, 3));
-        \\    fn_int(@floatToInt(c_int, 3));
+        \\    fn_int(@floatToInt(c_int, 3.0));
+        \\    fn_int(@floatToInt(c_int, 3.0));
+        \\    fn_int(@floatToInt(c_int, 3.0));
         \\    fn_int(@as(c_int, 1094861636));
         \\    fn_f32(@intToFloat(f32, @as(c_int, 3)));
         \\    fn_f64(@intToFloat(f64, @as(c_int, 3)));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '3'))));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '\x01'))));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, 0))));
-        \\    fn_f32(3);
-        \\    fn_f64(3);
+        \\    fn_f32(3.0);
+        \\    fn_f64(3.0);
         \\    fn_bool(@as(c_int, 123) != 0);
         \\    fn_bool(@as(c_int, 0) != 0);
         \\    fn_bool(@ptrToInt(fn_int) != 0);
@@ -3097,7 +3069,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ,
         \\pub const BAR = @import("std").meta.cast(?*c_void, a);
         ,
-        \\pub const BAZ = @import("std").meta.cast(u32, 2);
+        \\pub const BAZ = @import("std").meta.cast(u32, @as(c_int, 2));
     });
 
     cases.add("macro with cast to unsigned short, long, and long long",
@@ -3105,9 +3077,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define CURLAUTH_BASIC ((unsigned long) 1)
         \\#define CURLAUTH_BASIC_BUT_ULONGLONG ((unsigned long long) 1)
     , &[_][]const u8{
-        \\pub const CURLAUTH_BASIC_BUT_USHORT = @import("std").meta.cast(c_ushort, 1);
-        \\pub const CURLAUTH_BASIC = @import("std").meta.cast(c_ulong, 1);
-        \\pub const CURLAUTH_BASIC_BUT_ULONGLONG = @import("std").meta.cast(c_ulonglong, 1);
+        \\pub const CURLAUTH_BASIC_BUT_USHORT = @import("std").meta.cast(c_ushort, @as(c_int, 1));
+        \\pub const CURLAUTH_BASIC = @import("std").meta.cast(c_ulong, @as(c_int, 1));
+        \\pub const CURLAUTH_BASIC_BUT_ULONGLONG = @import("std").meta.cast(c_ulonglong, @as(c_int, 1));
     });
 
     cases.add("macro conditional operator",
@@ -3202,7 +3174,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    bar_1 = 2;
         \\}
         ,
-        \\pub const bar = 4;
+        \\pub const bar = @as(c_int, 4);
     });
 
     cases.add("don't export inline functions",
@@ -3331,9 +3303,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define NULL ((void*)0)
         \\#define FOO ((int)0x8000)
     , &[_][]const u8{
-        \\pub const NULL = @import("std").meta.cast(?*c_void, 0);
+        \\pub const NULL = @import("std").meta.cast(?*c_void, @as(c_int, 0));
         ,
-        \\pub const FOO = @import("std").meta.cast(c_int, 0x8000);
+        \\pub const FOO = @import("std").meta.cast(c_int, @import("std").meta.promoteIntLiteral(c_int, 0x8000, .hexadecimal));
     });
 
     if (std.Target.current.abi == .msvc) {
@@ -3396,6 +3368,78 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\const struct_unnamed_2 = extern struct {};
         \\pub const struct_b = extern struct {
         \\    unnamed_0: struct_unnamed_2,
+        \\};
+    });
+
+    cases.add("integer literal promotion",
+        \\#define GUARANTEED_TO_FIT_1 1024
+        \\#define GUARANTEED_TO_FIT_2 10241024L
+        \\#define GUARANTEED_TO_FIT_3 20482048LU
+        \\#define MAY_NEED_PROMOTION_1 10241024
+        \\#define MAY_NEED_PROMOTION_2 307230723072L
+        \\#define MAY_NEED_PROMOTION_3 819281928192LU
+        \\#define MAY_NEED_PROMOTION_HEX 0x80000000
+        \\#define MAY_NEED_PROMOTION_OCT 020000000000
+    , &[_][]const u8{
+        \\pub const GUARANTEED_TO_FIT_1 = @as(c_int, 1024);
+        \\pub const GUARANTEED_TO_FIT_2 = @as(c_long, 10241024);
+        \\pub const GUARANTEED_TO_FIT_3 = @as(c_ulong, 20482048);
+        \\pub const MAY_NEED_PROMOTION_1 = @import("std").meta.promoteIntLiteral(c_int, 10241024, .decimal);
+        \\pub const MAY_NEED_PROMOTION_2 = @import("std").meta.promoteIntLiteral(c_long, 307230723072, .decimal);
+        \\pub const MAY_NEED_PROMOTION_3 = @import("std").meta.promoteIntLiteral(c_ulong, 819281928192, .decimal);
+        \\pub const MAY_NEED_PROMOTION_HEX = @import("std").meta.promoteIntLiteral(c_int, 0x80000000, .hexadecimal);
+        \\pub const MAY_NEED_PROMOTION_OCT = @import("std").meta.promoteIntLiteral(c_int, 0o20000000000, .octal);
+    });
+
+    // See __builtin_alloca_with_align comment in std.c.builtins
+    cases.add("demote un-implemented builtins",
+        \\#define FOO(X) __builtin_alloca_with_align((X), 8)
+    , &[_][]const u8{
+        \\pub const FOO = @compileError("TODO implement function '__builtin_alloca_with_align' in std.c.builtins");
+    });
+
+    cases.add("null sentinel arrays when initialized from string literal. Issue #8256",
+        \\#include <stdint.h>
+        \\char zero[0] = "abc";
+        \\uint32_t zero_w[0] = U"💯💯💯";
+        \\char empty_incomplete[] = "";
+        \\uint32_t empty_incomplete_w[] = U"";
+        \\char empty_constant[100] = "";
+        \\uint32_t empty_constant_w[100] = U"";
+        \\char incomplete[] = "abc";
+        \\uint32_t incomplete_w[] = U"💯💯💯";
+        \\char truncated[1] = "abc";
+        \\uint32_t truncated_w[1] = U"💯💯💯";
+        \\char extend[5] = "a";
+        \\uint32_t extend_w[5] = U"💯";
+        \\char no_null[3] = "abc";
+        \\uint32_t no_null_w[3] = U"💯💯💯";
+    , &[_][]const u8{
+        \\pub export var zero: [0]u8 = [0]u8{};
+        \\pub export var zero_w: [0]u32 = [0]u32{};
+        \\pub export var empty_incomplete: [1]u8 = [1]u8{0} ** 1;
+        \\pub export var empty_incomplete_w: [1]u32 = [1]u32{0} ** 1;
+        \\pub export var empty_constant: [100]u8 = [1]u8{0} ** 100;
+        \\pub export var empty_constant_w: [100]u32 = [1]u32{0} ** 100;
+        \\pub export var incomplete: [3:0]u8 = "abc".*;
+        \\pub export var incomplete_w: [3:0]u32 = [3:0]u32{
+        \\    '\u{1f4af}',
+        \\    '\u{1f4af}',
+        \\    '\u{1f4af}',
+        \\};
+        \\pub export var truncated: [1]u8 = "abc"[0..1].*;
+        \\pub export var truncated_w: [1]u32 = [1]u32{
+        \\    '\u{1f4af}',
+        \\};
+        \\pub export var extend: [5]u8 = "a"[0..1].* ++ [1]u8{0} ** 4;
+        \\pub export var extend_w: [5]u32 = [1]u32{
+        \\    '\u{1f4af}',
+        \\} ++ [1]u32{0} ** 4;
+        \\pub export var no_null: [3]u8 = "abc".*;
+        \\pub export var no_null_w: [3]u32 = [3]u32{
+        \\    '\u{1f4af}',
+        \\    '\u{1f4af}',
+        \\    '\u{1f4af}',
         \\};
     });
 }

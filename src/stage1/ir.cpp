@@ -476,7 +476,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToErr *>(inst));
         case IrInstSrcIdErrToInt:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrToInt *>(inst));
-        case IrInstSrcIdCheckSwitchProngs:
+        case IrInstSrcIdCheckSwitchProngsUnderNo:
+        case IrInstSrcIdCheckSwitchProngsUnderYes:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckSwitchProngs *>(inst));
         case IrInstSrcIdCheckStatementIsVoid:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckStatementIsVoid *>(inst));
@@ -486,6 +487,9 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTagName *>(inst));
         case IrInstSrcIdPtrType:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrType *>(inst));
+        case IrInstSrcIdPtrTypeSimple:
+        case IrInstSrcIdPtrTypeSimpleConst:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrTypeSimple *>(inst));
         case IrInstSrcIdDeclRef:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcDeclRef *>(inst));
         case IrInstSrcIdPanic:
@@ -514,7 +518,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResetResult *>(inst));
         case IrInstSrcIdSetAlignStack:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetAlignStack *>(inst));
-        case IrInstSrcIdArgType:
+        case IrInstSrcIdArgTypeAllowVarFalse:
+        case IrInstSrcIdArgTypeAllowVarTrue:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcArgType *>(inst));
         case IrInstSrcIdExport:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExport *>(inst));
@@ -1470,10 +1475,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcErrToInt *) {
     return IrInstSrcIdErrToInt;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcCheckSwitchProngs *) {
-    return IrInstSrcIdCheckSwitchProngs;
-}
-
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcCheckStatementIsVoid *) {
     return IrInstSrcIdCheckStatementIsVoid;
 }
@@ -1544,10 +1545,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcResetResult *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcSetAlignStack *) {
     return IrInstSrcIdSetAlignStack;
-}
-
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcArgType *) {
-    return IrInstSrcIdArgType;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcExport *) {
@@ -2615,11 +2612,35 @@ static IrInstGen *ir_build_br_gen(IrAnalyze *ira, IrInst *source_instr, IrBasicB
     return &inst->base;
 }
 
+static IrInstSrc *ir_build_ptr_type_simple(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
+        IrInstSrc *child_type, bool is_const)
+{
+    IrInstSrcPtrTypeSimple *inst = heap::c_allocator.create<IrInstSrcPtrTypeSimple>();
+    inst->base.id = is_const ? IrInstSrcIdPtrTypeSimpleConst : IrInstSrcIdPtrTypeSimple;
+    inst->base.base.scope = scope;
+    inst->base.base.source_node = source_node;
+    inst->base.base.debug_id = exec_next_debug_id(irb->exec);
+    inst->base.owner_bb = irb->current_basic_block;
+    ir_instruction_append(irb->current_basic_block, &inst->base);
+
+    inst->child_type = child_type;
+
+    ir_ref_instruction(child_type, irb->current_basic_block);
+
+    return &inst->base;
+}
+
 static IrInstSrc *ir_build_ptr_type(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
         IrInstSrc *child_type, bool is_const, bool is_volatile, PtrLen ptr_len,
         IrInstSrc *sentinel, IrInstSrc *align_value,
         uint32_t bit_offset_start, uint32_t host_int_bytes, bool is_allow_zero)
 {
+    if (!is_volatile && ptr_len == PtrLenSingle && sentinel == nullptr && align_value == nullptr &&
+            bit_offset_start == 0 && host_int_bytes == 0 && is_allow_zero == 0)
+    {
+        return ir_build_ptr_type_simple(irb, scope, source_node, child_type, is_const);
+    }
+
     IrInstSrcPtrType *inst = ir_build_instruction<IrInstSrcPtrType>(irb, scope, source_node);
     inst->sentinel = sentinel;
     inst->align_value = align_value;
@@ -4354,13 +4375,19 @@ static IrInstSrc *ir_build_check_switch_prongs(IrBuilderSrc *irb, Scope *scope, 
         IrInstSrc *target_value, IrInstSrcCheckSwitchProngsRange *ranges, size_t range_count,
         AstNode* else_prong, bool have_underscore_prong)
 {
-    IrInstSrcCheckSwitchProngs *instruction = ir_build_instruction<IrInstSrcCheckSwitchProngs>(
-            irb, scope, source_node);
+    IrInstSrcCheckSwitchProngs *instruction = heap::c_allocator.create<IrInstSrcCheckSwitchProngs>();
+    instruction->base.id = have_underscore_prong ?
+        IrInstSrcIdCheckSwitchProngsUnderYes : IrInstSrcIdCheckSwitchProngsUnderNo;
+    instruction->base.base.scope = scope;
+    instruction->base.base.source_node = source_node;
+    instruction->base.base.debug_id = exec_next_debug_id(irb->exec);
+    instruction->base.owner_bb = irb->current_basic_block;
+    ir_instruction_append(irb->current_basic_block, &instruction->base);
+
     instruction->target_value = target_value;
     instruction->ranges = ranges;
     instruction->range_count = range_count;
     instruction->else_prong = else_prong;
-    instruction->have_underscore_prong = have_underscore_prong;
 
     ir_ref_instruction(target_value, irb->current_basic_block);
     for (size_t i = 0; i < range_count; i += 1) {
@@ -4590,10 +4617,17 @@ static IrInstSrc *ir_build_set_align_stack(IrBuilderSrc *irb, Scope *scope, AstN
 static IrInstSrc *ir_build_arg_type(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
         IrInstSrc *fn_type, IrInstSrc *arg_index, bool allow_var)
 {
-    IrInstSrcArgType *instruction = ir_build_instruction<IrInstSrcArgType>(irb, scope, source_node);
+    IrInstSrcArgType *instruction = heap::c_allocator.create<IrInstSrcArgType>();
+    instruction->base.id = allow_var ?
+        IrInstSrcIdArgTypeAllowVarTrue : IrInstSrcIdArgTypeAllowVarFalse;
+    instruction->base.base.scope = scope;
+    instruction->base.base.source_node = source_node;
+    instruction->base.base.debug_id = exec_next_debug_id(irb->exec);
+    instruction->base.owner_bb = irb->current_basic_block;
+    ir_instruction_append(irb->current_basic_block, &instruction->base);
+
     instruction->fn_type = fn_type;
     instruction->arg_index = arg_index;
-    instruction->allow_var = allow_var;
 
     ir_ref_instruction(fn_type, irb->current_basic_block);
     ir_ref_instruction(arg_index, irb->current_basic_block);
@@ -29702,7 +29736,7 @@ static IrInstGen *ir_analyze_instruction_test_comptime(IrAnalyze *ira, IrInstSrc
 }
 
 static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
-        IrInstSrcCheckSwitchProngs *instruction)
+        IrInstSrcCheckSwitchProngs *instruction, bool have_underscore_prong)
 {
     IrInstGen *target_value = instruction->target_value->child;
     ZigType *switch_type = target_value->value->type;
@@ -29767,7 +29801,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 bigint_incr(&field_index);
             }
         }
-        if (instruction->have_underscore_prong) {
+        if (have_underscore_prong) {
             if (!switch_type->data.enumeration.non_exhaustive) {
                 ir_add_error(ira, &instruction->base.base,
                     buf_sprintf("switch on exhaustive enum has `_` prong"));
@@ -30871,6 +30905,24 @@ static IrInstGen *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstSrcPtr
     return ir_build_ptr_to_int_gen(ira, &instruction->base.base, target);
 }
 
+static IrInstGen *ir_analyze_instruction_ptr_type_simple(IrAnalyze *ira,
+        IrInstSrcPtrTypeSimple *instruction, bool is_const)
+{
+    IrInstGen *result = ir_const(ira, &instruction->base.base, ira->codegen->builtin_types.entry_type);
+    result->value->special = ConstValSpecialLazy;
+
+    LazyValuePtrTypeSimple *lazy_ptr_type = heap::c_allocator.create<LazyValuePtrTypeSimple>();
+    lazy_ptr_type->ira = ira; ira_ref(ira);
+    result->value->data.x_lazy = &lazy_ptr_type->base;
+    lazy_ptr_type->base.id = is_const ? LazyValueIdPtrTypeSimpleConst : LazyValueIdPtrTypeSimple;
+
+    lazy_ptr_type->elem_type = instruction->child_type->child;
+    if (ir_resolve_type_lazy(ira, lazy_ptr_type->elem_type) == nullptr)
+        return ira->codegen->invalid_inst_gen;
+
+    return result;
+}
+
 static IrInstGen *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstSrcPtrType *instruction) {
     IrInstGen *result = ir_const(ira, &instruction->base.base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
@@ -30976,7 +31028,9 @@ static IrInstGen *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstS
     return ir_const_void(ira, &instruction->base.base);
 }
 
-static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgType *instruction) {
+static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgType *instruction,
+        bool allow_var)
+{
     IrInstGen *fn_type_inst = instruction->fn_type->child;
     ZigType *fn_type = ir_resolve_type(ira, fn_type_inst);
     if (type_is_invalid(fn_type))
@@ -30998,7 +31052,7 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     if (arg_index >= fn_type_id->param_count) {
-        if (instruction->allow_var) {
+        if (allow_var) {
             // TODO remove this with var args
             return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_anytype);
         }
@@ -31013,7 +31067,7 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
         // Args are only unresolved if our function is generic.
         ir_assert(fn_type->data.fn.is_generic, &instruction->base.base);
 
-        if (instruction->allow_var) {
+        if (allow_var) {
             return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_anytype);
         } else {
             ir_add_error(ira, &arg_index_inst->base,
@@ -32341,8 +32395,10 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_fn_proto(ira, (IrInstSrcFnProto *)instruction);
         case IrInstSrcIdTestComptime:
             return ir_analyze_instruction_test_comptime(ira, (IrInstSrcTestComptime *)instruction);
-        case IrInstSrcIdCheckSwitchProngs:
-            return ir_analyze_instruction_check_switch_prongs(ira, (IrInstSrcCheckSwitchProngs *)instruction);
+        case IrInstSrcIdCheckSwitchProngsUnderNo:
+            return ir_analyze_instruction_check_switch_prongs(ira, (IrInstSrcCheckSwitchProngs *)instruction, false);
+        case IrInstSrcIdCheckSwitchProngsUnderYes:
+            return ir_analyze_instruction_check_switch_prongs(ira, (IrInstSrcCheckSwitchProngs *)instruction, true);
         case IrInstSrcIdCheckStatementIsVoid:
             return ir_analyze_instruction_check_statement_is_void(ira, (IrInstSrcCheckStatementIsVoid *)instruction);
         case IrInstSrcIdDeclRef:
@@ -32373,6 +32429,10 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_set_eval_branch_quota(ira, (IrInstSrcSetEvalBranchQuota *)instruction);
         case IrInstSrcIdPtrType:
             return ir_analyze_instruction_ptr_type(ira, (IrInstSrcPtrType *)instruction);
+        case IrInstSrcIdPtrTypeSimple:
+            return ir_analyze_instruction_ptr_type_simple(ira, (IrInstSrcPtrTypeSimple *)instruction, false);
+        case IrInstSrcIdPtrTypeSimpleConst:
+            return ir_analyze_instruction_ptr_type_simple(ira, (IrInstSrcPtrTypeSimple *)instruction, true);
         case IrInstSrcIdAlignCast:
             return ir_analyze_instruction_align_cast(ira, (IrInstSrcAlignCast *)instruction);
         case IrInstSrcIdImplicitCast:
@@ -32383,8 +32443,10 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_reset_result(ira, (IrInstSrcResetResult *)instruction);
         case IrInstSrcIdSetAlignStack:
             return ir_analyze_instruction_set_align_stack(ira, (IrInstSrcSetAlignStack *)instruction);
-        case IrInstSrcIdArgType:
-            return ir_analyze_instruction_arg_type(ira, (IrInstSrcArgType *)instruction);
+        case IrInstSrcIdArgTypeAllowVarFalse:
+            return ir_analyze_instruction_arg_type(ira, (IrInstSrcArgType *)instruction, false);
+        case IrInstSrcIdArgTypeAllowVarTrue:
+            return ir_analyze_instruction_arg_type(ira, (IrInstSrcArgType *)instruction, true);
         case IrInstSrcIdExport:
             return ir_analyze_instruction_export(ira, (IrInstSrcExport *)instruction);
         case IrInstSrcIdExtern:
@@ -32737,12 +32799,15 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdMemcpy:
         case IrInstSrcIdBreakpoint:
         case IrInstSrcIdOverflowOp: // TODO when we support multiple returns this can be side effect free
-        case IrInstSrcIdCheckSwitchProngs:
+        case IrInstSrcIdCheckSwitchProngsUnderNo:
+        case IrInstSrcIdCheckSwitchProngsUnderYes:
         case IrInstSrcIdCheckStatementIsVoid:
         case IrInstSrcIdCheckRuntimeScope:
         case IrInstSrcIdPanic:
         case IrInstSrcIdSetEvalBranchQuota:
         case IrInstSrcIdPtrType:
+        case IrInstSrcIdPtrTypeSimple:
+        case IrInstSrcIdPtrTypeSimpleConst:
         case IrInstSrcIdSetAlignStack:
         case IrInstSrcIdExport:
         case IrInstSrcIdExtern:
@@ -32826,7 +32891,8 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdAlignCast:
         case IrInstSrcIdImplicitCast:
         case IrInstSrcIdResolveResult:
-        case IrInstSrcIdArgType:
+        case IrInstSrcIdArgTypeAllowVarFalse:
+        case IrInstSrcIdArgTypeAllowVarTrue:
         case IrInstSrcIdErrorReturnTrace:
         case IrInstSrcIdErrorUnion:
         case IrInstSrcIdFloatOp:
@@ -33244,6 +33310,54 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     lazy_ptr_type->is_const, lazy_ptr_type->is_volatile, lazy_ptr_type->ptr_len, align_bytes,
                     lazy_ptr_type->bit_offset_in_host, lazy_ptr_type->host_int_bytes,
                     allow_zero, VECTOR_INDEX_NONE, nullptr, sentinel_val);
+            val->special = ConstValSpecialStatic;
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
+            return ErrorNone;
+        }
+        case LazyValueIdPtrTypeSimple: {
+            LazyValuePtrTypeSimple *lazy_ptr_type = reinterpret_cast<LazyValuePtrTypeSimple *>(val->data.x_lazy);
+            IrAnalyze *ira = lazy_ptr_type->ira;
+
+            ZigType *elem_type = ir_resolve_type(ira, lazy_ptr_type->elem_type);
+            if (type_is_invalid(elem_type))
+                return ErrorSemanticAnalyzeFail;
+
+            if (elem_type->id == ZigTypeIdUnreachable) {
+                ir_add_error(ira, &lazy_ptr_type->elem_type->base,
+                        buf_create_from_str("pointer to noreturn not allowed"));
+                return ErrorSemanticAnalyzeFail;
+            }
+
+            assert(val->type->id == ZigTypeIdMetaType);
+            val->data.x_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
+                    false, false, PtrLenSingle, 0,
+                    0, 0,
+                    false, VECTOR_INDEX_NONE, nullptr, nullptr);
+            val->special = ConstValSpecialStatic;
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
+            return ErrorNone;
+        }
+        case LazyValueIdPtrTypeSimpleConst: {
+            LazyValuePtrTypeSimple *lazy_ptr_type = reinterpret_cast<LazyValuePtrTypeSimple *>(val->data.x_lazy);
+            IrAnalyze *ira = lazy_ptr_type->ira;
+
+            ZigType *elem_type = ir_resolve_type(ira, lazy_ptr_type->elem_type);
+            if (type_is_invalid(elem_type))
+                return ErrorSemanticAnalyzeFail;
+
+            if (elem_type->id == ZigTypeIdUnreachable) {
+                ir_add_error(ira, &lazy_ptr_type->elem_type->base,
+                        buf_create_from_str("pointer to noreturn not allowed"));
+                return ErrorSemanticAnalyzeFail;
+            }
+
+            assert(val->type->id == ZigTypeIdMetaType);
+            val->data.x_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
+                    true, false, PtrLenSingle, 0,
+                    0, 0,
+                    false, VECTOR_INDEX_NONE, nullptr, nullptr);
             val->special = ConstValSpecialStatic;
 
             // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.

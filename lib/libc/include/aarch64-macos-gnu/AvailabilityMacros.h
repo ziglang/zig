@@ -118,6 +118,7 @@
 #define MAC_OS_X_VERSION_10_14_4    101404
 #define MAC_OS_X_VERSION_10_15      101500
 #define MAC_OS_VERSION_11_0         110000
+#define MAC_OS_VERSION_11_1         110100
 
 /* 
  * If min OS not specified, assume 10.4 for intel
@@ -144,10 +145,10 @@
  * if max OS not specified, assume larger of (10.15, min)
  */
 #ifndef MAC_OS_X_VERSION_MAX_ALLOWED
-    #if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_VERSION_11_0
+    #if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_VERSION_11_1
         #define MAC_OS_X_VERSION_MAX_ALLOWED MAC_OS_X_VERSION_MIN_REQUIRED
     #else
-        #define MAC_OS_X_VERSION_MAX_ALLOWED MAC_OS_VERSION_11_0
+        #define MAC_OS_X_VERSION_MAX_ALLOWED MAC_OS_VERSION_11_1
     #endif
 #endif
 

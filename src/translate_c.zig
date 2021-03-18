@@ -11,6 +11,7 @@ const math = std.math;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
+const c_builtins = std.c.builtins;
 
 const CallingConvention = std.builtin.CallingConvention;
 
@@ -635,7 +636,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     if (has_init) trans_init: {
         if (decl_init) |expr| {
             const node_or_error = if (expr.getStmtClass() == .StringLiteralClass)
-                transStringLiteralAsArray(c, scope, @ptrCast(*const clang.StringLiteral, expr), zigArraySize(c, type_node) catch 0)
+                transStringLiteralInitializer(c, scope, @ptrCast(*const clang.StringLiteral, expr), type_node)
             else
                 transExprCoercing(c, scope, expr, .used);
             init_node = node_or_error catch |err| switch (err) {
@@ -1058,6 +1059,10 @@ fn transStmt(
             const compound_literal = @ptrCast(*const clang.CompoundLiteralExpr, stmt);
             return transExpr(c, scope, compound_literal.getInitializer(), result_used);
         },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, stmt);
+            return transExpr(c, scope, gen_sel.getResultExpr(), result_used);
+        },
         else => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
@@ -1407,7 +1412,7 @@ fn transDeclStmtOne(
 
             var init_node = if (decl_init) |expr|
                 if (expr.getStmtClass() == .StringLiteralClass)
-                    try transStringLiteralAsArray(c, scope, @ptrCast(*const clang.StringLiteral, expr), try zigArraySize(c, type_node))
+                    try transStringLiteralInitializer(c, scope, @ptrCast(*const clang.StringLiteral, expr), type_node)
                 else
                     try transExprCoercing(c, scope, expr, .used)
             else
@@ -1522,7 +1527,7 @@ fn transImplicitCastExpr(
             return maybeSuppressResult(c, scope, result_used, ne);
         },
         .BuiltinFnToFnPtr => {
-            return transExpr(c, scope, sub_expr, result_used);
+            return transBuiltinFnExpr(c, scope, sub_expr, result_used);
         },
         .ToVoid => {
             // Should only appear in the rhs and lhs of a ConditionalOperator
@@ -1536,6 +1541,22 @@ fn transImplicitCastExpr(
             .{@tagName(kind)},
         ),
     }
+}
+
+fn isBuiltinDefined(name: []const u8) bool {
+    inline for (std.meta.declarations(c_builtins)) |decl| {
+        if (std.mem.eql(u8, name, decl.name)) return true;
+    }
+    return false;
+}
+
+fn transBuiltinFnExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
+    const node = try transExpr(c, scope, expr, used);
+    if (node.castTag(.identifier)) |ident| {
+        const name = ident.data;
+        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.c.builtins", .{name});
+    }
+    return node;
 }
 
 fn transBoolExpr(
@@ -1581,6 +1602,10 @@ fn exprIsNarrowStringLiteral(expr: *const clang.Expr) bool {
         .ParenExprClass => {
             const op_expr = @ptrCast(*const clang.ParenExpr, expr).getSubExpr();
             return exprIsNarrowStringLiteral(op_expr);
+        },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, expr);
+            return exprIsNarrowStringLiteral(gen_sel.getResultExpr());
         },
         else => return false,
     }
@@ -1733,6 +1758,20 @@ fn transReturnStmt(
     return Tag.@"return".create(c.arena, rhs);
 }
 
+fn transNarrowStringLiteral(
+    c: *Context,
+    scope: *Scope,
+    stmt: *const clang.StringLiteral,
+    result_used: ResultUsed,
+) TransError!Node {
+    var len: usize = undefined;
+    const bytes_ptr = stmt.getString_bytes_begin_size(&len);
+
+    const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const node = try Tag.string_literal.create(c.arena, str);
+    return maybeSuppressResult(c, scope, result_used, node);
+}
+
 fn transStringLiteral(
     c: *Context,
     scope: *Scope,
@@ -1741,19 +1780,14 @@ fn transStringLiteral(
 ) TransError!Node {
     const kind = stmt.getKind();
     switch (kind) {
-        .Ascii, .UTF8 => {
-            var len: usize = undefined;
-            const bytes_ptr = stmt.getString_bytes_begin_size(&len);
-
-            const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
-            const node = try Tag.string_literal.create(c.arena, str);
-            return maybeSuppressResult(c, scope, result_used, node);
-        },
+        .Ascii, .UTF8 => return transNarrowStringLiteral(c, scope, stmt, result_used),
         .UTF16, .UTF32, .Wide => {
             const str_type = @tagName(stmt.getKind());
             const name = try std.fmt.allocPrint(c.arena, "zig.{s}_string_{d}", .{ str_type, c.getMangle() });
-            const lit_array = try transStringLiteralAsArray(c, scope, stmt, stmt.getLength() + 1);
 
+            const expr_base = @ptrCast(*const clang.Expr, stmt);
+            const array_type = try transQualTypeInitialized(c, scope, expr_base.getType(), expr_base, expr_base.getBeginLoc());
+            const lit_array = try transStringLiteralInitializer(c, scope, stmt, array_type);
             const decl = try Tag.var_simple.create(c.arena, .{ .name = name, .init = lit_array });
             try scope.appendNode(decl);
             const node = try Tag.identifier.create(c.arena, name);
@@ -1762,52 +1796,67 @@ fn transStringLiteral(
     }
 }
 
-/// Parse the size of an array back out from an ast Node.
-fn zigArraySize(c: *Context, node: Node) TransError!usize {
-    if (node.castTag(.array_type)) |array| {
-        return array.data.len;
-    }
-    return error.UnsupportedTranslation;
+fn getArrayPayload(array_type: Node) ast.Payload.Array.ArrayTypeInfo {
+    return (array_type.castTag(.array_type) orelse array_type.castTag(.null_sentinel_array_type).?).data;
 }
 
-/// Translate a string literal to an array of integers. Used when an
-/// array is initialized from a string literal. `array_size` is the
-/// size of the array being initialized. If the string literal is larger
-/// than the array, truncate the string. If the array is larger than the
-/// string literal, pad the array with 0's
-fn transStringLiteralAsArray(
+/// Translate a string literal that is initializing an array. In general narrow string
+/// literals become `"<string>".*` or `"<string>"[0..<size>].*` if they need truncation.
+/// Wide string literals become an array of integers. zero-fillers pad out the array to
+/// the appropriate length, if necessary.
+fn transStringLiteralInitializer(
     c: *Context,
     scope: *Scope,
     stmt: *const clang.StringLiteral,
-    array_size: usize,
+    array_type: Node,
 ) TransError!Node {
-    if (array_size == 0) return error.UnsupportedType;
+    assert(array_type.tag() == .array_type or array_type.tag() == .null_sentinel_array_type);
+
+    const is_narrow = stmt.getKind() == .Ascii or stmt.getKind() == .UTF8;
 
     const str_length = stmt.getLength();
+    const payload = getArrayPayload(array_type);
+    const array_size = payload.len;
+    const elem_type = payload.elem_type;
 
-    const expr_base = @ptrCast(*const clang.Expr, stmt);
-    const ty = expr_base.getType().getTypePtr();
-    const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
+    if (array_size == 0) return Tag.empty_array.create(c.arena, elem_type);
 
-    const elem_type = try transQualType(c, scope, const_arr_ty.getElementType(), expr_base.getBeginLoc());
-    const arr_type = try Tag.array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_type });
-    const init_list = try c.arena.alloc(Node, array_size);
+    const num_inits = math.min(str_length, array_size);
+    const init_node = if (num_inits > 0) blk: {
+        if (is_narrow) {
+            // "string literal".* or string literal"[0..num_inits].*
+            var str = try transNarrowStringLiteral(c, scope, stmt, .used);
+            if (str_length != array_size) str = try Tag.string_slice.create(c.arena, .{ .string = str, .end = num_inits });
+            break :blk try Tag.deref.create(c.arena, str);
+        } else {
+            const init_list = try c.arena.alloc(Node, num_inits);
+            var i: c_uint = 0;
+            while (i < num_inits) : (i += 1) {
+                init_list[i] = try transCreateCharLitNode(c, false, stmt.getCodeUnit(i));
+            }
+            const init_args = .{ .len = num_inits, .elem_type = elem_type };
+            const init_array_type = try if (array_type.tag() == .array_type) Tag.array_type.create(c.arena, init_args) else Tag.null_sentinel_array_type.create(c.arena, init_args);
+            break :blk try Tag.array_init.create(c.arena, .{
+                .cond = init_array_type,
+                .cases = init_list,
+            });
+        }
+    } else null;
 
-    var i: c_uint = 0;
-    const kind = stmt.getKind();
-    const narrow = kind == .Ascii or kind == .UTF8;
-    while (i < str_length and i < array_size) : (i += 1) {
-        const code_unit = stmt.getCodeUnit(i);
-        init_list[i] = try transCreateCharLitNode(c, narrow, code_unit);
-    }
-    while (i < array_size) : (i += 1) {
-        init_list[i] = try transCreateNodeNumber(c, 0, .int);
-    }
+    if (num_inits == array_size) return init_node.?; // init_node is only null if num_inits == 0; but if num_inits == array_size == 0 we've already returned
+    assert(array_size > str_length); // If array_size <= str_length, `num_inits == array_size` and we've already returned.
 
-    return Tag.array_init.create(c.arena, .{
-        .cond = arr_type,
-        .cases = init_list,
+    const filler_node = try Tag.array_filler.create(c.arena, .{
+        .type = elem_type,
+        .filler = Tag.zero_literal.init(),
+        .count = array_size - str_length,
     });
+
+    if (init_node) |some| {
+        return Tag.array_cat.create(c.arena, .{ .lhs = some, .rhs = filler_node });
+    } else {
+        return filler_node;
+    }
 }
 
 /// determine whether `stmt` is a "pointer subtraction expression" - a subtraction where
@@ -1836,6 +1885,7 @@ fn cIntTypeForEnum(enum_qt: clang.QualType) clang.QualType {
     return enum_decl.getIntegerType();
 }
 
+// when modifying this function, make sure to also update std.meta.cast
 fn transCCast(
     c: *Context,
     scope: *Scope,
@@ -2725,6 +2775,10 @@ fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
             const opcode = un_op.getOpcode();
             return (opcode == .AddrOf or opcode == .Deref) and cIsFunctionDeclRef(un_op.getSubExpr());
         },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, expr);
+            return cIsFunctionDeclRef(gen_sel.getResultExpr());
+        },
         else => return false,
     }
 }
@@ -3194,11 +3248,11 @@ fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingL
     var dbl = stmt.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
-    const str = try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
-    var node = if (dbl == std.math.floor(dbl))
-        try Tag.integer_literal.create(c.arena, str)
+    const str = if (dbl == std.math.floor(dbl))
+        try std.fmt.allocPrint(c.arena, "{d}.0", .{dbl})
     else
-        try Tag.float_literal.create(c.arena, str);
+        try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
+    var node = try Tag.float_literal.create(c.arena, str);
     if (is_negative) node = try Tag.negate.create(c.arena, node);
     return maybeSuppressResult(c, scope, used, node);
 }
@@ -3312,9 +3366,8 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
     try c.global_scope.nodes.append(decl_node);
 }
 
-/// Translate a qual type for a variable with an initializer. The initializer
-/// only matters for incomplete arrays, since the size of the array is determined
-/// by the size of the initializer
+/// Translate a qualtype for a variable with an initializer. This only matters
+/// for incomplete arrays, since the initializer determines the size of the array.
 fn transQualTypeInitialized(
     c: *Context,
     scope: *Scope,
@@ -3330,9 +3383,14 @@ fn transQualTypeInitialized(
         switch (decl_init.getStmtClass()) {
             .StringLiteralClass => {
                 const string_lit = @ptrCast(*const clang.StringLiteral, decl_init);
-                const string_lit_size = string_lit.getLength() + 1; // +1 for null terminator
+                const string_lit_size = string_lit.getLength();
                 const array_size = @intCast(usize, string_lit_size);
-                return Tag.array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
+
+                // incomplete array initialized with empty string, will be translated as [1]T{0}
+                // see https://github.com/ziglang/zig/issues/8256
+                if (array_size == 0) return Tag.array_type.create(c.arena, .{ .len = 1, .elem_type = elem_ty });
+
+                return Tag.null_sentinel_array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
             },
             .InitListExprClass => {
                 const init_expr = @ptrCast(*const clang.InitListExpr, decl_init);
@@ -4435,40 +4493,68 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
 
     switch (m.list[m.i].id) {
         .IntegerLiteral => |suffix| {
+            var radix: []const u8 = "decimal";
             if (lit_bytes.len > 2 and lit_bytes[0] == '0') {
                 switch (lit_bytes[1]) {
                     '0'...'7' => {
                         // Octal
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes});
+                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes[1..]});
+                        radix = "octal";
                     },
                     'X' => {
                         // Hexadecimal with capital X, valid in C but not in Zig
                         lit_bytes = try std.fmt.allocPrint(c.arena, "0x{s}", .{lit_bytes[2..]});
+                        radix = "hexadecimal";
+                    },
+                    'x' => {
+                        radix = "hexadecimal";
                     },
                     else => {},
                 }
             }
 
-            if (suffix == .none) {
-                return transCreateNodeNumber(c, lit_bytes, .int);
-            }
-
             const type_node = try Tag.type.create(c.arena, switch (suffix) {
+                .none => "c_int",
                 .u => "c_uint",
                 .l => "c_long",
                 .lu => "c_ulong",
                 .ll => "c_longlong",
                 .llu => "c_ulonglong",
-                else => unreachable,
+                .f => unreachable,
             });
             lit_bytes = lit_bytes[0 .. lit_bytes.len - switch (suffix) {
-                .u, .l => @as(u8, 1),
+                .none => @as(u8, 0),
+                .u, .l => 1,
                 .lu, .ll => 2,
                 .llu => 3,
-                else => unreachable,
+                .f => unreachable,
             }];
-            const rhs = try transCreateNodeNumber(c, lit_bytes, .int);
-            return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
+
+            const value = std.fmt.parseInt(i128, lit_bytes, 0) catch math.maxInt(i128);
+
+            // make the output less noisy by skipping promoteIntLiteral where
+            // it's guaranteed to not be required because of C standard type constraints
+            const guaranteed_to_fit = switch (suffix) {
+                .none => if (math.cast(i16, value)) |_| true else |_| false,
+                .u => if (math.cast(u16, value)) |_| true else |_| false,
+                .l => if (math.cast(i32, value)) |_| true else |_| false,
+                .lu => if (math.cast(u32, value)) |_| true else |_| false,
+                .ll => if (math.cast(i64, value)) |_| true else |_| false,
+                .llu => if (math.cast(u64, value)) |_| true else |_| false,
+                .f => unreachable,
+            };
+
+            const literal_node = try transCreateNodeNumber(c, lit_bytes, .int);
+
+            if (guaranteed_to_fit) {
+                return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = literal_node });
+            } else {
+                return Tag.std_meta_promoteIntLiteral.create(c.arena, .{
+                    .type = type_node,
+                    .value = literal_node,
+                    .radix = try Tag.enum_literal.create(c.arena, radix),
+                });
+            }
         },
         .FloatLiteral => |suffix| {
             if (lit_bytes[0] == '.')
@@ -4718,6 +4804,10 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
+            if (mem.startsWith(u8, mangled_name, "__builtin_") and !isBuiltinDefined(mangled_name)) {
+                try m.fail(c, "TODO implement function '{s}' in std.c.builtins", .{mangled_name});
+                return error.ParseError;
+            }
             return Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
         },
         .LParen => {

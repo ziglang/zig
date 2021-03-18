@@ -144,25 +144,27 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
             std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
         while (buf.len != 0) {
-            var err: u16 = undefined;
-
-            const num_read = if (use_c) blk: {
+            const res = if (use_c) blk: {
                 const rc = std.c.getrandom(buf.ptr, buf.len, 0);
-                err = std.c.getErrno(rc);
-                break :blk @bitCast(usize, rc);
+                break :blk .{
+                    .num_read = @bitCast(usize, rc),
+                    .err = std.c.getErrno(rc),
+                };
             } else blk: {
                 const rc = linux.getrandom(buf.ptr, buf.len, 0);
-                err = linux.getErrno(rc);
-                break :blk rc;
+                break :blk .{
+                    .num_read = rc,
+                    .err = linux.getErrno(rc),
+                };
             };
 
-            switch (err) {
-                0 => buf = buf[num_read..],
+            switch (res.err) {
+                0 => buf = buf[res.num_read..],
                 EINVAL => unreachable,
                 EFAULT => unreachable,
                 EINTR => continue,
                 ENOSYS => return getRandomBytesDevURandom(buf),
-                else => return unexpectedErrno(err),
+                else => return unexpectedErrno(res.err),
             }
         }
         return;
@@ -1500,7 +1502,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         EINVAL => unreachable,
         ENOENT => return error.CurrentWorkingDirectoryUnlinked,
         ERANGE => return error.NameTooLong,
-        else => return unexpectedErrno(@intCast(usize, err)),
+        else => return unexpectedErrno(err),
     }
 }
 
@@ -2877,7 +2879,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
     unreachable;
 }
 
-const ListenError = error{
+pub const ListenError = error{
     /// Another socket is already listening on the same port.
     /// For Internet domain sockets, the  socket referred to by sockfd had not previously
     /// been bound to an address and, upon attempting to bind it to an ephemeral port, it
@@ -3661,7 +3663,7 @@ pub fn mmap(
     const err = if (builtin.link_libc) blk: {
         const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);
         if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
-        break :blk @intCast(usize, system._errno().*);
+        break :blk system._errno().*;
     } else blk: {
         const rc = system.mmap(ptr, length, prot, flags, fd, offset);
         const err = errno(rc);
@@ -4321,7 +4323,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         ENAMETOOLONG => return error.NameTooLong,
         ELOOP => return error.SymLinkLoop,
         EIO => return error.InputOutput,
-        else => |err| return unexpectedErrno(@intCast(usize, err)),
+        else => |err| return unexpectedErrno(err),
     };
     return mem.spanZ(result_path);
 }
@@ -4622,7 +4624,11 @@ pub const UnexpectedError = error{
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
-pub fn unexpectedErrno(err: usize) UnexpectedError {
+pub fn unexpectedErrno(err: anytype) UnexpectedError {
+    if (@typeInfo(@TypeOf(err)) != .Int) {
+        @compileError("err is expected to be an integer");
+    }
+
     if (unexpected_error_tracing) {
         std.debug.warn("unexpected errno: {d}\n", .{err});
         std.debug.dumpCurrentStackTrace(null);
@@ -5821,7 +5827,7 @@ pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) Termio
     }
 }
 
-const IoCtl_SIOCGIFINDEX_Error = error{
+pub const IoCtl_SIOCGIFINDEX_Error = error{
     FileSystem,
     InterfaceNotFound,
 } || UnexpectedError;

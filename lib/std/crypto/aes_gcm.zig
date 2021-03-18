@@ -12,6 +12,7 @@ const debug = std.debug;
 const Ghash = std.crypto.onetimeauth.Ghash;
 const mem = std.mem;
 const modes = crypto.core.modes;
+const Error = crypto.Error;
 
 pub const Aes128Gcm = AesGcm(crypto.core.aes.Aes128);
 pub const Aes256Gcm = AesGcm(crypto.core.aes.Aes256);
@@ -59,7 +60,7 @@ fn AesGcm(comptime Aes: anytype) type {
             }
         }
 
-        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) !void {
+        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) Error!void {
             assert(c.len == m.len);
 
             const aes = Aes.initEnc(key);

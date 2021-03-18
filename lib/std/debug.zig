@@ -250,24 +250,6 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         resetSegfaultHandler();
     }
 
-    if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64)
-        nosuspend {
-            // As a workaround for not having threadlocal variable support in LLD for this target,
-            // we have a simpler panic implementation that does not use threadlocal variables.
-            // TODO https://github.com/ziglang/zig/issues/7527
-            const stderr = io.getStdErr().writer();
-            if (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst) == 0) {
-                stderr.print("panic: " ++ format ++ "\n", args) catch os.abort();
-                if (trace) |t| {
-                    dumpStackTrace(t.*);
-                }
-                dumpCurrentStackTrace(first_trace_addr);
-            } else {
-                stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
-            }
-            os.abort();
-        };
-
     nosuspend switch (panic_stage) {
         0 => {
             panic_stage = 1;

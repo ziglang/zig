@@ -176,7 +176,7 @@ pub fn IntegerBitSet(comptime size: u16) type {
         /// The default options (.{}) will iterate indices of set bits in
         /// ascending order.  Modifications to the underlying bit set may
         /// or may not be observed by the iterator.
-        pub fn iterator(self: *const Self, comptime options: IteratorOptions) Iterator(options.direction) {
+        pub fn iterator(self: *const Self, comptime options: IteratorOptions) Iterator(options) {
             return .{
                 .bits_remain = switch (options.kind) {
                     .set => self.mask,
@@ -185,7 +185,11 @@ pub fn IntegerBitSet(comptime size: u16) type {
             };
         }
 
-        fn Iterator(comptime direction: IteratorOptions.Direction) type {
+        pub fn Iterator(comptime options: IteratorOptions) type {
+            return SingleWordIterator(options.direction);
+        }
+
+        fn SingleWordIterator(comptime direction: IteratorOptions.Direction) type {
             return struct {
                 const IterSelf = @This();
                 // all bits which have not yet been iterated over
@@ -425,8 +429,12 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// The default options (.{}) will iterate indices of set bits in
         /// ascending order.  Modifications to the underlying bit set may
         /// or may not be observed by the iterator.
-        pub fn iterator(self: *const Self, comptime options: IteratorOptions) BitSetIterator(MaskInt, options) {
-            return BitSetIterator(MaskInt, options).init(&self.masks, last_item_mask);
+        pub fn iterator(self: *const Self, comptime options: IteratorOptions) Iterator(options) {
+            return Iterator(options).init(&self.masks, last_item_mask);
+        }
+
+        pub fn Iterator(comptime options: IteratorOptions) type {
+            return BitSetIterator(MaskInt, options);
         }
 
         fn maskBit(index: usize) MaskInt {
@@ -700,11 +708,15 @@ pub const DynamicBitSetUnmanaged = struct {
     /// ascending order.  Modifications to the underlying bit set may
     /// or may not be observed by the iterator.  Resizing the underlying
     /// bit set invalidates the iterator.
-    pub fn iterator(self: *const Self, comptime options: IteratorOptions) BitSetIterator(MaskInt, options) {
+    pub fn iterator(self: *const Self, comptime options: IteratorOptions) Iterator(options) {
         const num_masks = numMasks(self.bit_length);
         const padding_bits = num_masks * @bitSizeOf(MaskInt) - self.bit_length;
         const last_item_mask = (~@as(MaskInt, 0)) >> @intCast(ShiftInt, padding_bits);
-        return BitSetIterator(MaskInt, options).init(self.masks[0..num_masks], last_item_mask);
+        return Iterator(options).init(self.masks[0..num_masks], last_item_mask);
+    }
+
+    pub fn Iterator(comptime options: IteratorOptions) type {
+        return BitSetIterator(MaskInt, options);
     }
 
     fn maskBit(index: usize) MaskInt {
@@ -858,9 +870,11 @@ pub const DynamicBitSet = struct {
     /// ascending order.  Modifications to the underlying bit set may
     /// or may not be observed by the iterator.  Resizing the underlying
     /// bit set invalidates the iterator.
-    pub fn iterator(self: *Self, comptime options: IteratorOptions) BitSetIterator(MaskInt, options) {
+    pub fn iterator(self: *Self, comptime options: IteratorOptions) Iterator(options) {
         return self.unmanaged.iterator(options);
     }
+
+    pub const Iterator = DynamicBitSetUnmanaged.Iterator;
 };
 
 /// Options for configuring an iterator over a bit set

@@ -37,9 +37,9 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-pub fn getErrno(rc: anytype) u16 {
+pub fn getErrno(rc: anytype) c_int {
     if (rc == -1) {
-        return @intCast(u16, _errno().*);
+        return _errno().*;
     } else {
         return 0;
     }
@@ -295,9 +295,9 @@ pub extern "c" fn kevent(
 ) c_int;
 
 pub extern "c" fn getaddrinfo(
-    noalias node: [*:0]const u8,
-    noalias service: [*:0]const u8,
-    noalias hints: *const addrinfo,
+    noalias node: ?[*:0]const u8,
+    noalias service: ?[*:0]const u8,
+    noalias hints: ?*const addrinfo,
     noalias res: **addrinfo,
 ) EAI;
 

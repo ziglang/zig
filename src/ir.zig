@@ -53,6 +53,7 @@ pub const Inst = struct {
 
     pub const Tag = enum {
         add,
+        addwrap,
         alloc,
         arg,
         assembly,
@@ -105,8 +106,10 @@ pub const Inst = struct {
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         store,
         sub,
+        subwrap,
         unreach,
         mul,
+        mulwrap,
         not,
         floatcast,
         intcast,
@@ -165,8 +168,11 @@ pub const Inst = struct {
                 => UnOp,
 
                 .add,
+                .addwrap,
                 .sub,
+                .subwrap,
                 .mul,
+                .mulwrap,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
