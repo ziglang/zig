@@ -9,7 +9,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("test/standalone/main_return_error/error_u8.zig");
     cases.add("test/standalone/main_return_error/error_u8_non_zero.zig");
     cases.addBuildFile("test/standalone/main_pkg_path/build.zig");
-    cases.addBuildFile("test/standalone/shared_library/build.zig");
+    if (std.Target.current.os.tag != .macos) {
+        // TODO zld cannot link shared libraries yet.
+        cases.addBuildFile("test/standalone/shared_library/build.zig");
+    }
     cases.addBuildFile("test/standalone/mix_o_files/build.zig");
     cases.addBuildFile("test/standalone/global_linkage/build.zig");
     cases.addBuildFile("test/standalone/static_c_lib/build.zig");

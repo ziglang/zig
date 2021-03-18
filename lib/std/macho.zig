@@ -1227,6 +1227,24 @@ pub const S_ATTR_EXT_RELOC = 0x200;
 /// section has local relocation entries
 pub const S_ATTR_LOC_RELOC = 0x100;
 
+/// template of initial values for TLVs
+pub const S_THREAD_LOCAL_REGULAR = 0x11;
+
+/// template of initial values for TLVs
+pub const S_THREAD_LOCAL_ZEROFILL = 0x12;
+
+/// TLV descriptors
+pub const S_THREAD_LOCAL_VARIABLES = 0x13;
+
+/// pointers to TLV descriptors
+pub const S_THREAD_LOCAL_VARIABLE_POINTERS = 0x14;
+
+/// functions to call to initialize TLV values
+pub const S_THREAD_LOCAL_INIT_FUNCTION_POINTERS = 0x15;
+
+/// 32-bit offsets to initializers
+pub const S_INIT_FUNC_OFFSETS = 0x16;
+
 pub const cpu_type_t = integer_t;
 pub const cpu_subtype_t = integer_t;
 pub const integer_t = c_int;
@@ -1596,4 +1614,18 @@ pub const GenericBlob = extern struct {
 
     /// Total length of blob
     length: u32,
+};
+
+/// The LC_DATA_IN_CODE load commands uses a linkedit_data_command
+/// to point to an array of data_in_code_entry entries. Each entry
+/// describes a range of data in a code section.
+pub const data_in_code_entry = extern struct {
+    /// From mach_header to start of data range.
+    offset: u32,
+
+    /// Number of bytes in data range.
+    length: u16,
+
+    /// A DICE_KIND value.
+    kind: u16,
 };

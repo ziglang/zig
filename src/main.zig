@@ -3281,7 +3281,8 @@ pub const ClangArgIterator = struct {
                 self.zig_equivalent = clang_arg.zig_equivalent;
                 break :find_clang_arg;
             },
-        } else {
+        }
+        else {
             fatal("Unknown Clang option: '{s}'", .{arg});
         }
     }
