@@ -20,6 +20,7 @@ pub const Condition = @import("Thread/Condition.zig");
 pub const use_pthreads = std.Target.current.os.tag != .windows and builtin.link_libc;
 
 const Thread = @This();
+const root = @import("root");
 const std = @import("std.zig");
 const builtin = std.builtin;
 const os = std.os;
@@ -567,7 +568,12 @@ pub fn getCurrentThreadId() u64 {
             return @bitCast(u32, c.find_thread(null));
         },
         else => {
-            @compileError("getCurrentThreadId not implemented for this platform");
+            const get = if (@hasDecl(root, "os") and root.os != std.os and
+                @hasDecl(root.os, "getCurrentThreadId"))
+                root.os.getCurrentThreadId
+            else
+                @compileError("getCurrentThreadId not implemented for this platform");
+            return get();
         },
     }
 }
